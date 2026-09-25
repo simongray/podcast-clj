@@ -67,6 +67,36 @@ is on the classpath, the document is parsed leniently with jsoup's XML mode
 and the report says so. The library does not depend on jsoup; adding it to
 your own dependencies is all it takes.
 
+Conventions
+-----------
+
+Learn one part of the library and the rest behaves the same way.
+
+1. **`parse` reads leniently and never throws on content.** A value that
+   will not coerce stays a string, a missing timing stays absent, a feed
+   with a bare ampersand is repaired first, an SRT wrapped in HTML still
+   comes back as segments. `parse` throws only when the input is not the
+   format at all. Every format has a `parse` and, where writing makes sense,
+   an `emit` that writes the canonical form; `sniff` guesses a format from
+   its text.
+2. **The report is where leniency is confessed.** Data comes back clean,
+   and what had to be repaired, normalized or forgiven rides as metadata
+   under `:podcast/report`, read with the `report` function next to each
+   `parse`. Every finding is a map with `:id`, `:level` (`:info`, `:warning`
+   or `:error`) and `:message`, plus `:path` into the data where that
+   applies. A report is either something a host can fix or something an
+   app can act on; nothing else goes in it.
+3. **`resolve` gives one answer per property, by a stated rule.** Where the
+   vocabularies overlap, each accessor's docstring says which source wins.
+   One-argument forms take a feed or an item; two-argument forms take the
+   feed and an item and apply the inheritance the specifications describe.
+
+Keys are namespaced by vocabulary and kebab-cased: `:rss/pub-date`,
+`:itunes/episode-type`, `:podcast/alternate-enclosures`. Attributes become
+kebab-case keys in their element's map, the element's own text is
+`:content`, repeatable elements are vectors under a plural key, and anything
+the registry does not know is kept as Hiccup under `:xml/unknown`.
+
 Namespaces
 ----------
 
@@ -81,7 +111,7 @@ Namespaces
 | `…podcast.resolve` | One answer where the vocabularies give several: title, artwork, author, duration, numbering, enclosure, people, transcript |
 | `…podcast.validate` | Registry-driven validation, with PSP-1 and Apple profiles |
 | `…podcast.chapters` | JSON Chapters and Podlove Simple Chapters |
-| `…podcast.transcript` | SRT, WebVTT, JSON and HTML transcripts |
+| `…podcast.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, speakers included; `turns` merges word-level segments |
 | `…podcast.opml` | Subscription lists |
 | `…podcast.value` | Value-for-value arithmetic: splits, fees, time splits |
 | `…podcast.index` | Podcast Index API request builder |
@@ -98,8 +128,12 @@ clojure -M:web
 
 Then open http://localhost:8300/, paste a feed URL, and see the model, the
 report, the validation findings against a profile and the round-tripped XML.
-The corpus of real feeds in `dev-resources/corpus/` (not in git; recreate it
-with `(corpus/download!)` from `dev/corpus.clj`) is listed on the front page.
+Every item links to a page that fetches its chapters and transcript and shows
+them parsed. The corpus of real feeds in `dev-resources/corpus/` (not in git;
+recreate it with `(corpus/download!)` from `dev/corpus.clj`) is listed on the
+front page; `(corpus/download-companions!)` fetches a sample of the chapter
+and transcript files those feeds link to, and `(corpus/sweep-companions)`
+parses them all and tabulates the result.
 
 Development
 -----------

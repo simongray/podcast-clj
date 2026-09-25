@@ -88,11 +88,29 @@
       (is (= {:url "https://m/1.mp4" :type "video/mp4" :length 99 :source :media}
              (resolve/enclosure {:media/contents [{:url "https://m/1.mp4" :type "video/mp4" :file-size 99}]})))
       (is (nil? (resolve/enclosure {}))))
-    (testing "transcripts by preference"
+    (testing "transcripts by type preference"
       (is (= "https://example.com/episode1/transcript.vtt" (:url (resolve/transcript item))))
-      (is (= "https://example.com/ep3/transcript.txt" (:url (resolve/transcript item ["text/plain"]))))
-      (is (= "text/plain" (:type (resolve/transcript item ["application/json"]))))
+      (is (= "https://example.com/ep3/transcript.txt" (:url (resolve/transcript item {:types ["text/plain"]}))))
+      (is (= "text/plain" (:type (resolve/transcript item {:types ["application/json"]}))))
       (is (nil? (resolve/transcript {}))))
+    (testing "transcripts by language, with the feed's language for unlabelled ones"
+      (let [multilingual {:podcast/transcripts [{:url "en" :type "text/vtt" :language "en-US"}
+                                                {:url "da" :type "text/vtt" :language "da"}
+                                                {:url "none" :type "application/x-subrip"}]}]
+        (is (= "en" (:url (resolve/transcript multilingual))))
+        (is (= "da" (:url (resolve/transcript multilingual {:languages ["da" "en"]}))))
+        (is (= "en" (:url (resolve/transcript multilingual {:languages ["EN"]}))))
+        (is (= "none" (:url (resolve/transcript multilingual {:languages ["sv"]})))
+            "an unlabelled file might be Swedish; a labelled one is certainly not")
+        (is (= "none" (:url (resolve/transcript {:rss/language "sv-SE"} multilingual {:languages ["sv"]}))))
+        (is (= "en" (:url (resolve/transcript {:rss/language "fr"} multilingual {:languages ["en"]}))))))
+    (testing "transcripts with timings"
+      (let [mixed {:podcast/transcripts [{:url "html" :type "text/html"}
+                                         {:url "captions" :type "text/plain" :rel "captions"}
+                                         {:url "vtt" :type "text/vtt"}]}]
+        (is (= "vtt" (:url (resolve/transcript mixed {:timed? true}))))
+        (is (= "captions" (:url (resolve/transcript mixed {:timed? true :types ["text/plain" "text/html"]}))))
+        (is (= "html" (:url (resolve/transcript mixed {:types ["text/html"]}))))))
     (is (= "https://example.com/ep3_chapters.json" (resolve/chapters-url item)))
     (is (= [{:start-time 0 :title "Intro"}]
            (:chapters (resolve/embedded-chapters {:psc/chapters {:chapters [{:start "00:00:00.000" :title "Intro"}]}}))))

@@ -172,9 +172,12 @@ where the overlaps are settled, once, in pure functions over the model:
 `categories`. Each docstring states its precedence. The two-argument forms
 take the feed and an item and apply the inheritance the specifications
 describe: people on an item replace the feed's entirely, a value block on an
-item overrides, artwork and funding fall back to the channel. Nothing here is
-stored or cached; it is all derived on each call, and the reference app
-renders its item rows through it so that the corpus exercises it.
+item overrides, artwork and funding fall back to the channel. `transcript`
+takes options instead, since a client's preferences (types, languages, a need
+for timings) are its own; with the feed as well, a reference that names no
+language is taken to be in the feed's. Nothing here is stored or cached; it
+is all derived on each call, and the reference app renders its item rows
+through it so that the corpus exercises it.
 
 ## Quirks
 
@@ -215,14 +218,28 @@ findings, each a map with `:id`, `:level` (`:info`, `:warning`, `:error`),
 coercion failures and unknown namespaces all land here. Validation findings
 have the same shape so the reference app can show one list.
 
+The same convention holds for everything else the library parses. A
+transcript or a chapters document carries its own report under the same
+metadata key, read with `transcript/report` or `chapters/report`: times
+written as strings, speakers taken from `Name:` prefixes, an SRT wrapped in
+HTML, a declared type the file contradicts, chapters out of order or without
+a start. A finding is something a host can fix or an app can act on; the
+ordinary processing of a format, such as collapsing HTML whitespace, is not
+reported.
+
 ## Companion formats
 
 - **Chapters** (`chapters`): JSON Chapters 1.2 parse and emit, and the Podlove
   Simple Chapters (`psc:`) elements that six of the hosts in the corpus still
   embed, normalized to the same chapter shape.
 - **Transcripts** (`transcript`): SRT, WebVTT (with `<v>` speaker spans), JSON
-  segments and the constrained HTML form, all read into one segment model;
-  VTT, SRT and JSON emitted from it.
+  segments, the constrained HTML form and plain text, all read into one
+  segment model; VTT, SRT and JSON emitted from it. The wild taught it a few
+  things: caption files name the speaker with a `Name:` or `[Name]:` prefix
+  only where the speaker changes, so the name carries over the cues that
+  follow; some hosts write JSON times as strings; HTML carries layout
+  whitespace and sometimes an entire SRT wrapped in `<p>` elements; and
+  word-level JSON needs `turns` to read as prose.
 - **OPML** (`opml`): subscription lists in and out, folders flattened to a
   path.
 - **Value** (`value`): the effective value block for an item (item overrides
@@ -278,8 +295,15 @@ to test it; it touches nothing but the public API.
 - Hand-written fixture feeds, one quirk each, with the expected report.
 - A corpus of real feeds from some thirty hosts in `dev-resources/corpus/`,
   outside git, recreated by `dev/corpus.clj`. A corpus test parses every feed,
-  asserts no exceptions, round-trips it, and snapshots the tag inventory and
-  report so that changes to the registry or the quirks show up as diffs.
+  asserts no exceptions, round-trips it, and validates it.
+- A second corpus, in `dev-resources/corpus/companions/`, of the chapter and
+  transcript files those feeds link to: a stratified sample of two per host
+  and type, with a manifest. `corpus/sweep-companions` parses them all and
+  tabulates segments, speakers and the format sniffed against the one
+  declared; the quirks it exposed each have a synthetic fixture in the tests.
+- The reference app's item page fetches an item's chapters and transcript and
+  renders them, so that the companions are exercised on real files whenever a
+  feed is inspected.
 
 ## Roadmap
 
@@ -289,7 +313,7 @@ to test it; it touches nothing but the public API.
 4. ClojureScript build and browser test of the `DOMParser` adapter. Done.
 5. Lenient XML adapter (jsoup) for feeds that are not well-formed at all. Done.
 6. `resolve`: accessors with precedence rules; `feed/diff`. Done.
-7. Real-world chapter and transcript files as a second corpus.
+7. Real-world chapter and transcript files as a second corpus. Done.
 8. Generated tag reference; Malli schemas from the registry.
 9. Podcast Index: sending requests and mapping responses into the model.
 10. Podping consumer; sync model.

@@ -226,6 +226,15 @@
           (when (re-matches #"\d+(?:[.,]\d+)?" s)
             (parse-number s))))))
 
+(defn seconds
+  "The number of seconds `x` denotes: a number as it is, a numeric or clock
+  string parsed as `parse-duration` does; nil for anything else."
+  [x]
+  (cond
+    (number? x) x
+    (string? x) (parse-duration x)
+    :else       nil))
+
 (defn format-clock
   "Format `seconds` as \"H:MM:SS\", or \"M:SS\" under an hour, dropping any
   fraction of a second."

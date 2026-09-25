@@ -6,7 +6,11 @@
             [clojure.pprint :as pprint]
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.chapters :as chapters]
+            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.resolve :as resolve]
+            [dk.simongray.podcast.transcript :as transcript]
             [dk.simongray.podcast.web.page :as page]
             [io.pedestal.connector :as conn]
             [io.pedestal.http.jetty :as jetty]
@@ -111,12 +115,52 @@
   (feed-page (assoc-in request [:query-params :url]
                        (str "corpus/" (get-in request [:path-params :name])))))
 
+;;;; One item and its companion files
+
+(defn- companion
+  "Fetch the companion file at `url` and parse its body with `parse`, as
+  `{:url :status :parsed}` or `{:url :status :error}`; never throws."
+  [url parse]
+  (try
+    (let [{:keys [status body]} (fetch url)]
+      {:url url :status status :parsed (parse body)})
+    (catch Exception e
+      {:url url :status (:status (ex-data e)) :error (or (ex-message e) (str e))})))
+
+(defn- companions
+  "The chapters and the chosen transcript of `item`, fetched and parsed."
+  [item]
+  (let [transcript-ref (resolve/transcript item)]
+    (cond-> {}
+      (resolve/chapters-url item)
+      (assoc :chapters (companion (resolve/chapters-url item) chapters/parse-json))
+
+      (resolve/embedded-chapters item)
+      (assoc :embedded (resolve/embedded-chapters item))
+
+      transcript-ref
+      (assoc :transcript
+             (-> (companion (:url transcript-ref) #(transcript/parse % (:type transcript-ref)))
+                 (assoc :ref transcript-ref))))))
+
+(defn item-page
+  [request]
+  (with-feed request
+    (fn [{:keys [feed] :as loaded}]
+      (let [guid (get-in request [:query-params :guid])
+            item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
+        (if item
+          (html (page/item-page (assoc loaded :item item :companions (companions item))))
+          (-> (html (page/error-page (:url loaded) (str "No item with guid " guid)))
+              (assoc :status 404)))))))
+
 (defn routes
   []
   #{["/" :get home :route-name :home]
     ["/feed" :get feed-page :route-name :feed]
     ["/feed.edn" :get feed-edn :route-name :feed-edn]
     ["/feed.xml" :get feed-xml :route-name :feed-xml]
+    ["/item" :get item-page :route-name :item]
     ["/corpus/:name" :get corpus-page :route-name :corpus]})
 
 ;;;; Lifecycle

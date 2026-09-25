@@ -2,14 +2,22 @@
   "The corpus of real feeds the library is tested against, one or more per
   hosting platform, kept outside git in dev-resources/corpus. `download!`
   recreates it; `sweep` parses every feed and summarizes what happened."
-  (:require [clojure.java.io :as io]
-            [clojure.pprint :refer [print-table]]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.pprint :as pprint :refer [print-table]]
+            [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.chapters :as chapters]
+            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.transcript :as transcript]
             [dk.simongray.podcast.validate :as validate]))
 
 (def dir
   (io/file "dev-resources/corpus"))
+
+(def companions-dir
+  (io/file dir "companions"))
 
 (def feeds
   "Feed URLs by the name of their file, chosen to cover the hosting
@@ -56,10 +64,11 @@
         (println name "FAILED" status)))))
 
 (defn files
-  "The feed files in `dir`, sorted."
+  "The feed files: the .xml files directly in `dir`, sorted."
   []
-  (->> (file-seq dir)
-       (filter #(.isFile ^java.io.File %))
+  (->> (.listFiles dir)
+       (filter #(and (.isFile ^java.io.File %)
+                     (str/ends-with? (.getName ^java.io.File %) ".xml")))
        (sort-by #(.getName ^java.io.File %))))
 
 (defn sweep
@@ -83,7 +92,83 @@
         :errors     (count (filter (comp #{:error} :level) v))
         :unknown    (count (filter (comp #{:validate/unknown-element} :id) v))}))))
 
+;;;; The second corpus: the chapter and transcript files the feeds link to
+
+(def extensions
+  {"text/vtt" "vtt" "application/x-subrip" "srt" "application/json" "json"
+   "text/html" "html" "text/plain" "txt" "application/json+chapters" "json"})
+
+(defn companion-refs
+  "The transcript and chapter references in the corpus feeds, as
+  `{:kind :feed :guid :type :url}`, most recent items first."
+  []
+  (for [file  (files)
+        :let  [name (str/replace (.getName ^java.io.File file) #"\.xml$" "")
+               feed (podcast/parse (slurp file))]
+        item  (:rss/items feed)
+        ref   (concat (for [t (:podcast/transcripts item)] (assoc t :kind :transcript))
+                      (when-let [c (:podcast/chapters item)] [(assoc c :kind :chapters)]))]
+    {:kind (:kind ref) :feed name :guid (feed/item-guid item) :type (:type ref) :url (:url ref)}))
+
+(defn sample
+  "A stratified sample of `refs`: per feed, the `n` most recent of each
+  transcript type and the `n` most recent chapter files."
+  [refs n]
+  (for [[_ group] (group-by (juxt :feed :kind :type) refs)
+        ref       (take n group)]
+    ref))
+
+(defn download-companions!
+  "Fetch a sample of the companion files into `companions-dir` and write a
+  manifest of what was fetched next to them."
+  []
+  (.mkdirs companions-dir)
+  (let [manifest (vec (map-indexed
+                       (fn [i {:keys [kind feed type url] :as ref}]
+                         (let [file (io/file companions-dir
+                                             (str feed "--" (name kind) "-" i "." (get extensions type "bin")))
+                               {:keys [status body headers]}
+                               (try (http/fetch! url) (catch Exception e {:status (.getMessage e)}))]
+                           (when (and (= 200 status) body)
+                             (spit file body))
+                           (println (.getName file) status)
+                           (assoc ref :file (.getName file) :status status
+                                  :content-type (first (get headers "content-type")))))
+                       (sample (companion-refs) 2)))]
+    (spit (io/file companions-dir "manifest.edn") (with-out-str (pprint/pprint manifest)))
+    manifest))
+
+(defn manifest
+  "The manifest written by `download-companions!`."
+  []
+  (edn/read-string (slurp (io/file companions-dir "manifest.edn"))))
+
+(defn sweep-companions
+  "Parse every downloaded companion file and print a table: segments or
+  chapters, speakers, the format sniffed against the one declared, and any
+  error."
+  []
+  (print-table
+   [:file :declared :sniffed :count :speakers :note]
+   (for [{:keys [file kind type status]} (manifest)
+         :when (= 200 status)
+         :let  [s (slurp (io/file companions-dir file))]]
+     (if (= :transcript kind)
+       (let [{:keys [segments] :as t} (try (transcript/parse s type)
+                                          (catch Exception e {:error (.getMessage e)}))]
+         {:file file :declared type :sniffed (transcript/sniff s)
+          :count (count segments) :speakers (count (distinct (keep :speaker segments)))
+          :note (or (:error t) (str/join " " (map (comp name :id) (transcript/report t))))})
+       (let [{:keys [chapters version] :as doc} (try (chapters/parse-json s)
+                                                    (catch Exception e {:error (.getMessage e)}))]
+         {:file file :declared type :sniffed "json" :count (count chapters) :speakers ""
+          :note (or (:error doc)
+                    (str "version " version " "
+                         (str/join " " (map (comp name :id) (chapters/report doc)))))})))))
+
 (comment
   (download!)
   (sweep)
+  (download-companions!)
+  (sweep-companions)
   #_.)

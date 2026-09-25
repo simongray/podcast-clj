@@ -11,8 +11,11 @@
                    :img \"https://…\" :url \"https://…\" :toc false
                    :end-time 120 :location {:name \"…\" :geo \"geo:…\"}}]}
 
-  Times are seconds. Chapters are kept in the order given; `sorted` orders
-  them by start time and `at` finds the one playing at a position."
+  Times are seconds. Chapters are kept in the order given, keys the format
+  does not define included; `sorted` orders them by start time and `at`
+  finds the one playing at a position. Reading never throws on content; what
+  it had to forgive is in the report, metadata under `:podcast/report` read
+  with `report`."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.time :as time]))
@@ -47,19 +50,71 @@
     (into {} (for [[k v] m :when (some? v)]
                [(get inverse k (if (keyword? k) (name k) k)) v]))))
 
+;;;; The report
+
+(defn report
+  "The findings recorded while reading `doc`."
+  [doc]
+  (:podcast/report (meta doc)))
+
+(defn- finding
+  [id level message & {:as extra}]
+  (merge {:id id :level level :message message} extra))
+
+(defn- findings
+  "The findings for the read document `doc`, given the `raw` chapter maps it
+  was read from."
+  [doc raw]
+  (let [chapters (:chapters doc)
+        strings  (count (filter #(or (string? (get % "startTime")) (string? (get % "endTime"))) raw))
+        missing  (count (remove (comp number? :start-time) chapters))
+        starts   (filter number? (map :start-time chapters))
+        unknown  (into (sorted-set) (comp (mapcat keys) (filter string?))
+                       (cons (dissoc doc :chapters) chapters))
+        v        (:version doc)]
+    (cond-> []
+      (pos? strings)
+      (conj (finding :chapters/string-times :warning
+                     (str strings " chapters give their times as strings rather than numbers")
+                     :count strings))
+
+      (pos? missing)
+      (conj (finding :chapters/missing-start-time :warning
+                     (str missing " chapters have no start time and cannot be placed")
+                     :count missing))
+
+      (not= starts (sort starts))
+      (conj (finding :chapters/unsorted :info
+                     "the chapters are not in order of start time, which the format assumes"))
+
+      (seq unknown)
+      (conj (finding :chapters/unknown-keys :info
+                     (str "keys the format does not define: " (str/join ", " unknown))
+                     :keys (vec unknown)))
+
+      (not (str/starts-with? (str v) "1.2"))
+      (conj (finding :chapters/old-version :info
+                     (str "written against version " (pr-str v) " of the format; "
+                          "the specification is at " version)
+                     :version v)))))
+
 ;;;; JSON Chapters
 
 (defn- read-chapter
   [m]
   (let [chapter (rename chapter-keys m)]
     (cond-> chapter
-      (:location chapter) (update :location #(rename location-keys %)))))
+      (contains? chapter :start-time) (update :start-time time/seconds)
+      (contains? chapter :end-time)   (update :end-time time/seconds)
+      (:location chapter)             (update :location #(rename location-keys %)))))
 
 (defn parse-json
   "Read the JSON Chapters document `s` into a chapters map."
   [s]
-  (let [doc (rename document-keys (json/read-str s))]
-    (update doc :chapters #(mapv read-chapter %))))
+  (let [raw (json/read-str s)
+        doc (-> (rename document-keys raw)
+                (update :chapters #(mapv read-chapter %)))]
+    (with-meta doc {:podcast/report (findings doc (get raw "chapters"))})))
 
 (defn- write-chapter
   [chapter]
@@ -83,16 +138,24 @@
 (defn from-psc
   "The chapters map for the `psc:chapters` value of a feed item, i.e. the
   `:psc/chapters` map with `:chapters` of `:start`, `:title`, `:href` and
-  `:image`."
+  `:image`. Chapters whose start is not a timestamp are dropped and reported."
   [psc]
-  {:version  version
-   :chapters (vec (for [{:keys [start title href image]} (:chapters psc)
-                        :let [seconds (time/parse-clock (str start))]
-                        :when seconds]
-                    (cond-> {:start-time seconds}
-                      title (assoc :title title)
-                      href  (assoc :url href)
-                      image (assoc :img image))))})
+  (let [entries  (:chapters psc)
+        chapters (vec (for [{:keys [start title href image]} entries
+                            :let [seconds (time/parse-clock (str start))]
+                            :when seconds]
+                        (cond-> {:start-time seconds}
+                          title (assoc :title title)
+                          href  (assoc :url href)
+                          image (assoc :img image))))
+        dropped  (- (count entries) (count chapters))]
+    (with-meta {:version version :chapters chapters}
+      {:podcast/report (if (pos? dropped)
+                         [(finding :chapters/bad-timestamps :warning
+                                   (str dropped " Podlove chapters have a start that is not a "
+                                        "timestamp and were dropped")
+                                   :count dropped)]
+                         [])})))
 
 (defn to-psc
   "The `psc:chapters` Hiccup element for the chapters map `doc`, for feeds
@@ -108,9 +171,9 @@
 ;;;; Working with chapters
 
 (defn sorted
-  "The chapters of `doc` in order of start time."
+  "The chapters of `doc` that have a start time, in order of it."
   [doc]
-  (sort-by :start-time (:chapters doc)))
+  (sort-by :start-time (filter (comp number? :start-time) (:chapters doc))))
 
 (defn visible
   "The chapters of `doc` meant for the table of contents: those without
@@ -137,7 +200,7 @@
 
 (comment
   (parse-json (slurp "test/resources/chapters/example-complex.json"))
+  (report *1)
   (println (emit-json *1))
   (at (parse-json (slurp "test/resources/chapters/example.json")) 300)
-  (str/join "\n" (map :title (visible (parse-json (slurp "test/resources/chapters/example-complex.json")))))
   #_.)

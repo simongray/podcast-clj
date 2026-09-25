@@ -202,16 +202,63 @@
   (timed, speakers, played by browsers), then SRT, JSON, HTML, plain text."
   ["text/vtt" "application/x-subrip" "application/json" "text/html" "text/plain"])
 
+(def timed-transcript-types
+  "Transcript types whose files carry timings as a rule."
+  #{"text/vtt" "application/x-subrip" "application/srt" "text/srt" "application/json"})
+
+(defn- language-tag
+  "The primary subtag of the language `s`: \"en\" for \"en-US\"."
+  [s]
+  (first (str/split (str/lower-case (str s)) #"[-_]")))
+
+(defn- language-rank
+  "How well `language` serves the `languages` wanted, most wanted first:
+  its position among them, or after them all when it matches none, and
+  before the mismatches when it is unknown."
+  [languages language]
+  (cond
+    (empty? languages) 0
+    (nil? language)    (count languages)
+    :else              (or (first (keep-indexed (fn [i wanted]
+                                                  (when (= (language-tag wanted) (language-tag language)) i))
+                                                languages))
+                           (inc (count languages)))))
+
+(defn- timed-transcript?
+  [{:keys [type rel]}]
+  (or (= "captions" (some-> rel str/lower-case))
+      (contains? timed-transcript-types (str/lower-case (str type)))))
+
+(defn- type-rank
+  [types type]
+  (or (first (keep-indexed (fn [i wanted] (when (= (str/lower-case wanted) (str/lower-case (str type))) i))
+                           types))
+      (count types)))
+
 (defn transcript
-  "The transcript of `item` to use: the first type in `preference` (by
-  default `transcript-preference`) that the item offers, else its first."
+  "The transcript reference of `item` a client is best served by, chosen
+  by `opts`:
+
+      {:types     [\"text/vtt\" ...]    ; preferred types, default transcript-preference
+       :languages [\"da\" \"en\"]        ; preferred languages, most wanted first
+       :timed?    true}                ; prefer files with timings: rel=captions,
+                                       ; or a type that carries them
+
+  Language first, timings second, type third; a reference that names no
+  language is taken to be in the feed's language when `feed` is given, and
+  ranks after the matches and before the mismatches otherwise. Something is
+  always returned when the item has transcripts at all."
   ([item]
-   (transcript item transcript-preference))
-  ([item preference]
-   (let [refs    (:podcast/transcripts item)
-         by-type (group-by (comp str/lower-case str :type) refs)]
-     (or (some #(first (by-type %)) preference)
-         (first refs)))))
+   (transcript item nil))
+  ([item opts]
+   (transcript nil item opts))
+  ([feed item {:keys [types languages timed?] :or {types transcript-preference}}]
+   (let [default-language (:rss/language feed)
+         rank             (fn [{:keys [type language] :as ref}]
+                            [(language-rank languages (or language default-language))
+                             (if (and timed? (not (timed-transcript? ref))) 1 0)
+                             (type-rank types type)])]
+     (first (sort-by rank (:podcast/transcripts item))))))
 
 (defn chapters-url
   "The URL of the JSON chapters file `item` links to, if any."

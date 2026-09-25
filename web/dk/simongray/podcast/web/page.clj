@@ -3,10 +3,13 @@
   Rendered to strings by Replicant in the service namespace."
   (:require [clojure.pprint :as pprint]
             [clojure.string :as str]
+            [dk.simongray.podcast.chapters :as chapters]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.resolve :as resolve]
             [dk.simongray.podcast.time :as time]
+            [dk.simongray.podcast.transcript :as transcript]
             [dk.simongray.podcast.validate :as validate]
-            [dk.simongray.podcast.resolve :as resolve]))
+            [dk.simongray.podcast.value :as value]))
 
 (def css
   "body{font:15px/1.45 system-ui,sans-serif;margin:0;color:#222;background:#fafafa}
@@ -42,10 +45,14 @@
   [x]
   (str/trimr (with-out-str (pprint/pprint x))))
 
+(defn- encode
+  [s]
+  (java.net.URLEncoder/encode (str s) "UTF-8"))
+
 (defn- feed-href
   [route url & [params]]
-  (str route "?url=" (java.net.URLEncoder/encode (str url) "UTF-8")
-       (apply str (for [[k v] params :when v] (str "&" (name k) "=" v)))))
+  (str route "?url=" (encode url)
+       (apply str (for [[k v] params :when v] (str "&" (name k) "=" (encode v))))))
 
 ;;;; Home
 
@@ -116,14 +123,17 @@
 (defn- item-row
   "One row of the items table, showing what an app would show: everything
   here comes through dk.simongray.podcast.resolve."
-  [feed i item]
+  [feed-url feed i item]
   (let [{:keys [url type length]} (resolve/enclosure item)
         alternatives             (count (resolve/enclosures item))
         people                   (resolve/people feed item)
-        own-people?              (seq (:podcast/people item))]
+        own-people?              (seq (:podcast/people item))
+        guid                     (feed/item-guid item)]
     [:tr
      [:td (inc i)]
-     [:td [:strong (or (resolve/title item) "(untitled)")]
+     [:td [:strong (if guid
+                     [:a {:href (feed-href "/item" feed-url {:guid guid})} (or (resolve/title item) "(untitled)")]
+                     (or (resolve/title item) "(untitled)"))]
       (when-let [n (not-empty (numbering-str (resolve/numbering item)))]
         [:span.badge n])
       [:br] [:span.muted (inst-str (resolve/published item))]
@@ -194,9 +204,129 @@
             [:h2 (str "Items (" (count items) ")")]
             [:table
              [:thead [:tr [:th "#"] [:th "Episode"] [:th "Enclosure"] [:th "Podcasting 2.0 and more"]]]
-             [:tbody (map-indexed (partial item-row feed) (take 200 items))]]
+             [:tbody (map-indexed (partial item-row url feed) (take 200 items))]]
             (when (> (count items) 200)
               [:p.muted (str "Showing the first 200 of " (count items) " items.")]))))
+
+;;;; One item, with its companions fetched
+
+(defn- companion-status
+  "A line about a fetched companion file: `{:url :status :error :parsed}`."
+  [{:keys [url status error]} label]
+  [:p.muted label " " [:a {:href url} url]
+   (when status (str " · HTTP " status))
+   (when error [:span.error (str " · " error)])])
+
+(defn- chapters-section
+  "The chapters of an item: the JSON file when it was fetched and parsed,
+  the embedded Podlove chapters otherwise."
+  [{:keys [chapters embedded]}]
+  (let [doc (or (:parsed chapters) embedded)]
+    (list
+     [:h2 "Chapters"]
+     (when chapters (companion-status chapters "JSON chapters file:"))
+     (when embedded [:p.muted "Embedded Podlove chapters present."])
+     (if-not doc
+       [:p.muted "None."]
+       (list
+        [:p.muted (str (count (:chapters doc)) " chapters, format version " (:version doc)
+                       (when (some :location (:chapters doc)) ", with locations"))]
+        (when (seq (chapters/report doc))
+          (findings-table (chapters/report doc)))
+        [:table
+         [:thead [:tr [:th "Start"] [:th "Title"] [:th "Links"]]]
+         [:tbody
+          (for [{:keys [start-time title url img toc location]} (chapters/sorted doc)]
+            [:tr
+             [:td (when (number? start-time) (time/format-clock start-time))]
+             [:td (or title [:span.muted "(silent chapter)"])
+              (when (false? toc) [:span.badge.muted "hidden"])
+              (when location [:span.badge (str (:name location) " " (:geo location))])]
+             [:td (when url [:a {:href url} "link"]) " " (when img [:a {:href img} "image"])]])]])))))
+
+(defn- transcript-section
+  "The transcript chosen for an item, fetched and parsed, with its report."
+  [{:keys [transcript]}]
+  (list
+   [:h2 "Transcript"]
+   (if-not transcript
+     [:p.muted "None."]
+     (let [{:keys [ref parsed]} transcript
+           segments (:segments parsed)
+           speakers (distinct (keep :speaker segments))]
+       (list
+        (companion-status transcript (str "Chosen " (:type ref) (when (:language ref) (str ", " (:language ref))) ":"))
+        (when parsed
+          (list
+           [:p.muted (str (count segments) " segments · format " (name (:format parsed))
+                          (when (seq speakers) (str " · speakers: " (str/join ", " (take 8 speakers)))))]
+           (when (seq (transcript/report parsed))
+             (findings-table (transcript/report parsed)))
+           [:table
+            [:tbody
+             (for [{:keys [start end speaker body]} (take 40 segments)]
+               [:tr
+                [:td.muted (when (number? start) (time/format-clock start))
+                 (when (number? end) (str "–" (time/format-clock end)))]
+                [:td (when speaker [:strong (str speaker ": ")]) body]])]]
+           (when (> (count segments) 40)
+             [:p.muted (str "Showing the first 40 of " (count segments) " segments.")]))))))))
+
+(defn- value-section
+  [feed item]
+  (when-let [block (resolve/value feed item)]
+    (list
+     [:h2 "Value"]
+     [:p.muted (str (:type block) " / " (:method block)
+                    (when-let [sats (value/sats block)] (str " · suggested " sats " sats per minute"))
+                    (when (seq (:time-splits block)) (str " · " (count (:time-splits block)) " time splits")))]
+     [:table
+      [:thead [:tr [:th "Recipient"] [:th "Type"] [:th "Split"] [:th "Of 1000"]]]
+      [:tbody
+       (for [{:keys [recipient amount]} (value/payments (:recipients block) 1000)]
+         [:tr [:td (:name recipient)] [:td (:type recipient) (when (:fee recipient) " (fee)")]
+          [:td (:split recipient)] [:td amount]])]])))
+
+(defn item-page
+  "The page for one `item` of `feed` at `url`, with its `companions` as
+  fetched by the service: `{:chapters {...} :embedded doc :transcript {...}}`."
+  [{:keys [url feed item companions]}]
+  (let [{:keys [season episode type] :as numbering} (resolve/numbering item)]
+    (layout (or (resolve/title item) "(untitled)")
+            [:p [:a {:href (feed-href "/feed" url)} "← " (or (resolve/title feed) url)]]
+            [:header
+             (when-let [img (resolve/artwork feed item)]
+               [:img {:src img :alt ""}])
+             [:div
+              [:h1 (or (resolve/title item) "(untitled)")]
+              [:div.muted
+               (when-let [n (not-empty (numbering-str numbering))] (str n " · "))
+               (inst-str (resolve/published item))
+               (when-let [d (resolve/duration item)] (str " · " (time/format-clock d)))
+               (when (resolve/explicit? feed item) " · explicit")]
+              [:div.muted "guid " [:code (feed/item-guid item)]]
+              (when-let [people (seq (resolve/people feed item))]
+                [:div.muted (str/join " · " (map #(str (:role %) ": " (:name %)) people))])]]
+            [:h2 "Description"]
+            [:pre (resolve/description item)]
+            [:h2 "Media"]
+            [:table
+             [:thead [:tr [:th "Source"] [:th "Type"] [:th "URL"] [:th "Details"]]]
+             [:tbody
+              (for [{:keys [source type url length bitrate title default]} (resolve/enclosures item)
+                    :let [details [(when (number? length) (str (quot length 1000000) " MB"))
+                                   (when bitrate (str bitrate " b/s"))
+                                   title]]]
+                [:tr
+                 [:td (name source) (when default " (default)")]
+                 [:td type]
+                 [:td [:a {:href url} url]]
+                 [:td (str/join " · " (remove nil? details))]])]]
+            (chapters-section companions)
+            (transcript-section companions)
+            (value-section feed item)
+            [:h2 "Item as data"]
+            (kv-table (dissoc item :rss/description :content/encoded)))))
 
 (defn error-page
   "The page shown when `url` could not be fetched or parsed, with the
