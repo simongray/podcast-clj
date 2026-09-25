@@ -6,6 +6,7 @@
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.chapters :as chapters]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.html :as html]
             [dk.simongray.podcast.resolve :as resolve]
             [dk.simongray.podcast.time :as time]
             [dk.simongray.podcast.transcript :as transcript]
@@ -26,7 +27,8 @@
    .error{color:#b00020} .warning{color:#a15c00} .info{color:#555}
    .muted{color:#777} .badge{display:inline-block;padding:0 .4rem;border-radius:4px;background:#e8e8e8;margin-right:.3rem;font-size:12px}
    nav a{margin-right:1rem} form input[type=url]{width:60%;padding:.4rem} form button{padding:.4rem .8rem}
-   ul.compact{margin:0;padding-left:1.2rem}")
+   ul.compact{margin:0;padding-left:1.2rem}
+   .notes{max-width:70ch} .notes img{max-width:100%;height:auto}")
 
 (defn layout
   "The page skeleton around `body`, titled `title`."
@@ -332,7 +334,7 @@
               (when-let [people (seq (resolve/people feed item))]
                 [:div.muted (str/join " · " (map #(str (:role %) ": " (:name %)) people))])]]
             [:h2 "Description"]
-            [:pre (resolve/description item)]
+            [:div.notes (html/hiccup (resolve/description item))]
             [:h2 "Media"]
             [:table
              [:thead [:tr [:th "Source"] [:th "Type"] [:th "URL"] [:th "Details"]]]

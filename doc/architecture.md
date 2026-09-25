@@ -273,6 +273,18 @@ reported.
   word-level JSON needs `turns` to read as prose.
 - **OPML** (`opml`): subscription lists in and out, folders flattened to a
   path.
+- **Embedded HTML** (`html`): the show notes in descriptions, read into
+  Hiccup by a small lenient parser of the HTML browsers would build, since
+  two thirds of descriptions in the wild carry markup and all of it comes
+  from a vocabulary of some thirty elements: paragraphs, breaks, links,
+  emphasis, lists, headings, images, the odd table, unclosed paragraphs and
+  list items, pasted word-processor tags. No HTML parser dependency, so the
+  JVM and JavaScript agree. `sanitize` keeps the elements, attributes and URL
+  schemes a client may render and drops scripts and their kin; `hiccup`
+  parses and sanitizes, or turns a plain-text description into paragraphs;
+  `text` and `markdown` render the same Hiccup; `emit` writes it back as
+  HTML. Hiccup is the centre because a Clojure client hands it straight to
+  Replicant, Reagent or Rum.
 - **Value** (`value`): the effective value block for an item (item overrides
   channel), share and fee arithmetic, and the recipients active at a
   playback position given `valueTimeSplit`s. Pure arithmetic; no payments.
@@ -382,3 +394,4 @@ to test it; it touches nothing but the public API.
     catalogue, a lint pass) and the release scaffolding: license, build,
     CI, changelog. Done, up to the deploy itself; the first published
     version will be a complete 1.0.
+14. Embedded HTML as Hiccup, sanitized, and as text and Markdown. Done.

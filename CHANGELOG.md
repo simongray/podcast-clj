@@ -20,5 +20,7 @@ Working toward 1.0, the first release.
 - The Podcast Index API: request maps with the authentication computed,
   responses mapped onto the model, remote items and remote value blocks
   resolved.
+- Embedded HTML read into Hiccup by a lenient, dependency-free parser, with a
+  sanitizer for clients and renderings as plain text and Markdown.
 - The same code and tests on the JVM, under Node and in a browser.
 - A bundled feed inspector as the reference client.

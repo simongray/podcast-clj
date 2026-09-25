@@ -46,6 +46,20 @@ precedence rules written down once:
 ;; => {:added [...] :removed [...] :changed [...] :unchanged 203 :channel-changed? false}
 ```
 
+Show notes arrive as HTML in a string. `html` reads them into Hiccup the way
+a browser would, with a sanitizer, so that a Clojure client renders them
+directly, and renders the same Hiccup as text or Markdown:
+
+```clojure
+(require '[dk.simongray.podcast.html :as html])
+
+(html/hiccup (resolve/description item))
+;; => ([:p {} "Today: " [:a {:href "https://…"} "the show notes"]] [:ul {} [:li {} "one"] ...])
+[:div.notes (html/hiccup (resolve/description item))]  ; a sequence is a fragment: render it as is
+(html/text (resolve/description item))     ; "Today: the show notes\n\n- one\n..."
+(html/markdown (resolve/description item)) ; "Today: [the show notes](https://…)\n\n- one\n..."
+```
+
 Design
 ------
 
@@ -152,6 +166,7 @@ Namespaces
 |---|---|
 | `dk.simongray.podcast` | The front door: `parse`, `emit`, `report`, `summarize`, `parse-tree` |
 | `dk.simongray.podcast.diagnostics` | Every diagnostic id with its level and meaning; rendered as [doc/diagnostics.md](doc/diagnostics.md) |
+| `dk.simongray.podcast.html` | Embedded HTML as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown`, `emit` |
 | `…podcast.xml` | XML to Hiccup and back, namespaces resolved by URI |
 | `…podcast.xml.jsoup` | Lenient parser for feeds that are not well-formed at all; needs the optional `org.jsoup/jsoup` |
 | `…podcast.quirks` | String repairs, URI variants, tree normalizations |
