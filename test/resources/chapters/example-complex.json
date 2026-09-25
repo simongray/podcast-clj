@@ -1,0 +1,66 @@
+{
+  "version": "1.2.0",
+  "author": "John Doe",
+  "title": "Episode 7 - Making Progress",
+  "podcastName": "John's Awesome Podcast",
+  "chapters":
+  [
+    {
+      "startTime": 0,
+      "title": "Intro"
+    },
+    {
+      "startTime": 168,
+      "title": "Hearing Aids"
+    },
+    {
+      "startTime": 260,
+      "title": "Progress Report"
+    },
+    {
+      "startTime": 410,
+      "title": "Namespace",
+      "img": "https://example.com/images/namepsace_example.jpg",
+      "url": "https://github.com/Podcastindex-org/podcast-namespace"
+    },
+    {
+      "startTime": 3990,
+      "title": "Just Break Up",
+      "img": "https://example.com/images/justbreakuppod.png",
+      "url": "https://twitter.com/justbreakuppod"
+    },
+     {
+      "startTime": 4200,
+      "title": "Played song by artist",
+      "img": "https://i.discogs.com/-DPFA5hKT8i91jnjn4rLB1zSiuUBFTrGWspu1TpLV30/rs:fit/g:sm/q:90/h:600/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTI0OTUw/NC0xMzM0NTkyMjEy/LmpwZWc.jpeg",
+      "url": "https://www.discogs.com/master/96559-Rick-Astley-Never-Gonna-Give-You-Up",
+      "value": "<podcast:value type=\"lightning\" method=\"keysend\" suggested=\"0.00000005000\"><podcast:valueRecipient name=\"Performing Artist\" type=\"node\" address=\"03c457fafbc8b91b462ef0b8f61d4fd96577a4b58c18b50e59621fd0f41a8ae1a4\" split=\"100\"/></podcast:value>"
+    },  
+    {
+      "startTime": 4600,
+      "title": "Donations",
+      "url": "https://example.com/paypal_link"
+    },
+    {
+      "startTime": 4826,
+      "img": "https://example.com/images/parisfrance.jpg",
+      "toc": false,
+      "location": {
+        "name": "Eiffel Tower, Paris",
+        "geo": "geo:42.3417649,-70.9661596"
+      }
+    },
+    {
+      "startTime": 5510,
+      "title": "The Big Players"
+    },
+    {
+      "startTime": 5854,
+      "title": "Spread the Word"
+    },
+    {
+      "startTime": 6089,
+      "title": "Outro"
+    }
+  ]
+}

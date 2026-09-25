@@ -1,0 +1,41 @@
+
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+     xmlns="http://www.w3.org/2005/Atom"
+     xmlns:podcast="HTTP://podcastindex.org/namespace/1.0/"
+     xmlns:psc="http://podlove.org/simple-chapters/"
+     xmlns:acme="https://acme.example/rss-extensions">
+  <channel>
+    <title>Quirky &amp; Co</title>
+    <title>Second title</title>
+    <link>http://quirky.example/</link>
+    <description><![CDATA[<p>A feed that gets everything slightly wrong &nbsp; on purpose.</p>]]></description>
+    <lastBuildDate>Fri, 31 Jul 2026 10:02:23 PST</lastBuildDate>
+    <itunes:author>Quirky Person</itunes:author>
+    <itunes:image>https://quirky.example/art.jpg</itunes:image>
+    <itunes:explicit>Yes</itunes:explicit>
+    <itunes:category text="Kids &amp; Family"/>
+    <itunes:keywords></itunes:keywords>
+    <podcast:locked>Yes</podcast:locked>
+    <podcast:images srcset="https://quirky.example/art-1500.jpg 1500w, https://quirky.example/art-600.jpg 600w"/>
+    <acme:tracking id="42"/>
+    <item>
+      <title>Episode 1</title>
+      <guid></guid>
+      <pubDate>25 Sep 2026 03:00 +0200</pubDate>
+      <itunes:duration>1:02:03</itunes:duration>
+      <enclosure url="https://quirky.example/1.mp3" length="" type="audio/mpeg"/>
+      <podcast:transcript url="https://quirky.example/1.srt" type="srt"/>
+      <podcast:chapters url="https://quirky.example/1.json" type="application/json+chapters"/>
+      <psc:chapters version="1.2">
+        <psc:chapter start="00:00:00.000" title="Intro"/>
+        <psc:chapter start="00:12:30.500" title="Main" href="https://quirky.example/main"/>
+      </psc:chapters>
+      <podcast:person role="Guest">Jane Q. Guest</podcast:person>
+      <podcast:value type="lightning" method="keysend" suggested="0.00000005000">
+        <podcast:valueRecipient name="host" type="node" address="02abc" split="99"/>
+        <podcast:valueRecipient name="app" type="node" address="03def" split="1" fee="true"/>
+      </podcast:value>
+    </item>
+  </channel>
+</rss>

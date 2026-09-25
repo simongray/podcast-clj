@@ -1,0 +1,10 @@
+.DS_Store
+.cpcache/
+.nrepl-port
+.clj-kondo/.cache/
+.lsp/
+target/
+*.iml
+.idea/
+# raw downloaded feed corpus; recreate with (corpus/download!) from dev/corpus.clj
+dev-resources/corpus/

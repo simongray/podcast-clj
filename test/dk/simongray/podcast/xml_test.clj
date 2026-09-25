@@ -1,0 +1,69 @@
+(ns dk.simongray.podcast.xml-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.xml :as xml]))
+
+(def sample
+  "<?xml version=\"1.0\"?><!-- c --><rss xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"
+   xmlns=\"http://www.w3.org/2005/Atom\" xmlns:acme=\"https://acme.example\" version=\"2.0\">
+   <channel><title>T &amp; U</title><itunes:author>A</itunes:author><foo:bar x=\"1\"/>
+   <acme:thing acme:mode=\"on\"/><description><![CDATA[<p>Hi</p>]]> tail</description></channel></rss>")
+
+(deftest raw-parsing
+  (let [raw (xml/parse-raw sample)]
+    (is (= "rss" (first raw)))
+    (is (= {"xmlns:itunes" "http://www.itunes.com/dtds/podcast-1.0.dtd"
+            "xmlns" "http://www.w3.org/2005/Atom"
+            "xmlns:acme" "https://acme.example"
+            "version" "2.0"}
+           (second raw)))
+    (is (= ["title" {} "T & U"] (-> raw (nth 2) (nth 2))))
+    (testing "CDATA and text merge, comments vanish"
+      (is (= ["description" {} "<p>Hi</p> tail"] (-> raw (nth 2) (nth 6)))))))
+
+(deftest namespace-resolution
+  (let [tree (xml/parse sample)]
+    (is (= [:rss {:version "2.0"}] (subvec tree 0 2)))
+    (is (= [:itunes/author {} "A"] (-> tree (nth 2) (nth 3))))
+    (testing "unprefixed elements are RSS whatever the default namespace"
+      (is (= [:title {} "T & U"] (-> tree (nth 2) (nth 2)))))
+    (testing "undeclared prefixes keep their name, unknown URIs keep theirs"
+      (is (= [:foo/bar {:x "1"}] (-> tree (nth 2) (nth 4))))
+      (is (= [:acme/thing {:acme/mode "on"}] (-> tree (nth 2) (nth 5)))))
+    (is (= #{{:id :xml/default-namespace :level :info :uri "http://www.w3.org/2005/Atom"}
+             {:id :xml/unknown-namespace :level :info :prefix "acme" :uri "https://acme.example"}
+             {:id :xml/undeclared-prefix :level :warning :prefix "foo"}}
+           (set (xml/report tree))))
+    (is (= {:acme "https://acme.example"} (xml/foreign-namespaces tree)))))
+
+(deftest helpers
+  (let [el [:a {:x "1"} "t1" [:b {} "inner"] "t2" [:c {}] [:b {} "again"]]]
+    (is (= :a (xml/tag el)))
+    (is (= {:x "1"} (xml/attrs el)))
+    (is (= "t1t2" (xml/text el)))
+    (is (= 3 (count (xml/elements el))))
+    (is (= 2 (count (xml/elements el :b))))
+    (is (= [:b {} "inner"] (xml/element el :b)))))
+
+(deftest emitting
+  (testing "declarations for the aliases used, foreign ones included"
+    (let [tree (xml/parse sample)
+          out  (xml/emit (update tree 2 #(vec (remove (fn [c] (and (vector? c) (= :foo/bar (first c)))) %))))]
+      (is (re-find #"xmlns:acme=\"https://acme.example\"" out))
+      (is (re-find #"xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"" out))
+      (is (not (re-find #"xmlns=\"" out)))))
+  (testing "escaping and CDATA"
+    (is (re-find #"<title>T &amp; U</title>" (xml/emit [:rss {} [:title {} "T & U"]])))
+    (is (re-find #"<!\[CDATA\[<p>Hi</p>\]\]>" (xml/emit [:rss {} [:d {} "<p>Hi</p>"]])))
+    (is (re-find #"x=\"a &quot;q&quot; &amp; b\"" (xml/emit [:rss {:x "a \"q\" & b"}]))))
+  (testing "an unknown alias without a URI is an error"
+    (is (thrown? clojure.lang.ExceptionInfo (xml/emit [:rss {} [:foo/bar {}]]))))
+  (testing "round trip"
+    (let [tree (xml/parse "<rss version=\"2.0\"><channel><title>A</title><item><guid isPermaLink=\"false\">x</guid></item></channel></rss>")]
+      (is (= tree (xml/parse (xml/emit tree)))))))
+
+(deftest malformed
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Malformed XML" (xml/parse "<rss><channel></rss>")))
+  (is (= ::xml/malformed (try (xml/parse "nope") (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
+
+(deftest bom
+  (is (= [:a {}] (xml/parse "﻿<a/>"))))
