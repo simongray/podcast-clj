@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Broken & Proud <3</title>
+    <link>https://broken.example/</link>
+    <description><p>Notes with <b>markup</b> but no CDATA.</p></description>
+    <itunes:author>Someone &hellip; anyone</itunes:author>
+    <item>
+      <title>One</title>
+      <enclosure url=https://broken.example/1.mp3 length=1234 type=audio/mpeg />
+      <guid>1</guid>
+      <pubDate>Fri, 25 Sep 2026 10:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Two</title>
+      <enclosure url="https://broken.example/2.mp3" length="5" type="audio/mpeg"/>
+      <guid>2</guid>
+    </item>
+  </channel>
+</rss>

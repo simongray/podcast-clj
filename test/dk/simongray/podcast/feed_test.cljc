@@ -78,6 +78,17 @@
     (is (= #{[:rss/items 0 :itunes/episode] [:rss/items 0 :rss/pub-date]}
            (into #{} (map :path) (filter (comp #{:feed/invalid-value} :id) (podcast/report f)))))))
 
+(deftest markup-where-text-belongs
+  (let [f (podcast/parse "<rss version=\"2.0\"><channel><title>T</title>
+                           <description><p>Hi <b>there</b></p></description>
+                           <item><title>Ep <em>1</em></title></item></channel></rss>")]
+    (testing "an XHTML description is kept as markup, other text is flattened"
+      (is (= "<p>Hi <b>there</b></p>" (:rss/description f)))
+      (is (= "Ep 1" (:rss/title (first (:rss/items f)))))
+      (is (= [[:rss/description] [:rss/items 0 :rss/title]]
+             (map :path (filter (comp #{:feed/markup-in-text} :id) (podcast/report f))))))
+    (is (= f (podcast/parse (podcast/emit f))))))
+
 (deftest duplicates-and-empties
   (let [f (podcast/parse "<rss version=\"2.0\"><channel><title>A</title><title>B</title><link></link></channel></rss>")]
     (is (= "A" (:rss/title f)))

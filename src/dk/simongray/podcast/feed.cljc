@@ -53,16 +53,45 @@
 
 (declare parse-children)
 
+(defn- container?
+  "Whether `entry` has registry children of its own, so that elements inside
+  it are expected."
+  [entry]
+  (contains? spec/containers (spec/children-context entry)))
+
+(defn- folds-markup?
+  "Whether elements found inside an element of `entry` are folded into its
+  text: when the registry expects text there and nothing else, as with a
+  description embedded as XHTML instead of CDATA."
+  [entry element]
+  (and (seq (xml/elements element))
+       (not (container? entry))
+       (not= :none (spec/content-type entry))))
+
+(defn- element-text
+  "The text of `element` under `entry`: its direct text, or when markup sits
+  where the registry expects text alone, the markup itself for `:html`
+  content and every descendant's text otherwise, with a finding."
+  [entry element path report]
+  (if (folds-markup? entry element)
+    (do (note! report {:id :feed/markup-in-text :level :info :path path
+                       :tags (mapv xml/tag (xml/elements element))})
+        (if (= :html (spec/content-type entry))
+          (xml/inner-xml element)
+          (xml/deep-text element)))
+    (xml/text element)))
+
 (defn- parse-element
   "Parse the Hiccup `element` by its registry `entry` into a model value, or
   `::empty` for a scalar element with no text."
   [entry element path report]
-  (let [text (xml/text element)]
+  (let [text (element-text entry element path report)]
     (cond
       (spec/map-shaped? entry)
-      (let [m (merge (parse-attrs entry (xml/attrs element) path report)
-                     (parse-children (spec/children-context entry)
-                                     (xml/elements element) path report))]
+      (let [m (cond-> (parse-attrs entry (xml/attrs element) path report)
+                (not (folds-markup? entry element))
+                (merge (parse-children (spec/children-context entry)
+                                       (xml/elements element) path report)))]
         (cond
           (= :none (spec/content-type entry))
           (do (when (seq text)

@@ -144,6 +144,10 @@ vocabulary: `:rss/title`, `:rss/pub-date`, `:itunes/episode-type`,
   `:rss/items`, `:podcast/live-items`).
 - **Coercion never throws.** A value that cannot be coerced stays a string and
   the report gets a finding.
+- **Markup where text belongs is kept.** A description embedded as XHTML
+  rather than wrapped in CDATA becomes its markup as a string; other text
+  elements with elements inside them become the text of all their
+  descendants. Both are reported as `:feed/markup-in-text`.
 - **Nothing is dropped.** Unknown elements are Hiccup under `:xml/unknown`;
   unknown attributes stay in the element's map as strings.
 
@@ -166,6 +170,15 @@ groups, applied around the strict path:
    `<itunes:explicit>`, clock formats for `<itunes:duration>`, an
    `<itunes:image>` with a `url` attribute or a text node instead of `href`,
    date strings that bend RFC 2822, and so on.
+
+3. **A lenient parser as the last resort.** When a document is malformed
+   even after the repairs, and `org.jsoup/jsoup` is on the classpath,
+   `dk.simongray.podcast.xml.jsoup/parse-raw` reads it with jsoup's XML
+   mode, which rejects nothing: unquoted attributes, stray angle brackets and
+   unclosed or mismatched tags all yield a best-effort tree. It produces the
+   same raw Hiccup as the strict adapter, so everything downstream is shared.
+   jsoup is optional and discovered with `requiring-resolve`; without it the
+   strict parser's error is thrown.
 
 Every quirk has an id, a severity and a one-line description. `parse` applies
 the default set; a caller can pass a subset or none. Each application is
@@ -203,6 +216,7 @@ have the same shape so the reference app can show one list.
 | Concern | JVM | JS |
 |---|---|---|
 | XML in | `javax.xml.stream`, namespace-aware off, DTD off | `js/DOMParser`: the browser's, or one the host installs |
+| XML in, leniently | jsoup's XML mode, when the optional jsoup is present | none yet |
 | JSON | `clojure.data.json` | `js/JSON` |
 | SHA-1 (guid, index auth) | `java.security.MessageDigest` | `goog.crypt.Sha1` |
 | Instants | `java.util.Date` via millis | `js/Date` via millis |
@@ -252,5 +266,5 @@ to test it; it touches nothing but the public API.
 2. Companions: `chapters`, `transcript`, `opml`, `value`, `index`. Done.
 3. Reference web app and corpus tooling. Done.
 4. ClojureScript build and browser test of the `DOMParser` adapter. Done.
-5. Lenient XML adapter (jsoup) for feeds that are not well-formed at all.
+5. Lenient XML adapter (jsoup) for feeds that are not well-formed at all. Done.
 6. Malli schemas generated from the registry; Podping consumer; sync model.

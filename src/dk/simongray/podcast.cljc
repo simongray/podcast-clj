@@ -21,31 +21,62 @@
   [e]
   (= ::xml/malformed (:type (ex-data e))))
 
+#?(:clj
+   (def lenient-parser
+     "The raw parser to fall back on when a document is malformed even after
+     repair: `dk.simongray.podcast.xml.jsoup/parse-raw` when org.jsoup/jsoup
+     is on the classpath, nil otherwise. Adding jsoup to the dependencies is
+     all it takes to enable it."
+     (delay (try
+              (requiring-resolve 'dk.simongray.podcast.xml.jsoup/parse-raw)
+              (catch Exception _ nil)))))
+
+(defn- lenient
+  "The lenient raw parser of the platform, or nil when it has none."
+  []
+  #?(:clj @lenient-parser :cljs nil))
+
+(defn- strict
+  "Parse `xml` strictly: `{:raw tree}`, or `{:error e}` when it is malformed."
+  [xml]
+  (try
+    {:raw (xml/parse-raw xml)}
+    (catch #?(:clj Exception :cljs :default) e
+      (if (malformed? e) {:error e} (throw e)))))
+
+(defn- repaired
+  "Repair the malformed `xml` and parse it again: strictly when the repairs
+  sufficed, leniently when a lenient parser is available, and otherwise by
+  throwing the strict parser's error. Returns `{:raw tree :report [...]}`."
+  [xml]
+  (let [{repaired :xml report :report} (quirks/repair xml)
+        {:keys [raw error]}            (strict repaired)]
+    (cond
+      raw       {:raw raw :report report}
+      (lenient) {:raw    ((lenient) repaired)
+                 :report (conj report {:id :repair/lenient-parser :level :warning})}
+      :else     (throw error))))
+
 (defn parse-tree
   "Parse the RSS `xml` string into canonical Hiccup. With `quirks?` (the
   default), namespace URI variants are recognized and a document the strict
-  parser rejects is repaired and parsed again. The result carries every
-  finding under `:podcast/report` in its metadata."
+  parser rejects is repaired and parsed again, leniently as a last resort
+  when the platform has a lenient parser. The result carries every finding
+  under `:podcast/report` in its metadata."
   ([xml]
    (parse-tree xml true))
   ([xml quirks?]
    (if-not quirks?
      (let [tree (xml/parse xml)]
        (vary-meta tree assoc :podcast/report (xml/report tree)))
-     (let [raw               (try (xml/parse-raw xml)
-                                  (catch #?(:clj Exception :cljs :default) e
-                                    (if (malformed? e) ::malformed (throw e))))
-           {raw :raw
-            repaired :report} (if (= raw ::malformed)
-                                (let [{:keys [xml report]} (quirks/repair xml)]
-                                  {:raw (xml/parse-raw xml) :report report})
-                                {:raw raw :report []})
-           tree              (-> raw
-                                 (xml/resolve-namespaces quirks/uri->alias)
-                                 quirks/normalize)]
+     (let [{:keys [raw]}        (strict xml)
+           {:keys [raw report]} (if raw {:raw raw :report []} (repaired xml))
+           tree                 (-> raw
+                                    (xml/resolve-namespaces quirks/uri->alias)
+                                    quirks/normalize)]
        (vary-meta tree assoc :podcast/report
                   (-> []
-                      (into repaired)
+                      (into report)
                       (into (quirks/namespace-variants raw))
                       (into (xml/report tree))
                       (into (quirks/report tree))))))))

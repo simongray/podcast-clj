@@ -83,8 +83,14 @@
   [element tag]
   (first (elements element tag)))
 
-(defn- compact-text
-  "Merge adjacent strings in `nodes` and drop the ones that are blank."
+(defn deep-text
+  "All the text in `element` and its descendants, in document order."
+  [element]
+  (apply str (filter string? (tree-seq vector? children element))))
+
+(defn compact-text
+  "Merge adjacent strings in `nodes` and drop the ones that are blank; what
+  every raw-parsing adapter does to the children it reads."
   [nodes]
   (->> (partition-by string? nodes)
        (mapcat (fn [group]
@@ -436,6 +442,25 @@
      (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
           (emit-element 0 root)
           "\n"))))
+
+(defn- emit-compact
+  "Serialize `element` on one line, without indentation."
+  [element]
+  (let [name     (keyword-str (tag element))
+        open     (str "<" name (attrs-str (attrs element)))
+        children (children element)]
+    (if (empty? children)
+      (str open "/>")
+      (str open ">"
+           (apply str (map #(if (string? %) (text-node %) (emit-compact %)) children))
+           "</" name ">"))))
+
+(defn inner-xml
+  "The content of `element` as markup: its text as written and its child
+  elements serialized compactly. This is what an HTML description looks like
+  when a feed embeds it as XML rather than wrapping it in CDATA."
+  [element]
+  (apply str (map #(if (string? %) % (emit-compact %)) (children element))))
 
 (comment
   (parse "<rss xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" version=\"2.0\">

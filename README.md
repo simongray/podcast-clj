@@ -42,6 +42,12 @@ seconds, booleans), repeatable elements are vectors, unknown elements are
 kept as Hiccup so that parse followed by emit loses nothing. Everything the
 lenient path does is a named entry in the **report**.
 
+Parsing is strict first. When a document is malformed, the quirks layer
+repairs the text and tries again; when even that fails and `org.jsoup/jsoup`
+is on the classpath, the document is parsed leniently with jsoup's XML mode
+and the report says so. The library does not depend on jsoup; adding it to
+your own dependencies is all it takes.
+
 Namespaces
 ----------
 
@@ -49,6 +55,7 @@ Namespaces
 |---|---|
 | `dk.simongray.podcast` | The front door: `parse`, `emit`, `report`, `parse-tree` |
 | `…podcast.xml` | XML to Hiccup and back, namespaces resolved by URI |
+| `…podcast.xml.jsoup` | Lenient parser for feeds that are not well-formed at all; needs the optional `org.jsoup/jsoup` |
 | `…podcast.quirks` | String repairs, URI variants, tree normalizations |
 | `…podcast.spec` | The tag registry and the enumerations of the specifications |
 | `…podcast.feed` | Hiccup to feed maps and back; feed and item identity |
