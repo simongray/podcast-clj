@@ -253,7 +253,17 @@ reported.
   playback position given `valueTimeSplit`s. Pure arithmetic; no payments.
 - **Podcast Index** (`index`): a request builder that produces
   `{:method :url :headers}` with the SHA-1 auth header computed, so any HTTP
-  client can send it. The key and secret never leave the caller's process.
+  client can send it, and a response reader that maps the index's feed,
+  episode and value objects onto the model, so that a feed from the index
+  has the same keys as one parsed from RSS and the accessors in `resolve`
+  work on both; what only the index knows is under `:index/*`, the original
+  under `:index/raw`. The endpoint table follows the API's OpenAPI
+  description. Remote items in value time splits are resolved by asking for
+  the item's own block first and the feed's second; `remote-value` takes the
+  sending function as an argument, so it is tested with stubs and works with
+  any client, and `value/with-remote` folds the answer into the recipients
+  of the moment. On the JVM, `call!` and `remote-value!` use the library's
+  own HTTP client. The key and secret never leave the caller's process.
 
 ## Platform adapters
 
@@ -321,5 +331,5 @@ to test it; it touches nothing but the public API.
 6. `resolve`: accessors with precedence rules; `feed/diff`. Done.
 7. Real-world chapter and transcript files as a second corpus. Done.
 8. Generated tag reference; Malli schemas from the registry. Done.
-9. Podcast Index: sending requests and mapping responses into the model.
+9. Podcast Index: sending requests and mapping responses into the model. Done.
 10. Podping consumer; sync model.

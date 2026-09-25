@@ -1,0 +1,5 @@
+{"status":"true","query":{"podcastguid":"a94f5cc9-8c58-55fc-91fe-a324087a655b","episodeguid":"https://podcastindex.org/podcast/4148683#1"},
+ "value":{"model":{"type":"lightning","method":"keysend","suggested":"0.00000020000"},
+          "destinations":[{"name":"Artist","address":"02aa","type":"node","split":90,"fee":false},{"name":"Label","address":"02bb","type":"node","split":10,"fee":false}],
+          "title":"Gotham","feedTitle":"Metal Showcase"},
+ "description":"Found matching value block"}

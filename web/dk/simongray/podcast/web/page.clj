@@ -272,20 +272,43 @@
            (when (> (count segments) 40)
              [:p.muted (str "Showing the first 40 of " (count segments) " segments.")]))))))))
 
+(defn- payments-table
+  [recipients]
+  [:table
+   [:thead [:tr [:th "Recipient"] [:th "Type"] [:th "Split"] [:th "Of 1000"]]]
+   [:tbody
+    (for [{:keys [recipient amount]} (value/payments recipients 1000)]
+      [:tr [:td (:name recipient)] [:td (:type recipient) (when (:fee recipient) " (fee)")]
+       [:td (:split recipient)] [:td amount]])]])
+
+(defn- time-split-section
+  "One time split of `block`: who is paid during it, with the remote item
+  folded in when `remote-values` resolved it."
+  [block {:keys [remote-values index?]} {:keys [start-time duration remote-item remote-percentage] :as split}]
+  (let [at     (value/recipients-at block start-time)
+        remote (get remote-values remote-item)]
+    (list
+     [:h3 (str "From " (time/format-clock start-time) " for " (time/format-clock duration)
+               (when remote-item (str " · remote item " (:feed-guid remote-item)
+                                      (when (:item-guid remote-item) (str " / " (:item-guid remote-item)))
+                                      " at " (or remote-percentage 100) "%")))]
+     (cond
+       (nil? remote-item)      (payments-table (:recipients at))
+       remote                  (payments-table (:recipients (value/with-remote block at remote)))
+       index?                  [:p.muted "The Podcast Index has no value block for this remote item; the feed's own recipients apply."]
+       :else                   [:p.muted "Set PODCASTINDEX_API_KEY and PODCASTINDEX_API_SECRET to resolve the remote item through the Podcast Index."]))))
+
 (defn- value-section
-  [feed item]
+  [feed item companions]
   (when-let [block (resolve/value feed item)]
     (list
      [:h2 "Value"]
      [:p.muted (str (:type block) " / " (:method block)
                     (when-let [sats (value/sats block)] (str " · suggested " sats " sats per minute"))
                     (when (seq (:time-splits block)) (str " · " (count (:time-splits block)) " time splits")))]
-     [:table
-      [:thead [:tr [:th "Recipient"] [:th "Type"] [:th "Split"] [:th "Of 1000"]]]
-      [:tbody
-       (for [{:keys [recipient amount]} (value/payments (:recipients block) 1000)]
-         [:tr [:td (:name recipient)] [:td (:type recipient) (when (:fee recipient) " (fee)")]
-          [:td (:split recipient)] [:td amount]])]])))
+     (payments-table (:recipients block))
+     (for [split (sort-by :start-time (filter (comp number? :start-time) (:time-splits block)))]
+       (time-split-section block companions split)))))
 
 (defn item-page
   "The page for one `item` of `feed` at `url`, with its `companions` as
@@ -324,7 +347,7 @@
                  [:td (str/join " · " (remove nil? details))]])]]
             (chapters-section companions)
             (transcript-section companions)
-            (value-section feed item)
+            (value-section feed item companions)
             [:h2 "Item as data"]
             (kv-table (dissoc item :rss/description :content/encoded)))))
 

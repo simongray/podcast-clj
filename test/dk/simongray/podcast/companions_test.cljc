@@ -1,11 +1,10 @@
 (ns dk.simongray.podcast.companions-test
-  "Chapters, transcripts, OPML, value blocks and the Podcast Index client."
+  "Chapters, transcripts, OPML and value blocks."
   (:require #?(:clj [clojure.java.io :as io])
             #?(:cljs [shadow.resource :as rc])
             #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.chapters :as chapters]
-            [dk.simongray.podcast.index :as index]
             [dk.simongray.podcast.opml :as opml]
             [dk.simongray.podcast.transcript :as transcript]
             [dk.simongray.podcast.value :as value]))
@@ -230,17 +229,26 @@
       (is (= ["Index"] (map :name recipients)))
       (is (= {:remote-item {:feed-guid "a94f" :item-guid "x"} :percentage 95 :start-time 0 :offset 40} remote)))
     (is (= ["Index" "Guest"] (map :name (:recipients (value/recipients-at block 405)))))
-    (is (= 4 (count (:recipients (value/recipients-at block 410)))))))
+    (is (= 4 (count (:recipients (value/recipients-at block 410))))))
+  (testing "folding in a resolved remote block"
+    (let [at     (value/recipients-at block 100)
+          remote {:type "lightning" :method "keysend"
+                  :recipients [{:name "A" :type "node" :address "0a" :split 60}
+                               {:name "B" :type "node" :address "0b" :split 40}
+                               {:name "C" :type "node" :address "0c" :split 2 :fee true}]}
+          folded (value/with-remote block at remote)
+          paid   (into {} (map (juxt (comp :name :recipient) :amount)) (value/payments (:recipients folded) 1000))]
+      (is (= [["Index" 1 true] ["C" 2 true] ["Host" 25000 nil] ["Co-Host" 20000 nil] ["Producer" 5000 nil]
+              ["A" 570000 nil] ["B" 380000 nil]]
+             (map (juxt :name :split :fee) (:recipients folded))))
+      (is (= {"Index" 10 "C" 20 "Host" 24 "Co-Host" 19 "Producer" 4 "A" 555 "B" 368} paid))
+      (is (= 1000 (reduce + (vals paid))))
+      (testing "everything to the remote side at 100 percent"
+        (let [everything (value/with-remote block (assoc-in at [:remote :percentage] 100) remote)]
+          (is (= ["Index" "C" "A" "B"] (map :name (:recipients everything))))))
+      (testing "without a resolved block, the feed's own recipients apply"
+        (is (= (:recipients block) (:recipients (value/with-remote block at nil)))))
+      (testing "outside a remote split nothing changes"
+        (let [plain (value/recipients-at block 10)]
+          (is (= plain (value/with-remote block plain remote))))))))
 
-;;;; Podcast Index
-
-(deftest index-requests
-  (let [r (index/request {:key "K" :secret "S"} :search/by-term {:q "podcasting 2.0" :max 5 :fulltext true} 1700000000)]
-    (is (= :get (:method r)))
-    (is (= "https://api.podcastindex.org/api/1.0/search/byterm?q=podcasting%202.0&max=5&fulltext" (:url r)))
-    (is (= {"User-Agent" "dk.simongray/podcast" "X-Auth-Key" "K" "X-Auth-Date" "1700000000"
-            "Authorization" "2112f595eb505b9d54dc5eab2336b197daf80af4"}
-           (:headers r))))
-  (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
-               (index/request {:key "K" :secret "S"} :nope {})))
-  (is (= {"status" "true"} (index/response "{\"status\":\"true\"}"))))

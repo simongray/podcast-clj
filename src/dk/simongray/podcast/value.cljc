@@ -66,6 +66,33 @@
   [recipients]
   (transduce (comp (remove fee?) (map :split) (filter number?)) + 0 recipients))
 
+(defn with-remote
+  "Fold the `remote` value block a time split pointed at into `at`, the
+  result of `recipients-at` for the `block` at that moment. Fees from both
+  blocks stay off the top; the remaining amount goes to the remote block's
+  recipients for the split's percentage and to the block's own non-fee
+  recipients for the rest, each side divided by its own splits. The splits
+  come back rescaled to whole shares that express exactly that. Without a
+  remote block (it could not be resolved), the block's own recipients apply,
+  as the specification tells apps to fall back."
+  [block at remote]
+  (if-let [{:keys [percentage]} (:remote at)]
+    (let [local  (remove fee? (:recipients block))
+          others (remove fee? (:recipients remote))
+          fees   (filter fee? (concat (:recipients block) (:recipients remote)))
+          total  (share-total local)
+          total' (share-total others)]
+      (if (zero? total')
+        {:recipients (vec (:recipients block))}
+        {:recipients (->> (concat fees
+                                  (for [r local]
+                                    (assoc r :split (* (:split r 0) (- 100 percentage) total')))
+                                  (for [r others]
+                                    (assoc r :split (* (:split r 0) percentage (max total 1)))))
+                          (remove #(and (not (fee? %)) (zero? (:split % 0))))
+                          vec)}))
+    at))
+
 (defn payments
   "Divide `amount` (an integer count of the smallest unit, e.g. sats) among
   `recipients` the way the specification prescribes: each fee recipient

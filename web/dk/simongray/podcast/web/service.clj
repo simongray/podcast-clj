@@ -9,6 +9,7 @@
             [dk.simongray.podcast.chapters :as chapters]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.index :as index]
             [dk.simongray.podcast.resolve :as resolve]
             [dk.simongray.podcast.transcript :as transcript]
             [dk.simongray.podcast.web.page :as page]
@@ -127,11 +128,36 @@
     (catch Exception e
       {:url url :status (:status (ex-data e)) :error (or (ex-message e) (str e))})))
 
+(def index-credentials
+  "Podcast Index API credentials from the environment, when the inspector
+  is to resolve remote value splits: PODCASTINDEX_API_KEY and
+  PODCASTINDEX_API_SECRET."
+  (let [key    (System/getenv "PODCASTINDEX_API_KEY")
+        secret (System/getenv "PODCASTINDEX_API_SECRET")]
+    (when (and (seq key) (seq secret))
+      {:key key :secret secret :user-agent "dk.simongray/podcast inspector"})))
+
+(defn- remote-values
+  "The value blocks the remote items of the time splits of `block` point
+  at, by remote item, resolved through the index when credentials are set;
+  a failure resolves to nil like a miss."
+  [block]
+  (when index-credentials
+    (into {} (for [{:keys [remote-item]} (:time-splits block)
+                   :when remote-item]
+               [remote-item (try (index/remote-value! index-credentials remote-item)
+                                 (catch Exception _ nil))]))))
+
 (defn- companions
-  "The chapters and the chosen transcript of `item`, fetched and parsed."
-  [item]
-  (let [transcript-ref (resolve/transcript item)]
+  "The chapters and the chosen transcript of `item`, fetched and parsed,
+  and the remote value blocks its time splits point at when the index can
+  be asked."
+  [feed item]
+  (let [transcript-ref (resolve/transcript item)
+        block          (resolve/value feed item)]
     (cond-> {}
+      (seq (:time-splits block))
+      (assoc :remote-values (remote-values block) :index? (some? index-credentials))
       (resolve/chapters-url item)
       (assoc :chapters (companion (resolve/chapters-url item) chapters/parse-json))
 
@@ -150,7 +176,7 @@
       (let [guid (get-in request [:query-params :guid])
             item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
         (if item
-          (html (page/item-page (assoc loaded :item item :companions (companions item))))
+          (html (page/item-page (assoc loaded :item item :companions (companions feed item))))
           (-> (html (page/error-page (:url loaded) (str "No item with guid " guid)))
               (assoc :status 404)))))))
 

@@ -116,6 +116,25 @@ parsed feed against them shows exactly where `parse` had to keep a value as a
 string; validating a map you built yourself before `emit` catches mistakes
 early.
 
+The Podcast Index speaks the same model. A request is a map any HTTP client
+can send, and a response comes back keyed like a parsed feed or item, with
+what only the index knows under `:index/*`:
+
+```clojure
+(require '[dk.simongray.podcast.index :as index])
+
+(index/request credentials :search/by-term {:q "podcasting 2.0" :max 5})
+;; => {:method :get :url "https://api.podcastindex.org/api/1.0/search/byterm?q=…" :headers {…}}
+
+(-> (index/call! credentials :podcasts/by-guid {:guid "917393e3-…"}) :feed resolve/title)  ; JVM
+;; => "Podcasting 2.0"
+
+;; a value time split that points at another feed's item: fetch that block…
+(def remote (index/remote-value! credentials {:feed-guid "a94f…" :item-guid "…#1"}))
+;; …and fold it into who is paid at that moment
+(value/with-remote block (value/recipients-at block 100) remote)
+```
+
 Namespaces
 ----------
 
@@ -133,8 +152,8 @@ Namespaces
 | `…podcast.chapters` | JSON Chapters and Podlove Simple Chapters |
 | `…podcast.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, speakers included; `turns` merges word-level segments |
 | `…podcast.opml` | Subscription lists |
-| `…podcast.value` | Value-for-value arithmetic: splits, fees, time splits |
-| `…podcast.index` | Podcast Index API request builder |
+| `…podcast.value` | Value-for-value arithmetic: splits, fees, time splits, remote blocks folded in |
+| `…podcast.index` | Podcast Index API: requests with auth, responses mapped onto the model, remote value resolution |
 | `…podcast.guid` | `podcast:guid` (UUIDv5) and SHA-1 |
 | `…podcast.time` | RFC 2822 and ISO 8601 dates, durations, timestamps |
 | `…podcast.http` | JVM feed fetcher with conditional requests |

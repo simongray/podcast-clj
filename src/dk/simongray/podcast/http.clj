@@ -63,32 +63,44 @@
   (let [body (if (= "gzip" (header headers "content-encoding")) (gunzip body) body)]
     (String. body ^Charset (declared-charset headers body))))
 
+(defn call!
+  "Send the GET request map `{:url :headers}` (what dk.simongray.podcast.index
+  builds, or anything of that shape) and return `{:status :url :headers
+  :body}` with the body decoded to a string; `:timeout-seconds` defaults to
+  30. gzip is accepted and undone."
+  [{:keys [url headers timeout-seconds] :or {timeout-seconds 30}}]
+  (let [builder  (-> (HttpRequest/newBuilder (URI. url))
+                     (.timeout (Duration/ofSeconds timeout-seconds))
+                     (.header "Accept-Encoding" "gzip"))
+        request  (-> (reduce-kv (fn [b k v] (.header b (str k) (str v)))
+                                builder
+                                (merge {"User-Agent" user-agent} headers))
+                     (.GET)
+                     (.build))
+        response (response->map (.send @client request (HttpResponse$BodyHandlers/ofByteArray)))]
+    (update response :body #(when (and (not= 304 (:status response)) (pos? (alength ^bytes %)))
+                              (decode (:headers response) %)))))
+
 (defn fetch!
-  "GET `url` and return `{:status :url :headers :body}` with the body as a
-  decoded string, plus `:etag` and `:last-modified` when present. `opts` may
-  carry an `:etag` and `:last-modified` from an earlier response, sent as
-  If-None-Match and If-Modified-Since; a 304 then comes back with no body."
+  "GET the feed at `url` and return `{:status :url :headers :body}` with the
+  body as a decoded string, plus `:etag` and `:last-modified` when present.
+  `opts` may carry an `:etag` and `:last-modified` from an earlier response,
+  sent as If-None-Match and If-Modified-Since; a 304 then comes back with no
+  body."
   ([url]
    (fetch! url {}))
   ([url {:keys [etag last-modified timeout-seconds user-agent]
          :or   {timeout-seconds 30 user-agent dk.simongray.podcast.http/user-agent}}]
-   (let [request  (-> (HttpRequest/newBuilder (URI. url))
-                      (.timeout (Duration/ofSeconds timeout-seconds))
-                      (.header "User-Agent" user-agent)
-                      (.header "Accept" "application/rss+xml, application/xml, text/xml, */*")
-                      (.header "Accept-Encoding" "gzip")
-                      (cond->
-                        etag          (.header "If-None-Match" etag)
-                        last-modified (.header "If-Modified-Since" last-modified))
-                      (.GET)
-                      (.build))
-         response (response->map (.send @client request (HttpResponse$BodyHandlers/ofByteArray)))
+   (let [response (call! {:url             url
+                          :timeout-seconds timeout-seconds
+                          :headers         (cond-> {"User-Agent" user-agent
+                                                    "Accept"     "application/rss+xml, application/xml, text/xml, */*"}
+                                             etag          (assoc "If-None-Match" etag)
+                                             last-modified (assoc "If-Modified-Since" last-modified))})
          headers  (:headers response)]
-     (-> response
-         (assoc :etag (header headers "etag")
-                :last-modified (header headers "last-modified"))
-         (update :body #(when (and (not= 304 (:status response)) (pos? (alength ^bytes %)))
-                          (decode headers %)))))))
+     (assoc response
+            :etag (header headers "etag")
+            :last-modified (header headers "last-modified")))))
 
 (comment
   (select-keys (fetch! "https://feeds.podcastindex.org/pc20.xml") [:status :url :etag :last-modified])
