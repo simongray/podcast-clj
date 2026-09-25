@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## Unreleased
 
-The first release.
+Working toward 1.0, the first release.
 
 - RSS 2.0, the iTunes, Google Play, Spotify, Media RSS, RawVoice and Podlove
   Simple Chapters vocabularies and the whole Podcasting 2.0 namespace, read

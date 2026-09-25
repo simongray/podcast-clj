@@ -9,12 +9,9 @@ variations found in the wild are absorbed by a separate, named, reported
 *quirks* layer. The core is `.cljc`.
 
 This is a library first. A small reference web app, a feed inspector, is
-bundled to exercise it against real feeds. The coordinate, once 0.1.0 is on
-Clojars:
-
-```clojure
-dk.simongray/podcast {:mvn/version "0.1.0"}
-```
+bundled to exercise it against real feeds. It is not on Clojars yet: the
+first release will be 1.0, once the library is complete. Until then it can
+be used as a git dependency on the repository.
 
 ```clojure
 (require '[dk.simongray.podcast :as podcast])
@@ -123,10 +120,11 @@ a dependency on Malli:
 (m/schema (schema/tag :podcast/value)) ; the schema of one element
 ```
 
-The schemas describe the model with every value coerced, so validating a
-parsed feed against them shows exactly where `parse` had to keep a value as a
-string; validating a map you built yourself before `emit` catches mistakes
-early.
+The schemas describe what `emit` accepts: the model with every value coerced
+and every required attribute present. `parse` is lenient and may return a map
+that fails them, a value kept as a string or a required attribute left blank,
+and `validate` is what says why; validating a map you built yourself before
+`emit` catches mistakes early.
 
 The Podcast Index speaks the same model. A request is a map any HTTP client
 can send, and a response comes back keyed like a parsed feed or item, with
@@ -215,11 +213,11 @@ the Podcast Index, which is how registry gaps and quirks are found.
 Status
 ------
 
-Preparing the first release, 0.1.0. The library is exercised against a
-corpus of feeds from some thirty hosting platforms and a sweep of several
-hundred more sampled through the Podcast Index, and the whole of it compiles
-and passes its tests as ClojureScript, both under Node and in a browser. See
-the roadmap at the end of the architecture document.
+Working toward a complete 1.0, which will be the first release. The library
+is exercised against a corpus of feeds from some thirty hosting platforms and
+a sweep of several hundred more sampled through the Podcast Index, and the
+whole of it compiles and passes its tests as ClojureScript, both under Node
+and in a browser. See the roadmap at the end of the architecture document.
 
 License
 -------

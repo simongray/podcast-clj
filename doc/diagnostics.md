@@ -27,10 +27,12 @@ groups them by kind.
 | `:quirk/empty-guid` | info | An empty guid was dropped, so the item's identity is its enclosure URL. |
 | `:quirk/deprecated-images` | info | A deprecated podcast:images srcset was turned into podcast:image elements. |
 | `:quirk/item-image` | info | An item's attribute-only image element, which RSS 2.0 lacks, became the itunes:image it stood for. |
+| `:quirk/podcast-category` | info | A channel had the non-standard podcast:category elements Wavlake writes and no itunes:category; they were read as itunes:category, whose shape they mirror. |
 | `:quirk/duration-format` | info | An itunes:duration was written as a clock rather than in seconds; read as seconds. |
 | `:quirk/date-format` | info | A date was not in strict RFC 2822 form but could still be read. |
 | `:feed/duplicate-element` | warning | An element the specification allows once occurred again; the first occurrence is kept. |
 | `:feed/empty-element` | info | A scalar element had no text and was omitted. |
+| `:feed/empty-attribute` | info | An optional attribute was left blank and is absent from the model; a required one left blank is kept for the validator. |
 | `:feed/invalid-value` | warning | A value did not read as its type and stays a string. |
 | `:feed/markup-in-text` | info | Markup sat where the registry expects text; kept as markup for HTML content, flattened to text otherwise. |
 | `:feed/unexpected-text` | info | Text inside an element the specification leaves empty was dropped. |

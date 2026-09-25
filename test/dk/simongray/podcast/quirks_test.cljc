@@ -44,6 +44,7 @@
                   <itunes:image>https://x/y.jpg</itunes:image><itunes:explicit>Yes</itunes:explicit>
                   <podcast:images srcset=\"https://a/1.jpg 1500w, https://a/2.jpg 600w\"/>
                   <podcast:locked>false</podcast:locked>
+                  <podcast:category text=\"Singer/Songwriter\"><podcast:category text=\"Alternative Folk\"/></podcast:category>
                   <item><itunes:duration>1:02:03</itunes:duration><guid></guid>
                     <pubDate>Fri, 31 Jul 2026 10:02:23 PST</pubDate>
                     <enclosure url=\"https://a/1.mp3\" length=\"\" type=\"audio/mpeg\"/>
@@ -54,11 +55,14 @@
     (is (= #{:quirk/itunes-image-text :quirk/explicit-value :quirk/deprecated-images
              :quirk/duration-format :quirk/empty-guid :quirk/date-format
              :quirk/enclosure-length :quirk/transcript-type
-             :quirk/yes-no-value :quirk/item-image :quirk/attribute-name}
+             :quirk/yes-no-value :quirk/item-image :quirk/attribute-name
+             :quirk/podcast-category}
            (set ids)))
     (let [f    (feed/parse tree)
           item (first (:rss/items f))]
       (is (= {:href "https://x/y.jpg"} (:itunes/image f)))
+      (is (= [{:text "Singer/Songwriter" :categories [{:text "Alternative Folk"}]}] (:itunes/categories f)))
+      (is (empty? (:xml/unknown f)))
       (is (true? (:itunes/explicit f)))
       (is (= [{:href "https://a/1.jpg" :width 1500} {:href "https://a/2.jpg" :width 600}] (:podcast/images f)))
       (is (= {:content false} (:podcast/locked f)))

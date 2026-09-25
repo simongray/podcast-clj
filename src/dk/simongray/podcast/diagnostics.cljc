@@ -55,6 +55,8 @@
     :doc "A deprecated podcast:images srcset was turned into podcast:image elements."}
    {:id :quirk/item-image :level :info
     :doc "An item's attribute-only image element, which RSS 2.0 lacks, became the itunes:image it stood for."}
+   {:id :quirk/podcast-category :level :info
+    :doc "A channel had the non-standard podcast:category elements Wavlake writes and no itunes:category; they were read as itunes:category, whose shape they mirror."}
    {:id :quirk/duration-format :level :info
     :doc "An itunes:duration was written as a clock rather than in seconds; read as seconds."}
    {:id :quirk/date-format :level :info
@@ -65,6 +67,8 @@
     :doc "An element the specification allows once occurred again; the first occurrence is kept."}
    {:id :feed/empty-element :level :info
     :doc "A scalar element had no text and was omitted."}
+   {:id :feed/empty-attribute :level :info
+    :doc "An optional attribute was left blank and is absent from the model; a required one left blank is kept for the validator."}
    {:id :feed/invalid-value :level :warning
     :doc "A value did not read as its type and stays a string."}
    {:id :feed/markup-in-text :level :info

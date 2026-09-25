@@ -90,10 +90,16 @@
     (is (= f (podcast/parse (podcast/emit f))))))
 
 (deftest duplicates-and-empties
-  (let [f (podcast/parse "<rss version=\"2.0\"><channel><title>A</title><title>B</title><link></link></channel></rss>")]
+  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>A</title><title>B</title><link></link>
+                           <item><title>E</title><enclosure url=\"https://a/1.mp3\" type=\"\"/><itunes:image href=\"\"/></item></channel></rss>")
+        item (first (:rss/items f))]
     (is (= "A" (:rss/title f)))
     (is (not (contains? f :rss/link)))
-    (is (= #{:feed/duplicate-element :feed/empty-element} (into #{} (map :id) (podcast/report f))))))
+    (testing "a blank optional attribute is absent; a blank required one is kept for the validator"
+      (is (= {:url "https://a/1.mp3"} (:rss/enclosure item)))
+      (is (= {:href ""} (:itunes/image item))))
+    (is (= #{:feed/duplicate-element :feed/empty-element :feed/empty-attribute}
+           (into #{} (map :id) (podcast/report f))))))
 
 (deftest identities
   (is (= "https://example.com/ep0003"
@@ -141,6 +147,11 @@
            (:rrule (:podcast/update-frequency f))))
     (is (= {:lat 30.2672 :lon -97.7431 :uncertainty 100} (:geo (first (:podcast/locations f)))))
     (is (= {:type "R" :id 113314 :revision 4} (:osm (first (:podcast/locations f)))))
+    (testing "a space after the comma, as seen in the wild, still reads"
+      (is (= {:lat 47.423043 :lon 8.5670553}
+             (get-in (podcast/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
+                                      <podcast:location geo=\"geo:47.4230430, 8.5670553\">Zürich</podcast:location></channel></rss>")
+                     [:podcast/locations 0 :geo]))))
     (testing "what does not read stays a string, with a diagnostic"
       (is (= "geo:nowhere" (:geo (first (:podcast/locations (first (:rss/items f)))))))
       (is (some #(= [:rss/items 0 :podcast/locations 0 :geo] (:path %)) (podcast/report f))))
@@ -208,3 +219,10 @@
     (is (= "host@example.com" (:rss/author (first (:rss/items f)))))
     (is (empty? (:xml/unknown f)))
     (is (= f (podcast/parse (podcast/emit f))))))
+
+(deftest rfc2822-fields-keep-whole-seconds
+  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
+                           <podcast:trailer url=\"https://a/t.mp3\" pubdate=\"2024-08-02T19:35:20.740Z\">Trailer</podcast:trailer></channel></rss>")]
+    (testing "an ISO date with milliseconds in an RFC 2822 field loses only what the field cannot carry"
+      (is (= #inst "2024-08-02T19:35:20.000Z" (get-in f [:podcast/trailers 0 :pubdate])))
+      (is (= f (podcast/parse (podcast/emit f)))))))

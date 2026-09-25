@@ -270,6 +270,21 @@
             (map #(if (identical? % image) [:itunes/image {:href (:url (xml/attrs image))}] %)
                  (xml/children item))))))
 
+(defn- podcast-category->itunes
+  "The `channel` with the podcast:category elements Wavlake writes on its
+  music feeds, which the specification does not define but which mirror
+  itunes:category in every way, read as itunes:category when the channel
+  has none of the standard ones."
+  [channel]
+  (letfn [(category? [x] (and (vector? x) (= :podcast/category (xml/tag x))))
+          (convert [[_ attrs & children]]
+            (into [:itunes/category attrs] (map #(if (category? %) (convert %) %) children)))]
+    (if (or (xml/element channel :itunes/category)
+            (not (xml/element channel :podcast/category)))
+      channel
+      (into [(xml/tag channel) (xml/attrs channel)]
+            (map #(if (category? %) (convert %) %) (xml/children channel))))))
+
 (def transcript-types
   "Non-standard spellings of transcript types, and the standard ones."
   {"srt"              "application/x-subrip"
@@ -333,6 +348,7 @@
                  element)))
     (rewrite :quirk/deprecated-images :channel add-images)
     (rewrite :quirk/deprecated-images :item add-images)
+    (rewrite :quirk/podcast-category :channel podcast-category->itunes)
     (rewrite :quirk/item-image :item item-image->itunes)
     (check :quirk/duration-format :itunes/duration
            (fn [element]

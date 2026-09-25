@@ -128,9 +128,22 @@ are generated from the registry so that they cannot drift from the code:
 and `dk.simongray.podcast.schema`, Malli schemas of the model as plain data
 (Malli is not a dependency), with one schema per element in a registry and
 `schema/feed` and `schema/item` for the maps `parse` returns. The schemas
-describe the model with every value coerced, which is why every corpus feed
-validates against them, and why a generative test can build feeds from them,
-emit them and parse them back.
+describe what `emit` accepts: the model with every value coerced and every
+required attribute present. Every corpus feed happens to satisfy them, and a
+generative test builds feeds from them, emits them and parses them back; but
+`parse` is lenient by design and may return a map that fails them, a value
+kept as a string or a required attribute left blank, and `validate` is what
+says why. The schemas are for authoring, the validator for judging.
+
+What stays outside the registry is a decision, not an oversight. Elements in
+the podcast namespace that the specification does not define, such as the
+`podcast:hiveAccname` and `podcast:liveValue` of Hive-based hosts, Blubrry's
+undocumented RawVoice extensions, and every host's proprietary namespace are
+kept as Hiccup under `:xml/unknown` and reported by the validator. The
+specification is the boundary; a non-standard element earns a quirk only when
+it stands for a standard one, as an item's attribute-only `image` does, or
+the nested `podcast:category` that Wavlake writes on its music feeds in place
+of `itunes:category`, which it mirrors in every way.
 
 ## The feed model
 
@@ -180,8 +193,10 @@ where the overlaps are settled, once, in pure functions over the model:
 `transcript`, `chapters-url` and `embedded-chapters`, `people`, `funding`,
 `license`, `chat`, `locations`, `value`, the live items in listening order
 (`live-items`, `live?`), and for the feed as a whole `medium`, `list-feed?`,
-`complete?`, `locked?`, `new-feed-url`, `self-url` and `categories`. Each
-docstring states its precedence. The two-argument forms
+`complete?`, `next-episode` (from the recurrence rule of
+`podcast:updateFrequency`, evaluated by `time/occurrences`), `locked?`,
+`new-feed-url`, `self-url` and `categories`. Each docstring states its
+precedence. The two-argument forms
 take the feed and an item and apply the inheritance the specifications
 describe: people on an item replace the feed's entirely, a value block on an
 item overrides, artwork and funding fall back to the channel. `transcript`
@@ -365,4 +380,5 @@ to test it; it touches nothing but the public API.
     accessors still missing, remote items through the index. Done.
 13. An API review (optional behaviour as options maps, the diagnostics
     catalogue, a lint pass) and the release scaffolding: license, build,
-    CI, changelog. Done, up to the deploy itself.
+    CI, changelog. Done, up to the deploy itself; the first published
+    version will be a complete 1.0.

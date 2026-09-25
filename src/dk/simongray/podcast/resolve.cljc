@@ -9,6 +9,7 @@
   override, artwork and funding fall back."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.chapters :as chapters]
+            [dk.simongray.podcast.time :as time]
             [dk.simongray.podcast.value :as value]))
 
 ;;;; Text
@@ -374,6 +375,18 @@
   [feed]
   (boolean (or (true? (:itunes/complete feed))
                (true? (:complete (:podcast/update-frequency feed))))))
+
+(defn next-episode
+  "When `feed` says its next episode is due after `at`: the first instant
+  after `at` that the recurrence rule of podcast:updateFrequency produces,
+  anchored at its dtstart or, failing that, at the latest item's date. Nil
+  when the feed is complete, has no rule, or has one the library does not
+  evaluate (see `time/occurrences`)."
+  [feed at]
+  (let [{:keys [rrule dtstart]} (:podcast/update-frequency feed)
+        latest (some->> (:rss/items feed) (keep :rss/pub-date) (filter inst?) seq (apply max-key inst-ms))]
+    (when (and (map? rrule) (not (complete? feed)))
+      (time/next-occurrence rrule (or (when (inst? dtstart) dtstart) latest at) at))))
 
 (defn locked?
   "Whether `feed` forbids other platforms to import it."

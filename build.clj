@@ -12,8 +12,9 @@
   'dk.simongray/podcast)
 
 (def version
-  "The version to build; bump it with CHANGELOG.md."
-  "0.1.0")
+  "The version to build; bump it with CHANGELOG.md. The first release will
+  be 1.0, so until then this is a snapshot of it."
+  "1.0.0-SNAPSHOT")
 
 (def class-dir
   "Where the jar's contents are staged."

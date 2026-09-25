@@ -179,3 +179,16 @@
       (is (resolve/live? pending #inst "2026-10-01T18:30:00Z"))
       (is (not (resolve/live? pending #inst "2026-10-01T17:00:00Z")))
       (is (not (resolve/live? ended #inst "2026-09-18T18:30:00Z"))))))
+
+(deftest the-next-episode
+  (let [feed {:podcast/update-frequency {:rrule {:freq "WEEKLY" :byday ["MO"]}
+                                         :dtstart #inst "2026-01-05T18:00:00Z" :content "Mondays"}}]
+    (is (= #inst "2026-01-12T18:00:00Z" (resolve/next-episode feed #inst "2026-01-06T00:00:00Z")))
+    (is (nil? (resolve/next-episode (assoc-in feed [:podcast/update-frequency :complete] true) #inst "2026-01-06T00:00:00Z")))
+    (is (nil? (resolve/next-episode {} #inst "2026-01-06T00:00:00Z")))
+    (testing "without dtstart, the latest item anchors the rule"
+      (is (= #inst "2026-01-19T09:00:00Z"
+             (resolve/next-episode {:podcast/update-frequency {:rrule {:freq "WEEKLY"}}
+                                    :rss/items [{:rss/pub-date #inst "2026-01-12T09:00:00Z"}
+                                                {:rss/pub-date #inst "2026-01-05T09:00:00Z"}]}
+                                   #inst "2026-01-12T10:00:00Z"))))))

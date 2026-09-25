@@ -218,8 +218,9 @@
 
 (defn download-sweep!
   "Fetch every feed of `rows` (see `sweep-populations`) into `sweep-dir`, in
-  parallel, and write a manifest of what happened next to them: the row
-  plus `:status`, `:chars`, `:final-url` and, when kept, `:file`."
+  parallel, and merge what happened into the manifest next to them: the row
+  plus `:status`, `:chars`, `:final-url` and, when kept, `:file`. A row may
+  name its `:id` freely, so that hand-picked feeds can join the sample."
   [rows]
   (.mkdirs sweep-dir)
   (let [fetch    (fn [{:keys [id url] :as row}]
@@ -231,7 +232,11 @@
                        (spit (io/file sweep-dir (str id ".xml")) body))
                      (assoc row :status status :chars (count body) :final-url final
                             :file (when kept? (str id ".xml")))))
-        manifest (vec (sort-by (juxt :population :id) (doall (pmap fetch rows))))]
+        fetched  (doall (pmap fetch rows))
+        previous (let [f (io/file sweep-dir "manifest.edn")]
+                   (when (.exists f) (edn/read-string (slurp f))))
+        manifest (vec (sort-by (juxt (comp str :population) (comp str :id))
+                               (distinct-by :id (concat fetched previous))))]
     (spit (io/file sweep-dir "manifest.edn") (with-out-str (pprint/pprint manifest)))
     manifest))
 

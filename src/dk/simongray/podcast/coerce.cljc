@@ -51,7 +51,7 @@
 (defn- read-geo
   "A geo URI, \"geo:30.2672,-97.7431[,altitude][;u=uncertainty]\", as a map."
   [s]
-  (when-let [[_ lat lon alt u] (re-matches #"(?i)\s*geo:([+-]?\d+(?:\.\d+)?),([+-]?\d+(?:\.\d+)?)(?:,([+-]?\d+(?:\.\d+)?))?(?:;u=(\d+(?:\.\d+)?))?\s*"
+  (when-let [[_ lat lon alt u] (re-matches #"(?i)\s*geo:([+-]?\d+(?:\.\d+)?),\s*([+-]?\d+(?:\.\d+)?)(?:,\s*([+-]?\d+(?:\.\d+)?))?(?:;u=(\d+(?:\.\d+)?))?\s*"
                                            (str s))]
     (cond-> {:lat (read-decimal lat) :lon (read-decimal lon)}
       alt (assoc :altitude (read-decimal alt))
@@ -76,7 +76,7 @@
     :decimal  (read-decimal s)
     :boolean  (read-boolean s)
     :yes-no   (read-yes-no s)
-    :rfc2822  (or-invalid (time/parse-date s))
+    :rfc2822  (or-invalid (some-> (time/parse-date s) time/floor-seconds))
     :iso8601  (or-invalid (or (time/parse-iso8601 s) (time/parse-rfc2822 s)))
     :duration (or-invalid (time/parse-duration s))
     :rrule    (or-invalid (time/parse-rrule s))

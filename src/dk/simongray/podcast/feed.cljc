@@ -9,7 +9,8 @@
   under `:xml/unknown`. Nothing throws on bad values: they stay strings and
   the report says so. The report is metadata on the result, under
   `:podcast/report`, and `report` reads it."
-  (:require [dk.simongray.podcast.coerce :as coerce]
+  (:require [clojure.string :as str]
+            [dk.simongray.podcast.coerce :as coerce]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.xml :as xml]))
@@ -23,17 +24,26 @@
 
 (defn- parse-attrs
   "Coerce the attributes `attrs` of an element by its registry `entry`.
-  Declared attributes get kebab-case keys and typed values; the rest keep
+  Declared attributes get kebab-case keys and typed values; an optional one
+  left blank is absent, with a diagnostic, since it says nothing, while a
+  required one left blank stays for the validator to judge. The rest keep
   their XML names and string values."
   [entry attrs path report]
   (reduce-kv (fn [m k v]
-               (if-let [{:keys [type]} (get (:attrs entry) k)]
+               (if-let [{:keys [type required]} (get (:attrs entry) k)]
                  (let [k' (spec/attr-key k)
                        v' (coerce/parse (or type :text) v)]
-                   (if (coerce/invalid? v')
+                   (cond
+                     (and (str/blank? v) (not required))
+                     (do (note! report {:id :feed/empty-attribute :level :info :path (conj path k')})
+                         m)
+
+                     (coerce/invalid? v')
                      (do (note! report {:id :feed/invalid-value :level :warning
                                         :path (conj path k') :type type :value v})
                          (assoc m k' v))
+
+                     :else
                      (assoc m k' v')))
                  (assoc m k v)))
              {}

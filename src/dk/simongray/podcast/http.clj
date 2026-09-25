@@ -7,7 +7,7 @@
   java.net.http. The `:url` of a response is its final URL after redirects,
   which is what a stored feed URL should become on a permanent redirect."
   (:require [clojure.string :as str])
-  (:import [java.io ByteArrayInputStream InputStream]
+  (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream]
            [java.net URI]
            [java.net.http HttpClient HttpClient$Redirect HttpRequest
                           HttpResponse HttpResponse$BodyHandlers]
@@ -33,17 +33,40 @@
   (first (get headers (str/lower-case header-name))))
 
 (defn- response->map
-  [^HttpResponse response]
+  [^HttpResponse response ^bytes body]
   {:status  (.statusCode response)
    :url     (str (.uri response))
    :headers (into {} (map (fn [[k v]] [(str/lower-case k) (vec v)]))
                   (.map (.headers response)))
-   :body    (.body response)})
+   :body    body})
+
+(def default-max-bytes
+  "How much of a response body `call!` reads before giving up, unless told
+  otherwise: 100 MB, several times the largest feed seen in the wild."
+  (* 100 1024 1024))
+
+(defn- read-bounded
+  "Read `in` to its end into a byte array, throwing `::too-large` once more
+  than `max-bytes` have arrived; nil `max-bytes` reads everything."
+  ^bytes [^InputStream in max-bytes url]
+  (let [out    (ByteArrayOutputStream.)
+        buffer (byte-array 65536)]
+    (loop [total 0]
+      (let [n (.read in buffer)]
+        (if (neg? n)
+          (.toByteArray out)
+          (let [total (+ total n)]
+            (when (and max-bytes (> total max-bytes))
+              (throw (ex-info (str "Response body exceeds " max-bytes " bytes: " url)
+                              {:type ::too-large :url url :max-bytes max-bytes})))
+            (.write out buffer 0 n)
+            (recur total)))))))
 
 (defn- gunzip
-  ^bytes [^bytes body]
+  "Inflate the gzipped `body`, reading at most `max-bytes` of the result."
+  ^bytes [^bytes body max-bytes url]
   (with-open [in (GZIPInputStream. (ByteArrayInputStream. body))]
-    (.readAllBytes ^InputStream in)))
+    (read-bounded in max-bytes url)))
 
 (defn declared-charset
   "The charset a response declares, in its Content-Type header or, failing
@@ -61,10 +84,13 @@
 
 (defn decode
   "The `body` bytes of the response with `headers` as a string, gunzipped
-  when the response says so and decoded by `declared-charset`."
-  [headers ^bytes body]
-  (let [body (if (= "gzip" (header headers "content-encoding")) (gunzip body) body)]
-    (String. body ^Charset (declared-charset headers body))))
+  when the response says so, to at most `max-bytes` (nil for no limit), and
+  decoded by `declared-charset`."
+  ([headers body]
+   (decode headers body nil))
+  ([headers ^bytes body max-bytes]
+   (let [body (if (= "gzip" (header headers "content-encoding")) (gunzip body max-bytes nil) body)]
+     (String. body ^Charset (declared-charset headers body)))))
 
 (def legal-url-characters
   "The ASCII characters a URI may contain as they are: RFC 3986's unreserved
@@ -88,10 +114,14 @@
 (defn call!
   "Send the GET request map `{:url :headers}` (what dk.simongray.podcast.index
   builds, or anything of that shape) and return `{:status :url :headers
-  :body}` with the body decoded to a string; `:timeout-seconds` defaults to
-  30. gzip is accepted and undone, and a URL with illegal characters is
-  encoded first (see `legal-url`)."
-  [{:keys [url headers timeout-seconds] :or {timeout-seconds 30}}]
+  :body}` with the body decoded to a string. `:timeout-seconds` (default 30)
+  bounds the wait for the response headers; `:max-bytes` (default
+  `default-max-bytes`, nil for no limit) bounds the body, compressed and
+  inflated, beyond which `::too-large` is thrown instead of reading on. gzip
+  is accepted and undone, and a URL with illegal characters is encoded first
+  (see `legal-url`)."
+  [{:keys [url headers timeout-seconds max-bytes]
+    :or   {timeout-seconds 30 max-bytes default-max-bytes}}]
   (let [builder  (-> (HttpRequest/newBuilder (URI. (legal-url url)))
                      (.timeout (Duration/ofSeconds timeout-seconds))
                      (.header "Accept-Encoding" "gzip"))
@@ -100,9 +130,12 @@
                                 (merge {"User-Agent" user-agent} headers))
                      (.GET)
                      (.build))
-        response (response->map (.send @client request (HttpResponse$BodyHandlers/ofByteArray)))]
-    (update response :body #(when (and (not= 304 (:status response)) (pos? (alength ^bytes %)))
-                              (decode (:headers response) %)))))
+        response (.send @client request (HttpResponse$BodyHandlers/ofInputStream))
+        body     (with-open [^InputStream in (.body response)]
+                   (read-bounded in max-bytes url))
+        response (response->map response body)]
+    (assoc response :body (when (and (not= 304 (:status response)) (pos? (alength body)))
+                            (decode (:headers response) body max-bytes)))))
 
 (defn fetch!
   "GET the feed at `url` and return `{:status :url :headers :body}` with the
@@ -112,10 +145,12 @@
   body."
   ([url]
    (fetch! url {}))
-  ([url {:keys [etag last-modified timeout-seconds user-agent]
-         :or   {timeout-seconds 30 user-agent dk.simongray.podcast.http/user-agent}}]
+  ([url {:keys [etag last-modified timeout-seconds max-bytes user-agent]
+         :or   {timeout-seconds 30 max-bytes default-max-bytes
+                user-agent      dk.simongray.podcast.http/user-agent}}]
    (let [response (call! {:url             url
                           :timeout-seconds timeout-seconds
+                          :max-bytes       max-bytes
                           :headers         (cond-> {"User-Agent" user-agent
                                                     "Accept"     "application/rss+xml, application/xml, text/xml, */*"}
                                              etag          (assoc "If-None-Match" etag)
