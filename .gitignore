@@ -8,3 +8,7 @@ target/
 .idea/
 # raw downloaded feed corpus; recreate with (corpus/download!) from dev/corpus.clj
 dev-resources/corpus/
+
+# ClojureScript tooling
+node_modules/
+.shadow-cljs/

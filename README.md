@@ -78,16 +78,23 @@ Development
 -----------
 
 ```bash
-clojure -M:dev:nrepl      # nREPL on port 7888
-clojure -X:test           # the test suite
+clojure -M:dev:nrepl                  # nREPL on port 7888
+clojure -X:test                       # the test suite on the JVM
+npm install                           # once: shadow-cljs and the Node DOMParser
+clojure -M:cljs compile test          # the same suite under Node
+clojure -M:cljs compile browser-test  # the same suite for a browser; serve target/browser-test
 ```
 
-The corpus test runs over whatever is in `dev-resources/corpus/` and passes
-vacuously when the directory is empty.
+The tests are `.cljc` and run on both platforms. Under Node,
+`test/dk/simongray/podcast/test_setup.cljs` installs the DOMParser from
+`@xmldom/xmldom` as `js/DOMParser`; the library itself has no npm
+dependencies. The corpus test is JVM-only, runs over whatever is in
+`dev-resources/corpus/`, and passes vacuously when the directory is empty.
 
 Status
 ------
 
 Early. The JVM path is exercised against a corpus of feeds from some thirty
-hosting platforms; the ClojureScript adapter is written but not yet built or
-tested. See the roadmap at the end of the architecture document.
+hosting platforms, and the whole library compiles and passes its tests as
+ClojureScript, both under Node and in a browser. See the roadmap at the end
+of the architecture document.

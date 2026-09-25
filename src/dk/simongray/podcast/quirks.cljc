@@ -178,14 +178,16 @@
   "Declare on the root element of `s` every undeclared prefix that names one
   of the namespaces in `xml/namespaces`."
   [s]
-  (let [missing (filter #(contains? xml/namespaces (keyword %)) (undeclared-prefixes s))]
-    (if (empty? missing)
+  (let [missing (filter #(contains? xml/namespaces (keyword %)) (undeclared-prefixes s))
+        open    (re-find #"<[A-Za-z][\w.-]*" s)
+        at      (some->> open (str/index-of s))]
+    (if (or (empty? missing) (nil? at))
       s
-      (str/replace-first s #"<([A-Za-z][\w.-]*)"
-                         (fn [[_ root]]
-                           (apply str "<" root
-                                  (for [p missing]
-                                    (str " xmlns:" p "=\"" (xml/namespaces (keyword p)) "\""))))))))
+      (let [end (+ at (count open))]
+        (str (subs s 0 end)
+             (apply str (for [p missing]
+                          (str " xmlns:" p "=\"" (xml/namespaces (keyword p)) "\"")))
+             (subs s end))))))
 
 (def repairs
   "The text repairs, in the order they are applied."

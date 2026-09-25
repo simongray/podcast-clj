@@ -67,8 +67,13 @@
    "Authorization" (guid/sha1-hex (str key secret seconds))})
 
 (defn- encode
+  "Percent-encode `s` for a query string, the same way on both platforms:
+  spaces become %20, not +."
   [s]
-  #?(:clj  (java.net.URLEncoder/encode (str s) "UTF-8")
+  #?(:clj  (-> (java.net.URLEncoder/encode (str s) "UTF-8")
+               (str/replace "+" "%20")
+               (str/replace "*" "%2A")
+               (str/replace "%7E" "~"))
      :cljs (js/encodeURIComponent (str s))))
 
 (defn query-string

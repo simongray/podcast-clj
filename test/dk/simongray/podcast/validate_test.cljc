@@ -1,8 +1,14 @@
 (ns dk.simongray.podcast.validate-test
-  (:require [clojure.java.io :as io]
+  (:require #?(:clj [clojure.java.io :as io])
+            #?(:cljs [shadow.resource :as rc])
+            #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.validate :as validate]))
+
+(def example
+  (delay #?(:clj  (slurp (io/resource "feeds/namespace-example.xml"))
+            :cljs (rc/inline "feeds/namespace-example.xml"))))
 
 (defn- ids
   [findings]
@@ -38,7 +44,7 @@
          (ids (validate/validate (podcast/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><item><title>E</title></item></channel></rss>"))))))
 
 (deftest profiles
-  (let [f (podcast/parse (slurp (io/resource "feeds/namespace-example.xml")))]
+  (let [f (podcast/parse @example)]
     (testing "the specification example against PSP-1"
       (let [v (validate/validate f :psp-1)]
         (is (= 1 (:validate/profile-required (ids v))))

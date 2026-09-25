@@ -31,6 +31,12 @@
           :main-opts   ["-m" "cognitect.test-runner"]
           :exec-fn     cognitect.test-runner.api/test}
 
+  ;; clojure -M:cljs compile test          (the suite under Node)
+  ;; clojure -M:cljs compile browser-test  (the suite for a browser)
+  :cljs  {:extra-paths ["test" "test/resources"]
+          :extra-deps  {thheller/shadow-cljs {:mvn/version "3.5.3"}}
+          :main-opts   ["-m" "shadow.cljs.devtools.cli"]}
+
   ;; clojure -M:dev:nrepl
   :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.7.0"}}
           ;; lets nrepl interrupt runaway evaluations

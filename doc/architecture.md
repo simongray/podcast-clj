@@ -202,7 +202,7 @@ have the same shape so the reference app can show one list.
 
 | Concern | JVM | JS |
 |---|---|---|
-| XML in | `javax.xml.stream`, namespace-aware off, DTD off | `DOMParser` |
+| XML in | `javax.xml.stream`, namespace-aware off, DTD off | `js/DOMParser`: the browser's, or one the host installs |
 | JSON | `clojure.data.json` | `js/JSON` |
 | SHA-1 (guid, index auth) | `java.security.MessageDigest` | `goog.crypt.Sha1` |
 | Instants | `java.util.Date` via millis | `js/Date` via millis |
@@ -211,6 +211,19 @@ have the same shape so the reference app can show one list.
 The date parser, the duration parser and the UUIDv5 computation are written
 once in `.cljc` from arithmetic and regular expressions rather than from
 `java.time` or `js-joda`, so they behave identically everywhere.
+
+The JS adapter uses only the standard DOM API (`parseFromString`,
+`getElementsByTagName`, `item`, `nodeName`, `nodeValue`), so any DOMParser
+will do. A browser reports a malformed document with a `parsererror`
+element; other implementations may throw or return a document without a
+root, and all three become the same `::malformed` exception. Under Node the
+test setup installs `@xmldom/xmldom` as `js/DOMParser`, configured to throw
+on every error the way a browser would report one. Two differences between
+the platforms shaped the code: a DOMParser is namespace-aware and rejects an
+undeclared prefix that the JVM's parser lets through, which is what the
+undeclared-prefix repair is for; and ClojureScript's `str/replace-first`
+does not accept a function replacement the way Clojure's does, so the
+repairs avoid it.
 
 ## The reference web app
 
@@ -223,8 +236,10 @@ to test it; it touches nothing but the public API.
 
 ## Testing
 
-- Unit tests per namespace with `clojure.test`; the spec repository's
-  `example.xml` and companion examples are fixtures (CC0).
+- Unit tests per namespace with `clojure.test`, written as `.cljc` and run on
+  the JVM, under Node and in a browser (shadow-cljs `:node-test` and
+  `:browser-test` builds); the spec repository's `example.xml` and companion
+  examples are fixtures (CC0), inlined into the JS builds at compile time.
 - Hand-written fixture feeds, one quirk each, with the expected report.
 - A corpus of real feeds from some thirty hosts in `dev-resources/corpus/`,
   outside git, recreated by `dev/corpus.clj`. A corpus test parses every feed,
@@ -233,9 +248,9 @@ to test it; it touches nothing but the public API.
 
 ## Roadmap
 
-1. Core: `xml`, `time`, `guid`, `spec`, `feed`, `quirks`, `validate`.
-2. Companions: `chapters`, `transcript`, `opml`, `value`, `index`.
-3. Reference web app and corpus tooling.
-4. ClojureScript build and browser test of the `DOMParser` adapter.
+1. Core: `xml`, `time`, `guid`, `spec`, `feed`, `quirks`, `validate`. Done.
+2. Companions: `chapters`, `transcript`, `opml`, `value`, `index`. Done.
+3. Reference web app and corpus tooling. Done.
+4. ClojureScript build and browser test of the `DOMParser` adapter. Done.
 5. Lenient XML adapter (jsoup) for feeds that are not well-formed at all.
 6. Malli schemas generated from the registry; Podping consumer; sync model.

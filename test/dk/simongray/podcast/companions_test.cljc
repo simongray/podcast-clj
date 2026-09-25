@@ -1,6 +1,8 @@
 (ns dk.simongray.podcast.companions-test
   "Chapters, transcripts, OPML, value blocks and the Podcast Index client."
-  (:require [clojure.java.io :as io]
+  (:require #?(:clj [clojure.java.io :as io])
+            #?(:cljs [shadow.resource :as rc])
+            #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.chapters :as chapters]
             [dk.simongray.podcast.index :as index]
@@ -8,14 +10,30 @@
             [dk.simongray.podcast.transcript :as transcript]
             [dk.simongray.podcast.value :as value]))
 
-(defn- fixture
-  [path]
-  (slurp (io/resource path)))
+(def complex-chapters
+  #?(:clj  (slurp (io/resource "chapters/example-complex.json"))
+     :cljs (rc/inline "chapters/example-complex.json")))
+
+(def vtt-text
+  #?(:clj  (slurp (io/resource "transcripts/example.vtt"))
+     :cljs (rc/inline "transcripts/example.vtt")))
+
+(def srt-text
+  #?(:clj  (slurp (io/resource "transcripts/example.srt"))
+     :cljs (rc/inline "transcripts/example.srt")))
+
+(def json-text
+  #?(:clj  (slurp (io/resource "transcripts/example.json"))
+     :cljs (rc/inline "transcripts/example.json")))
+
+(def html-text
+  #?(:clj  (slurp (io/resource "transcripts/example.html"))
+     :cljs (rc/inline "transcripts/example.html")))
 
 ;;;; Chapters
 
 (deftest json-chapters
-  (let [doc (chapters/parse-json (fixture "chapters/example-complex.json"))]
+  (let [doc (chapters/parse-json complex-chapters)]
     (is (= "1.2.0" (:version doc)))
     (is (= 11 (count (:chapters doc))))
     (is (= {:start-time 0 :title "Intro"} (first (:chapters doc))))
@@ -42,10 +60,10 @@
 ;;;; Transcripts
 
 (deftest transcript-formats
-  (let [vtt (transcript/parse (fixture "transcripts/example.vtt"))
-        srt (transcript/parse (fixture "transcripts/example.srt") "application/x-subrip")
-        js  (transcript/parse (fixture "transcripts/example.json"))
-        html (transcript/parse (fixture "transcripts/example.html"))]
+  (let [vtt  (transcript/parse vtt-text)
+        srt  (transcript/parse srt-text "application/x-subrip")
+        js   (transcript/parse json-text)
+        html (transcript/parse html-text)]
     (is (= :vtt (:format vtt)))
     (is (= {:start 0 :end 2.76 :speaker "Sarah" :body "In today's episode, you'll learn whether or not you"}
            (first (:segments vtt))))
@@ -60,10 +78,10 @@
     (is (= "Travis" (:speaker (first (:segments html)))))
     (is (= 0 (:start (first (:segments html)))))
     (testing "sniffing"
-      (is (= :vtt (transcript/sniff (fixture "transcripts/example.vtt"))))
-      (is (= :srt (transcript/sniff (fixture "transcripts/example.srt"))))
-      (is (= :json (transcript/sniff (fixture "transcripts/example.json"))))
-      (is (= :html (transcript/sniff (fixture "transcripts/example.html"))))
+      (is (= :vtt (transcript/sniff vtt-text)))
+      (is (= :srt (transcript/sniff srt-text)))
+      (is (= :json (transcript/sniff json-text)))
+      (is (= :html (transcript/sniff html-text)))
       (is (= :text (transcript/sniff "Just words."))))
     (testing "round trips"
       (is (= (:segments srt) (:segments (transcript/parse (transcript/emit-srt srt)))))
@@ -123,9 +141,10 @@
 (deftest index-requests
   (let [r (index/request {:key "K" :secret "S"} :search/by-term {:q "podcasting 2.0" :max 5 :fulltext true} 1700000000)]
     (is (= :get (:method r)))
-    (is (= "https://api.podcastindex.org/api/1.0/search/byterm?q=podcasting+2.0&max=5&fulltext" (:url r)))
+    (is (= "https://api.podcastindex.org/api/1.0/search/byterm?q=podcasting%202.0&max=5&fulltext" (:url r)))
     (is (= {"User-Agent" "dk.simongray/podcast" "X-Auth-Key" "K" "X-Auth-Date" "1700000000"
             "Authorization" "2112f595eb505b9d54dc5eab2336b197daf80af4"}
            (:headers r))))
-  (is (thrown? clojure.lang.ExceptionInfo (index/request {:key "K" :secret "S"} :nope {})))
+  (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
+               (index/request {:key "K" :secret "S"} :nope {})))
   (is (= {"status" "true"} (index/response "{\"status\":\"true\"}"))))

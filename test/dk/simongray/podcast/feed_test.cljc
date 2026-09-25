@@ -1,12 +1,15 @@
 (ns dk.simongray.podcast.feed-test
-  (:require [clojure.java.io :as io]
+  (:require #?(:clj [clojure.java.io :as io])
+            #?(:cljs [shadow.resource :as rc])
+            #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.xml :as xml]))
 
 (def example
-  (delay (slurp (io/resource "feeds/namespace-example.xml"))))
+  (delay #?(:clj  (slurp (io/resource "feeds/namespace-example.xml"))
+            :cljs (rc/inline "feeds/namespace-example.xml"))))
 
 (deftest namespace-example
   (let [f (podcast/parse @example)]
@@ -89,5 +92,5 @@
   (is (= "9b024349-ccf0-5f69-a609-6b82873eab3c" (feed/feed-guid {} "https://podnews.net/rss"))))
 
 (deftest not-rss
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Not an RSS"
+  (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"Not an RSS"
                         (feed/parse (xml/parse "<feed xmlns=\"http://www.w3.org/2005/Atom\"/>")))))

@@ -182,17 +182,46 @@
        (throw (ex-info "Cannot parse XML from this value" {:type (type xml)})))))
 
 #?(:cljs
+   (defn- items
+     "The members of the DOM collection `coll` (a NodeList or NamedNodeMap),
+     through the `item` method every implementation has."
+     [coll]
+     (map #(.item coll %) (range (.-length coll)))))
+
+#?(:cljs
    (defn- node->raw
+     "The raw Hiccup for the DOM `node`: elements and their text, nothing else."
      [node]
      (case (.-nodeType node)
-       1 (let [as (.-attributes node)]
-           (into [(.-nodeName node)
-                  (into {} (for [i (range (.-length as))
-                                 :let [a (.item as i)]]
-                             [(.-name a) (.-value a)]))]
-                 (compact-text (keep node->raw (array-seq (.-childNodes node))))))
+       1 (into [(.-nodeName node)
+                (into {} (for [a (items (.-attributes node))]
+                           [(.-nodeName a) (.-nodeValue a)]))]
+               (compact-text (keep node->raw (items (.-childNodes node)))))
        (3 4) (.-nodeValue node)
        nil)))
+
+#?(:cljs
+   (defn- malformed
+     [message]
+     (ex-info (str "Malformed XML: " message) {:type ::malformed})))
+
+#?(:cljs
+   (defn- dom-parse
+     "Parse `xml` with the DOMParser of the platform (the browser's, or one a
+     host such as Node has installed as `js/DOMParser`) into its root element.
+     Browsers report errors as a parsererror element; other implementations
+     may throw or hand back a document without a root."
+     [xml]
+     (let [doc    (try
+                    (.parseFromString (js/DOMParser.) xml "text/xml")
+                    (catch :default e
+                      (throw (malformed (or (ex-message e) (str e))))))
+           errors (.getElementsByTagName doc "parsererror")
+           root   (.-documentElement doc)]
+       (cond
+         (pos? (.-length errors)) (throw (malformed (.-textContent (.item errors 0))))
+         (nil? root)              (throw (malformed "no root element"))
+         :else                    root))))
 
 (defn parse-raw
   "Parse `xml` into raw Hiccup: names as written, declarations kept as
@@ -217,10 +246,7 @@
          (finally
            (.close r))))
      :cljs
-     (let [doc (.parseFromString (js/DOMParser.) (strip-bom xml) "text/xml")]
-       (if-let [err (.querySelector doc "parsererror")]
-         (throw (ex-info (str "Malformed XML: " (.-textContent err)) {:type ::malformed}))
-         (node->raw (.-documentElement doc))))))
+     (node->raw (dom-parse (strip-bom xml)))))
 
 ;;;; Namespace resolution
 

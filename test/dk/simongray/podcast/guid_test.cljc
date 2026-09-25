@@ -14,7 +14,9 @@
 
 (deftest sha1
   (is (= "a9993e364706816aba3e25717850c26c9cd0d89d" (guid/sha1-hex "abc")))
-  (is (= "da39a3ee5e6b4b0d3255bfef95601890afd80709" (guid/sha1-hex ""))))
+  (is (= "da39a3ee5e6b4b0d3255bfef95601890afd80709" (guid/sha1-hex "")))
+  (testing "multi-byte characters are hashed as UTF-8"
+    (is (= "924dff0812d0a21590dc8b4ab01f90138410c611" (guid/sha1-hex "æøå")))))
 
 (deftest uuid-v5
   (testing "RFC 4122 appendix example for the DNS namespace"

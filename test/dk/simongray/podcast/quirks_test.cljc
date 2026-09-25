@@ -1,8 +1,16 @@
 (ns dk.simongray.podcast.quirks-test
-  (:require [clojure.java.io :as io]
+  (:require #?(:clj [clojure.java.io :as io])
+            #?(:cljs [shadow.resource :as rc])
+            #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.quirks :as quirks]))
+            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.quirks :as quirks]
+            [dk.simongray.podcast.xml :as xml]))
+
+(def quirky
+  (delay #?(:clj  (slurp (io/resource "feeds/quirky.xml"))
+            :cljs (rc/inline "feeds/quirky.xml"))))
 
 (deftest repairs
   (testing "each repair on its own"
@@ -31,7 +39,7 @@
 
 (deftest normalizations
   (let [tree (quirks/normalize
-              (dk.simongray.podcast.xml/parse
+              (xml/parse
                "<rss xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel>
                   <itunes:image>https://x/y.jpg</itunes:image><itunes:explicit>Yes</itunes:explicit>
                   <podcast:images srcset=\"https://a/1.jpg 1500w, https://a/2.jpg 600w\"/>
@@ -44,7 +52,7 @@
              :quirk/duration-format :quirk/empty-guid :quirk/date-format
              :quirk/enclosure-length :quirk/transcript-type}
            (set ids)))
-    (let [f (dk.simongray.podcast.feed/parse tree)
+    (let [f    (feed/parse tree)
           item (first (:rss/items f))]
       (is (= {:href "https://x/y.jpg"} (:itunes/image f)))
       (is (true? (:itunes/explicit f)))
@@ -54,7 +62,7 @@
       (is (= "application/x-subrip" (get-in item [:podcast/transcripts 0 :type]))))))
 
 (deftest the-quirky-fixture
-  (let [f    (podcast/parse (slurp (io/resource "feeds/quirky.xml")))
+  (let [f    (podcast/parse @quirky)
         ids  (frequencies (map :id (podcast/report f)))
         item (first (:rss/items f))]
     (testing "the document was repaired before it could be parsed"
@@ -83,4 +91,5 @@
         (is (re-find #"xmlns:acme=\"https://acme.example/rss-extensions\"" out))
         (is (= f (podcast/parse out)))))
     (testing "the strict path refuses the document"
-      (is (thrown? clojure.lang.ExceptionInfo (podcast/parse (slurp (io/resource "feeds/quirky.xml")) false))))))
+      (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
+                   (podcast/parse @quirky false))))))
