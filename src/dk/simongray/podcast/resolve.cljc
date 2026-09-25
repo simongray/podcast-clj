@@ -168,9 +168,10 @@
 
 (defn enclosures
   "Everything `item` offers to play, most conventional first: the enclosure,
-  then every alternateEnclosure source, then Media RSS contents, as maps
-  with `:url`, `:source` (:enclosure, :alternate or :media) and whatever
-  else was declared: `:type`, `:length`, `:bitrate`, `:title`, `:default`."
+  then every alternateEnclosure source, then Media RSS contents, in the item
+  or its media:group, as maps with `:url`, `:source` (:enclosure, :alternate
+  or :media) and whatever else was declared: `:type`, `:length`, `:bitrate`,
+  `:title`, `:default`."
   [item]
   (concat
    (when-let [{:keys [url] :as enclosure} (:rss/enclosure item)]
@@ -183,7 +184,8 @@
                  (dissoc :sources :integrity)
                  (assoc :url uri :source :alternate))
        content-type (assoc :transport content-type)))
-   (for [{:keys [url file-size] :as content} (:media/contents item)
+   (for [{:keys [url file-size] :as content} (concat (:media/contents item)
+                                                     (:contents (:media/group item)))
          :when url]
      (cond-> (-> content (dissoc :file-size) (assoc :source :media))
        file-size (assoc :length file-size)))))

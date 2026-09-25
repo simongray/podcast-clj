@@ -317,6 +317,15 @@ to test it; it touches nothing but the public API.
   and type, with a manifest. `corpus/sweep-companions` parses them all and
   tabulates segments, speakers and the format sniffed against the one
   declared; the quirks it exposed each have a synthetic fixture in the tests.
+- A third corpus, in `dev-resources/corpus/sweep/`, of a few hundred feeds
+  sampled through the Podcast Index by `corpus/sweep-populations`: a random
+  slice of the recently updated feeds, of the newly added ones, of the feeds
+  with value blocks and of every non-podcast medium. `corpus/sweep-report`
+  parses them all and aggregates parse errors, report and validation
+  findings by the number of feeds they touch, unknown elements by tag,
+  values that would not coerce, and round-trip changes. The first sweep, of
+  554 feeds on 2026-09-25, had no parse failures; it turned up the registry
+  gaps, quirks and emitter bugs fixed alongside it, each with a test.
 - The reference app's item page fetches an item's chapters and transcript and
   renders them, so that the companions are exercised on real files whenever a
   feed is inspected.
@@ -332,4 +341,9 @@ to test it; it touches nothing but the public API.
 7. Real-world chapter and transcript files as a second corpus. Done.
 8. Generated tag reference; Malli schemas from the registry. Done.
 9. Podcast Index: sending requests and mapping responses into the model. Done.
-10. Podping consumer; sync model.
+10. Podping consumer; sync model. Deferred until a crawler or an app needs them.
+11. Hardening: a sweep of several hundred indexed feeds, with the registry,
+    quirks and emitter fixes it turned up. Done.
+12. The small correctness items the sweep left: emit speed, findings
+    summaries, live items in `feed/diff`, the accessors still missing.
+13. An API review, then the first release: license, build, CI, Clojars.

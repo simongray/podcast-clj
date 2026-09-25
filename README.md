@@ -191,6 +191,13 @@ The tests are `.cljc` and run on both platforms. Under Node,
 dependencies. The corpus test is JVM-only, runs over whatever is in
 `dev-resources/corpus/`, and passes vacuously when the directory is empty.
 
+The corpus tooling is `dev/corpus.clj`, for the REPL: `(corpus/download!)`
+and `(corpus/sweep)` for the named feeds, `(corpus/download-companions!)`
+and `(corpus/sweep-companions)` for the chapter and transcript files they
+link to, and `(corpus/download-sweep! (corpus/sweep-populations credentials))`
+followed by `(corpus/sweep-report)` for a few hundred feeds sampled through
+the Podcast Index, which is how registry gaps and quirks are found.
+
 Status
 ------
 

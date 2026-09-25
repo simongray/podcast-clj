@@ -284,6 +284,15 @@ Email address of the author of the item.
 - Count: one
 - Text: email
 
+### `<author>`
+
+Not RSS 2.0, but a fifth of feeds name their author here as well.
+
+- Key: `:rss/author`
+- Parent: channel
+- Count: one
+- Text: text
+
 ### `<comments>`
 
 URL of a page for comments relating to the item.
@@ -491,6 +500,15 @@ Comma-separated keywords; no longer read by Apple.
 
 - Key: `:itunes/keywords`
 - Parent: channel, item (and liveItem)
+- Count: one
+- Text: text
+
+### `<itunes:applepodcastsverify>`
+
+The token Apple Podcasts Connect issues to prove ownership of the feed.
+
+- Key: `:itunes/applepodcastsverify`
+- Parent: channel
 - Count: one
 - Text: text
 
@@ -1058,12 +1076,21 @@ Yahoo's Media RSS module, as far as podcast hosts use it.
 
 - `media`: http://search.yahoo.com/mrss/
 
+### `<media:group>`
+
+Renditions of one media object, as media:content children.
+
+- Key: `:media/group`
+- Parent: item (and liveItem)
+- Count: one
+- Text: none
+
 ### `<media:content>`
 
 A media object; some hosts use it beside or instead of enclosure.
 
-- Key: `:media/contents`
-- Parent: item (and liveItem)
+- Key: `:media/contents` under item (and liveItem), `:contents` under <media:group>
+- Parent: item (and liveItem), <media:group>
 - Count: many
 - Text: none
 
@@ -1084,12 +1111,38 @@ A media object; some hosts use it beside or instead of enclosure.
 | `url` | `:url` | url |  |
 | `width` | `:width` | integer |  |
 
+### `<media:title>`
+
+The title of the media object.
+
+- Key: `:media/title` under channel, `:media/title` under item (and liveItem), `:title` under <media:content>, `:title` under <media:group>
+- Parent: channel, item (and liveItem), <media:content>, <media:group>
+- Count: one
+- Text: text
+
+| Attribute | Key | Type | |
+|---|---|---|---|
+| `type` | `:type` | enum: `html`, `plain` |  |
+
+### `<media:description>`
+
+A short description of the media object.
+
+- Key: `:media/description` under channel, `:media/description` under item (and liveItem), `:description` under <media:content>, `:description` under <media:group>
+- Parent: channel, item (and liveItem), <media:content>, <media:group>
+- Count: one
+- Text: text
+
+| Attribute | Key | Type | |
+|---|---|---|---|
+| `type` | `:type` | enum: `html`, `plain` |  |
+
 ### `<media:thumbnail>`
 
 A representative image.
 
-- Key: `:media/thumbnails`
-- Parent: channel, item (and liveItem)
+- Key: `:media/thumbnails` under channel, `:media/thumbnails` under item (and liveItem), `:thumbnails` under <media:content>, `:thumbnails` under <media:group>
+- Parent: channel, item (and liveItem), <media:content>, <media:group>
 - Count: many
 - Text: none
 
@@ -1100,26 +1153,12 @@ A representative image.
 | `url` | `:url` | url | required |
 | `width` | `:width` | integer |  |
 
-### `<media:restriction>`
-
-Restrictions on the media, e.g. by country.
-
-- Key: `:media/restrictions`
-- Parent: channel, item (and liveItem)
-- Count: many
-- Text: text
-
-| Attribute | Key | Type | |
-|---|---|---|---|
-| `relationship` | `:relationship` | text | required |
-| `type` | `:type` | text |  |
-
 ### `<media:player>`
 
 A web page that plays the media.
 
-- Key: `:media/player`
-- Parent: item (and liveItem)
+- Key: `:media/player` under item (and liveItem), `:player` under <media:content>, `:player` under <media:group>
+- Parent: item (and liveItem), <media:content>, <media:group>
 - Count: one
 - Text: none
 
@@ -1129,12 +1168,26 @@ A web page that plays the media.
 | `url` | `:url` | url | required |
 | `width` | `:width` | integer |  |
 
+### `<media:credit>`
+
+Someone who contributed to the media, by role.
+
+- Key: `:media/credits` under channel, `:media/credits` under item (and liveItem), `:credits` under <media:content>, `:credits` under <media:group>
+- Parent: channel, item (and liveItem), <media:content>, <media:group>
+- Count: many
+- Text: text
+
+| Attribute | Key | Type | |
+|---|---|---|---|
+| `role` | `:role` | text |  |
+| `scheme` | `:scheme` | text |  |
+
 ### `<media:rating>`
 
 A rating such as adult or nonadult.
 
-- Key: `:media/ratings`
-- Parent: channel, item (and liveItem)
+- Key: `:media/ratings` under channel, `:media/ratings` under item (and liveItem), `:ratings` under <media:content>, `:ratings` under <media:group>
+- Parent: channel, item (and liveItem), <media:content>, <media:group>
 - Count: many
 - Text: text
 
@@ -1146,8 +1199,8 @@ A rating such as adult or nonadult.
 
 A category from a Media RSS scheme.
 
-- Key: `:media/categories`
-- Parent: channel, item (and liveItem)
+- Key: `:media/categories` under channel, `:media/categories` under item (and liveItem), `:categories` under <media:content>, `:categories` under <media:group>
+- Parent: channel, item (and liveItem), <media:content>, <media:group>
 - Count: many
 - Text: text
 
@@ -1160,8 +1213,8 @@ A category from a Media RSS scheme.
 
 Copyright information for the media.
 
-- Key: `:media/copyright`
-- Parent: channel, item (and liveItem)
+- Key: `:media/copyright` under channel, `:media/copyright` under item (and liveItem), `:copyright` under <media:content>, `:copyright` under <media:group>
+- Parent: channel, item (and liveItem), <media:content>, <media:group>
 - Count: one
 - Text: text
 
@@ -1173,10 +1226,24 @@ Copyright information for the media.
 
 Comma-separated keywords for the media.
 
-- Key: `:media/keywords`
-- Parent: channel, item (and liveItem)
+- Key: `:media/keywords` under channel, `:media/keywords` under item (and liveItem), `:keywords` under <media:content>, `:keywords` under <media:group>
+- Parent: channel, item (and liveItem), <media:content>, <media:group>
 - Count: one
 - Text: text
+
+### `<media:restriction>`
+
+Restrictions on the media, e.g. by country.
+
+- Key: `:media/restrictions` under channel, `:media/restrictions` under item (and liveItem), `:restrictions` under <media:content>, `:restrictions` under <media:group>
+- Parent: channel, item (and liveItem), <media:content>, <media:group>
+- Count: many
+- Text: text
+
+| Attribute | Key | Type | |
+|---|---|---|---|
+| `relationship` | `:relationship` | text | required |
+| `type` | `:type` | text |  |
 
 ## Google Play and Spotify
 
@@ -1258,6 +1325,19 @@ Space-separated ISO 3166 country codes for Spotify's targeting.
 - Count: one
 - Text: text
 
+### `<spotify:limit>`
+
+How many recent episodes Spotify should show.
+
+- Key: `:spotify/limit`
+- Parent: channel
+- Count: one
+- Text: none
+
+| Attribute | Key | Type | |
+|---|---|---|---|
+| `recentCount` | `:recent-count` | integer |  |
+
 ## Atom, Dublin Core, content and syndication
 
 Modules from the wider RSS world that podcast feeds carry.
@@ -1286,10 +1366,10 @@ A link; rel=self gives the canonical feed URL, rel=next pages the archive.
 
 ### `<content:encoded>`
 
-The full HTML content of the item.
+The full HTML content of the item; some hosts give the channel one too.
 
 - Key: `:content/encoded`
-- Parent: item (and liveItem)
+- Parent: channel, item (and liveItem)
 - Count: one
 - Text: html
 

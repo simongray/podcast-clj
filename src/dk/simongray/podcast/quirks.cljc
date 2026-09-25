@@ -12,13 +12,16 @@
     prefixes to (`http` for `https`, casing, a trailing slash, an old URI).
   - `normalize` rewrites a canonical Hiccup *tree* into the form the
     specifications describe: an `itunes:image` written as text becomes an
-    `href`, `yes`/`no` in `itunes:explicit` becomes `true`/`false`, misspelt
-    transcript types are corrected, and dates and durations in non-canonical
-    forms are pointed out.
+    `href`, `yes`/`no` in `itunes:explicit` becomes `true`/`false` and
+    `true`/`false` in yes/no elements becomes `yes`/`no`, misspelt
+    transcript types are corrected, an `href` where `url` belongs is
+    renamed, an item's attribute-only `image` becomes `itunes:image`, and
+    dates and durations in non-canonical forms are pointed out.
 
   Every rule has an id, and every application lands in a report, so that a
   feed's distance from the standards is measurable."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.time :as time]
             [dk.simongray.podcast.xml :as xml]))
 
@@ -231,6 +234,42 @@
   {"true" "true" "yes" "true" "explicit" "true"
    "false" "false" "no" "false" "clean" "false"})
 
+(def yes-no-values
+  "What feeds write in yes/no elements such as podcast:locked, and what
+  they mean."
+  {"yes" "yes" "true" "yes" "no" "no" "false" "no"})
+
+(defn- canonical-text
+  "A rewrite of an element's text by the `values` table, case ignored."
+  [values]
+  (fn [element]
+    (let [v (str/lower-case (str/trim (xml/text element)))]
+      (if-let [canonical (values v)]
+        (if (= canonical v) element (text-element element canonical))
+        element))))
+
+(defn- href->url
+  "The `element` with an href attribute renamed to the url the specification
+  asks for, when it has no url of its own."
+  [[tag attrs :as element]]
+  (if (and (contains? attrs :href) (not (contains? attrs :url)))
+    (into [tag (-> attrs (dissoc :href) (assoc :url (:href attrs)))] (xml/children element))
+    element))
+
+(defn- item-image->itunes
+  "The `item` with an attribute-only image element, which RSS 2.0 does not
+  have, replaced by the itunes:image it stands for, unless the item has one."
+  [item]
+  (let [image (first (filter #(and (= :image (xml/tag %))
+                                   (:url (xml/attrs %))
+                                   (empty? (xml/children %)))
+                             (xml/elements item)))]
+    (if (or (nil? image) (xml/element item :itunes/image))
+      item
+      (into [(xml/tag item) (xml/attrs item)]
+            (map #(if (identical? % image) [:itunes/image {:href (:url (xml/attrs image))}] %)
+                 (xml/children item))))))
+
 (def transcript-types
   "Non-standard spellings of transcript types, and the standard ones."
   {"srt"              "application/x-subrip"
@@ -266,51 +305,53 @@
 (def rules
   "The tree rules, applied to every element in document order, children
   before parents."
-  [(rewrite :quirk/itunes-image-text :itunes/image
-            (fn [[tag attrs :as element]]
-              (let [href (or (:href attrs) (:url attrs) (not-empty (str/trim (xml/text element))))]
-                (if href
-                  [tag (-> attrs (dissoc :url) (assoc :href href))]
-                  element))))
-   (rewrite :quirk/explicit-value :itunes/explicit
-            (fn [element]
-              (let [v (str/lower-case (str/trim (xml/text element)))]
-                (if-let [canonical (explicit-values v)]
-                  (if (= canonical v) element (text-element element canonical))
-                  element))))
-   (rewrite :quirk/transcript-type :podcast/transcript
-            (fn [[tag attrs :as element]]
-              (if-let [t (transcript-types (some-> (:type attrs) str/trim str/lower-case))]
-                [tag (assoc attrs :type t)]
-                element)))
-   (rewrite :quirk/enclosure-length :enclosure
-            (fn [[tag attrs :as element]]
-              (if (and (contains? attrs :length)
-                       (not (re-matches #"\s*\d+\s*" (str (:length attrs)))))
-                [tag (dissoc attrs :length)]
-                element)))
-   (rewrite :quirk/empty-guid :guid
-            (fn [element]
-              (if (str/blank? (xml/text element))
-                nil
-                element)))
-   (rewrite :quirk/deprecated-images :channel add-images)
-   (rewrite :quirk/deprecated-images :item add-images)
-   (check :quirk/duration-format :itunes/duration
-          (fn [element]
-            (let [s (str/trim (xml/text element))]
-              (when (and (time/parse-duration s) (not (re-matches #"\d+" s)))
-                {:value s}))))
-   (check :quirk/date-format :pubDate
-          (fn [element]
-            (let [s (str/trim (xml/text element))]
-              (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
-                {:value s}))))
-   (check :quirk/date-format :lastBuildDate
-          (fn [element]
-            (let [s (str/trim (xml/text element))]
-              (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
-                {:value s}))))])
+  (into
+   [(rewrite :quirk/itunes-image-text :itunes/image
+             (fn [[tag attrs :as element]]
+               (let [href (or (:href attrs) (:url attrs) (not-empty (str/trim (xml/text element))))]
+                 (if href
+                   [tag (-> attrs (dissoc :url) (assoc :href href))]
+                   element))))
+    (rewrite :quirk/explicit-value :itunes/explicit (canonical-text explicit-values))
+    (rewrite :quirk/transcript-type :podcast/transcript
+             (fn [[tag attrs :as element]]
+               (if-let [t (transcript-types (some-> (:type attrs) str/trim str/lower-case))]
+                 [tag (assoc attrs :type t)]
+                 element)))
+    (rewrite :quirk/attribute-name :podcast/transcript href->url)
+    (rewrite :quirk/attribute-name :podcast/chapters href->url)
+    (rewrite :quirk/enclosure-length :enclosure
+             (fn [[tag attrs :as element]]
+               (if (and (contains? attrs :length)
+                        (not (re-matches #"\s*\d+\s*" (str (:length attrs)))))
+                 [tag (dissoc attrs :length)]
+                 element)))
+    (rewrite :quirk/empty-guid :guid
+             (fn [element]
+               (if (str/blank? (xml/text element))
+                 nil
+                 element)))
+    (rewrite :quirk/deprecated-images :channel add-images)
+    (rewrite :quirk/deprecated-images :item add-images)
+    (rewrite :quirk/item-image :item item-image->itunes)
+    (check :quirk/duration-format :itunes/duration
+           (fn [element]
+             (let [s (str/trim (xml/text element))]
+               (when (and (time/parse-duration s) (not (re-matches #"\d+" s)))
+                 {:value s}))))
+    (check :quirk/date-format :pubDate
+           (fn [element]
+             (let [s (str/trim (xml/text element))]
+               (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
+                 {:value s}))))
+    (check :quirk/date-format :lastBuildDate
+           (fn [element]
+             (let [s (str/trim (xml/text element))]
+               (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
+                 {:value s}))))]
+   (for [{:keys [tag content]} spec/tags
+         :when (= :yes-no content)]
+     (rewrite :quirk/yes-no-value tag (canonical-text yes-no-values)))))
 
 (def rules-by-tag
   (group-by :tag rules))

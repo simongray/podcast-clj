@@ -158,3 +158,9 @@
     (is (= "https://a/rss" (resolve/self-url {:atom/links [{:href "https://hub" :rel "hub"} {:href "https://a/rss" :rel "Self"}]})))
     (is (nil? (resolve/self-url f)))
     (is (= [["Technology"] ["News" "Tech News"]] (resolve/categories f)))))
+
+(deftest renditions-in-a-media-group
+  (let [item {:media/group {:contents [{:url "https://a/1.mp4" :type "video/mp4" :is-default true}
+                                       {:url "https://a/1.webm" :type "video/webm"}]}}]
+    (is (= ["https://a/1.mp4" "https://a/1.webm"] (map :url (resolve/enclosures item))))
+    (is (= "https://a/1.mp4" (:url (resolve/enclosure item))))))

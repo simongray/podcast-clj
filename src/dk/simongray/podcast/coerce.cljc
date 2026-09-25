@@ -96,8 +96,8 @@
   "Write the model value `v` of `type` in its canonical string form."
   [type v]
   (case type
-    :boolean  (if v "true" "false")
-    :yes-no   (if v "yes" "no")
+    :boolean  (if (string? v) v (if v "true" "false"))
+    :yes-no   (if (string? v) v (if v "yes" "no"))
     :rfc2822  (if (inst? v) (time/format-rfc2822 v) (str v))
     :iso8601  (if (inst? v) (time/format-iso8601 v) (str v))
     :duration (if (number? v) (plain-decimal v) (str v))

@@ -63,13 +63,33 @@
   (let [body (if (= "gzip" (header headers "content-encoding")) (gunzip body) body)]
     (String. body ^Charset (declared-charset headers body))))
 
+(def legal-url-characters
+  "The ASCII characters a URI may contain as they are: RFC 3986's unreserved
+  and reserved sets, plus the percent sign of an escape."
+  (set "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%"))
+
+(defn legal-url
+  "`url` with every character a URI may not contain, such as a space or a
+  non-ASCII letter, percent-encoded as UTF-8. Feed URLs in the wild carry
+  them verbatim, and java.net.URI rejects them. Percent signs are left as
+  they are, so an already encoded URL comes back unchanged."
+  [^String url]
+  (let [sb (StringBuilder.)]
+    (doseq [b (.getBytes url StandardCharsets/UTF_8)]
+      (let [n (bit-and b 0xFF)]
+        (if (and (< n 128) (legal-url-characters (char n)))
+          (.append sb (char n))
+          (.append sb (format "%%%02X" n)))))
+    (str sb)))
+
 (defn call!
   "Send the GET request map `{:url :headers}` (what dk.simongray.podcast.index
   builds, or anything of that shape) and return `{:status :url :headers
   :body}` with the body decoded to a string; `:timeout-seconds` defaults to
-  30. gzip is accepted and undone."
+  30. gzip is accepted and undone, and a URL with illegal characters is
+  encoded first (see `legal-url`)."
   [{:keys [url headers timeout-seconds] :or {timeout-seconds 30}}]
-  (let [builder  (-> (HttpRequest/newBuilder (URI. url))
+  (let [builder  (-> (HttpRequest/newBuilder (URI. (legal-url url)))
                      (.timeout (Duration/ofSeconds timeout-seconds))
                      (.header "Accept-Encoding" "gzip"))
         request  (-> (reduce-kv (fn [b k v] (.header b (str k) (str v)))

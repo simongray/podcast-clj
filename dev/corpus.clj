@@ -10,8 +10,10 @@
             [dk.simongray.podcast.chapters :as chapters]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.index :as index]
             [dk.simongray.podcast.transcript :as transcript]
-            [dk.simongray.podcast.validate :as validate]))
+            [dk.simongray.podcast.validate :as validate]
+            [dk.simongray.podcast.xml :as xml]))
 
 (def dir
   (io/file "dev-resources/corpus"))
@@ -64,12 +66,14 @@
         (println name "FAILED" status)))))
 
 (defn files
-  "The feed files: the .xml files directly in `dir`, sorted."
-  []
-  (->> (.listFiles dir)
-       (filter #(and (.isFile ^java.io.File %)
-                     (str/ends-with? (.getName ^java.io.File %) ".xml")))
-       (sort-by #(.getName ^java.io.File %))))
+  "The feed files: the .xml files directly in `d` (`dir` by default), sorted."
+  ([]
+   (files dir))
+  ([d]
+   (->> (.listFiles ^java.io.File d)
+        (filter #(and (.isFile ^java.io.File %)
+                      (str/ends-with? (.getName ^java.io.File %) ".xml")))
+        (sort-by #(.getName ^java.io.File %)))))
 
 (defn sweep
   "Parse every feed in `dir`, round-trip it, validate it against PSP-1, and
@@ -166,9 +170,142 @@
                     (str "version " version " "
                          (str/join " " (map (comp name :id) (chapters/report doc)))))})))))
 
+;;;; The third corpus: hundreds of feeds sampled through the Podcast Index
+
+(def sweep-dir
+  (io/file dir "sweep"))
+
+(def mediums
+  "The non-podcast mediums to sample feeds of, so that lists, remote items
+  and the tags particular to each medium are exercised."
+  ["music" "video" "film" "audiobook" "newsletter" "blog" "publisher" "course"])
+
+(defn- distinct-by
+  "The elements of `coll` with distinct values of `f`, the first of each kept."
+  [f coll]
+  (vals (reduce (fn [m x] (update m (f x) #(or % x))) {} coll)))
+
+(defn sweep-populations
+  "Feeds worth sweeping, sampled through the Podcast Index with
+  `credentials` as `{:population :id :url :title}`: a random slice of the
+  recently updated feeds, one of the newly added feeds, one of the feeds
+  with value blocks, and a slice of every medium in `mediums`. `sizes` sets
+  how many of each: `{:recent 300 :new 100 :value 100 :medium 20}` by
+  default."
+  ([credentials]
+   (sweep-populations credentials {}))
+  ([credentials sizes]
+   (let [{:keys [recent new value medium]} (merge {:recent 300 :new 100 :value 100 :medium 20} sizes)
+         feeds (fn [endpoint params]
+                 (:feeds (index/call! credentials endpoint params)))
+         pick  (fn [population n rows]
+                 (for [{:keys [index/id index/url rss/title]} (take n (shuffle (vec rows)))
+                       :when (and id url)]
+                   {:population population :id id :url url :title title}))]
+     (->> (concat (pick :recent recent (feeds :recent/feeds {:max 1000}))
+                  (pick :new new (feeds :recent/new-feeds {:max 1000}))
+                  (pick :value value (feeds :podcasts/by-tag {:podcast-value true :max 1000}))
+                  (mapcat (fn [m]
+                            (pick (keyword (str "medium-" m)) medium
+                                  (feeds :podcasts/by-medium {:medium m :max 200})))
+                          mediums))
+          (distinct-by :id)
+          (sort-by (juxt :population :id))))))
+
+(defn download-sweep!
+  "Fetch every feed of `rows` (see `sweep-populations`) into `sweep-dir`, in
+  parallel, and write a manifest of what happened next to them: the row
+  plus `:status`, `:chars`, `:final-url` and, when kept, `:file`."
+  [rows]
+  (.mkdirs sweep-dir)
+  (let [fetch    (fn [{:keys [id url] :as row}]
+                   (let [{:keys [status body] final :url}
+                         (try (http/fetch! url {:timeout-seconds 20})
+                              (catch Exception e {:status (str (class e) ": " (ex-message e))}))
+                         kept? (and (= 200 status) (seq body))]
+                     (when kept?
+                       (spit (io/file sweep-dir (str id ".xml")) body))
+                     (assoc row :status status :chars (count body) :final-url final
+                            :file (when kept? (str id ".xml")))))
+        manifest (vec (sort-by (juxt :population :id) (doall (pmap fetch rows))))]
+    (spit (io/file sweep-dir "manifest.edn") (with-out-str (pprint/pprint manifest)))
+    manifest))
+
+(defn sweep-manifest
+  "The manifest written by `download-sweep!`."
+  []
+  (edn/read-string (slurp (io/file sweep-dir "manifest.edn"))))
+
+(defn- unknown-elements
+  "Every element kept as unknown anywhere in the parsed `feed`."
+  [feed]
+  (->> (tree-seq coll? seq feed)
+       (filter map?)
+       (mapcat :xml/unknown)))
+
+(defn- sweep-one
+  "What parsing the feed in `file` turned up: the error, or the report and
+  validation finding counts, the unknown elements, the values that would
+  not coerce, and whether the round trip changed anything."
+  [^java.io.File file]
+  (let [s    (slurp file)
+        feed (try (podcast/parse s) (catch Exception e e))]
+    (if (instance? Exception feed)
+      {:file (.getName file) :error (str (class feed) ": " (ex-message feed))}
+      (let [report  (podcast/report feed)
+            unknown (unknown-elements feed)]
+        {:file       (.getName file)
+         :items      (count (:rss/items feed))
+         :report     (frequencies (map :id report))
+         :invalid    (for [{:keys [id path type value]} report
+                           :when (= :feed/invalid-value id)]
+                       {:key (vec (take-last 2 (remove integer? path))) :type type :value value})
+         :unknown    (frequencies (map xml/tag unknown))
+         :examples   (into {} (map (juxt xml/tag identity)) unknown)
+         :validation (frequencies (map (juxt :id :message)
+                                       (remove (comp #{:validate/unknown-element} :id)
+                                               (validate/validate feed nil))))
+         :round-trip (= feed (podcast/parse (podcast/emit feed)))}))))
+
+(defn- by-feeds
+  "The keys of the `k` maps of `results`, by the number of results holding
+  them, most first."
+  [k results]
+  (->> results (mapcat (comp keys k)) frequencies (sort-by (comp - val))))
+
+(defn sweep-report
+  "Parse every feed in `sweep-dir` and aggregate what happened: parse
+  errors, report ids and validation findings by the number of feeds they
+  touch, unknown elements by tag with one example each, values that would
+  not coerce by key with examples, and the feeds whose round trip changed
+  something."
+  []
+  (let [results (doall (pmap sweep-one (files sweep-dir)))
+        ok      (remove :error results)
+        example (fn [tag]
+                  (some #(when-let [e (get (:examples %) tag)]
+                           (subs (pr-str e) 0 (min 160 (count (pr-str e)))))
+                        ok))]
+    {:feeds      (count results)
+     :parsed     (count ok)
+     :errors     (frequencies (keep :error results))
+     :report     (by-feeds :report ok)
+     :validation (by-feeds :validation ok)
+     :unknown    (for [[tag n] (by-feeds :unknown ok)]
+                   {:tag tag :feeds n :example (example tag)})
+     :invalid    (->> (mapcat :invalid ok)
+                      (group-by (juxt :key :type))
+                      (map (fn [[k vs]] {:key (first k) :type (second k) :count (count vs)
+                                         :examples (take 4 (distinct (map :value vs)))}))
+                      (sort-by (comp - :count)))
+     :changed    (map :file (remove :round-trip ok))}))
+
 (comment
   (download!)
   (sweep)
   (download-companions!)
   (sweep-companions)
+  (let [creds (:podcastindex (edn/read-string (slurp (str (System/getProperty "user.home") "/Code/secrets.edn"))))]
+    (download-sweep! (sweep-populations creds)))
+  (sweep-report)
   #_.)

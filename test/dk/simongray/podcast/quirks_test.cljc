@@ -43,22 +43,30 @@
                "<rss xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel>
                   <itunes:image>https://x/y.jpg</itunes:image><itunes:explicit>Yes</itunes:explicit>
                   <podcast:images srcset=\"https://a/1.jpg 1500w, https://a/2.jpg 600w\"/>
+                  <podcast:locked>false</podcast:locked>
                   <item><itunes:duration>1:02:03</itunes:duration><guid></guid>
                     <pubDate>Fri, 31 Jul 2026 10:02:23 PST</pubDate>
                     <enclosure url=\"https://a/1.mp3\" length=\"\" type=\"audio/mpeg\"/>
+                    <image url=\"https://a/i.jpg\" title=\"Ep\"/>
+                    <podcast:chapters href=\"https://a/c.json\" type=\"application/json+chapters\"/>
                     <podcast:transcript url=\"https://a/t.srt\" type=\"srt\"/></item></channel></rss>"))
         ids  (map :id (quirks/report tree))]
     (is (= #{:quirk/itunes-image-text :quirk/explicit-value :quirk/deprecated-images
              :quirk/duration-format :quirk/empty-guid :quirk/date-format
-             :quirk/enclosure-length :quirk/transcript-type}
+             :quirk/enclosure-length :quirk/transcript-type
+             :quirk/yes-no-value :quirk/item-image :quirk/attribute-name}
            (set ids)))
     (let [f    (feed/parse tree)
           item (first (:rss/items f))]
       (is (= {:href "https://x/y.jpg"} (:itunes/image f)))
       (is (true? (:itunes/explicit f)))
       (is (= [{:href "https://a/1.jpg" :width 1500} {:href "https://a/2.jpg" :width 600}] (:podcast/images f)))
+      (is (= {:content false} (:podcast/locked f)))
       (is (not (contains? item :rss/guid)))
       (is (= {:url "https://a/1.mp3" :type "audio/mpeg"} (:rss/enclosure item)))
+      (is (= {:href "https://a/i.jpg"} (:itunes/image item)))
+      (is (empty? (:xml/unknown item)))
+      (is (= {:url "https://a/c.json" :type "application/json+chapters"} (:podcast/chapters item)))
       (is (= "application/x-subrip" (get-in item [:podcast/transcripts 0 :type]))))))
 
 (deftest the-quirky-fixture
@@ -80,6 +88,8 @@
       (is (= {:content true} (:podcast/locked f)))
       (is (= 2 (count (:podcast/images f))))
       (is (= [[:acme/tracking {:id "42"}]] (:xml/unknown f)))
+      (is (= 1 (:quirk/item-image ids)))
+      (is (= {:href "https://quirky.example/ep1.jpg"} (:itunes/image item)))
       (is (= 3723 (:itunes/duration item)))
       (is (= #inst "2026-09-25T01:00:00Z" (:rss/pub-date item)))
       (is (nil? (:rss/guid item)))

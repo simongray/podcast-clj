@@ -120,3 +120,62 @@
 (deftest not-rss
   (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"Not an RSS"
                         (feed/parse (xml/parse "<feed xmlns=\"http://www.w3.org/2005/Atom\"/>")))))
+
+(deftest undeclared-attributes-survive
+  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>T</title>
+                           <itunes:image href=\"https://a/i.jpg\" width=\"600\"/></channel></rss>")]
+    (testing "an attribute the registry does not declare keeps its XML name and string value"
+      (is (= {:href "https://a/i.jpg" :width "600"} (:itunes/image f))))
+    (testing "and is written back, even when another element declares that name"
+      (is (re-find #"width=\"600\"" (podcast/emit f)))
+      (is (= f (podcast/parse (podcast/emit f)))))))
+
+(deftest invalid-values-are-written-back-as-they-came
+  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
+                           <podcast:locked>false</podcast:locked></channel></rss>"
+                         false)]
+    (is (= {:content "false"} (:podcast/locked f)))
+    (is (re-find #"<podcast:locked>false</podcast:locked>" (podcast/emit f)))
+    (is (= f (podcast/parse (podcast/emit f) false)))))
+
+(deftest media-rss-nesting
+  (let [f    (podcast/parse "<rss version=\"2.0\" xmlns:media=\"http://search.yahoo.com/mrss/\"><channel><title>T</title>
+                              <item><title>E</title>
+                                <media:content url=\"https://a/1.mp3\" type=\"audio/mpeg\">
+                                  <media:player url=\"https://a/p\"/>
+                                  <media:title type=\"plain\">Ep</media:title>
+                                </media:content>
+                                <media:group>
+                                  <media:content url=\"https://a/1.mp4\" type=\"video/mp4\" isDefault=\"true\"/>
+                                  <media:content url=\"https://a/1.webm\" type=\"video/webm\"/>
+                                  <media:thumbnail url=\"https://a/t.jpg\"/>
+                                </media:group>
+                                <media:credit role=\"author\">Ann</media:credit>
+                              </item></channel></rss>")
+        item (first (:rss/items f))]
+    (testing "optional elements inside a media object get plain keys"
+      (is (= {:url "https://a/p"} (get-in item [:media/contents 0 :player])))
+      (is (= {:type "plain" :content "Ep"} (get-in item [:media/contents 0 :title]))))
+    (testing "a group holds renditions"
+      (is (= ["https://a/1.mp4" "https://a/1.webm"] (map :url (get-in item [:media/group :contents]))))
+      (is (= [{:url "https://a/t.jpg"}] (get-in item [:media/group :thumbnails]))))
+    (is (= [{:role "author" :content "Ann"}] (:media/credits item)))
+    (is (empty? (mapcat :xml/unknown (cons item (:media/contents item)))))
+    (is (= f (podcast/parse (podcast/emit f))))))
+
+(deftest elements-the-wild-adds
+  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"
+                                xmlns:content=\"http://purl.org/rss/1.0/modules/content/\"
+                                xmlns:spotify=\"http://www.spotify.com/ns/rss\"><channel><title>T</title>
+                           <author>Radio Semilla</author>
+                           <content:encoded><![CDATA[<p>About</p>]]></content:encoded>
+                           <itunes:applepodcastsverify>d33a9400-27ed-11f1-ad48-cd4166db9095</itunes:applepodcastsverify>
+                           <spotify:limit recentCount=\"25\"/>
+                           <item><title>E</title><author>host@example.com</author></item></channel></rss>")]
+    (is (= "Radio Semilla" (:rss/author f)))
+    (is (= "<p>About</p>" (:content/encoded f)))
+    (is (= "d33a9400-27ed-11f1-ad48-cd4166db9095" (:itunes/applepodcastsverify f)))
+    (is (= {:recent-count 25} (:spotify/limit f)))
+    (is (= "host@example.com" (:rss/author (first (:rss/items f)))))
+    (is (empty? (:xml/unknown f)))
+    (is (= f (podcast/parse (podcast/emit f))))))

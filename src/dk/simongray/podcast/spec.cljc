@@ -189,6 +189,8 @@
    ;; RSS 2.0, item
    {:tag :author :key :rss/author :parent #{:item} :count :one :content :email
     :doc "Email address of the author of the item."}
+   {:tag :author :key :rss/author :parent #{:channel} :count :one
+    :doc "Not RSS 2.0, but a fifth of feeds name their author here as well."}
    {:tag :comments :key :rss/comments :parent #{:item} :count :one :content :url
     :doc "URL of a page for comments relating to the item."}
    {:tag :enclosure :key :rss/enclosure :parent #{:item} :count :one :content :none
@@ -205,8 +207,9 @@
    {:tag :atom/link :key :atom/links :parent #{:channel :item} :count :many :content :none
     :attrs {:href req-url :rel {} :type {:type :mime} :title {} :hreflang {:type :language}}
     :doc "A link; rel=self gives the canonical feed URL, rel=next pages the archive."}
-   {:tag :content/encoded :key :content/encoded :parent #{:item} :count :one :content :html
-    :doc "The full HTML content of the item."}
+   {:tag :content/encoded :key :content/encoded :parent #{:channel :item} :count :one
+    :content :html
+    :doc "The full HTML content of the item; some hosts give the channel one too."}
    {:tag :dc/creator :key :dc/creator :parent #{:channel :item} :count :one
     :doc "The entity primarily responsible for making the content."}
    {:tag :sy/updatePeriod :key :sy/update-period :parent #{:channel} :count :one
@@ -256,6 +259,9 @@
    {:tag :itunes/keywords :key :itunes/keywords :parent #{:channel :item} :count :one
     :deprecated true
     :doc "Comma-separated keywords; no longer read by Apple."}
+   {:tag :itunes/applepodcastsverify :key :itunes/applepodcastsverify :parent #{:channel}
+    :count :one
+    :doc "The token Apple Podcasts Connect issues to prove ownership of the feed."}
 
    ;; iTunes, item
    {:tag :itunes/duration :key :itunes/duration :parent #{:item} :count :one
@@ -296,34 +302,93 @@
    {:tag :spotify/countryOfOrigin :key :spotify/country-of-origin :parent #{:channel}
     :count :one
     :doc "Space-separated ISO 3166 country codes for Spotify's targeting."}
+   {:tag :spotify/limit :key :spotify/limit :parent #{:channel} :count :one :content :none
+    :attrs {:recentCount integer}
+    :doc "How many recent episodes Spotify should show."}
 
-   ;; Media RSS
-   {:tag :media/content :key :media/contents :parent #{:item} :count :many :content :none
+   ;; RawVoice, the Blubrry and PowerPress module
+   {:tag :rawvoice/rating :key :rawvoice/rating :parent #{:channel} :count :one
+    :attrs {:tv {} :movie {}}
+    :doc "A TV or movie parental rating such as TV-PG."}
+   {:tag :rawvoice/location :key :rawvoice/location :parent #{:channel} :count :one
+    :doc "Where the show is produced, as free text."}
+   {:tag :rawvoice/frequency :key :rawvoice/frequency :parent #{:channel} :count :one
+    :doc "How often episodes come out, as free text."}
+   {:tag :rawvoice/poster :key :rawvoice/poster :parent #{:item} :count :one :content :none
+    :attrs {:url req-url}
+    :doc "The poster image of a video episode."}
+   {:tag :rawvoice/isHd :key :rawvoice/hd? :parent #{:item} :count :one :content :yes-no
+    :doc "Yes when the video episode is high definition."}
+   {:tag :rawvoice/embed :key :rawvoice/embed :parent #{:item} :count :one :content :html
+    :doc "HTML that embeds the episode's player."}
+   {:tag :rawvoice/webm :key :rawvoice/webm :parent #{:item} :count :one :content :none
+    :attrs {:src req-url :type {:type :mime} :length integer}
+    :doc "A WebM rendition of the video episode."}
+   {:tag :rawvoice/mp4 :key :rawvoice/mp4 :parent #{:item} :count :one :content :none
+    :attrs {:src req-url :type {:type :mime} :length integer}
+    :doc "An MP4 rendition of the video episode."}
+   {:tag :rawvoice/metamark :key :rawvoice/metamarks :parent #{:item} :count :many
+    :attrs {:type {:required true :type :enum
+                   :values #{"video" "audio" "image" "comment" "tag" "ad" "lowerthird"}}
+            :link url :position {:required true :type :decimal} :duration decimal}
+    :doc "A point in the episode with something attached: an ad, a tag, a comment."}
+
+   ;; Media RSS. Its optional elements may sit beside a media object or
+   ;; inside it, under media:content or media:group, where they get plain
+   ;; keys; hosts do both.
+   {:tag :media/group :key :media/group :parent #{:item} :count :one :content :none
+    :doc "Renditions of one media object, as media:content children."}
+   {:tag :media/content :key {:default :media/contents :media/group :contents}
+    :parent #{:item :media/group} :count :many :content :none
     :attrs {:url url :fileSize integer :type {:type :mime} :medium {} :isDefault bool
             :expression {} :bitrate decimal :framerate decimal :samplingrate decimal
             :channels integer :duration integer :height integer :width integer
             :lang {:type :language}}
     :doc "A media object; some hosts use it beside or instead of enclosure."}
-   {:tag :media/thumbnail :key :media/thumbnails :parent #{:channel :item} :count :many
+   {:tag :media/title :key {:default :media/title :media/content :title :media/group :title}
+    :parent #{:channel :item :media/content :media/group} :count :one
+    :attrs {:type {:type :enum :values #{"plain" "html"}}}
+    :doc "The title of the media object."}
+   {:tag :media/description
+    :key {:default :media/description :media/content :description :media/group :description}
+    :parent #{:channel :item :media/content :media/group} :count :one
+    :attrs {:type {:type :enum :values #{"plain" "html"}}}
+    :doc "A short description of the media object."}
+   {:tag :media/thumbnail
+    :key {:default :media/thumbnails :media/content :thumbnails :media/group :thumbnails}
+    :parent #{:channel :item :media/content :media/group} :count :many
     :content :none :attrs {:url req-url :width integer :height integer :time {}}
     :doc "A representative image."}
-   {:tag :media/restriction :key :media/restrictions :parent #{:channel :item} :count :many
-    :attrs {:relationship req :type {}}
-    :doc "Restrictions on the media, e.g. by country."}
-   {:tag :media/player :key :media/player :parent #{:item} :count :one :content :none
+   {:tag :media/player :key {:default :media/player :media/content :player :media/group :player}
+    :parent #{:item :media/content :media/group} :count :one :content :none
     :attrs {:url req-url :height integer :width integer}
     :doc "A web page that plays the media."}
-   {:tag :media/rating :key :media/ratings :parent #{:channel :item} :count :many
+   {:tag :media/credit :key {:default :media/credits :media/content :credits :media/group :credits}
+    :parent #{:channel :item :media/content :media/group} :count :many
+    :attrs {:role {} :scheme {}}
+    :doc "Someone who contributed to the media, by role."}
+   {:tag :media/rating :key {:default :media/ratings :media/content :ratings :media/group :ratings}
+    :parent #{:channel :item :media/content :media/group} :count :many
     :attrs {:scheme url}
     :doc "A rating such as adult or nonadult."}
-   {:tag :media/category :key :media/categories :parent #{:channel :item} :count :many
+   {:tag :media/category
+    :key {:default :media/categories :media/content :categories :media/group :categories}
+    :parent #{:channel :item :media/content :media/group} :count :many
     :attrs {:scheme url :label {}}
     :doc "A category from a Media RSS scheme."}
-   {:tag :media/copyright :key :media/copyright :parent #{:channel :item} :count :one
+   {:tag :media/copyright
+    :key {:default :media/copyright :media/content :copyright :media/group :copyright}
+    :parent #{:channel :item :media/content :media/group} :count :one
     :attrs {:url url}
     :doc "Copyright information for the media."}
-   {:tag :media/keywords :key :media/keywords :parent #{:channel :item} :count :one
+   {:tag :media/keywords :key {:default :media/keywords :media/content :keywords :media/group :keywords}
+    :parent #{:channel :item :media/content :media/group} :count :one
     :doc "Comma-separated keywords for the media."}
+   {:tag :media/restriction
+    :key {:default :media/restrictions :media/content :restrictions :media/group :restrictions}
+    :parent #{:channel :item :media/content :media/group} :count :many
+    :attrs {:relationship req :type {}}
+    :doc "Restrictions on the media, e.g. by country."}
 
    ;; Podlove Simple Chapters
    {:tag :psc/chapters :key :psc/chapters :parent #{:item} :count :one :content :none

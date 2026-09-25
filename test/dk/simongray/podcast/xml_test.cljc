@@ -69,7 +69,18 @@
                  (xml/emit [:rss {} [:foo/bar {}]]))))
   (testing "round trip"
     (let [tree (xml/parse "<rss version=\"2.0\"><channel><title>A</title><item><guid isPermaLink=\"false\">x</guid></item></channel></rss>")]
-      (is (= tree (xml/parse (xml/emit tree)))))))
+      (is (= tree (xml/parse (xml/emit tree))))))
+  (testing "whitespace a parser would normalize goes out as character references"
+    (let [tree [:rss {:x "a\nb\tc\rd"} [:t {} "line\r\nnext <b>"]]
+          out  (xml/emit tree)]
+      (is (re-find #"x=\"a&#10;b&#9;c&#13;d\"" out))
+      (is (re-find #"<t>line&#13;\nnext &lt;b&gt;</t>" out))
+      (is (= tree (xml/parse out))))))
+
+#?(:clj
+   (deftest long-text-nodes-on-the-jvm
+     (let [s (apply str (repeat 100001 "x"))]
+       (is (= s (xml/text (xml/parse (str "<a>" s "</a>"))))))))
 
 (deftest malformed
   (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"Malformed XML"

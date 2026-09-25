@@ -114,12 +114,19 @@
      survive and xmlns declarations arrive as plain attributes, and with DTDs
      and external entities disabled."
      []
-     (doto (XMLInputFactory/newInstance)
-       (.setProperty XMLInputFactory/IS_NAMESPACE_AWARE false)
-       (.setProperty XMLInputFactory/IS_COALESCING true)
-       (.setProperty XMLInputFactory/SUPPORT_DTD false)
-       (.setProperty XMLInputFactory/IS_SUPPORTING_EXTERNAL_ENTITIES false)
-       (.setProperty XMLInputFactory/IS_REPLACING_ENTITY_REFERENCES true))))
+     (let [factory (doto (XMLInputFactory/newInstance)
+                     (.setProperty XMLInputFactory/IS_NAMESPACE_AWARE false)
+                     (.setProperty XMLInputFactory/IS_COALESCING true)
+                     (.setProperty XMLInputFactory/SUPPORT_DTD false)
+                     (.setProperty XMLInputFactory/IS_SUPPORTING_EXTERNAL_ENTITIES false)
+                     (.setProperty XMLInputFactory/IS_REPLACING_ENTITY_REFERENCES true))]
+       ;; Recent JDKs cap a single text node at 100,000 characters, which show
+       ;; notes exceed in the wild. With DTDs off the limits guard nothing.
+       (doseq [limit ["jdk.xml.maxGeneralEntitySizeLimit" "jdk.xml.totalEntitySizeLimit"]]
+         (try
+           (.setProperty factory limit "0")
+           (catch Exception _)))
+       factory)))
 
 (defn- qname-str
   "Join `prefix` and `local` back into the name as written in the document."
@@ -370,21 +377,32 @@
   (str/replace s #"[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]" ""))
 
 (defn- escape-text
+  "Escape `s` for a text node. A carriage return becomes a character
+  reference, the only form a parser does not normalize away."
   [s]
   (-> (legal s)
       (str/replace "&" "&amp;")
       (str/replace "<" "&lt;")
-      (str/replace ">" "&gt;")))
+      (str/replace ">" "&gt;")
+      (str/replace "\r" "&#13;")))
 
 (defn- escape-attr
+  "Escape `s` for an attribute value, where a parser also normalizes
+  newlines and tabs to spaces unless they are character references."
   [s]
-  (str/replace (escape-text s) "\"" "&quot;"))
+  (-> (escape-text s)
+      (str/replace "\"" "&quot;")
+      (str/replace "\n" "&#10;")
+      (str/replace "\t" "&#9;")))
 
 (defn- text-node
-  "Serialize the text `s`, as CDATA when it contains markup."
+  "Serialize the text `s`, as CDATA when it contains markup and no carriage
+  return, which CDATA cannot carry through a parser."
   [s]
   (let [s (legal s)]
-    (if (and (str/includes? s "<") (not (str/includes? s "]]>")))
+    (if (and (str/includes? s "<")
+             (not (str/includes? s "]]>"))
+             (not (str/includes? s "\r")))
       (str "<![CDATA[" s "]]>")
       (escape-text s))))
 
