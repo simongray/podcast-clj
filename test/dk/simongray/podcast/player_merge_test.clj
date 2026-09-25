@@ -1,0 +1,58 @@
+(ns dk.simongray.podcast.player-merge-test
+  "The merge of player states is commutative, associative and idempotent
+  for whatever states devices can produce, which is what lets syncing
+  apply it in any order and any number of times."
+  (:require [clojure.test.check.clojure-test :refer [defspec]]
+            [clojure.test.check.generators :as gen]
+            [clojure.test.check.properties :as prop]
+            [dk.simongray.podcast.player :as player]))
+
+(def instants
+  "A handful of instants close together, so that ties happen."
+  (gen/fmap #(java.util.Date. (* 1000 (long %))) (gen/choose 0 5)))
+
+(def feed-guids
+  (gen/elements ["feed-a" "feed-b" "feed-c"]))
+
+(def episode-ids
+  (gen/elements [["feed-a" "a1"] ["feed-a" "a2"] ["feed-b" "b1"]]))
+
+(defn- operation
+  "A random operation on a state, as a function of the state."
+  []
+  (gen/one-of
+   [(gen/fmap (fn [[g t]] #(player/subscribe % g {:url (str "https://" g "/rss") :title g} t)) (gen/tuple feed-guids instants))
+    (gen/fmap (fn [[g t]] #(player/unsubscribe % g t)) (gen/tuple feed-guids instants))
+    (gen/fmap (fn [[g t n]] #(player/configure % g {:skip-intro n} t)) (gen/tuple feed-guids instants gen/nat))
+    (gen/fmap (fn [[id p t]] #(player/progress % id p 3600 t)) (gen/tuple episode-ids (gen/choose 0 3600) instants))
+    (gen/fmap (fn [[id t]] #(player/mark-played % id t)) (gen/tuple episode-ids instants))
+    (gen/fmap (fn [[id t]] #(player/enqueue % id t)) (gen/tuple episode-ids instants))
+    (gen/fmap (fn [[id t]] #(player/play-next % id t)) (gen/tuple episode-ids instants))
+    (gen/fmap (fn [[id n t]] #(player/skip % id n t)) (gen/tuple episode-ids (gen/choose -60 60) instants))
+    (gen/fmap (fn [[n t]] #(player/prefer % {:skip-forward n} t)) (gen/tuple (gen/elements [15 30 45]) instants))
+    (gen/fmap (fn [t] #(player/advance % t)) instants)]))
+
+(def states
+  "A device's state after a few random operations."
+  (gen/fmap (fn [[device ops]] (reduce (fn [s op] (op s)) (player/state device) ops))
+            (gen/tuple (gen/elements ["phone" "laptop" "car"]) (gen/vector (operation) 0 8))))
+
+(defn- same?
+  "Whether two merged states agree on everything but whose device they are."
+  [x y]
+  (= (dissoc x :device) (dissoc y :device)))
+
+(defspec merge-is-commutative 200
+  (prop/for-all [a states b states]
+    (same? (player/merge a b) (player/merge b a))))
+
+(defspec merge-is-associative 200
+  (prop/for-all [a states b states c states]
+    (same? (player/merge (player/merge a b) c) (player/merge a (player/merge b c)))))
+
+(defspec merge-is-idempotent 200
+  (prop/for-all [a states b states]
+    (let [m (player/merge a b)]
+      (and (same? m (player/merge m a))
+           (same? m (player/merge m b))
+           (= m (player/merge m m))))))

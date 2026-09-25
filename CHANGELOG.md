@@ -22,5 +22,9 @@ Working toward 1.0, the first release.
   resolved.
 - Embedded HTML read into Hiccup by a lenient, dependency-free parser, with a
   sanitizer for clients and renderings as plain text and Markdown.
+- A player's state as data: the play queue, progress and played marks,
+  skipping by the listener's preferred amounts, subscriptions with settings,
+  OPML in and out, a merge for syncing devices and a reducer over player
+  events.
 - The same code and tests on the JVM, under Node and in a browser.
 - A bundled feed inspector as the reference client.

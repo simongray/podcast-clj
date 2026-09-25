@@ -1,15 +1,15 @@
 {:deps   {:aliases [:cljs]}
-
- :builds {;; clojure -M:cljs compile test
-          ;; Runs every -test namespace under Node, where the test-setup
-          ;; namespace supplies a DOMParser from @xmldom/xmldom.
+ :builds {;; clojure -M:cljs compile test          (the suite under Node)
           :test         {:target    :node-test
                          :output-to "target/node-tests.js"
                          :ns-regexp "-test$"
                          :autorun   true}
-
-          ;; clojure -M:cljs compile browser-test, then serve target/browser-test
-          ;; and open it: the same tests against the browser's own DOMParser.
+          ;; clojure -M:cljs compile browser-test  (the suite for a browser)
           :browser-test {:target    :browser-test
                          :test-dir  "target/browser-test"
-                         :ns-regexp "-test$"}}}
+                         :ns-regexp "-test$"}
+          ;; clojure -M:cljs compile player        (the inspector's player, served at /js/player.js)
+          :player       {:target     :browser
+                         :output-dir "target/web/public/js"
+                         :asset-path "/js"
+                         :modules    {:player {:init-fn dk.simongray.podcast.web.player/init}}}}}

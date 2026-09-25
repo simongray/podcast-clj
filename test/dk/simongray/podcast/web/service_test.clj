@@ -50,3 +50,34 @@
       (let [{:keys [status body]} (get* "/feed" "url" "https://example.com/missing.xml")]
         (is (= 502 status))
         (is (str/includes? body "HTTP 404"))))))
+
+(deftest the-player
+  (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})]
+    (testing "every page carries the player bar and its script; the queue page the shell of the detailed view"
+      (let [{:keys [status body]} (get* "/")]
+        (is (= 200 status))
+        (is (str/includes? body "id=\"player-bar\""))
+        (is (str/includes? body "id=\"content\""))
+        (is (str/includes? body "/js/player.js")))
+      (let [{:keys [status body]} (get* "/queue")]
+        (is (= 200 status))
+        (is (str/includes? body "id=\"app\""))))
+    (testing "the item page links into the player"
+      (let [body (:body (get* "/item" "url" "https://example.com/one.xml" "guid" "https://example.com/ep0003"))]
+        (is (str/includes? body "/queue?add="))
+        (is (str/includes? body "mode=next"))))
+    (testing "the episode endpoint answers with what the player needs, as EDN"
+      (let [{:keys [status headers body]} (get* "/episode.edn" "url" "https://example.com/one.xml" "guid" "https://example.com/ep0003")
+            episode (read-string body)]
+        (is (= 200 status))
+        (is (str/starts-with? (get headers "Content-Type") "application/edn"))
+        (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"] (:id episode)))
+        (is (string? (:enclosure episode)))
+        (is (string? (:title episode))))
+      (is (= 404 (:status (get* "/episode.edn" "url" "https://example.com/one.xml" "guid" "nope")))))
+    (testing "the compiled player is served when it exists and explained when it does not"
+      (let [{:keys [status body]} (get* "/js/player.js")]
+        (is (contains? #{200 404} status))
+        (when (= 404 status)
+          (is (str/includes? body "compile player"))))
+      (is (= 404 (:status (get* "/js/../deps.edn")))))))

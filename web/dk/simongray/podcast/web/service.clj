@@ -10,11 +10,13 @@
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.index :as index]
+            [dk.simongray.podcast.player :as player]
             [dk.simongray.podcast.resolve :as resolve]
             [dk.simongray.podcast.transcript :as transcript]
             [dk.simongray.podcast.web.page :as page]
             [io.pedestal.connector :as conn]
             [io.pedestal.http.jetty :as jetty]
+            [io.pedestal.http.secure-headers :as secure-headers]
             [replicant.string :as replicant])
   (:gen-class))
 
@@ -191,6 +193,49 @@
           (-> (html (page/error-page (:url loaded) (str "No item with guid " guid)))
               (assoc :status 404)))))))
 
+;;;; The browser player: a shell page, the episode data it asks for, and its script
+
+(defn queue-page
+  "The shell the browser player mounts into; the player itself is
+  dk.simongray.podcast.web.player, compiled by `clojure -M:cljs compile
+  player`."
+  [_]
+  (html (page/queue-page)))
+
+(defn episode-edn
+  "The item named by the `url` and `guid` parameters as the EDN the browser
+  player needs: its identity, titles, enclosure and duration."
+  [request]
+  (with-feed request
+    (fn [{:keys [feed url]}]
+      (let [guid (get-in request [:query-params :guid])
+            item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
+        (if item
+          (text "application/edn; charset=utf-8"
+                (pr-str {:id         (player/episode-id feed url item)
+                         :title      (resolve/title item)
+                         :feed-title (resolve/title feed)
+                         :enclosure  (:url (resolve/enclosure item))
+                         :duration   (resolve/duration item)
+                         :url        url
+                         :guid       guid}))
+          {:status 404 :headers {"Content-Type" "text/plain"} :body (str "No item with guid " guid)})))))
+
+(def player-js-dir
+  "Where shadow-cljs puts the compiled browser player."
+  (io/file "target/web/public/js"))
+
+(defn js-file
+  "A file of the compiled browser player, or a note on how to compile it."
+  [request]
+  (let [path (str (get-in request [:path-params :path]))
+        file (io/file player-js-dir path)]
+    (if (and (not (str/includes? path "..")) (.isFile file))
+      {:status 200 :headers {"Content-Type" "application/javascript; charset=utf-8"} :body file}
+      {:status  404
+       :headers {"Content-Type" "text/plain"}
+       :body    "The browser player is not compiled; run: clojure -M:cljs compile player"})))
+
 (defn routes
   "The inspector's routes, in Pedestal's set syntax."
   []
@@ -199,6 +244,9 @@
     ["/feed.edn" :get feed-edn :route-name :feed-edn]
     ["/feed.xml" :get feed-xml :route-name :feed-xml]
     ["/item" :get item-page :route-name :item]
+    ["/episode.edn" :get episode-edn :route-name :episode-edn]
+    ["/queue" :get queue-page :route-name :queue]
+    ["/js/*path" :get js-file :route-name :js]
     ["/corpus/:name" :get corpus-page :route-name :corpus]})
 
 ;;;; Lifecycle
@@ -212,7 +260,13 @@
   drive its interceptor chain directly."
   [port]
   (-> (conn/default-connector-map port)
-      (conn/with-default-interceptors)
+      ;; Pedestal's default policy forbids every script tag; the browser
+      ;; player is served from this origin, and its development build loads
+      ;; its modules through eval.
+      (conn/with-default-interceptors
+        :secure-headers {:content-security-policy-settings
+                         (secure-headers/content-security-policy-header
+                          {:object-src "'none'" :script-src "'self' 'unsafe-eval'"})})
       (conn/with-routes (routes))
       (jetty/create-connector nil)))
 

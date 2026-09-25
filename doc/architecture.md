@@ -306,6 +306,48 @@ reported.
   and returns a promise. The key and secret never leave the caller's
   process.
 
+## The player state
+
+A podcast app's own logic is mostly the same in every app: a play queue,
+where the listener left each episode and which ones count as played,
+subscriptions and their settings, and keeping several devices in step.
+`dk.simongray.podcast.player` holds that as one state map and pure
+operations over it, so that a client writes its UI and nothing else. The
+rules of the library hold: no storage, no clock, no media element. Every
+operation takes the instant it happens and stamps what it changed with that
+instant and the state's device name; the app persists the map however it
+likes and calls in when the player emits events.
+
+The state is the two documents of the survey's sync model in one map:
+subscriptions by feed guid, with `default-settings` such as `:auto-queue?`
+and `:skip-intro`, and removals kept as tombstones; episodes by `[feed-guid
+item-guid]`, with position, duration and the played mark that `progress`
+sets within `played-threshold` seconds of the end; and the queue as one
+ordered entry. `merge` reconciles two devices by letting the later entry
+win, the queue whole, which is commutative, associative and idempotent (a
+generative test says so), so that any backend that can store and fetch a
+document can sync: the backends stay outside the library. `refresh` feeds a
+fresh parse through `feed/diff` and queues the new episodes of feeds set to
+auto-queue; `to-opml` and `from-opml` bridge to the `opml` namespace with the
+feed guid carried in each outline. Listener `preferences`, the skip amounts
+and the playback rate, are one more merged entry, and `skip` moves within an
+episode without leaving it. `step` is a small reducer over the player's
+events, `:progress`, `:ended`, `:play` and `:skip`, returning the new state
+and the effects the UI should act on, such as playing the next episode or
+seeking to the skipped-to position; it is deliberately the only place where
+behaviour is composed, and it is short. The inspector carries a small real
+player over it, in ClojureScript: the state lives in the browser in
+localStorage, Replicant renders it into a bar on every page, and an audio
+element there reports its position through `step`, whose effects seek it
+where a skip landed or start the next episode when one ends, so that the
+effects can be heard rather than read. Clicking a link fetches the next page
+and swaps only the content under the bar, the way Turbo keeps a permanent
+element alive, so playback survives moving between pages without the
+inspector becoming a single-page application; the queue page is the
+detailed view of the same state. The server only supplies episode data. It
+is also the library's first browser client, so the ClojureScript build earns
+its keep.
+
 ## Platform adapters
 
 | Concern | JVM | JS |
@@ -395,3 +437,6 @@ to test it; it touches nothing but the public API.
     CI, changelog. Done, up to the deploy itself; the first published
     version will be a complete 1.0.
 14. Embedded HTML as Hiccup, sanitized, and as text and Markdown. Done.
+15. The player state: queue, progress, subscriptions, OPML, merge and the
+    reducer, which is also the pure core of the sync model of item 10.
+    Done.

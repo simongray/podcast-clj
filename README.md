@@ -60,6 +60,28 @@ directly, and renders the same Hiccup as text or Markdown:
 (html/markdown (resolve/description item)) ; "Today: [the show notes](https://…)\n\n- one\n..."
 ```
 
+What a player keeps between plays is plain data too, with pure operations
+over it, so any UI gets a queue, progress, played marks and subscriptions
+without owning the logic, and two devices' states merge into one:
+
+```clojure
+(require '[dk.simongray.podcast.player :as player])
+
+(def now #inst "2026-09-26T10:00:00Z")
+(def id (player/episode-id feed "https://feeds.podcastindex.org/pc20.xml" item))
+
+(-> (player/state "phone")
+    (player/subscribe (feed/feed-guid feed url) {:url url :title (resolve/title feed)} now)
+    (player/enqueue id now)
+    (player/progress id 1234 3600 now))     ; nothing here reads a clock or stores anything
+
+(player/resume-position s feed-guid id)     ; where to start, honouring the feed's skip-intro
+(player/step s [:skip id :forward] now)     ; => {:state ... :effects [[:seek id 1264]]}, by the listener's preferences
+(player/step s [:ended id] now)             ; => {:state ... :effects [[:play next-id]]}
+(player/merge phone-state laptop-state)     ; the later entry wins everywhere; tombstones beat old additions
+(opml/emit (player/to-opml s))              ; the subscriptions as OPML, guids included
+```
+
 Design
 ------
 
@@ -167,6 +189,7 @@ Namespaces
 | `dk.simongray.podcast` | The front door: `parse`, `emit`, `report`, `summarize`, `parse-tree` |
 | `dk.simongray.podcast.diagnostics` | Every diagnostic id with its level and meaning; rendered as [doc/diagnostics.md](doc/diagnostics.md) |
 | `dk.simongray.podcast.html` | Embedded HTML as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown`, `emit` |
+| `dk.simongray.podcast.player` | A player's state as data: the queue, progress and played marks, subscriptions and settings, OPML in and out, `merge` for syncing, `step` for driving it |
 | `…podcast.xml` | XML to Hiccup and back, namespaces resolved by URI |
 | `…podcast.xml.jsoup` | Lenient parser for feeds that are not well-formed at all; needs the optional `org.jsoup/jsoup` |
 | `…podcast.quirks` | String repairs, URI variants, tree normalizations |
@@ -209,6 +232,7 @@ clojure -X:test                       # the test suite on the JVM
 npm install                           # once: shadow-cljs and the Node DOMParser
 clojure -M:cljs compile test          # the same suite under Node
 clojure -M:cljs compile browser-test  # the same suite for a browser; serve target/browser-test
+clojure -M:cljs compile player        # the inspector's browser player, served at /queue
 clojure -T:build jar                  # the library jar and its pom, in target/
 ```
 

@@ -28,7 +28,11 @@
    .muted{color:#777} .badge{display:inline-block;padding:0 .4rem;border-radius:4px;background:#e8e8e8;margin-right:.3rem;font-size:12px}
    nav a{margin-right:1rem} form input[type=url]{width:60%;padding:.4rem} form button{padding:.4rem .8rem}
    ul.compact{margin:0;padding-left:1.2rem}
-   .notes{max-width:70ch} .notes img{max-width:100%;height:auto}")
+   .notes{max-width:70ch} .notes img{max-width:100%;height:auto}
+   #player-bar:empty{display:none}
+   #player-bar{position:sticky;top:0;z-index:1;background:#fff;border-bottom:1px solid #ddd;padding:.5rem 1.5rem}
+   #player-bar .bar{max-width:1100px;margin:0 auto;display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+   #player-bar audio{height:32px}")
 
 (defn layout
   "The page skeleton around `body`, titled `title`."
@@ -40,10 +44,14 @@
     [:title (str title " · podcast inspector")]
     [:style css]]
    [:body
-    (into [:main
-           [:nav [:a {:href "/"} "Inspector"]
+    ;; The browser player mounts here and stays while the content below is
+    ;; swapped on navigation, so that playback survives moving between pages.
+    [:div#player-bar]
+    (into [:main#content
+           [:nav [:a {:href "/"} "Inspector"] [:a {:href "/queue"} "Queue"]
             [:span.muted "dk.simongray/podcast reference implementation"]]]
-          body)]])
+          body)
+    [:script {:src "/js/player.js"}]]])
 
 (defn- pretty
   [x]
@@ -317,7 +325,9 @@
   "The page for one `item` of `feed` at `url`, with its `companions` as
   fetched by the service: `{:chapters {...} :embedded doc :transcript {...}}`."
   [{:keys [url feed item companions]}]
-  (let [numbering (resolve/numbering item)]
+  (let [numbering (resolve/numbering item)
+        guid      (feed/item-guid item)
+        into-player (fn [mode] (str "/queue?add=" (encode url) "&guid=" (encode guid) "&mode=" mode))]
     (layout (or (resolve/title item) "(untitled)")
             [:p [:a {:href (feed-href "/feed" url)} "← " (or (resolve/title feed) url)]]
             [:header
@@ -332,7 +342,10 @@
                (when (resolve/explicit? feed item) " · explicit")]
               [:div.muted "guid " [:code (feed/item-guid item)]]
               (when-let [people (seq (resolve/people feed item))]
-                [:div.muted (str/join " · " (map #(str (:role %) ": " (:name %)) people))])]]
+                [:div.muted (str/join " · " (map #(str (:role %) ": " (:name %)) people))])
+              [:div
+               [:a.badge {:href (into-player "last")} "Add to queue"]
+               [:a.badge {:href (into-player "next")} "Play next"]]]]
             [:h2 "Description"]
             [:div.notes (html/hiccup (resolve/description item))]
             [:h2 "Media"]
@@ -353,6 +366,17 @@
             (value-section feed item companions)
             [:h2 "Item as data"]
             (kv-table (dissoc item :rss/description :content/encoded)))))
+
+(defn queue-page
+  "The shell of the play queue: the browser player, written in
+  ClojureScript in dk.simongray.podcast.web.player, mounts into it and
+  keeps the player state in the browser."
+  []
+  (layout "Queue"
+          [:h1 "Play queue"]
+          [:div#app
+           [:p.muted "Loading the player… If nothing appears, compile it first: "
+            [:code "clojure -M:cljs compile player"]]]))
 
 (defn error-page
   "The page shown when `url` could not be fetched or parsed, with the
