@@ -22,6 +22,7 @@
 ;;;; Requests
 
 (def base-url
+  "The root of the API's URLs; `endpoints` are relative to it."
   "https://api.podcastindex.org/api/1.0/")
 
 (def user-agent

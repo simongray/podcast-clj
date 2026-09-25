@@ -154,7 +154,7 @@ vocabulary: `:rss/title`, `:rss/pub-date`, `:itunes/episode-type`,
   (`:podcast/transcripts`, `:podcast/people`, `:itunes/categories`,
   `:rss/items`, `:podcast/live-items`).
 - **Coercion never throws.** A value that cannot be coerced stays a string and
-  the report gets a finding.
+  the report gets a diagnostic.
 - **Markup where text belongs is kept.** A description embedded as XHTML
   rather than wrapped in CDATA becomes its markup as a string; other text
   elements with elements inside them become the text of all their
@@ -225,17 +225,21 @@ standards is measurable and the reference app can display it.
 
 Parsing returns the feed map; the report travels as metadata under
 `:podcast/report` and is read with `podcast/report`. The report is a vector of
-findings, each a map with `:id`, `:level` (`:info`, `:warning`, `:error`),
+diagnostics, each a map with `:id`, `:level` (`:info`, `:warning`, `:error`),
 `:message` and, where it applies, `:path` into the model. Quirk applications,
-coercion failures and unknown namespaces all land here. Validation findings
-have the same shape so the reference app can show one list.
+coercion failures and unknown namespaces all land here. Validation
+diagnostics have the same shape so the reference app can show one list.
+Every id the library raises is catalogued with its level and meaning in
+`dk.simongray.podcast.diagnostics`, from which `doc/diagnostics.md` is
+generated; a test keeps the catalogue and the source in step, since
+consumers match on the ids.
 
 The same convention holds for everything else the library parses. A
 transcript or a chapters document carries its own report under the same
 metadata key, read with `transcript/report` or `chapters/report`: times
 written as strings, speakers taken from `Name:` prefixes, an SRT wrapped in
 HTML, a declared type the file contradicts, chapters out of order or without
-a start. A finding is something a host can fix or an app can act on; the
+a start. A diagnostic is something a host can fix or an app can act on; the
 ordinary processing of a format, such as collapsing HTML whitespace, is not
 reported.
 
@@ -308,7 +312,7 @@ repairs avoid it.
 `web/dk/simongray/podcast/web/` is a small Pedestal service that renders HTML
 with Replicant's string renderer. It fetches a feed URL (or one of the corpus
 feeds), parses it, and shows the channel, the items, every recognized tag, the
-unknown elements, the report, the validation findings against a chosen profile
+unknown elements, the report, the validation diagnostics against a chosen profile
 and the round-tripped XML. It is the first client of the library and exists
 to test it; it touches nothing but the public API.
 
@@ -332,7 +336,7 @@ to test it; it touches nothing but the public API.
   slice of the recently updated feeds, of the newly added ones, of the feeds
   with value blocks and of every non-podcast medium. `corpus/sweep-report`
   parses them all and aggregates parse errors, report and validation
-  findings by the number of feeds they touch, unknown elements by tag,
+  diagnostics by the number of feeds they touch, unknown elements by tag,
   values that would not coerce, and round-trip changes. The first sweep, of
   554 feeds on 2026-09-25, had no parse failures; it turned up the registry
   gaps, quirks and emitter bugs fixed alongside it, each with a test.
@@ -356,7 +360,9 @@ to test it; it touches nothing but the public API.
 10. Podping consumer; sync model. Deferred until a crawler or an app needs them.
 11. Hardening: a sweep of several hundred indexed feeds, with the registry,
     quirks and emitter fixes it turned up. Done.
-12. The small correctness items the sweep left: emit speed, findings
+12. The small correctness items the sweep left: emit speed, diagnostics
     summaries, live items in `feed/diff`, structured attribute values, the
     accessors still missing, remote items through the index. Done.
-13. An API review, then the first release: license, build, CI, Clojars.
+13. An API review (optional behaviour as options maps, the diagnostics
+    catalogue, a lint pass) and the release scaffolding: license, build,
+    CI, changelog. Done, up to the deploy itself.

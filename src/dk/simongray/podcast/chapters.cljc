@@ -36,6 +36,7 @@
    "url" :url "toc" :toc "location" :location})
 
 (def location-keys
+  "The keys of a chapter's location object, JSON name to model key."
   {"name" :name "geo" :geo "osm" :osm})
 
 (defn- rename
@@ -53,16 +54,16 @@
 ;;;; The report
 
 (defn report
-  "The findings recorded while reading `doc`."
+  "The diagnostics recorded while reading `doc`."
   [doc]
   (:podcast/report (meta doc)))
 
-(defn- finding
+(defn- diagnostic
   [id level message & {:as extra}]
   (merge {:id id :level level :message message} extra))
 
-(defn- findings
-  "The findings for the read document `doc`, given the `raw` chapter maps it
+(defn- diagnostics
+  "The diagnostics for the read document `doc`, given the `raw` chapter maps it
   was read from."
   [doc raw]
   (let [chapters (:chapters doc)
@@ -74,26 +75,26 @@
         v        (:version doc)]
     (cond-> []
       (pos? strings)
-      (conj (finding :chapters/string-times :warning
+      (conj (diagnostic :chapters/string-times :warning
                      (str strings " chapters give their times as strings rather than numbers")
                      :count strings))
 
       (pos? missing)
-      (conj (finding :chapters/missing-start-time :warning
+      (conj (diagnostic :chapters/missing-start-time :warning
                      (str missing " chapters have no start time and cannot be placed")
                      :count missing))
 
       (not= starts (sort starts))
-      (conj (finding :chapters/unsorted :info
+      (conj (diagnostic :chapters/unsorted :info
                      "the chapters are not in order of start time, which the format assumes"))
 
       (seq unknown)
-      (conj (finding :chapters/unknown-keys :info
+      (conj (diagnostic :chapters/unknown-keys :info
                      (str "keys the format does not define: " (str/join ", " unknown))
                      :keys (vec unknown)))
 
       (not (str/starts-with? (str v) "1.2"))
-      (conj (finding :chapters/old-version :info
+      (conj (diagnostic :chapters/old-version :info
                      (str "written against version " (pr-str v) " of the format; "
                           "the specification is at " version)
                      :version v)))))
@@ -114,7 +115,7 @@
   (let [raw (json/read-str s)
         doc (-> (rename document-keys raw)
                 (update :chapters #(mapv read-chapter %)))]
-    (with-meta doc {:podcast/report (findings doc (get raw "chapters"))})))
+    (with-meta doc {:podcast/report (diagnostics doc (get raw "chapters"))})))
 
 (defn- write-chapter
   [chapter]
@@ -123,15 +124,15 @@
     (unname chapter-keys m)))
 
 (defn emit-json
-  "Write the chapters map `doc` as a JSON Chapters document, indented when
-  `pretty?`; the version defaults to `version`."
+  "Write the chapters map `doc` as a JSON Chapters document, indented unless
+  `opts` says `{:pretty? false}`; the version defaults to `version`."
   ([doc]
-   (emit-json doc true))
-  ([doc pretty?]
+   (emit-json doc {}))
+  ([doc {:keys [pretty?] :or {pretty? true}}]
    (json/write-str (unname document-keys
                            (-> (merge {:version version} doc)
                                (update :chapters #(mapv write-chapter %))))
-                   pretty?)))
+                   {:pretty? pretty?})))
 
 ;;;; Podlove Simple Chapters
 
@@ -151,7 +152,7 @@
         dropped  (- (count entries) (count chapters))]
     (with-meta {:version version :chapters chapters}
       {:podcast/report (if (pos? dropped)
-                         [(finding :chapters/bad-timestamps :warning
+                         [(diagnostic :chapters/bad-timestamps :warning
                                    (str dropped " Podlove chapters have a start that is not a "
                                         "timestamp and were dropped")
                                    :count dropped)]
@@ -198,9 +199,10 @@
   [doc seconds]
   (last (take-while #(<= (:start-time %) seconds) (sorted doc))))
 
-(comment
-  (parse-json (slurp "test/resources/chapters/example-complex.json"))
-  (report *1)
-  (println (emit-json *1))
-  (at (parse-json (slurp "test/resources/chapters/example.json")) 300)
-  #_.)
+#?(:clj
+   (comment
+     (parse-json (slurp "test/resources/chapters/example-complex.json"))
+     (report *1)
+     (println (emit-json *1))
+     (at (parse-json (slurp "test/resources/chapters/example.json")) 300)
+     #_.))

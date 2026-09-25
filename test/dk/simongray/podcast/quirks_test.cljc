@@ -102,4 +102,4 @@
         (is (= f (podcast/parse out)))))
     (testing "the strict path refuses the document"
       (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
-                   (podcast/parse @quirky false))))))
+                   (podcast/parse @quirky {:quirks? false}))))))

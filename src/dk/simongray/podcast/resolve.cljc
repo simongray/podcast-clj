@@ -349,12 +349,11 @@
   ended, since feeds are slow to flip the status."
   [{:keys [status start end] :as live-item} at]
   (let [status (some-> status str/lower-case)]
-    (boolean
-     (or (= "live" status)
-         (and (not= "ended" status)
-              (inst? start) (inst? at)
-              (<= (inst-ms start) (inst-ms at))
-              (or (not (inst? end)) (< (inst-ms at) (inst-ms end))))))))
+    (or (= "live" status)
+        (and (not= "ended" status)
+             (inst? start) (inst? at)
+             (<= (inst-ms start) (inst-ms at))
+             (or (not (inst? end)) (< (inst-ms at) (inst-ms end)))))))
 
 ;;;; The feed as a whole
 
@@ -407,11 +406,12 @@
   [feed]
   (vec (category-paths [] (:itunes/categories feed))))
 
-(comment
-  (require '[dk.simongray.podcast :as podcast])
-  (def f (podcast/parse (slurp "test/resources/feeds/namespace-example.xml")))
-  (artwork f)
-  (map #(select-keys (numbering %) [:season :episode]) (:rss/items f))
-  (people f (first (:rss/items f)))
-  (categories f)
-  #_.)
+#?(:clj
+   (comment
+     (require '[dk.simongray.podcast :as podcast])
+     (def f (podcast/parse (slurp "test/resources/feeds/namespace-example.xml")))
+     (artwork f)
+     (map #(select-keys (numbering %) [:season :episode]) (:rss/items f))
+     (people f (first (:rss/items f)))
+     (categories f)
+     #_.))

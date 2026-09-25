@@ -64,6 +64,6 @@
   (let [Realistic (m/schema schema/feed {:registry realistic})]
     (doseq [seed (range 30)]
       (let [feed (mg/generate Realistic {:seed seed})
-            back (podcast/parse (podcast/emit feed) false)]
+            back (podcast/parse (podcast/emit feed) {:quirks? false})]
         (is (= (prune (merge {:rss/version "2.0"} feed)) (prune back)) (str "seed " seed))
         (is (nil? (explain back)) (str "seed " seed))))))

@@ -17,7 +17,7 @@
 ;;;; Parsing
 
 (defn- note!
-  "Record the finding `m` in the `report` accumulator."
+  "Record the diagnostic `m` in the `report` accumulator."
   [report m]
   (vswap! report conj m))
 
@@ -41,7 +41,7 @@
 
 (defn- parse-content
   "Coerce the node text `s` by the content type of `entry`, or keep it as a
-  string with a finding when it does not read as that type."
+  string with a diagnostic when it does not read as that type."
   [entry s path report]
   (let [type (spec/content-type entry)
         v    (coerce/parse type s)]
@@ -71,7 +71,7 @@
 (defn- element-text
   "The text of `element` under `entry`: its direct text, or when markup sits
   where the registry expects text alone, the markup itself for `:html`
-  content and every descendant's text otherwise, with a finding."
+  content and every descendant's text otherwise, with a diagnostic."
   [entry element path report]
   (if (folds-markup? entry element)
     (do (note! report {:id :feed/markup-in-text :level :info :path path
@@ -143,7 +143,7 @@
 
 (defn parse
   "Parse the canonical Hiccup `tree` of an RSS 2.0 document into a feed map.
-  The report of findings made on the way, and the foreign namespaces the
+  The report of diagnostics made on the way, and the foreign namespaces the
   document used, travel as metadata."
   [tree]
   ;; RSS 2.0 only, on purpose. Atom, RSS 1.0 and JSON Feed are not podcast
@@ -164,7 +164,7 @@
        :xml/namespaces (xml/foreign-namespaces tree)})))
 
 (defn report
-  "The findings recorded while parsing `feed`."
+  "The diagnostics recorded while parsing `feed`."
   [feed]
   (:podcast/report (meta feed)))
 

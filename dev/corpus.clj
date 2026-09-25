@@ -16,9 +16,11 @@
             [dk.simongray.podcast.xml :as xml]))
 
 (def dir
+  "Where the named feeds are kept, outside git."
   (io/file "dev-resources/corpus"))
 
 (def companions-dir
+  "Where the chapter and transcript files the feeds link to are kept."
   (io/file dir "companions"))
 
 (def feeds
@@ -99,6 +101,7 @@
 ;;;; The second corpus: the chapter and transcript files the feeds link to
 
 (def extensions
+  "The file extension to save a companion file under, by its declared type."
   {"text/vtt" "vtt" "application/x-subrip" "srt" "application/json" "json"
    "text/html" "html" "text/plain" "txt" "application/json+chapters" "json"})
 
@@ -173,6 +176,7 @@
 ;;;; The third corpus: hundreds of feeds sampled through the Podcast Index
 
 (def sweep-dir
+  "Where the feeds sampled through the Podcast Index are kept."
   (io/file dir "sweep"))
 
 (def mediums
@@ -245,7 +249,7 @@
 
 (defn- sweep-one
   "What parsing the feed in `file` turned up: the error, or the report and
-  validation finding counts, the unknown elements, the values that would
+  validation diagnostic counts, the unknown elements, the values that would
   not coerce, and whether the round trip changed anything."
   [^java.io.File file]
   (let [s    (slurp file)
@@ -275,7 +279,7 @@
 
 (defn sweep-report
   "Parse every feed in `sweep-dir` and aggregate what happened: parse
-  errors, report ids and validation findings by the number of feeds they
+  errors, report ids and validation diagnostics by the number of feeds they
   touch, unknown elements by tag with one example each, values that would
   not coerce by key with examples, and the feeds whose round trip changed
   something."

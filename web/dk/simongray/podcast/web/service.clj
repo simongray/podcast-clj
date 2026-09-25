@@ -19,6 +19,7 @@
   (:gen-class))
 
 (def corpus-dir
+  "Where the corpus feeds are, when they have been downloaded."
   (io/file "dev-resources/corpus"))
 
 (defn corpus
@@ -32,10 +33,12 @@
 
 ;;;; Fetching, with a small cache so that the views of one feed share a parse
 
-(defonce cache
+(defonce ^{:doc "Fetched bodies by URL, with the time they were fetched."}
+  cache
   (atom {}))
 
 (def cache-seconds
+  "How long a fetched body is reused before it is fetched again."
   300)
 
 (defn- fetch
@@ -89,10 +92,13 @@
               (assoc :status 502)))))))
 
 (defn home
+  "The landing page: the URL form and the corpus."
   [_]
   (html (page/home (corpus))))
 
 (defn feed-page
+  "The inspection of the feed named by the `url` query parameter, validated
+  against the `profile` parameter when given."
   [request]
   (with-feed request
     (fn [loaded]
@@ -100,18 +106,21 @@
         (html (page/feed-page (assoc loaded :profile profile)))))))
 
 (defn feed-edn
+  "The parsed feed as pretty-printed EDN."
   [request]
   (with-feed request
     (fn [{:keys [feed]}]
       (text "text/plain; charset=utf-8" (with-out-str (pprint/pprint feed))))))
 
 (defn feed-xml
+  "The feed written back out canonically."
   [request]
   (with-feed request
     (fn [{:keys [feed]}]
       (text "application/rss+xml; charset=utf-8" (podcast/emit feed)))))
 
 (defn corpus-page
+  "The inspection of a corpus feed, by its file name."
   [request]
   (feed-page (assoc-in request [:query-params :url]
                        (str "corpus/" (get-in request [:path-params :name])))))
@@ -170,6 +179,8 @@
                  (assoc :ref transcript-ref))))))
 
 (defn item-page
+  "One item of the feed named by `url`, found by the `guid` parameter, with
+  its chapters, transcript and value block fetched and rendered."
   [request]
   (with-feed request
     (fn [{:keys [feed] :as loaded}]
@@ -181,6 +192,7 @@
               (assoc :status 404)))))))
 
 (defn routes
+  "The inspector's routes, in Pedestal's set syntax."
   []
   #{["/" :get home :route-name :home]
     ["/feed" :get feed-page :route-name :feed]
@@ -191,7 +203,8 @@
 
 ;;;; Lifecycle
 
-(defonce server
+(defonce ^{:doc "The running connector, nil when stopped."}
+  server
   (atom nil))
 
 (defn connector
@@ -221,6 +234,7 @@
     (reset! server nil)))
 
 (defn -main
+  "Start the inspector and keep the process alive."
   [& _]
   (start!)
   @(promise))

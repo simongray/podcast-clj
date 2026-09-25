@@ -27,7 +27,7 @@
 (deftest the-broken-fixture
   (testing "the strict parser refuses it, repaired or not"
     (is (thrown? clojure.lang.ExceptionInfo (xml/parse @broken)))
-    (is (thrown? clojure.lang.ExceptionInfo (podcast/parse @broken false))))
+    (is (thrown? clojure.lang.ExceptionInfo (podcast/parse @broken {:quirks? false}))))
   (let [f     (podcast/parse @broken)
         ids   (frequencies (map :id (podcast/report f)))
         items (:rss/items f)]
@@ -46,4 +46,4 @@
       (is (= #inst "2026-09-25T10:00:00Z" (:rss/pub-date (first items))))
       (is (= "2" (:content (:rss/guid (second items))))))
     (testing "what comes out is well-formed and reads back the same"
-      (is (= f (podcast/parse (podcast/emit f) false))))))
+      (is (= f (podcast/parse (podcast/emit f) {:quirks? false}))))))

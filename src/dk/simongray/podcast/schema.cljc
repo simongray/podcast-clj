@@ -12,7 +12,7 @@
   The schemas describe the model when every value coerced: an element the
   registry types as an integer is an `:int` here. `parse` never throws on a
   value that will not coerce and keeps it as a string instead, with a
-  finding in the report, so validating a parsed feed against these schemas
+  diagnostic in the report, so validating a parsed feed against these schemas
   tells you exactly where a feed was forgiven. Enumerations are left as
   strings, since feeds vary their case and the validator judges them case
   insensitively."

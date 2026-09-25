@@ -16,9 +16,12 @@
            [java.util.zip GZIPInputStream]))
 
 (def user-agent
+  "The User-Agent sent with every request unless the caller sets one."
   "dk.simongray/podcast (+https://github.com/simongray)")
 
-(defonce client
+(defonce ^{:doc "The shared HTTP client, built on first use: redirects
+  followed, a 15 second connect timeout."}
+  client
   (delay (-> (HttpClient/newBuilder)
              (.followRedirects HttpClient$Redirect/NORMAL)
              (.connectTimeout (Duration/ofSeconds 15))

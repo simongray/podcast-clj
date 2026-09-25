@@ -41,18 +41,23 @@
   (into #{"mixed"} (map #(str % "L")) mediums))
 
 (def social-protocols
+  "The protocols podcast:socialInteract may name."
   #{"disabled" "activitypub" "twitter" "lightning" "atproto" "hive" "matrix" "nostr"})
 
 (def chat-protocols
+  "The protocols podcast:chat may name."
   #{"irc" "xmpp" "nostr" "matrix"})
 
 (def value-types
+  "The payment networks a podcast:value block may name."
   #{"lightning" "bitcoin"})
 
 (def value-methods
+  "The payment methods a podcast:value block may name."
   #{"keysend" "amp" "lnaddress" "default"})
 
 (def recipient-types
+  "The kinds of address a podcast:valueRecipient may have."
   #{"node" "lnaddress" "wallet"})
 
 (def service-slugs
@@ -68,6 +73,7 @@
     "tiktok" "transistor" "twitter" "whooshkaa" "youtube" "zencast"})
 
 (def license-slugs
+  "The license identifiers the podcast:license specification lists."
   #{"ARR" "CC-BY-4.0" "CC-BY-NC-4.0" "CC-BY-NC-ND-4.0" "POD-V4V-1.0"})
 
 (def transcript-types
@@ -115,12 +121,29 @@
 
 ;;;; Attribute shorthands
 
-(def url      {:type :url})
-(def req-url  {:type :url :required true})
-(def req      {:required true})
-(def integer  {:type :integer})
-(def decimal  {:type :decimal})
-(def bool     {:type :boolean})
+(def url
+  "Attribute shorthand: a URL."
+  {:type :url})
+
+(def req-url
+  "Attribute shorthand: a required URL."
+  {:type :url :required true})
+
+(def req
+  "Attribute shorthand: required text."
+  {:required true})
+
+(def integer
+  "Attribute shorthand: an integer."
+  {:type :integer})
+
+(def decimal
+  "Attribute shorthand: a decimal number."
+  {:type :decimal})
+
+(def bool
+  "Attribute shorthand: true or false."
+  {:type :boolean})
 
 ;;;; The registry
 

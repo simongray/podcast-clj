@@ -123,11 +123,11 @@
       (is (false? (:channel-changed? d)))
       (is (true? (:channel-changed? (feed/diff before (assoc after :rss/title "Renamed"))))))))
 
-(deftest summarizing-findings
-  (let [findings [{:id :a :level :warning :message "m" :path [:rss/items 0]}
+(deftest summarizing-diagnostics
+  (let [diagnostics [{:id :a :level :warning :message "m" :path [:rss/items 0]}
                   {:id :a :level :warning :message "m" :path [:rss/items 1]}
                   {:id :b :level :info :tag :x}]
-        summary  (podcast/summarize findings)]
+        summary  (podcast/summarize diagnostics)]
     (is (= [[:a 2] [:b 1]] (map (juxt :id :count) summary)))
     (is (= {:id :a :level :warning :message "m" :path [:rss/items 0]} (:example (first summary))))
     (is (= [] (podcast/summarize [])))))
@@ -141,7 +141,7 @@
            (:rrule (:podcast/update-frequency f))))
     (is (= {:lat 30.2672 :lon -97.7431 :uncertainty 100} (:geo (first (:podcast/locations f)))))
     (is (= {:type "R" :id 113314 :revision 4} (:osm (first (:podcast/locations f)))))
-    (testing "what does not read stays a string, with a finding"
+    (testing "what does not read stays a string, with a diagnostic"
       (is (= "geo:nowhere" (:geo (first (:podcast/locations (first (:rss/items f)))))))
       (is (some #(= [:rss/items 0 :podcast/locations 0 :geo] (:path %)) (podcast/report f))))
     (is (= f (podcast/parse (podcast/emit f))))))
@@ -162,10 +162,10 @@
 (deftest invalid-values-are-written-back-as-they-came
   (let [f (podcast/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
                            <podcast:locked>false</podcast:locked></channel></rss>"
-                         false)]
+                         {:quirks? false})]
     (is (= {:content "false"} (:podcast/locked f)))
     (is (re-find #"<podcast:locked>false</podcast:locked>" (podcast/emit f)))
-    (is (= f (podcast/parse (podcast/emit f) false)))))
+    (is (= f (podcast/parse (podcast/emit f) {:quirks? false})))))
 
 (deftest media-rss-nesting
   (let [f    (podcast/parse "<rss version=\"2.0\" xmlns:media=\"http://search.yahoo.com/mrss/\"><channel><title>T</title>

@@ -39,28 +39,28 @@
 ;;;; The report
 
 (defn report
-  "The findings recorded while reading `transcript`."
+  "The diagnostics recorded while reading `transcript`."
   [transcript]
   (:podcast/report (meta transcript)))
 
-(defn- finding
+(defn- diagnostic
   [id level message & {:as extra}]
   (merge {:id id :level level :message message} extra))
 
 (defn- with-report
-  "`transcript` with `findings` as its report."
-  [transcript findings]
-  (with-meta transcript {:podcast/report (vec findings)}))
+  "`transcript` with `diagnostics` as its report."
+  [transcript diagnostics]
+  (with-meta transcript {:podcast/report (vec diagnostics)}))
 
-(defn- add-finding
-  [transcript finding]
-  (vary-meta transcript update :podcast/report (fnil conj []) finding))
+(defn- add-diagnostic
+  [transcript diagnostic]
+  (vary-meta transcript update :podcast/report (fnil conj []) diagnostic))
 
-(defn- prefix-findings
-  "The finding for `n` cues that named their speaker with a prefix."
+(defn- prefix-diagnostics
+  "The diagnostic for `n` cues that named their speaker with a prefix."
   [n]
   (when (pos? n)
-    [(finding :transcript/speaker-prefixes :info
+    [(diagnostic :transcript/speaker-prefixes :info
               (str n " cues name their speaker with a \"Name:\" prefix; "
                    "the name is carried over the cues that follow")
               :count n)]))
@@ -123,7 +123,7 @@
                                 (cue stats (or (first more) "") (rest more)))))
                       carry-speakers)]
     (with-report {:format :srt :segments segments}
-      (prefix-findings (:prefixes @stats 0)))))
+      (prefix-diagnostics (:prefixes @stats 0)))))
 
 (defn emit-srt
   "Write `transcript` as SRT, one numbered cue per segment, the speaker as a
@@ -167,7 +167,7 @@
                                 (vtt-cue stats block))))
                       carry-speakers)]
     (with-report {:format :vtt :segments segments}
-      (prefix-findings (:prefixes @stats 0)))))
+      (prefix-diagnostics (:prefixes @stats 0)))))
 
 (defn emit-vtt
   "Write `transcript` as WebVTT, speakers as `<v>` voice spans."
@@ -200,22 +200,23 @@
                           (seq speaker) (assoc :speaker speaker))))]
     (with-report {:format :json :version (get doc "version") :segments segments}
       (when (pos? strings)
-        [(finding :transcript/string-times :warning
+        [(diagnostic :transcript/string-times :warning
                   (str strings " segments give their times as strings rather than numbers")
                   :count strings)]))))
 
 (defn emit-json
-  "Write `transcript` in the JSON transcript format."
+  "Write `transcript` in the JSON transcript format, indented unless `opts`
+  says `{:pretty? false}`."
   ([transcript]
-   (emit-json transcript true))
-  ([transcript pretty?]
+   (emit-json transcript {}))
+  ([transcript {:keys [pretty?] :or {pretty? true}}]
    (json/write-str
     {"version"  (or (:version transcript) "1.0.0")
      "segments" (for [{:keys [start end speaker body]} (:segments transcript)]
                   (cond-> {"startTime" start "body" body}
                     end     (assoc "endTime" end)
                     speaker (assoc "speaker" speaker)))}
-    pretty?)))
+    {:pretty? pretty?})))
 
 ;;;; HTML
 
@@ -266,7 +267,7 @@
     (if (>= (count (filter #(re-find timing-pattern %) texts)) 2)
       (-> (parse-srt (str/join "\n" texts))
           (assoc :format :html)
-          (add-finding (finding :transcript/wrapped-srt :warning
+          (add-diagnostic (diagnostic :transcript/wrapped-srt :warning
                                 "the HTML is an SRT file with every line wrapped in a p element")))
       (with-report {:format :html :segments (html-segments tokens)} []))))
 
@@ -286,7 +287,7 @@
                                  speaker (assoc :speaker speaker)))))
                       carry-speakers)]
     (with-report {:format :text :segments segments}
-      (prefix-findings (:prefixes @stats 0)))))
+      (prefix-diagnostics (:prefixes @stats 0)))))
 
 ;;;; Reading any format
 
@@ -303,6 +304,7 @@
       :else                                    :text)))
 
 (def format-keys
+  "The formats as keywords: :srt, :vtt, :json, :html and :text."
   (set (vals formats)))
 
 (defn- parse-as
@@ -332,13 +334,13 @@
          result   (parse-as format s)]
      (cond-> result
        (and (some? type) (nil? declared))
-       (add-finding (finding :transcript/unknown-type :warning
+       (add-diagnostic (diagnostic :transcript/unknown-type :warning
                              (str "the declared type " (pr-str type) " is not one the "
                                   "specification names; the file was read as " (name format))
                              :declared type))
 
        (and declared (not= declared format))
-       (add-finding (finding :transcript/type-mismatch :warning
+       (add-diagnostic (diagnostic :transcript/type-mismatch :warning
                              (str "declared as " (name declared) " but the file is "
                                   (name format) ", which is how it was read")
                              :declared declared :used format))))))
@@ -378,8 +380,9 @@
   [transcript seconds]
   (last (take-while #(and (:start %) (<= (:start %) seconds)) (:segments transcript))))
 
-(comment
-  (parse (slurp "test/resources/transcripts/example.vtt"))
-  (report (parse (slurp "test/resources/transcripts/example.srt") "text/plain"))
-  (println (emit-vtt (parse (slurp "test/resources/transcripts/example.srt"))))
-  #_.)
+#?(:clj
+   (comment
+     (parse (slurp "test/resources/transcripts/example.vtt"))
+     (report (parse (slurp "test/resources/transcripts/example.srt") "text/plain"))
+     (println (emit-vtt (parse (slurp "test/resources/transcripts/example.srt"))))
+     #_.))

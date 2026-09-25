@@ -9,7 +9,12 @@ variations found in the wild are absorbed by a separate, named, reported
 *quirks* layer. The core is `.cljc`.
 
 This is a library first. A small reference web app, a feed inspector, is
-bundled to exercise it against real feeds.
+bundled to exercise it against real feeds. The coordinate, once 0.1.0 is on
+Clojars:
+
+```clojure
+dk.simongray/podcast {:mvn/version "0.1.0"}
+```
 
 ```clojure
 (require '[dk.simongray.podcast :as podcast])
@@ -82,16 +87,21 @@ Learn one part of the library and the rest behaves the same way.
 2. **The report is where leniency is confessed.** Data comes back clean,
    and what had to be repaired, normalized or forgiven rides as metadata
    under `:podcast/report`, read with the `report` function next to each
-   `parse`. Every finding is a map with `:id`, `:level` (`:info`, `:warning`
-   or `:error`) and `:message`, plus `:path` into the data where that
-   applies. A report is either something a host can fix or something an
-   app can act on; nothing else goes in it. `summarize` groups a report or
-   a validation by kind with counts, so that a recommendation repeated for
+   `parse`. Every diagnostic is a map with `:id`, `:level` (`:info`,
+   `:warning` or `:error`) and `:message`, plus `:path` into the data where
+   that applies; [doc/diagnostics.md](doc/diagnostics.md) lists every id. A
+   diagnostic is either something a host can fix or something an app can act
+   on; nothing else goes in a report. `summarize` groups a report or a
+   validation by kind with counts, so that a recommendation repeated for
    every item is one row.
 3. **`resolve` gives one answer per property, by a stated rule.** Where the
    vocabularies overlap, each accessor's docstring says which source wins.
    One-argument forms take a feed or an item; two-argument forms take the
    feed and an item and apply the inheritance the specifications describe.
+4. **Optional behaviour is an options map.** What an operation needs is a
+   positional argument; what it may be told is a map, never a positional
+   flag: `(parse xml {:quirks? false})`, `(chapters/emit-json doc {:pretty?
+   true})`, `(resolve/transcript item {:languages ["da"]})`.
 
 Keys are namespaced by vocabulary and kebab-cased: `:rss/pub-date`,
 `:itunes/episode-type`, `:podcast/alternate-enclosures`. Attributes become
@@ -143,6 +153,7 @@ Namespaces
 | Namespace | What it does |
 |---|---|
 | `dk.simongray.podcast` | The front door: `parse`, `emit`, `report`, `summarize`, `parse-tree` |
+| `dk.simongray.podcast.diagnostics` | Every diagnostic id with its level and meaning; rendered as [doc/diagnostics.md](doc/diagnostics.md) |
 | `…podcast.xml` | XML to Hiccup and back, namespaces resolved by URI |
 | `…podcast.xml.jsoup` | Lenient parser for feeds that are not well-formed at all; needs the optional `org.jsoup/jsoup` |
 | `…podcast.quirks` | String repairs, URI variants, tree normalizations |
@@ -168,7 +179,7 @@ clojure -M:web
 ```
 
 Then open http://localhost:8300/, paste a feed URL, and see the model, the
-report, the validation findings against a profile and the round-tripped XML.
+report, the validation diagnostics against a profile and the round-tripped XML.
 Every item links to a page that fetches its chapters and transcript and shows
 them parsed. The corpus of real feeds in `dev-resources/corpus/` (not in git;
 recreate it with `(corpus/download!)` from `dev/corpus.clj`) is listed on the
@@ -185,6 +196,7 @@ clojure -X:test                       # the test suite on the JVM
 npm install                           # once: shadow-cljs and the Node DOMParser
 clojure -M:cljs compile test          # the same suite under Node
 clojure -M:cljs compile browser-test  # the same suite for a browser; serve target/browser-test
+clojure -T:build jar                  # the library jar and its pom, in target/
 ```
 
 The tests are `.cljc` and run on both platforms. Under Node,
@@ -203,7 +215,13 @@ the Podcast Index, which is how registry gaps and quirks are found.
 Status
 ------
 
-Early. The JVM path is exercised against a corpus of feeds from some thirty
-hosting platforms, and the whole library compiles and passes its tests as
-ClojureScript, both under Node and in a browser. See the roadmap at the end
-of the architecture document.
+Preparing the first release, 0.1.0. The library is exercised against a
+corpus of feeds from some thirty hosting platforms and a sweep of several
+hundred more sampled through the Podcast Index, and the whole of it compiles
+and passes its tests as ClojureScript, both under Node and in a browser. See
+the roadmap at the end of the architecture document.
+
+License
+-------
+
+MIT; see [LICENSE](LICENSE).

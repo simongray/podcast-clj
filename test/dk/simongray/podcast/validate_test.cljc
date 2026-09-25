@@ -11,8 +11,8 @@
             :cljs (rc/inline "feeds/namespace-example.xml"))))
 
 (defn- ids
-  [findings]
-  (frequencies (map :id findings)))
+  [diagnostics]
+  (frequencies (map :id diagnostics)))
 
 (deftest registry-checks
   (let [f (podcast/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\">

@@ -128,12 +128,13 @@
            (catch Exception _)))
        factory)))
 
-(defn- qname-str
-  "Join `prefix` and `local` back into the name as written in the document."
-  [prefix local]
-  (if (str/blank? prefix)
-    local
-    (str prefix ":" local)))
+#?(:clj
+   (defn- qname-str
+     "Join `prefix` and `local` back into the name as written in the document."
+     [prefix local]
+     (if (str/blank? prefix)
+       local
+       (str prefix ":" local))))
 
 #?(:clj
    (defn- raw-attrs

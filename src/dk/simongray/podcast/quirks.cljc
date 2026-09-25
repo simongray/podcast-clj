@@ -54,7 +54,7 @@
       (get table (uri-key uri)))))
 
 (defn namespace-variants
-  "Findings for every namespace declaration in the raw Hiccup `tree` whose
+  "Diagnostics for every namespace declaration in the raw Hiccup `tree` whose
   URI is not the canonical one for its alias."
   [tree]
   (for [element (tree-seq vector? xml/elements tree)
@@ -202,7 +202,7 @@
 
 (defn repair
   "Apply every repair in `repairs` to the XML text `s`. Returns `{:xml s
-  :report [...]}` with a finding for each repair that changed something."
+  :report [...]}` with a diagnostic for each repair that changed something."
   [s]
   (reduce (fn [{:keys [xml] :as acc} {:keys [id f]}]
             (let [xml' (f xml)]
@@ -354,6 +354,7 @@
      (rewrite :quirk/yes-no-value tag (canonical-text yes-no-values)))))
 
 (def rules-by-tag
+  "The `rules` by the tag they apply to."
   (group-by :tag rules))
 
 (defn- apply-rules
@@ -368,9 +369,9 @@
                            (when (not= element' element)
                              (vswap! report conj {:id id :level :info :tag (xml/tag element)}))
                            element')
-                :check   (do (when-let [finding (f element)]
+                :check   (do (when-let [diagnostic (f element)]
                                (vswap! report conj (merge {:id id :level :info :tag (xml/tag element)}
-                                                          finding)))
+                                                          diagnostic)))
                              element))))
           element
           (rules-by-tag (xml/tag element))))
@@ -384,14 +385,14 @@
 
 (defn normalize
   "Rewrite the canonical Hiccup `tree` by `rules`, keeping its metadata and
-  adding the findings under `:quirks/report`."
+  adding the diagnostics under `:quirks/report`."
   [tree]
   (let [report (volatile! [])
         tree'  (walk report tree)]
     (with-meta tree' (assoc (meta tree) :quirks/report @report))))
 
 (defn report
-  "The findings `normalize` recorded on `tree`."
+  "The diagnostics `normalize` recorded on `tree`."
   [tree]
   (:quirks/report (meta tree)))
 

@@ -58,14 +58,16 @@
       :else     (throw error))))
 
 (defn parse-tree
-  "Parse the RSS `xml` string into canonical Hiccup. With `quirks?` (the
-  default), namespace URI variants are recognized and a document the strict
-  parser rejects is repaired and parsed again, leniently as a last resort
-  when the platform has a lenient parser. The result carries every finding
-  under `:podcast/report` in its metadata."
+  "Parse the RSS `xml` string into canonical Hiccup. With `:quirks?` in
+  `opts` (the default), namespace URI variants are recognized and a document
+  the strict parser rejects is repaired and parsed again, leniently as a
+  last resort when the platform has a lenient parser; `{:quirks? false}` is
+  the strict path alone. The result carries every diagnostic under
+  `:podcast/report` in its metadata."
   ([xml]
-   (parse-tree xml true))
-  ([xml quirks?]
+   (parse-tree xml {}))
+  ([xml {:keys [quirks?] :or {quirks? true} :as opts}]
+   {:pre [(map? opts)]}
    (if-not quirks?
      (let [tree (xml/parse xml)]
        (vary-meta tree assoc :podcast/report (xml/report tree)))
@@ -82,12 +84,12 @@
                       (into (quirks/report tree))))))))
 
 (defn parse
-  "Parse the RSS `xml` string into a feed map; see `parse-tree` for the
-  `quirks?` flag. The report is metadata, read with `report`."
+  "Parse the RSS `xml` string into a feed map; `opts` are those of
+  `parse-tree`. The report is metadata, read with `report`."
   ([xml]
-   (parse xml true))
-  ([xml quirks?]
-   (let [tree (parse-tree xml quirks?)
+   (parse xml {}))
+  ([xml opts]
+   (let [tree (parse-tree xml opts)
          feed (feed/parse tree)]
      (vary-meta feed assoc :podcast/report
                 (into (vec (:podcast/report (meta tree)))
@@ -95,7 +97,7 @@
                       (feed/report feed))))))
 
 (defn report
-  "The findings recorded while parsing `feed` (or a tree from `parse-tree`):
+  "The diagnostics recorded while parsing `feed` (or a tree from `parse-tree`):
   repairs, namespace variants, quirks applied, and values that would not
   coerce. Each is a map with `:id` and `:level` at least."
   [feed]
@@ -108,20 +110,21 @@
   (xml/emit (feed/emit feed)))
 
 (defn summarize
-  "Group `findings`, from `report` or from `dk.simongray.podcast.validate`,
+  "Group `diagnostics`, from `report` or from `dk.simongray.podcast.validate`,
   by id and message: one map per kind with the `:id`, `:level` and
   `:message` of its first occurrence, that occurrence as `:example`, and
   the `:count`, most frequent first. A recommendation repeated for each of
   three thousand items becomes one row."
-  [findings]
-  (->> (group-by (juxt :id :message) findings)
+  [diagnostics]
+  (->> (group-by (juxt :id :message) diagnostics)
        (map (fn [[_ [example :as group]]]
               (-> (select-keys example [:id :level :message])
                   (assoc :count (count group) :example example))))
        (sort-by (fn [{:keys [count id]}] [(- count) (str id)]))))
 
-(comment
-  (def f (parse (slurp "test/resources/feeds/namespace-example.xml")))
-  (report f)
-  (println (emit f))
-  #_.)
+#?(:clj
+   (comment
+     (def f (parse (slurp "test/resources/feeds/namespace-example.xml")))
+     (report f)
+     (println (emit f))
+     #_.))

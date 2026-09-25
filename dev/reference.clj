@@ -1,9 +1,11 @@
 (ns reference
   "Generate doc/tags.md, the reference of every element the library
-  understands, from the tag registry. Run `(write!)` after changing the
-  registry and commit the result."
+  understands, from the tag registry, and doc/diagnostics.md from the
+  diagnostics catalogue. Run `(write!)` after changing either and commit the
+  result."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.xml :as xml]))
 
@@ -64,7 +66,7 @@
             (if required "required" "") " |")))))
 
 (defn- element-section
-  [{:keys [tag doc count content values deprecated] :as entry}]
+  [{:keys [tag doc count values deprecated] :as entry}]
   (let [parents (sort-by str (:parent entry))
         text    (spec/content-type entry)]
     (concat
@@ -135,11 +137,32 @@
              [""]
              (mapcat vocabulary-section vocabularies))))
 
+(defn diagnostics-markdown
+  "The diagnostics catalogue as Markdown."
+  []
+  (str/join "\n"
+            (concat
+             ["# Diagnostics the library reports"
+              ""
+              "Generated from `dk.simongray.podcast.diagnostics` by `dev/reference.clj`; do not edit"
+              "by hand. Every diagnostic is a map with `:id` and `:level`, usually a `:message`, and"
+              "a `:path` into the data where one applies. `report` reads them off a parsed feed,"
+              "transcript or chapters document, `validate` returns them for a feed, and `summarize`"
+              "groups them by kind."
+              ""
+              "| Id | Level | Meaning |"
+              "|---|---|---|"]
+             (for [{:keys [id level doc]} diagnostics/catalogue]
+               (str "| `" id "` | " (name level) " | " doc " |"))
+             [""])))
+
 (defn write!
-  "Write doc/tags.md."
+  "Write doc/tags.md and doc/diagnostics.md."
   []
   (spit (io/file "doc/tags.md") (markdown))
-  (println "wrote doc/tags.md," (count spec/tags) "elements"))
+  (println "wrote doc/tags.md," (count spec/tags) "elements")
+  (spit (io/file "doc/diagnostics.md") (diagnostics-markdown))
+  (println "wrote doc/diagnostics.md," (count diagnostics/catalogue) "diagnostics"))
 
 (comment
   (write!)

@@ -162,9 +162,11 @@
     [days (quot secs 3600) (rem (quot secs 60) 60) (rem secs 60) millis]))
 
 (def weekdays
+  "The RFC 2822 weekday names, Sunday first as `days-from-civil` counts."
   ["Sun" "Mon" "Tue" "Wed" "Thu" "Fri" "Sat"])
 
 (def month-names
+  "The RFC 2822 month names, January first."
   ["Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"])
 
 (defn format-rfc2822
@@ -269,6 +271,7 @@
    [:bymonth "BYMONTH"] [:bysetpos "BYSETPOS"] [:wkst "WKST"]])
 
 (def rrule-frequencies
+  "The values RFC 5545 allows for FREQ."
   #{"SECONDLY" "MINUTELY" "HOURLY" "DAILY" "WEEKLY" "MONTHLY" "YEARLY"})
 
 (defn- rrule-value

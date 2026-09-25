@@ -13,6 +13,7 @@
             [dk.simongray.podcast.value :as value]))
 
 (def css
+  "The inspector's stylesheet, inlined into every page."
   "body{font:15px/1.45 system-ui,sans-serif;margin:0;color:#222;background:#fafafa}
    main{max-width:1100px;margin:0 auto;padding:1rem 1.5rem 3rem}
    header{display:flex;gap:1rem;align-items:center}
@@ -75,22 +76,22 @@
                    (for [[name url] corpus]
                      [:li [:a {:href (str "/corpus/" name)} name] " " [:span.muted url]])]))))
 
-;;;; Findings
+;;;; Diagnostics
 
 (defn- level-class
   [level]
   (name (or level :info)))
 
-(defn findings-table
-  "A table of report or validation `findings`, one row per kind as
+(defn diagnostics-table
+  "A table of report or validation `diagnostics`, one row per kind as
   `podcast/summarize` groups them, with the count and one example."
-  [findings]
-  (if (empty? findings)
+  [diagnostics]
+  (if (empty? diagnostics)
     [:p.muted "None."]
     [:table
-     [:thead [:tr [:th "Level"] [:th "Finding"] [:th "Count"] [:th "Example"]]]
+     [:thead [:tr [:th "Level"] [:th "Diagnostic"] [:th "Count"] [:th "Example"]]]
      [:tbody
-      (for [{:keys [id level message example] n :count} (podcast/summarize findings)]
+      (for [{:keys [id level message example] n :count} (podcast/summarize diagnostics)]
         [:tr
          [:td {:class (level-class level)} (name (or level :info))]
          [:td [:code (str id)]]
@@ -191,9 +192,9 @@
                      " "))]
             [:h2 "Parse report"]
             [:p.muted "What the parser had to repair, normalize or give up on. An empty report means the feed is written the way the standards say."]
-            (findings-table report)
+            (diagnostics-table report)
             [:h2 (str "Validation" (when profile (str " against " (:name (validate/profiles profile)))))]
-            (findings-table validation)
+            (diagnostics-table validation)
             [:h2 "Channel"]
             (kv-table (dissoc feed :rss/items :podcast/live-items :xml/unknown))
             (when-let [unknown (:xml/unknown feed)]
@@ -232,7 +233,7 @@
         [:p.muted (str (count (:chapters doc)) " chapters, format version " (:version doc)
                        (when (some :location (:chapters doc)) ", with locations"))]
         (when (seq (chapters/report doc))
-          (findings-table (chapters/report doc)))
+          (diagnostics-table (chapters/report doc)))
         [:table
          [:thead [:tr [:th "Start"] [:th "Title"] [:th "Links"]]]
          [:tbody
@@ -261,7 +262,7 @@
            [:p.muted (str (count segments) " segments · format " (name (:format parsed))
                           (when (seq speakers) (str " · speakers: " (str/join ", " (take 8 speakers)))))]
            (when (seq (transcript/report parsed))
-             (findings-table (transcript/report parsed)))
+             (diagnostics-table (transcript/report parsed)))
            [:table
             [:tbody
              (for [{:keys [start end speaker body]} (take 40 segments)]
@@ -314,7 +315,7 @@
   "The page for one `item` of `feed` at `url`, with its `companions` as
   fetched by the service: `{:chapters {...} :embedded doc :transcript {...}}`."
   [{:keys [url feed item companions]}]
-  (let [{:keys [season episode type] :as numbering} (resolve/numbering item)]
+  (let [numbering (resolve/numbering item)]
     (layout (or (resolve/title item) "(untitled)")
             [:p [:a {:href (feed-href "/feed" url)} "← " (or (resolve/title feed) url)]]
             [:header

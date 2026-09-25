@@ -11,11 +11,11 @@
      :cljs (js->clj (js/JSON.parse s))))
 
 (defn write-str
-  "Serialize `x` as JSON, indented when `pretty?`."
+  "Serialize `x` as JSON, indented when `opts` has `:pretty?`."
   ([x]
-   (write-str x false))
-  ([x pretty?]
-   #?(:clj  (json/write-str x :indent pretty? :escape-slash false)
+   (write-str x {}))
+  ([x {:keys [pretty?]}]
+   #?(:clj  (json/write-str x :indent (boolean pretty?) :escape-slash false)
       :cljs (if pretty?
               (js/JSON.stringify (clj->js x) nil 2)
               (js/JSON.stringify (clj->js x))))))
