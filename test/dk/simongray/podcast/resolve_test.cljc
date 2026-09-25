@@ -164,3 +164,18 @@
                                        {:url "https://a/1.webm" :type "video/webm"}]}}]
     (is (= ["https://a/1.mp4" "https://a/1.webm"] (map :url (resolve/enclosures item))))
     (is (= "https://a/1.mp4" (:url (resolve/enclosure item))))))
+
+(deftest live-items-in-order
+  (let [pending {:status "pending" :start #inst "2026-10-01T18:00:00Z" :rss/title "Next week"}
+        live    {:status "live" :start #inst "2026-09-25T18:00:00Z" :rss/title "Now"}
+        ended   {:status "ended" :start #inst "2026-09-18T18:00:00Z" :end #inst "2026-09-18T19:00:00Z"
+                 :rss/title "Last week"}
+        older   {:status "ended" :start #inst "2026-09-11T18:00:00Z" :rss/title "Older"}
+        feed    {:podcast/live-items [older pending ended live]}]
+    (is (= ["Now" "Next week" "Last week" "Older"] (map :rss/title (resolve/live-items feed))))
+    (is (= [] (resolve/live-items {})))
+    (testing "on air by status, or by the clock when the status lags"
+      (is (resolve/live? live #inst "2026-01-01T00:00:00Z"))
+      (is (resolve/live? pending #inst "2026-10-01T18:30:00Z"))
+      (is (not (resolve/live? pending #inst "2026-10-01T17:00:00Z")))
+      (is (not (resolve/live? ended #inst "2026-09-18T18:30:00Z"))))))

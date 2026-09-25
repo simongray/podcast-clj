@@ -3,6 +3,7 @@
   Rendered to strings by Replicant in the service namespace."
   (:require [clojure.pprint :as pprint]
             [clojure.string :as str]
+            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.chapters :as chapters]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.resolve :as resolve]
@@ -81,20 +82,19 @@
   (name (or level :info)))
 
 (defn findings-table
-  "A table of report or validation `findings`, grouped by id with counts and
-  one example each."
+  "A table of report or validation `findings`, one row per kind as
+  `podcast/summarize` groups them, with the count and one example."
   [findings]
   (if (empty? findings)
     [:p.muted "None."]
     [:table
      [:thead [:tr [:th "Level"] [:th "Finding"] [:th "Count"] [:th "Example"]]]
      [:tbody
-      (for [[id group] (sort-by (comp str key) (group-by :id findings))
-            :let [{:keys [level message] :as example} (first group)]]
+      (for [{:keys [id level message example] n :count} (podcast/summarize findings)]
         [:tr
          [:td {:class (level-class level)} (name (or level :info))]
          [:td [:code (str id)]]
-         [:td (count group)]
+         [:td n]
          [:td (or message
                   (str/join ", " (for [[k v] (dissoc example :id :level :message)]
                                    (str (name k) "=" (pr-str v)))))]])]]))

@@ -19,7 +19,7 @@
 (def coerced-types
   "The value types whose model values are not strings, so that a string
   where one is expected means the value did not coerce."
-  #{:integer :decimal :boolean :yes-no :rfc2822 :iso8601 :duration})
+  #{:integer :decimal :boolean :yes-no :rfc2822 :iso8601 :duration :rrule :geo :osm})
 
 (defn- finding
   [id level path message & {:as extra}]

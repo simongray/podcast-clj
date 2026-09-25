@@ -328,6 +328,38 @@
   [credentials remote-item send]
   (some #(block-in (:body (send %))) (remote-value-requests credentials remote-item)))
 
+;;;; Resolving remote items themselves
+
+(defn remote-item-requests
+  "The requests that resolve `remote-item`, a podroll, publisher, list or
+  time-split entry with a `:feed-guid` and perhaps an `:item-guid`: the
+  episode when it names one, then the feed."
+  ([credentials remote-item]
+   (remote-item-requests credentials remote-item (now-seconds)))
+  ([credentials {:keys [feed-guid item-guid]} seconds]
+   (cond-> []
+     (and feed-guid item-guid)
+     (conj (request credentials :episodes/by-guid {:guid item-guid :podcastguid feed-guid} seconds))
+
+     feed-guid
+     (conj (request credentials :podcasts/by-guid {:guid feed-guid} seconds)))))
+
+(defn remote-item
+  "What `remote-item` points at, as `{:feed ... :episode ...}` in the shape
+  of the model, by sending the requests of `remote-item-requests` with
+  `send` (see `remote-value`). Nil when the index knows neither."
+  [credentials remote-item send]
+  (let [answers (for [req  (remote-item-requests credentials remote-item)
+                      :let [body (:body (send req))]
+                      :when (string? body)]
+                  (try (response body) (catch #?(:clj Exception :cljs :default) _ nil)))]
+    (not-empty
+     (into {} (for [{:keys [status feed episode]} answers
+                    :when status
+                    [k v] [[:feed feed] [:episode episode]]
+                    :when v]
+                [k v])))))
+
 #?(:clj
    (defn call!
      "Send `endpoint` with `params` for `credentials` with the library's HTTP
@@ -335,11 +367,29 @@
      [credentials endpoint params]
      (-> (request credentials endpoint params) http/call! :body response)))
 
+#?(:cljs
+   (defn call!
+     "Send `endpoint` with `params` for `credentials` with the platform's
+     `fetch` and read the answer with `response`. Returns a js/Promise of the
+     result, since fetch is asynchronous; in a browser the API's CORS policy
+     decides whether the call is allowed at all."
+     [credentials endpoint params]
+     (let [{:keys [url headers]} (request credentials endpoint params)]
+       (-> (js/fetch url (clj->js {:headers headers}))
+           (.then (fn [res] (.text res)))
+           (.then response)))))
+
 #?(:clj
    (defn remote-value!
      "`remote-value` with the library's HTTP client."
      [credentials remote-item]
      (remote-value credentials remote-item http/call!)))
+
+#?(:clj
+   (defn remote-item!
+     "`remote-item` with the library's HTTP client."
+     [credentials remote-item]
+     (remote-item credentials remote-item http/call!)))
 
 (comment
   (request {:key "K" :secret "S"} :search/by-term {:q "podcasting 2.0" :max 5} 1700000000)

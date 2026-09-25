@@ -258,6 +258,82 @@
      (str (pad2 (quot total 3600)) ":" (pad2 (rem (quot total 60) 60)) ":"
           (pad2 (rem total 60)) separator (subs (str (+ 1000 (rem millis 1000))) 1)))))
 
+;;;; RFC 5545 recurrence rules (podcast:updateFrequency rrule)
+
+(def rrule-parts
+  "The parts of a recurrence rule, as model keys and as written, in the
+  order the RFC lists them."
+  [[:freq "FREQ"] [:interval "INTERVAL"] [:count "COUNT"] [:until "UNTIL"]
+   [:bysecond "BYSECOND"] [:byminute "BYMINUTE"] [:byhour "BYHOUR"] [:byday "BYDAY"]
+   [:bymonthday "BYMONTHDAY"] [:byyearday "BYYEARDAY"] [:byweekno "BYWEEKNO"]
+   [:bymonth "BYMONTH"] [:bysetpos "BYSETPOS"] [:wkst "WKST"]])
+
+(def rrule-frequencies
+  #{"SECONDLY" "MINUTELY" "HOURLY" "DAILY" "WEEKLY" "MONTHLY" "YEARLY"})
+
+(defn- rrule-value
+  "The model value of the rule part `k` written as `s`; nil when it does not
+  read. Numbers become longs, UNTIL an instant, the BY lists vectors."
+  [k s]
+  (let [longs (fn [s]
+                (let [xs (str/split s #",")]
+                  (when (every? #(re-matches #"[+-]?\d+" %) xs)
+                    (mapv parse-long xs))))]
+    (case k
+      :freq  (let [f (str/upper-case s)]
+               (when (rrule-frequencies f) f))
+      :until (when-let [[_ y m d hh mm ss] (re-matches #"(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z?)?" s)]
+               (->inst (civil->ms (parse-long y) (parse-long m) (parse-long d)
+                                  (if hh (parse-long hh) 0) (if mm (parse-long mm) 0)
+                                  (if ss (parse-long ss) 0) 0 0)))
+      :byday (let [days (mapv str/upper-case (str/split s #","))]
+               (when (every? #(re-matches #"[+-]?\d{0,2}(?:MO|TU|WE|TH|FR|SA|SU)" %) days)
+                 days))
+      :wkst  (let [d (str/upper-case s)]
+               (when (re-matches #"MO|TU|WE|TH|FR|SA|SU" d) d))
+      (:interval :count) (when (re-matches #"\d+" s) (parse-long s))
+      (:bysecond :byminute :byhour :bymonthday :byyearday :byweekno :bymonth :bysetpos) (longs s)
+      s)))
+
+(defn parse-rrule
+  "Parse the RFC 5545 recurrence rule `s`, \"FREQ=WEEKLY;BYDAY=MO,WE\", into
+  a map of its parts by lower-case key: `{:freq \"WEEKLY\" :byday [\"MO\"
+  \"WE\"]}`. INTERVAL and COUNT are numbers, UNTIL an instant, the BY lists
+  vectors of numbers or day names. Nil when FREQ is missing or invalid or
+  a part does not read."
+  [s]
+  (let [parts (for [part (str/split (str/replace-first (str/trim (str s)) #"(?i)^RRULE:" "") #";")
+                    :when (not (str/blank? part))
+                    :let  [[k v] (str/split part #"=" 2)]]
+                [(keyword (str/lower-case (str/trim k))) (some-> v str/trim)])
+        m     (reduce (fn [m [k v]]
+                        (if-some [v' (when v (rrule-value k v))]
+                          (assoc m k v')
+                          (reduced nil)))
+                      {}
+                      parts)]
+    (when (:freq m) m)))
+
+(defn format-rrule
+  "Write the recurrence rule map `m` (see `parse-rrule`) as RFC 5545 does,
+  parts in the RFC's order and any other part last."
+  [m]
+  (let [known (mapv first rrule-parts)
+        names (into {} rrule-parts)
+        part  (fn [k v]
+                (str (or (names k) (str/upper-case (name k))) "="
+                     (cond
+                       (inst? v)       (str/replace (format-iso8601 v) #"[-:]|\.\d+" "")
+                       (sequential? v) (str/join "," (map str v))
+                       :else           (str v))))]
+    (str/join ";" (concat (for [k known
+                                :let [v (get m k)]
+                                :when (and (some? v) (not (and (coll? v) (empty? v))))]
+                            (part k v))
+                          (for [[k v] m
+                                :when (not (contains? names k))]
+                            (part k v))))))
+
 (comment
   (parse-rfc2822 "Fri, 25 Sep 2026 16:42:40 +0000")
   (parse-rfc2822 "Fri, 31 Jul 2026 10:02:23 PST")

@@ -195,7 +195,8 @@
   (atom nil))
 
 (defn connector
-  "A Jetty connector serving the inspector on `port`."
+  "A Jetty connector serving the inspector on `port`, not yet started; tests
+  drive its interceptor chain directly."
   [port]
   (-> (conn/default-connector-map port)
       (conn/with-default-interceptors)

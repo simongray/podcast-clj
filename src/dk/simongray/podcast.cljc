@@ -107,6 +107,19 @@
   [feed]
   (xml/emit (feed/emit feed)))
 
+(defn summarize
+  "Group `findings`, from `report` or from `dk.simongray.podcast.validate`,
+  by id and message: one map per kind with the `:id`, `:level` and
+  `:message` of its first occurrence, that occurrence as `:example`, and
+  the `:count`, most frequent first. A recommendation repeated for each of
+  three thousand items becomes one row."
+  [findings]
+  (->> (group-by (juxt :id :message) findings)
+       (map (fn [[_ [example :as group]]]
+              (-> (select-keys example [:id :level :message])
+                  (assoc :count (count group) :example example))))
+       (sort-by (fn [{:keys [count id]}] [(- count) (str id)]))))
+
 (comment
   (def f (parse (slurp "test/resources/feeds/namespace-example.xml")))
   (report f)

@@ -55,3 +55,19 @@
   (is (= "0:45" (time/format-clock 45)))
   (is (= "00:00:02,760" (time/format-timestamp 2.76 ",")))
   (is (= "01:03:13.500" (time/format-timestamp 3793.5))))
+
+(deftest recurrence-rules
+  (testing "parts by lower-case key, case and the RRULE prefix forgiven"
+    (is (= {:freq "WEEKLY" :interval 2 :byday ["MO" "WE"] :until #inst "2026-12-31T00:00:00Z"}
+           (time/parse-rrule "RRULE:freq=weekly;INTERVAL=2;BYDAY=mo,WE;UNTIL=20261231")))
+    (is (= {:freq "MONTHLY" :bymonthday [1 -1] :count 12}
+           (time/parse-rrule "FREQ=MONTHLY;BYMONTHDAY=1,-1;COUNT=12")))
+    (is (= {:freq "DAILY" :x-foo "bar"} (time/parse-rrule "FREQ=DAILY;X-FOO=bar"))))
+  (testing "no FREQ, an unknown FREQ or a part that does not read is no rule"
+    (is (nil? (time/parse-rrule "BYDAY=MO")))
+    (is (nil? (time/parse-rrule "FREQ=SOMETIMES")))
+    (is (nil? (time/parse-rrule "FREQ=WEEKLY;INTERVAL=two"))))
+  (testing "written back in the RFC's order"
+    (is (= "FREQ=WEEKLY;INTERVAL=2;UNTIL=20261231T000000Z;BYDAY=MO,WE"
+           (time/format-rrule {:byday ["MO" "WE"] :until #inst "2026-12-31T00:00:00Z" :interval 2 :freq "WEEKLY"})))
+    (is (= "FREQ=DAILY;X-FOO=bar" (time/format-rrule {:freq "DAILY" :x-foo "bar"})))))

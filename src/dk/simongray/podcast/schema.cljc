@@ -26,7 +26,25 @@
    :yes-no   :boolean
    :rfc2822  'inst?
    :iso8601  'inst?
-   :duration 'number?})
+   :duration 'number?
+   :rrule    [:map
+              [:freq [:enum "SECONDLY" "MINUTELY" "HOURLY" "DAILY" "WEEKLY" "MONTHLY" "YEARLY"]]
+              [:interval {:optional true} 'pos-int?]
+              [:count {:optional true} 'pos-int?]
+              [:until {:optional true} 'inst?]
+              [:byday {:optional true} [:vector {:gen/max 3} [:enum "MO" "TU" "WE" "TH" "FR" "SA" "SU"]]]
+              [:bymonthday {:optional true} [:vector {:gen/max 3} [:int {:min 1 :max 31}]]]
+              [:bymonth {:optional true} [:vector {:gen/max 3} [:int {:min 1 :max 12}]]]
+              [:wkst {:optional true} [:enum "MO" "TU" "WE" "TH" "FR" "SA" "SU"]]]
+   :geo      [:map
+              [:lat 'number?]
+              [:lon 'number?]
+              [:altitude {:optional true} 'number?]
+              [:uncertainty {:optional true} 'number?]]
+   :osm      [:map
+              [:type [:enum "N" "W" "R"]]
+              [:id 'pos-int?]
+              [:revision {:optional true} 'pos-int?]]})
 
 (defn- type-schema
   [type]

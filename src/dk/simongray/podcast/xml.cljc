@@ -371,40 +371,69 @@
 
 ;;;; Emitting
 
-(defn- legal
-  "The string `s` without the characters XML 1.0 forbids anywhere."
-  [s]
-  (str/replace s #"[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]" ""))
+(def illegal-characters
+  "The characters XML 1.0 forbids anywhere, as a pattern."
+  #"[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]")
 
-(defn- escape-text
-  "Escape `s` for a text node. A carriage return becomes a character
-  reference, the only form a parser does not normalize away."
+(defn- legal?
+  "Whether the string `s` has no character XML 1.0 forbids. A plain loop over
+  the characters: a regular expression crawls the megabytes of show notes in
+  a big feed thirty times slower."
+  [^String s]
+  (let [n (count s)]
+    (loop [i 0]
+      (if (= i n)
+        true
+        (let [c #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))]
+          (if (or (< c 9) (= c 11) (= c 12) (and (> c 13) (< c 32)) (= c 0xFFFE) (= c 0xFFFF))
+            false
+            (recur (inc i))))))))
+
+(defn- legal
+  "The string `s` without the characters XML 1.0 forbids anywhere; `s`
+  itself, uncopied, when it has none."
   [s]
-  (-> (legal s)
-      (str/replace "&" "&amp;")
-      (str/replace "<" "&lt;")
-      (str/replace ">" "&gt;")
-      (str/replace "\r" "&#13;")))
+  (if (legal? s)
+    s
+    (str/replace s illegal-characters "")))
+
+(defn- escape-legal-text
+  "Escape the legal string `s` for a text node; `s` itself when nothing
+  needs escaping. A carriage return becomes a character reference, the only
+  form a parser does not normalize away."
+  [s]
+  (if (re-find #"[&<>\r]" s)
+    (-> s
+        (str/replace "&" "&amp;")
+        (str/replace "<" "&lt;")
+        (str/replace ">" "&gt;")
+        (str/replace "\r" "&#13;"))
+    s))
 
 (defn- escape-attr
   "Escape `s` for an attribute value, where a parser also normalizes
   newlines and tabs to spaces unless they are character references."
   [s]
-  (-> (escape-text s)
-      (str/replace "\"" "&quot;")
-      (str/replace "\n" "&#10;")
-      (str/replace "\t" "&#9;")))
+  (let [s (escape-legal-text (legal s))]
+    (if (re-find #"[\"\n\t]" s)
+      (-> s
+          (str/replace "\"" "&quot;")
+          (str/replace "\n" "&#10;")
+          (str/replace "\t" "&#9;"))
+      s)))
 
-(defn- text-node
-  "Serialize the text `s`, as CDATA when it contains markup and no carriage
-  return, which CDATA cannot carry through a parser."
-  [s]
+(defn- append-text!
+  "Append the text `s` to the transient vector `acc` of string parts: as
+  CDATA when it contains markup but no carriage return, which CDATA cannot
+  carry through a parser, and escaped otherwise. Show notes are the bulk of
+  a feed, and a text that needs no change is appended without a copy."
+  [acc s]
   (let [s (legal s)]
     (if (and (str/includes? s "<")
              (not (str/includes? s "]]>"))
              (not (str/includes? s "\r")))
-      (str "<![CDATA[" s "]]>")
-      (escape-text s))))
+      (-> acc (conj! "<![CDATA[") (conj! s) (conj! "]]>"))
+      (conj! acc (escape-legal-text s)))))
 
 (defn- keyword-str
   [k]
@@ -427,27 +456,35 @@
   (apply str (for [[k v] attrs]
                (str " " (keyword-str k) "=\"" (escape-attr (str v)) "\""))))
 
-(defn- emit-element
-  [depth element]
+(defn- emit-element*
+  "Append the serialization of `element`, indented for `depth`, to the
+  transient vector `acc` of string parts. One flat vector joined once at the
+  end keeps a 30 MB feed from being copied once per level of nesting."
+  [acc depth element]
   (let [indent   (apply str (repeat (* 2 depth) " "))
         name     (keyword-str (tag element))
-        open     (str indent "<" name (attrs-str (attrs element)))
-        children (children element)]
+        children (children element)
+        acc      (-> acc (conj! indent) (conj! "<") (conj! name) (conj! (attrs-str (attrs element))))]
     (cond
       (empty? children)
-      (str open "/>")
+      (conj! acc "/>")
 
       (every? string? children)
-      (str open ">" (text-node (apply str children)) "</" name ">")
+      (-> acc (conj! ">") (append-text! (apply str children)) (conj! "</") (conj! name) (conj! ">"))
 
       :else
-      (str open ">\n"
-           (str/join "\n" (map (fn [child]
-                                 (if (string? child)
-                                   (str indent "  " (text-node child))
-                                   (emit-element (inc depth) child)))
-                               children))
-           "\n" indent "</" name ">"))))
+      (-> (reduce (fn [acc [i child]]
+                    (let [acc (if (pos? i) (conj! acc "\n") acc)]
+                      (if (string? child)
+                        (-> acc (conj! indent) (conj! "  ") (append-text! child))
+                        (emit-element* acc (inc depth) child))))
+                  (conj! acc ">\n")
+                  (map-indexed vector children))
+          (conj! "\n") (conj! indent) (conj! "</") (conj! name) (conj! ">")))))
+
+(defn- emit-element
+  [depth element]
+  (str/join (persistent! (emit-element* (transient []) depth element))))
 
 (defn emit
   "Serialize the canonical Hiccup `tree` to an XML string, declaring the
@@ -467,24 +504,33 @@
           (emit-element 0 root)
           "\n"))))
 
-(defn- emit-compact
-  "Serialize `element` on one line, without indentation."
-  [element]
-  (let [name     (keyword-str (tag element))
-        open     (str "<" name (attrs-str (attrs element)))
-        children (children element)]
-    (if (empty? children)
-      (str open "/>")
-      (str open ">"
-           (apply str (map #(if (string? %) (text-node %) (emit-compact %)) children))
-           "</" name ">"))))
+(defn- emit-compact*
+  "Append the one-line serialization of `element` to the transient vector
+  `acc` of string parts."
+  [acc element]
+  (let [name (keyword-str (tag element))
+        acc  (-> acc (conj! "<") (conj! name) (conj! (attrs-str (attrs element))))]
+    (if (empty? (children element))
+      (conj! acc "/>")
+      (-> (reduce (fn [acc child]
+                    (if (string? child)
+                      (append-text! acc child)
+                      (emit-compact* acc child)))
+                  (conj! acc ">")
+                  (children element))
+          (conj! "</") (conj! name) (conj! ">")))))
 
 (defn inner-xml
   "The content of `element` as markup: its text as written and its child
   elements serialized compactly. This is what an HTML description looks like
   when a feed embeds it as XML rather than wrapping it in CDATA."
   [element]
-  (apply str (map #(if (string? %) % (emit-compact %)) (children element))))
+  (str/join (persistent! (reduce (fn [acc child]
+                                   (if (string? child)
+                                     (conj! acc child)
+                                     (emit-compact* acc child)))
+                                 (transient [])
+                                 (children element)))))
 
 (comment
   (parse "<rss xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" version=\"2.0\">

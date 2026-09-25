@@ -417,7 +417,7 @@
     :attrs {:purpose {}}
     :doc "Free-form text modelled on the DNS TXT record."}
    {:tag :podcast/updateFrequency :key :podcast/update-frequency :parent #{:channel}
-    :count :one :attrs {:complete bool :dtstart {:type :iso8601} :rrule {}}
+    :count :one :attrs {:complete bool :dtstart {:type :iso8601} :rrule {:type :rrule}}
     :doc "The intended release schedule as text and an RFC 5545 rule."}
    {:tag :podcast/license :key :podcast/license :parent #{:channel :item} :count :one
     :attrs {:url url}
@@ -430,7 +430,7 @@
     :attrs {:role {} :group {} :img url :href url}
     :doc "A person of interest: host, guest or any Podcast Taxonomy role."}
    {:tag :podcast/location :key :podcast/locations :parent #{:channel :item} :count :many
-    :attrs {:rel {:type :enum :values #{"subject" "creator"}} :geo {} :osm {}
+    :attrs {:rel {:type :enum :values #{"subject" "creator"}} :geo {:type :geo} :osm {:type :osm}
             :country {}}
     :doc "Where the content is about or where it was made."}
    {:tag :podcast/image :key :podcast/images :parent #{:channel :item} :count :many

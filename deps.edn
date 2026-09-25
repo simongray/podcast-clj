@@ -30,12 +30,15 @@
                         org.clojure/test.check       {:mvn/version "1.1.1"}}}
 
   ;; clojure -X:test
-  :test  {:extra-paths ["test" "test/resources"]
+  :test  {:extra-paths ["test" "test/resources" "web"]
           :extra-deps  {io.github.cognitect-labs/test-runner
                         {:git/tag "v0.5.1" :git/sha "dfb30dd"}
-                        org.jsoup/jsoup        {:mvn/version "1.23.2"}
-                        metosin/malli          {:mvn/version "0.20.2"}
-                        org.clojure/test.check {:mvn/version "1.1.1"}}
+                        io.pedestal/pedestal.service {:mvn/version "0.8.2-beta-10"}
+                        io.pedestal/pedestal.jetty   {:mvn/version "0.8.2-beta-10"}
+                        no.cjohansen/replicant       {:mvn/version "2026.07.1"}
+                        org.jsoup/jsoup              {:mvn/version "1.23.2"}
+                        metosin/malli                {:mvn/version "0.20.2"}
+                        org.clojure/test.check       {:mvn/version "1.1.1"}}
           :main-opts   ["-m" "cognitect.test-runner"]
           :exec-fn     cognitect.test-runner.api/test}
 

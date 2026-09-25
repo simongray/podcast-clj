@@ -104,18 +104,47 @@
 
 (deftest diffing
   (let [item   (fn [id title] {:rss/guid {:content id} :rss/title title})
+        live   (fn [status] {:rss/guid {:content "L"} :status status :rss/title "Live show"})
         before {:rss/title "Show" :rss/last-build-date #inst "2026-01-01T00:00:00Z"
-                :rss/items [(item "1" "One") (item "2" "Two") (item "3" "Three") {:rss/title "no identity"}]}
+                :rss/items [(item "1" "One") (item "2" "Two") (item "3" "Three") {:rss/title "no identity"}]
+                :podcast/live-items [(live "pending")]}
         after  {:rss/title "Show" :rss/last-build-date #inst "2026-02-01T00:00:00Z"
-                :rss/items [(item "4" "Four") (item "1" "One") (item "2" "Two, revised")]}
+                :rss/items [(item "4" "Four") (item "1" "One") (item "2" "Two, revised")]
+                :podcast/live-items [(live "live")]}
         d      (feed/diff before after)]
     (is (= [(item "4" "Four")] (:added d)))
     (is (= [(item "3" "Three")] (:removed d)))
     (is (= [{:before (item "2" "Two") :after (item "2" "Two, revised")}] (:changed d)))
     (is (= 1 (:unchanged d)))
-    (testing "timestamps alone do not count as a channel change"
+    (testing "live items are compared on their own"
+      (is (= [{:before (live "pending") :after (live "live")}] (:changed (:live-items d))))
+      (is (= {:added [] :removed [] :changed [] :unchanged 0} (:live-items (feed/diff {} {})))))
+    (testing "timestamps and live items alone do not count as a channel change"
       (is (false? (:channel-changed? d)))
       (is (true? (:channel-changed? (feed/diff before (assoc after :rss/title "Renamed"))))))))
+
+(deftest summarizing-findings
+  (let [findings [{:id :a :level :warning :message "m" :path [:rss/items 0]}
+                  {:id :a :level :warning :message "m" :path [:rss/items 1]}
+                  {:id :b :level :info :tag :x}]
+        summary  (podcast/summarize findings)]
+    (is (= [[:a 2] [:b 1]] (map (juxt :id :count) summary)))
+    (is (= {:id :a :level :warning :message "m" :path [:rss/items 0]} (:example (first summary))))
+    (is (= [] (podcast/summarize [])))))
+
+(deftest structured-attribute-values
+  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
+                           <podcast:updateFrequency rrule=\"FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20261231T000000Z\" dtstart=\"2026-01-05T18:00:00Z\">Twice a week</podcast:updateFrequency>
+                           <podcast:location geo=\"geo:30.2672,-97.7431;u=100\" osm=\"R113314#4\">Austin, TX</podcast:location>
+                           <item><title>E</title><podcast:location geo=\"geo:nowhere\">Nowhere</podcast:location></item></channel></rss>")]
+    (is (= {:freq "WEEKLY" :byday ["MO" "WE"] :until #inst "2026-12-31T00:00:00Z"}
+           (:rrule (:podcast/update-frequency f))))
+    (is (= {:lat 30.2672 :lon -97.7431 :uncertainty 100} (:geo (first (:podcast/locations f)))))
+    (is (= {:type "R" :id 113314 :revision 4} (:osm (first (:podcast/locations f)))))
+    (testing "what does not read stays a string, with a finding"
+      (is (= "geo:nowhere" (:geo (first (:podcast/locations (first (:rss/items f)))))))
+      (is (some #(= [:rss/items 0 :podcast/locations 0 :geo] (:path %)) (podcast/report f))))
+    (is (= f (podcast/parse (podcast/emit f))))))
 
 (deftest not-rss
   (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"Not an RSS"

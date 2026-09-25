@@ -146,6 +146,10 @@ vocabulary: `:rss/title`, `:rss/pub-date`, `:itunes/episode-type`,
   `:is-perma-link`); the node text, when the tag has one, is `:content`;
   declared children are nested under their own keys (`:recipients`,
   `:sources`, `:remote-items`).
+- **Structured attribute values are maps.** The `rrule` of
+  `podcast:updateFrequency` is the RFC 5545 rule as a map of its parts, the
+  `geo` of `podcast:location` is `{:lat :lon}` and its `osm` `{:type :id}`;
+  each writes back canonically.
 - **Repeatable elements are vectors** under a plural key
   (`:podcast/transcripts`, `:podcast/people`, `:itunes/categories`,
   `:rss/items`, `:podcast/live-items`).
@@ -162,8 +166,9 @@ Identity is a function over the model, not a field: `feed/feed-guid` returns
 `:podcast/guid` or the UUIDv5 computed from the feed URL; `feed/item-guid`
 returns the item's `<guid>`, falling back to the enclosure URL. `feed/diff`
 builds on it: given two parses of the same feed it reports the items added,
-removed and changed, and whether the channel changed in anything but its
-timestamps.
+removed and changed, the same for live items on their own, so that a show
+going on air is a change, and whether the channel changed in anything but
+its items and timestamps.
 
 ## Resolving the vocabularies
 
@@ -173,9 +178,10 @@ where the overlaps are settled, once, in pure functions over the model:
 `title`, `description`, `author`, `link`, `published`, `artwork` and `images`,
 `explicit?`, `duration`, `numbering`, `enclosure` and `enclosures`,
 `transcript`, `chapters-url` and `embedded-chapters`, `people`, `funding`,
-`license`, `chat`, `locations`, `value`, and for the feed as a whole `medium`,
-`list-feed?`, `complete?`, `locked?`, `new-feed-url`, `self-url` and
-`categories`. Each docstring states its precedence. The two-argument forms
+`license`, `chat`, `locations`, `value`, the live items in listening order
+(`live-items`, `live?`), and for the feed as a whole `medium`, `list-feed?`,
+`complete?`, `locked?`, `new-feed-url`, `self-url` and `categories`. Each
+docstring states its precedence. The two-argument forms
 take the feed and an item and apply the inheritance the specifications
 describe: people on an item replace the feed's entirely, a value block on an
 item overrides, artwork and funding fall back to the channel. `transcript`
@@ -262,8 +268,12 @@ reported.
   the item's own block first and the feed's second; `remote-value` takes the
   sending function as an argument, so it is tested with stubs and works with
   any client, and `value/with-remote` folds the answer into the recipients
-  of the moment. On the JVM, `call!` and `remote-value!` use the library's
-  own HTTP client. The key and secret never leave the caller's process.
+  of the moment. `remote-item-requests` and `remote-item` resolve any remote
+  item, of a podroll, publisher, list or time split, to the feed and episode
+  the index holds. On the JVM, `call!`, `remote-value!` and `remote-item!`
+  use the library's own HTTP client; in ClojureScript `call!` uses `fetch`
+  and returns a promise. The key and secret never leave the caller's
+  process.
 
 ## Platform adapters
 
@@ -326,6 +336,8 @@ to test it; it touches nothing but the public API.
   values that would not coerce, and round-trip changes. The first sweep, of
   554 feeds on 2026-09-25, had no parse failures; it turned up the registry
   gaps, quirks and emitter bugs fixed alongside it, each with a test.
+- The inspector's routes are tested through Pedestal's interceptor chain
+  with the network stubbed, so that the reference app cannot break silently.
 - The reference app's item page fetches an item's chapters and transcript and
   renders them, so that the companions are exercised on real files whenever a
   feed is inspected.
@@ -345,5 +357,6 @@ to test it; it touches nothing but the public API.
 11. Hardening: a sweep of several hundred indexed feeds, with the registry,
     quirks and emitter fixes it turned up. Done.
 12. The small correctness items the sweep left: emit speed, findings
-    summaries, live items in `feed/diff`, the accessors still missing.
+    summaries, live items in `feed/diff`, structured attribute values, the
+    accessors still missing, remote items through the index. Done.
 13. An API review, then the first release: license, build, CI, Clojars.

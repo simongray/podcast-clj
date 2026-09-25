@@ -85,7 +85,9 @@ Learn one part of the library and the rest behaves the same way.
    `parse`. Every finding is a map with `:id`, `:level` (`:info`, `:warning`
    or `:error`) and `:message`, plus `:path` into the data where that
    applies. A report is either something a host can fix or something an
-   app can act on; nothing else goes in it.
+   app can act on; nothing else goes in it. `summarize` groups a report or
+   a validation by kind with counts, so that a recommendation repeated for
+   every item is one row.
 3. **`resolve` gives one answer per property, by a stated rule.** Where the
    vocabularies overlap, each accessor's docstring says which source wins.
    One-argument forms take a feed or an item; two-argument forms take the
@@ -140,7 +142,7 @@ Namespaces
 
 | Namespace | What it does |
 |---|---|
-| `dk.simongray.podcast` | The front door: `parse`, `emit`, `report`, `parse-tree` |
+| `dk.simongray.podcast` | The front door: `parse`, `emit`, `report`, `summarize`, `parse-tree` |
 | `…podcast.xml` | XML to Hiccup and back, namespaces resolved by URI |
 | `…podcast.xml.jsoup` | Lenient parser for feeds that are not well-formed at all; needs the optional `org.jsoup/jsoup` |
 | `…podcast.quirks` | String repairs, URI variants, tree normalizations |

@@ -24,6 +24,9 @@ children under their own keys; a repeatable element becomes a vector under a plu
 | rfc2822 | an RFC 2822 date, read leniently, an `#inst` in the model; written as GMT |
 | iso8601 | an ISO 8601 date or date-time, an `#inst` in the model; written in UTC |
 | duration | seconds as a number, read from plain seconds or clock notation; written as plain seconds |
+| rrule | an RFC 5545 recurrence rule, a map of its parts in the model; written with the parts in the RFC's order |
+| geo | a geo URI, a map of `:lat`, `:lon` and perhaps `:altitude` and `:uncertainty` in the model |
+| osm | an OpenStreetMap reference such as R113314#4, a map of `:type`, `:id` and perhaps `:revision` |
 
 ## RSS 2.0
 
@@ -659,7 +662,7 @@ The intended release schedule as text and an RFC 5545 rule.
 |---|---|---|---|
 | `complete` | `:complete` | boolean |  |
 | `dtstart` | `:dtstart` | iso8601 |  |
-| `rrule` | `:rrule` | text |  |
+| `rrule` | `:rrule` | rrule |  |
 
 ### `<podcast:license>`
 
@@ -719,8 +722,8 @@ Where the content is about or where it was made.
 | Attribute | Key | Type | |
 |---|---|---|---|
 | `country` | `:country` | text |  |
-| `geo` | `:geo` | text |  |
-| `osm` | `:osm` | text |  |
+| `geo` | `:geo` | geo |  |
+| `osm` | `:osm` | osm |  |
 | `rel` | `:rel` | enum: `creator`, `subject` |  |
 
 ### `<podcast:image>`

@@ -4,7 +4,8 @@
   (:require #?(:clj [clojure.java.io :as io])
             #?(:cljs [shadow.resource :as rc])
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+            #?(:clj  [clojure.test :refer [deftest is testing]]
+               :cljs [clojure.test :refer [deftest is testing async]])
             [dk.simongray.podcast.index :as index]
             [dk.simongray.podcast.resolve :as resolve]
             [dk.simongray.podcast.value :as value]))
@@ -167,3 +168,34 @@
       (is (nil? (index/remote-value credentials remote (constantly {:status 401 :body "<html>Unauthorized</html>"}))))
       (is (nil? (index/remote-value credentials remote (constantly {:status 500}))))
       (is (nil? (index/remote-value credentials {} (constantly {:status 200 :body value-body})))))))
+
+(deftest resolving-remote-items-to-feeds-and-episodes
+  (let [remote {:feed-guid "9b024349-ccf0-5f69-a609-6b82873eab3c" :item-guid "PC2084"}]
+    (is (= ["https://api.podcastindex.org/api/1.0/episodes/byguid?guid=PC2084&podcastguid=9b024349-ccf0-5f69-a609-6b82873eab3c"
+            "https://api.podcastindex.org/api/1.0/podcasts/byguid?guid=9b024349-ccf0-5f69-a609-6b82873eab3c"]
+           (map :url (index/remote-item-requests credentials remote 1))))
+    (is (= 1 (count (index/remote-item-requests credentials {:feed-guid "x"} 1))))
+    (let [send (fn [{:keys [url]}]
+                 {:status 200 :body (if (str/includes? url "episodes/byguid") episode-body podcast-body)})
+          {:keys [feed episode]} (index/remote-item credentials remote send)]
+      (is (= "Batman University" (:rss/title feed)))
+      (is (= "Episode 84 - The Big One" (:rss/title episode))))
+    (is (nil? (index/remote-item credentials remote (constantly {:status 200 :body false-body}))))
+    (is (nil? (index/remote-item credentials {} (constantly {:status 200 :body podcast-body}))))))
+
+#?(:cljs
+   (deftest calling-with-fetch
+     (async done
+       (let [original (.-fetch js/globalThis)]
+         (set! (.-fetch js/globalThis)
+               (fn [url _opts]
+                 (is (str/starts-with? url "https://api.podcastindex.org/api/1.0/podcasts/byguid?guid="))
+                 (js/Promise.resolve #js {:status 200 :text (fn [] (js/Promise.resolve podcast-body))})))
+         (-> (index/call! credentials :podcasts/by-guid {:guid "9b024349"})
+             (.then (fn [{:keys [status feed]}]
+                      (is (true? status))
+                      (is (= "Batman University" (:rss/title feed)))))
+             (.catch (fn [e] (is (nil? e))))
+             (.finally (fn []
+                         (set! (.-fetch js/globalThis) original)
+                         (done))))))))

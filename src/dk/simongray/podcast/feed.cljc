@@ -242,35 +242,45 @@
 ;;;; Change between two parses
 
 (defn- by-guid
-  "The items of `feed` that have an identity, by it."
-  [feed]
+  "The `items` that have an identity, by it."
+  [items]
   (into {} (keep (fn [item]
                    (when-let [id (item-guid item)]
                      [id item])))
-        (:rss/items feed)))
+        items))
+
+(defn- item-changes
+  "What changed between the item sequences `before` and `after`, by item
+  identity; see `diff`."
+  [before after]
+  (let [old     (by-guid before)
+        new     (by-guid after)
+        current (filter item-guid after)]
+    {:added     (vec (remove #(contains? old (item-guid %)) current))
+     :removed   (vec (remove #(contains? new (item-guid %)) (filter item-guid before)))
+     :changed   (vec (for [item current
+                           :let [previous (get old (item-guid item))]
+                           :when (and previous (not= previous item))]
+                       {:before previous :after item}))
+     :unchanged (count (filter #(= % (get old (item-guid %))) current))}))
 
 (defn diff
   "What changed from the feed `before` to the feed `after`, by item identity:
 
       {:added [item ...] :removed [item ...] :changed [{:before :after} ...]
-       :unchanged 42 :channel-changed? false}
+       :unchanged 42
+       :live-items {:added [...] :removed [...] :changed [...] :unchanged 1}
+       :channel-changed? false}
 
-  Items without an identity (no guid and no enclosure) are not compared.
-  The channel counts as changed when anything but its timestamps differs."
+  Live items are compared the same way under `:live-items`, so that a show
+  going on air or ending is a change of its own. Items without an identity
+  (no guid and no enclosure) are not compared. The channel counts as changed
+  when anything but its items, live items and timestamps differs."
   [before after]
-  (let [old     (by-guid before)
-        new     (by-guid after)
-        current (filter item-guid (:rss/items after))
-        churn   [:rss/items :podcast/live-items :rss/last-build-date :rss/pub-date]]
-    {:added            (vec (remove #(contains? old (item-guid %)) current))
-     :removed          (vec (remove #(contains? new (item-guid %))
-                                    (filter item-guid (:rss/items before))))
-     :changed          (vec (for [item current
-                                  :let [previous (get old (item-guid item))]
-                                  :when (and previous (not= previous item))]
-                              {:before previous :after item}))
-     :unchanged        (count (filter #(= % (get old (item-guid %))) current))
-     :channel-changed? (not= (apply dissoc before churn) (apply dissoc after churn))}))
+  (let [churn [:rss/items :podcast/live-items :rss/last-build-date :rss/pub-date]]
+    (assoc (item-changes (:rss/items before) (:rss/items after))
+           :live-items (item-changes (:podcast/live-items before) (:podcast/live-items after))
+           :channel-changed? (not= (apply dissoc before churn) (apply dissoc after churn)))))
 
 (comment
   (-> "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">

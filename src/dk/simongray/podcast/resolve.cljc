@@ -326,6 +326,36 @@
   ([x] (first (:podcast/values x)))
   ([feed item] (value/effective feed item)))
 
+;;;; Live
+
+(def live-status-order
+  "Live items in the order a listener cares about: on air, then upcoming,
+  then over."
+  {"live" 0 "pending" 1 "ended" 2})
+
+(defn live-items
+  "The live items of `feed`: on air first, then upcoming soonest first, then
+  ended most recent first."
+  [feed]
+  (let [ms #(if (inst? %) (inst-ms %) 0)]
+    (sort-by (fn [{:keys [status start]}]
+               (let [rank (get live-status-order (some-> status str/lower-case) 3)]
+                 [rank (if (= 2 rank) (- (ms start)) (ms start))]))
+             (:podcast/live-items feed))))
+
+(defn live?
+  "Whether the live item `live-item` is on air at `at`: its status says so,
+  or `at` falls between its start and end and it has not been declared
+  ended, since feeds are slow to flip the status."
+  [{:keys [status start end] :as live-item} at]
+  (let [status (some-> status str/lower-case)]
+    (boolean
+     (or (= "live" status)
+         (and (not= "ended" status)
+              (inst? start) (inst? at)
+              (<= (inst-ms start) (inst-ms at))
+              (or (not (inst? end)) (< (inst-ms at) (inst-ms end))))))))
+
 ;;;; The feed as a whole
 
 (defn medium
