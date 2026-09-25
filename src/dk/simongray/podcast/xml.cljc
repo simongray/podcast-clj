@@ -364,9 +364,14 @@
 
 ;;;; Emitting
 
+(defn- legal
+  "The string `s` without the characters XML 1.0 forbids anywhere."
+  [s]
+  (str/replace s #"[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]" ""))
+
 (defn- escape-text
   [s]
-  (-> s
+  (-> (legal s)
       (str/replace "&" "&amp;")
       (str/replace "<" "&lt;")
       (str/replace ">" "&gt;")))
@@ -378,9 +383,10 @@
 (defn- text-node
   "Serialize the text `s`, as CDATA when it contains markup."
   [s]
-  (if (and (str/includes? s "<") (not (str/includes? s "]]>")))
-    (str "<![CDATA[" s "]]>")
-    (escape-text s)))
+  (let [s (legal s)]
+    (if (and (str/includes? s "<") (not (str/includes? s "]]>")))
+      (str "<![CDATA[" s "]]>")
+      (escape-text s))))
 
 (defn- keyword-str
   [k]

@@ -72,10 +72,17 @@
 
 (defn plain-decimal
   "Write the number `n` without an exponent, as XML consumers expect:
-  5.0E-8 becomes \"0.00000005\"."
+  5.0E-8 becomes \"0.00000005\". A number that is not finite is written as
+  Clojure prints it."
   [n]
-  (if (integer? n)
+  (cond
+    (integer? n)
     (str n)
+
+    (not #?(:clj (Double/isFinite (double n)) :cljs (js/isFinite n)))
+    (str n)
+
+    :else
     #?(:clj  (let [s (.toPlainString (BigDecimal/valueOf (double n)))]
                (if (str/includes? s ".")
                  (str/replace s #"\.?0+$" "")
@@ -93,6 +100,6 @@
     :yes-no   (if v "yes" "no")
     :rfc2822  (if (inst? v) (time/format-rfc2822 v) (str v))
     :iso8601  (if (inst? v) (time/format-iso8601 v) (str v))
-    :duration (if (number? v) (str (long v)) (str v))
+    :duration (if (number? v) (plain-decimal v) (str v))
     :decimal  (if (number? v) (plain-decimal v) (str v))
     (str v)))

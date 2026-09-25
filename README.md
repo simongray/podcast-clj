@@ -96,6 +96,25 @@ Keys are namespaced by vocabulary and kebab-cased: `:rss/pub-date`,
 kebab-case keys in their element's map, the element's own text is
 `:content`, repeatable elements are vectors under a plural key, and anything
 the registry does not know is kept as Hiccup under `:xml/unknown`.
+[doc/tags.md](doc/tags.md) lists every element with its key, parents, count,
+types and attributes; it is generated from the registry.
+
+The same registry yields Malli schemas of the model as plain data, without
+a dependency on Malli:
+
+```clojure
+(require '[dk.simongray.podcast.schema :as schema]
+         '[malli.core :as m])
+
+(m/validate schema/feed feed)          ; true for every feed in the corpus
+(m/explain schema/item item)           ; where a hand-built item goes wrong before emit
+(m/schema (schema/tag :podcast/value)) ; the schema of one element
+```
+
+The schemas describe the model with every value coerced, so validating a
+parsed feed against them shows exactly where `parse` had to keep a value as a
+string; validating a map you built yourself before `emit` catches mistakes
+early.
 
 Namespaces
 ----------
@@ -106,7 +125,8 @@ Namespaces
 | `…podcast.xml` | XML to Hiccup and back, namespaces resolved by URI |
 | `…podcast.xml.jsoup` | Lenient parser for feeds that are not well-formed at all; needs the optional `org.jsoup/jsoup` |
 | `…podcast.quirks` | String repairs, URI variants, tree normalizations |
-| `…podcast.spec` | The tag registry and the enumerations of the specifications |
+| `…podcast.spec` | The tag registry and the enumerations of the specifications; rendered as [doc/tags.md](doc/tags.md) |
+| `…podcast.schema` | Malli schemas of the model, generated from the registry as plain data; Malli itself is optional |
 | `…podcast.feed` | Hiccup to feed maps and back; feed and item identity; `diff` between parses |
 | `…podcast.resolve` | One answer where the vocabularies give several: title, artwork, author, duration, numbering, enclosure, people, transcript |
 | `…podcast.validate` | Registry-driven validation, with PSP-1 and Apple profiles |

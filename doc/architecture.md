@@ -122,9 +122,15 @@ Three interpreters read the registry:
   required-element rules on top.
 
 Spec churn becomes a data change. `podcast:images` is one entry marked
-`:deprecated-by :podcast/image`; a new attribute is one line. The registry is
-also the natural source for generated documentation and, later, for Malli
-schemas.
+`:deprecated :podcast/image`; a new attribute is one line. Two more things
+are generated from the registry so that they cannot drift from the code:
+`doc/tags.md`, the reference of every element, written by `dev/reference.clj`;
+and `dk.simongray.podcast.schema`, Malli schemas of the model as plain data
+(Malli is not a dependency), with one schema per element in a registry and
+`schema/feed` and `schema/item` for the maps `parse` returns. The schemas
+describe the model with every value coerced, which is why every corpus feed
+validates against them, and why a generative test can build feeds from them,
+emit them and parse them back.
 
 ## The feed model
 
@@ -314,6 +320,6 @@ to test it; it touches nothing but the public API.
 5. Lenient XML adapter (jsoup) for feeds that are not well-formed at all. Done.
 6. `resolve`: accessors with precedence rules; `feed/diff`. Done.
 7. Real-world chapter and transcript files as a second corpus. Done.
-8. Generated tag reference; Malli schemas from the registry.
+8. Generated tag reference; Malli schemas from the registry. Done.
 9. Podcast Index: sending requests and mapping responses into the model.
 10. Podping consumer; sync model.
