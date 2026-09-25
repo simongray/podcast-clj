@@ -237,6 +237,39 @@
   (or (not-empty (:podcast/guid feed))
       (when url (guid/feed-guid url))))
 
+;;;; Change between two parses
+
+(defn- by-guid
+  "The items of `feed` that have an identity, by it."
+  [feed]
+  (into {} (keep (fn [item]
+                   (when-let [id (item-guid item)]
+                     [id item])))
+        (:rss/items feed)))
+
+(defn diff
+  "What changed from the feed `before` to the feed `after`, by item identity:
+
+      {:added [item ...] :removed [item ...] :changed [{:before :after} ...]
+       :unchanged 42 :channel-changed? false}
+
+  Items without an identity (no guid and no enclosure) are not compared.
+  The channel counts as changed when anything but its timestamps differs."
+  [before after]
+  (let [old     (by-guid before)
+        new     (by-guid after)
+        current (filter item-guid (:rss/items after))
+        churn   [:rss/items :podcast/live-items :rss/last-build-date :rss/pub-date]]
+    {:added            (vec (remove #(contains? old (item-guid %)) current))
+     :removed          (vec (remove #(contains? new (item-guid %))
+                                    (filter item-guid (:rss/items before))))
+     :changed          (vec (for [item current
+                                  :let [previous (get old (item-guid item))]
+                                  :when (and previous (not= previous item))]
+                              {:before previous :after item}))
+     :unchanged        (count (filter #(= % (get old (item-guid %))) current))
+     :channel-changed? (not= (apply dissoc before churn) (apply dissoc after churn))}))
+
 (comment
   (-> "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">
         <channel><title>T</title><podcast:funding url=\"https://x\">Give</podcast:funding>

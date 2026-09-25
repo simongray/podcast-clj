@@ -39,7 +39,8 @@ the code.
   reference app  │ web/  dk.simongray.podcast.web.*   (Pedestal)  │  uses only the public API
                  └────────────────────────────────────────────────┘
                  ┌──────────────┬──────────────┬──────────────────┐
-  companions     │ chapters     │ transcript   │ opml   value     │  formats and derived views
+  companions     │ chapters     │ transcript   │ opml   value     │  formats, and the accessors
+                 │ resolve  (one answer per property, by rule)    │  a client reads through
                  ├──────────────┴──────────────┴──────────────────┤
   feed           │ feed  (parse / emit interpreters)  validate    │  registry-driven
                  ├────────────────────────────────────────────────┤
@@ -151,9 +152,29 @@ vocabulary: `:rss/title`, `:rss/pub-date`, `:itunes/episode-type`,
 - **Nothing is dropped.** Unknown elements are Hiccup under `:xml/unknown`;
   unknown attributes stay in the element's map as strings.
 
-Identity is a function over the model, not a field: `guid/feed-guid` returns
-`:podcast/guid` or the UUIDv5 computed from the feed URL; `guid/item-guid`
-returns the item's `<guid>`, falling back to the enclosure URL.
+Identity is a function over the model, not a field: `feed/feed-guid` returns
+`:podcast/guid` or the UUIDv5 computed from the feed URL; `feed/item-guid`
+returns the item's `<guid>`, falling back to the enclosure URL. `feed/diff`
+builds on it: given two parses of the same feed it reports the items added,
+removed and changed, and whether the channel changed in anything but its
+timestamps.
+
+## Resolving the vocabularies
+
+The model keeps every vocabulary apart, which is right for fidelity and wrong
+for a client that just wants *the* title. `dk.simongray.podcast.resolve` is
+where the overlaps are settled, once, in pure functions over the model:
+`title`, `description`, `author`, `link`, `published`, `artwork` and `images`,
+`explicit?`, `duration`, `numbering`, `enclosure` and `enclosures`,
+`transcript`, `chapters-url` and `embedded-chapters`, `people`, `funding`,
+`license`, `chat`, `locations`, `value`, and for the feed as a whole `medium`,
+`list-feed?`, `complete?`, `locked?`, `new-feed-url`, `self-url` and
+`categories`. Each docstring states its precedence. The two-argument forms
+take the feed and an item and apply the inheritance the specifications
+describe: people on an item replace the feed's entirely, a value block on an
+item overrides, artwork and funding fall back to the channel. Nothing here is
+stored or cached; it is all derived on each call, and the reference app
+renders its item rows through it so that the corpus exercises it.
 
 ## Quirks
 
@@ -267,4 +288,8 @@ to test it; it touches nothing but the public API.
 3. Reference web app and corpus tooling. Done.
 4. ClojureScript build and browser test of the `DOMParser` adapter. Done.
 5. Lenient XML adapter (jsoup) for feeds that are not well-formed at all. Done.
-6. Malli schemas generated from the registry; Podping consumer; sync model.
+6. `resolve`: accessors with precedence rules; `feed/diff`. Done.
+7. Real-world chapter and transcript files as a second corpus.
+8. Generated tag reference; Malli schemas from the registry.
+9. Podcast Index: sending requests and mapping responses into the model.
+10. Podping consumer; sync model.

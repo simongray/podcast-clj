@@ -25,6 +25,25 @@ bundled to exercise it against real feeds.
 (println (podcast/emit feed))             ; the feed written back out, canonically
 ```
 
+The model is plain data; where the vocabularies overlap, `resolve` has the
+precedence rules written down once:
+
+```clojure
+(require '[dk.simongray.podcast.resolve :as resolve]
+         '[dk.simongray.podcast.feed :as feed])
+
+(let [item (first (:rss/items feed))]
+  [(resolve/artwork feed item)  ; the largest podcast:image meant as artwork, else itunes:image…
+   (resolve/duration item)      ; seconds, from iTunes or Media RSS
+   (resolve/numbering item)     ; => {:type "full" :season 1 :episode 3}
+   (resolve/people feed item)   ; the item's people, or the feed's, roles defaulted
+   (resolve/enclosure item)     ; what to play, from enclosure, alternateEnclosure or media:content
+   (resolve/transcript item)])  ; the transcript reference a client is best served by
+
+(feed/diff yesterdays-parse todays-parse)
+;; => {:added [...] :removed [...] :changed [...] :unchanged 203 :channel-changed? false}
+```
+
 Design
 ------
 
@@ -58,7 +77,8 @@ Namespaces
 | `…podcast.xml.jsoup` | Lenient parser for feeds that are not well-formed at all; needs the optional `org.jsoup/jsoup` |
 | `…podcast.quirks` | String repairs, URI variants, tree normalizations |
 | `…podcast.spec` | The tag registry and the enumerations of the specifications |
-| `…podcast.feed` | Hiccup to feed maps and back; feed and item identity |
+| `…podcast.feed` | Hiccup to feed maps and back; feed and item identity; `diff` between parses |
+| `…podcast.resolve` | One answer where the vocabularies give several: title, artwork, author, duration, numbering, enclosure, people, transcript |
 | `…podcast.validate` | Registry-driven validation, with PSP-1 and Apple profiles |
 | `…podcast.chapters` | JSON Chapters and Podlove Simple Chapters |
 | `…podcast.transcript` | SRT, WebVTT, JSON and HTML transcripts |

@@ -5,7 +5,8 @@
             [clojure.string :as str]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.time :as time]
-            [dk.simongray.podcast.validate :as validate]))
+            [dk.simongray.podcast.validate :as validate]
+            [dk.simongray.podcast.resolve :as resolve]))
 
 (def css
   "body{font:15px/1.45 system-ui,sans-serif;margin:0;color:#222;background:#fafafa}
@@ -105,27 +106,45 @@
   [x]
   (if (inst? x) (time/format-rfc2822 x) (str x)))
 
+(defn- numbering-str
+  "S2E3-style label for the `numbering` of an item, empty without numbers."
+  [{:keys [season episode episode-display type]}]
+  (str (when season (str "S" season))
+       (when (or episode episode-display) (str "E" (or episode-display episode)))
+       (when-not (= "full" type) (str " " type))))
+
 (defn- item-row
-  [i item]
-  [:tr
-   [:td (inc i)]
-   [:td [:strong (or (:rss/title item) (:itunes/title item) "(untitled)")]
-    [:br] [:span.muted (inst-str (:rss/pub-date item))]
-    (when-let [d (:itunes/duration item)]
-      [:span.muted (str " · " (if (number? d) (time/format-clock d) d))])]
-   [:td (when-let [{:keys [url type length]} (:rss/enclosure item)]
-          [:span [:a {:href url} (or type "media")]
-           (when (number? length) [:span.muted (str " · " (quot length 1000000) " MB")])])]
-   [:td (concat
-         (for [t (:podcast/transcripts item)] [:span.badge (str "transcript " (:type t))])
-         (when (:podcast/chapters item) [[:span.badge "chapters"]])
-         (when (:psc/chapters item) [[:span.badge "psc chapters"]])
-         (for [p (:podcast/people item)] [:span.badge (str (or (:role p) "host") ": " (:content p))])
-         (when (seq (:podcast/values item)) [[:span.badge "value"]])
-         (when (seq (:podcast/soundbites item)) [[:span.badge "soundbites"]])
-         (when (seq (:podcast/alternate-enclosures item)) [[:span.badge "alternate enclosures"]])
-         (when (seq (:podcast/social-interacts item)) [[:span.badge "social"]])
-         (for [[tag] (:xml/unknown item)] [:span.badge.muted (str tag)]))]])
+  "One row of the items table, showing what an app would show: everything
+  here comes through dk.simongray.podcast.resolve."
+  [feed i item]
+  (let [{:keys [url type length]} (resolve/enclosure item)
+        alternatives             (count (resolve/enclosures item))
+        people                   (resolve/people feed item)
+        own-people?              (seq (:podcast/people item))]
+    [:tr
+     [:td (inc i)]
+     [:td [:strong (or (resolve/title item) "(untitled)")]
+      (when-let [n (not-empty (numbering-str (resolve/numbering item)))]
+        [:span.badge n])
+      [:br] [:span.muted (inst-str (resolve/published item))]
+      (when-let [d (resolve/duration item)]
+        [:span.muted (str " · " (time/format-clock d))])
+      (when (resolve/explicit? feed item)
+        [:span.muted " · explicit"])]
+     [:td (when url
+            [:span [:a {:href url} (or type "media")]
+             (when (number? length) [:span.muted (str " · " (quot length 1000000) " MB")])
+             (when (> alternatives 1) [:span.muted (str " · " alternatives " sources")])])]
+     [:td (concat
+           (when-let [t (resolve/transcript item)] [[:span.badge (str "transcript " (:type t))]])
+           (when (resolve/chapters-url item) [[:span.badge "chapters"]])
+           (when (resolve/embedded-chapters item) [[:span.badge "embedded chapters"]])
+           (for [p people] [:span.badge {:class (when-not own-people? "muted")} (str (:role p) ": " (:name p))])
+           (when (resolve/value feed item) [[:span.badge "value"]])
+           (when (seq (:podcast/soundbites item)) [[:span.badge "soundbites"]])
+           (when (seq (:podcast/social-interacts item)) [[:span.badge "social"]])
+           (when-let [art (resolve/artwork item)] [[:span.badge [:a {:href art} "artwork"]]])
+           (for [[tag] (:xml/unknown item)] [:span.badge.muted (str tag)]))]]))
 
 (defn feed-page
   "The inspector page for `feed`, fetched from `url`, with its parse
@@ -133,16 +152,21 @@
   [{:keys [url feed report profile status]}]
   (let [items (:rss/items feed)
         validation (validate/validate feed profile)]
-    (layout (or (:rss/title feed) url)
+    (layout (or (resolve/title feed) url)
             [:header
-             (when-let [img (or (:href (:itunes/image feed)) (:href (first (:podcast/images feed))))]
+             (when-let [img (resolve/artwork feed)]
                [:img {:src img :alt ""}])
              [:div
-              [:h1 (or (:rss/title feed) "(untitled)")]
-              [:div.muted (:itunes/author feed) " · " (:rss/language feed)
-               " · medium " (or (:podcast/medium feed) "podcast")
+              [:h1 (or (resolve/title feed) "(untitled)")]
+              [:div.muted (resolve/author feed) " · " (:rss/language feed)
+               " · medium " (resolve/medium feed)
                " · " (count items) " items"
-               (when-let [live (seq (:podcast/live-items feed))] (str " · " (count live) " live"))]
+               (when-let [live (seq (:podcast/live-items feed))] (str " · " (count live) " live"))
+               (when (resolve/explicit? feed) " · explicit")
+               (when (resolve/complete? feed) " · complete")
+               (when (resolve/locked? feed) " · locked")]
+              (when-let [paths (seq (resolve/categories feed))]
+                [:div.muted (str/join " · " (map #(str/join " › " %) paths))])
               [:div.muted "guid " [:code (or (feed/feed-guid feed url) "?")]
                (when-not (:podcast/guid feed) [:span.muted " (computed from the URL)"])]
               [:div.muted [:a {:href url} url] (when status (str " · HTTP " status))]]]
@@ -170,7 +194,7 @@
             [:h2 (str "Items (" (count items) ")")]
             [:table
              [:thead [:tr [:th "#"] [:th "Episode"] [:th "Enclosure"] [:th "Podcasting 2.0 and more"]]]
-             [:tbody (map-indexed item-row (take 200 items))]]
+             [:tbody (map-indexed (partial item-row feed) (take 200 items))]]
             (when (> (count items) 200)
               [:p.muted (str "Showing the first 200 of " (count items) " items.")]))))
 

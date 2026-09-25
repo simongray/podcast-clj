@@ -102,6 +102,21 @@
   (is (= "y0ur-gu1d-g035-h3r3" (feed/feed-guid (podcast/parse @example) "https://x")))
   (is (= "9b024349-ccf0-5f69-a609-6b82873eab3c" (feed/feed-guid {} "https://podnews.net/rss"))))
 
+(deftest diffing
+  (let [item   (fn [id title] {:rss/guid {:content id} :rss/title title})
+        before {:rss/title "Show" :rss/last-build-date #inst "2026-01-01T00:00:00Z"
+                :rss/items [(item "1" "One") (item "2" "Two") (item "3" "Three") {:rss/title "no identity"}]}
+        after  {:rss/title "Show" :rss/last-build-date #inst "2026-02-01T00:00:00Z"
+                :rss/items [(item "4" "Four") (item "1" "One") (item "2" "Two, revised")]}
+        d      (feed/diff before after)]
+    (is (= [(item "4" "Four")] (:added d)))
+    (is (= [(item "3" "Three")] (:removed d)))
+    (is (= [{:before (item "2" "Two") :after (item "2" "Two, revised")}] (:changed d)))
+    (is (= 1 (:unchanged d)))
+    (testing "timestamps alone do not count as a channel change"
+      (is (false? (:channel-changed? d)))
+      (is (true? (:channel-changed? (feed/diff before (assoc after :rss/title "Renamed"))))))))
+
 (deftest not-rss
   (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"Not an RSS"
                         (feed/parse (xml/parse "<feed xmlns=\"http://www.w3.org/2005/Atom\"/>")))))
