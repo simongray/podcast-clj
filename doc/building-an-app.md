@@ -11,13 +11,17 @@ An app's state is three values: the player state of
 and the progress per episode; the parsed feeds, kept by feed guid along
 with the URL each was fetched from and the validators of the last fetch;
 and, when the app searches, an index from `dk.simongray.podcast.app.search`.
-All three are values that print as EDN, so storing them is the app's
-choice of where, not how.
+Syncing adds a fourth, the cursors `sync!` hands back. All of them are
+values that print as EDN, so storing them is the app's choice of where,
+not how.
 
 ```clojure
 (require '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.app.player :as player]
          '[dk.simongray.podcast.app.search :as search]
+         '[dk.simongray.podcast.app.sync :as sync]
+         '[dk.simongray.podcast.app.sync.file :as file]
+         '[dk.simongray.podcast.app.sync.store :as store]
          '[dk.simongray.podcast.directory :as directory]
          '[dk.simongray.podcast.feed :as feed]
          '[dk.simongray.podcast.format.chapters :as chapters]
@@ -61,8 +65,11 @@ way, and every id in the player state is built on it.
 (def show (:feed r))
 (def guid (feed/feed-guid show url))
 
+(def device-id (str (random-uuid)))                  ; once per installation, kept by the app
+
 (def state
-  (-> (player/state "phone")
+  (-> (player/state device-id)
+      (player/identify {:name "Phone"} now)
       (player/subscribe guid {:url url :title (resolve/title show)} now)
       (player/configure guid {:auto-queue? true :skip-intro 20} now)))
 
@@ -179,16 +186,32 @@ fetched it, and index fewer fields in a browser short of memory.
 (search/snippet (html/text (resolve/description item)) "value for va")
 ```
 
-## 7. Syncing and taking the subscriptions along
+## 7. Keeping devices in step
 
-Two devices' states merge into one, the later entry winning everywhere;
-the subscriptions go in and out as OPML.
+Every device writes its whole state as one document and reads the others',
+and `player/merge` reconciles them, the later entry winning everywhere, so
+a folder that a sync client mirrors is a complete backend, and so is any
+store of named documents, a map of four functions. `sync!` is one step:
+pull, merge, push, with a cursor per backend to hand back next time.
+Nothing is scheduled; call it on start, on going to the background and
+after a burst of changes. The state is never replaced, only merged into.
 
 ```clojure
-(player/merge phone-state laptop-state)
-(opml/emit (player/to-opml state))
+(def backend (store/backend (file/store "/path/to/Dropbox/podcasts") {:opml? true :app "my-app"}))
+
+(def step (sync/sync! state [backend] now))                       ; => {:state … :ctx {…} :report [] :failed {…}}
+(def state (:state step))
+(sync/sync! state [backend] (java.util.Date.) {:ctx (:ctx step)})  ; the next step reads only what changed
+
+(player/devices state)                               ; the listener's devices, as they described themselves
+(player/retire state lost-phone-id now)              ; a lost device: its document goes, and it writes no more
+(opml/emit (player/to-opml state))                   ; the subscriptions as OPML, for any other app
 (player/from-opml state (opml/parse opml-text) now)
 ```
+
+The stores to come, WebDAV, Dropbox, Drive, CloudKit, the Git hosts and
+the gpodder services, are laid out in `doc/sync.md`; a store is four
+functions, so one you need is a short namespace to write meanwhile.
 
 ## 8. Value for value
 
@@ -207,6 +230,6 @@ app's.
 Storage, since the state is EDN and any store will do; HTTP in the
 browser, where feeds and directories decide what a page may fetch;
 playback, through a media element the effects drive; downloads,
-notifications and payments; and the appearance of all of it. A sync
-engine is not in the library yet; `doc/sync.md` designs it, and the pure
-core of syncing, `player/merge`, is.
+notifications and payments; and the appearance of all of it. Of syncing,
+the stores over the cloud services and the sync services follow 1.0, as
+`doc/sync.md` lays out; the engine and the folder store are in.

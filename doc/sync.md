@@ -1,11 +1,13 @@
 # Syncing
 
 This document designs the sync engine and its backends, item 24 of the
-roadmap in `architecture.md`, before any of it is written. What exists is
-the pure core: `dk.simongray.podcast.app.player` keeps a player's state as
-one map of stamped entries, and its `merge` reconciles two devices' states
-by letting the later entry win, which a generative test shows to be
-commutative, associative and idempotent. Everything here follows from that.
+roadmap in `architecture.md`. It was written before any of the code; the
+foundation it puts before 1.0 has been built since, as `architecture.md`
+records, and the adapters follow it. What existed was the pure core:
+`dk.simongray.podcast.app.player` keeps a player's state as one map of
+stamped entries, and its `merge` reconciles two devices' states by letting
+the later entry win, which a generative test shows to be commutative,
+associative and idempotent. Everything here follows from that.
 A merge with those three properties is a join, so a backend never has to
 resolve a conflict; it only has to hold documents. The design's job is to
 keep that simplicity while leaving room for any store a listener might
@@ -53,11 +55,14 @@ store to another by running both for a while.
 There are two, at different heights, and the lower one is derived from the
 upper.
 
-A **backend** is what the engine talks to. `pull` returns the partial states
-to merge and a cursor; `push` takes the merged state, what changed since the
-last push, and the cursor, and returns the cursor for next time. Anything
-that moves data between devices implements this, including the unusual ones
-at the end of this document.
+A **backend** is what the engine talks to. `pull` takes the local state,
+its cursor and the instant of the step, and returns the states to merge
+and the cursor for next time; `push` takes the merged state, the cursor
+and the instant, writes, and returns the cursor, and a state of its own
+when it learned more while writing, as a shared document does on a
+conflict. A service computes what to send from its cursor with
+`player/changes-since`. Anything that moves data between devices
+implements this, including the unusual ones at the end of this document.
 
 A **store** is the common case underneath: named documents with version
 tokens. One namespace turns any store into a backend by applying a strategy,
@@ -76,8 +81,9 @@ or four functions and gets everything else for free.
  :name   "Nextcloud"}           ; for the UI and the report, never the credentials
 
 ;; a backend: what the engine drives
-{:pull (fn [ctx])                ; {:states [partial-state …] :ctx ctx'}
- :push (fn [state changes ctx])  ; {:ctx ctx'}
+{:pull (fn [state ctx at])  ; {:states [state …] :ctx ctx' :report […]}
+ :push (fn [state ctx at])  ; {:ctx ctx' :state state' :report […]};
+                            ; the state and the report optional
  :name "gpodder.net"}
 ```
 
@@ -111,17 +117,17 @@ in drivers at the edge.
 
 `document` writes a device's state into the envelope below as EDN, and
 `read-document` reads one back, throwing `::malformed` for a body that is
-not one, so that a driver can record it. `reconcile` merges the local state
-with the envelopes read, taking the instant `at` of the step, and returns
-`{:state merged :report [...]}`, the device registry updated (below) and the
-step's diagnostics in the report: `:sync/clock-skew` for a document written
-later than now by more than a minute, naming the device and the difference;
-`:sync/unreadable-document` for a body that would not read;
-`:sync/newer-format` for an envelope a newer library wrote, which is left
-out rather than half understood. `changes-since` returns the entries of a
-state stamped after an instant, by whichever device, as a partial state that
-merges; it is what a service adapter pushes and what a commit-per-change
-store would record.
+not one, so that a driver can record it. `read-documents` reads what a
+pull fetched, taking the instant `at` of the step, and `reconcile` merges
+the states it found into the local state, `{:state merged :report [...]}`;
+both put the step's diagnostics in the report: `:sync/clock-skew` for a
+document written later than now by more than a minute, naming the device
+and the difference; `:sync/unreadable-document` for a body that would not
+read; `:sync/newer-format` for an envelope a newer library wrote, which is
+left out rather than half understood. `player/changes-since` returns the
+entries of a state stamped after an instant, by whichever device, as a
+partial state that merges; it is what a service adapter pushes and what a
+commit-per-change store would record.
 
 `store/backend` builds a backend from a store and a strategy. The step of
 the per-device strategy is:
@@ -133,22 +139,24 @@ the per-device strategy is:
 3. `reconcile` the local state with them.
 4. When the merged state differs from what this device last wrote, which the
    cursor remembers as a hash, `put` this device's document. The document is
-   this device's own, so no precondition is needed; a store that refuses
-   anyway means two installations share a device id, which is reported.
+   this device's own, so no precondition is needed; its version changing
+   under this device means two installations share a device id, which is
+   reported as `:sync/shared-device`. A device that has been retired writes
+   nothing and reports `:sync/retired-device`.
 5. When the subscriptions changed and the backend was built with `:opml?`,
    write `subscriptions.opml` beside the documents, from `player/to-opml`,
    so that a folder in Dropbox or iCloud Drive holds a file any podcast app
    imports. The mirror is written, never read; import is `player/from-opml`,
-   explicitly.
-6. Return `{:state :ctx :report}`, the cursor holding the versions seen and
-   the hash written.
+   explicitly. Delete the documents of the devices retired since.
+6. Return the states, the cursor holding the versions of the documents seen
+   and the hash written, and the report.
 
 The single-document strategy fetches the one document, merges, and puts it
 with `:if-version`; on `{:conflict? true}` it fetches and merges again,
-three times at most, and reports the attempts. A store without `:list` gets
-this strategy by default. Both strategies take a `:direction`, `:both` by
-default, `:push` for a backup target such as a repository that is never
-read back, `:pull` for a read-only source.
+three times at most, and then reports `:sync/conflict`. A store without
+`:list` gets this strategy by default. Both strategies take a `:direction`,
+`:both` by default, `:push` for a backup target such as a repository that
+is never read back, `:pull` for a read-only source.
 
 `sync!` drives one or several backends and returns `{:state :ctx :failed
 :report}`: the merged state, a cursor per backend for the app to persist
@@ -209,32 +217,61 @@ answered by compaction, below.
 These change the stored format, so they belong before 1.0 even though the
 adapters can follow it; a state persisted by 1.0 must be one that syncs.
 
-**Merging by shape.** `merge` names its four keys today. It should instead
-merge every key of both states by the shape of its value: a map of stamped
-entries by id merges entry by entry with the later winning, a stamped entry
-is taken whole from the later side, an instant merges as the later of the
-two, and anything else stays the local device's. The four keys keep their
-behaviour, and an app's own bookmarks or playlists sync with no change to
-the library as long as they are stamped, which `stamp` makes the natural
-thing to do.
+**Merging by shape.** `merge` named its four keys. It now merges every key
+of both states by the shape of its value: a stamped entry is taken whole
+from the later side, a map merges key by key down to the stamped entries,
+an instant merges as the later of the two, and anything else stays the
+local device's. In the words of the CRDT literature a stamped entry is a
+last-writer-wins register, a map of them an add-and-remove set with
+tombstones, the clock a max register, and the state their product with
+`merge` as its join. An app's own bookmarks or playlists sync with no
+change to the library as long as they are stamped.
 
-**Device identity.** The `:device` of a state is a display name today, and
-two phones named "phone" would write the same document. It becomes a stable
-id, `(str (random-uuid))` from Clojure 1.11, generated once per
-installation and kept by the app, and the names move into a registry,
-`:devices {id {:name "Simon's phone" :platform "ios" :seen-at … :retired?
-false}}`, one stamped entry per device written only by that device, so that
-a UI can list the devices and let the listener retire one. Retiring marks
-the entry; any device that sees it deletes the document when the store can.
+**Device identity.** The `:device` of a state was a display name, and two
+phones named "phone" would write the same document. It is a stable id,
+`(str (random-uuid))` from Clojure 1.11, generated once per installation
+and kept by the app, and the names live in a registry, `:devices {id
+{:name "Simon's phone" :platform "ios"}}`, one stamped entry per device
+written only by that device, so that a UI can list the devices and let the
+listener retire one. A retirement is a tombstone of its own, under
+`:retired`, so that the device cannot undo it by describing itself again;
+any device that sees it deletes the document when the store can, and the
+retired device writes no more. A last-synced instant is deliberately not
+kept in the registry: written on every step, it would change every
+document on every step and keep every device writing forever.
 
 **A clock that cannot fall behind.** Last-writer-wins trusts the devices'
 clocks, and a device with its clock in the future wins every tie until the
 others catch up. The state keeps `:clock`, the latest stamp it has written
-or merged, merged as the later of the two, and `player/after` returns an
-instant at least `now` and later than `:clock`, the way a hybrid logical
-clock does. An app passes `(player/after state (now))` as `at`, and a
-skewed device cannot leave the others behind. The skew itself is reported
-when it shows, as `:sync/clock-skew`.
+or merged, merged as the later of the two, and every write stamps with the
+instant given or, when that is not later than the clock, the millisecond
+after it, the way a hybrid logical clock does; `player/after` is the same
+rule for an app stamping entries of its own. The convergence property
+found the case before any argument did: a device that wrote at an instant
+no later than an entry it had already merged kept its own entry, while
+every other device kept the other, and the states never met. The skew
+itself is reported when it shows, as `:sync/clock-skew`.
+
+**The queue as an element set.** The queue was one register, the later
+queue winning whole, so two devices enqueuing while apart lost one side's
+additions, and an episode finished on one device came back from another
+that had not heard. It is now one entry per episode carrying a rank from
+`dk.simongray.podcast.rank`: strings in base 62 that always leave room for
+another between two, and that move a digit at the ends so that a queue
+appended to a thousand times keeps short ranks. Removals are tombstones,
+and the order is derived by rank, then by stamp and device where two
+devices ranked at once. Concurrent additions both survive, a finished
+episode stays gone, and only two devices moving the same episode at once
+need a winner, the later. The one imprecision left is a move between two
+entries that tie on the rank, which lands after both; it takes two devices
+ranking the same place at once and then a third change between them.
+
+**Settings field by field.** Preferences, and the settings of a
+subscription, were one register each, so the skip amount changed on one
+device and the rate on another lost one. Both are one entry per field now,
+the subscription's settings apart from the subscription so that they
+outlive an unsubscription and come back with the feed; the accessors hide
+the representation.
 
 **Provenance and compaction.** Every entry already carries the device that
 wrote it. Compaction, which is later work, needs that: an entry may be
@@ -243,7 +280,9 @@ brings it back, and with tombstones that resurrects a subscription the
 listener removed. Timestamps alone cannot say who has seen what, because a
 device pushes late; what can is a small version vector in each device's
 registry entry, `:seen {other-id latest-stamp}`, the latest stamp by each
-other device that this device has merged, kept monotone. An entry by device
+other device that this device has merged, kept monotone, and
+changing only when something new was merged, which changes the document
+anyway, so it does not keep the devices writing. An entry by device
 A stamped at `t` is safe to drop once every live device's `:seen` for A is
 at or past `t`, since a device's document is cumulative and a document
 written after `t` carried the entry or what superseded it. Tombstones and
@@ -256,10 +295,10 @@ before 1.0 beyond what the registry and the stamps already carry.
 
 **What stays out.** Per-device matters, the downloads, the titles cache,
 the page the listener was on, live outside the player state, as the
-inspector keeps its titles today, and are never synced. The queue is synced
-whole, the later queue winning, which is one listener's queue following
-them from device to device, as the mainstream apps do; an app that wants a
-queue per device keeps it outside the state.
+inspector keeps its titles today, and are never synced. The queue is one
+listener's queue following them from device to device, as in the
+mainstream apps; an app that wants a queue per device keeps it outside the
+state.
 
 ## The backends
 
@@ -363,7 +402,9 @@ wraps any store, including the ones not yet written.
 
 An in-memory store, a map over an atom, is the engine's test double and an
 app's, and a store that fails on cue is two lambdas, as the Podping tests
-have a node that does. A convergence property extends the merge properties
+have a node that does. The ranks have a property of their own, that a rank
+between two is between them and none ends in a zero. A convergence
+property extends the merge properties
 to the engine: several devices apply random operations and sync in random
 orders through random backends, and every state ends the same. The folder
 store runs against a temporary directory, the single-document strategy
@@ -384,7 +425,9 @@ contract, the strategies and the drivers; one namespace per adapter,
 `app.sync.onedrive`, `app.sync.cloudkit`, `app.sync.github`,
 `app.sync.git`, `app.sync.gpodder`, `app.sync.openpodcast`, each built the
 directories' way, request maps and fixtures, on `http` and `json` and
-nothing else. A top-level `sync` group, like `directory`, was the
+nothing else; `rank`, the ranks the queue orders by, is a primitive
+beside `time` and `guid`, for an app's own ordered lists as much as for
+the queue. A top-level `sync` group, like `directory`, was the
 alternative; `app.sync` won because what is kept in step is `app.player`'s
 state, and the three read as one account of an app. `app.sync` stands on
 `app.player`, `format.opml`, `http`, `json` and `time`; nothing in the
@@ -392,8 +435,10 @@ library stands on it; the architecture test gets its rows.
 
 ## Order of work
 
-Before 1.0, what fixes the stored format and the smallest complete engine:
+Before 1.0, what fixes the stored format and the smallest complete engine,
+all of it built:
 the device registry with ids, `:clock` with `after`, merging by shape, the
+queue as ranked entries and the settings field by field, the
 envelope with `document` and `read-document`, `reconcile` and
 `changes-since`, the memory and folder stores, `store/backend` with both
 strategies and the OPML mirror, `sync!` on both platforms, the diagnostics

@@ -44,8 +44,12 @@
     (js/Math.floor x)))
 
 (defn- fresh
+  "A state for this browser, under an id of its own, so that its documents
+  never meet another device's."
   []
-  {:player (player/state "browser") :titles {}})
+  {:player (-> (player/state (str (random-uuid)))
+               (player/identify {:name "browser"} (now)))
+   :titles {}})
 
 (defn- load-state
   []

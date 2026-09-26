@@ -2,37 +2,90 @@
   "What a podcast player keeps between plays, as plain data with pure
   operations over it, for any UI to build on: the play queue, listening
   progress and played marks per episode, subscriptions with their settings,
-  and a `merge` that reconciles the state of one listener's devices, which
-  is the core of syncing.
+  the listener's devices, and a `merge` that reconciles the state of one
+  listener's devices, which is the core of syncing.
 
   The state is one map:
 
-      {:device        \"phone\"
-       :subscriptions {feed-guid {:url :title :added-at :removed? :settings {...}}}
+      {:device        \"8f1c9e2a-…\"                 ; this device's id
+       :clock         #inst \"…\"                    ; the latest instant written or merged
+       :subscriptions {feed-guid {:url :title :added-at :removed?}}
+       :settings      {feed-guid {:skip-intro {:value 20} ...}}
        :episodes      {[feed-guid item-guid] {:position :duration :played? :played-at}}
-       :queue         {:items [[feed-guid item-guid] ...]}}
+       :queue         {[feed-guid item-guid] {:rank \"V\" :removed? false}}
+       :preferences   {:skip-forward {:value 30} ...}
+       :devices       {device-id {:name :platform ...}}
+       :retired       {device-id {}}}
 
   Every write takes the instant `at` it happens, never reads a clock, and
-  stamps what it changed with `at` and the state's `:device`, so that
-  `merge` can let the latest entry win. Nothing here stores anything or
-  touches a media element; the app owns those and calls in.
+  stamps what it changed with the state's `:device` and with `at`, or with
+  the millisecond after the latest instant the state has seen when `at` is
+  not later than that (see `after`), so that `merge` can let the latest
+  entry win and a device whose clock runs behind still wins over what it
+  has already merged. The state is a state-based CRDT of the simplest kind:
+  every stamped entry is a last-writer-wins register, a map of them by id
+  or by field an add-and-remove set with tombstones, the clock a max
+  register, and `merge` is the join. The queue keeps one entry per episode
+  with a rank from `dk.simongray.podcast.rank`, so that what two devices
+  queued while apart both survive. Nothing here stores anything or touches
+  a media element; the app owns those and calls in.
+  `dk.simongray.podcast.app.sync` carries the state between devices.
 
   Identities are those of `dk.simongray.podcast.feed`: a feed by its
   `podcast:guid`, an episode by `[feed-guid item-guid]`."
   (:refer-clojure :exclude [merge])
   (:require [dk.simongray.podcast.feed :as feed]
-            [dk.simongray.podcast.guid :as guid]))
+            [dk.simongray.podcast.guid :as guid]
+            [dk.simongray.podcast.rank :as rank]
+            [dk.simongray.podcast.time :as time]))
 
 (defn state
-  "A fresh player state for `device`, a name that tells one listener's
-  devices apart when their states are merged."
+  "A fresh player state for the device `device`: a stable id that tells one
+  listener's devices apart when their states are merged, such as `(str
+  (random-uuid))` generated once per installation and kept by the app."
   [device]
-  {:device device :subscriptions {} :episodes {} :queue {:items []}})
+  {:device device :subscriptions {} :episodes {} :queue {}})
 
 (defn- stamp
   "`entry` marked as changed at `at` on the device of `state`."
   [state entry at]
   (assoc entry :updated-at at :device (:device state)))
+
+(defn- later-inst
+  "The later of the instants `a` and `b`, either of which may be nil."
+  [a b]
+  (cond
+    (nil? a)                        b
+    (nil? b)                        a
+    (>= (inst-ms a) (inst-ms b))    a
+    :else                           b))
+
+(defn after
+  "The instant a write at `now` is stamped with: `now`, unless the state's
+  clock, the latest instant it has written or merged, is at or past it,
+  when it is the millisecond after the clock. A device whose clock runs
+  behind another's thus still writes later than what it has seen, the way
+  a hybrid logical clock does, and the other device cannot leave it behind.
+  Every write applies this itself; an app calls it to know the stamp
+  beforehand, as for entries of its own."
+  [state now]
+  (let [clock (:clock state)]
+    (if (and clock (>= (inst-ms clock) (inst-ms now)))
+      (time/->inst (inc (inst-ms clock)))
+      now)))
+
+(defn- write-each
+  "`state` with every `[path f]` of `writes` applied, the entry at `path`
+  replaced by `(f entry)` and stamped as changed on this device at `at` as
+  `after` adjusts it, which then becomes the state's clock."
+  [state writes at]
+  (let [at (after state at)]
+    (-> (reduce (fn [s [path f]] (update-in s path #(stamp state (f %) at))) state writes)
+        (assoc :clock at))))
+
+(defn- write
+  [state path f at]
+  (write-each state [[path f]] at))
 
 (defn episode-id
   "The identity of `item` in `feed`, fetched from `url`: the feed's guid and
@@ -59,38 +112,41 @@
   (into {} (remove (comp :removed? val)) (:subscriptions state)))
 
 (defn subscribe
-  "Subscribe to the feed `feed-guid` at `url` with `title` at `at`, keeping
-  the settings of an earlier subscription to it."
+  "Subscribe to the feed `feed-guid` at `url` with `title` at `at`; the
+  settings of an earlier subscription to it still hold."
   [state feed-guid {:keys [url title]} at]
-  (update-in state [:subscriptions feed-guid]
-             (fn [sub]
-               (stamp state
-                      (assoc (or sub {})
-                             :url url :title title :removed? false
-                             :added-at (if (subscribed? state feed-guid) (:added-at sub) at))
-                      at))))
+  (write state [:subscriptions feed-guid]
+         (fn [sub]
+           (assoc (or sub {})
+                  :url url :title title :removed? false
+                  :added-at (if (subscribed? state feed-guid) (:added-at sub) at)))
+         at))
 
 (defn unsubscribe
   "Unsubscribe from `feed-guid` at `at`, leaving a tombstone, even where no
   subscription was known, so that the removal outlives an older addition on
   another device."
   [state feed-guid at]
-  (update-in state [:subscriptions feed-guid]
-             #(stamp state (assoc (or % {}) :removed? true) at)))
+  (write state [:subscriptions feed-guid] #(assoc (or % {}) :removed? true) at))
+
+(defn- values
+  "The `:value` of every entry of the map `entries`, by key."
+  [entries]
+  (into {} (map (fn [[k e]] [k (:value e)])) entries))
 
 (defn settings
   "The settings of the subscription `feed-guid`, `default-settings` filled
   in."
   [state feed-guid]
-  (clojure.core/merge default-settings (get-in state [:subscriptions feed-guid :settings])))
+  (clojure.core/merge default-settings (values (get-in state [:settings feed-guid]))))
 
 (defn configure
   "Change the `settings` of the subscription `feed-guid` at `at`; the keys
-  are those of `default-settings`."
+  are those of `default-settings`. Each setting is an entry of its own, so
+  two devices changing different ones both have their way."
   [state feed-guid settings at]
   (if (get-in state [:subscriptions feed-guid])
-    (update-in state [:subscriptions feed-guid]
-               #(stamp state (update % :settings clojure.core/merge settings) at))
+    (write-each state (for [[k v] settings] [[:settings feed-guid k] (constantly {:value v})]) at)
     state))
 
 (def default-preferences
@@ -101,20 +157,46 @@
 (defn preferences
   "The listener's preferences, `default-preferences` filled in."
   [state]
-  (clojure.core/merge default-preferences (dissoc (:preferences state) :updated-at :device)))
+  (clojure.core/merge default-preferences (values (:preferences state))))
 
 (defn prefer
   "Change the listener's `preferences` at `at`; the keys are those of
-  `default-preferences`."
+  `default-preferences`, each an entry of its own."
   [state preferences at]
-  (assoc state :preferences
-         (stamp state (clojure.core/merge (dissoc (:preferences state) :updated-at :device) preferences) at)))
+  (write-each state (for [[k v] preferences] [[:preferences k] (constantly {:value v})]) at))
 
 (defn rate
   "The playback rate for the feed `feed-guid`: its own setting, else the
   listener's preference."
   [state feed-guid]
   (or (:rate (settings state feed-guid)) (:rate (preferences state))))
+
+(defn identify
+  "Describe this device in the registry of `state` at `at`: its `:name` for
+  the listener, its `:platform`, or anything else an app wants to say about
+  it, merged into what it said before. Every device describes only itself,
+  so the entries never contend."
+  [state description at]
+  (write state [:devices (:device state)] #(clojure.core/merge % description) at))
+
+(defn retire
+  "Retire the device `device` at `at`, from any device: it is left out of
+  `devices`, and a sync writes nothing for it and deletes its document. A
+  retirement is a tombstone of its own, so that the device coming back
+  cannot undo it by describing itself again."
+  [state device at]
+  (write state [:retired device] #(or % {}) at))
+
+(defn retired?
+  "Whether the device `device` has been retired."
+  [state device]
+  (contains? (:retired state) device))
+
+(defn devices
+  "The devices of `state` by id, as they described themselves with
+  `identify`, the retired ones left out."
+  [state]
+  (into {} (remove (fn [[id _]] (retired? state id))) (:devices state)))
 
 (def played-threshold
   "How many seconds before the end of an episode count as having heard it."
@@ -142,26 +224,25 @@
   ([state id position at]
    (progress state id position nil at))
   ([state id position duration at]
-   (update-in state [:episodes id]
-              (fn [e]
-                (let [e (cond-> (assoc (or e {}) :position position)
-                          duration (assoc :duration duration))
-                      e (if (and (not (:played? e)) (heard-to-the-end? position (:duration e)))
-                          (assoc e :played? true :played-at at)
-                          e)]
-                  (stamp state e at))))))
+   (write state [:episodes id]
+          (fn [e]
+            (let [e (cond-> (assoc (or e {}) :position position)
+                      duration (assoc :duration duration))]
+              (if (and (not (:played? e)) (heard-to-the-end? position (:duration e)))
+                (assoc e :played? true :played-at at)
+                e)))
+          at)))
 
 (defn mark-played
   "Mark the episode `id` as played at `at`."
   [state id at]
-  (update-in state [:episodes id] #(stamp state (assoc (or % {}) :played? true :played-at at) at)))
+  (write state [:episodes id] #(assoc (or % {}) :played? true :played-at at) at))
 
 (defn mark-unplayed
   "Mark the episode `id` as not played at `at`, its position back at the
   start."
   [state id at]
-  (update-in state [:episodes id]
-             #(stamp state (-> (or % {}) (assoc :played? false :position 0) (dissoc :played-at)) at)))
+  (write state [:episodes id] #(-> (or % {}) (assoc :played? false :position 0) (dissoc :played-at)) at))
 
 (defn skip
   "Move `seconds` forward, or back when negative, in the episode `id` at
@@ -191,10 +272,17 @@
        (sort-by (fn [[_ e]] (- (inst-ms (or (:played-at e) (:updated-at e))))))
        (map key)))
 
+(defn- queue-order
+  "The live entries of the queue of `state`, `[id entry]`, in order: by
+  rank, then by stamp and device where two devices ranked at once."
+  [state]
+  (sort-by (fn [[_ {:keys [rank updated-at device]}]] [rank (inst-ms updated-at) (str device)])
+           (remove (comp :removed? val) (:queue state))))
+
 (defn queue
   "The episode ids queued in `state`, the current one first."
   [state]
-  (get-in state [:queue :items] []))
+  (mapv key (queue-order state)))
 
 (defn current
   "The episode id at the front of the queue, nil when it is empty."
@@ -204,11 +292,27 @@
 (defn queued?
   "Whether the episode `id` is in the queue."
   [state id]
-  (boolean (some #{id} (queue state))))
+  (let [e (get-in state [:queue id])]
+    (boolean (and e (not (:removed? e))))))
 
-(defn- set-queue
-  [state items at]
-  (assoc state :queue (stamp state {:items (vec items)} at)))
+(defn- rank-between
+  "A rank for a place in the queue of `state`: after the queued episode
+  `before` and before the queued `after`, either nil at an end of the
+  queue. Where several entries share a rank, the place is after all of
+  them."
+  [state before after]
+  (let [a (some->> before (get (:queue state)) :rank)
+        b (when after
+            (->> (drop-while #(not= after (key %)) (queue-order state))
+                 (map (comp :rank val))
+                 (filter #(or (nil? a) (pos? (compare % a))))
+                 first))]
+    (rank/between a b)))
+
+(defn- place
+  "`state` with the episode `id` queued at `rank` at `at`."
+  [state id rank at]
+  (write state [:queue id] (constantly {:rank rank :removed? false}) at))
 
 (defn enqueue
   "Put the episode `id` at the end of the queue at `at`, unless it is queued
@@ -216,7 +320,7 @@
   [state id at]
   (if (queued? state id)
     state
-    (set-queue state (conj (queue state) id) at)))
+    (place state id (rank-between state (peek (queue state)) nil) at)))
 
 (defn play-next
   "Put the episode `id` right after the current episode at `at`, moving it
@@ -224,15 +328,15 @@
   [state id at]
   (if (= id (current state))
     state
-    (let [items (vec (remove #{id} (queue state)))
-          [head tail] (split-at (min 1 (count items)) items)]
-      (set-queue state (concat head [id] tail) at))))
+    (let [[first-id second-id] (remove #{id} (queue state))]
+      (place state id (rank-between state first-id second-id) at))))
 
 (defn dequeue
-  "Take the episode `id` out of the queue at `at`."
+  "Take the episode `id` out of the queue at `at`, leaving a tombstone, so
+  that the removal outlives an older addition on another device."
   [state id at]
   (if (queued? state id)
-    (set-queue state (remove #{id} (queue state)) at)
+    (write state [:queue id] #(assoc % :removed? true) at)
     state))
 
 (defn move
@@ -240,16 +344,16 @@
   [state id index at]
   (if-not (queued? state id)
     state
-    (let [items (vec (remove #{id} (queue state)))
-          index (max 0 (min index (count items)))]
-      (set-queue state (concat (subvec items 0 index) [id] (subvec items index)) at))))
+    (let [others (vec (remove #{id} (queue state)))
+          index  (max 0 (min index (count others)))]
+      (place state id (rank-between state (get others (dec index)) (get others index)) at))))
 
 (defn advance
   "Drop the current episode from the queue at `at`, so that the next one is
   current."
   [state at]
-  (if (seq (queue state))
-    (set-queue state (rest (queue state)) at)
+  (if-let [id (current state)]
+    (dequeue state id at)
     state))
 
 (defn new-episodes
@@ -297,8 +401,8 @@
 
 (defn- later
   "The later of the stamped entries `a` and `b`; on the same instant the
-  device name decides, and failing that the content, so that the choice is
-  the same whichever side asks."
+  device decides, and failing that the content, so that the choice is the
+  same whichever side asks."
   [a b]
   (let [ms (fn [x] (or (some-> (:updated-at x) inst-ms) 0))]
     (cond
@@ -311,19 +415,64 @@
                                a
                                b))))
 
-(defn merge
-  "Reconcile the states `a` and `b` of one listener's devices: for every
-  subscription and every episode the later entry wins, and so does the
-  later queue, so that a removal carried as a tombstone beats an older
-  addition. Commutative, associative and idempotent, hence safe to apply in
-  any order and any number of times. The result belongs to `a`'s device."
+(defn- stamped?
+  "Whether `x` is an entry a write stamped."
+  [x]
+  (and (map? x) (contains? x :updated-at)))
+
+(defn- join
+  "The merge of the values `a` and `b` under one key of two states, by their
+  shape: stamped entries, the later; maps of anything else, key by key down
+  to the entries; instants, the later; anything else stays `a`'s."
   [a b]
-  (cond-> {:device        (:device a)
-           :subscriptions (merge-with later (:subscriptions a) (:subscriptions b))
-           :episodes      (merge-with later (:episodes a) (:episodes b))
-           :queue         (later (:queue a) (:queue b))}
-    (or (:preferences a) (:preferences b))
-    (assoc :preferences (later (:preferences a) (:preferences b)))))
+  (cond
+    (nil? a)                                                          b
+    (nil? b)                                                          a
+    (and (stamped? a) (stamped? b))                                   (later a b)
+    (and (map? a) (map? b) (not (stamped? a)) (not (stamped? b)))     (merge-with join a b)
+    (and (map? a) (map? b))                                           (later a b)
+    (and (inst? a) (inst? b))                                         (later-inst a b)
+    :else                                                             a))
+
+(defn merge
+  "Reconcile the states `a` and `b` of one listener's devices, key by key
+  and by the shape of what is under it. A stamped entry is a last-writer-wins
+  register, so the later wins whole and a removal carried as a tombstone
+  beats an older addition; a map of them, by id or by field, merges entry by
+  entry, an add-and-remove set, and maps of maps the same way down to the
+  entries; an instant is a max register, the later of the two. An app's own
+  entries merge the same way as long as they are stamped, and anything else
+  is taken from `a`. Commutative, associative and idempotent, the join of a
+  state-based CRDT, hence safe to apply in any order and any number of
+  times. The result belongs to `a`'s device."
+  [a b]
+  (reduce (fn [m k] (assoc m k (join (get a k) (get b k))))
+          {:device (:device a)}
+          (disj (into (set (keys a)) (keys b)) :device)))
+
+(defn- written-after
+  "The part of `v` stamped after `since`: a stamped entry when it is, a map
+  with what of its values is, nil when nothing; nil `since` keeps all."
+  [v since]
+  (cond
+    (stamped? v) (when (or (nil? since) (> (inst-ms (:updated-at v)) (inst-ms since)))
+                   v)
+    (map? v)     (let [m (into {} (keep (fn [[k x]] (when-some [y (written-after x since)] [k y]))) v)]
+                   (when (seq m) m))
+    :else        nil))
+
+(defn changes-since
+  "The part of `state` written after the instant `since` (all of it when
+  `since` is nil), by whichever device: the entries stamped later, with the
+  device and the clock, as a partial state that `merge` takes. What a sync
+  pushes to a service that wants the changes rather than the state."
+  [state since]
+  (into (select-keys state [:device :clock])
+        (keep (fn [[k v]]
+                (when-not (#{:device :clock} k)
+                  (when-some [w (written-after v since)]
+                    [k w]))))
+        state))
 
 (defn step
   "Advance `state` by the player `event` at `at`, returning `{:state ...
@@ -356,14 +505,16 @@
                     next     (when current? (current state'))]
                 {:state   state'
                  :effects (if next [[:play next]] [])})
-    :play     {:state   (set-queue state (into [id] (remove #{id} (queue state))) at)
+    :play     {:state   (place state id (rank-between state nil (first (remove #{id} (queue state)))) at)
                :effects []}
     {:state state :effects []}))
 
 #?(:clj
    (comment
-     (-> (state "laptop")
+     (-> (state (str (random-uuid)))
+         (identify {:name "laptop"} #inst "2026-01-01")
          (subscribe "feed-1" {:url "https://a/rss" :title "A"} #inst "2026-01-01")
          (enqueue ["feed-1" "ep-1"] #inst "2026-01-01T01:00:00Z")
          (progress ["feed-1" "ep-1"] 120 3600 #inst "2026-01-01T02:00:00Z"))
+     (after *1 #inst "2026-01-01")
      #_.))

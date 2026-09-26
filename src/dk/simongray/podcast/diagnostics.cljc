@@ -7,8 +7,9 @@
   Ids are namespaced by the layer that raises them: `repair` for the text
   repairs of a malformed document, `xml` for namespace resolution, `quirk`
   for the normalizations of the tree, `feed` for the model, `transcript` and
-  `chapters` for the companion formats, and `validate` for the validator,
-  whose diagnostics are about the feed rather than about reading it.")
+  `chapters` for the companion formats, `validate` for the validator, whose
+  diagnostics are about the feed rather than about reading it, and `sync`
+  for a step of keeping devices in step.")
 
 (def catalogue
   "The diagnostics, in the order they tend to arise."
@@ -138,7 +139,21 @@
    {:id :validate/profile-required :level :error
     :doc "An element the chosen profile requires is missing."}
    {:id :validate/profile-recommended :level :warning
-    :doc "An element the chosen profile recommends is missing."}])
+    :doc "An element the chosen profile recommends is missing."}
+
+   ;; syncing: what a step of keeping devices in step found
+   {:id :sync/unreadable-document :level :warning
+    :doc "A document in the store would not read as a sync document; it was left out."}
+   {:id :sync/newer-format :level :warning
+    :doc "A document was written by a newer version of the library than this one reads; it was left out."}
+   {:id :sync/clock-skew :level :warning
+    :doc "A device wrote its document at an instant more than a minute ahead of this device's clock."}
+   {:id :sync/shared-device :level :warning
+    :doc "This device's own document changed under it, so two installations write with the same device id."}
+   {:id :sync/retired-device :level :warning
+    :doc "This device has been retired from another device; nothing was written for it."}
+   {:id :sync/conflict :level :warning
+    :doc "The shared document changed under every attempt to write it; the step ended without writing."}])
 
 (def by-id
   "The catalogue by id."

@@ -4,7 +4,8 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.app.player :as player]
-            [dk.simongray.podcast.format.opml :as opml]))
+            [dk.simongray.podcast.format.opml :as opml]
+            [dk.simongray.podcast.time :as time]))
 
 (def t0 #inst "2026-01-01T00:00:00Z")
 (def t1 #inst "2026-01-01T01:00:00Z")
@@ -88,7 +89,51 @@
     (is (= [b a] (player/queue (player/move s a 5 t1))) "an index past the end means the end")
     (is (= [b] (player/queue (player/advance s t1))))
     (is (= [] (player/queue (player/advance (player/state "x") t1))))
-    (is (= t1 (get-in (player/advance s t1) [:queue :updated-at])))))
+    (is (= t2 (get-in (player/advance s t2) [:queue a :updated-at])) "the current episode is left as a tombstone")
+    (let [seen (:clock s)]
+      (is (= (time/->inst (inc (inst-ms seen))) (get-in (player/advance s seen) [:queue a :updated-at]))
+          "a write at an instant the state has seen is stamped the millisecond after"))))
+
+(deftest the-queue-across-devices
+  (let [shared (-> (player/state "phone") (player/enqueue a t0) (player/enqueue b t0))
+        phone  (-> shared (player/advance t1) (player/enqueue c t2))
+        laptop (-> (player/merge (player/state "laptop") shared) (player/enqueue ["feed-c" "c1"] t3))
+        merged (player/merge phone laptop)]
+    (is (= [b c ["feed-c" "c1"]] (player/queue merged))
+        "the episode finished on the phone stays gone, and what both devices added survives, in order")
+    (is (= (player/queue merged) (player/queue (player/merge laptop phone))))
+    (testing "two devices appending at once tie on the rank, and the stamp orders them"
+      (let [d      ["feed-d" "d1"]
+            e      ["feed-e" "e1"]
+            phone2 (player/enqueue phone d t3)
+            laptop2 (player/enqueue (player/merge (player/state "laptop") phone) e t3)
+            both   (player/merge phone2 laptop2)]
+        (is (= [b c e d] (player/queue both)) "the laptop's stamp is the later, so its episode comes last")
+        (is (= (get-in both [:queue d :rank]) (get-in both [:queue e :rank])))
+        (is (= [b ["feed-x" "x"] c e d] (player/queue (player/play-next both ["feed-x" "x"] t3)))
+            "a place between distinct ranks is found")
+        (is (= [b c e d ["feed-x" "x"]] (player/queue (player/move (player/enqueue both ["feed-x" "x"] t3) ["feed-x" "x"] 3 t3)))
+            "a place between two tied ranks is after both of them")))
+    (testing "ranks stay short as a queue grows"
+      (let [long (reduce (fn [s i] (player/enqueue s ["f" (str i)] t0)) (player/state "x") (range 300))]
+        (is (= 300 (count (player/queue long))))
+        (is (<= (apply max (map (comp count :rank) (vals (:queue long)))) 6))))))
+
+(deftest preferences-and-settings-field-by-field
+  (let [base   (player/subscribe (player/state "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
+        phone  (-> base (player/prefer {:skip-forward 45} t1) (player/configure "feed-a" {:skip-intro 20} t1))
+        laptop (-> (player/merge (player/state "laptop") base)
+                   (player/prefer {:rate 1.5} t2)
+                   (player/configure "feed-a" {:auto-queue? true} t2))
+        merged (player/merge phone laptop)]
+    (is (= {:skip-forward 45 :skip-back 15 :rate 1.5} (player/preferences merged))
+        "preferences changed on different devices both survive")
+    (is (= {:auto-queue? true :skip-intro 20 :skip-outro 0} (player/settings merged "feed-a"))
+        "and so do a subscription's settings")
+    (is (= 60 (:skip-forward (player/preferences (player/merge phone (player/prefer laptop {:skip-forward 60} t3)))))
+        "the same field on both: the later wins")
+    (is (= 20 (:skip-intro (player/settings (player/unsubscribe merged "feed-a" t3) "feed-a")))
+        "settings outlive the subscription, for when it comes back")))
 
 (deftest refreshing-a-feed
   (let [item   (fn [id] {:rss/guid {:content id} :rss/title id})
@@ -138,12 +183,62 @@
     (is (= "phone" (:device merged)))
     (is (not (player/subscribed? merged "feed-b")) "the later removal beats the earlier addition")
     (is (= 900 (:position (player/episode merged a))) "the later position wins")
-    (is (= [c] (player/queue merged)) "the later queue wins whole")
+    (is (= [a c] (player/queue merged)) "what both devices queued survives, in the order it was queued")
     (is (= 60 (:skip-forward (player/preferences merged))) "the later preferences win")
     (testing "the same whichever side asks, and again"
       (is (= (dissoc merged :device) (dissoc (player/merge laptop phone) :device)))
       (is (= merged (player/merge merged laptop)))
-      (is (= merged (player/merge merged merged))))))
+      (is (= merged (player/merge merged merged))))
+    (testing "a fresh device takes everything, the clock included"
+      (let [fresh (player/merge (player/state "tablet") laptop)]
+        (is (= [c] (player/queue fresh)))
+        (is (= (:clock laptop) (:clock fresh)))
+        (is (pos? (compare (:clock fresh) t3)) "the laptop's preferences, written last, were stamped after t3")
+        (is (= "tablet" (:device fresh)))))))
+
+(deftest merging-by-shape
+  (let [note   (fn [s id text at] (assoc-in s [:bookmarks id] {:text text :updated-at at :device (:device s)}))
+        phone  (-> (player/state "phone") (note "n1" "old" t0) (note "n2" "phone" t1) (assoc :theme "light"))
+        laptop (-> (player/state "laptop") (note "n1" "new" t2) (assoc :theme "dark" :zoom 2))
+        merged (player/merge phone laptop)]
+    (is (= {"n1" "new" "n2" "phone"} (update-vals (:bookmarks merged) :text))
+        "an app's own stamped entries merge like the library's")
+    (is (= "light" (:theme merged)) "what is not stamped stays the local device's")
+    (is (= 2 (:zoom merged)) "unless only the other device has it")
+    (is (= (dissoc (player/merge laptop phone) :device :theme) (dissoc merged :device :theme)))))
+
+(deftest devices-and-the-clock
+  (let [s (-> (player/state "phone-id")
+              (player/identify {:name "Simon's phone" :platform "ios"} t0)
+              (player/progress a 100 3600 t1))]
+    (is (= {"phone-id" {:name "Simon's phone" :platform "ios" :updated-at t0 :device "phone-id"}}
+           (player/devices s)))
+    (is (= t1 (:clock s)) "the clock is the latest instant written")
+    (is (= t2 (player/after s t2)) "a later now is used as it is")
+    (is (= (time/->inst (inc (inst-ms t1))) (player/after s t0)) "an earlier now becomes the millisecond after the clock")
+    (is (= t2 (:clock (player/merge s (player/progress (player/state "x") b 5 t2)))) "and it follows what is merged")
+    (testing "retiring a device from another"
+      (let [laptop (player/retire (player/state "laptop-id") "phone-id" t2)
+            merged (player/merge s laptop)]
+        (is (player/retired? merged "phone-id"))
+        (is (= {} (player/devices merged)))
+        (is (= {} (player/devices (player/merge (player/identify merged {:name "Back"} t3) laptop)))
+            "describing itself again does not undo it")))))
+
+(deftest the-changes-since-an-instant
+  (let [s       (-> (player/state "phone")
+                    (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+                    (player/prefer {:rate 1.5} t1)
+                    (player/progress a 100 3600 t2)
+                    (player/enqueue a t3))
+        changes (player/changes-since s t1)]
+    (is (= #{:device :clock :episodes :queue} (set (keys changes)))
+        "what was written after the instant, with the device and the clock")
+    (is (= (player/episode s a) (player/episode changes a)))
+    (is (= s (player/merge s changes)) "a partial state merges into the whole without changing it")
+    (is (= (dissoc s :device)
+           (dissoc (player/merge (player/state "laptop") (player/changes-since s nil)) :device))
+        "nil means everything")))
 
 (deftest stepping
   (let [s (-> (player/state "phone") (player/enqueue a t0) (player/enqueue b t0))]

@@ -1,7 +1,8 @@
 (ns dk.simongray.podcast.app.player-merge-test
   "The merge of player states is commutative, associative and idempotent
-  for whatever states devices can produce, which is what lets syncing
-  apply it in any order and any number of times."
+  for whatever states devices can produce, an app's own stamped entries
+  included, which is what lets syncing apply it in any order and any
+  number of times."
   (:require [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
@@ -28,9 +29,15 @@
     (gen/fmap (fn [[id t]] #(player/mark-played % id t)) (gen/tuple episode-ids instants))
     (gen/fmap (fn [[id t]] #(player/enqueue % id t)) (gen/tuple episode-ids instants))
     (gen/fmap (fn [[id t]] #(player/play-next % id t)) (gen/tuple episode-ids instants))
+    (gen/fmap (fn [[id t]] #(player/dequeue % id t)) (gen/tuple episode-ids instants))
+    (gen/fmap (fn [[id n t]] #(player/move % id n t)) (gen/tuple episode-ids (gen/choose 0 3) instants))
     (gen/fmap (fn [[id n t]] #(player/skip % id n t)) (gen/tuple episode-ids (gen/choose -60 60) instants))
     (gen/fmap (fn [[n t]] #(player/prefer % {:skip-forward n} t)) (gen/tuple (gen/elements [15 30 45]) instants))
-    (gen/fmap (fn [t] #(player/advance % t)) instants)]))
+    (gen/fmap (fn [t] #(player/advance % t)) instants)
+    (gen/fmap (fn [[n t]] #(player/identify % {:name n} t)) (gen/tuple (gen/elements ["Phone" "Laptop"]) instants))
+    (gen/fmap (fn [[d t]] #(player/retire % d t)) (gen/tuple (gen/elements ["phone" "laptop" "car"]) instants))
+    (gen/fmap (fn [[k t]] #(assoc-in % [:bookmarks k] {:text k :updated-at t :device (:device %)}))
+              (gen/tuple (gen/elements ["b1" "b2"]) instants))]))
 
 (def states
   "A device's state after a few random operations."

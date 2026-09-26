@@ -61,6 +61,18 @@ Working toward 1.0, the first release.
   out of a block, the writers verified, `poll!` as the poller's step and
   `affected` for the subscriptions to fetch; `notify-request` for a host.
   `http` builds requests on both platforms and sends POST on the JVM.
+- `app.sync`: keeping devices in step over any store of documents, one
+  document per device merged on read or one shared document put on
+  condition of its version; a store is a map of four functions, with
+  `memory` for tests and `app.sync.file` for a folder a sync client
+  mirrors; `sync!` as one step over any number of backends, on both
+  platforms. The player state gained device ids with a registry to describe
+  and retire devices, a clock that stamps no write earlier than what the
+  state has seen, `merge` by the shape of every entry so that an app's own
+  entries sync too, and `changes-since`. The queue is one entry per episode
+  with a rank from the new `rank` namespace, so that what two devices
+  queued while apart both survive, and preferences and a subscription's
+  settings are one entry per field.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

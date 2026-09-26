@@ -66,3 +66,9 @@ groups them by kind.
 | `:validate/deprecated` | info | An element its specification has deprecated. |
 | `:validate/profile-required` | error | An element the chosen profile requires is missing. |
 | `:validate/profile-recommended` | warning | An element the chosen profile recommends is missing. |
+| `:sync/unreadable-document` | warning | A document in the store would not read as a sync document; it was left out. |
+| `:sync/newer-format` | warning | A document was written by a newer version of the library than this one reads; it was left out. |
+| `:sync/clock-skew` | warning | A device wrote its document at an instant more than a minute ahead of this device's clock. |
+| `:sync/shared-device` | warning | This device's own document changed under it, so two installations write with the same device id. |
+| `:sync/retired-device` | warning | This device has been retired from another device; nothing was written for it. |
+| `:sync/conflict` | warning | The shared document changed under every attempt to write it; the step ended without writing. |

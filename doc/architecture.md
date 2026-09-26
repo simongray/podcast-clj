@@ -41,13 +41,13 @@ the code.
                  ┌──────────────┬──────────────┬──────────────────┐
   companions     │ chapters     │ transcript   │ opml   value     │  formats, and the accessors
                  │ resolve  (one answer per property, by rule)    │  a client reads through
-                 │ player  (state as data)   search  (criteria, index)│  and what an app keeps and finds
+                 │ player (state)  search (criteria, index)  sync │  what an app keeps, finds and keeps in step
                  ├──────────────┴──────────────┴──────────────────┤
   feed           │ feed  (parse / emit interpreters)  validate    │  registry-driven
                  ├────────────────────────────────────────────────┤
   vocabulary     │ spec  (tag registry, enumerations)   quirks    │  data, and named repairs
                  ├────────────────────────────────────────────────┤
-  primitives     │ xml   time   rrule   guid   json   coerce      │  the only reader-conditionals
+  primitives     │ xml  time  rrule  guid  json  rank  coerce     │  the only reader-conditionals
                  └────────────────────────────────────────────────┘
   jvm only       │ http  directory, podping (their ! functions)   │
 ```
@@ -66,10 +66,11 @@ and stay flat where nothing is: `xml.jsoup` under `xml` and `time.rrule`
 under `time`; `feed.coerce`, `feed.validate` and `feed.schema` under `feed`
 as the three interpreters of the registry over the model, with `spec` and
 `quirks` above them as the vocabulary; the companion formats `chapters`,
-`transcript`, `opml` and `html` under `format`; `player` and `search`,
-what an app keeps and finds, under `app`; and the Podcast Index client
+`transcript`, `opml` and `html` under `format`; `player`, `search` and
+`sync`, what an app keeps, finds and keeps in step, under `app`, with the
+stores under `sync`; and the Podcast Index client
 under `directory`, since the index is one of the directories `directory`
-puts behind one shape. `resolve`, `value`, `guid`, `json`, `http` and
+puts behind one shape. `resolve`, `value`, `guid`, `json`, `http`, `rank` and
 `diagnostics` belong to no group and stay at the top. A test reads the
 `ns` forms and holds the layering to this.
 
@@ -382,25 +383,27 @@ subscriptions and their settings, and keeping several devices in step.
 `dk.simongray.podcast.app.player` holds that as one state map and pure
 operations over it, so that a client writes its UI and nothing else. The
 rules of the library hold: no storage, no clock, no media element. Every
-operation takes the instant it happens and stamps what it changed with that
-instant and the state's device name; the app persists the map however it
-likes and calls in when the player emits events.
+operation takes the instant it happens and stamps what it changed with the
+state's device id and that instant, or the millisecond after the latest
+instant the state has seen when the given one is not later, a hybrid
+logical clock in one line; the app persists the map however it likes and
+calls in when the player emits events.
 
 The state is the two documents of the survey's sync model in one map:
-subscriptions by feed guid, with `default-settings` such as `:auto-queue?`
-and `:skip-intro`, and removals kept as tombstones; episodes by `[feed-guid
-item-guid]`, with position, duration and the played mark that `progress`
-sets within `played-threshold` seconds of the end; and the queue as one
-ordered entry. `merge` reconciles two devices by letting the later entry
-win, the queue whole, which is commutative, associative and idempotent (a
-generative test says so), so that any backend that can store and fetch a
-document can sync; `sync.md` designs the engine and the stores that will
-bring them in, and what the state must gain first. `refresh` feeds a
-fresh parse through `feed/diff` and queues the new episodes of feeds set to
-auto-queue; `to-opml` and `from-opml` bridge to the `opml` namespace with the
-feed guid carried in each outline. Listener `preferences`, the skip amounts
-and the playback rate, are one more merged entry, and `skip` moves within an
-episode without leaving it. `step` is a small reducer over the player's
+subscriptions by feed guid, with removals kept as tombstones and their
+settings, such as `:auto-queue?` and `:skip-intro`, one entry per field;
+episodes by `[feed-guid item-guid]`, with position, duration and the played
+mark that `progress` sets within `played-threshold` seconds of the end; the
+queue as one entry per episode carrying a rank from `rank`, the order
+derived from the ranks; and the listener's `preferences`, the skip amounts
+and the playback rate, one entry per field. `merge` reconciles two devices
+entry by entry, the later winning, which is commutative, associative and
+idempotent (a generative test says so), so that any backend that can store
+and fetch a document can sync, which `app.sync` does, below. `refresh`
+feeds a fresh parse through `feed/diff` and queues the new episodes of
+feeds set to auto-queue; `to-opml` and `from-opml` bridge to the `opml`
+namespace with the feed guid carried in each outline, and `skip` moves
+within an episode without leaving it. `step` is a small reducer over the player's
 events, `:progress`, `:ended`, `:play` and `:skip`, returning the new state
 and the effects the UI should act on, such as playing the next episode or
 seeking to the skipped-to position; it is deliberately the only place where
@@ -636,6 +639,75 @@ The inspector's Podping page reads the last twenty blocks live, which is
 how the consumer is exercised against the real chain; the tests run on
 recorded answers, with a stand-in node that fails on cue.
 
+## Syncing
+
+`dk.simongray.podcast.app.sync` keeps one listener's devices in step, on
+the design in `sync.md`, whose reasoning is not repeated here. The merge
+being a join, a backend only has to hold documents: every device writes
+its whole state, in an envelope naming the format version, the device and
+when it was written, as `<device-id>.edn`, and reads the others' and
+merges them, so that no two writers ever meet and a folder any sync client
+mirrors is a complete backend. A store is a map of four functions over
+named documents with version tokens, `fetch`, `put`, `list` and `delete`,
+its credentials closed over in its constructor and never in the map, so
+that wrapping one is updating a key and no store prints a token.
+`store/backend` turns any store into a backend for `sync!` by one of two
+strategies: a document per device, or, for a store that cannot list, one
+shared document put on condition of the version fetched and merged again
+on a conflict. `sync!` is one step over any number of backends: pull from
+each, merge into the local state, push the merged state to each, and hand
+back a cursor per backend, the versions seen and a hash of what was
+written, so that the next step fetches only what changed and writes only
+when something did. The state is never replaced, only merged into; a
+backend that fails is a line under `:failed`; and the step reports what it
+found, an unreadable document, one from a newer library, a device whose
+clock runs ahead, the device's own document changed under it, its
+retirement, or a shared document that would not stop changing. On the JVM
+the backends are asked at once on futures; in ClojureScript `sync!`
+returns a promise and a store's functions may return values or promises,
+so a store over localStorage and one over fetch are written the same way.
+The memory store is the engine's test double, and the folder store,
+`app.sync.file`, covers iCloud Drive, Dropbox, Drive, Seafile, Syncthing
+and a Git working tree by writing each file whole and moving it into
+place; the stores over the HTTP APIs and the gpodder services follow 1.0,
+one namespace each.
+
+The player state gained what syncing needs and what would have been
+painful to change once states are persisted. The device is a stable id,
+generated once per installation, and the devices describe themselves in a
+registry, so that a UI lists them and the listener retires a lost one, a
+tombstone the device cannot undo by coming back. The state keeps a clock,
+the latest instant it has written or merged, and every write stamps with
+the given instant or the millisecond after the clock when that is not
+later: a hybrid logical clock that keeps a device with a slow clock from
+being overruled by what it has already merged, which the convergence
+property found necessary before any argument did, a device writing at an
+instant no later than an entry it had merged keeping its own entry while
+every other device kept the other. And `merge` goes by the shape of each
+value, a map of stamped entries, one stamped entry or an instant, so that
+an app's own entries sync as the library's do. Three devices applying
+random operations and syncing in random orders through either strategy
+end in the same state, which is the merge's three properties carried
+through the engine.
+
+The state is a state-based CRDT of the simplest kind, and naming its parts
+says what merges how: every stamped entry is a last-writer-wins register, a
+map of them by id or by field an add-and-remove set with tombstones, the
+clock a max register, and `merge` the join. Two places were coarser than
+that and were reworked before 1.0, since both change the stored format. The
+queue was one register, the later queue winning whole, so that two devices
+enqueuing while apart lost one side's additions, and an episode finished on
+the phone came back from a laptop that had not heard. It is now one entry
+per episode with a rank from `rank`, strings in base 62 that always leave
+room for another between two and stay short at the ends, the order derived
+by rank and then by stamp, removals as tombstones: concurrent additions both
+survive, a finished episode stays gone, and only two devices moving the same
+episode at once need a winner. Preferences and a subscription's settings
+were one register each, so that the skip amount changed on one device and
+the rate on another lost one; both are now one entry per field, behind the
+same accessors, and a subscription's settings live apart from it so that
+they outlive an unsubscription and come back with the feed.
+
 ## Roadmap
 
 1. Core: `xml`, `time`, `guid`, `spec`, `feed`, `quirks`, `validate`. Done.
@@ -648,7 +720,7 @@ recorded answers, with a stand-in node that fails on cue.
 8. Generated tag reference; Malli schemas from the registry. Done.
 9. Podcast Index: sending requests and mapping responses into the model. Done.
 10. Podping consumer, done as item 23; the sync engine, whose pure core is
-    `app.player/merge`, is designed in `sync.md` as item 24.
+    `app.player/merge`, is item 24.
 11. Hardening: a sweep of several hundred indexed feeds, with the registry,
     quirks and emitter fixes it turned up. Done.
 12. The small correctness items the sweep left: emit speed, diagnostics
@@ -695,7 +767,9 @@ recorded answers, with a stand-in node that fails on cue.
     a block, writers verified as the accounts podping follows, `poll!` as the poller's
     step, and the host's announcement; the HTTP client made cross-platform
     for the request-building half and given POST. Done.
-24. Syncing: the engine over the player state, stores as maps of
-    functions with one document per device, the folder and memory stores,
-    and the changes to the player state that fix the stored format;
-    designed in `sync.md`, not started.
+24. Syncing: the design in `sync.md`, then its foundation: the engine over
+    the player state, stores as maps of functions holding one document per
+    device or one shared, the memory and folder stores, and the player
+    state given device ids, a registry, a clock and a merge by shape, then
+    the queue as ranked entries and the settings field by field. Done; the
+    stores over the HTTP APIs and the gpodder services follow 1.0.

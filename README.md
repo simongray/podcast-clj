@@ -103,8 +103,22 @@ without owning the logic, and two devices' states merge into one:
 (player/resume-position s feed-guid id)     ; where to start, honouring the feed's skip-intro
 (player/step s [:skip id :forward] now)     ; => {:state ... :effects [[:seek id 1264]]}, by the listener's preferences
 (player/step s [:ended id] now)             ; => {:state ... :effects [[:play next-id]]}
-(player/merge phone-state laptop-state)     ; the later entry wins everywhere; tombstones beat old additions
+(player/merge phone-state laptop-state)     ; entry by entry, the later wins; what both devices queued survives
 (opml/emit (player/to-opml s))              ; the subscriptions as OPML, guids included
+```
+
+Keeping devices in step is one step over any store that holds documents:
+every device writes its own, reads the others' and merges, so a folder
+that any sync client mirrors is a complete backend, and a store is a map
+of four functions.
+
+```clojure
+(require '[dk.simongray.podcast.app.sync :as sync]
+         '[dk.simongray.podcast.app.sync.file :as file]
+         '[dk.simongray.podcast.app.sync.store :as store])
+
+(def backend (store/backend (file/store "/path/to/Dropbox/podcasts") {:opml? true}))
+(sync/sync! s [backend] now)                ; => {:state merged :ctx {…} :report []}; hand :ctx back next time
 ```
 
 Finding episodes is criteria as data, read through `resolve`, and a
@@ -136,8 +150,8 @@ ecosystem survey that motivated it is in
 [doc/podcasting-2.0-clojure-survey.md](doc/podcasting-2.0-clojure-survey.md);
 the path from finding a show to playing it, with the function to call at
 each step, is [doc/building-an-app.md](doc/building-an-app.md); the design
-for keeping several devices in step, not yet built, is
-[doc/sync.md](doc/sync.md). In one paragraph:
+of syncing, its engine built and its stores over the cloud services to
+come, is [doc/sync.md](doc/sync.md). In one paragraph:
 
 XML becomes Hiccup with namespaces resolved by URI (`:itunes/author`,
 `:podcast/transcript`). A **tag registry** describes every element the
@@ -300,6 +314,7 @@ Namespaces
 | `…podcast.time` | RFC 2822 and ISO 8601 dates, durations, timestamps |
 | `…podcast.time.rrule` | RFC 5545 recurrence rules parsed, written and evaluated, for `podcast:updateFrequency` |
 | `…podcast.guid` | `podcast:guid` (UUIDv5) and SHA-1 |
+| `…podcast.rank` | Ranks: strings that always leave room for another between two, for an ordered list kept as entries that merge one by one |
 | `…podcast.http` | JVM feed fetcher with conditional requests |
 | `…podcast.spec` | The tag registry as data, `registry` to index or extend it, and the enumerations of the specifications; rendered as [doc/tags.md](doc/tags.md) |
 | `…podcast.quirks` | String repairs, URI variants, tree normalizations |
@@ -312,8 +327,11 @@ Namespaces
 | `…podcast.format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, speakers included; `turns` merges word-level segments |
 | `…podcast.format.opml` | Subscription lists |
 | `dk.simongray.podcast.format.html` | Embedded HTML as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown`, `emit` |
-| `dk.simongray.podcast.app.player` | A player's state as data: the queue, progress and played marks, subscriptions and settings, OPML in and out, `merge` for syncing, `step` for driving it |
+| `dk.simongray.podcast.app.player` | A player's state as a state-based CRDT: the queue as ranked entries, progress and played marks, subscriptions and their settings field by field, the listener's devices, OPML in and out, `merge` as the join, `step` for driving it |
 | `…podcast.app.search` | Episodes filtered and ordered by criteria as data, the listener's progress included; a full-text index over subscriptions, ranked by BM25, with prefix and phrase queries and snippets |
+| `…podcast.app.sync` | Keeping devices in step: a device's state as a document, `reconcile` to merge what the others wrote, `sync!` as one step over any backends, on both platforms |
+| `…podcast.app.sync.store` | Document stores as maps of functions, `memory` for tests, and `backend` over any store: one document per device merged on read, or one shared document put on condition of its version |
+| `…podcast.app.sync.file` | A folder as a store, for the folders iCloud Drive, Dropbox, Seafile or Syncthing mirror and a Git working tree; JVM |
 | `…podcast.directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index behind one shape: search, lookup and charts as request maps and shows keyed like the model; `combine` for one entry per show; `search!` and `trending!` on the JVM |
 | `…podcast.directory.podcastindex` | Podcast Index API: requests with auth, responses mapped onto the model, remote value resolution |
 | `…podcast.podping` | Podping: the Hive JSON-RPC calls as request maps, the pings read out of a block, the writers verified, `pinged?` and `affected` for the subscriptions concerned, `poll!` on the JVM; `notify-request` for a host |
