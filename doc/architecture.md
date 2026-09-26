@@ -712,6 +712,27 @@ Clojure backend serves a store over WebDAV in two lines, and
 after a change, later when idle, backing off after failures, so that an
 app's timer has a policy while the library still schedules nothing.
 
+Compaction keeps the documents from growing without bound. Each device's
+registry entry carries a version vector, the latest stamp it has merged
+from every other device, which `player/acknowledge` raises when `sync!`
+merges whole documents; it ignores the registry itself, or two devices
+would acknowledge each other's acknowledgements and never stop writing,
+and it counts only whole states, never a service's changes since a cursor.
+`player/compact`, which `sync!` runs on every step, drops the tombstones
+of unsubscriptions and queue removals once every live device other than
+the author has acknowledged them and they are thirty days old, the age a
+buffer for a device that joins with a state of its own; the played marks
+stay, since the listener still sees them. At least one other device must
+have acknowledged an entry before it goes: the property test found within
+seconds that a device alone would otherwise forget its own tombstones at
+once and a device joining later would bring back what it had removed. A
+device that stops syncing holds compaction back until it is retired, and
+`player/lagging` names it for a settings screen. The convergence property
+now runs three quiet rounds, one for the entries to reach everyone, one
+for the acknowledgements and one for the compaction that follows, and a
+second property has every tombstone gone and nothing the listener sees
+changed.
+
 The player state gained what syncing needs and what would have been
 painful to change once states are persisted. The device is a stable id,
 generated once per installation, and the devices describe themselves in a
@@ -820,3 +841,7 @@ they outlive an unsubscription and come back with the feed.
     for any store, the WebDAV handler in the library, `next-at` as the
     cadence, and the servers' and sync clients' places tabled in the guide
     rather than coded. Done.
+27. Compaction: a version vector in every device's registry entry, raised
+    by `acknowledge` from the whole documents a sync reads, and `compact`
+    dropping the tombstones every other live device has seen, thirty days
+    old, on every step; `lagging` for the devices holding it back. Done.

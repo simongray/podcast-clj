@@ -34,8 +34,11 @@
 
 #?(:clj
    (defn- same?
+     "Whether two states agree on all the listener sees: everything but whose
+     they are, the registry, whose entries reach the other devices a round
+     later, and the clock that follows it."
      [x y]
-     (= (dissoc x :device) (dissoc y :device))))
+     (= (dissoc x :device :devices :clock) (dissoc y :device :devices :clock))))
 
 (deftest documents
   (let [s   (phone-state)
@@ -212,6 +215,36 @@
            (is (= ["laptop.edn"] (keys @documents))))))))
 
 #?(:clj
+   (deftest compaction-through-a-folder
+     (let [documents (atom {})
+           backend   (store/backend (store/memory documents))
+           far       (time/->inst (+ (inst-ms t4) (* 31 24 60 60 1000)))
+           phone     (player/unsubscribe (phone-state) "feed-a" t2)
+           p1        (sync/sync! phone [backend] t3)
+           _         (sync/sync! (laptop-state) [backend] t3)
+           p2        (sync/sync! (:state p1) [backend] far {:ctx (:ctx p1)})]
+       (is (contains? (:subscriptions (:state p1)) "feed-a") "the tombstone travels")
+       (is (= {"phone" t2} (get-in (sync/read-document (:body (@documents "laptop.edn"))) [:state :devices "laptop" :seen]))
+           "the laptop acknowledges what it merged from the phone")
+       (is (not (contains? (:subscriptions (:state p2)) "feed-a")) "and the tombstone goes once the laptop has seen it")
+       (is (contains? (:subscriptions (:state (sync/sync! (:state p1) [backend] far {:ctx (:ctx p1) :compact false}))) "feed-a")
+           "unless compaction is turned off")
+       (is (contains? (:subscriptions (:state (sync/sync! (:state p1) [backend] t4 {:ctx (:ctx p1)}))) "feed-a")
+           "or the tombstone is too fresh")
+       (testing "a device alone forgets nothing, however often it syncs"
+         (let [alone (store/backend (store/memory))
+               s1    (sync/sync! phone [alone] far {:compact {:keep-for 0}})
+               s2    (sync/sync! (:state s1) [alone] far {:ctx (:ctx s1) :compact {:keep-for 0}})]
+           (is (contains? (:subscriptions (:state s2)) "feed-a"))))
+       (testing "a partial pull is merged but acknowledges nothing"
+         (let [service {:name "service"
+                        :pull (fn [_ _ _] {:states [(laptop-state)] :ctx {} :partial? true})
+                        :push (fn [_ _ _] {:ctx {}})}
+               r       (sync/sync! (phone-state) [service] t3)]
+           (is (= 900 (:position (player/episode (:state r) a))))
+           (is (nil? (get-in (:state r) [:devices "phone" :seen "laptop"]))))))))
+
+#?(:clj
    (deftest directions
      (let [documents (atom {})
            store     (store/memory documents)]
@@ -251,7 +284,7 @@
            (is (= [] report))
            (is (= 1500 (:position (player/episode state a))) "the car's progress came along")
            (is (= 2.0 (:rate (player/preferences state))))
-           (is (= state (:state (sync/read-document (:body (@documents "state.edn"))))))))
+           (is (same? state (:state (sync/read-document (:body (@documents "state.edn"))))))))
        (testing "a document that will not stop changing is given up on, and reported"
          (let [busy (assoc shared :put (fn [_ _ _] {:conflict? true}))
                {:keys [state report ctx]} (sync/sync! (player/prefer (:state phone2) {:rate 3.0} t4)

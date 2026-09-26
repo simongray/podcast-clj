@@ -14,7 +14,7 @@
        :episodes      {[feed-guid item-guid] {:position :duration :played? :played-at}}
        :queue         {[feed-guid item-guid] {:rank \"V\" :removed? false}}
        :preferences   {:skip-forward {:value 30} ...}
-       :devices       {device-id {:name :platform ...}}
+       :devices       {device-id {:name :platform ... :seen {device-id #inst \"…\"}}}
        :retired       {device-id {}}}
 
   Every write takes the instant `at` it happens, never reads a clock, and
@@ -27,8 +27,10 @@
   or by field an add-and-remove set with tombstones, the clock a max
   register, and `merge` is the join. The queue keeps one entry per episode
   with a rank from `dk.simongray.podcast.rank`, so that what two devices
-  queued while apart both survive. Nothing here stores anything or touches
-  a media element; the app owns those and calls in.
+  queued while apart both survive. Each device's registry entry carries
+  what it has merged from every other, which lets `compact` drop the
+  tombstones everyone has seen. Nothing here stores anything or touches a
+  media element; the app owns those and calls in.
   `dk.simongray.podcast.app.sync` carries the state between devices.
 
   Identities are those of `dk.simongray.podcast.feed`: a feed by its
@@ -50,6 +52,11 @@
   "`entry` marked as changed at `at` on the device of `state`."
   [state entry at]
   (assoc entry :updated-at at :device (:device state)))
+
+(defn- stamped?
+  "Whether `x` is an entry a write stamped."
+  [x]
+  (and (map? x) (contains? x :updated-at)))
 
 (defn- later-inst
   "The later of the instants `a` and `b`, either of which may be nil."
@@ -197,6 +204,99 @@
   `identify`, the retired ones left out."
   [state]
   (into {} (remove (fn [[id _]] (retired? state id))) (:devices state)))
+
+(defn- latest-by-author
+  "The latest stamp by each device among the stamped entries of `state`,
+  the registry left out, so that the registry's own updates never count as
+  news to be acknowledged, which would keep two devices writing forever."
+  [state]
+  (letfn [(walk [m v]
+            (cond
+              (stamped? v) (update m (:device v) later-inst (:updated-at v))
+              (map? v)     (reduce-kv (fn [m _ x] (walk m x)) m v)
+              :else        m))]
+    (reduce-kv (fn [m k v] (if (#{:device :clock :devices} k) m (walk m v))) {} state)))
+
+(defn acknowledge
+  "Note in the registry of `state` at `at` that this device has merged the
+  whole states `others`: under `:seen` in its own entry, the latest instant
+  each other device wrote anything now merged here, kept monotone, which is
+  what lets `compact` know what everyone has seen. Only whole states count,
+  as the documents are; a partial one, a service's changes since a cursor,
+  would overstate what was seen. The entry is written only when the
+  knowledge grew, so that syncing alone never rewrites a document."
+  [state others at]
+  (let [me    (:device state)
+        known (get-in state [:devices me :seen] {})
+        seen  (dissoc (reduce (fn [m other] (merge-with later-inst m (latest-by-author other))) known others) me)]
+    (if (and (= seen known) (get-in state [:devices me]))
+      state
+      (write state [:devices me] #(assoc (or % {}) :seen seen) at))))
+
+(def default-keep
+  "How long a tombstone is kept once every device has seen it: thirty days,
+  in milliseconds, so that a device joining within that time with a state
+  of its own still meets it."
+  (* 30 24 60 60 1000))
+
+(defn- seen-by-all?
+  "Whether every live device other than the author has merged the entry `e`
+  by its stamp, by the registry of `state`, this device counting as having
+  merged what it holds; false when no such device exists, since a device
+  alone gains nothing by forgetting and a device joining later could bring
+  back what it forgot."
+  [state {:keys [device updated-at]}]
+  (let [t      (inst-ms updated-at)
+        judges (remove (fn [[id _]] (= id device)) (devices state))]
+    (and (seq judges)
+         (every? (fn [[id entry]]
+                   (or (= id (:device state))
+                       (some-> (get-in entry [:seen device]) inst-ms (>= t))))
+                 judges))))
+
+(defn compact
+  "Drop from `state` at `at` what no device needs any more: the tombstones
+  of unsubscriptions and of queue removals that every live device has
+  merged, by the registry (see `acknowledge`), and that are older than
+  `:keep-for` milliseconds in `opts` (default `default-keep`). The played
+  marks stay, since the listener still sees them. A device that has stopped
+  syncing holds compaction back until it is retired (see `lagging`); a
+  device that starts syncing with a state of its own, or is restored from
+  a backup, may bring back what everyone else has forgotten, which the
+  thirty days are a buffer against."
+  ([state at]
+   (compact state at {}))
+  ([state at {:keys [keep-for] :or {keep-for default-keep} :as opts}]
+   {:pre [(map? opts)]}
+   (let [droppable? (fn [e]
+                      (and (:removed? e)
+                           (<= (+ (inst-ms (:updated-at e)) keep-for) (inst-ms at))
+                           (seen-by-all? state e)))
+         sweep      (fn [entries] (into {} (remove (comp droppable? val)) entries))]
+     (-> state
+         (update :subscriptions sweep)
+         (update :queue sweep)))))
+
+(defn lagging
+  "The live devices other than this one that, by their registry entries,
+  have not merged all that this one has: by id, the latest instant of
+  another device's writing they have merged, nil when they have merged
+  nothing of some device. Such a device holds `compact` back until it
+  catches up or is retired."
+  [state]
+  (let [me   (:device state)
+        mine (assoc (get-in state [:devices me :seen] {}) me (get (latest-by-author state) me))]
+    (into {}
+          (for [[id entry] (devices state)
+                :when (not= id me)
+                :let [theirs (:seen entry {})
+                      behind (for [[author latest] mine
+                                   :when (and latest (not= author id))
+                                   :let [t (get theirs author)]
+                                   :when (or (nil? t) (< (inst-ms t) (inst-ms latest)))]
+                               t)]
+                :when (seq behind)]
+            [id (when (every? some? behind) (apply min-key inst-ms behind))]))))
 
 (def played-threshold
   "How many seconds before the end of an episode count as having heard it."
@@ -414,11 +514,6 @@
                                                 [(str (:device b)) (hash b)]))
                                a
                                b))))
-
-(defn- stamped?
-  "Whether `x` is an entry a write stamped."
-  [x]
-  (and (map? x) (contains? x :updated-at)))
 
 (defn- join
   "The merge of the values `a` and `b` under one key of two states, by their

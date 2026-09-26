@@ -57,9 +57,11 @@
 
 (defn run
   "The states of the devices, their own ids left out, after `steps` through
-  a memory store with `strategy`, and two rounds in which every device
-  syncs and nothing else happens."
-  [strategy steps]
+  a memory store with `strategy`, and three rounds in which every device
+  syncs and nothing else happens: one for the entries to reach everyone,
+  one for what every device acknowledged to reach everyone, and one for
+  the compaction that follows. `opts` are `sync!`'s."
+  [strategy steps opts]
   (let [documents (atom {})
         store     (cond-> (store/memory documents) (= :shared strategy) (dissoc :list))
         backend   (store/backend store)
@@ -69,22 +71,44 @@
         sync-one! (fn [i]
                     (swap! world update i
                            (fn [{:keys [state ctx]}]
-                             (let [r (sync/sync! state [backend] (now!) {:ctx ctx})]
+                             (let [r (sync/sync! state [backend] (now!) (assoc opts :ctx ctx))]
                                (when (:failed r) (throw (ex-info "a backend failed" r)))
                                {:state (:state r) :ctx (:ctx r)}))))]
     (doseq [[i action] steps]
       (if (= :sync action)
         (sync-one! i)
         (swap! world update-in [i :state] apply-operation action)))
-    (dotimes [_ 2]
+    (dotimes [_ 3]
       (doseq [i (range (count devices))]
         (sync-one! i)))
     (map (comp #(dissoc % :device) :state) @world)))
 
+(defn- seen-by-the-listener
+  "What a state shows: the live subscriptions and their settings, the queue
+  in order, the episodes and the preferences."
+  [state]
+  {:subscriptions (player/subscriptions state)
+   :settings      (:settings state)
+   :queue         (player/queue state)
+   :episodes      (:episodes state)
+   :preferences   (player/preferences state)})
+
+(defn- tombstones
+  [state]
+  (count (filter :removed? (concat (vals (:subscriptions state)) (vals (:queue state))))))
+
 (defspec devices-converge-through-a-folder-of-documents 100
   (prop/for-all [steps schedule]
-    (apply = (run :per-device steps))))
+    (apply = (run :per-device steps {}))))
 
 (defspec devices-converge-through-one-shared-document 100
   (prop/for-all [steps schedule]
-    (apply = (run :shared steps))))
+    (apply = (run :shared steps {}))))
+
+(defspec compaction-leaves-no-tombstone-and-touches-nothing-else 100
+  (prop/for-all [steps schedule]
+    (let [states (run :per-device steps {:compact {:keep-for 0}})
+          far    (java.util.Date. (* 1000 3600))]
+      (and (apply = states)
+           (every? zero? (map tombstones states))
+           (every? (fn [s] (= (seen-by-the-listener s) (seen-by-the-listener (player/compact s far {:keep-for 0})))) states)))))

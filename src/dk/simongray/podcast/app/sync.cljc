@@ -9,20 +9,23 @@
   devices wrote into a state, with a report on what it found. A backend is
   a map of two functions and a name:
 
-      {:pull (fn [state ctx at])  ; {:states [state …] :ctx ctx' :report […]}
+      {:pull (fn [state ctx at])  ; {:states [state …] :ctx ctx' :report […] :partial? false}
        :push (fn [state ctx at])  ; {:ctx ctx' :state state' :report […]}
        :name \"Nextcloud\"}
 
   `pull` returns the states of other devices to merge and its cursor for
-  next time; `push` writes the merged state and may return a state of its
-  own when it learned more while writing, as a shared document does when it
-  changed under it. Both take the instant `at` of the step and never read a
-  clock. `dk.simongray.podcast.app.sync.store` builds backends over document
-  stores; a sync service is a backend directly. `sync!` drives any number
-  of them in one step and returns the merged state with a cursor per
-  backend, for the app to keep beside its state; on the JVM it blocks, in
-  ClojureScript it returns a promise, and there each function of a backend
-  may return a value or a promise."
+  next time, saying `:partial?` when they are changes since a cursor rather
+  than whole states; `push` writes the merged state and may return a state
+  of its own when it learned more while writing, as a shared document does
+  when it changed under it. Both take the instant `at` of the step and
+  never read a clock. `dk.simongray.podcast.app.sync.store` builds backends
+  over document stores; a sync service is a backend directly. `sync!`
+  drives any number of them in one step, acknowledges in the registry what
+  the whole states told and compacts the tombstones every device has seen,
+  and returns the merged state with a cursor per backend, for the app to
+  keep beside its state; on the JVM it blocks, in ClojureScript it returns
+  a promise, and there each function of a backend may return a value or a
+  promise."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -97,12 +100,28 @@
   [fetched at]
   (reduce #(read-one %1 %2 at) {:states [] :report []} fetched))
 
+(defn- settle
+  "`state` with the whole states `states` acknowledged at `at` and, unless
+  `compact` is false, compacted, `compact` being `player/compact`'s options."
+  [state states at compact]
+  (let [acknowledged (player/acknowledge state states at)]
+    (if (false? compact)
+      acknowledged
+      (player/compact acknowledged at (or compact {})))))
+
 (defn reconcile
   "`state` with the documents `fetched` (see `read-documents`) merged in at
-  `at`: `{:state merged :report [...]}`."
-  [state fetched at]
-  (let [{:keys [states report]} (read-documents fetched at)]
-    {:state (reduce player/merge state states) :report report}))
+  `at`, what they told acknowledged in the registry and the tombstones every
+  device has seen compacted away: `{:state merged :report [...]}`.
+  `:compact` in `opts` is false to leave the tombstones, or the options of
+  `player/compact`."
+  ([state fetched at]
+   (reconcile state fetched at {}))
+  ([state fetched at {:keys [compact] :as opts}]
+   {:pre [(map? opts)]}
+   (let [{:keys [states report]} (read-documents fetched at)]
+     {:state  (settle (reduce player/merge state states) states at compact)
+      :report report})))
 
 (def default-cadence
   "How long to wait before syncing again, in seconds: after a change to the
@@ -137,26 +156,34 @@
 
 (defn- pulled
   "What the pulls `results`, one per backend in order, a result or a
-  `failure`, add up to: the `:state` with every pulled state merged in, the
-  `:ok` backends paired with their results, the `:failed` ones with their
-  messages, and the `:report`."
-  [state backends results]
-  (let [pairs (map vector backends results)
-        ok    (remove (comp ::failure second) pairs)]
-    {:state  (reduce player/merge state (mapcat (comp :states second) ok))
+  `failure`, add up to: the `:state` with every pulled state merged in,
+  those of whole documents acknowledged and the tombstones compacted at
+  `at`, the `:ok` backends paired with their results, the `:failed` ones
+  with their messages, and the `:report`. A backend whose states are
+  partial, a service's changes since a cursor, says so with `:partial?`
+  and has nothing acknowledged."
+  [state backends results at compact]
+  (let [pairs  (map vector backends results)
+        ok     (remove (comp ::failure second) pairs)
+        states (mapcat (comp :states second) ok)
+        whole  (mapcat (fn [[_ result]] (when-not (:partial? result) (:states result))) ok)]
+    {:state  (settle (reduce player/merge state states) whole at compact)
      :ok     ok
      :failed (into {} (for [[backend result] pairs :when (::failure result)] [(:name backend) (::failure result)]))
      :report (into [] (mapcat (comp :report second)) ok)}))
 
 (defn- finished
   "The step's result once the pushes `results`, one per `:ok` backend, are
-  in: the state with what a push learned merged in, the cursors by backend
-  name over the last step's `ctx`, the failures of pull and push, and the
-  report of both."
-  [{:keys [state ok failed report]} ctx results]
+  in: the state with what a push learned merged in, acknowledged and
+  compacted, the cursors by backend name over the last step's `ctx`, the
+  failures of pull and push, and the report of both."
+  [{:keys [state ok failed report]} ctx results at compact]
   (let [triples (map (fn [[backend pull] push] [backend pull push]) ok results)
+        learned (keep (fn [[_ _ push]] (:state push)) triples)
         failed  (into failed (for [[backend _ push] triples :when (::failure push)] [(:name backend) (::failure push)]))]
-    (cond-> {:state  (reduce player/merge state (keep (fn [[_ _ push]] (:state push)) triples))
+    (cond-> {:state  (if (seq learned)
+                       (settle (reduce player/merge state learned) learned at compact)
+                       state)
              :ctx    (reduce (fn [m [backend pull push]]
                                (assoc m (:name backend) (if (::failure push) (:ctx pull) (:ctx push))))
                              (or ctx {})
@@ -175,21 +202,24 @@
           :failed {\"Dropbox\" \"…\"}     ; the backends that threw, with the message; absent when none did
           :report [...]}                ; what reading and writing found
 
-     `opts` carry the `:ctx` of the last step. The backends are asked at
-     once, each on its own future; one that fails in its pull is not pushed
-     to and keeps its cursor, and one that fails in its push keeps the
-     cursor of its pull. The state is never replaced, only merged into, so a
-     failed step loses nothing."
+     `opts` carry the `:ctx` of the last step, and `:compact`: false to
+     leave the tombstones every device has seen in place, or the options of
+     `player/compact`, which otherwise drops them (see `player/acknowledge`
+     for how the devices learn what the others have seen). The backends are
+     asked at once, each on its own future; one that fails in its pull is
+     not pushed to and keeps its cursor, and one that fails in its push
+     keeps the cursor of its pull. The state is never replaced, only merged
+     into, so a failed step loses nothing."
      ([state backends at]
       (sync! state backends at {}))
-     ([state backends at {:keys [ctx] :as opts}]
+     ([state backends at {:keys [ctx compact] :as opts}]
       {:pre [(map? opts)]}
       (let [attempt (fn [f] (try (f) (catch Exception e (failure e))))
             results (mapv deref (mapv (fn [{:keys [pull name]}] (future (attempt #(pull state (get ctx name) at)))) backends))
-            so-far  (pulled state backends results)
+            so-far  (pulled state backends results at compact)
             merged  (:state so-far)
             pushes  (mapv deref (mapv (fn [[{:keys [push]} pull]] (future (attempt #(push merged (:ctx pull) at)))) (:ok so-far)))]
-        (finished so-far ctx pushes)))))
+        (finished so-far ctx pushes at compact)))))
 
 #?(:cljs
    (defn sync!
@@ -202,20 +232,21 @@
           :failed {\"CloudKit\" \"…\"}    ; the backends that threw or rejected, with the message
           :report [...]}                ; what reading and writing found
 
-     `opts` carry the `:ctx` of the last step. Each function of a backend
-     may return a value or a promise. A backend that fails in its pull is
-     not pushed to and keeps its cursor, and one that fails in its push
-     keeps the cursor of its pull; the state is never replaced, only merged
-     into, so a failed step loses nothing."
+     `opts` carry the `:ctx` of the last step, and `:compact`, false to leave
+     the tombstones every device has seen or the options of `player/compact`.
+     Each function of a backend may return a value or a promise. A backend
+     that fails in its pull is not pushed to and keeps its cursor, and one
+     that fails in its push keeps the cursor of its pull; the state is never
+     replaced, only merged into, so a failed step loses nothing."
      ([state backends at]
       (sync! state backends at {}))
-     ([state backends at {:keys [ctx] :as opts}]
+     ([state backends at {:keys [ctx compact] :as opts}]
       {:pre [(map? opts)]}
       (let [attempt (fn [f] (-> (js/Promise.resolve nil) (.then (fn [_] (f))) (.catch (fn [e] (failure e)))))
             all     (fn [promises] (.then (js/Promise.all (into-array promises)) vec))]
         (-> (all (map (fn [{:keys [pull name]}] (attempt #(pull state (get ctx name) at))) backends))
             (.then (fn [results]
-                     (let [so-far (pulled state backends results)
+                     (let [so-far (pulled state backends results at compact)
                            merged (:state so-far)]
                        (-> (all (map (fn [[{:keys [push]} pull]] (attempt #(push merged (:ctx pull) at))) (:ok so-far)))
-                           (.then (fn [pushes] (finished so-far ctx pushes))))))))))))
+                           (.then (fn [pushes] (finished so-far ctx pushes at compact))))))))))))

@@ -84,6 +84,13 @@ Working toward 1.0, the first release.
   in the library, for any Clojure backend; `sync/next-at`, when to sync
   next; and the servers' URL shapes and the sync clients' folders tabled
   in the guide, dated, rather than coded.
+- Compaction: each device's registry entry records what it has merged from
+  every other device (`player/acknowledge`, which `sync!` calls with the
+  whole documents it read), and `player/compact`, run by `sync!` on every
+  step, drops the tombstones of unsubscriptions and queue removals that
+  every other live device has acknowledged and that are thirty days old;
+  `player/lagging` names the devices holding it back. A property test
+  found that a device alone must not compact.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

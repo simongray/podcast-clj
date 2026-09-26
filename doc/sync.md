@@ -284,25 +284,33 @@ the subscription's settings apart from the subscription so that they
 outlive an unsubscription and come back with the feed; the accessors hide
 the representation.
 
-**Provenance and compaction.** Every entry already carries the device that
-wrote it. Compaction, which is later work, needs that: an entry may be
-dropped only once every live device has merged it, or an offline device
-brings it back, and with tombstones that resurrects a subscription the
-listener removed. Timestamps alone cannot say who has seen what, because a
-device pushes late; what can is a small version vector in each device's
-registry entry, `:seen {other-id latest-stamp}`, the latest stamp by each
-other device that this device has merged, kept monotone, and
-changing only when something new was merged, which changes the document
-anyway, so it does not keep the devices writing. An entry by device
-A stamped at `t` is safe to drop once every live device's `:seen` for A is
-at or past `t`, since a device's document is cumulative and a document
-written after `t` carried the entry or what superseded it. Tombstones and
-the progress of episodes long played are what gets dropped; live
-subscriptions never. A device that stops syncing holds compaction until it
-is retired, which is the right behaviour and visible in the UI. A device
-restored from a backup can still resurrect what everyone else forgot, and
-the cure is to retire its id before restoring. Nothing of this is needed
-before 1.0 beyond what the registry and the stamps already carry.
+**Provenance and compaction.** Every entry carries the device that wrote
+it, and compaction rests on that: an entry may be dropped only once every
+live device has merged it, or an offline device brings it back, and with
+tombstones that resurrects a subscription the listener removed. Timestamps
+alone cannot say who has seen what, because a device pushes late; what can
+is a small version vector in each device's registry entry, `:seen
+{other-id latest-stamp}`, the latest stamp by each other device that this
+device has merged, kept monotone by `player/acknowledge`, which `sync!`
+calls with the whole documents it read. Two things keep the vector honest:
+it ignores the registry itself, or two devices would acknowledge each
+other's acknowledgements and never stop writing, and it counts only whole
+states, never a service's changes since a cursor, which would overstate
+what was seen. An entry by device A stamped at `t` is safe to drop once
+every live device other than A has acknowledged A up to `t`, this device
+counting as having what it holds, since a device's document is cumulative
+and one written after `t` carried the entry or what superseded it; and
+there must be at least one such device, since a device alone gains nothing
+by forgetting and a device joining later could bring back what it forgot,
+which the property test found before any argument did. `player/compact`
+drops the tombstones of unsubscriptions and queue removals that pass, and
+only those older than thirty days, a buffer for a device that joins with a
+state of its own; the played marks stay, since the listener still sees
+them. `sync!` compacts on every step unless told not to. A device that
+stops syncing holds compaction back until it is retired, and
+`player/lagging` names it for the UI. A device restored from a backup can
+still resurrect what everyone else forgot; the cure is to retire its id
+before restoring.
 
 **What stays out.** Per-device matters, the downloads, the titles cache,
 the page the listener was on, live outside the player state, as the
@@ -461,11 +469,12 @@ strategies and the OPML mirror, `sync!` on both platforms, the diagnostics
 in the catalogue, the convergence property, and the guide's section 7 and
 the README rewritten for it.
 
-WebDAV with the inspector's folder came next, before 1.0 after all, since
-it gives the browser player a store and the suite a real server. After
-1.0, each as one additive namespace with its fixtures: gpodder, Dropbox,
-Drive, OneDrive, the Git hosts, CloudKit JS, the encrypting wrapper,
-compaction, JSON documents, JGit, and the Open Podcast API when it
+WebDAV with the inspector's folder came next, since it gives the browser
+player a store and the suite a real server, and compaction after it, as
+the engine's missing piece; the design above is as built. Then, in the
+order they earn it, each as one additive namespace with its fixtures:
+gpodder, Dropbox, Drive, OneDrive, the Git hosts, CloudKit JS, the
+encrypting wrapper, JSON documents, JGit, and the Open Podcast API when it
 stabilises. None of them changes a document already written.
 
 ## Decisions

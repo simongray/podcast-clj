@@ -78,7 +78,7 @@
                (set (map #(.getName ^java.io.File %) (.listFiles (io/file dir))))))
         (is (nil? (:failed phone2)))
         (is (= [] (:report phone2)))
-        (is (= (dissoc (:state laptop) :device) (dissoc (:state phone2) :device)))
+        (is (= (dissoc (:state laptop) :device :devices :clock) (dissoc (:state phone2) :device :devices :clock)))
         (is (= (:state phone2) (:state (sync/read-document (slurp (io/file dir "phone.edn"))))))
         (is (= 60 (:position (player/episode (:state phone2) a)))))
       (finally

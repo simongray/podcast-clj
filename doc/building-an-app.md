@@ -195,7 +195,10 @@ a folder that a sync client mirrors is a complete backend, and so is any
 store of named documents, a map of four functions. `sync!` is one step:
 pull, merge, push, with a cursor per backend to hand back next time.
 Nothing is scheduled; call it on start, on going to the background and
-after a burst of changes. The state is never replaced, only merged into.
+after a burst of changes. The state is never replaced, only merged into,
+and each step compacts away the tombstones every other device has seen
+and that are a month old, so the documents stay small; a device that has
+stopped syncing holds that back until you retire it.
 
 ```clojure
 (def creds {:username "simon" :password "app-password"})         ; an app password, see the table below
@@ -212,6 +215,7 @@ after a burst of changes. The state is never replaced, only merged into.
 
 (player/devices state)                               ; the listener's devices, as they described themselves
 (player/retire state lost-phone-id now)              ; a lost device: its document goes, and it writes no more
+(player/lagging state)                               ; => {old-tablet-id #inst "…"}: a device that holds compaction back
 (opml/emit (player/to-opml state))                   ; the subscriptions as OPML, for any other app
 (player/from-opml state (opml/parse opml-text) now)
 ```

@@ -333,7 +333,7 @@ Namespaces
 | `…podcast.format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, speakers included; `turns` merges word-level segments |
 | `…podcast.format.opml` | Subscription lists |
 | `dk.simongray.podcast.format.html` | Embedded HTML as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown`, `emit` |
-| `dk.simongray.podcast.app.player` | A player's state as a state-based CRDT: the queue as ranked entries, progress and played marks, subscriptions and their settings field by field, the listener's devices, OPML in and out, `merge` as the join, `step` for driving it |
+| `dk.simongray.podcast.app.player` | A player's state as a state-based CRDT: the queue as ranked entries, progress and played marks, subscriptions and their settings field by field, the listener's devices, OPML in and out, `merge` as the join, `compact` for the tombstones every device has seen, `step` for driving it |
 | `…podcast.app.search` | Episodes filtered and ordered by criteria as data, the listener's progress included; a full-text index over subscriptions, ranked by BM25, with prefix and phrase queries and snippets |
 | `…podcast.app.sync` | Keeping devices in step: a device's state as a document, `reconcile` to merge what the others wrote, `sync!` as one step over any backends, on both platforms |
 | `…podcast.app.sync.store` | Document stores as maps of functions, `memory` for tests, `backend` over any store, one document per device merged on read or one shared document put on condition of its version, and `check!`, which tries any store and reports for a settings screen |

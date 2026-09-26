@@ -105,6 +105,6 @@
       (is (= [] (:report phone2)))
       (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"}
              (set (map #(.getName ^java.io.File %) (.listFiles (io/file *dir* "sync"))))))
-      (is (= (dissoc (:state laptop) :device) (dissoc (:state phone2) :device)))
+      (is (= (dissoc (:state laptop) :device :devices :clock) (dissoc (:state phone2) :device :devices :clock)))
       (is (= 60 (:position (player/episode (:state phone2) ["feed-a" "a1"]))))
       (is (= "test" (:app (sync/read-document (slurp (io/file *dir* "sync" "laptop.edn")))))))))

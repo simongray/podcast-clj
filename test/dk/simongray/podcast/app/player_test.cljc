@@ -11,6 +11,7 @@
 (def t1 #inst "2026-01-01T01:00:00Z")
 (def t2 #inst "2026-01-01T02:00:00Z")
 (def t3 #inst "2026-01-01T03:00:00Z")
+(def t4 #inst "2026-01-01T04:00:00Z")
 
 (def a ["feed-a" "a1"])
 (def b ["feed-a" "a2"])
@@ -224,6 +225,42 @@
         (is (= {} (player/devices merged)))
         (is (= {} (player/devices (player/merge (player/identify merged {:name "Back"} t3) laptop)))
             "describing itself again does not undo it")))))
+
+(deftest acknowledging-and-compacting
+  (let [day    (* 24 60 60 1000)
+        far    (time/->inst (+ (inst-ms t3) (* 31 day)))
+        phone  (-> (player/state "phone")
+                   (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+                   (player/subscribe "feed-b" {:url "https://b/rss" :title "B"} t0)
+                   (player/unsubscribe "feed-b" t1)
+                   (player/enqueue a t1)
+                   (player/dequeue a t2))
+        laptop (player/acknowledge (player/merge (player/state "laptop") phone) [phone] t3)
+        phone  (player/acknowledge (player/merge phone laptop) [laptop] t3)]
+    (testing "acknowledging what another device wrote"
+      (is (= {"phone" t2} (get-in laptop [:devices "laptop" :seen])) "the latest the phone wrote, outside the registry")
+      (is (= t3 (get-in laptop [:devices "laptop" :updated-at])))
+      (is (= laptop (player/acknowledge laptop [phone] t4)) "nothing new leaves the entry alone")
+      (is (= laptop (player/acknowledge laptop [(player/identify phone {:name "P"} t4)] t4)) "the registry itself is never news")
+      (is (= {} (get-in phone [:devices "phone" :seen])) "the laptop had written nothing of its own"))
+    (testing "a tombstone goes once every other live device has seen it and it is old enough"
+      (is (= 2 (count (:subscriptions phone))))
+      (is (= (:subscriptions phone) (:subscriptions (player/compact phone t4))) "too fresh")
+      (let [compacted (player/compact phone far)]
+        (is (= ["feed-a"] (keys (:subscriptions compacted))))
+        (is (= {} (:queue compacted)))
+        (is (= (player/subscriptions phone) (player/subscriptions compacted)) "nothing the listener sees changed")
+        (is (= (player/queue phone) (player/queue compacted))))
+      (is (= (:subscriptions phone) (:subscriptions (player/compact phone far {:keep-for (* 40 day)}))) "the age is an option")
+      (is (= {} (player/lagging phone)) "the laptop is up to date"))
+    (testing "a device that has not caught up holds compaction back, until it is retired"
+      (let [tablet (player/identify (player/state "tablet") {:name "Tablet"} t0)
+            phone  (player/merge phone tablet)]
+        (is (= 2 (count (:subscriptions (player/compact phone far)))))
+        (is (= {"tablet" nil} (player/lagging phone)) "it has merged nothing")
+        (is (= {"tablet" nil "laptop" t1} (player/lagging (assoc-in phone [:devices "laptop" :seen "phone"] t1)))
+            "a device part of the way is named with how far it got")
+        (is (= ["feed-a"] (keys (:subscriptions (player/compact (player/retire phone "tablet" t3) far)))))))))
 
 (deftest the-changes-since-an-instant
   (let [s       (-> (player/state "phone")

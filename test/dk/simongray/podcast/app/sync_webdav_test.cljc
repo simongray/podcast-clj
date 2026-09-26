@@ -227,7 +227,7 @@
            (is (nil? (:failed phone)) "the collection was made on the first put")
            (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"} (set (keys (dissoc @documents ::created)))))
            (is (= 900 (:position (player/episode (:state phone2) a))))
-           (is (= (dissoc (:state laptop) :device) (dissoc (:state phone2) :device)))
+           (is (= (dissoc (:state laptop) :device :devices :clock) (dissoc (:state phone2) :device :devices :clock)))
            (is (= "dav.example.org" (:name backend)) "named after the host")
            (is (= {"laptop.edn" "\"1\"" "phone.edn" "\"2\""} (:versions (get (:ctx phone2) "dav.example.org")))
                "the ETags are the versions"))))))
