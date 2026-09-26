@@ -4,10 +4,11 @@
                          :output-to "target/node-tests.js"
                          :ns-regexp "-test$"
                          :autorun   true}
-          ;; clojure -M:cljs compile browser-test  (the suite for a browser)
+          ;; clojure -M:cljs compile browser-test  (the suite for a browser;
+          ;; the -node-test namespaces need Node's modules and stay out)
           :browser-test {:target    :browser-test
                          :test-dir  "target/browser-test"
-                         :ns-regexp "-test$"}
+                         :ns-regexp "(?<!-node)-test$"}
           ;; clojure -M:cljs compile player        (the inspector's player, served at /js/player.js)
           :player       {:target     :browser
                          :output-dir "target/web/public/js"

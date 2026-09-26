@@ -1,9 +1,10 @@
 (ns dk.simongray.podcast.web.player
   "The inspector's player, in the browser. The player state of
-  dk.simongray.podcast.player lives here, kept in localStorage; Replicant
-  renders it; an audio element plays the current episode and reports back
-  through `player/step`, whose effects seek the audio or start the next
-  episode. The server only supplies episode data, at /episode.edn.
+  dk.simongray.podcast.player lives here, kept in localStorage;
+  dk.simongray.podcast.web.player.view renders it through Replicant; an
+  audio element plays the current episode and reports back through
+  `player/step`, whose effects seek the audio or start the next episode.
+  The server only supplies episode data, at /episode.edn.
 
   The player sits in a bar on every page. Clicking a link fetches the next
   page and swaps only the content below the bar, so that playback survives
@@ -11,11 +12,11 @@
   state.
 
   Built by `clojure -M:cljs compile player` and served at /js/player.js."
-  (:require [cljs.pprint :as pprint]
-            [cljs.reader :as reader]
+  (:require [cljs.reader :as reader]
             [clojure.string :as str]
             [dk.simongray.podcast.player :as player]
             [dk.simongray.podcast.time :as time]
+            [dk.simongray.podcast.web.player.view :as view]
             [replicant.dom :as replicant]))
 
 (def storage-key
@@ -34,6 +35,13 @@
 (defn- audio-element
   []
   (js/document.getElementById "player"))
+
+(defn- seconds
+  "The whole seconds of the audio property `x`, nil when the element does
+  not know it yet, as with the duration before the metadata has loaded."
+  [x]
+  (when (js/isFinite x)
+    (js/Math.floor x)))
 
 ;;;; State
 
@@ -82,17 +90,37 @@
   is first so that the skip starts from the truth."
   [id amount]
   (when-let [el (audio-element)]
-    (dispatch! [:progress id (js/Math.floor (.-currentTime el)) (js/Math.floor (or (.-duration el) 0))]))
+    (dispatch! [:progress id (or (seconds (.-currentTime el)) 0) (seconds (.-duration el))]))
   (dispatch! [:skip id amount]))
 
 (defn- time-update!
   "Show the audio's position, and record it every five seconds."
   [id el]
-  (let [t (.-currentTime el) d (.-duration el)]
-    (swap! app assoc :readout (str "at " (time/format-clock t) (when (pos? (or d 0)) (str " of " (time/format-clock d)))))
+  (let [t (.-currentTime el)
+        d (seconds (.-duration el))]
+    (swap! app assoc :readout (str "at " (time/format-clock t) (when d (str " of " (time/format-clock d)))))
     (when (>= (js/Math.abs (- t (or (:reported @app) -10))) 5)
       (swap! app assoc :reported t)
-      (dispatch! [:progress id (js/Math.floor t) (js/Math.floor (or d 0))]))))
+      (dispatch! [:progress id (or (seconds t) 0) d]))))
+
+(defn handle!
+  "Perform the view's `event`, given the DOM event `e` that raised it when
+  there is one: the skips and the queue operations go to the library, the
+  audio element's reports are read off it."
+  [[kind & args :as event] e]
+  (case kind
+    :skip         (let [[id amount] args] (skip! id amount))
+    :ended        (dispatch! event)
+    :play-next    (operate! player/play-next (first args))
+    :dequeue      (operate! player/dequeue (first args))
+    :prefer       (when-let [n (parse-long (.. e -target -value))]
+                    (operate! player/prefer {(first args) n}))
+    :audio/loaded (let [[_ position] args
+                        el (.-target e)]
+                    (when (and (pos? position) (< position (.-duration el)))
+                      (set! (.-currentTime el) position)))
+    :audio/time   (time-update! (first args) (.-target e))
+    nil))
 
 ;;;; Adding episodes: /queue?add=<feed url>&guid=<item guid>&mode=next|last
 
@@ -112,109 +140,14 @@
                      (operate! (if (= mode "next") player/play-next player/enqueue) id))))
           (.catch #(swap! app assoc :error (str %)))))))
 
-;;;; Views
-
-(defn- episode-link
-  [titles id]
-  (let [{:keys [title feed-title url guid]} (titles id)]
-    (list [:a {:href (str "/item?url=" (js/encodeURIComponent url) "&guid=" (js/encodeURIComponent guid))}
-           (or title (pr-str id))]
-          " " [:span.muted feed-title])))
-
-(defn- bar-view
-  "The persistent player: the current episode, its audio element and the
-  skip buttons; nothing when nothing is queued."
-  [{:keys [player titles readout]}]
-  (when-let [id (player/current player)]
-    (let [{:keys [enclosure]} (titles id)
-          {:keys [skip-forward skip-back]} (player/preferences player)
-          position (player/resume-position player (first id) id)]
-      [:div.bar
-       [:span (episode-link titles id)]
-       (if enclosure
-         [:audio#player {:controls true :preload "metadata" :src enclosure
-                         :replicant/key id
-                         :on {:loadedmetadata (fn [e]
-                                                (let [el (.-target e)]
-                                                  (when (and (pos? position) (< position (.-duration el)))
-                                                    (set! (.-currentTime el) position))))
-                              :timeupdate (fn [e] (time-update! id (.-target e)))
-                              :ended (fn [_] (dispatch! [:ended id]))}}]
-         [:span.muted "No enclosure to play."])
-       [:span.muted (or readout (str "at " (time/format-clock (or position 0))))]
-       [:span
-        [:button {:on {:click #(skip! id :back)}} (str "−" skip-back "s")]
-        " "
-        [:button {:on {:click #(skip! id :forward)}} (str "+" skip-forward "s")]
-        " "
-        [:button {:on {:click #(dispatch! [:ended id])}} "Ended"]]])))
-
-(defn- up-next
-  [{:keys [player titles]}]
-  (let [queue (rest (player/queue player))]
-    [:section
-     [:h2 "Up next"]
-     (if (empty? queue)
-       [:p.muted (if (player/current player)
-                   "Nothing after this one. Open an item and add it."
-                   "Nothing queued. Open an item and add it.")]
-       [:ol
-        (for [id queue]
-          [:li {:replicant/key id}
-           (episode-link titles id)
-           (when (player/played? player id) [:span.badge "played"])
-           " "
-           [:button {:on {:click #(operate! player/play-next id)}} "Play next"]
-           " "
-           [:button {:on {:click #(operate! player/dequeue id)}} "Remove"]])])]))
-
-(defn- history
-  [{:keys [player titles]}]
-  [:section
-   [:h2 "History"]
-   (if (empty? (:episodes player))
-     [:p.muted "Nothing played yet."]
-     [:ul.compact
-      (for [id (player/history player)
-            :let [{:keys [position played?]} (player/episode player id)]]
-        [:li {:replicant/key id}
-         (episode-link titles id)
-         [:span.muted (str " · " (if played? "played" (str "at " (time/format-clock (or position 0)))))]])])])
-
-(defn- preferences
-  [{:keys [player]}]
-  (let [{:keys [skip-forward skip-back]} (player/preferences player)
-        field (fn [label k value]
-                [:label label " "
-                 [:input {:type "number" :min 1 :max 300 :value value :style {:width "4em"}
-                          :on {:change (fn [e] (when-let [n (parse-long (.. e -target -value))]
-                                                 (operate! player/prefer {k n})))}}]
-                 " s"])]
-    [:section
-     [:h2 "Preferences"]
-     [:p (field "Skip back" :skip-back skip-back) "   " (field "Skip forward" :skip-forward skip-forward)]]))
-
-(defn- page-view
-  "The queue page: the detailed view of the state the bar plays from."
-  [{:keys [player titles error] :as state}]
-  [:div
-   [:p.muted "The player state of dk.simongray.podcast.player, running in this browser and kept in localStorage; Replicant renders it, the audio element in the bar reports to it, and its effects drive the audio."]
-   (when error [:p.error error])
-   (when-let [id (player/current player)]
-     [:p "Now playing: " (episode-link titles id)])
-   (up-next state)
-   (history state)
-   (preferences state)
-   [:section
-    [:h2 "State"]
-    [:pre (with-out-str (pprint/pprint player))]]])
+;;;; Rendering
 
 (defn- render!
   []
   (when-let [bar (js/document.getElementById "player-bar")]
-    (replicant/render bar (bar-view @app)))
+    (replicant/render bar (view/bar @app)))
   (when-let [el (js/document.getElementById "app")]
-    (replicant/render el (page-view @app))))
+    (replicant/render el (view/page @app))))
 
 ;;;; Navigation that keeps the player alive
 
@@ -282,10 +215,12 @@
   (.addEventListener js/window "popstate" (fn [_] (swap-content! js/location.href false))))
 
 (defn ^:export init
-  "Mount the player: load the state, watch it, take over navigation, and
-  handle an episode the URL asks to add."
+  "Mount the player: load the state, watch it, route the view's events to
+  `handle!`, take over navigation, and handle an episode the URL asks to
+  add."
   []
   (reset! app (load-state))
+  (replicant/set-dispatch! (fn [{:replicant/keys [dom-event]} event] (handle! event dom-event)))
   (add-watch app ::render (fn [_ _ old new]
                             (when (not= (select-keys old [:player :titles]) (select-keys new [:player :titles]))
                               (save! new))

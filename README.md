@@ -133,8 +133,10 @@ Design
 
 The design is described in [doc/architecture.md](doc/architecture.md); the
 ecosystem survey that motivated it is in
-[doc/podcasting-2.0-clojure-survey.md](doc/podcasting-2.0-clojure-survey.md).
-In one paragraph:
+[doc/podcasting-2.0-clojure-survey.md](doc/podcasting-2.0-clojure-survey.md);
+the path from finding a show to playing it, with the function to call at
+each step, is [doc/building-an-app.md](doc/building-an-app.md). In one
+paragraph:
 
 XML becomes Hiccup with namespaces resolved by URI (`:itunes/author`,
 `:podcast/transcript`). A **tag registry** describes every element the
@@ -316,7 +318,8 @@ Development
 ```bash
 clojure -M:dev:nrepl                  # nREPL on port 7888
 clojure -X:test                       # the test suite on the JVM
-npm install                           # once: shadow-cljs and the Node DOMParser
+clojure -X:test-floor                 # the library's tests on Clojure 1.11, the floor it declares
+npm install                           # once: shadow-cljs, the Node DOMParser and jsdom
 clojure -M:cljs compile test          # the same suite under Node
 clojure -M:cljs compile browser-test  # the same suite for a browser; serve target/browser-test
 clojure -M:cljs compile player        # the inspector's browser player, served at /queue
@@ -328,6 +331,11 @@ The tests are `.cljc` and run on both platforms. Under Node,
 `@xmldom/xmldom` as `js/DOMParser`; the library itself has no npm
 dependencies. The corpus test is JVM-only, runs over whatever is in
 `dev-resources/corpus/`, and passes vacuously when the directory is empty.
+The browser player's views are tested as data, and its shell is mounted on
+jsdom under Node and clicked; a test of the architecture reads every `ns`
+form and fails when a require points up a layer. CI runs the whole of this
+on the current Java and Clojure, and the library's own tests on Java 11
+with Clojure 1.11, the floor the library declares.
 
 The corpus tooling is `dev/corpus.clj`, for the REPL: `(corpus/download!)`
 and `(corpus/sweep)` for the named feeds, `(corpus/download-companions!)`

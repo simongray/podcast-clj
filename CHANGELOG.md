@@ -46,6 +46,11 @@ Working toward 1.0, the first release.
   behind one shape, search, lookup and charts as request maps and shows
   keyed like the model, `combine` for one entry per show across sources,
   and `search!` and `trending!` on the JVM asking every source at once.
+- The library declares Clojure 1.11 as its floor and runs on Java 11; CI
+  verifies the floor beside the current versions. A test of the
+  architecture keeps every require pointing down a layer. The inspector's
+  browser player has its views as data and is tested on jsdom.
+- A guide, doc/building-an-app.md, from finding a show to playing it.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

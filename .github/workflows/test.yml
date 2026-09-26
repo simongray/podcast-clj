@@ -7,6 +7,7 @@ on:
 
 jobs:
   test:
+    name: Java 25, Clojure 1.12, Node 24
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,7 +15,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
 
       - uses: DeLaGuardo/setup-clojure@13.7.0
         with:
@@ -43,3 +44,29 @@ jobs:
 
       - name: Lint
         run: clojure -Sdeps '{:deps {clj-kondo/clj-kondo {:mvn/version "2026.08.04"}}}' -M -m clj-kondo.main --lint src test dev web build.clj
+
+  floor:
+    name: Java 11, Clojure 1.11, the floor the library declares
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - uses: DeLaGuardo/setup-clojure@13.7.0
+        with:
+          cli: latest
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            .cpcache
+          key: clojure-floor-${{ runner.os }}-${{ hashFiles('deps.edn') }}
+
+      - name: Library tests on the floor
+        run: clojure -X:test-floor

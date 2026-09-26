@@ -470,6 +470,20 @@ to test it; it touches nothing but the public API.
   gaps, quirks and emitter bugs fixed alongside it, each with a test.
 - The inspector's routes are tested through Pedestal's interceptor chain
   with the network stubbed, so that the reference app cannot break silently.
+- The inspector's browser player is two namespaces: pure views that turn the
+  page state into Hiccup with event handlers as data, tested by equality
+  under Node and in the browser build, and a shell that performs the
+  events, tested on jsdom under Node, where it is mounted, given an episode
+  through a stubbed fetch, and clicked. Node-only tests are named
+  `-node-test`, which the browser build leaves out.
+- `architecture_test.clj` reads every `ns` form under `src/`, places each
+  namespace in the layer this document gives it, and fails when a require
+  points up a layer, when the graph has a cycle, when the registry requires
+  anything, or when a companion format reaches above the primitives.
+- CI runs two jobs: everything on the current Java and Clojure with the
+  Node suite and the linter, and the library's own tests on Java 11 with
+  Clojure 1.11, the floor `deps.edn` declares and the pom states. The
+  aliases override to the current Clojure; the `:test-floor` alias does not.
 - The reference app's item page fetches an item's chapters and transcript and
   renders them, so that the companions are exercised on real files whenever a
   feed is inspected.
@@ -622,3 +636,7 @@ and the four here already cover discovery for a client that has none.
 21. The directories behind one shape: Apple Podcasts, fyyd, gpodder.net and
     the Podcast Index, searched, looked up and their charts read, combined
     into one entry per show, with recorded answers as fixtures. Done.
+22. Trust before 1.0: the player's views as data with the shell tested on
+    jsdom, the architecture as a test, the Clojure and Java floor declared
+    and verified in CI beside the current versions, the dependency bumps,
+    and the guide from finding a show to playing it. Done.
