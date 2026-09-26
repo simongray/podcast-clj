@@ -20,14 +20,18 @@
           :exec-fn     dk.simongray.podcast.web.service/start!}
 
   ;; REPL-driven development: everything on the classpath, including the
-  ;; corpus tooling in dev/ and the reference web app.
+  ;; corpus tooling in dev/ and the reference web app, plus criterium for
+  ;; benchmarks and the clojure-goes-fast profiler and decompiler.
   :dev   {:extra-paths ["dev" "test" "test/resources" "web"]
           :extra-deps  {io.pedestal/pedestal.service {:mvn/version "0.8.2-beta-10"}
                         io.pedestal/pedestal.jetty   {:mvn/version "0.8.2-beta-10"}
                         no.cjohansen/replicant       {:mvn/version "2026.07.1"}
                         org.jsoup/jsoup              {:mvn/version "1.23.2"}
                         metosin/malli                {:mvn/version "0.20.2"}
-                        org.clojure/test.check       {:mvn/version "1.1.1"}}}
+                        org.clojure/test.check       {:mvn/version "1.1.1"}
+                        criterium/criterium          {:mvn/version "0.4.6"}
+                        com.clojure-goes-fast/clj-async-profiler  {:mvn/version "1.8.0"}
+                        com.clojure-goes-fast/clj-java-decompiler {:mvn/version "0.3.7"}}}
 
   ;; clojure -X:test; dev/ is on the path for the test that keeps the
   ;; generated documents in doc/ current

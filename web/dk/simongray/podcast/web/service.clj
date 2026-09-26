@@ -12,6 +12,7 @@
             [dk.simongray.podcast.index :as index]
             [dk.simongray.podcast.player :as player]
             [dk.simongray.podcast.resolve :as resolve]
+            [dk.simongray.podcast.search :as search]
             [dk.simongray.podcast.transcript :as transcript]
             [dk.simongray.podcast.web.page :as page]
             [io.pedestal.connector :as conn]
@@ -98,14 +99,29 @@
   [_]
   (html (page/home (corpus))))
 
+(defn- selection
+  "What the feed page's filter form asks for, from the query `params`: the
+  criteria and the order of `search/episodes`."
+  [{:keys [q season type order]}]
+  (let [where (cond-> {}
+                (not (str/blank? q))                         (assoc :text q)
+                (some-> season parse-long)                   (assoc :season (parse-long season))
+                (contains? #{"full" "trailer" "bonus"} type) (assoc :type type))
+        order (some-> order not-empty keyword)]
+    (cond-> {:where where}
+      (contains? search/orders order) (assoc :order order))))
+
 (defn feed-page
   "The inspection of the feed named by the `url` query parameter, validated
-  against the `profile` parameter when given."
+  against the `profile` parameter when given, its items filtered and
+  ordered as the `q`, `season`, `type` and `order` parameters ask."
   [request]
   (with-feed request
     (fn [loaded]
       (let [profile (some-> (get-in request [:query-params :profile]) not-empty keyword)]
-        (html (page/feed-page (assoc loaded :profile profile)))))))
+        (html (page/feed-page (assoc loaded
+                                     :profile profile
+                                     :selection (selection (:query-params request)))))))))
 
 (defn feed-edn
   "The parsed feed as pretty-printed EDN."
@@ -198,6 +214,46 @@
           (-> (html (page/error-page (:url loaded) (str "No item with guid " guid)))
               (assoc :status 404)))))))
 
+;;;; Search
+
+(defonce ^{:doc "The corpus feeds parsed and indexed for the search page, on
+  first use."}
+  corpus-search
+  (delay
+    (let [feeds (into {} (for [[_ url] (corpus)] [url (:feed (load-feed url))]))]
+      {:feeds feeds
+       :index (search/index (for [[url feed] feeds
+                                  item       (:rss/items feed)]
+                              (search/item-document feed item {:url url})))})))
+
+(defn- with-items
+  "The search `results` with the feed and item each came from, looked up in
+  `feeds` by url, so that the page can show a snippet of the notes."
+  [results feeds]
+  (for [{:keys [stored] :as result} results
+        :let [feed (get feeds (:url stored))
+              item (some #(when (= (:guid stored) (feed/item-guid %)) %) (:rss/items feed))]]
+    (assoc result :feed feed :item item)))
+
+(defn search-page
+  "The items matching the `q` parameter: those of the feed named by `url`,
+  or of the whole corpus when there is no `url`."
+  [request]
+  (let [q      (str (get-in request [:query-params :q]))
+        url    (get-in request [:query-params :url])
+        render (fn [index feeds url]
+                 (html (page/search-page {:q       q
+                                          :url     url
+                                          :results (with-items (search/query index q {:limit 50}) feeds)})))]
+    (if (str/blank? url)
+      (let [{:keys [index feeds]} @corpus-search]
+        (render index feeds nil))
+      (with-feed request
+        (fn [{:keys [feed url]}]
+          (render (search/index (map #(search/item-document feed % {:url url}) (:rss/items feed)))
+                  {url feed}
+                  url))))))
+
 ;;;; The browser player: a shell page, the episode data it asks for, and its script
 
 (defn queue-page
@@ -249,6 +305,7 @@
     ["/feed.edn" :get feed-edn :route-name :feed-edn]
     ["/feed.xml" :get feed-xml :route-name :feed-xml]
     ["/item" :get item-page :route-name :item]
+    ["/search" :get search-page :route-name :search]
     ["/episode.edn" :get episode-edn :route-name :episode-edn]
     ["/queue" :get queue-page :route-name :queue]
     ["/js/*path" :get js-file :route-name :js]

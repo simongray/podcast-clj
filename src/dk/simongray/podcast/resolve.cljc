@@ -548,6 +548,12 @@
   [(if (= "trailer" (:type (numbering item))) 0 1)
    (- (date-ms item))])
 
+(defn listening-key
+  "Where `item` falls in the listening order of `feed`, as a key for
+  `sort-by`; `episodes` is the items of the feed sorted by it."
+  [feed item]
+  ((if (serial? feed) serial-key episodic-key) item))
+
 (defn episodes
   "The items of `feed` in listening order, as Apple Podcasts presents them:
   newest first with the trailers ahead for an episodic show, the default;
@@ -556,7 +562,7 @@
   episode it belongs to or at the end of its season, a show trailer before
   everything and a show bonus after."
   [feed]
-  (sort-by (if (serial? feed) serial-key episodic-key) (:rss/items feed)))
+  (sort-by (partial listening-key feed) (:rss/items feed)))
 
 (defn seasons
   "The items of `feed` grouped by season, in listening order:

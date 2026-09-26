@@ -41,6 +41,7 @@ the code.
                  ┌──────────────┬──────────────┬──────────────────┐
   companions     │ chapters     │ transcript   │ opml   value     │  formats, and the accessors
                  │ resolve  (one answer per property, by rule)    │  a client reads through
+                 │ player  (state as data)   search  (criteria, index)│  and what an app keeps and finds
                  ├──────────────┴──────────────┴──────────────────┤
   feed           │ feed  (parse / emit interpreters)  validate    │  registry-driven
                  ├────────────────────────────────────────────────┤
@@ -450,6 +451,76 @@ to test it; it touches nothing but the public API.
   renders them, so that the companions are exercised on real files whenever a
   feed is inspected.
 
+## Finding episodes
+
+`dk.simongray.podcast.search` is where an app's lists come from, in two
+independent halves.
+
+**Criteria and orders as data.** `where` turns a map such as `{:season 2
+:type "full" :status :unplayed}` into a predicate of a feed and an item,
+and `order` turns a keyword such as `:newest` into a sort key; `episodes`
+applies both to one feed, or to a collection of feeds for the inbox across
+subscriptions. Every criterion reads the model through `resolve`, so it
+means exactly what the accessor means: `:explicit?` inherits from the
+channel, `:chapters?` counts a linked file, embedded Podlove chapters and
+the timestamps in the notes alike. Criteria that depend on the listener,
+`:status` and the `:recent` order, take the player state, and identify
+episodes as the player does, by `[feed-guid item-guid]`. Because the
+criteria are data, a UI can build them from a form, and the inspector's
+filter form is exactly that. An unknown criterion or order throws: it is
+a programming error, not content to forgive.
+
+**An index that is a value.** `index` and `add` build a map, `query`
+searches it, `remove` takes a document out; nothing is mutated and
+nothing runs in the background. Documents are `{:id :fields :stored}`,
+built from the model by `item-document` and `feed-document` or by hand,
+so that an app can index whatever it has, a fetched transcript included.
+Text is analyzed by one rule on both platforms, words lower-cased with
+diacritics folded, and a field or a query given as a vector of strings
+skips analysis, which is how a client brings its own stemming or
+segmentation without the library carrying a language model. The postings
+keep positions, so a quoted phrase is verified rather than approximated,
+and the terms are kept in a sorted set beside the postings, so the last
+word of a query expands to every term it is a prefix of, which is what
+search as you type needs. Ranking is BM25 per field, summed with
+`boosts`, the plain and well-understood scheme, and what a consumer might
+want otherwise is an option of `query`: the field weights, a weight of
+zero leaving a field out, BM25's `k1` and `b`, the shortest word to
+complete, and a `:rank` function that orders the results by something
+other than the score, ties by recency say. `snippet` marks the matches in
+a text the caller supplies, since the index does not keep the text.
+Lucene would have been the JVM answer and no answer in the browser; the
+index here is a few hundred lines, runs everywhere the model does, and
+prints as EDN.
+
+The cost is that of an inverted index held as persistent maps, measured
+on 60 sweep feeds with 36,000 items and 6 million terms, show notes
+included: five seconds to index and 360 MB of JVM heap, roughly 10 KB an
+episode; a query for the commonest word in English touches 24,000
+documents in 50 ms, or 37 ms with a limit, and a prefix, a phrase or a
+two-word query answers in 1 to 15 ms. A listener's library of a few
+thousand episodes is therefore tens of megabytes and well under a second
+to build. The notes are nine tenths of the terms, so an app short of
+memory, in a browser say, indexes fewer fields, titles and people alone
+costing a tenth, and adds transcripts only for the episodes it has
+downloaded.
+
+Those numbers came from profiling with clj-async-profiler and criterium,
+both on the `:dev` alias, and each finding is kept in the code. The
+postings are a hash map updated through a transient with a sorted set of
+terms beside it, after a sorted map spent a quarter of the build
+comparing strings and another quarter in garbage from its path copying.
+One position is kept per term occurrence, a single one as a bare number,
+and the term strings are shared between the postings and the documents'
+term lists, which halved the footprint. Text is folded once per field,
+decomposition serving as its own guard, since a regex scan meant to skip
+the work cost more than the work. The scoring arithmetic is primitive,
+checked with `:warn-on-boxed`. BM25 ties are frequent, so ties are broken
+by the hash of the id rather than by printing it, which alone had taken
+two seconds a query; and with a limit, the best results are kept in a
+small sorted vector as candidates stream past, since a sorted set with a
+comparator proved slower than sorting everything.
+
 ## Roadmap
 
 1. Core: `xml`, `time`, `guid`, `spec`, `feed`, `quirks`, `validate`. Done.
@@ -489,3 +560,7 @@ to test it; it touches nothing but the public API.
     `next-check` for when to return, `episodes` and `seasons` for the
     listening order, the boostagram record, `blocked?`, and an enclosure
     chooser with preferences. Done.
+19. Finding episodes: criteria and orders as data over the model and the
+    player state, and a full-text index over subscriptions with BM25,
+    prefixes, phrases and snippets, on both platforms; the inspector's
+    filter form and search pages. Done.

@@ -51,6 +51,27 @@
         (is (= 502 status))
         (is (str/includes? body "HTTP 404"))))))
 
+(deftest search-and-selection
+  (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})]
+    (testing "the feed page filters and orders its items by the library's criteria"
+      (let [body (:body (get* "/feed" "url" "https://example.com/one.xml" "q" "future" "order" "oldest"))]
+        (is (str/includes? body "Items (1 of 3)"))
+        (is (str/includes? body "Episode 3 - The Future"))
+        (is (not (str/includes? body "Episode 1 - The Past"))))
+      (let [body (:body (get* "/feed" "url" "https://example.com/one.xml" "order" "oldest"))]
+        (is (str/includes? body "Items (3)"))
+        (is (< (str/index-of body "Episode 1 - The Past") (str/index-of body "Episode 3 - The Future")))))
+    (testing "full-text search over one feed, with a snippet of the notes"
+      (let [{:keys [status body]} (get* "/search" "url" "https://example.com/one.xml" "q" "future")]
+        (is (= 200 status))
+        (is (str/includes? body "Episode 3 - The Future"))
+        (is (str/includes? body "<mark>future</mark>"))
+        (is (not (str/includes? body "Episode 2 - The Present"))))
+      (is (str/includes? (:body (get* "/search" "url" "https://example.com/one.xml" "q" "nothing-like-this"))
+                         "Nothing matched")))
+    (testing "search over the corpus answers whatever the corpus holds"
+      (is (= 200 (:status (get* "/search" "q" "podcasting")))))))
+
 (deftest the-player
   (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})]
     (testing "every page carries the player bar and its script; the queue page the shell of the detailed view"

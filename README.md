@@ -103,6 +103,27 @@ without owning the logic, and two devices' states merge into one:
 (opml/emit (player/to-opml s))              ; the subscriptions as OPML, guids included
 ```
 
+Finding episodes is criteria as data, read through `resolve`, and a
+full-text index that is a value, so a show page, an inbox and a search
+box are the same few functions, on both platforms:
+
+```clojure
+(require '[dk.simongray.podcast.search :as search])
+
+(search/episodes feed {:where {:season 2 :type "full" :duration [600 nil]} :order :newest})
+(search/episodes feed {:where {:status :unplayed} :order :recent :player s :url url})  ; what the listener has left
+(search/episodes feeds {:order :newest :limit 50})    ; across subscriptions, as [feed item] pairs
+((search/where {:person "Dave"}) feed item)            ; the predicate itself, for lists of your own
+
+(def idx (search/index (for [[url feed] subscriptions, item (:rss/items feed)]
+                         (search/item-document feed item {:url url}))))
+(search/query idx "value for va")                      ; every word, the last as a prefix, best first
+;; => [{:id [feed-guid item-guid] :score 7.1 :stored {:title "…" :show "…" :published #inst "…"}} …]
+(search/query idx "\"value for value\"" {:limit 10})   ; the words in a row
+(search/snippet (html/text (resolve/description item)) "value for va")
+;; => [{:text "…the "} {:text "value" :match? true} {:text " "} {:text "for" :match? true} …]
+```
+
 Design
 ------
 
@@ -237,6 +258,7 @@ Namespaces
 | `…podcast.feed` | Hiccup to feed maps and back; feed and item identity; `diff` between parses |
 | `…podcast.resolve` | One answer where the vocabularies give several: title, artwork, author, duration, numbering, enclosure, people, transcript; the listening order (`episodes`, `seasons`), `blocked?`, `next-check` |
 | `…podcast.validate` | Registry-driven validation, with PSP-1 and Apple profiles |
+| `…podcast.search` | Episodes filtered and ordered by criteria as data, the listener's progress included; a full-text index over subscriptions, ranked by BM25, with prefix and phrase queries and snippets |
 | `…podcast.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters read from the timestamps in show notes |
 | `…podcast.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, speakers included; `turns` merges word-level segments |
 | `…podcast.opml` | Subscription lists |

@@ -28,6 +28,13 @@ Working toward 1.0, the first release.
   rules; `blocked?` reads the block tags for one platform; `enclosure` takes
   type and bitrate preferences.
 - `value/boostagram` writes the bLIP-10 record a keysend payment carries.
+- `search`: the items of a feed filtered and ordered by criteria as data,
+  season, type, duration, dates, transcript, chapters, explicit, person,
+  words, and the listener's status given a player state; and a full-text
+  index over subscriptions that is a value, ranked by BM25, with prefix
+  matching for search as you type, phrases and snippets, on both platforms.
+  The field weights, BM25's parameters, the shortest word to complete and
+  the order of the results are options of `query`.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

@@ -8,6 +8,7 @@
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.html :as html]
             [dk.simongray.podcast.resolve :as resolve]
+            [dk.simongray.podcast.search :as search]
             [dk.simongray.podcast.time :as time]
             [dk.simongray.podcast.transcript :as transcript]
             [dk.simongray.podcast.validate :as validate]
@@ -26,7 +27,9 @@
    pre{background:#f4f4f4;padding:.6rem;overflow:auto;max-height:24rem;white-space:pre-wrap}
    .error{color:#b00020} .warning{color:#a15c00} .info{color:#555}
    .muted{color:#777} .badge{display:inline-block;padding:0 .4rem;border-radius:4px;background:#e8e8e8;margin-right:.3rem;font-size:12px}
-   nav a{margin-right:1rem} form input[type=url]{width:60%;padding:.4rem} form button{padding:.4rem .8rem}
+   nav a{margin-right:1rem} form input[type=url],form input[type=search]{width:60%;padding:.4rem} form button{padding:.4rem .8rem}
+   form.selection input[type=search]{width:30%} form.selection input,form.selection select{padding:.3rem}
+   .results li{margin:.6rem 0} .snippet{color:#444;max-width:80ch} mark{background:#fff3a0}
    ul.compact{margin:0;padding-left:1.2rem}
    .notes{max-width:70ch} .notes img{max-width:100%;height:auto}
    #player-bar:empty{display:none}
@@ -82,6 +85,10 @@
           (when (seq corpus)
             (list [:h2 "Corpus"]
                   [:p.muted "Real feeds from the hosting platforms the library is tested against."]
+                  [:form {:method "get" :action "/search"}
+                   [:input {:type "search" :name "q" :placeholder "Search every episode in the corpus" :required true}]
+                   " "
+                   [:button {:type "submit"} "Search"]]
                   [:ul.compact
                    (for [[name url] corpus]
                      [:li [:a {:href (str "/corpus/" name)} name] " " [:span.muted url]])]))))
@@ -170,11 +177,37 @@
            (when-let [art (resolve/artwork item)] [[:span.badge [:a {:href art} "artwork"]]])
            (for [[tag] (:xml/unknown item)] [:span.badge.muted (str tag)]))]]))
 
+(defn- selection-form
+  "The form that filters and orders the items of the feed at `url`, showing
+  the current `selection`; its choices are the library's own criteria and
+  orders, so a client's UI has the same to offer."
+  [url {:keys [where order]}]
+  [:form.selection {:method "get" :action "/feed"}
+   [:input {:type "hidden" :name "url" :value url}]
+   [:input {:type "search" :name "q" :placeholder "words in the title or notes" :value (:text where)}]
+   " season "
+   [:input {:type "number" :name "season" :min 0 :value (:season where) :style {:width "4em"}}]
+   " "
+   [:select {:name "type"}
+    (for [[v label] [["" "any type"] ["full" "full"] ["trailer" "trailer"] ["bonus" "bonus"]]]
+      [:option {:value v :selected (= v (or (:type where) ""))} label])]
+   " "
+   [:select {:name "order"}
+    (for [o [:listening :newest :oldest :shortest :longest :title]]
+      [:option {:value (name o) :selected (= o (or order :listening))} (name o)])]
+   " "
+   [:button {:type "submit"} "Apply"]
+   " "
+   [:a {:href (str "/search?url=" (encode url) (when-let [q (:text where)] (str "&q=" (encode q))))}
+    "full-text search"]])
+
 (defn feed-page
   "The inspector page for `feed`, fetched from `url`, with its parse
-  `report`, validated against `profile`."
-  [{:keys [url feed report profile status]}]
-  (let [items (:rss/items feed)
+  `report`, validated against `profile`, its items filtered and ordered
+  by `selection`, the options of `search/episodes`."
+  [{:keys [url feed report profile status selection]}]
+  (let [items      (search/episodes feed (or selection {}))
+        total      (count (:rss/items feed))
         validation (validate/validate feed {:profile profile})]
     (layout (or (resolve/title feed) url)
             [:header
@@ -184,7 +217,7 @@
               [:h1 (or (resolve/title feed) "(untitled)")]
               [:div.muted (resolve/author feed) " · " (:rss/language feed)
                " · medium " (resolve/medium feed)
-               " · " (count items) " items"
+               " · " total " items"
                (when-let [live (seq (:podcast/live-items feed))] (str " · " (count live) " live"))
                (when (resolve/explicit? feed) " · explicit")
                (when (resolve/complete? feed) " · complete")
@@ -218,7 +251,8 @@
                     [:pre (pretty unknown)]))
             (when-let [live (seq (:podcast/live-items feed))]
               (list [:h2 "Live items"] (kv-table (zipmap (range) live))))
-            [:h2 (str "Items (" (count items) ")")]
+            [:h2 (str "Items (" (count items) (when (not= (count items) total) (str " of " total)) ")")]
+            (selection-form url selection)
             [:table
              [:thead [:tr [:th "#"] [:th "Episode"] [:th "Enclosure"] [:th "Podcasting 2.0 and more"]]]
              [:tbody (map-indexed (partial item-row url feed) (take 200 items))]]
@@ -375,6 +409,38 @@
             (value-section feed item companions)
             [:h2 "Item as data"]
             (kv-table (dissoc item :rss/description :content/encoded)))))
+
+(defn search-page
+  "The results of the full-text query `q` over the items of the feed at
+  `url`, or over the corpus without one: `results` are those of
+  `search/query` with the `:item` each came from, for a snippet of its
+  notes."
+  [{:keys [q url results]}]
+  (layout (str "Search: " q)
+          (when url [:p [:a {:href (feed-href "/feed" url)} "← back to the feed"]])
+          [:h1 (if url "Search this feed" "Search the corpus")]
+          [:form {:method "get" :action "/search"}
+           (when url [:input {:type "hidden" :name "url" :value url}])
+           [:input {:type "search" :name "q" :value q :placeholder "words, a prefix, \"a phrase\"" :required true}]
+           " "
+           [:button {:type "submit"} "Search"]]
+          [:p.muted "Every word must occur; the last matches as a prefix unless a space follows it; words in quotes must occur in a row. A word in a title weighs more than one in the notes; the snippet is from the notes."]
+          (if (empty? results)
+            [:p.muted (if (str/blank? q) "Type something to search for." "Nothing matched.")]
+            [:ol.results
+             (for [{:keys [score stored item]} results
+                   :let [{:keys [title show published duration url guid]} stored]]
+               [:li
+                [:strong [:a {:href (feed-href "/item" url {:guid guid})} (or title "(untitled)")]]
+                " " [:span.muted show]
+                [:br]
+                [:span.muted (inst-str published)
+                 (when duration (str " · " (time/format-clock duration)))
+                 (str " · score " (/ (Math/round (* 100.0 score)) 100.0))]
+                (when item
+                  [:div.snippet
+                   (for [{:keys [text match?]} (search/snippet (html/text (resolve/description item)) q)]
+                     (if match? [:mark text] text))])])])))
 
 (defn queue-page
   "The shell of the play queue: the browser player, written in
