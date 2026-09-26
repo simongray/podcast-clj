@@ -35,6 +35,13 @@ Working toward 1.0, the first release.
   matching for search as you type, phrases and snippets, on both platforms.
   The field weights, BM25's parameters, the shortest word to complete and
   the order of the results are options of `query`.
+- `feed/normalize` expands the shorthand a producer writes, a bare value
+  for an element with only content and a single value for a repeatable
+  one, and `emit` and `validate` take it; `validate` diagnoses a value of
+  the wrong shape (`:validate/wrong-shape`) instead of throwing.
+- `resolve/properties` gathers every resolved answer for a show or an
+  episode into one map with plain keys, to merge with the raw fields, and
+  `resolve/sources` names the fields each answer was read from.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

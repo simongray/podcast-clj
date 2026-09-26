@@ -271,3 +271,51 @@
         (is (= [nil 1 2] (map :season (resolve/seasons serial))))
         (is (= "First" (:name (second (resolve/seasons serial)))))
         (is (= ["Show trailer" "Show bonus"] (map :rss/title (:items (first (resolve/seasons serial))))))))))
+
+(deftest everything-at-once
+  (let [feed {:rss/title       "Show"
+              :itunes/explicit true
+              :itunes/image    {:href "https://s/art.png"}
+              :podcast/people  [{:content "Host"}]}
+        item {:rss/title       "Ep"
+              :itunes/title    "Ep"
+              :rss/pub-date    #inst "2026-01-01T00:00:00Z"
+              :itunes/duration 60}
+        show (resolve/properties feed)
+        ep   (resolve/properties feed item)]
+    (testing "every answer in one map, plain keys, nothing unanswered"
+      (is (= {:title "Show" :artwork "https://s/art.png" :explicit? true
+              :people [{:name "Host" :role "host" :group "cast"}]
+              :images [{:href "https://s/art.png" :source :itunes}]
+              :medium "podcast" :list-feed? false :complete? false :locked? false}
+             show))
+      (is (= {:title "Ep" :published #inst "2026-01-01T00:00:00Z" :duration 60
+              :numbering {:type "full"} :artwork "https://s/art.png" :explicit? true
+              :people [{:name "Host" :role "host" :group "cast"}]}
+             ep)
+          "inheriting from the feed as the accessors do")
+      (is (= "Ep" (:title (merge item ep))))
+      (is (= "Ep" (:rss/title (merge item ep))) "merged beside the raw fields"))
+    (testing "and where each answer came from"
+      (is (= {:title    [[:rss/title]]
+              :artwork  [[:itunes/image]]
+              :explicit? [[:itunes/explicit]]
+              :people   [[:podcast/people]]
+              :images   [[:itunes/image]]}
+             (resolve/sources feed))
+          "defaults name no source")
+      (is (= {:title     [[:item :itunes/title] [:item :rss/title]]
+              :published [[:item :rss/pub-date]]
+              :duration  [[:item :itunes/duration]]
+              :artwork   [[:feed :itunes/image]]
+              :explicit? [[:feed :itunes/explicit]]
+              :people    [[:feed :podcast/people]]}
+             (resolve/sources feed item))
+          "two fields that agree are both named; the feed's where the item inherits"))
+    (testing "on a real feed"
+      (let [f (deref example)
+            i (first (:rss/items f))]
+        (is (= "Podcasting 2.0 Namespace Example" (:title (resolve/properties f))))
+        (is (every? (complement namespace) (keys (resolve/properties f i))))
+        (is (= [[:item :rss/title]] (:title (resolve/sources f i))))
+        (is (nil? (:numbering (resolve/sources f i))) "a composite names no source")))))

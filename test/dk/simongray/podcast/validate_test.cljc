@@ -68,3 +68,23 @@
              (ids (validate/validate (podcast/parse xml {:registry tags}) {:registry tags})))))
     (testing "and reports it as unknown by the library's"
       (is (= {:validate/unknown-element 1} (ids (validate/validate (podcast/parse xml))))))))
+
+(deftest wrong-shapes-are-diagnosed
+  (let [f {:rss/version     "2.0"
+           :rss/title       {:content "T"}
+           :rss/link        "https://t"
+           :rss/description "d"
+           :itunes/image    "https://t/a.png"
+           :rss/items       ["not an item"
+                             {:rss/title "E" :rss/guid "abc"
+                              :rss/enclosure {:url "https://a/1.mp3" :type "audio/mpeg"}}]}
+        v (validate/validate f {:profile :psp-1})]
+    (is (= 3 (:validate/wrong-shape (ids v))) "a map for a scalar, a string for a map, a string for an item")
+    (is (= #{[:rss/title] [:itunes/image] [:rss/items 0]}
+           (set (map :path (filter (comp #{:validate/wrong-shape} :id) v)))))
+    (is (not (validate/valid? f)))
+    (is (some (comp #{:validate/profile-required} :id) v) "the profile is still checked around the wrong shapes")
+    (is (not-any? (comp #{:validate/wrong-shape} :id)
+                  (validate/validate {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"
+                                      :rss/items [{:rss/title "E" :rss/guid "abc" :podcast/season 2}]}))
+        "the shorthand emit takes is not a wrong shape")))

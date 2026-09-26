@@ -11,8 +11,12 @@
   Podcast Standards Project baseline, `:apple` for Apple Podcasts.
 
   Diagnostics have the same shape as the parse report: `:id`, `:level`
-  (`:error`, `:warning` or `:info`), `:path` into the feed and `:message`."
+  (`:error`, `:warning` or `:info`), `:path` into the feed and `:message`.
+  Validation never throws on a value: a shape the element does not take
+  is a diagnostic like any other, and the shorthand `feed/normalize`
+  expands is taken first."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.xml :as xml]))
@@ -141,17 +145,41 @@
 
 (declare children-diagnostics)
 
+(defn- shape
+  "What kind of value `v` is, for a message."
+  [v]
+  (cond (nil? v)        "nothing"
+        (string? v)     "a string"
+        (map? v)        "a map"
+        (sequential? v) "a sequence"
+        (number? v)     "a number"
+        (boolean? v)    "a boolean"
+        :else           (pr-str v)))
+
 (defn- value-diagnostics
-  "Diagnostics for the model value `v` of `entry` in `registry`, its
-  attributes, content, children and structure."
+  "Diagnostics for the model value `v` of `entry` in `registry`: the shape
+  the element does not take, or else its attributes, content, children
+  and structure."
   [registry entry v path]
-  (let [structural (get structural-rules (:tag entry))]
-    (if (spec/map-shaped? registry entry)
+  (let [structural  (get structural-rules (:tag entry))
+        map-shaped? (spec/map-shaped? registry entry)]
+    (cond
+      (and map-shaped? (not (map? v)))
+      [(diagnostic :validate/wrong-shape :error path
+                   (str (tag-name (:tag entry)) " takes a map of its attributes and children, not " (shape v)))]
+
+      (and (not map-shaped?) (coll? v))
+      [(diagnostic :validate/wrong-shape :error path
+                   (str (tag-name (:tag entry)) " takes a single value, not " (shape v)))]
+
+      map-shaped?
       (concat (attr-diagnostics entry v path)
               (when (contains? v :content)
                 (content-diagnostics entry (:content v) (conj path :content)))
               (children-diagnostics registry (spec/children-context entry) v path)
               (when structural (structural v path)))
+
+      :else
       (concat (content-diagnostics entry v path)
               (when structural (structural v path))))))
 
@@ -229,6 +257,7 @@
 (defn- requirement-diagnostics
   [level id m requirements path]
   (for [req requirements
+        :when (map? m)
         :let [[k pred label] (if (vector? req) req [req nil (tag-name req)])]
         :when (not (and (contains? m k) (or (nil? pred) (pred (get m k)))))]
     (diagnostic id level (conj path k) (str label " is " (if (= :error level) "required" "recommended")))))
@@ -249,15 +278,18 @@
   "The diagnostics for `feed`: registry checks, RSS 2.0 basics and, when
   `opts` names a `:profile` from `profiles`, that profile's requirements.
   `:registry` is the tag registry to check against, `spec/default` unless
-  given."
+  given. The feed is normalized first, so the shorthand `emit` takes
+  passes here too."
   ([feed]
    (validate feed {}))
   ([feed {:keys [profile registry] :or {registry spec/default} :as opts}]
    {:pre [(map? opts)]}
-   (vec (concat (rss-diagnostics feed)
-                (children-diagnostics (spec/registry registry) :channel feed [])
-                (when profile
-                  (profile-diagnostics feed profile))))))
+   (let [registry (spec/registry registry)
+         feed     (feed/normalize feed {:registry registry})]
+     (vec (concat (rss-diagnostics feed)
+                  (children-diagnostics registry :channel feed [])
+                  (when profile
+                    (profile-diagnostics feed profile)))))))
 
 (defn valid?
   "Whether `validate` finds no errors in `feed`, with `opts` as for

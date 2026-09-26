@@ -183,6 +183,55 @@
   [feed]
   (mapv diagnostics/describe (:podcast/report (meta feed))))
 
+;;;; Normalizing
+
+(declare normalize-children)
+
+(defn- normalize-value
+  "The model value `v` of `entry` in `registry` as the model shapes it: a
+  bare value where the element carries content and attributes becomes
+  `{:content v}`, and the children of a map are normalized in turn."
+  [registry entry v]
+  (if-not (spec/map-shaped? registry entry)
+    v
+    (let [m (if (and (some? v) (not (coll? v)) (not= :none (spec/content-type entry)))
+              {:content v}
+              v)]
+      (if (map? m)
+        (normalize-children registry (spec/children-context entry) m)
+        m))))
+
+(defn- normalize-children
+  "The model map `m` of an element in the `parent` context of `registry`
+  with every child value normalized, a single value where the model has a
+  vector wrapped in one."
+  [registry parent m]
+  (reduce (fn [m entry]
+            (let [k (spec/key-for entry parent)
+                  v (get m k)]
+              (if (nil? v)
+                m
+                (assoc m k (if (= :many (spec/count-for entry parent))
+                             (mapv #(normalize-value registry entry %) (if (sequential? v) v [v]))
+                             (normalize-value registry entry v))))))
+          m
+          (spec/entries-for registry parent)))
+
+(defn normalize
+  "`feed` in the shape the model gives it, by the tag registry in `opts`
+  (`:registry`, default `spec/default`), for the shorthand a producer may
+  write: a bare value where an element with attributes carries only
+  content, `{:rss/guid \"x\"}` for `{:rss/guid {:content \"x\"}}`, and a
+  single value where the model has a vector, `{:podcast/transcripts {…}}`
+  for `[{…}]`. What `parse` returns comes back unchanged. `emit` and
+  `validate` normalize first, so the shorthand is taken everywhere the
+  model is written, while the schemas describe the model alone."
+  ([feed]
+   (normalize feed {}))
+  ([feed {:keys [registry] :or {registry spec/default} :as opts}]
+   {:pre [(map? opts)]}
+   (normalize-children (spec/registry registry) :channel feed)))
+
 ;;;; Emitting
 
 (declare emit-children)
@@ -232,14 +281,16 @@
 
 (defn emit
   "The canonical Hiccup document for `feed` by the tag registry in `opts`
-  (`:registry`, default `spec/default`), ready for `xml/emit`. The foreign
-  namespaces recorded when the feed was parsed are carried over as metadata
-  so that `xml/emit` can declare them."
+  (`:registry`, default `spec/default`), ready for `xml/emit`, the
+  shorthand of `normalize` taken. The foreign namespaces recorded when the
+  feed was parsed are carried over as metadata so that `xml/emit` can
+  declare them."
   ([feed]
    (emit feed {}))
   ([feed {:keys [registry] :or {registry spec/default} :as opts}]
    {:pre [(map? opts)]}
-   (let [registry (spec/registry registry)]
+   (let [registry (spec/registry registry)
+         feed     (normalize feed {:registry registry})]
      (with-meta [:rss {:version (or (:rss/version feed) "2.0")}
                  (into [:channel {}] (emit-children registry :channel (dissoc feed :rss/version)))]
        {:xml/namespaces (:xml/namespaces (meta feed))}))))

@@ -53,6 +53,7 @@ groups them by kind.
 | `:validate/missing-element` | error | An element RSS 2.0 requires is missing. |
 | `:validate/missing-enclosure` | warning | An item has no enclosure, so there is nothing to play. |
 | `:validate/missing-attribute` | error | A required attribute is missing. |
+| `:validate/wrong-shape` | error | A value is not the shape its element takes: a bare value where a map of attributes belongs, or a map or sequence where a single value does. |
 | `:validate/missing-child` | error | A container lacks a child the specification requires. |
 | `:validate/invalid-structure` | error | A container's children contradict the specification, such as a time split with both recipients and a remote item. |
 | `:validate/invalid-value` | error | A value did not read as its type. |

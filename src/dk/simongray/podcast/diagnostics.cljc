@@ -113,6 +113,8 @@
     :doc "An item has no enclosure, so there is nothing to play."}
    {:id :validate/missing-attribute :level :error
     :doc "A required attribute is missing."}
+   {:id :validate/wrong-shape :level :error
+    :doc "A value is not the shape its element takes: a bare value where a map of attributes belongs, or a map or sequence where a single value does."}
    {:id :validate/missing-child :level :error
     :doc "A container lacks a child the specification requires."}
    {:id :validate/invalid-structure :level :error

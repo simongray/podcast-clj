@@ -188,6 +188,17 @@ vocabulary: `:rss/title`, `:rss/pub-date`, `:itunes/episode-type`,
   descendants. Both are reported as `:feed/markup-in-text`.
 - **Nothing is dropped.** Unknown elements are Hiccup under `:xml/unknown`;
   unknown attributes stay in the element's map as strings.
+- **Shorthand is normalized, not modelled.** A producer may write a bare
+  value where an element with attributes carries only content,
+  `{:rss/guid "x"}`, or a single value where the model has a vector.
+  `feed/normalize` expands both by the registry, and `emit` and `validate`
+  call it first, so the shorthand is taken everywhere the model is written
+  while `parse`, the accessors and the schemas know one shape. The
+  alternative, schemas with `:or` for every such element, would have made
+  the model two-shaped for the sake of the writer.
+- **Validation never throws.** A value of a shape its element does not
+  take, a string where a map belongs or a map where a scalar does, is
+  `:validate/wrong-shape`, a diagnostic like the rest.
 
 Identity is a function over the model, not a field: `feed/feed-guid` returns
 `:podcast/guid` or the UUIDv5 computed from the feed URL; `feed/item-guid`
@@ -225,6 +236,18 @@ for timings) are its own; given the feed, a reference that names no language
 is taken to be in the feed's. Nothing here is stored or cached; it
 is all derived on each call, and the reference app renders its item rows
 through it so that the corpus exercises it.
+
+`properties` gathers every answer into one map with plain keys, the show's
+or, given the item as well, the episode's with the inheritance applied, so
+that `(merge item (properties feed item))` holds the raw fields and the
+resolved ones side by side for an app that needs both. `sources` says where
+each answer came from, as paths into what was given, `[:item :rss/title]`
+or `[:feed :itunes/explicit]`. It needs no table of precedences: for each
+property it calls the accessor on one field at a time and keeps the fields
+whose value alone gives the same answer, so it can never disagree with the
+accessor's own rule. A property answered by a default, or put together
+from several fields, names none. The inspector shows both tables on the
+feed and item pages.
 
 ## Quirks
 
@@ -564,3 +587,7 @@ comparator proved slower than sorting everything.
     player state, and a full-text index over subscriptions with BM25,
     prefixes, phrases and snippets, on both platforms; the inspector's
     filter form and search pages. Done.
+20. Model ergonomics: a producer's shorthand normalized by the registry
+    and taken by `emit` and `validate`, a validator that diagnoses wrong
+    shapes instead of throwing, and `resolve/properties` with `sources`
+    for the raw and the resolved side by side. Done.

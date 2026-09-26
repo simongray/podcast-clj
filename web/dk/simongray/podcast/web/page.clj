@@ -131,6 +131,26 @@
   [x]
   (if (inst? x) (time/format-rfc2822 x) (str x)))
 
+(defn- shorten
+  "`s` cut to `n` characters with an ellipsis."
+  [s n]
+  (if (> (count s) n) (str (subs s 0 n) "…") s))
+
+(defn- resolved-table
+  "A table of the resolved `properties` and their `sources`: what an app
+  reads through dk.simongray.podcast.resolve, and the raw fields each
+  answer came from."
+  [properties sources]
+  [:table
+   [:thead [:tr [:th "Property"] [:th "Value"] [:th "From"]]]
+   [:tbody
+    (for [[k v] (sort-by key properties)]
+      [:tr
+       [:td [:code (name k)]]
+       [:td [:code (shorten (pr-str v) 160)]]
+       [:td.muted (str/join ", " (for [path (get sources k)]
+                                   (str/join " " (map #(if (namespace %) (str %) (name %)) path))))]])]])
+
 (defn- numbering-str
   "S2E3-style label for the `numbering` of an item, empty without numbers."
   [{:keys [season episode episode-display type]}]
@@ -244,6 +264,9 @@
             (diagnostics-table report)
             [:h2 (str "Validation" (when profile (str " against " (:name (validate/profiles profile)))))]
             (diagnostics-table validation)
+            [:h2 "Resolved"]
+            [:p.muted "One answer per property where the vocabularies overlap, and the fields it was read from; a default names none."]
+            (resolved-table (resolve/properties feed) (resolve/sources feed))
             [:h2 "Channel"]
             (kv-table (dissoc feed :rss/items :podcast/live-items :xml/unknown))
             (when-let [unknown (:xml/unknown feed)]
@@ -407,6 +430,9 @@
             (chapters-section companions)
             (transcript-section companions)
             (value-section feed item companions)
+            [:h2 "Resolved"]
+            [:p.muted "What an app shows for this episode, inherited from the show where the item says nothing, and the fields each answer was read from."]
+            (resolved-table (resolve/properties feed item) (resolve/sources feed item))
             [:h2 "Item as data"]
             (kv-table (dissoc item :rss/description :content/encoded)))))
 

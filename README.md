@@ -47,6 +47,10 @@ precedence rules written down once:
    (resolve/enclosure item)     ; what to play, from enclosure, alternateEnclosure or media:content
    (resolve/transcript item)])  ; the transcript reference a client is best served by
 
+(resolve/properties feed item)               ; every answer at once: {:title "…" :artwork "…" :duration 3600 :people [...] …}
+(merge item (resolve/properties feed item))  ; the raw fields and the resolved ones side by side
+(resolve/sources feed item)                  ; => {:title [[:item :rss/title]] :explicit? [[:feed :itunes/explicit]] …}
+
 (feed/diff yesterdays-parse todays-parse)
 ;; => {:added [...] :removed [...] :changed [...] :unchanged 203 :channel-changed? false}
 ```
@@ -199,11 +203,14 @@ a dependency on Malli:
 (m/schema (schema/tag :podcast/value)) ; the schema of one element
 ```
 
-The schemas describe what `emit` accepts: the model with every value coerced
-and every required attribute present. `parse` is lenient and may return a map
-that fails them, a value kept as a string or a required attribute left blank,
-and `validate` is what says why; validating a map you built yourself before
-`emit` catches mistakes early.
+The schemas describe the model: every value coerced and every required
+attribute present. `parse` is lenient and may return a map that fails them,
+a value kept as a string or a required attribute left blank, and `validate`
+is what says why; validating a map you built yourself before `emit` catches
+mistakes early. Both `emit` and `validate` also take the shorthand a
+producer writes, which `feed/normalize` expands first: a bare value where an
+element with attributes carries only content, `{:rss/guid "x"}`, and a
+single value where the model has a vector.
 
 The registry is a value, and every interpreter takes one under `:registry`
 in its options, so a vocabulary extended with a client's own elements is
@@ -255,8 +262,8 @@ Namespaces
 | `…podcast.quirks` | String repairs, URI variants, tree normalizations |
 | `…podcast.spec` | The tag registry as data, `registry` to index or extend it, and the enumerations of the specifications; rendered as [doc/tags.md](doc/tags.md) |
 | `…podcast.schema` | Malli schemas of the model, generated from the registry as plain data; Malli itself is optional |
-| `…podcast.feed` | Hiccup to feed maps and back; feed and item identity; `diff` between parses |
-| `…podcast.resolve` | One answer where the vocabularies give several: title, artwork, author, duration, numbering, enclosure, people, transcript; the listening order (`episodes`, `seasons`), `blocked?`, `next-check` |
+| `…podcast.feed` | Hiccup to feed maps and back; `normalize` for a producer's shorthand; feed and item identity; `diff` between parses |
+| `…podcast.resolve` | One answer where the vocabularies give several: title, artwork, author, duration, numbering, enclosure, people, transcript; `properties` for all of them at once and `sources` for the fields behind them; the listening order (`episodes`, `seasons`), `blocked?`, `next-check` |
 | `…podcast.validate` | Registry-driven validation, with PSP-1 and Apple profiles |
 | `…podcast.search` | Episodes filtered and ordered by criteria as data, the listener's progress included; a full-text index over subscriptions, ranked by BM25, with prefix and phrase queries and snippets |
 | `…podcast.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters read from the timestamps in show notes |

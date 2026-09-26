@@ -44,7 +44,8 @@
     (testing "an item"
       (let [{:keys [status body]} (get* "/item" "url" "https://example.com/one.xml" "guid" "https://example.com/ep0003")]
         (is (= 200 status))
-        (is (str/includes? body "ep0003"))))
+        (is (str/includes? body "ep0003"))
+        (is (str/includes? body "item :rss/title") "the resolved properties with their sources")))
     (testing "no URL goes home; a feed that cannot be fetched is an error page"
       (is (= 302 (:status (get* "/feed"))))
       (let [{:keys [status body]} (get* "/feed" "url" "https://example.com/missing.xml")]

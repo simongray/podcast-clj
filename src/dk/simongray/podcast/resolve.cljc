@@ -6,7 +6,9 @@
   its answer on the spot; nothing is stored. The two-argument forms take the
   `feed` and an `item` and let the item override or inherit what the channel
   declares the way the specifications say: people replace, value blocks
-  override, artwork and funding fall back."
+  override, artwork and funding fall back. `properties` gathers every
+  answer into one map, to merge with the raw fields, and `sources` says
+  which fields gave them."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.chapters :as chapters]
             [dk.simongray.podcast.rrule :as rrule]
@@ -582,10 +584,118 @@
         s    (assoc :season s)
         name (assoc :name name)))))
 
+;;;; Everything at once
+
+(defn- of-item
+  "`f`, an accessor of an item alone, as one of a feed and an item."
+  [f]
+  (fn [_ item] (f item)))
+
+(def ^:no-doc show-properties
+  "The accessors of a show by property, for `properties` and `sources`."
+  {:title title :description description :author author :link link
+   :published published :images images :artwork artwork :explicit? explicit?
+   :people people :funding funding :license license :chat chat
+   :locations locations :value value :live-items live-items :medium medium
+   :list-feed? list-feed? :complete? complete? :locked? locked?
+   :new-feed-url new-feed-url :self-url self-url :categories categories})
+
+(def ^:no-doc episode-properties
+  "The accessors of an episode by property, each of the feed and the item,
+  inheriting as the two-argument forms do."
+  (merge (update-vals {:title title :description description :author author
+                       :link link :published published :images images
+                       :duration duration :numbering numbering
+                       :enclosures enclosures :enclosure enclosure
+                       :chapters-url chapters-url :embedded-chapters embedded-chapters}
+                      of-item)
+         {:artwork artwork :explicit? explicit? :transcript transcript
+          :people people :funding funding :license license :chat chat
+          :locations locations :value value}))
+
+(defn- answer
+  "The value of an accessor as a property: a sequence as a vector, nothing
+  when it is nil or empty."
+  [v]
+  (cond (nil? v)  nil
+        (seq? v)  (when (seq v) (vec v))
+        (coll? v) (when (seq v) v)
+        :else     v))
+
+(defn- answers
+  "The properties answered by the accessors of `table`, each called with
+  `call`."
+  [table call]
+  (into {} (keep (fn [[k f]]
+                   (when-some [v (answer (call f))]
+                     [k v])))
+        table))
+
+(defn properties
+  "Every property `resolve` answers, as one map with plain keys and the
+  unanswered left out: for `feed` alone the show's, `:title` to
+  `:categories`; for `feed` and `item` the episode's, inheriting from the
+  feed as each accessor does. Merge it into the item to have the raw
+  fields and the resolved ones side by side:
+
+      (merge item (properties feed item))
+      ;; => {:rss/title \"…\" :itunes/title \"…\" :title \"…\" :artwork \"…\" …}
+
+  What needs a time or a platform, `next-check`, `live?` and `blocked?`,
+  is asked on its own."
+  ([feed]
+   (answers show-properties #(% feed)))
+  ([feed item]
+   (answers episode-properties #(% feed item))))
+
+(defn- explains?
+  "Whether the accessor `f` gives `expected` from `args` alone."
+  [f expected args]
+  (= expected (answer (apply f args))))
+
+(defn- from-defaults?
+  "Whether `f` answers with nothing to read from: a default, which no
+  field explains."
+  [f arity]
+  (some? (answer (apply f (repeat arity {})))))
+
+(defn sources
+  "Where the properties of `feed`, or of its `item`, were read from: for
+  each property `properties` answers, the paths into what was given whose
+  value alone gives the same answer, `[:rss/title]` for a show,
+  `[:item :rss/title]` or `[:feed :itunes/explicit]` for an episode, the
+  feed's where the item inherits. Several paths mean several fields agree.
+  A property put together from more than one field, `numbering` say, or
+  answered by a default, `medium` say, names none and is left out."
+  ([feed]
+   (let [full (properties feed)]
+     (into {} (for [[k f] show-properties
+                    :when (and (contains? full k) (not (from-defaults? f 1)))
+                    :let  [paths (vec (for [key (sort (keys feed))
+                                            :when (explains? f (get full k) [(select-keys feed [key])])]
+                                        [key]))]
+                    :when (seq paths)]
+                [k paths]))))
+  ([feed item]
+   (let [full (properties feed item)]
+     (into {} (for [[k f] episode-properties
+                    :when (and (contains? full k) (not (from-defaults? f 2)))
+                    :let  [expected (get full k)
+                           paths    (vec (concat (for [key (sort (keys item))
+                                                       :when (explains? f expected [{} (select-keys item [key])])]
+                                                   [:item key])
+                                                 (for [key (sort (keys feed))
+                                                       :when (explains? f expected [(select-keys feed [key]) {}])]
+                                                   [:feed key])))]
+                    :when (seq paths)]
+                [k paths])))))
+
 #?(:clj
    (comment
      (require '[dk.simongray.podcast :as podcast])
      (def f (podcast/parse (slurp "test/resources/feeds/namespace-example.xml")))
+     (properties f (first (:rss/items f)))
+     (sources f (first (:rss/items f)))
      (artwork f)
      (map :rss/title (episodes f))
      (next-check f (java.util.Date.))
