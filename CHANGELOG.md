@@ -18,6 +18,16 @@ Working toward 1.0, the first release.
 - RFC 5545 recurrence rules from `podcast:updateFrequency` parsed, written
   and evaluated (`rrule`), so `resolve/next-episode` knows when the next
   episode is due.
+- Chapters read from the timestamp lists in show notes
+  (`chapters/from-text`), reported as inferred, for the many episodes that
+  list them there and link no chapters file.
+- `podcast/fetch!` on the JVM, from a URL to a parsed feed in one step with
+  the conditional headers for polling and the feed's new-feed-url hint, and
+  `resolve/next-check` for when to poll again.
+- `resolve/episodes` and `seasons` put items in listening order by Apple's
+  rules; `blocked?` reads the block tags for one platform; `enclosure` takes
+  type and bitrate preferences.
+- `value/boostagram` writes the bLIP-10 record a keysend payment carries.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

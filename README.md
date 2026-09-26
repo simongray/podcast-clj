@@ -13,6 +13,11 @@ bundled to exercise it against real feeds. It is not on Clojars yet: the
 first release will be 1.0, once the library is complete. Until then it can
 be used as a git dependency on the repository.
 
+It needs Clojure 1.11 or later, for `parse-long` and `abs`, and on the JVM
+Java 11 or later, for the `java.net.http` client behind `http` and `fetch!`.
+Development pins the current Clojure 1.12 in `deps.edn`; the floor is what
+the library itself requires.
+
 ```clojure
 (require '[dk.simongray.podcast :as podcast])
 
@@ -44,6 +49,22 @@ precedence rules written down once:
 
 (feed/diff yesterdays-parse todays-parse)
 ;; => {:added [...] :removed [...] :changed [...] :unchanged 203 :channel-changed? false}
+```
+
+On the JVM one call fetches and parses, with the validators for the next
+poll, and the accessors say what to show and when to look again:
+
+```clojure
+(require '[dk.simongray.podcast.chapters :as chapters])
+
+(def r (podcast/fetch! url {:etag etag :last-modified last-modified}))
+(:feed r)                                        ; absent on a 304: nothing changed
+(:new-feed-url r)                                ; the feed says it has moved
+(resolve/next-check (:feed r) (java.util.Date.)) ; when to look again: rule, ttl, period or cadence
+(resolve/episodes (:feed r))                     ; listening order; a serial show by season and number
+(resolve/seasons (:feed r))                      ; => ({:season 2 :name "…" :items [...]} ...)
+(resolve/blocked? (:feed r) :spotify)            ; what the block tags say for one platform
+(chapters/from-text (resolve/description item))  ; chapters from "12:34 Topic" lines in the notes
 ```
 
 Show notes arrive as HTML in a string. `html` reads them into Hiccup the way
@@ -204,7 +225,7 @@ Namespaces
 
 | Namespace | What it does |
 |---|---|
-| `dk.simongray.podcast` | The front door: `parse`, `emit`, `report`, `summarize`, `parse-tree` |
+| `dk.simongray.podcast` | The front door: `parse`, `emit`, `report`, `summarize`, `parse-tree`; on the JVM `fetch!`, a URL to a parsed feed with the headers a poller hands back |
 | `dk.simongray.podcast.diagnostics` | Every diagnostic id with its level and meaning; rendered as [doc/diagnostics.md](doc/diagnostics.md) |
 | `dk.simongray.podcast.html` | Embedded HTML as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown`, `emit` |
 | `dk.simongray.podcast.player` | A player's state as data: the queue, progress and played marks, subscriptions and settings, OPML in and out, `merge` for syncing, `step` for driving it |
@@ -214,12 +235,12 @@ Namespaces
 | `…podcast.spec` | The tag registry as data, `registry` to index or extend it, and the enumerations of the specifications; rendered as [doc/tags.md](doc/tags.md) |
 | `…podcast.schema` | Malli schemas of the model, generated from the registry as plain data; Malli itself is optional |
 | `…podcast.feed` | Hiccup to feed maps and back; feed and item identity; `diff` between parses |
-| `…podcast.resolve` | One answer where the vocabularies give several: title, artwork, author, duration, numbering, enclosure, people, transcript |
+| `…podcast.resolve` | One answer where the vocabularies give several: title, artwork, author, duration, numbering, enclosure, people, transcript; the listening order (`episodes`, `seasons`), `blocked?`, `next-check` |
 | `…podcast.validate` | Registry-driven validation, with PSP-1 and Apple profiles |
-| `…podcast.chapters` | JSON Chapters and Podlove Simple Chapters |
+| `…podcast.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters read from the timestamps in show notes |
 | `…podcast.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, speakers included; `turns` merges word-level segments |
 | `…podcast.opml` | Subscription lists |
-| `…podcast.value` | Value-for-value arithmetic: splits, fees, time splits, remote blocks folded in |
+| `…podcast.value` | Value-for-value arithmetic: splits, fees, time splits, remote blocks folded in; the boostagram record a payment carries |
 | `…podcast.index` | Podcast Index API: requests with auth, responses mapped onto the model, remote value resolution |
 | `…podcast.guid` | `podcast:guid` (UUIDv5) and SHA-1 |
 | `…podcast.time` | RFC 2822 and ISO 8601 dates, durations, timestamps |

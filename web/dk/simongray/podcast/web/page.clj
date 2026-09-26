@@ -160,6 +160,9 @@
            (when-let [t (resolve/transcript item)] [[:span.badge (str "transcript " (:type t))]])
            (when (resolve/chapters-url item) [[:span.badge "chapters"]])
            (when (resolve/embedded-chapters item) [[:span.badge "embedded chapters"]])
+           (when (and (not (resolve/chapters-url item)) (not (resolve/embedded-chapters item))
+                      (resolve/inferred-chapters item))
+             [[:span.badge "chapters in the notes"]])
            (for [p people] [:span.badge {:class (when-not own-people? "muted")} (str (:role p) ": " (:name p))])
            (when (resolve/value feed item) [[:span.badge "value"]])
            (when (seq (:podcast/soundbites item)) [[:span.badge "soundbites"]])
@@ -185,7 +188,10 @@
                (when-let [live (seq (:podcast/live-items feed))] (str " · " (count live) " live"))
                (when (resolve/explicit? feed) " · explicit")
                (when (resolve/complete? feed) " · complete")
-               (when (resolve/locked? feed) " · locked")]
+               (when (resolve/locked? feed) " · locked")
+               (when (= "serial" (some-> (:itunes/type feed) str/lower-case)) " · serial")
+               (when-let [t (resolve/next-check feed (java.util.Date.))]
+                 (str " · next check " (time/format-rfc2822 t)))]
               (when-let [paths (seq (resolve/categories feed))]
                 [:div.muted (str/join " · " (map #(str/join " › " %) paths))])
               [:div.muted "guid " [:code (or (feed/feed-guid feed url) "?")]
@@ -230,13 +236,16 @@
 
 (defn- chapters-section
   "The chapters of an item: the JSON file when it was fetched and parsed,
-  the embedded Podlove chapters otherwise."
-  [{:keys [chapters embedded]}]
-  (let [doc (or (:parsed chapters) embedded)]
+  the embedded Podlove chapters otherwise, and failing both the timestamps
+  read out of the show notes."
+  [{:keys [chapters embedded inferred]}]
+  (let [doc (or (:parsed chapters) embedded inferred)]
     (list
      [:h2 "Chapters"]
      (when chapters (companion-status chapters "JSON chapters file:"))
      (when embedded [:p.muted "Embedded Podlove chapters present."])
+     (when (and inferred (= doc inferred))
+       [:p.muted "Read from the timestamps in the show notes; the feed offers no chapters."])
      (if-not doc
        [:p.muted "None."]
        (list

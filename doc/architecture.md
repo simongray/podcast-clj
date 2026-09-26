@@ -208,7 +208,13 @@ where the overlaps are settled, once, in pure functions over the model:
 (`live-items`, `live?`), and for the feed as a whole `medium`, `list-feed?`,
 `complete?`, `next-episode` (from the recurrence rule of
 `podcast:updateFrequency`, evaluated by `rrule/occurrences`), `locked?`,
-`new-feed-url`, `self-url` and `categories`. Each docstring states its
+`new-feed-url`, `self-url` and `categories`; `blocked?` for what the block
+tags of three vocabularies say to one platform; and for presenting a show
+`episodes`, the items in listening order (newest first, or for a serial show
+by season and number with trailers and bonuses placed by Apple's rules),
+`seasons` to group them, and `next-check`, when a poller should look again:
+the update-frequency rule, the ttl, the syndication period, or the cadence
+of the recent items. Each docstring states its
 precedence. The two-argument forms
 take the feed and an item and apply the inheritance the specifications
 describe: people on an item replace the feed's entirely, a value block on an
@@ -281,7 +287,10 @@ reported.
 
 - **Chapters** (`chapters`): JSON Chapters 1.2 parse and emit, and the Podlove
   Simple Chapters (`psc:`) elements that six of the hosts in the corpus still
-  embed, normalized to the same chapter shape.
+  embed, normalized to the same chapter shape. `from-text` reads the third
+  source, the timestamp lists in show notes: in the sweep three times as
+  many episodes list their chapters that way as link a chapters file, so an
+  app gets chapters for them too, reported as inferred.
 - **Transcripts** (`transcript`): SRT, WebVTT (with `<v>` speaker spans), JSON
   segments, the constrained HTML form and plain text, all read into one
   segment model; VTT, SRT and JSON emitted from it. The wild taught it a few
@@ -306,7 +315,9 @@ reported.
   Replicant, Reagent or Rum.
 - **Value** (`value`): the effective value block for an item (item overrides
   channel), share and fee arithmetic, and the recipients active at a
-  playback position given `valueTimeSplit`s. Pure arithmetic; no payments.
+  playback position given `valueTimeSplit`s. Pure arithmetic; no payments,
+  but `boostagram` writes the bLIP-10 record an app attaches to the keysend
+  payment it makes.
 - **Podcast Index** (`index`): a request builder that produces
   `{:method :url :headers}` with the SHA-1 auth header computed, so any HTTP
   client can send it, and a response reader that maps the index's feed,
@@ -381,6 +392,11 @@ its keep.
 The date parser, the duration parser and the UUIDv5 computation are written
 once in `.cljc` from arithmetic and regular expressions rather than from
 `java.time` or `js-joda`, so they behave identically everywhere.
+
+On the JVM the front door adds `fetch!`, the one step a poller repeats: the
+conditional headers go out, a parsed feed or a 304 comes back with the
+validators for next time, the URL is the final one after redirects, and the
+feed's own new-feed-url is surfaced when it declares one.
 
 The JS adapter uses only the standard DOM API (`parseFromString`,
 `getElementsByTagName`, `item`, `nodeName`, `nodeValue`), so any DOMParser
@@ -468,3 +484,8 @@ to test it; it touches nothing but the public API.
     aligned with the rest of `resolve`; the plumbing hidden from the API
     documentation with `:no-doc`; `rrule` split out of `time`; the linter
     in CI and a test that keeps the generated documents current. Done.
+18. Podcast-specific ergonomics the sweep ranked: chapters from the
+    timestamp lists in show notes, `fetch!` as the poller's one step with
+    `next-check` for when to return, `episodes` and `seasons` for the
+    listening order, the boostagram record, `blocked?`, and an enclosure
+    chooser with preferences. Done.

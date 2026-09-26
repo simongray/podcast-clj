@@ -175,6 +175,11 @@
       (resolve/embedded-chapters item)
       (assoc :embedded (resolve/embedded-chapters item))
 
+      (and (not (resolve/chapters-url item))
+           (not (resolve/embedded-chapters item))
+           (resolve/inferred-chapters item))
+      (assoc :inferred (resolve/inferred-chapters item))
+
       transcript-ref
       (assoc :transcript
              (-> (companion (:url transcript-ref) #(transcript/parse % (:type transcript-ref)))

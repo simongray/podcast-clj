@@ -15,11 +15,15 @@
   document is malformed. Everything the lenient path did is in the report.
   Every function here takes `:registry` in its options, the tag registry to
   interpret, so that a vocabulary extended with a client's own elements (see
-  `dk.simongray.podcast.spec/registry`) reads and writes like the library's."
+  `dk.simongray.podcast.spec/registry`) reads and writes like the library's.
+  On the JVM, `fetch!` goes from a URL to a parsed feed in one step, with
+  what a poller needs to come back."
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.quirks :as quirks]
-            [dk.simongray.podcast.xml :as xml]))
+            [dk.simongray.podcast.xml :as xml]
+            #?@(:clj [[dk.simongray.podcast.http :as http]
+                      [dk.simongray.podcast.resolve :as resolve]])))
 
 (defn- malformed?
   [e]
@@ -118,6 +122,33 @@
    (emit feed {}))
   ([feed opts]
    (xml/emit (feed/emit feed opts))))
+
+#?(:clj
+   (defn fetch!
+     "Fetch the feed at `url` and parse it, the one step a poller repeats:
+
+         {:status 200 :url \"…\"           ; the final URL, after redirects
+          :etag \"…\" :last-modified \"…\"  ; to hand back next time
+          :feed {…} :report [...]          ; absent on a 304, and on any status but 200
+          :new-feed-url \"…\"}             ; when the feed declares it has moved
+
+     `opts` may carry the `:etag` and `:last-modified` of the last fetch,
+     which a server answers with a 304 when nothing changed; the
+     `:timeout-seconds`, `:max-bytes` and `:user-agent` of `http/fetch!`;
+     and the `:quirks?` and `:registry` of `parse`. A network failure, a
+     body over `:max-bytes` and a body that is not XML at all throw, as
+     `http/fetch!` and `parse` do."
+     ([url]
+      (fetch! url {}))
+     ([url opts]
+      (let [{:keys [status body] :as response}
+            (http/fetch! url (select-keys opts [:etag :last-modified :timeout-seconds :max-bytes :user-agent]))
+            result (select-keys response [:status :url :etag :last-modified])]
+        (if (and (= 200 status) body)
+          (let [feed (parse body (select-keys opts [:quirks? :registry]))]
+            (cond-> (assoc result :feed feed :report (report feed))
+              (resolve/new-feed-url feed) (assoc :new-feed-url (resolve/new-feed-url feed))))
+          result)))))
 
 (defn summarize
   "Group `diagnostics`, from `report` or from `dk.simongray.podcast.validate`,

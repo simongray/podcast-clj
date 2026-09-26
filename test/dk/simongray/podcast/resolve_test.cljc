@@ -115,7 +115,22 @@
     (is (= "https://example.com/ep3_chapters.json" (resolve/chapters-url item)))
     (is (= [{:start-time 0 :title "Intro"}]
            (:chapters (resolve/embedded-chapters {:psc/chapters {:chapters [{:start "00:00:00.000" :title "Intro"}]}}))))
-    (is (nil? (resolve/embedded-chapters {})))))
+    (is (nil? (resolve/embedded-chapters {})))
+    (testing "chapters inferred from the show notes"
+      (is (= ["Intro" "Outro"]
+             (map :title (:chapters (resolve/inferred-chapters {:rss/description "<p>00:00 Intro<br>45:00 Outro</p>"})))))
+      (is (nil? (resolve/inferred-chapters item))))))
+
+(deftest enclosures-by-preference
+  (let [item {:rss/enclosure {:url "https://a/1.mp3" :type "audio/mpeg"}
+              :podcast/alternate-enclosures [{:type "audio/opus" :bitrate 32000 :sources [{:uri "https://a/lo.opus"}]}
+                                             {:type "audio/opus" :bitrate 96000 :default true :sources [{:uri "https://a/hi.opus"}]}
+                                             {:type "video/mp4" :bitrate 2000000 :sources [{:uri "https://a/1.mp4"}]}]}]
+    (is (= "https://a/1.mp3" (:url (resolve/enclosure item))))
+    (is (= "https://a/hi.opus" (:url (resolve/enclosure item {:types ["audio/opus"]}))))
+    (is (= "https://a/lo.opus" (:url (resolve/enclosure item {:types ["audio/opus"] :max-bitrate 64000}))))
+    (is (= "https://a/1.mp4" (:url (resolve/enclosure item {:types ["video/mp4" "audio/opus"]}))))
+    (is (= "https://a/1.mp3" (:url (resolve/enclosure item {:types ["audio/flac"]}))))))
 
 (deftest people-and-inheritance
   (let [f    @example
@@ -193,3 +208,66 @@
                                     :rss/items [{:rss/pub-date #inst "2026-01-12T09:00:00Z"}
                                                 {:rss/pub-date #inst "2026-01-05T09:00:00Z"}]}
                                    #inst "2026-01-12T10:00:00Z"))))))
+
+(deftest when-to-check-again
+  (let [at     #inst "2026-03-01T12:00:00Z"
+        weekly (fn [& dates] {:rss/items (map #(hash-map :rss/pub-date %) dates)})]
+    (is (= #inst "2026-03-01T12:30:00Z" (resolve/next-check {:rss/ttl 30} at)))
+    (is (= #inst "2026-03-02T00:00:00Z" (resolve/next-check {:sy/update-period "daily" :sy/update-frequency 2} at)))
+    (testing "the rule wins over everything"
+      (is (= #inst "2026-03-02T18:00:00Z"
+             (resolve/next-check {:rss/ttl 30
+                                  :podcast/update-frequency {:rrule {:freq "WEEKLY" :byday ["MO"]}
+                                                             :dtstart #inst "2026-01-05T18:00:00Z"}}
+                                 at))))
+    (testing "the cadence of recent items, and a late show checked at its cadence"
+      (is (= #inst "2026-03-05T09:00:00Z"
+             (resolve/next-check (weekly #inst "2026-02-26T09:00:00Z" #inst "2026-02-19T09:00:00Z" #inst "2026-02-12T09:00:00Z") at)))
+      (is (= #inst "2026-03-08T12:00:00Z"
+             (resolve/next-check (weekly #inst "2026-02-22T09:00:00Z" #inst "2026-02-15T09:00:00Z" #inst "2026-02-08T09:00:00Z") at))))
+    (is (nil? (resolve/next-check (weekly #inst "2026-02-22T09:00:00Z") at)))
+    (is (nil? (resolve/next-check {:rss/ttl 30 :itunes/complete true} at)))))
+
+(deftest blocking
+  (is (resolve/blocked? {:itunes/block true} :apple))
+  (is (not (resolve/blocked? {:itunes/block true} :spotify)))
+  (is (resolve/blocked? {:googleplay/block true} "google"))
+  (is (resolve/blocked? {:podcast/blocks [{:content true}]} :spotify))
+  (is (not (resolve/blocked? {:podcast/blocks [{:content true} {:id "google" :content false}]} :google)))
+  (is (resolve/blocked? {:podcast/blocks [{:id "Amazon" :content true}]} :amazon))
+  (is (not (resolve/blocked? {:podcast/blocks [{:id "amazon" :content true}]} :apple)))
+  (is (not (resolve/blocked? {} :apple)))
+  (testing "the specification example blocks everyone but Google and Amazon"
+    (is (resolve/blocked? @example :spotify))
+    (is (not (resolve/blocked? @example :google)))
+    (is (not (resolve/blocked? @example :amazon)))))
+
+(deftest listening-order
+  (let [ep   (fn [title date & {:keys [season episode type]}]
+               (cond-> {:rss/title title :rss/pub-date date}
+                 season  (assoc :itunes/season season)
+                 episode (assoc :itunes/episode episode)
+                 type    (assoc :itunes/episode-type type)))
+        show {:rss/items [(ep "E1" #inst "2026-01-01T00:00:00Z" :episode 1)
+                          (ep "E2" #inst "2026-01-08T00:00:00Z" :episode 2)
+                          (ep "Trailer" #inst "2025-12-20T00:00:00Z" :type "trailer")
+                          (ep "E3" #inst "2026-01-15T00:00:00Z" :episode 3)]}]
+    (testing "episodic: newest first, the trailer ahead"
+      (is (= ["Trailer" "E3" "E2" "E1"] (map :rss/title (resolve/episodes show))))
+      (is (= [{:items (resolve/episodes show)}] (resolve/seasons show))))
+    (testing "serial: by season and number, trailers and bonuses where Apple puts them"
+      (let [serial {:itunes/type "serial"
+                    :rss/items [(ep "S2E1" #inst "2026-03-01T00:00:00Z" :season 2 :episode 1)
+                                (ep "S1E2" #inst "2026-01-08T00:00:00Z" :season 1 :episode 2)
+                                (assoc (ep "S1E1" #inst "2026-01-01T00:00:00Z" :episode 1)
+                                       :podcast/season {:content 1 :name "First"})
+                                (ep "S1 trailer" #inst "2025-12-20T00:00:00Z" :season 1 :type "trailer")
+                                (ep "S1E1 bonus" #inst "2026-01-03T00:00:00Z" :season 1 :episode 1 :type "bonus")
+                                (ep "Show trailer" #inst "2025-12-01T00:00:00Z" :type "trailer")
+                                (ep "Show bonus" #inst "2026-04-01T00:00:00Z" :type "bonus")
+                                (ep "S2 bonus" #inst "2026-03-05T00:00:00Z" :season 2 :type "bonus")]}]
+        (is (= ["Show trailer" "S1 trailer" "S1E1" "S1E1 bonus" "S1E2" "S2E1" "S2 bonus" "Show bonus"]
+               (map :rss/title (resolve/episodes serial))))
+        (is (= [nil 1 2] (map :season (resolve/seasons serial))))
+        (is (= "First" (:name (second (resolve/seasons serial)))))
+        (is (= ["Show trailer" "Show bonus"] (map :rss/title (:items (first (resolve/seasons serial))))))))))

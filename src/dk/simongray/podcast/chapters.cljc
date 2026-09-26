@@ -17,6 +17,7 @@
   it had to forgive is in the report, metadata under `:podcast/report` read
   with `report`."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.html :as html]
             [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.time :as time]))
 
@@ -168,6 +169,53 @@
                           title (assoc :title title)
                           url   (assoc :href url)
                           img   (assoc :image img))])))
+
+;;;; Chapters from show notes
+
+(def ^:no-doc timestamp-first
+  "A line of show notes that starts with a timestamp: an optional list
+  marker, the time, perhaps in brackets, a separator, then the title."
+  #"^[ \t]*(?:[-*•–—]\s*|\d{1,2}[.)]\s+)?[\[(]?\s*((?:\d{1,2}:)?\d{1,2}:\d{2})\s*[\])]?\s*(?:[-–—:|.,]\s*)?(\S.*?)\s*$")
+
+(def ^:no-doc timestamp-last
+  "A line of show notes that ends with a timestamp: the title, a separator,
+  then the time, perhaps in brackets."
+  #"^[ \t]*(?:[-*•–—]\s*)?(\S.*?)\s*(?:[-–—:|,]\s*)?[\[(]?((?:\d{1,2}:)?\d{1,2}:\d{2})[\])]?[ \t]*$")
+
+(defn- line-chapter
+  "The chapter a line of show notes lists, by `pattern`, whose groups are
+  the timestamp and the title in the order `time-first?` says; nil when the
+  line lists none."
+  [pattern time-first? line]
+  (when-let [[_ a b] (re-matches pattern line)]
+    (let [[timestamp title] (if time-first? [a b] [b a])]
+      (when-let [seconds (time/parse-clock timestamp)]
+        {:start-time seconds :title title}))))
+
+(defn from-text
+  "The chapters listed as timestamps in the show notes `s`, HTML or plain
+  text, as a chapters map, or nil when they list none. A line per chapter,
+  \"12:34 The topic\" in any of the ways notes write it, with the time first
+  or, when no line starts with one, last, as in \"The topic (12:34)\"; two
+  such lines make a list when the time comes first, three in rising order
+  when it comes last, so that a stray mention of the clock is not a chapter.
+  The report says the chapters were inferred. Three times as many episodes
+  in the wild list their chapters this way as link a chapters file."
+  [s]
+  (let [lines    (str/split-lines (html/text (html/hiccup s)))
+        leading  (keep #(line-chapter timestamp-first true %) lines)
+        trailing (keep #(line-chapter timestamp-last false %) lines)
+        chapters (cond
+                   (<= 2 (count leading))
+                   leading
+
+                   (and (<= 3 (count trailing)) (apply < (map :start-time trailing)))
+                   trailing)]
+    (when chapters
+      (with-meta {:version version :chapters (vec chapters)}
+        {:podcast/report [(diagnostic :chapters/inferred :info
+                                      (str (count chapters) " chapters were read from timestamps in the show notes")
+                                      :count (count chapters))]}))))
 
 ;;;; Working with chapters
 

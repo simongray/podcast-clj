@@ -10,6 +10,7 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.chapters :as chapters]
             [dk.simongray.podcast.rrule :as rrule]
+            [dk.simongray.podcast.time :as time]
             [dk.simongray.podcast.value :as value]))
 
 ;;;; Text
@@ -191,14 +192,38 @@
      (cond-> (-> content (dissoc :file-size) (assoc :source :media))
        file-size (assoc :length file-size)))))
 
+(defn- type-rank
+  "The position of `type` among the preferred `types`, case ignored; after
+  them all when it is not among them."
+  [types type]
+  (or (first (keep-indexed (fn [i wanted] (when (= (str/lower-case wanted) (str/lower-case (str type))) i))
+                           types))
+      (count types)))
+
+(defn- source-rank
+  "The order of `enclosures` sources when nothing else tells them apart."
+  [source]
+  (case source :enclosure 0 :alternate 1 2))
+
 (defn enclosure
   "The one thing to play for `item`: its enclosure, else the alternate
-  marked default, else the first alternate or media content."
-  [item]
-  (let [all (enclosures item)]
-    (or (first (filter #(= :enclosure (:source %)) all))
-        (first (filter #(true? (:default %)) all))
-        (first all))))
+  marked default, else the first alternate or media content. With `opts`,
+  the candidate that best fits them, in this order of importance:
+
+      {:types       [\"audio/opus\" \"audio/mpeg\"]  ; preferred MIME types, most wanted first
+       :max-bitrate 64000}                          ; bits per second; candidates above it rank last
+
+  Among equals the enclosure comes first, then the default alternate, then
+  the rest as `enclosures` lists them."
+  ([item]
+   (enclosure item nil))
+  ([item {:keys [types max-bitrate]}]
+   (let [rank (fn [{:keys [type bitrate default is-default source]}]
+                [(if types (type-rank types type) 0)
+                 (if (and max-bitrate (number? bitrate) (> bitrate max-bitrate)) 1 0)
+                 (source-rank source)
+                 (if (or (true? default) (true? is-default)) 0 1)])]
+     (first (sort-by rank (enclosures item))))))
 
 (def transcript-preference
   "Transcript types in the order a client is best served by them: WebVTT
@@ -233,14 +258,6 @@
   [{:keys [type rel]}]
   (or (= "captions" (some-> rel str/lower-case))
       (contains? timed-transcript-types (str/lower-case (str type)))))
-
-(defn- type-rank
-  "The position of `type` among the preferred `types`, case ignored; after
-  them all when it is not among them."
-  [types type]
-  (or (first (keep-indexed (fn [i wanted] (when (= (str/lower-case wanted) (str/lower-case (str type))) i))
-                           types))
-      (count types)))
 
 (defn transcript
   "The transcript reference of `item` a client is best served by, chosen
@@ -277,6 +294,13 @@
   "The Podlove chapters embedded in `item` as a chapters document, or nil."
   [item]
   (some-> (:psc/chapters item) chapters/from-psc))
+
+(defn inferred-chapters
+  "The chapters listed as timestamps in the show notes of `item`, as a
+  chapters document, or nil; see `chapters/from-text`. What to fall back on
+  when `chapters-url` and `embedded-chapters` give nothing."
+  [item]
+  (chapters/from-text (description item)))
 
 ;;;; People and the rest the item may inherit
 
@@ -393,10 +417,76 @@
     (when (and (map? rrule) (not (complete? feed)))
       (rrule/next-occurrence rrule (or (when (inst? dtstart) dtstart) latest at) at))))
 
+(def ^:no-doc syndication-periods
+  "Milliseconds in each period sy:updatePeriod may name."
+  {"hourly" 3600000 "daily" 86400000 "weekly" 604800000 "monthly" 2629800000 "yearly" 31557600000})
+
+(defn- median
+  [xs]
+  (let [v (vec (sort xs))
+        n (count v)]
+    (if (odd? n)
+      (v (quot n 2))
+      (quot (+ (v (dec (quot n 2))) (v (quot n 2))) 2))))
+
+(defn- dates
+  "The instants of the dated items of `feed`, newest first, as milliseconds."
+  [feed]
+  (->> (:rss/items feed) (keep :rss/pub-date) (filter inst?) (map inst-ms) (sort >)))
+
+(defn- cadence
+  "The median gap in milliseconds between the ten most recent dated items
+  of `feed`; nil when fewer than two of them differ in date."
+  [feed]
+  (let [recent (take 10 (dates feed))
+        gaps   (filter pos? (map - recent (rest recent)))]
+    (when (seq gaps)
+      (median gaps))))
+
+(defn next-check
+  "When to look at `feed` again for something new, judged at `at`: the next
+  occurrence of its update-frequency rule; else `at` plus its ttl; else `at`
+  plus its syndication period divided by its syndication frequency; else the
+  latest item's date plus the median gap between its recent items, or `at`
+  plus that gap once that time has passed, since a show that is late is
+  checked at its usual cadence. Nil when the feed is complete, or gives no
+  basis at all: no rule, no ttl, no period and fewer than two dated items."
+  [feed at]
+  (when-not (complete? feed)
+    (let [now (inst-ms at)
+          ttl (:rss/ttl feed)]
+      (or (next-episode feed at)
+          (when (and (number? ttl) (pos? ttl))
+            (time/->inst (+ now (* ttl 60000))))
+          (when-let [period (syndication-periods (some-> (:sy/update-period feed) str/lower-case))]
+            (let [frequency (:sy/update-frequency feed)]
+              (time/->inst (+ now (quot period (if (and (number? frequency) (pos? frequency)) frequency 1))))))
+          (when-let [gap (cadence feed)]
+            (let [due (+ (first (dates feed)) gap)]
+              (time/->inst (if (> due now) due (+ now gap)))))))))
+
 (defn locked?
   "Whether `feed` forbids other platforms to import it."
   [feed]
   (true? (:content (:podcast/locked feed))))
+
+(defn blocked?
+  "Whether `x`, a feed or an item, asks `platform` not to show it, the
+  platform being a keyword or one of the slugs of `podcast:block`, such as
+  :apple, :google or :spotify. A podcast:block naming the platform decides
+  first, then one naming none, and failing both the legacy itunes:block
+  for Apple and googleplay:block for Google."
+  [x platform]
+  (let [slug    (str/lower-case (name platform))
+        blocks  (:podcast/blocks x)
+        named   (some #(when (= slug (some-> (:id %) str/lower-case)) %) blocks)
+        general (some #(when (nil? (:id %)) %) blocks)]
+    (cond
+      named             (true? (:content named))
+      general           (true? (:content general))
+      (= slug "apple")  (true? (:itunes/block x))
+      (= slug "google") (true? (:googleplay/block x))
+      :else             false)))
 
 (defn new-feed-url
   "Where `feed` says it has moved to, if anywhere."
@@ -425,11 +515,74 @@
   [feed]
   (vec (category-paths [] (:itunes/categories feed))))
 
+;;;; Listening order
+
+(defn- serial?
+  [feed]
+  (= "serial" (some-> (:itunes/type feed) str/lower-case)))
+
+(defn- date-ms
+  [item]
+  (let [d (:rss/pub-date item)]
+    (if (inst? d) (inst-ms d) 0)))
+
+(defn- serial-key
+  "Where `item` goes in a serial show: season by season, a season's trailer
+  first, then the episodes by number with a bonus right after the episode
+  it belongs to, then the season's bonuses; a show trailer before every
+  season, a show bonus after them all, and dates settle the rest."
+  [item]
+  (let [{:keys [type season episode]} (numbering item)
+        trailer? (= "trailer" type)
+        bonus?   (= "bonus" type)]
+    [(cond (and bonus? (nil? season)) ##Inf
+           :else                      (or season 0))
+     (if trailer? 0 1)
+     (if trailer? 0 (or episode ##Inf))
+     (if bonus? 1 0)
+     (date-ms item)]))
+
+(defn- episodic-key
+  "Where `item` goes in an episodic show: trailers first, then newest first."
+  [item]
+  [(if (= "trailer" (:type (numbering item))) 0 1)
+   (- (date-ms item))])
+
+(defn episodes
+  "The items of `feed` in listening order, as Apple Podcasts presents them:
+  newest first with the trailers ahead for an episodic show, the default;
+  for a serial show (itunes:type), season by season and episode by episode
+  from the first, a season's trailer at its head, a bonus right after the
+  episode it belongs to or at the end of its season, a show trailer before
+  everything and a show bonus after."
+  [feed]
+  (sort-by (if (serial? feed) serial-key episodic-key) (:rss/items feed)))
+
+(defn seasons
+  "The items of `feed` grouped by season, in listening order:
+
+      ({:season 2 :name \"The Sequel\" :items [...]} ...)
+
+  Seasons come in the order `episodes` reaches them, so newest first for an
+  episodic show and ascending for a serial one; items without a season form
+  a group without one, where their first item falls."
+  [feed]
+  (let [ordered (episodes feed)
+        season  #(:season (numbering %))]
+    (for [s     (distinct (map season ordered))
+          :let  [items (filterv #(= s (season %)) ordered)
+                 name  (some (comp :season-name numbering) items)]]
+      (cond-> {:items items}
+        s    (assoc :season s)
+        name (assoc :name name)))))
+
 #?(:clj
    (comment
      (require '[dk.simongray.podcast :as podcast])
      (def f (podcast/parse (slurp "test/resources/feeds/namespace-example.xml")))
      (artwork f)
+     (map :rss/title (episodes f))
+     (next-check f (java.util.Date.))
      (map #(select-keys (numbering %) [:season :episode]) (:rss/items f))
      (people f (first (:rss/items f)))
      (categories f)

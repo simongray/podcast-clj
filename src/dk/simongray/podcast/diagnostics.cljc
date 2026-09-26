@@ -101,6 +101,8 @@
     :doc "The document was written against an older version of the format."}
    {:id :chapters/bad-timestamps :level :warning
     :doc "Podlove chapters whose start is not a timestamp were dropped."}
+   {:id :chapters/inferred :level :info
+    :doc "The chapters were read from timestamps in the show notes rather than from a chapters file."}
 
    ;; validation
    {:id :validate/rss-version :level :warning

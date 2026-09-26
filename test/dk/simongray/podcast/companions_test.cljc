@@ -83,6 +83,23 @@
             [:psc/chapter {:start "00:12:30.500" :title "Main" :href "https://x" :image "https://i"}]]
            (chapters/to-psc doc)))))
 
+(deftest chapters-from-show-notes
+  (testing "timestamp lines at the start, however they are marked"
+    (let [doc (chapters/from-text "<p>Great episode.</p><ul><li>00:00 Intro</li><li>(05:12) - The news</li><li>[1:02:03] Wrap-up</li></ul>")]
+      (is (= [{:start-time 0 :title "Intro"} {:start-time 312 :title "The news"} {:start-time 3723 :title "Wrap-up"}]
+             (:chapters doc)))
+      (is (= [{:id :chapters/inferred :level :info :count 3}]
+             (map #(dissoc % :message) (chapters/report doc))))
+      (is (= "The news" (:title (chapters/at doc 400))))))
+  (testing "plain text with the time last, three lines rising"
+    (is (= ["Intro" "The news" "Wrap-up"]
+           (map :title (:chapters (chapters/from-text "Intro - 0:00\nThe news (5:12)\nWrap-up 1:02:03\n"))))))
+  (testing "one timestamp is not a list, nor is a mention of the clock"
+    (is (nil? (chapters/from-text "<p>Recorded at 10:30. Runtime 45:00.</p>")))
+    (is (nil? (chapters/from-text "00:00 Intro")))
+    (is (nil? (chapters/from-text "Doors 19:00\nShow 20:00")))
+    (is (nil? (chapters/from-text nil)))))
+
 ;;;; Transcripts
 
 (deftest transcript-formats
@@ -251,4 +268,17 @@
       (testing "outside a remote split nothing changes"
         (let [plain (value/recipients-at block 10)]
           (is (= plain (value/with-remote block plain remote))))))))
+
+(deftest boostagrams
+  (is (= {"podcast" "Podcasting 2.0" "guid" "917393e3" "url" "https://f/rss" "episode" "Episode 84"
+          "episode_guid" "PC2084" "ts" 754 "time" "00:12:34" "action" "boost"
+          "value_msat" 1000000 "value_msat_total" 5000000 "name" "Host" "app_name" "Inspector"
+          "message" "Great show" "uuid" "abc"}
+         (value/boostagram {:podcast "Podcasting 2.0" :feed-guid "917393e3" :feed-url "https://f/rss"
+                            :episode "Episode 84" :item-guid "PC2084" :position 754.4 :action :boost
+                            :sats 1000 :total-sats 5000 :name "Host" :app-name "Inspector"
+                            :message "Great show" :uuid "abc" :sender-name nil})))
+  (is (= {"action" "stream" "value_msat" 10000 "value_msat_total" 10000}
+         (value/boostagram {:action :stream :sats 10})))
+  (is (= {"action" "boost"} (value/boostagram {}))))
 

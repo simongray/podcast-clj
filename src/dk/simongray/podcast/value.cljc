@@ -7,8 +7,10 @@
   Value blocks and recipients are the maps `dk.simongray.podcast.feed`
   produces: `{:type \"lightning\" :method \"keysend\" :suggested 0.00000005
   :recipients [{:type \"node\" :address \"…\" :split 99 :fee false}]
-  :time-splits [...]}`."
-  (:require [clojure.string :as str]))
+  :time-splits [...]}`. `boostagram` writes the record an app attaches to
+  the payment it then makes."
+  (:require [clojure.string :as str]
+            [dk.simongray.podcast.time :as time]))
 
 (defn effective
   "The value block that applies to `item` in `feed`: the item's own when it
@@ -127,6 +129,42 @@
   (when-let [btc (:suggested block)]
     (when (number? btc)
       (long (Math/round (* btc 100000000.0))))))
+
+;;;; The record a payment carries
+
+(def ^:no-doc boostagram-keys
+  "The TLV record's name for each key of a payment map that is not simply
+  its snake_case."
+  {:feed-guid "guid" :feed-url "url" :feed-id "feedID" :item-guid "episode_guid" :item-id "itemID"})
+
+(defn boostagram
+  "The bLIP-10 record an app attaches to a keysend payment (TLV type
+  7629169), as a map with the record's own keys, ready for
+  `dk.simongray.podcast.json/write-str`, from the `payment` map:
+
+      {:podcast \"…\" :feed-guid \"…\" :feed-url \"…\" :feed-id 920666  ; the show
+       :episode \"…\" :item-guid \"…\" :item-id 16795090                ; the episode
+       :position 754                    ; seconds into it, written as ts and time
+       :action :boost                   ; :boost, :stream or :auto; :boost when absent
+       :sats 1000 :total-sats 5000      ; this recipient's share and the whole payment
+       :name \"Host\"                   ; the recipient's name from the value block
+       :app-name \"…\" :app-version \"…\" :sender-name \"…\" :sender-id \"…\" :message \"…\"
+       :remote-feed-guid \"…\" :remote-item-guid \"…\"}  ; when a time split sent it elsewhere
+
+  Any other key goes in as its snake_case name, so the rarer fields of the
+  specification (uuid, boost_link, reply_address, speed, signature) need no
+  special support. Nil values are left out."
+  [{:keys [position action sats total-sats] :as payment}]
+  (let [derived #{:position :action :sats :total-sats}
+        record  (into {} (for [[k v] payment
+                               :when (some? v)
+                               :when (not (derived k))]
+                           [(get boostagram-keys k (str/replace (name k) "-" "_")) v]))]
+    (cond-> (assoc record "action" (name (or action :boost)))
+      (number? position) (assoc "ts" (long (Math/floor position))
+                                "time" (subs (time/format-timestamp position) 0 8))
+      (number? sats)     (assoc "value_msat" (* 1000 (long sats))
+                                "value_msat_total" (* 1000 (long (or total-sats sats)))))))
 
 (comment
   (def block {:type "lightning" :method "keysend" :suggested 0.00000015
