@@ -19,8 +19,6 @@
             [dk.simongray.podcast.time :as time]
             #?(:clj [dk.simongray.podcast.http :as http])))
 
-;;;; Requests
-
 (def base-url
   "The root of the API's URLs; `endpoints` are relative to it."
   "https://api.podcastindex.org/api/1.0/")
@@ -122,8 +120,6 @@
      {:method  :get
       :url     (str base-url path (when (seq qs) (str "?" qs)))
       :headers (auth-headers credentials (or auth-date (now-seconds)))})))
-
-;;;; Responses, in the shape of the model
 
 (defn- ->number
   [x]
@@ -296,8 +292,6 @@
       (sequential? (get raw "liveItems")) (assoc :live-items (mapv episode->model (get raw "liveItems")))
       (map? (get raw "value"))      (assoc :value (value->block (get raw "value"))))))
 
-;;;; Resolving the remote items of value time splits
-
 (defn remote-value-requests
   "The requests that resolve the value block the `remote-item` of a time
   split points at, to try in order: the item's own block when the remote
@@ -330,8 +324,6 @@
   ClojureScript use the requests directly instead."
   [credentials remote-item send]
   (some #(block-in (:body (send %))) (remote-value-requests credentials remote-item)))
-
-;;;; Resolving remote items themselves
 
 (defn remote-item-requests
   "The requests that resolve `remote-item`, a podroll, publisher, list or

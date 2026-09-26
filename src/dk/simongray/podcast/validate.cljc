@@ -82,8 +82,6 @@
   [entry v path]
   (typed-diagnostics (spec/content-type entry) (:values entry) v path false))
 
-;;;; Structural rules beyond what the registry expresses
-
 (defn- count-children
   [m k]
   (count (get m k)))
@@ -140,8 +138,6 @@
      (when-not (guid/guid? v)
        [(diagnostic :validate/invalid-guid :warning path
                  (str "podcast:guid " (pr-str v) " is not a UUID"))]))})
-
-;;;; The walk
 
 (declare children-diagnostics)
 
@@ -211,8 +207,6 @@
               (str "unknown element " (pr-str (first element)))
               :tag (first element)))))
 
-;;;; RSS 2.0 basics
-
 (defn- rss-diagnostics
   [feed]
   (concat
@@ -231,8 +225,6 @@
          :when (not (:rss/enclosure item))]
      (diagnostic :validate/missing-enclosure :warning [:rss/items i :rss/enclosure]
               "the item has no enclosure, so there is nothing to play"))))
-
-;;;; Profiles
 
 (def profiles
   "Required and recommended elements per profile, at channel and item level.

@@ -46,8 +46,6 @@
   and `:country` for Apple or `:language` for fyyd and the Podcast Index."
   #{:search :lookup :trending})
 
-;;;; Requests
-
 (def ^:no-doc user-agent
   "The User-Agent sent to the directories."
   "dk.simongray/podcast")
@@ -119,8 +117,6 @@
      :fyyd         (fyyd-request endpoint params)
      :gpodder      (gpodder-request endpoint params)
      :podcastindex (podcastindex-request endpoint params credentials (select-keys opts [:auth-date])))))
-
-;;;; Responses, as shows in the shape of the model
 
 (defn- present
   "`m` without the entries that say nothing: nil, a blank string or an
@@ -253,8 +249,6 @@
                                  (map fyyd-show (if (map? data) [data] data))))
                     :gpodder (map gpodder-show (if (map? raw) [raw] raw)))))]
     (vec (if (= :trending endpoint) (ranked shows) shows))))
-
-;;;; Several sources, one list
 
 (defn- name-of
   "The title and author of `show`, lower-cased: what tells shows apart when

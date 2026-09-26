@@ -70,8 +70,6 @@
   (str route "?url=" (encode url)
        (apply str (for [[k v] params :when v] (str "&" (name k) "=" (encode v))))))
 
-;;;; Home
-
 (defn home
   "The landing page: a URL form and the corpus, `corpus` being a seq of
   `[name url]`."
@@ -100,8 +98,6 @@
                    (for [[name url] corpus]
                      [:li [:a {:href (str "/corpus/" name)} name] " " [:span.muted url]])]))))
 
-;;;; Diagnostics
-
 (defn- level-class
   [level]
   (name (or level :info)))
@@ -123,8 +119,6 @@
          [:td message
           (when-let [extras (seq (dissoc example :id :level :message :path))]
             [:span.muted (str " · " (str/join ", " (for [[k v] extras] (str (name k) "=" (pr-str v)))))])]])]]))
-
-;;;; The feed
 
 (defn- kv-table
   "A table of the entries of `m`, values pretty-printed."
@@ -288,8 +282,6 @@
              [:tbody (map-indexed (partial item-row url feed) (take 200 items))]]
             (when (> (count items) 200)
               [:p.muted (str "Showing the first 200 of " (count items) " items.")]))))
-
-;;;; One item, with its companions fetched
 
 (defn- companion-status
   "A line about a fetched companion file: `{:url :status :error :parsed}`."

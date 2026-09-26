@@ -43,8 +43,6 @@
   (when (js/isFinite x)
     (js/Math.floor x)))
 
-;;;; State
-
 (defn- fresh
   []
   {:player (player/state "browser") :titles {}})
@@ -122,8 +120,6 @@
     :audio/time   (time-update! (first args) (.-target e))
     nil))
 
-;;;; Adding episodes: /queue?add=<feed url>&guid=<item guid>&mode=next|last
-
 (defn- add-from-query!
   []
   (let [params (js/URLSearchParams. js/location.search)
@@ -140,16 +136,12 @@
                      (operate! (if (= mode "next") player/play-next player/enqueue) id))))
           (.catch #(swap! app assoc :error (str %)))))))
 
-;;;; Rendering
-
 (defn- render!
   []
   (when-let [bar (js/document.getElementById "player-bar")]
     (replicant/render bar (view/bar @app)))
   (when-let [el (js/document.getElementById "app")]
     (replicant/render el (view/page @app))))
-
-;;;; Navigation that keeps the player alive
 
 (defn- same-origin?
   [href]

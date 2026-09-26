@@ -40,8 +40,6 @@
   [feed url item]
   [(feed/feed-guid feed url) (feed/item-guid item)])
 
-;;;; Subscriptions
-
 (def default-settings
   "What a subscription is set to until `configure` says otherwise: whether
   new episodes join the queue and the seconds to skip at the start and the
@@ -95,8 +93,6 @@
                #(stamp state (update % :settings clojure.core/merge settings) at))
     state))
 
-;;;; Listener preferences
-
 (def default-preferences
   "How the listener likes to listen, until `prefer` says otherwise: the
   seconds a skip jumps forward and back, and the playback rate."
@@ -119,8 +115,6 @@
   listener's preference."
   [state feed-guid]
   (or (:rate (settings state feed-guid)) (:rate (preferences state))))
-
-;;;; Episodes
 
 (def played-threshold
   "How many seconds before the end of an episode count as having heard it."
@@ -197,8 +191,6 @@
        (sort-by (fn [[_ e]] (- (inst-ms (or (:played-at e) (:updated-at e))))))
        (map key)))
 
-;;;; The queue
-
 (defn queue
   "The episode ids queued in `state`, the current one first."
   [state]
@@ -260,8 +252,6 @@
     (set-queue state (rest (queue state)) at)
     state))
 
-;;;; New episodes
-
 (defn new-episodes
   "The ids of the items that the parse `after` of the feed at `url` has and
   the earlier parse `before` had not, oldest first."
@@ -284,8 +274,6 @@
                     state)]
     {:state state :added added}))
 
-;;;; OPML
-
 (defn to-opml
   "The live subscriptions of `state` as a subscription list for
   `dk.simongray.podcast.opml/emit`, titles in order, each outline carrying
@@ -306,8 +294,6 @@
               state))
           state
           (:subscriptions list)))
-
-;;;; Merging the states of several devices
 
 (defn- later
   "The later of the stamped entries `a` and `b`; on the same instant the
@@ -338,8 +324,6 @@
            :queue         (later (:queue a) (:queue b))}
     (or (:preferences a) (:preferences b))
     (assoc :preferences (later (:preferences a) (:preferences b)))))
-
-;;;; Driving the state from a player
 
 (defn step
   "Advance `state` by the player `event` at `at`, returning `{:state ...

@@ -36,8 +36,6 @@
   "A cue timing line in SRT or WebVTT: start, arrow, end, optional settings."
   #"^\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}[.,]\d{1,3})\s*-->\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}[.,]\d{1,3})")
 
-;;;; The report
-
 (defn report
   "The diagnostics recorded while reading `transcript`."
   [transcript]
@@ -64,8 +62,6 @@
               (str n " cues name their speaker with a \"Name:\" prefix; "
                    "the name is carried over the cues that follow")
               :count n)]))
-
-;;;; Shared pieces
 
 (defn- paragraphs
   "The blank-line separated stretches of `s`."
@@ -110,8 +106,6 @@
       (cond-> {:start (time/parse-clock from) :end (time/parse-clock to) :body body}
         speaker (assoc :speaker speaker)))))
 
-;;;; SRT
-
 (defn parse-srt
   "Read the SRT transcript `s`."
   [s]
@@ -136,8 +130,6 @@
                                 (time/format-timestamp (or end start) ",") "\n"
                                 (when speaker (str speaker ": ")) body))
                          (:segments transcript))))
-
-;;;; WebVTT
 
 (defn- strip-tags
   [s]
@@ -180,8 +172,6 @@
                         (when speaker (str "<v " speaker ">")) body)))
        "\n"))
 
-;;;; JSON
-
 (defn parse-json
   "Read the JSON transcript `s`: `{\"version\" \"segments\" [{\"speaker\"
   \"startTime\" \"endTime\" \"body\"}]}`. Times written as strings are read
@@ -217,8 +207,6 @@
                     end     (assoc "endTime" end)
                     speaker (assoc "speaker" speaker)))}
     {:pretty? pretty?})))
-
-;;;; HTML
 
 (defn- tidy
   "Collapse the layout whitespace of the HTML text `s`, keeping blank lines
@@ -271,8 +259,6 @@
                                 "the HTML is an SRT file with every line wrapped in a p element")))
       (with-report {:format :html :segments (html-segments tokens)} []))))
 
-;;;; Plain text
-
 (defn parse-text
   "Read the plain-text transcript `s`: one segment per paragraph, with
   \"Name:\" prefixes as speakers, carried over the paragraphs that follow."
@@ -288,8 +274,6 @@
                       carry-speakers)]
     (with-report {:format :text :segments segments}
       (prefix-diagnostics (:prefixes @stats 0)))))
-
-;;;; Reading any format
 
 (defn sniff
   "Guess the format of the transcript text `s`."
@@ -344,8 +328,6 @@
                              (str "declared as " (name declared) " but the file is "
                                   (name format) ", which is how it was read")
                              :declared declared :used format))))))
-
-;;;; Working with transcripts
 
 (defn turns
   "`transcript` with consecutive segments by the same speaker merged into

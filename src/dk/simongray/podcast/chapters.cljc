@@ -52,8 +52,6 @@
     (into {} (for [[k v] m :when (some? v)]
                [(get inverse k (if (keyword? k) (name k) k)) v]))))
 
-;;;; The report
-
 (defn report
   "The diagnostics recorded while reading `doc`."
   [doc]
@@ -100,8 +98,6 @@
                           "the specification is at " version)
                      :version v)))))
 
-;;;; JSON Chapters
-
 (defn- read-chapter
   [m]
   (let [chapter (rename chapter-keys m)]
@@ -135,8 +131,6 @@
                                (update :chapters #(mapv write-chapter %))))
                    {:pretty? pretty?})))
 
-;;;; Podlove Simple Chapters
-
 (defn from-psc
   "The chapters map for the `psc:chapters` value of a feed item, i.e. the
   `:psc/chapters` map with `:chapters` of `:start`, `:title`, `:href` and
@@ -169,8 +163,6 @@
                           title (assoc :title title)
                           url   (assoc :href url)
                           img   (assoc :image img))])))
-
-;;;; Chapters from show notes
 
 (def ^:no-doc timestamp-first
   "A line of show notes that starts with a timestamp: an optional list
@@ -216,8 +208,6 @@
         {:podcast/report [(diagnostic :chapters/inferred :info
                                       (str (count chapters) " chapters were read from timestamps in the show notes")
                                       :count (count chapters))]}))))
-
-;;;; Working with chapters
 
 (defn sorted
   "The chapters of `doc` that have a start time, in order of it."

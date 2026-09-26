@@ -15,8 +15,6 @@
             [dk.simongray.podcast.time :as time]
             [dk.simongray.podcast.value :as value]))
 
-;;;; Text
-
 (defn title
   "The title of `x`: the RSS title, or the iTunes one when only that exists."
   [x]
@@ -64,8 +62,6 @@
   [x]
   (let [d (:rss/pub-date x)]
     (when (inst? d) d)))
-
-;;;; Artwork
 
 (defn- purposes
   "The purpose tokens of the podcast:image `image`, lower-cased."
@@ -126,8 +122,6 @@
   ([feed item]
    (or (artwork item) (artwork feed))))
 
-;;;; Flags and numbers
-
 (defn explicit?
   "Whether `x` is marked explicit: the iTunes flag, else Google Play's
   yes/no/clean; nil when unstated. With `feed` and `item`, the item's flag
@@ -167,8 +161,6 @@
       (:name season)     (assoc :season-name (:name season))
       (number? e)        (assoc :episode e)
       (:display episode) (assoc :episode-display (:display episode)))))
-
-;;;; Media
 
 (defn enclosures
   "Everything `item` offers to play, most conventional first: the enclosure,
@@ -304,8 +296,6 @@
   [item]
   (chapters/from-text (description item)))
 
-;;;; People and the rest the item may inherit
-
 (defn people
   "The people credited on `x`, roles and groups lower-cased with the
   specification's defaults filled in: `{:name :role :group :img :href}`.
@@ -358,8 +348,6 @@
   ([x] (first (:podcast/values x)))
   ([feed item] (value/effective feed item)))
 
-;;;; Live
-
 (def live-status-order
   "Live items in the order a listener cares about: on air, then upcoming,
   then over."
@@ -386,8 +374,6 @@
              (inst? start) (inst? at)
              (<= (inst-ms start) (inst-ms at))
              (or (not (inst? end)) (< (inst-ms at) (inst-ms end)))))))
-
-;;;; The feed as a whole
 
 (defn medium
   "What the content of `feed` is, lower-cased; \"podcast\" when unstated."
@@ -517,8 +503,6 @@
   [feed]
   (vec (category-paths [] (:itunes/categories feed))))
 
-;;;; Listening order
-
 (defn- serial?
   [feed]
   (= "serial" (some-> (:itunes/type feed) str/lower-case)))
@@ -583,8 +567,6 @@
       (cond-> {:items items}
         s    (assoc :season s)
         name (assoc :name name)))))
-
-;;;; Everything at once
 
 (defn- of-item
   "`f`, an accessor of an item alone, as one of a feed and an item."

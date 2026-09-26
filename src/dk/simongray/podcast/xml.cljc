@@ -29,8 +29,6 @@
                    [javax.xml.stream XMLInputFactory XMLStreamConstants
                                      XMLStreamException XMLStreamReader])))
 
-;;;; Namespaces
-
 (def namespaces
   "The canonical namespace URI of every alias the library knows about."
   {:itunes     "http://www.itunes.com/dtds/podcast-1.0.dtd"
@@ -53,8 +51,6 @@
   (assoc (set/map-invert namespaces)
     "https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/1.0.md"
     :podcast))
-
-;;;; Hiccup helpers
 
 (defn tag
   "The tag of the Hiccup `element`."
@@ -104,8 +100,6 @@
                      (when-not (str/blank? s) [s]))
                    group)))))
 
-;;;; Names
-
 (defn kebab
   "Turn the camelCase XML name `s` into kebab-case: startTime to start-time."
   [s]
@@ -120,8 +114,6 @@
   (if (namespace k)
     k
     (keyword (kebab (name k)))))
-
-;;;; Character and entity references
 
 (def ^:no-doc latin1-entities
   "The HTML entity names for code points 192 to 255, in order."
@@ -182,8 +174,6 @@
 
                    :else
                    whole))))
-
-;;;; Raw parsing
 
 (defn ^:no-doc strip-bom
   "Remove a byte order mark that survived decoding from the front of `s`."
@@ -346,8 +336,6 @@
      :cljs
      (node->raw (dom-parse (strip-bom xml)))))
 
-;;;; Namespace resolution
-
 (defn ^:no-doc split-qname
   "Split the raw XML name `s` into `[prefix local]`, `prefix` nil when absent."
   [s]
@@ -454,8 +442,6 @@
   prefix the document used for them."
   [tree]
   (:xml/namespaces (meta tree)))
-
-;;;; Emitting
 
 (def ^:no-doc illegal-characters
   "The characters XML 1.0 forbids anywhere, as a pattern."

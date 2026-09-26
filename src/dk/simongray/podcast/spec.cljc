@@ -32,8 +32,6 @@
   client's own entries, into the value every interpreter takes under
   `:registry` in its options; `default` is `tags` indexed.")
 
-;;;; Enumerations from the specifications
-
 (def mediums
   "Values of podcast:medium, without the list variants."
   #{"podcast" "music" "video" "film" "audiobook" "newsletter" "blog"
@@ -122,8 +120,6 @@
   "Every role in `taxonomy`."
   (into #{} (mapcat val) taxonomy))
 
-;;;; Attribute shorthands
-
 (def ^:no-doc url
   "Attribute shorthand: a URL."
   {:type :url})
@@ -147,8 +143,6 @@
 (def ^:no-doc bool
   "Attribute shorthand: true or false."
   {:type :boolean})
-
-;;;; The registry
 
 (def tags
   "Every element the library understands, in emit order."
@@ -560,8 +554,6 @@
    {:tag :item :key :rss/items :parent #{:channel} :count :many :content :none
     :doc "An episode."}])
 
-;;;; The registry as a value
-
 (defn registry
   "The tag `entries` indexed for the interpreters, which take the result
   under `:registry` in their options: `{:entries :by-tag :by-parent
@@ -596,8 +588,6 @@
   "The registry of `tags`: what every interpreter reads unless its options
   name another."
   (registry tags))
-
-;;;; Lookups
 
 (defn entry
   "The entry of `registry` for `tag` under `parent`, nil when none applies."

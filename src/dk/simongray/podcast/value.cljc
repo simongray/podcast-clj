@@ -130,8 +130,6 @@
     (when (number? btc)
       (long (Math/round (* btc 100000000.0))))))
 
-;;;; The record a payment carries
-
 (def ^:no-doc boostagram-keys
   "The TLV record's name for each key of a payment map that is not simply
   its snake_case."

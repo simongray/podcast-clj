@@ -26,8 +26,6 @@
             [dk.simongray.podcast.time :as time]
             [dk.simongray.podcast.xml :as xml]))
 
-;;;; Namespace URI variants
-
 (defn ^:no-doc uri-key
   "Normalize the namespace `uri` for lookup: no scheme, no case, no trailing
   slashes, since feeds get every one of them wrong."
@@ -65,8 +63,6 @@
         :when (and alias (not= alias (xml/uri->alias uri)))]
     {:id :quirk/namespace-variant :level :info :prefix prefix :uri uri
      :canonical (xml/namespaces alias)}))
-
-;;;; Repairing XML text
 
 (defn ^:no-doc map-outside-cdata
   "Apply `f` to every stretch of `s` that lies outside a CDATA section."
@@ -151,8 +147,6 @@
                 (not= xml xml') (update :report conj {:id id :level :warning}))))
           {:xml s :report []}
           repairs))
-
-;;;; Normalizing the tree
 
 (defn- rewrite
   "A rule that replaces every element tagged `tag` by `(f element)`."

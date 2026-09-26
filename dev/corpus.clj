@@ -98,8 +98,6 @@
         :errors     (count (filter (comp #{:error} :level) v))
         :unknown    (count (filter (comp #{:validate/unknown-element} :id) v))}))))
 
-;;;; The second corpus: the chapter and transcript files the feeds link to
-
 (def extensions
   "The file extension to save a companion file under, by its declared type."
   {"text/vtt" "vtt" "application/x-subrip" "srt" "application/json" "json"
@@ -172,8 +170,6 @@
           :note (or (:error doc)
                     (str "version " version " "
                          (str/join " " (map (comp name :id) (chapters/report doc)))))})))))
-
-;;;; The third corpus: hundreds of feeds sampled through the Podcast Index
 
 (def sweep-dir
   "Where the feeds sampled through the Podcast Index are kept."

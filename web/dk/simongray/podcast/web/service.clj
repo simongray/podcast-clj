@@ -35,8 +35,6 @@
        sort
        (map (fn [name] [name (str "corpus/" name)]))))
 
-;;;; Fetching, with a small cache so that the views of one feed share a parse
-
 (defonce ^{:doc "Fetched bodies by URL, with the time they were fetched."}
   cache
   (atom {}))
@@ -69,8 +67,6 @@
     (let [{:keys [body status]} (fetch url)
           feed (podcast/parse body)]
       {:url url :feed feed :report (podcast/report feed) :status status})))
-
-;;;; Responses
 
 (defn- html
   [hiccup]
@@ -144,8 +140,6 @@
   (feed-page (assoc-in request [:query-params :url]
                        (str "corpus/" (get-in request [:path-params :name])))))
 
-;;;; One item and its companion files
-
 (defn- companion
   "Fetch the companion file at `url` and parse its body with `parse`, as
   `{:url :status :parsed}` or `{:url :status :error}`; never throws."
@@ -215,8 +209,6 @@
           (-> (html (page/error-page (:url loaded) (str "No item with guid " guid)))
               (assoc :status 404)))))))
 
-;;;; Search
-
 (defonce ^{:doc "The corpus feeds parsed and indexed for the search page, on
   first use."}
   corpus-search
@@ -255,8 +247,6 @@
                   {url feed}
                   url))))))
 
-;;;; The directories
-
 (defn directory-page
   "The shows the directories answer for the `q` parameter, or their charts
   for the `country` parameter when there is no query, the Podcast Index
@@ -269,8 +259,6 @@
                  (directory/trending! opts)
                  (directory/search! q opts))]
     (html (page/directory-page (assoc answer :q q :country (:country opts))))))
-
-;;;; The browser player: a shell page, the episode data it asks for, and its script
 
 (defn queue-page
   "The shell the browser player mounts into; the player itself is
@@ -327,8 +315,6 @@
     ["/queue" :get queue-page :route-name :queue]
     ["/js/*path" :get js-file :route-name :js]
     ["/corpus/:name" :get corpus-page :route-name :corpus]})
-
-;;;; Lifecycle
 
 (defonce ^{:doc "The running connector, nil when stopped."}
   server

@@ -17,8 +17,6 @@
             [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.xml :as xml]))
 
-;;;; Parsing
-;;
 ;; The parse threads a context `ctx`: the `:registry` being interpreted and
 ;; the `:report` accumulator, a volatile.
 
@@ -183,8 +181,6 @@
   [feed]
   (mapv diagnostics/describe (:podcast/report (meta feed))))
 
-;;;; Normalizing
-
 (declare normalize-children)
 
 (defn- normalize-value
@@ -231,8 +227,6 @@
   ([feed {:keys [registry] :or {registry spec/default} :as opts}]
    {:pre [(map? opts)]}
    (normalize-children (spec/registry registry) :channel feed)))
-
-;;;; Emitting
 
 (declare emit-children)
 
@@ -295,8 +289,6 @@
                  (into [:channel {}] (emit-children registry :channel (dissoc feed :rss/version)))]
        {:xml/namespaces (:xml/namespaces (meta feed))}))))
 
-;;;; Identity
-
 (defn item-guid
   "The identity of `item`: its `<guid>`, or failing that its enclosure URL, as
   the namespace recommendations say."
@@ -310,8 +302,6 @@
   [feed url]
   (or (not-empty (:podcast/guid feed))
       (when url (guid/from-url url))))
-
-;;;; Change between two parses
 
 (defn- by-guid
   "The `items` that have an identity, by it."

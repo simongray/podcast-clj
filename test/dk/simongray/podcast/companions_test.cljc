@@ -29,8 +29,6 @@
   #?(:clj  (slurp (io/resource "transcripts/example.html"))
      :cljs (rc/inline "transcripts/example.html")))
 
-;;;; Chapters
-
 (deftest json-chapters
   (let [doc (chapters/parse-json complex-chapters)]
     (is (= "1.2.0" (:version doc)))
@@ -99,8 +97,6 @@
     (is (nil? (chapters/from-text "00:00 Intro")))
     (is (nil? (chapters/from-text "Doors 19:00\nShow 20:00")))
     (is (nil? (chapters/from-text nil)))))
-
-;;;; Transcripts
 
 (deftest transcript-formats
   (let [vtt  (transcript/parse vtt-text)
@@ -203,8 +199,6 @@
               {:start 2 :end 2.5 :body "(music)"}]
              (:segments t))))))
 
-;;;; OPML
-
 (deftest opml-round-trip
   (let [list (opml/parse "<opml version=\"2.0\"><head><title>Mine</title></head><body>
                 <outline text=\"Tech\"><outline type=\"rss\" text=\"PC20\" xmlUrl=\"https://feeds.podcastindex.org/pc20.xml\"/></outline>
@@ -216,8 +210,6 @@
            (:subscriptions list)))
     (is (= list (opml/parse (opml/emit list))))
     (is (re-find #"xmlUrl=\"https://atp.fm/rss\"" (opml/emit list)))))
-
-;;;; Value
 
 (def block
   {:type "lightning" :method "keysend" :suggested 1.5E-7

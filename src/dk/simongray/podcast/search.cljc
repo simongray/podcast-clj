@@ -35,8 +35,6 @@
             [dk.simongray.podcast.resolve :as resolve]
             [dk.simongray.podcast.transcript :as transcript]))
 
-;;;; Analysis
-
 (def ^:no-doc ligatures
   "Letters that decomposing leaves whole, spelled out when folding."
   {\æ "ae" \ø "o" \œ "oe" \ß "ss" \ð "d" \þ "th" \ł "l" \đ "d" \ħ "h" \ı "i" \ŋ "n" \ŧ "t"})
@@ -98,8 +96,6 @@
     (if (and (seq terms) (not (re-find #"\s$" q)))
       {:terms (pop terms) :prefix (peek terms)}
       {:terms terms})))
-
-;;;; Documents
 
 (defn- notes
   "The show notes of `x` as plain text."
@@ -170,8 +166,6 @@
                         :people      (names feed nil)
                         :categories  (str/join " " (map #(str/join " " %) (resolve/categories feed)))})
       :stored (into {} (filter (comp some? val)) {:title title :author author :url url})})))
-
-;;;; The index
 
 (def ^{:no-doc true :const true} span
   "The block of positions each field of a document gets. A term's
@@ -287,8 +281,6 @@
                                 (update-in [field :docs] inc)
                                 (update-in [field :length] + (count terms))))
                           fields analyzed)))))
-
-;;;; Ranking
 
 (def boosts
   "How much a match in each field weighs for `query`: a word in a title
@@ -552,8 +544,6 @@
                     (cond-> acc (< pos to) (conj {:text (subs text pos to)}))))]
      (cond-> parts
        (< to length) (conj {:text "…"})))))
-
-;;;; Filtering and ordering
 
 (defn- in?
   "Whether `actual` is `expected`, or one of them when `expected` is a set."

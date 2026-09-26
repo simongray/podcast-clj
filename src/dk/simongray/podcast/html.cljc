@@ -14,8 +14,6 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.xml :as xml]))
 
-;;;; Parsing
-
 (def ^:no-doc token-pattern
   "One token of HTML at a time: a comment, a CDATA section, a doctype or
   other declaration, a processing instruction, an end tag, a start tag, a
@@ -173,8 +171,6 @@
           (apply list (drop 2 (peek stack)))
           (recur (close-top stack)))))))
 
-;;;; Sanitizing
-
 (def allowed-tags
   "The elements `sanitize` keeps."
   #{:p :br :a :strong :b :em :i :u :s :strike :del :ins :mark :small :sup :sub
@@ -264,8 +260,6 @@
     (if (re-find #"<[a-zA-Z!/]" s)
       (sanitize (parse s))
       (paragraphs s))))
-
-;;;; Rendering
 
 (def ^:no-doc paragraph-tags
   "Elements set off by a blank line in text and Markdown."
@@ -375,8 +369,6 @@
                 (line-tags tag)      (str inner "\n")
                 :else                inner)))
           {}))
-
-;;;; Writing HTML
 
 (defn- escape
   [s]

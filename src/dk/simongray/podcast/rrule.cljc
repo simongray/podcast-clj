@@ -13,8 +13,6 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.time :as time]))
 
-;;;; Reading and writing
-
 (def ^:no-doc parts
   "The parts of a recurrence rule, as model keys and as written, in the
   order the RFC lists them."
@@ -89,8 +87,6 @@
                           (for [[k v] m
                                 :when (not (contains? names k))]
                             (part k v))))))
-
-;;;; Evaluation
 
 (def ^:no-doc weekday-codes
   "The RFC 5545 weekday codes, Sunday first as `time/days-from-civil` counts."

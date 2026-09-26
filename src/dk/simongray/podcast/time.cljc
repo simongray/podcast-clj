@@ -9,8 +9,6 @@
   arithmetic here."
   (:require [clojure.string :as str]))
 
-;;;; Civil calendar arithmetic (proleptic Gregorian, Howard Hinnant's algorithms)
-
 (defn ^:no-doc days-from-civil
   "The number of days from 1970-01-01 to the date `y`-`m`-`d`."
   [y m d]
@@ -54,8 +52,6 @@
       (* 86400000)
       (+ (* hh 3600000) (* mm 60000) (* ss 1000) ms)
       (- (* offset-minutes 60000))))
-
-;;;; RFC 2822 (RSS pubDate, lastBuildDate, podcast:trailer pubdate)
 
 (def ^:no-doc months
   "Month number by lowercase English name, full and abbreviated."
@@ -127,8 +123,6 @@
   [s]
   (boolean (re-matches rfc2822-strict-pattern s)))
 
-;;;; ISO 8601 (podcast:liveItem, updateFrequency dtstart, txt release)
-
 (def ^:no-doc iso8601-pattern
   "Groups: year, month, day, hour, minute, second, fraction, zone."
   #"^\s*(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?\s*(Z|z|[+-]\d{2}:?\d{2})?)?\s*$")
@@ -153,8 +147,6 @@
   [s]
   (when (string? s)
     (or (parse-rfc2822 s) (parse-iso8601 s))))
-
-;;;; Formatting
 
 (defn- pad2
   [n]
@@ -197,8 +189,6 @@
          (when (pos? millis)
            (str "." (subs (str (+ 1000 millis)) 1)))
          "Z")))
-
-;;;; Durations and timestamps within media
 
 (defn ^:no-doc whole->long
   "The long equal to `n` when it is a whole number, else `n` itself, so that
