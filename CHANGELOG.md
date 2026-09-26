@@ -79,6 +79,11 @@ Working toward 1.0, the first release.
   both platforms; `http/call!` sends any method. The inspector serves its
   sync folder over WebDAV at `/dav/`, and its browser player syncs through
   it on request.
+- Less to know: `backend` in one call for every store; `store/check!`,
+  which tries any store and reports for a settings screen; `webdav/handler`
+  in the library, for any Clojure backend; `sync/next-at`, when to sync
+  next; and the servers' URL shapes and the sync clients' folders tabled
+  in the guide, dated, rather than coded.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

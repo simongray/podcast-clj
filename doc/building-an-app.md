@@ -198,13 +198,17 @@ Nothing is scheduled; call it on start, on going to the background and
 after a burst of changes. The state is never replaced, only merged into.
 
 ```clojure
-(def folder (store/backend (file/store "/path/to/Dropbox/podcasts") {:opml? true :app "my-app"}))
-(def cloud  (store/backend (webdav/store "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
-                                         {:credentials {:username "simon" :password "app-password"}})))
+(def creds {:username "simon" :password "app-password"})         ; an app password, see the table below
+(def cloud-root "https://cloud.example.org/remote.php/dav/files/simon/podcasts/")
+(store/check! (webdav/store cloud-root {:credentials creds}))        ; => {:ok? true :checks [{:id :store/reachable …} …]}
 
-(def step (sync/sync! state [folder cloud] now))                        ; => {:state … :ctx {…} :report [] :failed {…}}
+(def cloud  (webdav/backend cloud-root {:credentials creds :opml? true :app "my-app"}))
+(def folder (file/backend "/Users/simon/Library/Mobile Documents/com~apple~CloudDocs/Podcasts" {:app "my-app"}))
+
+(def step (sync/sync! state [cloud folder] now))                        ; => {:state … :ctx {…} :report [] :failed {…}}
 (def state (:state step))
-(sync/sync! state [folder cloud] (java.util.Date.) {:ctx (:ctx step)})  ; the next step reads only what changed
+(sync/sync! state [cloud folder] (java.util.Date.) {:ctx (:ctx step)})  ; the next step reads only what changed
+(sync/next-at {:at now :changed? true :failures 0} (java.util.Date.))   ; when to call again, for your timer
 
 (player/devices state)                               ; the listener's devices, as they described themselves
 (player/retire state lost-phone-id now)              ; a lost device: its document goes, and it writes no more
@@ -212,11 +216,50 @@ after a burst of changes. The state is never replaced, only merged into.
 (player/from-opml state (opml/parse opml-text) now)
 ```
 
-A folder covers the sync clients, WebDAV the self-hosted world and the
-inspector's own folder at `/dav/`. The stores to come, Dropbox, Drive,
-CloudKit, the Git hosts and the gpodder services, are laid out in
-`doc/sync.md`; a store is four functions, so one you need is a short
-namespace to write meanwhile.
+Every store namespace has the same two: `store` over a place, and
+`backend` in one call with the options of both. `store/check!` tries any
+store and reports as data, for the settings screen's test button. A
+folder covers the sync clients, WebDAV the self-hosted world and the
+inspector's own folder at `/dav/`, and `webdav/handler` serves a store
+from your own Clojure backend for a browser client. The stores to come,
+Dropbox, Drive, CloudKit, the Git hosts and the gpodder services, are laid
+out in `doc/sync.md`; a store is four functions, so one you need is a
+short namespace to write meanwhile.
+
+### Where the stores are, as of September 2026
+
+Where a server keeps its collections and where a sync client keeps its
+folder are facts about those products, and they change with them, so the
+library holds none of them. This is a snapshot to start from, not a
+promise; the `check!` above says whether a line still holds.
+
+| WebDAV server | The collection's URL | The credentials |
+|---|---|---|
+| Nextcloud | `https://HOST/remote.php/dav/files/USER/FOLDER/` | An app password: Settings, Security, Devices & sessions |
+| ownCloud | `https://HOST/remote.php/dav/files/USER/FOLDER/` | An app password: Settings, Security |
+| Seafile | `https://HOST/seafdav/LIBRARY/FOLDER/` | The WebDAV password set under Settings |
+| Synology DiskStation | `https://HOST:5006/SHARED-FOLDER/FOLDER/` | The account's password, with the WebDAV Server package on |
+| Fastmail | `https://myfiles.fastmail.com/FOLDER/` | An app password for Files (WebDAV); the user is the email address |
+| Hetzner Storage Box | `https://BOX.your-storagebox.de/FOLDER/` | The box's password, with WebDAV enabled in the Robot |
+| Box | `https://dav.box.com/dav/FOLDER/` | The account's password, or an app password with two-step verification on |
+| The inspector | `http://localhost:8300/dav/` | None |
+
+A username that is an email address is percent-encoded in the path, as
+`simon%40example.org`.
+
+| Sync client | macOS | Windows | Linux |
+|---|---|---|---|
+| iCloud Drive | `~/Library/Mobile Documents/com~apple~CloudDocs/` | `%USERPROFILE%\iCloudDrive\` | |
+| Dropbox | `~/Dropbox/` | `%USERPROFILE%\Dropbox\` | `~/Dropbox/` |
+| Google Drive | `~/Library/CloudStorage/GoogleDrive-EMAIL/My Drive/` | A drive letter, `G:\My Drive\` by default | |
+| OneDrive | `~/Library/CloudStorage/OneDrive-Personal/` | `%USERPROFILE%\OneDrive\` | |
+| Seafile | `~/Seafile/` | `%USERPROFILE%\Seafile\` | `~/Seafile/` |
+| Nextcloud | `~/Nextcloud/` | `%USERPROFILE%\Nextcloud\` | `~/Nextcloud/` |
+| Syncthing | Wherever the folder was set up | | |
+
+iCloud Drive with "Optimize Mac Storage" evicts files it has not seen used
+and leaves a hidden `.name.icloud` placeholder, which the folder store
+rightly ignores until the file is downloaded again.
 
 ## 8. Value for value
 

@@ -27,6 +27,14 @@
 
 (def a ["feed-a" "a1"])
 
+(deftest a-backend-in-one-call
+  (let [b (webdav/backend "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
+                          {:credentials {:username "simon" :password "x"} :opml? true :app "test"})]
+    (is (= "cloud.example.org" (:name b)) "named after the host")
+    (is (fn? (:pull b)))
+    (is (fn? (:push b)))
+    (is (= "Nextcloud" (:name (webdav/backend "https://cloud.example.org/dav/" {:name "Nextcloud"}))))))
+
 (deftest requests
   (let [creds {:credentials {:username "simon" :password "app pass"}}
         listing (webdav/request :list root nil creds)]
@@ -147,6 +155,68 @@
       (player/progress a 900 3600 t2)))
 
 #?(:clj
+   (defn- ring
+     "A Ring request for the handler."
+     [method uri & {:keys [headers body]}]
+     {:request-method method :uri uri :headers (or headers {}) :body body}))
+
+#?(:clj
+   (deftest serving-a-store
+     (let [documents (atom {})
+           handler   (webdav/handler (store/memory documents) "/dav/")]
+       (testing "the collection, with and without its slash"
+         (is (= 207 (:status (handler (ring :propfind "/dav/")))))
+         (is (= 207 (:status (handler (ring :propfind "/dav")))))
+         (is (str/includes? (:body (handler (ring :propfind "/dav/"))) "<d:collection/>"))
+         (is (= 200 (:status (handler (ring :options "/dav/")))))
+         (is (= "1" (get-in (handler (ring :options "/dav/")) [:headers "DAV"])))
+         (is (= 405 (:status (handler (ring :get "/dav/")))))
+         (is (= 404 (:status (handler (ring :get "/elsewhere"))))))
+       (testing "a document put, listed, fetched and deleted, the name decoded"
+         (let [{:keys [status headers]} (handler (ring :put "/dav/phone%201.edn" :body "{:version 1 :state {}}"))]
+           (is (= 201 status))
+           (is (= "\"1\"" (get headers "ETag")))
+           (is (= ["phone 1.edn"] (keys @documents)))
+           (is (= "{:version 1 :state {}}" (:body (handler (ring :get "/dav/phone%201.edn")))))
+           (is (= "" (:body (handler (ring :head "/dav/phone%201.edn")))))
+           (is (str/includes? (:body (handler (ring :propfind "/dav/"))) "<d:href>/dav/phone%201.edn</d:href>"))
+           (is (= [{:name "phone 1.edn" :version "\"1\""}]
+                  (webdav/response :list (update (handler (ring :propfind "/dav/")) :headers #(into {} (map (fn [[k v]] [(str/lower-case k) [v]])) %)))))
+           (is (= 412 (:status (handler (ring :put "/dav/phone%201.edn" :body "x" :headers {"If-Match" "\"stale\""})))))
+           (is (= 412 (:status (handler (ring :put "/dav/phone%201.edn" :body "x" :headers {"if-none-match" "*"})))))
+           (is (= 204 (:status (handler (ring :put "/dav/phone%201.edn" :body "{}" :headers {"If-Match" "\"1\""})))))
+           (is (= 204 (:status (handler (ring :delete "/dav/phone%201.edn")))))
+           (is (= 404 (:status (handler (ring :delete "/dav/phone%201.edn")))))
+           (is (= 404 (:status (handler (ring :get "/dav/phone%201.edn")))))))
+       (testing "what is refused"
+         (is (= 400 (:status (handler (ring :put "/dav/sub/x.edn" :body "x")))) "no paths within the collection")
+         (is (= 405 (:status (handler (ring :lock "/dav/x.edn")))))
+         (is (= 405 (:status (handler (ring :mkcol "/dav/sub")))))
+         (is (= 201 (:status (handler (ring :mkcol "/dav/")))))))))
+
+#?(:clj
+   (deftest checking-a-collection
+     (testing "a collection that is not there yet is made for the probe"
+       (let [documents (atom {})]
+         (with-redefs [http/call! (stand-in documents)]
+           (let [{:keys [ok? checks]} (store/check! (webdav/store "https://dav.example.org/dav/"))]
+             (is ok?)
+             (is (every? :ok? checks) (pr-str checks))
+             (is (= {} (dissoc @documents ::created)) "the probe is gone")))))
+     (testing "a server that refuses the credentials"
+       (with-redefs [http/call! (fn [_] {:status 401 :headers {} :body "Unauthorized"})]
+         (let [{:keys [ok? checks]} (store/check! (webdav/store "https://dav.example.org/dav/" {:credentials {:username "x" :password "y"}}))]
+           (is (not ok?))
+           (is (= [[:store/reachable true] [:store/authenticated false]] (map (juxt :id :ok?) checks)))
+           (is (str/includes? (:message (second checks)) "401")))))
+     (testing "a server that cannot be reached"
+       (with-redefs [http/call! (fn [_] (throw (java.net.ConnectException. "Connection refused")))]
+         (let [{:keys [ok? checks]} (store/check! (webdav/store "https://dav.example.org/dav/"))]
+           (is (not ok?))
+           (is (= [[:store/reachable false]] (map (juxt :id :ok?) checks)))
+           (is (str/includes? (:message (first checks)) "Connection refused")))))))
+
+#?(:clj
    (deftest two-devices-through-a-webdav-collection
      (let [documents (atom {})]
        (with-redefs [http/call! (stand-in documents)]
@@ -190,6 +260,11 @@
              (.then (fn [laptop]
                       (is (= 900 (:position (player/episode (:state laptop) a))))
                       (is (= #{"feed-a" "feed-b"} (set (keys (player/subscriptions (:state laptop))))))
-                      (is (= #{"phone.edn" "laptop.edn"} (set (keys (dissoc @documents ::created)))))))
+                      (is (= #{"phone.edn" "laptop.edn"} (set (keys (dissoc @documents ::created)))))
+                      (store/check! (webdav/store "https://dav.example.org/dav/" {:fetch (fetch-stand-in documents)}))))
+             (.then (fn [{:keys [ok? checks]}]
+                      (is ok? (pr-str checks))
+                      (is (= 7 (count checks)))
+                      (is (= #{"phone.edn" "laptop.edn"} (set (keys (dissoc @documents ::created)))) "the probe is gone")))
              (.catch (fn [e] (is false (str "rejected: " e))))
              (.finally done))))))

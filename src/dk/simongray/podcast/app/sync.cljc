@@ -25,7 +25,8 @@
   may return a value or a promise."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [dk.simongray.podcast.app.player :as player]
-            [dk.simongray.podcast.diagnostics :as diagnostics]))
+            [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.time :as time]))
 
 (def version
   "The version of the document format, changed only when the meaning of a
@@ -102,6 +103,32 @@
   [state fetched at]
   (let [{:keys [states report]} (read-documents fetched at)]
     {:state (reduce player/merge state states) :report report}))
+
+(def default-cadence
+  "How long to wait before syncing again, in seconds: after a change to the
+  local state, when nothing changed, and after each failure in a row, the
+  last wait repeated."
+  {:after-change  10
+   :idle          900
+   :after-failure [30 60 300 900]})
+
+(defn next-at
+  "When to sync next, at the instant `now`: the `last` step's `:at` plus the
+  wait `cadence` (default `default-cadence`) gives for its outcome, whether
+  the local state has `:changed?` since it and how many `:failures` in a
+  row it ended with; never before `now`, and `now` when there was no step
+  yet. The library schedules nothing; an app's timer asks this and fires."
+  ([last now]
+   (next-at last now {}))
+  ([{:keys [at changed? failures]} now cadence]
+   (let [{:keys [after-change idle after-failure]} (merge default-cadence cadence)
+         failures (or failures 0)
+         wait     (cond
+                    (pos? failures) (nth after-failure (min (dec failures) (dec (count after-failure))))
+                    changed?        after-change
+                    :else           idle)
+         due      (if at (time/->inst (+ (inst-ms at) (* 1000 wait))) now)]
+     (if (< (inst-ms due) (inst-ms now)) now due))))
 
 (defn- failure
   "What a backend that threw `e` is recorded as."

@@ -8,7 +8,8 @@
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync :as sync]
-            [dk.simongray.podcast.app.sync.store :as store]))
+            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.time :as time]))
 
 (def t0 #inst "2026-01-01T00:00:00Z")
 (def t1 #inst "2026-01-01T01:00:00Z")
@@ -79,6 +80,87 @@
     (is (= [{:name "a.edn" :version "2"} {:name "b.edn" :version "1"}] (list)))
     (delete "b.edn")
     (is (= ["a.edn"] (map :name (list))))))
+
+(deftest when-to-sync-next
+  (let [at #inst "2026-01-01T00:00:00Z"
+        s  (fn [n] (time/->inst (+ (inst-ms at) (* 1000 n))))]
+    (is (= (s 900) (sync/next-at {:at at} (s 1))) "idle: a quarter of an hour")
+    (is (= (s 10) (sync/next-at {:at at :changed? true} (s 1))) "soon after a change")
+    (is (= (s 30) (sync/next-at {:at at :failures 1} (s 1))) "backing off after a failure")
+    (is (= (s 900) (sync/next-at {:at at :failures 9} (s 1))) "and no further than the last wait")
+    (is (= (s 900) (sync/next-at {:at at :failures 1 :changed? true} (s 1) {:after-failure [900]})) "a failure counts before a change")
+    (is (= (s 1000) (sync/next-at {:at at} (s 1000))) "never before now")
+    (is (= (s 5) (sync/next-at {} (s 5))) "now, when there was no step yet")
+    (is (= (s 60) (sync/next-at {:at at} (s 1) {:idle 60})) "the cadence is the app's to set")))
+
+(defn- refusing
+  "A store whose every call answers as a WebDAV server refusing the
+  credentials would."
+  []
+  (let [refuse (fn [& _] (throw (ex-info "The server answered 401 to list" {:type :webdav/failed :status 401})))]
+    {:name "refusing" :fetch refuse :put refuse :list refuse :delete refuse}))
+
+(defn- unreachable
+  "A store that cannot be listed."
+  []
+  {:name "gone" :fetch identity :put identity :delete identity
+   :list (fn [] (throw (ex-info "connection refused" {})))})
+
+(defn- forgetful
+  "A memory store that ignores a stale version."
+  []
+  (update (store/memory) :put (fn [put] (fn [name body _] (put name body {})))))
+
+#?(:clj
+   (deftest checking-a-store
+     (testing "a store that does everything"
+       (let [{:keys [ok? checks]} (store/check! (store/memory))]
+         (is ok?)
+         (is (= [:store/reachable :store/authenticated :store/listing :store/put :store/conflicts :store/fetch :store/delete]
+                (map :id checks)))
+         (is (every? :ok? checks))
+         (is (every? :message checks))
+         (is (str/includes? (:message (nth checks 2)) "0 documents"))))
+     (testing "the probe is gone afterwards, and the documents were never touched"
+       (let [documents (atom {})
+             s         (store/memory documents)]
+         ((:put s) "phone.edn" "{}" {})
+         (is (:ok? (store/check! s)))
+         (is (= ["phone.edn"] (keys @documents)))))
+     (testing "a store that ignores stale versions is usable, with a remark"
+       (let [{:keys [ok? checks]} (store/check! (forgetful))]
+         (is ok? (pr-str checks))
+         (is (= [false] (map :ok? (filter #(= :store/conflicts (:id %)) checks))))))
+     (testing "what cannot be reached, and what refuses the credentials"
+       (let [{:keys [ok? checks]} (store/check! (unreachable))]
+         (is (not ok?))
+         (is (= [[:store/reachable false]] (map (juxt :id :ok?) checks)))
+         (is (str/includes? (:message (first checks)) "connection refused")))
+       (let [{:keys [ok? checks]} (store/check! (refusing))]
+         (is (not ok?))
+         (is (= [[:store/reachable true] [:store/authenticated false]] (map (juxt :id :ok?) checks)))))))
+
+#?(:cljs
+   (deftest checking-a-store-with-promises
+     (async done
+       (-> (store/check! (store/memory))
+           (.then (fn [{:keys [ok? checks]}]
+                    (is ok? (pr-str checks))
+                    (is (= 7 (count checks)))
+                    (store/check! (forgetful))))
+           (.then (fn [{:keys [ok? checks]}]
+                    (is ok? (pr-str checks))
+                    (is (= [false] (map :ok? (filter #(= :store/conflicts (:id %)) checks))))
+                    (store/check! (unreachable))))
+           (.then (fn [{:keys [ok? checks]}]
+                    (is (not ok?))
+                    (is (= [[:store/reachable false]] (map (juxt :id :ok?) checks)))
+                    (store/check! (refusing))))
+           (.then (fn [{:keys [ok? checks]}]
+                    (is (not ok?))
+                    (is (= [[:store/reachable true] [:store/authenticated false]] (map (juxt :id :ok?) checks)))))
+           (.catch (fn [e] (is false (str "rejected: " e))))
+           (.finally done)))))
 
 #?(:clj
    (deftest a-folder-of-documents

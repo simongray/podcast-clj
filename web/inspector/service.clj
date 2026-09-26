@@ -9,6 +9,7 @@
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.app.sync.file :as file]
+            [dk.simongray.podcast.app.sync.webdav :as webdav]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed :as feed]
@@ -336,8 +337,8 @@
      ["/episode.edn" :get episode-edn :route-name :episode-edn]
      ["/queue" :get queue-page :route-name :queue]
      ["/js/*path" :get js-file :route-name :js]
-     ["/dav" :any (dav/handler sync-store "/dav/") :route-name :dav-collection]
-     ["/dav/*path" :any (dav/handler sync-store "/dav/") :route-name :dav]
+     ["/dav" :any (webdav/handler sync-store "/dav/") :route-name :dav-collection]
+     ["/dav/*path" :any (webdav/handler sync-store "/dav/") :route-name :dav]
      ["/corpus/:name" :get corpus-page :route-name :corpus]}))
 
 (defonce ^{:doc "The running connector, nil when stopped."}

@@ -52,6 +52,20 @@
       (finally
         (delete-recursively! dir)))))
 
+(deftest a-folder-checked-and-a-backend-in-one-call
+  (let [dir (temp-dir)]
+    (try
+      (let [{:keys [ok? checks]} (store/check! (file/store (io/file dir "new")))]
+        (is ok? (pr-str checks))
+        (is (every? :ok? checks))
+        (is (.isDirectory (io/file dir "new")) "the folder is there")
+        (is (empty? (.list (io/file dir "new"))) "and the probe is gone"))
+      (let [b (file/backend dir {:opml? true :name "Folder"})]
+        (is (= "Folder" (:name b)))
+        (is (nil? (:failed (sync/sync! (player/state "phone") [b] t1)))))
+      (finally
+        (delete-recursively! dir)))))
+
 (deftest two-devices-through-a-folder
   (let [dir     (temp-dir)
         backend (store/backend (file/store dir) {:opml? true})]

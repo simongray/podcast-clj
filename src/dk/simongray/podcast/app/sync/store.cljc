@@ -22,7 +22,16 @@
   own document, `<device-id>.edn`, and reads the others', so that no two
   writers ever meet and a folder any sync client mirrors is a complete
   backend; a store without `:list` holds one shared document instead, put
-  on condition of the version fetched and merged again on a conflict."
+  on condition of the version fetched and merged again on a conflict.
+  `check!` tries any store through this contract and reports, for a
+  settings screen's test button.
+
+  Every store namespace follows one convention, so that an app treats them
+  alike: `store` for the store over a place, and `backend` for the backend
+  in one call with the options of both. Where the places are, the URL a
+  server gives a collection or the folder a sync client keeps, is a fact
+  about the servers and the clients that changes with them, so the guide
+  lists the current ones rather than the library."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync :as sync]
@@ -161,6 +170,115 @@
                                   (-> next
                                       (assoc :state merged)
                                       (update :report #(into (vec report) %))))))))))))))
+
+(def probe-name
+  "The document `check!` writes and removes to see that it can; not an
+  `.edn`, so that a probe left behind is never read as a document."
+  "podcast-sync-probe.txt")
+
+(defn- attempt
+  "`(f)` as `{:value v}`, or `{:error e}` when it threw or, in
+  ClojureScript, rejected."
+  [f]
+  #?(:clj  (try {:value (f)} (catch Exception e {:error e}))
+     :cljs (-> (js/Promise.resolve nil)
+               (.then (fn [_] (f)))
+               (.then (fn [v] {:value v}))
+               (.catch (fn [e] {:error e})))))
+
+(defn- explain
+  [e]
+  (or (ex-message e) (str e)))
+
+(def ^:no-doc required-checks
+  "The checks that must pass for a store to hold one document per device."
+  #{:store/reachable :store/authenticated :store/put :store/fetch :store/delete})
+
+(defn- assess
+  "The checks, from what the probe of a store found."
+  [{:keys [listing put stale fetched delete gone]}]
+  (let [check    (fn [id ok? message] {:id id :ok? (boolean ok?) :message message})
+        status   (fn [answer] (:status (ex-data (:error answer))))
+        refused? (fn [answer] (contains? #{401 403} (status answer)))
+        version  (:version (:value put))]
+    (cond
+      (refused? listing)
+      [(check :store/reachable true "The store answered.")
+       (check :store/authenticated false (str "The credentials were refused: " (explain (:error listing))))]
+
+      (:error listing)
+      [(check :store/reachable false (str "The store could not be reached: " (explain (:error listing))))]
+
+      :else
+      (let [documents (:value listing)]
+        (cond-> [(check :store/reachable true "The store answered.")
+                 (check :store/authenticated true "The credentials were accepted.")
+                 (check :store/listing true (str "The store holds " (count documents) " document" (when (not= 1 (count documents)) "s") "."))]
+          put
+          (conj (cond
+                  (refused? put)  (check :store/put false (str "The credentials allow reading but not writing: " (explain (:error put))))
+                  (:error put)    (check :store/put false (str "A document could not be written: " (explain (:error put))))
+                  (nil? version)  (check :store/put false "A document was written but the store gave it no version.")
+                  :else           (check :store/put true "A document can be written and gets a version.")))
+          stale
+          (conj (check :store/conflicts (:conflict? (:value stale))
+                       (if (:conflict? (:value stale))
+                         "A stale version is refused, so one shared document would be safe too."
+                         "The store does not refuse a stale version; keep one document per device, which is the default.")))
+          fetched
+          (conj (let [{:keys [body version]} (:value fetched)
+                      written (or (:version (:value stale)) (:version (:value put)))]
+                  (check :store/fetch (and (= "probe" body) (= version written))
+                         (cond
+                           (:error fetched)      (str "The document could not be read back: " (explain (:error fetched)))
+                           (not= "probe" body)   "The document read back is not what was written."
+                           (not= version written) "The document read back has another version than the one written."
+                           :else                 "A document reads back as written, with its version."))))
+          delete
+          (conj (check :store/delete (and (not (:error delete)) (nil? (:value gone)))
+                       (cond
+                         (:error delete)      (str "The probe document could not be deleted: " (explain (:error delete)) "; remove " probe-name " by hand.")
+                         (some? (:value gone)) (str "The probe document is still there after deleting it; remove " probe-name " by hand.")
+                         :else                 "A document can be deleted."))))))))
+
+(defn check!
+  "Try `store` through its contract and report, for a settings screen's
+  test button:
+
+      {:ok?    true                       ; it can hold one document per device
+       :checks [{:id :store/reachable :ok? true :message \"The store answered.\"}
+                {:id :store/authenticated …} {:id :store/listing …}
+                {:id :store/put …}          ; a probe document written, with a version
+                {:id :store/conflicts …}    ; a stale version refused, or not: advisory
+                {:id :store/fetch …}        ; the probe read back as written
+                {:id :store/delete …}]}     ; the probe removed
+
+  On the JVM the report is returned, in ClojureScript promised. The probe
+  is `probe-name`, written and removed; a store that cannot be listed is
+  left as it is. A store's own errors tell the credentials apart from the
+  rest when they carry a `:status`, as the WebDAV store's do."
+  [{:keys [fetch put list delete]}]
+  (then (attempt list)
+        (fn [listing]
+          (if (:error listing)
+            (let [checks (assess {:listing listing})]
+              {:ok? false :checks checks})
+            (then (attempt #(put probe-name "probe" {}))
+                  (fn [written]
+                    (if (:error written)
+                      {:ok? false :checks (assess {:listing listing :put written})}
+                      (then (attempt #(put probe-name "probe" {:if-version "\"no-such-version\""}))
+                            (fn [stale]
+                              (then (attempt #(fetch probe-name))
+                                    (fn [fetched]
+                                      (then (attempt #(delete probe-name))
+                                            (fn [deleted]
+                                              (then (attempt #(fetch probe-name))
+                                                    (fn [gone]
+                                                      (let [checks (assess {:listing listing :put written :stale stale
+                                                                            :fetched fetched :delete deleted :gone gone})]
+                                                        {:ok?    (every? :ok? (filter #(required-checks (:id %)) checks))
+                                                         :checks checks}))))))))))))))))
 
 (defn backend
   "A backend for `dk.simongray.podcast.app.sync/sync!` over `store`. `opts`:

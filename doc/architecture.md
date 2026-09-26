@@ -694,6 +694,24 @@ or a form body for its own purposes and leaves the handler an empty
 stream, so an interceptor ahead of them normalises the slash and drops
 the content type of whatever goes to the folder.
 
+What an app has to know shrank to one call per store and one convention
+across them. Every store namespace offers `store` over a place and
+`backend` in one call with the options of both. Where the places are, the
+URL a server gives a collection or the folder a sync client keeps on each
+platform, are facts about other people's products that change with them,
+so the library holds none and the guide tables the current ones, dated,
+as a snapshot to start from. `store/check!` tries any store through the
+contract itself, a
+probe written, refused with a stale version, read back with its version
+and removed, and reports as data for a settings screen's test button, an
+unreachable server told apart from refused credentials by the status the
+store's error carries; written against the contract, it needs nothing
+from a store to come. The WebDAV handler lives in the library, so any
+Clojure backend serves a store over WebDAV in two lines, and
+`sync/next-at` says when to sync next from the last step's outcome, soon
+after a change, later when idle, backing off after failures, so that an
+app's timer has a policy while the library still schedules nothing.
+
 The player state gained what syncing needs and what would have been
 painful to change once states are persisted. The device is a stable id,
 generated once per installation, and the devices describe themselves in a
@@ -798,3 +816,7 @@ they outlive an unsubscription and come back with the feed.
 25. WebDAV: the store over a collection, for Nextcloud and the self-hosted
     world, and the inspector's folder served over WebDAV, for the browser
     player, any WebDAV client and the store's own tests. Done.
+26. Less to know: `backend` in one call for every store, `store/check!`
+    for any store, the WebDAV handler in the library, `next-at` as the
+    cadence, and the servers' and sync clients' places tabled in the guide
+    rather than coded. Done.

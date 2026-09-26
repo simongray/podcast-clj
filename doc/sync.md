@@ -110,6 +110,17 @@ protocols. Nothing is lost for later: a protocol can be extended to maps
 whenever type-based dispatch is wanted, without touching a store already
 written.
 
+Every store namespace keeps one convention, so that an app treats them
+alike: `store` for the store over a place, and `backend` for the backend
+in one call with the options of both. Where the places are, a server's
+URL shape or a sync client's folder, is a fact about the product that
+changes with it, so the library holds none of them and the guide tables
+the current ones, dated. `store/check!` tries any store through the
+contract, a probe written, refused with a stale version, read back and
+removed, and reports as data for a settings screen; written against the
+contract, it covers every store to come. And `webdav/handler` serves any
+store over WebDAV, so that a Clojure backend is a sync server in two lines.
+
 ## The engine
 
 `dk.simongray.podcast.app.sync` is pure, in the library's way; the IO sits

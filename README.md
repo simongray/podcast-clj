@@ -118,10 +118,13 @@ of four functions.
          '[dk.simongray.podcast.app.sync.store :as store]
          '[dk.simongray.podcast.app.sync.webdav :as webdav])
 
-(def folder (store/backend (file/store "/path/to/Dropbox/podcasts") {:opml? true}))
-(def cloud  (store/backend (webdav/store "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
-                                         {:credentials {:username "simon" :password "app-password"}})))
-(sync/sync! s [folder cloud] now)           ; => {:state merged :ctx {…} :report []}; hand :ctx back next time
+(def creds {:username "simon" :password "app-password"})   ; an app password, never the account's
+(def cloud-root "https://cloud.example.org/remote.php/dav/files/simon/podcasts/")  ; Nextcloud; the guide tables the servers
+(store/check! (webdav/store cloud-root {:credentials creds}))  ; => {:ok? true :checks [{:id :store/reachable …} …]}
+(def cloud  (webdav/backend cloud-root {:credentials creds :opml? true}))
+(def folder (file/backend "/Users/simon/Library/Mobile Documents/com~apple~CloudDocs/Podcasts"))  ; iCloud Drive on a Mac
+(sync/sync! s [cloud folder] now)           ; => {:state merged :ctx {…} :report []}; hand :ctx back next time
+(sync/next-at {:at now :changed? true} now) ; when to call again: soon after a change, later when idle
 ```
 
 Finding episodes is criteria as data, read through `resolve`, and a
@@ -333,9 +336,9 @@ Namespaces
 | `dk.simongray.podcast.app.player` | A player's state as a state-based CRDT: the queue as ranked entries, progress and played marks, subscriptions and their settings field by field, the listener's devices, OPML in and out, `merge` as the join, `step` for driving it |
 | `…podcast.app.search` | Episodes filtered and ordered by criteria as data, the listener's progress included; a full-text index over subscriptions, ranked by BM25, with prefix and phrase queries and snippets |
 | `…podcast.app.sync` | Keeping devices in step: a device's state as a document, `reconcile` to merge what the others wrote, `sync!` as one step over any backends, on both platforms |
-| `…podcast.app.sync.store` | Document stores as maps of functions, `memory` for tests, and `backend` over any store: one document per device merged on read, or one shared document put on condition of its version |
-| `…podcast.app.sync.file` | A folder as a store, for the folders iCloud Drive, Dropbox, Seafile or Syncthing mirror and a Git working tree; JVM |
-| `…podcast.app.sync.webdav` | A WebDAV collection as a store, Nextcloud, ownCloud, Seafile, Synology, Box, Fastmail or the inspector's own folder, the ETag as the version; the calls as request maps, on both platforms |
+| `…podcast.app.sync.store` | Document stores as maps of functions, `memory` for tests, `backend` over any store, one document per device merged on read or one shared document put on condition of its version, and `check!`, which tries any store and reports for a settings screen |
+| `…podcast.app.sync.file` | A folder as a store, for the folders iCloud Drive, Dropbox, Seafile or Syncthing mirror and a Git working tree, `backend` in one call; JVM |
+| `…podcast.app.sync.webdav` | A WebDAV collection as a store, Nextcloud, ownCloud, Seafile, Synology, Box, Fastmail or the inspector's own folder, the ETag as the version, `backend` in one call, the calls as request maps on both platforms, and `handler` to serve any store over WebDAV from a Clojure backend |
 | `…podcast.directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index behind one shape: search, lookup and charts as request maps and shows keyed like the model; `combine` for one entry per show; `search!` and `trending!` on the JVM |
 | `…podcast.directory.podcastindex` | Podcast Index API: requests with auth, responses mapped onto the model, remote value resolution |
 | `…podcast.podping` | Podping: the Hive JSON-RPC calls as request maps, the pings read out of a block, the writers verified, `pinged?` and `affected` for the subscriptions concerned, `poll!` on the JVM; `notify-request` for a host |
