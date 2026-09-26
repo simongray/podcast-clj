@@ -27,8 +27,8 @@
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.time :as time]
-            #?(:clj [dk.simongray.podcast.http :as http])))
+            [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.time :as time]))
 
 (def sources
   "The directories, by source, with their names and whether they need
@@ -66,10 +66,10 @@
   [endpoint {:keys [q id limit country]}]
   (case endpoint
     :search   (get-request (str "https://itunes.apple.com/search?"
-                                (index/query-string {:media "podcast" :entity "podcast" :term q :limit limit
+                                (http/query-string{:media "podcast" :entity "podcast" :term q :limit limit
                                                      :country (some-> country name)})))
     :lookup   (get-request (str "https://itunes.apple.com/lookup?"
-                                (index/query-string {:id (if (coll? id) (str/join "," id) id) :entity "podcast"})))
+                                (http/query-string{:id (if (coll? id) (str/join "," id) id) :entity "podcast"})))
     :trending (get-request (str "https://rss.marketingtools.apple.com/api/v2/" (country-code country)
                                 "/podcasts/top/" (long (or limit 25)) "/podcasts.json"))))
 
@@ -77,15 +77,15 @@
   [endpoint {:keys [q id limit language]}]
   (let [base "https://api.fyyd.de/0.2/"]
     (case endpoint
-      :search   (get-request (str base "search/podcast?" (index/query-string {:term q :count limit})))
-      :lookup   (get-request (str base "podcast?" (index/query-string {:podcast_id id})))
-      :trending (get-request (str base "feature/podcast/hot?" (index/query-string {:count limit :language language}))))))
+      :search   (get-request (str base "search/podcast?" (http/query-string{:term q :count limit})))
+      :lookup   (get-request (str base "podcast?" (http/query-string{:podcast_id id})))
+      :trending (get-request (str base "feature/podcast/hot?" (http/query-string{:count limit :language language}))))))
 
 (defn- gpodder-request
   [endpoint {:keys [q id limit]}]
   (case endpoint
-    :search   (get-request (str "https://gpodder.net/search.json?" (index/query-string {:q q})))
-    :lookup   (get-request (str "https://gpodder.net/api/2/data/podcast.json?" (index/query-string {:url id})))
+    :search   (get-request (str "https://gpodder.net/search.json?" (http/query-string{:q q})))
+    :lookup   (get-request (str "https://gpodder.net/api/2/data/podcast.json?" (http/query-string{:url id})))
     :trending (get-request (str "https://gpodder.net/toplist/" (long (or limit 25)) ".json"))))
 
 (defn- podcastindex-request

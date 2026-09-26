@@ -49,7 +49,7 @@ the code.
                  ├────────────────────────────────────────────────┤
   primitives     │ xml   time   rrule   guid   json   coerce      │  the only reader-conditionals
                  └────────────────────────────────────────────────┘
-  jvm only       │ http (fetcher)  index, directory (search! …)   │
+  jvm only       │ http  directory, podping (their ! functions)   │
 ```
 
 Dependencies point downward only. `spec` knows nothing about parsing; `feed`
@@ -600,6 +600,41 @@ searches the directories and inspects the feed it finds.
 Podchaser, Listen Notes and Taddy are left out: each needs an account,
 and the four here already cover discovery for a client that has none.
 
+## Podping
+
+`dk.simongray.podcast.podping` is the consumer of Podping, the notification
+that a feed changed: hosts announce through podping.cloud, which writes a
+custom_json operation to the Hive blockchain, and anyone reads the chain.
+The namespace follows the shape of the directories. `request` builds the
+JSON-RPC calls a consumer makes, for the chain's position, a run of blocks
+with their operations, one block's operations and the writer list, as
+request maps with a POST body, so that a browser client sends them too:
+the public nodes allow any origin, and `call!` in ClojureScript is one
+`fetch`. `pings` reads the podpings out of the blocks answered, in either
+shape a node writes an operation, the first versions' `urls` and
+`feed_update` included, and takes the medium and reason from the payload
+or else from the id; a block's number is the first eight hex digits of its
+id. Anyone can write a custom_json, so `writers` reads which accounts may:
+the ones the `podping` account follows on the chain, which is how the
+project publishes its writers, two dozen of them today.
+
+On the JVM `poll!` is the poller's one step, like `fetch!` for a feed: the
+pings in the blocks after the last one read, a hundred blocks to one
+request, which a node answers in about a second, verified against the
+writers read once and handed back, with the block to continue from and
+the pings refused kept apart rather than dropped. It can stop at the last
+irreversible block for a consumer that would rather not see a fork's
+pings. `call!` tries the public nodes in turn, treating a status other
+than 200 or a body that is not JSON as that node's failure, and names them
+all when none answers. `pinged?` and `affected` compare URLs as
+`podcast:guid` compares them, so a host that pings `http://…/feed/`
+reaches a subscription stored as `https://…/feed`. `notify-request` is the
+host's side, one GET to podping.cloud with the token it was issued.
+
+The inspector's Podping page reads the last twenty blocks live, which is
+how the consumer is exercised against the real chain; the tests run on
+recorded answers, with a stand-in node that fails on cue.
+
 ## Roadmap
 
 1. Core: `xml`, `time`, `guid`, `spec`, `feed`, `quirks`, `validate`. Done.
@@ -611,7 +646,8 @@ and the four here already cover discovery for a client that has none.
 7. Real-world chapter and transcript files as a second corpus. Done.
 8. Generated tag reference; Malli schemas from the registry. Done.
 9. Podcast Index: sending requests and mapping responses into the model. Done.
-10. Podping consumer; sync model. Deferred until a crawler or an app needs them.
+10. Podping consumer, done as item 23; the sync backend stays deferred, its
+    pure core being `app.player/merge`.
 11. Hardening: a sweep of several hundred indexed feeds, with the registry,
     quirks and emitter fixes it turned up. Done.
 12. The small correctness items the sweep left: emit speed, diagnostics
@@ -654,3 +690,7 @@ and the four here already cover discovery for a client that has none.
     jsdom, the architecture as a test, the Clojure and Java floor declared
     and verified in CI beside the current versions, the dependency bumps,
     and the guide from finding a show to playing it. Done.
+23. The Podping consumer: the Hive calls as request maps, pings read out of
+    a block, writers verified as the accounts podping follows, `poll!` as the poller's
+    step, and the host's announcement; the HTTP client made cross-platform
+    for the request-building half and given POST. Done.

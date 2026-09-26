@@ -1,0 +1,174 @@
+{
+ "jsonrpc": "2.0",
+ "result": [
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "bowlafterbowl"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "chadf"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "hivepinger"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "learn-to-code"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "peak.beacon"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podhomefm"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podnews"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping-git"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.aaa"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.adam"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.bbb"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.blubrry"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.bol"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.ccc"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.curio"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.ddd"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.eee"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.gittest"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.live"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.podverse"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.spk"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.test"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "podping.win"
+  },
+  {
+   "what": [
+    "blog"
+   ],
+   "follower": "podping",
+   "following": "truefansfm"
+  }
+ ],
+ "id": 1
+}

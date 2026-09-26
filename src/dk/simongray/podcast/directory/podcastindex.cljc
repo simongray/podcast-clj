@@ -17,7 +17,7 @@
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.time :as time]
-            #?(:clj [dk.simongray.podcast.http :as http])))
+            [dk.simongray.podcast.http :as http]))
 
 (def base-url
   "The root of the API's URLs; `endpoints` are relative to it."
@@ -85,26 +85,6 @@
    "X-Auth-Date"   (str seconds)
    "Authorization" (guid/sha1-hex (str key secret seconds))})
 
-(defn- encode
-  "Percent-encode `s` for a query string, the same way on both platforms:
-  spaces become %20, not +."
-  [s]
-  #?(:clj  (-> (java.net.URLEncoder/encode (str s) "UTF-8")
-               (str/replace "+" "%20")
-               (str/replace "*" "%2A")
-               (str/replace "%7E" "~"))
-     :cljs (js/encodeURIComponent (str s))))
-
-(defn ^:no-doc query-string
-  "The query string for `params`, keys and values URL-encoded; booleans
-  become the bare flags the API expects."
-  [params]
-  (str/join "&" (for [[k v] params
-                      :when (some? v)]
-                  (if (true? v)
-                    (encode (name k))
-                    (str (encode (name k)) "=" (encode v))))))
-
 (defn request
   "The request map for `endpoint` (a key of `endpoints`) with query
   `params`, authenticated with `credentials` (`:key`, `:secret`, optional
@@ -116,7 +96,7 @@
    {:pre [(map? opts)]}
    (let [path (or (endpoints endpoint)
                   (throw (ex-info "Unknown Podcast Index endpoint" {:endpoint endpoint})))
-         qs   (query-string params)]
+         qs   (http/query-string params)]
      {:method  :get
       :url     (str base-url path (when (seq qs) (str "?" qs)))
       :headers (auth-headers credentials (or auth-date (now-seconds)))})))

@@ -56,6 +56,11 @@ Working toward 1.0, the first release.
   `format.opml` and `format.html`; `app.player` and `app.search`;
   `time.rrule`; `directory.podcastindex`. The inspector is `inspector.*`,
   outside the library's tree.
+- `podping`: the consumer of Podping, the Hive blockchain's word that a
+  feed changed, with the JSON-RPC calls as request maps, the pings read
+  out of a block, the writers verified, `poll!` as the poller's step and
+  `affected` for the subscriptions to fetch; `notify-request` for a host.
+  `http` builds requests on both platforms and sends POST on the JVM.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

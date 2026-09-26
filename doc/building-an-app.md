@@ -16,15 +16,16 @@ choice of where, not how.
 
 ```clojure
 (require '[dk.simongray.podcast :as podcast]
-         '[dk.simongray.podcast.format.chapters :as chapters]
+         '[dk.simongray.podcast.app.player :as player]
+         '[dk.simongray.podcast.app.search :as search]
          '[dk.simongray.podcast.directory :as directory]
          '[dk.simongray.podcast.feed :as feed]
+         '[dk.simongray.podcast.format.chapters :as chapters]
          '[dk.simongray.podcast.format.html :as html]
          '[dk.simongray.podcast.format.opml :as opml]
-         '[dk.simongray.podcast.app.player :as player]
-         '[dk.simongray.podcast.resolve :as resolve]
-         '[dk.simongray.podcast.app.search :as search]
          '[dk.simongray.podcast.format.transcript :as transcript]
+         '[dk.simongray.podcast.podping :as podping]
+         '[dk.simongray.podcast.resolve :as resolve]
          '[dk.simongray.podcast.value :as value])
 
 (def now (java.util.Date.))          ; every write to the player state takes the time
@@ -90,6 +91,17 @@ subscriptions that ask for it.
       (podcast/report fresh)                         ; what had to be repaired or forgiven
       (:new-feed-url r2)                             ; when present, move the subscription
       added)))                                       ; the ids of the new episodes, oldest first
+```
+
+Podping tells you which feeds changed, so that you fetch those and leave
+the schedule for the rest. A poller keeps the block it reached and the
+writers it has judged, and asks every few seconds for the blocks since.
+
+```clojure
+(def step (podping/poll! nil))                                        ; the head of the chain
+(def step (podping/poll! (:block step) {:writers (:writers step)}))   ; the pings since
+(podping/affected (:pings step) (map :url (vals (player/subscriptions state))))
+;; => ("https://feeds.podcastindex.org/pc20.xml")                    ; fetch these now
 ```
 
 ## 4. Showing a show and an episode

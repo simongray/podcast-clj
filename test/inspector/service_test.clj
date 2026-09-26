@@ -101,6 +101,25 @@
         (is (str/includes? body "Mørkeland"))
         (is (str/includes? body "rank 1"))))))
 
+(defn- hive-fixture
+  "The recorded answer of a Hive node to the JSON-RPC `body`."
+  [body]
+  (slurp (io/resource
+          (cond
+            (str/includes? body "get_dynamic_global_properties") "podping/head-block.json"
+            (str/includes? body "get_block_range")               "podping/blocks.json"
+            (str/includes? body "get_ops_in_block")              "podping/operations.json"
+            (str/includes? body "get_following")                 "podping/following.json"))))
+
+(deftest the-podpings
+  (with-redefs [http/call! (fn [{:keys [url body]}] {:status 200 :url url :body (hive-fixture body)})]
+    (let [{:keys [status body]} (get* "/podping")]
+      (is (= 200 status))
+      (is (str/includes? body "podping.eee"))
+      (is (not (str/includes? body "pp_podcast_update")) "the id is not shown, the medium and reason are")
+      (is (str/includes? body "Head block 110254836"))
+      (is (str/includes? body "writers podping follows")))))
+
 (deftest the-player
   (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})]
     (testing "every page carries the player bar and its script; the queue page the shell of the detailed view"

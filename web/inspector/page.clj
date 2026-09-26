@@ -52,7 +52,7 @@
     ;; swapped on navigation, so that playback survives moving between pages.
     [:div#player-bar]
     (into [:main#content
-           [:nav [:a {:href "/"} "Inspector"] [:a {:href "/queue"} "Queue"]
+           [:nav [:a {:href "/"} "Inspector"] [:a {:href "/queue"} "Queue"] [:a {:href "/podping"} "Podping"]
             [:span.muted "dk.simongray/podcast reference implementation"]]]
           body)
     [:script {:src "/js/player.js"}]]])
@@ -504,6 +504,32 @@
                   (when-not feed-url [:span.muted " · no feed URL from these sources"])
                   (when-let [d (resolve/description show)]
                     [:div.snippet (shorten (html/text d) 200)])])]))))
+
+(defn podping-page
+  "The podpings read from the chain just now: `pings` from the blocks up to
+  `block`, the `head` of the chain, and what is known of the `writers`."
+  [{:keys [pings refused block head writers]}]
+  (layout "Podping"
+          [:h1 "Podping"]
+          [:p.muted "The feeds that just announced a change on the Hive blockchain, read by dk.simongray.podcast.podping from the twenty blocks before the head, about a minute of the chain, in one request. A poller keeps the block it reached and asks for the blocks since; a ping counts only when the podping account follows its writer."]
+          [:p.muted (str "Head block " head ", read up to " block "; "
+                         (count pings) " pings from the " (count writers) " writers podping follows"
+                         (when (seq refused)
+                           (str "; " (count refused) " refused, from " (str/join ", " (distinct (map :account refused))))))]
+          (if (empty? pings)
+            [:p.muted "No pings in these blocks."]
+            [:table
+             [:thead [:tr [:th "Block"] [:th "Time"] [:th "Writer"] [:th "Medium"] [:th "Reason"] [:th "Feeds"]]]
+             [:tbody
+              (for [{:keys [block timestamp account medium reason iris]} pings]
+                [:tr
+                 [:td block]
+                 [:td (inst-str timestamp)]
+                 [:td [:code account]]
+                 [:td medium]
+                 [:td reason]
+                 [:td (for [iri iris]
+                        [:div [:a {:href (feed-href "/feed" iri)} (shorten iri 90)]])]])]])))
 
 (defn queue-page
   "The shell of the play queue: the browser player, written in

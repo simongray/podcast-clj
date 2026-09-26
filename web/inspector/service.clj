@@ -14,6 +14,7 @@
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.podping :as podping]
             [dk.simongray.podcast.resolve :as resolve]
             [inspector.page :as page]
             [io.pedestal.connector :as conn]
@@ -260,6 +261,15 @@
                  (directory/search! q opts))]
     (html (page/directory-page (assoc answer :q q :country (:country opts))))))
 
+(defn podping-page
+  "The podpings of the last minute or so of the Hive chain: twenty blocks
+  before the head, read live, verified against the writers podping
+  follows."
+  [_]
+  (let [head (:block (podping/head-block (podping/call! :head-block {} {})))
+        step (podping/poll! (- head 20) {:max-blocks 20})]
+    (html (page/podping-page (assoc step :head head)))))
+
 (defn queue-page
   "The shell the browser player mounts into; the player itself is
   inspector.player, compiled by `clojure -M:cljs compile
@@ -311,6 +321,7 @@
     ["/item" :get item-page :route-name :item]
     ["/search" :get search-page :route-name :search]
     ["/directory" :get directory-page :route-name :directory]
+    ["/podping" :get podping-page :route-name :podping]
     ["/episode.edn" :get episode-edn :route-name :episode-edn]
     ["/queue" :get queue-page :route-name :queue]
     ["/js/*path" :get js-file :route-name :js]

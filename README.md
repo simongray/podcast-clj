@@ -267,6 +267,26 @@ finds it, and combined into one entry per show:
 (directory/trending! {:country "dk" :limit 20})                    ; the charts, combined the same way
 ```
 
+Podping is the word that a feed changed, written to the Hive blockchain by
+the hosts, so that a poller fetches what changed instead of everything on
+a schedule. The consumer reads any Hive API node's blocks and verifies the
+writers; a host announces through podping.cloud:
+
+```clojure
+(require '[dk.simongray.podcast.podping :as podping])
+
+(def step (podping/poll! nil))                              ; JVM: from the head of the chain
+(def step (podping/poll! (:block step) {:writers (:writers step)}))  ; every few seconds: the pings since, one request
+(map (juxt :account :medium :reason :iris) (:pings step))
+;; => (["podping.eee" "podcast" "update" ["https://media.rss.com/…/feed.xml"]] …)
+(:refused step)                                              ; pings from accounts podping does not follow
+(podping/affected (:pings step) (map :url (vals (player/subscriptions s))))  ; the subscriptions to fetch now
+
+(podping/request :operations {:block 110254833})            ; the JSON-RPC call, for any client and either platform
+(podping/pings body)                                         ; the pings in its answer
+(podping/notify-request token "https://example.com/feed.xml" {:reason "live"})  ; what a host sends podping.cloud
+```
+
 Namespaces
 ----------
 
@@ -295,6 +315,7 @@ Namespaces
 | `…podcast.app.search` | Episodes filtered and ordered by criteria as data, the listener's progress included; a full-text index over subscriptions, ranked by BM25, with prefix and phrase queries and snippets |
 | `…podcast.directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index behind one shape: search, lookup and charts as request maps and shows keyed like the model; `combine` for one entry per show; `search!` and `trending!` on the JVM |
 | `…podcast.directory.podcastindex` | Podcast Index API: requests with auth, responses mapped onto the model, remote value resolution |
+| `…podcast.podping` | Podping: the Hive JSON-RPC calls as request maps, the pings read out of a block, the writers verified, `pinged?` and `affected` for the subscriptions concerned, `poll!` on the JVM; `notify-request` for a host |
 
 Reference web app
 -----------------
