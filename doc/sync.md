@@ -378,16 +378,44 @@ contents API is an HTTP store like Dropbox. And a repository proper, with
 JGit on the classpath as an optional dependency, is a store whose versions
 are commits and whose history is `git log`.
 
-The gpodder API identifies a podcast by its feed URL and an episode by the
-enclosure URL, where the library identifies them by guid, so the adapter
-takes two functions from the app: the enclosure URL of an episode id and
-the episode id of an enclosure URL, which the app answers from its parsed
-feeds through `resolve/enclosure`. The device id is ours. Subscription
-changes map to `subscribe` and tombstones with the server's timestamps,
-episode actions of kind play map to `progress` with position and total,
-and the other kinds are passed over. Its timestamps carry no zone and are
-taken as UTC. Nextcloud's gpodder app speaks the same shapes under its own
-paths, and opodsync serves both. The reverse translation, a
+**gpodder, for later.** The gpodder API is the one backend on the list that
+is not a store, so it is the first test of the pull and push seam. It has
+two feeds of changes, each since a timestamp the server hands back: the
+subscriptions of a device, as lists of feed URLs added and removed, and
+the episode actions, `play` with `started`, `position` and `total`, plus
+`download`, `delete` and `new`, each naming a podcast URL, an episode URL,
+a device and a timestamp without a zone, to be read as UTC. A device is
+registered by an id, ours, with a caption. Nothing else crosses: no queue,
+no settings, no preferences, and no played mark beyond a play whose
+position reached the total, which is how the adapter would send one.
+Three servers speak it: gpodder.net, which the survey rated fragile;
+opodsync, a folder of PHP to self-host; and Nextcloud's gpodder app, the
+same shapes under its own paths behind an app password, which opodsync
+serves as well. The prize is interop with AntennaPod, gPodder and Podcast
+Addict.
+
+`pull` would read both feeds since the cursors and return a partial state,
+`:partial? true` so that nothing is acknowledged from it: subscriptions and
+tombstones stamped with the server's timestamp, play actions as progress.
+`push` would send `player/changes-since` the last push as subscription
+changes and play actions. Both built the directories' way, `request` and
+`response` over recorded answers, with a stand-in server in the tests on
+both platforms and `backend` in one call like the stores'. About a day,
+tested live against opodsync or a Nextcloud.
+
+The difficulty is identity. gpodder names a podcast by its feed URL and an
+episode by its enclosure URL; the library names them by guid, because URLs
+are what changes: feeds move hosts, schemes and slashes, and enclosure URLs
+differ per request under dynamic ad insertion, so keyed by URL the same
+episode would have different keys on different devices and the registers
+would never meet. A feed URL becomes a guid by `guid/from-url` when the
+feed declares none; a declared guid, and every episode, needs the app's
+parsed feeds. So the backend takes two functions, the episode id of a
+podcast and enclosure URL and the enclosure URL of an episode id, and the
+library should offer both over a collection of feeds through
+`resolve/enclosure`, so that the common case is one line. Where a feed
+regenerates or omits its guids, `feed/item-guid` already falls back to the
+enclosure URL, which is the same edge. The reverse translation, a
 gpodder-compatible server over the library so that AntennaPod syncs
 against a listener's own Clojure backend, is the same mapping run the
 other way and belongs to the reference app later.
