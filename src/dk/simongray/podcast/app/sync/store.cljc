@@ -47,14 +47,15 @@
     :list   (fn [] (vec (sort-by :name (for [[name {:keys [version]}] @documents] {:name name :version version}))))
     :delete (fn [name] (swap! documents dissoc name) nil)}))
 
-(defn- then
+(defn ^:no-doc then
   "`f` of `x` once `x` is a value: at once on the JVM, and in ClojureScript
-  when `x`, a value or a promise, has resolved."
+  when `x`, a value or a promise, has resolved. What lets a store be written
+  once for both platforms."
   [x f]
   #?(:clj  (f x)
      :cljs (.then (js/Promise.resolve x) f)))
 
-(defn- all
+(defn ^:no-doc all
   "The values of `xs`, each of which may be a promise in ClojureScript."
   [xs]
   #?(:clj  (vec xs)

@@ -8,6 +8,7 @@
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.search :as search]
+            [dk.simongray.podcast.app.sync.file :as file]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed :as feed]
@@ -16,6 +17,7 @@
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.podping :as podping]
             [dk.simongray.podcast.resolve :as resolve]
+            [inspector.dav :as dav]
             [inspector.page :as page]
             [io.pedestal.connector :as conn]
             [io.pedestal.http.jetty :as jetty]
@@ -311,21 +313,32 @@
        :headers {"Content-Type" "text/plain"}
        :body    "The browser player is not compiled; run: clojure -M:cljs compile player"})))
 
+(def sync-dir
+  "The folder the inspector serves over WebDAV at /dav/, for the browser
+  player and any other device to keep in step through: INSPECTOR_SYNC_DIR in
+  the environment, else target/sync."
+  (io/file (or (System/getenv "INSPECTOR_SYNC_DIR") "target/sync")))
+
 (defn routes
-  "The inspector's routes, in Pedestal's set syntax."
-  []
-  #{["/" :get home :route-name :home]
-    ["/feed" :get feed-page :route-name :feed]
-    ["/feed.edn" :get feed-edn :route-name :feed-edn]
-    ["/feed.xml" :get feed-xml :route-name :feed-xml]
-    ["/item" :get item-page :route-name :item]
-    ["/search" :get search-page :route-name :search]
-    ["/directory" :get directory-page :route-name :directory]
-    ["/podping" :get podping-page :route-name :podping]
-    ["/episode.edn" :get episode-edn :route-name :episode-edn]
-    ["/queue" :get queue-page :route-name :queue]
-    ["/js/*path" :get js-file :route-name :js]
-    ["/corpus/:name" :get corpus-page :route-name :corpus]})
+  "The inspector's routes, in Pedestal's set syntax, the WebDAV ones serving
+  `sync-store` (default the folder store over `sync-dir`)."
+  ([]
+   (routes (file/store sync-dir)))
+  ([sync-store]
+   #{["/" :get home :route-name :home]
+     ["/feed" :get feed-page :route-name :feed]
+     ["/feed.edn" :get feed-edn :route-name :feed-edn]
+     ["/feed.xml" :get feed-xml :route-name :feed-xml]
+     ["/item" :get item-page :route-name :item]
+     ["/search" :get search-page :route-name :search]
+     ["/directory" :get directory-page :route-name :directory]
+     ["/podping" :get podping-page :route-name :podping]
+     ["/episode.edn" :get episode-edn :route-name :episode-edn]
+     ["/queue" :get queue-page :route-name :queue]
+     ["/js/*path" :get js-file :route-name :js]
+     ["/dav" :any (dav/handler sync-store "/dav/") :route-name :dav-collection]
+     ["/dav/*path" :any (dav/handler sync-store "/dav/") :route-name :dav]
+     ["/corpus/:name" :get corpus-page :route-name :corpus]}))
 
 (defonce ^{:doc "The running connector, nil when stopped."}
   server
@@ -333,18 +346,24 @@
 
 (defn connector
   "A Jetty connector serving the inspector on `port`, not yet started; tests
-  drive its interceptor chain directly."
-  [port]
-  (-> (conn/default-connector-map port)
-      ;; Pedestal's default policy forbids every script tag; the browser
-      ;; player is served from this origin, and its development build loads
-      ;; its modules through eval.
-      (conn/with-default-interceptors
-        :secure-headers {:content-security-policy-settings
-                         (secure-headers/content-security-policy-header
-                          {:object-src "'none'" :script-src "'self' 'unsafe-eval'"})})
-      (conn/with-routes (routes))
-      (jetty/create-connector nil)))
+  drive its interceptor chain directly. `opts` may name another `:sync-dir`
+  to serve over WebDAV."
+  ([port]
+   (connector port {}))
+  ([port {:keys [sync-dir] :or {sync-dir sync-dir}}]
+   (-> (conn/default-connector-map port)
+       ;; Pedestal's default policy forbids every script tag; the browser
+       ;; player is served from this origin, and its development build loads
+       ;; its modules through eval.
+       (conn/with-default-interceptors
+         :secure-headers {:content-security-policy-settings
+                          (secure-headers/content-security-policy-header
+                           {:object-src "'none'" :script-src "'self' 'unsafe-eval'"})})
+       ;; ahead of the default interceptors, so that a put's body reaches
+       ;; the WebDAV handler unread
+       (update :interceptors #(into [(dav/requests "/dav/")] %))
+       (conn/with-routes (routes (file/store sync-dir)))
+       (jetty/create-connector nil))))
 
 (defn start!
   "Start the inspector on `:port` (default 8300); idempotent."

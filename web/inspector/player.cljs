@@ -9,12 +9,16 @@
   The player sits in a bar on every page. Clicking a link fetches the next
   page and swaps only the content below the bar, so that playback survives
   moving between pages; the queue page is the detailed view of the same
-  state.
+  state, and syncs it on request through the inspector's own WebDAV folder
+  at /dav/, with the library's WebDAV store over fetch.
 
   Built by `clojure -M:cljs compile player` and served at /js/player.js."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.sync :as sync]
+            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.app.sync.webdav :as webdav]
             [dk.simongray.podcast.time :as time]
             [inspector.player.view :as view]
             [replicant.dom :as replicant]))
@@ -61,8 +65,27 @@
 (defn- save!
   [state]
   (try
-    (.setItem js/localStorage storage-key (pr-str (select-keys state [:player :titles])))
+    (.setItem js/localStorage storage-key (pr-str (select-keys state [:player :titles :sync-ctx])))
     (catch :default _ nil)))
+
+(defn- backend
+  "The inspector's WebDAV folder on this origin, as a backend."
+  []
+  (store/backend (webdav/store (str js/location.origin "/dav/") {:name "inspector"})
+                 {:opml? true :app "inspector"}))
+
+(defn sync!
+  "One step of keeping this browser in step with the other devices through
+  the inspector's folder; the result is shown on the queue page."
+  []
+  (swap! app assoc :syncing? true)
+  (-> (sync/sync! (:player @app) [(backend)] (now) {:ctx (:sync-ctx @app)})
+      (.then (fn [{:keys [state ctx failed report]}]
+               (swap! app assoc :player state :sync-ctx ctx :syncing? false
+                      :synced {:at (now) :failed failed :report report})))
+      (.catch (fn [e]
+                (swap! app assoc :syncing? false
+                       :synced {:at (now) :failed {"inspector" (str e)} :report []})))))
 
 (defn- perform!
   "Carry out the `effects` `player/step` returned: seek the audio element
@@ -117,6 +140,7 @@
     :dequeue      (operate! player/dequeue (first args))
     :prefer       (when-let [n (parse-long (.. e -target -value))]
                     (operate! player/prefer {(first args) n}))
+    :sync         (sync!)
     :audio/loaded (let [[_ position] args
                         el (.-target e)]
                     (when (and (pos? position) (< position (.-duration el)))
@@ -216,10 +240,12 @@
   add."
   []
   (reset! app (load-state))
+  (save! @app)
   (replicant/set-dispatch! (fn [{:replicant/keys [dom-event]} event] (handle! event dom-event)))
   (add-watch app ::render (fn [_ _ old new]
-                            (when (not= (select-keys old [:player :titles]) (select-keys new [:player :titles]))
-                              (save! new))
+                            (let [kept [:player :titles :sync-ctx]]
+                              (when (not= (select-keys old kept) (select-keys new kept))
+                                (save! new)))
                             (render!)))
   (intercept-navigation!)
   (render!)

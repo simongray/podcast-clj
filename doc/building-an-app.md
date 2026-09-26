@@ -22,6 +22,7 @@ not how.
          '[dk.simongray.podcast.app.sync :as sync]
          '[dk.simongray.podcast.app.sync.file :as file]
          '[dk.simongray.podcast.app.sync.store :as store]
+         '[dk.simongray.podcast.app.sync.webdav :as webdav]
          '[dk.simongray.podcast.directory :as directory]
          '[dk.simongray.podcast.feed :as feed]
          '[dk.simongray.podcast.format.chapters :as chapters]
@@ -197,11 +198,13 @@ Nothing is scheduled; call it on start, on going to the background and
 after a burst of changes. The state is never replaced, only merged into.
 
 ```clojure
-(def backend (store/backend (file/store "/path/to/Dropbox/podcasts") {:opml? true :app "my-app"}))
+(def folder (store/backend (file/store "/path/to/Dropbox/podcasts") {:opml? true :app "my-app"}))
+(def cloud  (store/backend (webdav/store "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
+                                         {:credentials {:username "simon" :password "app-password"}})))
 
-(def step (sync/sync! state [backend] now))                       ; => {:state … :ctx {…} :report [] :failed {…}}
+(def step (sync/sync! state [folder cloud] now))                        ; => {:state … :ctx {…} :report [] :failed {…}}
 (def state (:state step))
-(sync/sync! state [backend] (java.util.Date.) {:ctx (:ctx step)})  ; the next step reads only what changed
+(sync/sync! state [folder cloud] (java.util.Date.) {:ctx (:ctx step)})  ; the next step reads only what changed
 
 (player/devices state)                               ; the listener's devices, as they described themselves
 (player/retire state lost-phone-id now)              ; a lost device: its document goes, and it writes no more
@@ -209,9 +212,11 @@ after a burst of changes. The state is never replaced, only merged into.
 (player/from-opml state (opml/parse opml-text) now)
 ```
 
-The stores to come, WebDAV, Dropbox, Drive, CloudKit, the Git hosts and
-the gpodder services, are laid out in `doc/sync.md`; a store is four
-functions, so one you need is a short namespace to write meanwhile.
+A folder covers the sync clients, WebDAV the self-hosted world and the
+inspector's own folder at `/dav/`. The stores to come, Dropbox, Drive,
+CloudKit, the Git hosts and the gpodder services, are laid out in
+`doc/sync.md`; a store is four functions, so one you need is a short
+namespace to write meanwhile.
 
 ## 8. Value for value
 

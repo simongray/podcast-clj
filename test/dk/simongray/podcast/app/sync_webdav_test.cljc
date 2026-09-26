@@ -1,0 +1,195 @@
+(ns dk.simongray.podcast.app.sync-webdav-test
+  "The WebDAV store: the calls as request maps, the answers read, in the
+  shape Nextcloud writes them and in another prefix, and two devices kept
+  in step through a server standing in for one, on both platforms."
+  (:require #?(:clj [clojure.java.io :as io])
+            #?(:cljs [shadow.resource :as rc])
+            #?(:cljs [dk.simongray.podcast.test-setup])
+            #?(:clj [dk.simongray.podcast.http :as http])
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing #?(:cljs async)]]
+            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.sync :as sync]
+            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.app.sync.webdav :as webdav]
+            #?(:cljs [dk.simongray.podcast.http :as http])))
+
+(def root
+  "https://cloud.example.org/remote.php/dav/files/simon/podcasts/")
+
+(def nextcloud-propfind
+  #?(:clj  (slurp (io/resource "webdav/nextcloud-propfind.xml"))
+     :cljs (rc/inline "webdav/nextcloud-propfind.xml")))
+
+(def t1 #inst "2026-01-01T01:00:00Z")
+(def t2 #inst "2026-01-01T02:00:00Z")
+(def t3 #inst "2026-01-01T03:00:00Z")
+
+(def a ["feed-a" "a1"])
+
+(deftest requests
+  (let [creds {:credentials {:username "simon" :password "app pass"}}
+        listing (webdav/request :list root nil creds)]
+    (is (= :propfind (:method listing)))
+    (is (= root (:url listing)))
+    (is (= "1" (get-in listing [:headers "Depth"])))
+    (is (= "Basic c2ltb246YXBwIHBhc3M=" (get-in listing [:headers "Authorization"])))
+    (is (str/includes? (:body listing) "<d:getetag/>"))
+    (is (= "Bearer t" (get-in (webdav/request :list root nil {:credentials {:token "t"}}) [:headers "Authorization"])))
+    (is (= "Bearer later" (get-in (webdav/request :list root nil {:credentials (constantly {:token "later"})}) [:headers "Authorization"]))
+        "credentials may be a function, for a token that is refreshed")
+    (is (nil? (get-in (webdav/request :list root) [:headers "Authorization"])))
+    (testing "one document"
+      (is (= [:get (str root "phone%201.edn")] ((juxt :method :url) (webdav/request :fetch root "phone 1.edn"))))
+      (is (= [:head (str root "x.edn")] ((juxt :method :url) (webdav/request :head root "x.edn"))))
+      (is (= [:delete (str root "x.edn")] ((juxt :method :url) (webdav/request :delete root "x.edn"))))
+      (is (= [:mkcol root] ((juxt :method :url) (webdav/request :make-collection root)))))
+    (testing "a put and its preconditions"
+      (let [put (fn [opts] (:headers (webdav/request :put root "x.edn" (assoc opts :body "{}"))))]
+        (is (= "\"abc\"" (get (put {:if-version "\"abc\""}) "If-Match")))
+        (is (= "*" (get (put {:if-version nil}) "If-None-Match")))
+        (is (not-any? #{"If-Match" "If-None-Match"} (keys (put {}))))
+        (is (= "application/edn; charset=utf-8" (get (put {}) "Content-Type")))
+        (is (= "text/x-opml; charset=utf-8" (get-in (webdav/request :put root "subscriptions.opml" {:body "<opml/>"}) [:headers "Content-Type"])))
+        (is (= "{}" (:body (webdav/request :put root "x.edn" {:body "{}"}))))))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (webdav/request :lock root "x.edn")))))
+
+(deftest responses
+  (testing "a listing, in Nextcloud's shape: the collection itself and a folder in it left out"
+    (is (= [{:name "8f1c9e2a-7a4b-4c1d-9e2f-0a1b2c3d4e5f.edn" :version "\"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\""}
+            {:name "laptop at home.edn" :version "\"0f9e8d7c6b5a4938271605f4e3d2c1b0\""}
+            {:name "subscriptions.opml" :version "\"123456789abcdef0123456789abcdef0\""}]
+           (webdav/response :list {:status 207 :headers {} :body nextcloud-propfind}))))
+  (testing "the same listing under another prefix and with absolute hrefs"
+    (let [body (-> nextcloud-propfind
+                   (str/replace "d:" "D:")
+                   (str/replace "xmlns:d=" "xmlns:D=")
+                   (str/replace "<D:href>/remote.php" "<D:href>https://cloud.example.org/remote.php"))]
+      (is (= ["8f1c9e2a-7a4b-4c1d-9e2f-0a1b2c3d4e5f.edn" "laptop at home.edn" "subscriptions.opml"]
+             (map :name (webdav/response :list {:status 207 :headers {} :body body}))))))
+  (is (= [] (webdav/response :list {:status 404 :headers {} :body ""})) "a collection not there yet lists nothing")
+  (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"500" (webdav/response :list {:status 500 :headers {} :body ""})))
+  (testing "one document"
+    (is (= {:body "{}" :version "\"v1\""} (webdav/response :fetch {:status 200 :headers {"etag" ["\"v1\""]} :body "{}"})))
+    (is (nil? (webdav/response :fetch {:status 404 :headers {} :body "Not Found"})))
+    (is (= {:version "\"v1\""} (webdav/response :head {:status 200 :headers {"etag" ["\"v1\""]} :body ""}))))
+  (testing "a put"
+    (is (= {:version "\"v2\""} (webdav/response :put {:status 201 :headers {"etag" ["\"v2\""]} :body ""})))
+    (is (= {:version nil} (webdav/response :put {:status 204 :headers {} :body ""})) "a server that says nothing of the version")
+    (is (= {:conflict? true} (webdav/response :put {:status 412 :headers {} :body ""})))
+    (is (= {:missing-collection? true} (webdav/response :put {:status 409 :headers {} :body ""})))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (webdav/response :put {:status 403 :headers {} :body ""}))))
+  (is (nil? (webdav/response :delete {:status 204 :headers {} :body ""})))
+  (is (nil? (webdav/response :delete {:status 404 :headers {} :body ""})))
+  (is (nil? (webdav/response :make-collection {:status 405 :headers {} :body ""})) "a collection already there"))
+
+(defn- quoted
+  [version]
+  (str "\"" version "\""))
+
+(defn- stand-in
+  "A WebDAV server over `documents`, an atom of name to `{:body :version}`,
+  as a function of a request map to a response map: the four methods, the
+  preconditions, and a collection that appears on the first put."
+  [documents]
+  (fn [{:keys [method url headers body]}]
+    (let [name (some-> (re-find #"/dav/(.+)$" url) second http/percent-decode)
+          doc  (get @documents name)
+          entry (fn [href version]
+                  (str "<D:response><D:href>" href "</D:href><D:propstat><D:prop>"
+                       (if version
+                         (str "<D:getetag>&quot;" version "&quot;</D:getetag><D:resourcetype/>")
+                         "<D:resourcetype><D:collection/></D:resourcetype>")
+                       "</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>"))]
+      (case method
+        :propfind (if (::created @documents)
+                    {:status  207
+                     :headers {}
+                     :body    (str "<?xml version=\"1.0\"?><D:multistatus xmlns:D=\"DAV:\">"
+                                   (entry "/dav/" nil)
+                                   (apply str (for [[n {:keys [version]}] (dissoc @documents ::created)]
+                                                (entry (str "/dav/" (http/encode n)) version)))
+                                   "</D:multistatus>")}
+                    {:status 404 :headers {} :body ""})
+        :get      (if doc
+                    {:status 200 :headers {"etag" [(quoted (:version doc))]} :body (:body doc)}
+                    {:status 404 :headers {} :body ""})
+        :mkcol    (do (swap! documents assoc ::created true)
+                      {:status 201 :headers {} :body ""})
+        :put      (cond
+                    (not (::created @documents))
+                    {:status 409 :headers {} :body ""}
+
+                    (and (contains? headers "If-Match") (not= (get headers "If-Match") (some-> doc :version quoted)))
+                    {:status 412 :headers {} :body ""}
+
+                    (and (contains? headers "If-None-Match") doc)
+                    {:status 412 :headers {} :body ""}
+
+                    :else
+                    (let [version (str (inc (or (some-> doc :version parse-long) 0)))]
+                      (swap! documents assoc name {:body body :version version})
+                      {:status (if doc 204 201) :headers {"etag" [(quoted version)]} :body ""}))
+        :delete   (do (swap! documents dissoc name)
+                      {:status 204 :headers {} :body ""})))))
+
+(defn- phone-state
+  []
+  (-> (player/state "phone")
+      (player/identify {:name "Phone"} t1)
+      (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1)
+      (player/progress a 100 3600 t1)))
+
+(defn- laptop-state
+  []
+  (-> (player/state "laptop")
+      (player/subscribe "feed-b" {:url "https://b/rss" :title "B"} t1)
+      (player/progress a 900 3600 t2)))
+
+#?(:clj
+   (deftest two-devices-through-a-webdav-collection
+     (let [documents (atom {})]
+       (with-redefs [http/call! (stand-in documents)]
+         (let [backend (store/backend (webdav/store "https://dav.example.org/dav") {:opml? true})
+               phone   (sync/sync! (phone-state) [backend] t2)
+               laptop  (sync/sync! (laptop-state) [backend] t3)
+               phone2  (sync/sync! (:state phone) [backend] t3 {:ctx (:ctx phone)})]
+           (is (nil? (:failed phone)) "the collection was made on the first put")
+           (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"} (set (keys (dissoc @documents ::created)))))
+           (is (= 900 (:position (player/episode (:state phone2) a))))
+           (is (= (dissoc (:state laptop) :device) (dissoc (:state phone2) :device)))
+           (is (= "dav.example.org" (:name backend)) "named after the host")
+           (is (= {"laptop.edn" "\"1\"" "phone.edn" "\"2\""} (:versions (get (:ctx phone2) "dav.example.org")))
+               "the ETags are the versions"))))))
+
+#?(:cljs
+   (defn- fetch-stand-in
+     "`js/fetch` over the stand-in server: the request as fetch sends it,
+     the answer as a js/Response."
+     [documents]
+     (let [server (stand-in documents)]
+       (fn [url init]
+         (let [{:keys [status headers body]} (server {:method  (keyword (str/lower-case (.-method init)))
+                                                      :url     url
+                                                      :headers (js->clj (.-headers init))
+                                                      :body    (.-body init)})]
+           (js/Promise.resolve
+            (js/Response. (when-not (#{201 204} status) body)
+                          (clj->js {:status status :headers (into {} (for [[k [v]] headers :when v] [k v]))}))))))))
+
+#?(:cljs
+   (deftest two-devices-through-a-webdav-collection-with-fetch
+     (async done
+       (let [documents (atom {})
+             backend   (store/backend (webdav/store "https://dav.example.org/dav/" {:fetch (fetch-stand-in documents)}))]
+         (-> (sync/sync! (phone-state) [backend] t2)
+             (.then (fn [phone]
+                      (is (nil? (:failed phone)))
+                      (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))
+                      (sync/sync! (laptop-state) [backend] t3)))
+             (.then (fn [laptop]
+                      (is (= 900 (:position (player/episode (:state laptop) a))))
+                      (is (= #{"feed-a" "feed-b"} (set (keys (player/subscriptions (:state laptop))))))
+                      (is (= #{"phone.edn" "laptop.edn"} (set (keys (dissoc @documents ::created)))))))
+             (.catch (fn [e] (is false (str "rejected: " e))))
+             (.finally done))))))

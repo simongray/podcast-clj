@@ -115,10 +115,13 @@ of four functions.
 ```clojure
 (require '[dk.simongray.podcast.app.sync :as sync]
          '[dk.simongray.podcast.app.sync.file :as file]
-         '[dk.simongray.podcast.app.sync.store :as store])
+         '[dk.simongray.podcast.app.sync.store :as store]
+         '[dk.simongray.podcast.app.sync.webdav :as webdav])
 
-(def backend (store/backend (file/store "/path/to/Dropbox/podcasts") {:opml? true}))
-(sync/sync! s [backend] now)                ; => {:state merged :ctx {…} :report []}; hand :ctx back next time
+(def folder (store/backend (file/store "/path/to/Dropbox/podcasts") {:opml? true}))
+(def cloud  (store/backend (webdav/store "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
+                                         {:credentials {:username "simon" :password "app-password"}})))
+(sync/sync! s [folder cloud] now)           ; => {:state merged :ctx {…} :report []}; hand :ctx back next time
 ```
 
 Finding episodes is criteria as data, read through `resolve`, and a
@@ -150,8 +153,8 @@ ecosystem survey that motivated it is in
 [doc/podcasting-2.0-clojure-survey.md](doc/podcasting-2.0-clojure-survey.md);
 the path from finding a show to playing it, with the function to call at
 each step, is [doc/building-an-app.md](doc/building-an-app.md); the design
-of syncing, its engine built and its stores over the cloud services to
-come, is [doc/sync.md](doc/sync.md). In one paragraph:
+of syncing, its engine and first stores built and the rest to come, is
+[doc/sync.md](doc/sync.md). In one paragraph:
 
 XML becomes Hiccup with namespaces resolved by URI (`:itunes/author`,
 `:podcast/transcript`). A **tag registry** describes every element the
@@ -332,6 +335,7 @@ Namespaces
 | `…podcast.app.sync` | Keeping devices in step: a device's state as a document, `reconcile` to merge what the others wrote, `sync!` as one step over any backends, on both platforms |
 | `…podcast.app.sync.store` | Document stores as maps of functions, `memory` for tests, and `backend` over any store: one document per device merged on read, or one shared document put on condition of its version |
 | `…podcast.app.sync.file` | A folder as a store, for the folders iCloud Drive, Dropbox, Seafile or Syncthing mirror and a Git working tree; JVM |
+| `…podcast.app.sync.webdav` | A WebDAV collection as a store, Nextcloud, ownCloud, Seafile, Synology, Box, Fastmail or the inspector's own folder, the ETag as the version; the calls as request maps, on both platforms |
 | `…podcast.directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index behind one shape: search, lookup and charts as request maps and shows keyed like the model; `combine` for one entry per show; `search!` and `trending!` on the JVM |
 | `…podcast.directory.podcastindex` | Podcast Index API: requests with auth, responses mapped onto the model, remote value resolution |
 | `…podcast.podping` | Podping: the Hive JSON-RPC calls as request maps, the pings read out of a block, the writers verified, `pinged?` and `affected` for the subscriptions concerned, `poll!` on the JVM; `notify-request` for a host |
@@ -349,7 +353,10 @@ public API, not part of the library. Open http://localhost:8300/, paste a
 feed URL, and see the model, the
 report, the validation diagnostics against a profile and the round-tripped XML.
 Every item links to a page that fetches its chapters and transcript and shows
-them parsed. The corpus of real feeds in `dev-resources/corpus/` (not in git;
+them parsed. The queue page syncs the browser's player state on request
+through the inspector's own folder, served over WebDAV at `/dav/`
+(`INSPECTOR_SYNC_DIR`, default `target/sync`), which any WebDAV client can
+mount as well. The corpus of real feeds in `dev-resources/corpus/` (not in git;
 recreate it with `(corpus/download!)` from `dev/corpus.clj`) is listed on the
 front page; `(corpus/download-companions!)` fetches a sample of the chapter
 and transcript files those feeds link to, and `(corpus/sweep-companions)`

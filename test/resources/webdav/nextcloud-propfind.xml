@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
+  <d:response>
+    <d:href>/remote.php/dav/files/simon/podcasts/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>&quot;68d6a1c2b3e4f&quot;</d:getetag>
+        <d:resourcetype><d:collection/></d:resourcetype>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/files/simon/podcasts/8f1c9e2a-7a4b-4c1d-9e2f-0a1b2c3d4e5f.edn</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>&quot;a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6&quot;</d:getetag>
+        <d:resourcetype/>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/files/simon/podcasts/laptop%20at%20home.edn</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>&quot;0f9e8d7c6b5a4938271605f4e3d2c1b0&quot;</d:getetag>
+        <d:resourcetype/>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/files/simon/podcasts/subscriptions.opml</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>&quot;123456789abcdef0123456789abcdef0&quot;</d:getetag>
+        <d:resourcetype/>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/files/simon/podcasts/Archive/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>&quot;fedcba9876543210&quot;</d:getetag>
+        <d:resourcetype><d:collection/></d:resourcetype>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>

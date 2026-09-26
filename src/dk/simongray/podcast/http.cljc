@@ -34,6 +34,13 @@
                (str/replace "%7E" "~"))
      :cljs (js/encodeURIComponent (str s))))
 
+(defn percent-decode
+  "The string `s` with its percent-encoding undone, the inverse of `encode`:
+  a plus sign stays a plus sign."
+  [s]
+  #?(:clj  (java.net.URLDecoder/decode (str/replace (str s) "+" "%2B") "UTF-8")
+     :cljs (js/decodeURIComponent (str s))))
+
 (defn query-string
   "The query string for `params`, keys and values URL-encoded and nil
   values left out; `true` becomes the bare flag some APIs take."
@@ -149,8 +156,9 @@
    (defn call!
      "Send the request map `{:method :url :headers :body}` and return
      `{:status :url :headers :body}` with the body decoded to a string. The
-     request is a GET unless `:method` is `:post`, when the `:body` string
-     is sent as it is. `:timeout-seconds` (default 30) bounds the wait for
+     request is a GET unless `:method` names another, `:post`, `:put`,
+     `:delete` or WebDAV's `:propfind`, sent with the `:body` string as it
+     is when there is one. `:timeout-seconds` (default 30) bounds the wait for
      the response headers; `:max-bytes` (default `default-max-bytes`, nil for
      no limit) bounds the body, compressed and inflated, beyond which
      `::too-large` is thrown instead of reading on. gzip is accepted and
@@ -164,9 +172,13 @@
            builder  (reduce-kv (fn [^HttpRequest$Builder b k v] (.header b (str k) (str v)))
                                builder
                                (merge {"User-Agent" user-agent} headers))
-           request  (-> (if (= :post method)
-                          (.POST ^HttpRequest$Builder builder (HttpRequest$BodyPublishers/ofString (str body)))
-                          (.GET ^HttpRequest$Builder builder))
+           request  (-> (if (or (nil? method) (= :get method))
+                          (.GET ^HttpRequest$Builder builder)
+                          (.method ^HttpRequest$Builder builder
+                                   (str/upper-case (name method))
+                                   (if (some? body)
+                                     (HttpRequest$BodyPublishers/ofString (str body))
+                                     (HttpRequest$BodyPublishers/noBody))))
                         (.build))
            response (.send @client request (HttpResponse$BodyHandlers/ofInputStream))
            bytes    (with-open [^InputStream in (.body response)]

@@ -325,12 +325,17 @@ at first; Node could follow through `fs` if a Node app wants it.
 
 WebDAV covers most of the self-hosted world with plain HTTP: GET, PUT,
 DELETE and a PROPFIND at depth one for the listing, the ETag as the
-version. Seafile speaks WebDAV; whether its server honours `If-Match` is to
-be verified, and the per-device strategy does not need it. The inspector
-will serve a folder over the same four methods, minimal and enough, so that
-the reference app demonstrates self-hosting with no protocol of its own:
-the browser player syncs to it from the same origin, and Finder or a
-Nextcloud client can mount it.
+version. `app.sync.webdav` does it, built the directories' way, the calls
+as request maps and the answers read from recorded multistatus documents,
+and in a browser over fetch. Seafile speaks WebDAV; whether its server
+honours `If-Match` is to be verified, and the per-device strategy does not
+need it. The inspector serves a folder over the same four methods, minimal
+and enough, so that the reference app demonstrates self-hosting with no
+protocol of its own: the browser player syncs to it from the same origin,
+and Finder or a Nextcloud client can mount it. Two things Pedestal does
+before routing had to be undone for it: the router does not match a
+collection's trailing slash, and the body-params interceptor reads an EDN
+or a form body before the handler sees it.
 
 The API stores are one HTTPS call per operation with a bearer token:
 Dropbox downloads and uploads with the rev in an update mode and lists a
@@ -445,11 +450,12 @@ strategies and the OPML mirror, `sync!` on both platforms, the diagnostics
 in the catalogue, the convergence property, and the guide's section 7 and
 the README rewritten for it.
 
-After 1.0, each as one additive namespace with its fixtures: WebDAV with
-the inspector's folder, gpodder, Dropbox, Drive, OneDrive, the Git hosts,
-CloudKit JS, the encrypting wrapper, compaction, JSON documents, JGit, and
-the Open Podcast API when it stabilises. None of them changes a document
-already written.
+WebDAV with the inspector's folder came next, before 1.0 after all, since
+it gives the browser player a store and the suite a real server. After
+1.0, each as one additive namespace with its fixtures: gpodder, Dropbox,
+Drive, OneDrive, the Git hosts, CloudKit JS, the encrypting wrapper,
+compaction, JSON documents, JGit, and the Open Podcast API when it
+stabilises. None of them changes a document already written.
 
 ## Decisions
 

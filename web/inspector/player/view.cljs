@@ -7,8 +7,8 @@
   the player being dk.simongray.podcast.app.player's and an episode what
   /episode.edn serves. An event is a vector whose first element names it:
   `[:skip id :back]`, `[:ended id]`, `[:play-next id]`, `[:dequeue id]`,
-  `[:prefer :skip-back]`, and from the audio element `[:audio/loaded id
-  position]` and `[:audio/time id]`. The shell in
+  `[:prefer :skip-back]`, `[:sync]`, and from the audio element
+  `[:audio/loaded id position]` and `[:audio/time id]`. The shell in
   inspector.player performs them."
   (:require [cljs.pprint :as pprint]
             [dk.simongray.podcast.app.player :as player]
@@ -94,6 +94,35 @@
      [:h2 "Preferences"]
      [:p (field "Skip back" :skip-back skip-back) "   " (field "Skip forward" :skip-forward skip-forward)]]))
 
+(defn- devices
+  "The listener's devices and the sync through the inspector's folder."
+  [{:keys [player synced syncing?]}]
+  (let [known (player/devices player)]
+    [:section
+     [:h2 "Devices"]
+     [:p.muted "Every device writes its own document to the inspector's folder, served over WebDAV at /dav/, and reads the others'."]
+     (if (empty? known)
+       [:p.muted "No device has described itself yet."]
+       [:ul.compact
+        (for [[id {:keys [name]}] (sort-by (comp str :name val) known)]
+          [:li {:replicant/key id}
+           (or name id)
+           (when (= id (:device player)) [:span.badge "this browser"])
+           " " [:span.muted id]])])
+     [:p
+      [:button {:on {:click [:sync]} :disabled syncing?} (if syncing? "Syncing…" "Sync now")]
+      (when synced
+        [:span.muted
+         (str " Synced at " (.toLocaleTimeString ^js (:at synced)))
+         (when-let [failed (:failed synced)]
+           (str "; failed: " (pr-str failed)))
+         (when (seq (:report synced))
+           (str "; " (count (:report synced)) " remark" (when (> (count (:report synced)) 1) "s")))])]
+     (when (seq (:report synced))
+       [:ul.compact
+        (for [{:keys [id message]} (:report synced)]
+          [:li {:replicant/key (str id)} [:code (str id)] " " message])])]))
+
 (defn page
   "The queue page: the detailed view of the state the bar plays from."
   [{:keys [player titles error] :as state}]
@@ -105,6 +134,7 @@
    (up-next state)
    (history state)
    (preferences state)
+   (devices state)
    [:section
     [:h2 "State"]
     [:pre (with-out-str (pprint/pprint player))]]])

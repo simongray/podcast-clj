@@ -73,6 +73,12 @@ Working toward 1.0, the first release.
   with a rank from the new `rank` namespace, so that what two devices
   queued while apart both survive, and preferences and a subscription's
   settings are one entry per field.
+- `app.sync.webdav`: a WebDAV collection as a store, Nextcloud, ownCloud,
+  Seafile, Synology, Box, Fastmail or the inspector's own folder, the ETag
+  as the version, with the calls as request maps and the answers read, on
+  both platforms; `http/call!` sends any method. The inspector serves its
+  sync folder over WebDAV at `/dav/`, and its browser player syncs through
+  it on request.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

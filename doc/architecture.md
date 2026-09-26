@@ -459,8 +459,10 @@ repairs avoid it.
 with Replicant's string renderer. It fetches a feed URL (or one of the corpus
 feeds), parses it, and shows the channel, the items, every recognized tag, the
 unknown elements, the report, the validation diagnostics against a chosen profile
-and the round-tripped XML. It is the first client of the library and exists
-to test it; it touches nothing but the public API.
+and the round-tripped XML; its queue page carries the browser player, and
+its folder at `/dav/` is the sync backend the player and any WebDAV client
+share. It is the first client of the library and exists to test it; it
+touches nothing but the public API.
 
 ## Testing
 
@@ -669,8 +671,28 @@ so a store over localStorage and one over fetch are written the same way.
 The memory store is the engine's test double, and the folder store,
 `app.sync.file`, covers iCloud Drive, Dropbox, Drive, Seafile, Syncthing
 and a Git working tree by writing each file whole and moving it into
-place; the stores over the HTTP APIs and the gpodder services follow 1.0,
+place. The WebDAV store, `app.sync.webdav`, reaches Nextcloud, ownCloud,
+Seafile, Synology, Box and Fastmail with four methods, GET, PUT, DELETE
+and a PROPFIND at depth one, the ETag as the version and `If-Match` as
+the precondition; it is built the directories' way, the calls as request
+maps and the answers read from recorded multistatus documents, which the
+library's own XML parser reads with the `DAV:` namespace bound to one
+alias whatever prefix a server wrote, and in a browser it sends with
+fetch. The stores over the HTTP APIs and the gpodder services follow 1.0,
 one namespace each.
+
+The inspector serves a folder over WebDAV at `/dav/`, `inspector.dav` over
+the folder store, with the same four methods, ETags and the
+preconditions, and OPTIONS, HEAD and MKCOL so that a client can ask. The
+browser player syncs to it from the same origin on request, any WebDAV
+client can mount it, and the library's WebDAV store has a real server in
+the test suite, driven through Pedestal's interceptor chain with the
+library's HTTP client stood in by the connector. Two things Pedestal does
+before routing had to be undone for it: the router does not match a
+collection's trailing slash, and the body-params interceptor reads an EDN
+or a form body for its own purposes and leaves the handler an empty
+stream, so an interceptor ahead of them normalises the slash and drops
+the content type of whatever goes to the folder.
 
 The player state gained what syncing needs and what would have been
 painful to change once states are persisted. The device is a stable id,
@@ -773,3 +795,6 @@ they outlive an unsubscription and come back with the feed.
     state given device ids, a registry, a clock and a merge by shape, then
     the queue as ranked entries and the settings field by field. Done; the
     stores over the HTTP APIs and the gpodder services follow 1.0.
+25. WebDAV: the store over a collection, for Nextcloud and the self-hosted
+    world, and the inspector's folder served over WebDAV, for the browser
+    player, any WebDAV client and the store's own tests. Done.

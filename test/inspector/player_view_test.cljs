@@ -63,6 +63,14 @@
       (let [inputs (elements page :input)]
         (is (= [15 30] (map #(get-in % [1 :value]) inputs)))
         (is (= [[:prefer :skip-back] [:prefer :skip-forward]] (map #(get-in % [1 :on :change]) inputs)))))
+    (testing "the devices and the sync through the inspector's folder"
+      (let [described (update state :player player/identify {:name "This browser"} t0)
+            devices   (view/page (assoc described :synced {:at t0 :failed {"inspector" "offline"} :report [{:id :sync/clock-skew :message "ahead"}]}))]
+        (is (str/includes? (text page) "No device has described itself yet."))
+        (is (= [[:sync]] (map #(get-in % [1 :on :click]) (filter #(= "Sync now" (nth % 2)) (elements page :button)))))
+        (is (str/includes? (text devices) "This browser"))
+        (is (str/includes? (text devices) "failed: {\"inspector\" \"offline\"}"))
+        (is (str/includes? (text devices) ":sync/clock-skew ahead"))))
     (testing "an empty state and an error"
       (let [empty-page (view/page {:player (player/state "browser") :titles {}})]
         (is (str/includes? (text empty-page) "Nothing queued."))
