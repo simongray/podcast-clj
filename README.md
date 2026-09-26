@@ -59,7 +59,7 @@ On the JVM one call fetches and parses, with the validators for the next
 poll, and the accessors say what to show and when to look again:
 
 ```clojure
-(require '[dk.simongray.podcast.chapters :as chapters])
+(require '[dk.simongray.podcast.format.chapters :as chapters])
 
 (def r (podcast/fetch! url {:etag etag :last-modified last-modified}))
 (:feed r)                                        ; absent on a 304: nothing changed
@@ -76,7 +76,7 @@ a browser would, with a sanitizer, so that a Clojure client renders them
 directly, and renders the same Hiccup as text or Markdown:
 
 ```clojure
-(require '[dk.simongray.podcast.html :as html])
+(require '[dk.simongray.podcast.format.html :as html])
 
 (html/hiccup (resolve/description item))
 ;; => ([:p {} "Today: " [:a {:href "https://…"} "the show notes"]] [:ul {} [:li {} "one"] ...])
@@ -90,7 +90,7 @@ over it, so any UI gets a queue, progress, played marks and subscriptions
 without owning the logic, and two devices' states merge into one:
 
 ```clojure
-(require '[dk.simongray.podcast.player :as player])
+(require '[dk.simongray.podcast.app.player :as player])
 
 (def now #inst "2026-09-26T10:00:00Z")
 (def id (player/episode-id feed "https://feeds.podcastindex.org/pc20.xml" item))
@@ -112,7 +112,7 @@ full-text index that is a value, so a show page, an inbox and a search
 box are the same few functions, on both platforms:
 
 ```clojure
-(require '[dk.simongray.podcast.search :as search])
+(require '[dk.simongray.podcast.app.search :as search])
 
 (search/episodes feed {:where {:season 2 :type "full" :duration [600 nil]} :order :newest})
 (search/episodes feed {:where {:status :unplayed} :order :recent :player s :url url})  ; what the listener has left
@@ -197,7 +197,7 @@ The same registry yields Malli schemas of the model as plain data, without
 a dependency on Malli:
 
 ```clojure
-(require '[dk.simongray.podcast.schema :as schema]
+(require '[dk.simongray.podcast.feed.schema :as schema]
          '[malli.core :as m])
 
 (m/validate schema/feed feed)          ; true for every feed in the corpus
@@ -236,7 +236,7 @@ can send, and a response comes back keyed like a parsed feed or item, with
 what only the index knows under `:index/*`:
 
 ```clojure
-(require '[dk.simongray.podcast.index :as index])
+(require '[dk.simongray.podcast.directory.podcastindex :as index])
 
 (index/request credentials :search/by-term {:q "podcasting 2.0" :max 5})
 ;; => {:method :get :url "https://api.podcastindex.org/api/1.0/search/byterm?q=…" :headers {…}}
@@ -274,27 +274,27 @@ Namespaces
 |---|---|
 | `dk.simongray.podcast` | The front door: `parse`, `emit`, `report`, `summarize`, `parse-tree`; on the JVM `fetch!`, a URL to a parsed feed with the headers a poller hands back |
 | `dk.simongray.podcast.diagnostics` | Every diagnostic id with its level and meaning; rendered as [doc/diagnostics.md](doc/diagnostics.md) |
-| `dk.simongray.podcast.html` | Embedded HTML as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown`, `emit` |
-| `dk.simongray.podcast.player` | A player's state as data: the queue, progress and played marks, subscriptions and settings, OPML in and out, `merge` for syncing, `step` for driving it |
 | `…podcast.xml` | XML to Hiccup and back, namespaces resolved by URI; kebab-case names, character and entity references |
 | `…podcast.xml.jsoup` | Lenient parser for feeds that are not well-formed at all; needs the optional `org.jsoup/jsoup` |
-| `…podcast.quirks` | String repairs, URI variants, tree normalizations |
-| `…podcast.spec` | The tag registry as data, `registry` to index or extend it, and the enumerations of the specifications; rendered as [doc/tags.md](doc/tags.md) |
-| `…podcast.schema` | Malli schemas of the model, generated from the registry as plain data; Malli itself is optional |
-| `…podcast.feed` | Hiccup to feed maps and back; `normalize` for a producer's shorthand; feed and item identity; `diff` between parses |
-| `…podcast.resolve` | One answer where the vocabularies give several: title, artwork, author, duration, numbering, enclosure, people, transcript; `properties` for all of them at once and `sources` for the fields behind them; the listening order (`episodes`, `seasons`), `blocked?`, `next-check` |
-| `…podcast.validate` | Registry-driven validation, with PSP-1 and Apple profiles |
-| `…podcast.search` | Episodes filtered and ordered by criteria as data, the listener's progress included; a full-text index over subscriptions, ranked by BM25, with prefix and phrase queries and snippets |
-| `…podcast.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters read from the timestamps in show notes |
-| `…podcast.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, speakers included; `turns` merges word-level segments |
-| `…podcast.opml` | Subscription lists |
-| `…podcast.value` | Value-for-value arithmetic: splits, fees, time splits, remote blocks folded in; the boostagram record a payment carries |
-| `…podcast.index` | Podcast Index API: requests with auth, responses mapped onto the model, remote value resolution |
-| `…podcast.directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index behind one shape: search, lookup and charts as request maps and shows keyed like the model; `combine` for one entry per show; `search!` and `trending!` on the JVM |
-| `…podcast.guid` | `podcast:guid` (UUIDv5) and SHA-1 |
 | `…podcast.time` | RFC 2822 and ISO 8601 dates, durations, timestamps |
-| `…podcast.rrule` | RFC 5545 recurrence rules parsed, written and evaluated, for `podcast:updateFrequency` |
+| `…podcast.time.rrule` | RFC 5545 recurrence rules parsed, written and evaluated, for `podcast:updateFrequency` |
+| `…podcast.guid` | `podcast:guid` (UUIDv5) and SHA-1 |
 | `…podcast.http` | JVM feed fetcher with conditional requests |
+| `…podcast.spec` | The tag registry as data, `registry` to index or extend it, and the enumerations of the specifications; rendered as [doc/tags.md](doc/tags.md) |
+| `…podcast.quirks` | String repairs, URI variants, tree normalizations |
+| `…podcast.feed` | Hiccup to feed maps and back; `normalize` for a producer's shorthand; feed and item identity; `diff` between parses |
+| `…podcast.feed.validate` | Registry-driven validation, with PSP-1 and Apple profiles |
+| `…podcast.feed.schema` | Malli schemas of the model, generated from the registry as plain data; Malli itself is optional |
+| `…podcast.resolve` | One answer where the vocabularies give several: title, artwork, author, duration, numbering, enclosure, people, transcript; `properties` for all of them at once and `sources` for the fields behind them; the listening order (`episodes`, `seasons`), `blocked?`, `next-check` |
+| `…podcast.value` | Value-for-value arithmetic: splits, fees, time splits, remote blocks folded in; the boostagram record a payment carries |
+| `…podcast.format.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters read from the timestamps in show notes |
+| `…podcast.format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, speakers included; `turns` merges word-level segments |
+| `…podcast.format.opml` | Subscription lists |
+| `dk.simongray.podcast.format.html` | Embedded HTML as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown`, `emit` |
+| `dk.simongray.podcast.app.player` | A player's state as data: the queue, progress and played marks, subscriptions and settings, OPML in and out, `merge` for syncing, `step` for driving it |
+| `…podcast.app.search` | Episodes filtered and ordered by criteria as data, the listener's progress included; a full-text index over subscriptions, ranked by BM25, with prefix and phrase queries and snippets |
+| `…podcast.directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index behind one shape: search, lookup and charts as request maps and shows keyed like the model; `combine` for one entry per show; `search!` and `trending!` on the JVM |
+| `…podcast.directory.podcastindex` | Podcast Index API: requests with auth, responses mapped onto the model, remote value resolution |
 
 Reference web app
 -----------------
@@ -303,7 +303,10 @@ Reference web app
 clojure -M:web
 ```
 
-Then open http://localhost:8300/, paste a feed URL, and see the model, the
+The inspector lives under `web/` in its own namespaces, `inspector.*`, like
+the dev tooling in `dev/`: it is example code that uses the library's
+public API, not part of the library. Open http://localhost:8300/, paste a
+feed URL, and see the model, the
 report, the validation diagnostics against a profile and the round-tripped XML.
 Every item links to a page that fetches its chapters and transcript and shows
 them parsed. The corpus of real feeds in `dev-resources/corpus/` (not in git;

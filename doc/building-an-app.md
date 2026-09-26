@@ -7,24 +7,24 @@ bundled inspector, under `web/`, walks the same path and is the worked
 example.
 
 An app's state is three values: the player state of
-`dk.simongray.podcast.player`, one map with the subscriptions, the queue
+`dk.simongray.podcast.app.player`, one map with the subscriptions, the queue
 and the progress per episode; the parsed feeds, kept by feed guid along
 with the URL each was fetched from and the validators of the last fetch;
-and, when the app searches, an index from `dk.simongray.podcast.search`.
+and, when the app searches, an index from `dk.simongray.podcast.app.search`.
 All three are values that print as EDN, so storing them is the app's
 choice of where, not how.
 
 ```clojure
 (require '[dk.simongray.podcast :as podcast]
-         '[dk.simongray.podcast.chapters :as chapters]
+         '[dk.simongray.podcast.format.chapters :as chapters]
          '[dk.simongray.podcast.directory :as directory]
          '[dk.simongray.podcast.feed :as feed]
-         '[dk.simongray.podcast.html :as html]
-         '[dk.simongray.podcast.opml :as opml]
-         '[dk.simongray.podcast.player :as player]
+         '[dk.simongray.podcast.format.html :as html]
+         '[dk.simongray.podcast.format.opml :as opml]
+         '[dk.simongray.podcast.app.player :as player]
          '[dk.simongray.podcast.resolve :as resolve]
-         '[dk.simongray.podcast.search :as search]
-         '[dk.simongray.podcast.transcript :as transcript]
+         '[dk.simongray.podcast.app.search :as search]
+         '[dk.simongray.podcast.format.transcript :as transcript]
          '[dk.simongray.podcast.value :as value])
 
 (def now (java.util.Date.))          ; every write to the player state takes the time

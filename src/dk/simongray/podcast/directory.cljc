@@ -25,7 +25,7 @@
   answers into one entry per show."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.index :as index]
+            [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.time :as time]
             #?(:clj [dk.simongray.podcast.http :as http])))

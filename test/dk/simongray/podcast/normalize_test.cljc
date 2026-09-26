@@ -6,7 +6,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed :as feed]
-            [dk.simongray.podcast.validate :as validate]))
+            [dk.simongray.podcast.feed.validate :as validate]))
 
 (def example
   (delay (podcast/parse #?(:clj  (slurp (io/resource "feeds/namespace-example.xml"))

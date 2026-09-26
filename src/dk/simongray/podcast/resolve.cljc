@@ -10,9 +10,9 @@
   answer into one map, to merge with the raw fields, and `sources` says
   which fields gave them."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.chapters :as chapters]
-            [dk.simongray.podcast.rrule :as rrule]
+            [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.time :as time]
+            [dk.simongray.podcast.time.rrule :as rrule]
             [dk.simongray.podcast.value :as value]))
 
 (defn title

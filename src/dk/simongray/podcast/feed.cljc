@@ -11,7 +11,7 @@
   the report says so. The report is metadata on the result, under
   `:podcast/report`, and `report` reads it."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.coerce :as coerce]
+            [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.spec :as spec]

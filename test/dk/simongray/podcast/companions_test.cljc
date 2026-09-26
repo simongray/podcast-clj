@@ -4,9 +4,9 @@
             #?(:cljs [shadow.resource :as rc])
             #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.chapters :as chapters]
-            [dk.simongray.podcast.opml :as opml]
-            [dk.simongray.podcast.transcript :as transcript]
+            [dk.simongray.podcast.format.chapters :as chapters]
+            [dk.simongray.podcast.format.opml :as opml]
+            [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.value :as value]))
 
 (def complex-chapters

@@ -7,12 +7,12 @@
             [clojure.pprint :as pprint :refer [print-table]]
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.chapters :as chapters]
+            [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.index :as index]
-            [dk.simongray.podcast.transcript :as transcript]
-            [dk.simongray.podcast.validate :as validate]
+            [dk.simongray.podcast.directory.podcastindex :as index]
+            [dk.simongray.podcast.format.transcript :as transcript]
+            [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.xml :as xml]))
 
 (def dir

@@ -13,4 +13,4 @@
           :player       {:target     :browser
                          :output-dir "target/web/public/js"
                          :asset-path "/js"
-                         :modules    {:player {:init-fn dk.simongray.podcast.web.player/init}}}}}
+                         :modules    {:player {:init-fn inspector.player/init}}}}}

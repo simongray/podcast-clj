@@ -51,6 +51,11 @@ Working toward 1.0, the first release.
   architecture keeps every require pointing down a layer. The inspector's
   browser player has its views as data and is tested on jsdom.
 - A guide, doc/building-an-app.md, from finding a show to playing it.
+- The namespaces grouped by the architecture: `feed.coerce`,
+  `feed.validate` and `feed.schema`; `format.chapters`, `format.transcript`,
+  `format.opml` and `format.html`; `app.player` and `app.search`;
+  `time.rrule`; `directory.podcastindex`. The inspector is `inspector.*`,
+  outside the library's tree.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

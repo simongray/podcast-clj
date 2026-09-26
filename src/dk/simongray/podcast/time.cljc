@@ -5,7 +5,7 @@
 
   Instants are `#inst` values (java.util.Date or js/Date). Durations and
   timestamps within media are seconds: a long when whole, a double otherwise.
-  Recurrence rules are dk.simongray.podcast.rrule's, built on the calendar
+  Recurrence rules are dk.simongray.podcast.time.rrule's, built on the calendar
   arithmetic here."
   (:require [clojure.string :as str]))
 

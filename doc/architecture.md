@@ -36,7 +36,7 @@ the code.
 
 ```
                  ┌────────────────────────────────────────────────┐
-  reference app  │ web/  dk.simongray.podcast.web.*   (Pedestal)  │  uses only the public API
+  reference app  │ web/  inspector.*   (Pedestal)                 │  uses only the public API
                  └────────────────────────────────────────────────┘
                  ┌──────────────┬──────────────┬──────────────────┐
   companions     │ chapters     │ transcript   │ opml   value     │  formats, and the accessors
@@ -56,8 +56,22 @@ Dependencies point downward only. `spec` knows nothing about parsing; `feed`
 knows nothing about HTTP; the companions depend on `xml`, `time` and `json`
 but not on `feed` or `quirks`, since what they need of XML itself, the
 Hiccup accessors, kebab-case names and entity decoding, lives in `xml`. The
-web app is a separate source path (`web/`, alias `:web`) so the library jar
-never carries Pedestal.
+inspector is a separate source path (`web/`, alias `:web`) in its own
+namespaces, `inspector.*`, outside the library's tree like the dev tooling's
+`corpus` and `reference`, so the library jar never carries Pedestal and the
+namespace tree says what is library and what is example.
+
+The namespaces follow the layers where one is genuinely part of another,
+and stay flat where nothing is: `xml.jsoup` under `xml` and `time.rrule`
+under `time`; `feed.coerce`, `feed.validate` and `feed.schema` under `feed`
+as the three interpreters of the registry over the model, with `spec` and
+`quirks` above them as the vocabulary; the companion formats `chapters`,
+`transcript`, `opml` and `html` under `format`; `player` and `search`,
+what an app keeps and finds, under `app`; and the Podcast Index client
+under `directory`, since the index is one of the directories `directory`
+puts behind one shape. `resolve`, `value`, `guid`, `json`, `http` and
+`diagnostics` belong to no group and stay at the top. A test reads the
+`ns` forms and holds the layering to this.
 
 ## The XML layer: Hiccup with namespaces resolved by URI
 
@@ -139,7 +153,7 @@ Spec churn becomes a data change. `podcast:images` is one entry marked
 `:deprecated :podcast/image`; a new attribute is one line. Two more things
 are generated from the registry so that they cannot drift from the code:
 `doc/tags.md`, the reference of every element, written by `dev/reference.clj`;
-and `dk.simongray.podcast.schema`, Malli schemas of the model as plain data
+and `dk.simongray.podcast.feed.schema`, Malli schemas of the model as plain data
 (Malli is not a dependency), with one schema per element in a registry and
 `schema/feed` and `schema/item` for the maps `parse` returns. The schemas
 describe what `emit` accepts: the model with every value coerced and every
@@ -365,7 +379,7 @@ reported.
 A podcast app's own logic is mostly the same in every app: a play queue,
 where the listener left each episode and which ones count as played,
 subscriptions and their settings, and keeping several devices in step.
-`dk.simongray.podcast.player` holds that as one state map and pure
+`dk.simongray.podcast.app.player` holds that as one state map and pure
 operations over it, so that a client writes its UI and nothing else. The
 rules of the library hold: no storage, no clock, no media element. Every
 operation takes the instant it happens and stamps what it changed with that
@@ -490,7 +504,7 @@ to test it; it touches nothing but the public API.
 
 ## Finding episodes
 
-`dk.simongray.podcast.search` is where an app's lists come from, in two
+`dk.simongray.podcast.app.search` is where an app's lists come from, in two
 independent halves.
 
 **Criteria and orders as data.** `where` turns a map such as `{:season 2

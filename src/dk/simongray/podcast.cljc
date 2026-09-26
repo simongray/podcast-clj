@@ -5,11 +5,11 @@
   This namespace is the front door; each step behind it is its own namespace
   and can be used alone:
 
-      xml      XML as Hiccup, namespaces resolved by URI
-      quirks   repairs and normalizations for feeds that bend the standards
-      spec     the tag registry every interpreter reads
-      feed     Hiccup to feed maps and back
-      validate the registry-driven validator and its profiles
+      xml            XML as Hiccup, namespaces resolved by URI
+      quirks         repairs and normalizations for feeds that bend the standards
+      spec           the tag registry every interpreter reads
+      feed           Hiccup to feed maps and back
+      feed.validate  the registry-driven validator and its profiles
 
   `parse` runs the strict path first and falls back to repair only when the
   document is malformed. Everything the lenient path did is in the report.
@@ -151,7 +151,7 @@
           result)))))
 
 (defn summarize
-  "Group `diagnostics`, from `report` or from `dk.simongray.podcast.validate`,
+  "Group `diagnostics`, from `report` or from `dk.simongray.podcast.feed.validate`,
   by id and message: one map per kind with the `:id`, `:level` and
   `:message` of its first occurrence, that occurrence as `:example`, and
   the `:count`, most frequent first. A recommendation repeated for each of

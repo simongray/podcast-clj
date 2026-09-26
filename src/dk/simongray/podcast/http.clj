@@ -113,7 +113,7 @@
     (str sb)))
 
 (defn call!
-  "Send the GET request map `{:url :headers}` (what dk.simongray.podcast.index
+  "Send the GET request map `{:url :headers}` (what dk.simongray.podcast.directory.podcastindex
   builds, or anything of that shape) and return `{:status :url :headers
   :body}` with the body decoded to a string. `:timeout-seconds` (default 30)
   bounds the wait for the response headers; `:max-bytes` (default

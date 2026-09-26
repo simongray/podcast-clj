@@ -7,9 +7,9 @@
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.chapters :as chapters]
-            [dk.simongray.podcast.transcript :as transcript]
-            [dk.simongray.podcast.validate :as validate]))
+            [dk.simongray.podcast.feed.validate :as validate]
+            [dk.simongray.podcast.format.chapters :as chapters]
+            [dk.simongray.podcast.format.transcript :as transcript]))
 
 (def files
   "The feed files: the .xml files directly in the corpus directory, not the

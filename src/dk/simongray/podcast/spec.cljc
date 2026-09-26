@@ -15,7 +15,7 @@
               podcast:liveItem too) or the tag of its parent element
     :count    :one or :many, or a map from parent to either
     :attrs    the specified attributes by XML name, each with an optional
-              :type (see dk.simongray.podcast.coerce/types), :required and,
+              :type (see dk.simongray.podcast.feed.coerce/types), :required and,
               for :enum, :values
     :content  the type of the node text, :none when the element has none
     :values   the permitted node-text values of an enumeration

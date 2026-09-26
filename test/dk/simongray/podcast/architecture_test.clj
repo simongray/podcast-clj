@@ -13,13 +13,15 @@
 
 (def layers
   "The layer of each namespace, by its name under `prefix`: the primitives,
-  the vocabulary, the feed model, the companions, and the front door."
-  {"diagnostics" 0 "time" 0 "rrule" 0 "guid" 0 "json" 0 "xml" 0 "xml.jsoup" 0
-   "coerce" 0 "http" 0 "html" 0
+  the vocabulary, the feed model with its interpreters, the companions with
+  the formats, the app and the directories, and the front door."
+  {"diagnostics" 0 "time" 0 "time.rrule" 0 "guid" 0 "json" 0 "xml" 0 "xml.jsoup" 0
+   "http" 0
    "spec" 1 "quirks" 1
-   "feed" 2 "validate" 2 "schema" 2
-   "chapters" 3 "transcript" 3 "opml" 3 "value" 3 "resolve" 3 "player" 3
-   "index" 3 "search" 3 "directory" 3
+   "feed" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
+   "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.html" 3
+   "value" 3 "resolve" 3 "app.player" 3 "app.search" 3
+   "directory" 3 "directory.podcastindex" 3
    "" 4})
 
 (defn- short-name
@@ -82,9 +84,9 @@
 (deftest the-lowest-layers-know-nothing-above-them
   (testing "the registry is data with no interpreter in sight"
     (is (= #{} (get @graph "spec"))))
-  (testing "the companion formats stand on the primitives alone"
-    (doseq [ns ["chapters" "transcript" "opml" "value"]]
-      (is (every? #(zero? (get layers %)) (get @graph ns))
+  (testing "the companion formats stand on the primitives and each other alone"
+    (doseq [ns ["format.chapters" "format.transcript" "format.opml" "format.html" "value"]]
+      (is (every? #(or (zero? (get layers %)) (str/starts-with? % "format.")) (get @graph ns))
           (str ns " requires " (get @graph ns)))))
   (testing "the XML layer needs only the diagnostics"
     (is (= #{"diagnostics"} (get @graph "xml")))))
