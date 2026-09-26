@@ -133,8 +133,9 @@ Learn one part of the library and the rest behaves the same way.
    feed and an item and apply the inheritance the specifications describe.
 4. **Optional behaviour is an options map.** What an operation needs is a
    positional argument; what it may be told is a map, never a positional
-   flag: `(parse xml {:quirks? false})`, `(chapters/emit-json doc {:pretty?
-   true})`, `(resolve/transcript item {:languages ["da"]})`.
+   flag: `(parse xml {:quirks? false})`, `(validate/validate feed {:profile
+   :psp-1})`, `(chapters/emit-json doc {:pretty? true})`,
+   `(resolve/transcript item {:languages ["da"]})`.
 
 Keys are namespaced by vocabulary and kebab-cased: `:rss/pub-date`,
 `:itunes/episode-type`, `:podcast/alternate-enclosures`. Attributes become
@@ -161,6 +162,23 @@ and every required attribute present. `parse` is lenient and may return a map
 that fails them, a value kept as a string or a required attribute left blank,
 and `validate` is what says why; validating a map you built yourself before
 `emit` catches mistakes early.
+
+The registry is a value, and every interpreter takes one under `:registry`
+in its options, so a vocabulary extended with a client's own elements is
+read, written, validated and given schemas exactly like the library's:
+
+```clojure
+(require '[dk.simongray.podcast.spec :as spec])
+
+(def tags
+  (conj spec/tags {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one
+                   :attrs {:scheme {}} :content :decimal :doc "Acme's rating of the show."}))
+
+(:acme/rating (podcast/parse xml {:registry tags}))  ; => {:scheme "stars" :content 4.5}
+(podcast/emit feed {:registry tags})                 ; written back, the namespace declared
+(validate/validate feed {:registry tags :profile :psp-1})
+(schema/feed-schema tags)                            ; the Malli schema of the extended model
+```
 
 The Podcast Index speaks the same model. A request is a map any HTTP client
 can send, and a response comes back keyed like a parsed feed or item, with
@@ -190,10 +208,10 @@ Namespaces
 | `dk.simongray.podcast.diagnostics` | Every diagnostic id with its level and meaning; rendered as [doc/diagnostics.md](doc/diagnostics.md) |
 | `dk.simongray.podcast.html` | Embedded HTML as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown`, `emit` |
 | `dk.simongray.podcast.player` | A player's state as data: the queue, progress and played marks, subscriptions and settings, OPML in and out, `merge` for syncing, `step` for driving it |
-| `…podcast.xml` | XML to Hiccup and back, namespaces resolved by URI |
+| `…podcast.xml` | XML to Hiccup and back, namespaces resolved by URI; kebab-case names, character and entity references |
 | `…podcast.xml.jsoup` | Lenient parser for feeds that are not well-formed at all; needs the optional `org.jsoup/jsoup` |
 | `…podcast.quirks` | String repairs, URI variants, tree normalizations |
-| `…podcast.spec` | The tag registry and the enumerations of the specifications; rendered as [doc/tags.md](doc/tags.md) |
+| `…podcast.spec` | The tag registry as data, `registry` to index or extend it, and the enumerations of the specifications; rendered as [doc/tags.md](doc/tags.md) |
 | `…podcast.schema` | Malli schemas of the model, generated from the registry as plain data; Malli itself is optional |
 | `…podcast.feed` | Hiccup to feed maps and back; feed and item identity; `diff` between parses |
 | `…podcast.resolve` | One answer where the vocabularies give several: title, artwork, author, duration, numbering, enclosure, people, transcript |

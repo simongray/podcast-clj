@@ -172,7 +172,7 @@
   `report`, validated against `profile`."
   [{:keys [url feed report profile status]}]
   (let [items (:rss/items feed)
-        validation (validate/validate feed profile)]
+        validation (validate/validate feed {:profile profile})]
     (layout (or (resolve/title feed) url)
             [:header
              (when-let [img (resolve/artwork feed)]

@@ -89,7 +89,7 @@
            t0    (System/nanoTime)
            feed  (podcast/parse s)
            ms    (quot (- (System/nanoTime) t0) 1000000)
-           v     (validate/validate feed :psp-1)]
+           v     (validate/validate feed {:profile :psp-1})]
        {:file       (.getName ^java.io.File file)
         :items      (count (:rss/items feed))
         :ms         ms
@@ -273,7 +273,7 @@
          :examples   (into {} (map (juxt xml/tag identity)) unknown)
          :validation (frequencies (map (juxt :id :message)
                                        (remove (comp #{:validate/unknown-element} :id)
-                                               (validate/validate feed nil))))
+                                               (validate/validate feed))))
          :round-trip (= feed (podcast/parse (podcast/emit feed)))}))))
 
 (defn- by-feeds

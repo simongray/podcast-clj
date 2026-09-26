@@ -11,7 +11,6 @@
   Folders in the OPML become the `:path` of the subscriptions inside them,
   so the list stays flat and easy to merge; `emit` rebuilds the folders."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.xml :as xml]))
 
 (defn- subscription
@@ -20,7 +19,7 @@
   (let [attrs (xml/attrs outline)]
     (cond-> (into {} (for [[k v] attrs
                            :when (not (namespace k))]
-                       [(spec/attr-key k) v]))
+                       [(xml/attr-key k) v]))
       (seq path) (assoc :path path))))
 
 (defn- outlines

@@ -62,7 +62,7 @@
      ["| Attribute | Key | Type | |"
       "|---|---|---|---|"]
      (for [[k {:keys [required] :as attr}] (sort-by (comp str key) attrs)]
-       (str "| `" (name k) "` | `" (spec/attr-key k) "` | " (type-name attr) " | "
+       (str "| `" (name k) "` | `" (xml/attr-key k) "` | " (type-name attr) " | "
             (if required "required" "") " |")))))
 
 (defn- element-section

@@ -67,66 +67,6 @@
 
 ;;;; Repairing XML text
 
-(def latin1-entities
-  "The HTML entity names for code points 192 to 255, in order."
-  ["Agrave" "Aacute" "Acirc" "Atilde" "Auml" "Aring" "AElig" "Ccedil" "Egrave"
-   "Eacute" "Ecirc" "Euml" "Igrave" "Iacute" "Icirc" "Iuml" "ETH" "Ntilde"
-   "Ograve" "Oacute" "Ocirc" "Otilde" "Ouml" "times" "Oslash" "Ugrave" "Uacute"
-   "Ucirc" "Uuml" "Yacute" "THORN" "szlig" "agrave" "aacute" "acirc" "atilde"
-   "auml" "aring" "aelig" "ccedil" "egrave" "eacute" "ecirc" "euml" "igrave"
-   "iacute" "icirc" "iuml" "eth" "ntilde" "ograve" "oacute" "ocirc" "otilde"
-   "ouml" "divide" "oslash" "ugrave" "uacute" "ucirc" "uuml" "yacute" "thorn"
-   "yuml"])
-
-(def html-entities
-  "Code point by name for the HTML entities that XML lacks and feeds use."
-  (merge (zipmap latin1-entities (range 192 256))
-         {"nbsp" 160 "iexcl" 161 "cent" 162 "pound" 163 "curren" 164 "yen" 165
-          "brvbar" 166 "sect" 167 "uml" 168 "copy" 169 "ordf" 170 "laquo" 171
-          "not" 172 "shy" 173 "reg" 174 "macr" 175 "deg" 176 "plusmn" 177
-          "sup2" 178 "sup3" 179 "acute" 180 "micro" 181 "para" 182 "middot" 183
-          "cedil" 184 "sup1" 185 "ordm" 186 "raquo" 187 "frac14" 188 "frac12" 189
-          "frac34" 190 "iquest" 191 "OElig" 338 "oelig" 339 "Scaron" 352
-          "scaron" 353 "Yuml" 376 "fnof" 402 "circ" 710 "tilde" 732 "ensp" 8194
-          "emsp" 8195 "thinsp" 8201 "zwnj" 8204 "zwj" 8205 "lrm" 8206 "rlm" 8207
-          "ndash" 8211 "mdash" 8212 "lsquo" 8216 "rsquo" 8217 "sbquo" 8218
-          "ldquo" 8220 "rdquo" 8221 "bdquo" 8222 "dagger" 8224 "Dagger" 8225
-          "bull" 8226 "hellip" 8230 "permil" 8240 "prime" 8242 "Prime" 8243
-          "lsaquo" 8249 "rsaquo" 8250 "euro" 8364 "trade" 8482 "larr" 8592
-          "uarr" 8593 "rarr" 8594 "darr" 8595 "harr" 8596 "infin" 8734 "ne" 8800
-          "le" 8804 "ge" 8805 "hearts" 9829}))
-
-(def xml-entities
-  "The five entities XML predefines."
-  #{"amp" "lt" "gt" "quot" "apos"})
-
-(defn- code-point->str
-  [n]
-  #?(:clj  (String. (Character/toChars n))
-     :cljs (js/String.fromCodePoint n)))
-
-(defn decode-entities
-  "Replace the character and entity references in `s` with the characters
-  they stand for, HTML entities included; unknown references are kept."
-  [s]
-  (str/replace s #"&(#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);"
-               (fn [[whole ref]]
-                 (cond
-                   (re-find #"^#[xX]" ref)
-                   (code-point->str (#?(:clj Long/parseLong :cljs js/parseInt) (subs ref 2) 16))
-
-                   (str/starts-with? ref "#")
-                   (code-point->str (parse-long (subs ref 1)))
-
-                   (xml-entities ref)
-                   ({"amp" "&" "lt" "<" "gt" ">" "quot" "\"" "apos" "'"} ref)
-
-                   (html-entities ref)
-                   (code-point->str (html-entities ref))
-
-                   :else
-                   whole))))
-
 (defn map-outside-cdata
   "Apply `f` to every stretch of `s` that lies outside a CDATA section."
   [f s]
@@ -156,9 +96,9 @@
    #(str/replace % #"&([A-Za-z][A-Za-z0-9]*);"
                  (fn [[whole name]]
                    (cond
-                     (xml-entities name)  whole
-                     (html-entities name) (str "&#" (html-entities name) ";")
-                     :else                (str "&amp;" name ";"))))
+                     (xml/xml-entities name)  whole
+                     (xml/html-entities name) (str "&#" (xml/html-entities name) ";")
+                     :else                    (str "&amp;" name ";"))))
    s))
 
 (defn escape-bare-ampersands
@@ -318,65 +258,66 @@
     (into parent (mapcat srcset->images (xml/elements parent :podcast/images)))))
 
 (def rules
-  "The tree rules, applied to every element in document order, children
-  before parents."
-  (into
-   [(rewrite :quirk/itunes-image-text :itunes/image
-             (fn [[tag attrs :as element]]
-               (let [href (or (:href attrs) (:url attrs) (not-empty (str/trim (xml/text element))))]
-                 (if href
-                   [tag (-> attrs (dissoc :url) (assoc :href href))]
-                   element))))
-    (rewrite :quirk/explicit-value :itunes/explicit (canonical-text explicit-values))
-    (rewrite :quirk/transcript-type :podcast/transcript
-             (fn [[tag attrs :as element]]
-               (if-let [t (transcript-types (some-> (:type attrs) str/trim str/lower-case))]
-                 [tag (assoc attrs :type t)]
-                 element)))
-    (rewrite :quirk/attribute-name :podcast/transcript href->url)
-    (rewrite :quirk/attribute-name :podcast/chapters href->url)
-    (rewrite :quirk/enclosure-length :enclosure
-             (fn [[tag attrs :as element]]
-               (if (and (contains? attrs :length)
-                        (not (re-matches #"\s*\d+\s*" (str (:length attrs)))))
-                 [tag (dissoc attrs :length)]
-                 element)))
-    (rewrite :quirk/empty-guid :guid
-             (fn [element]
-               (if (str/blank? (xml/text element))
-                 nil
-                 element)))
-    (rewrite :quirk/deprecated-images :channel add-images)
-    (rewrite :quirk/deprecated-images :item add-images)
-    (rewrite :quirk/podcast-category :channel podcast-category->itunes)
-    (rewrite :quirk/item-image :item item-image->itunes)
-    (check :quirk/duration-format :itunes/duration
-           (fn [element]
-             (let [s (str/trim (xml/text element))]
-               (when (and (time/parse-duration s) (not (re-matches #"\d+" s)))
-                 {:value s}))))
-    (check :quirk/date-format :pubDate
-           (fn [element]
-             (let [s (str/trim (xml/text element))]
-               (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
-                 {:value s}))))
-    (check :quirk/date-format :lastBuildDate
-           (fn [element]
-             (let [s (str/trim (xml/text element))]
-               (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
-                 {:value s}))))]
-   (for [{:keys [tag content]} spec/tags
-         :when (= :yes-no content)]
-     (rewrite :quirk/yes-no-value tag (canonical-text yes-no-values)))))
+  "The tree rules that hold whatever the registry, applied to every element
+  in document order, children before parents; `registry-rules` adds the
+  ones a registry implies."
+  [(rewrite :quirk/itunes-image-text :itunes/image
+            (fn [[tag attrs :as element]]
+              (let [href (or (:href attrs) (:url attrs) (not-empty (str/trim (xml/text element))))]
+                (if href
+                  [tag (-> attrs (dissoc :url) (assoc :href href))]
+                  element))))
+   (rewrite :quirk/explicit-value :itunes/explicit (canonical-text explicit-values))
+   (rewrite :quirk/transcript-type :podcast/transcript
+            (fn [[tag attrs :as element]]
+              (if-let [t (transcript-types (some-> (:type attrs) str/trim str/lower-case))]
+                [tag (assoc attrs :type t)]
+                element)))
+   (rewrite :quirk/attribute-name :podcast/transcript href->url)
+   (rewrite :quirk/attribute-name :podcast/chapters href->url)
+   (rewrite :quirk/enclosure-length :enclosure
+            (fn [[tag attrs :as element]]
+              (if (and (contains? attrs :length)
+                       (not (re-matches #"\s*\d+\s*" (str (:length attrs)))))
+                [tag (dissoc attrs :length)]
+                element)))
+   (rewrite :quirk/empty-guid :guid
+            (fn [element]
+              (if (str/blank? (xml/text element))
+                nil
+                element)))
+   (rewrite :quirk/deprecated-images :channel add-images)
+   (rewrite :quirk/deprecated-images :item add-images)
+   (rewrite :quirk/podcast-category :channel podcast-category->itunes)
+   (rewrite :quirk/item-image :item item-image->itunes)
+   (check :quirk/duration-format :itunes/duration
+          (fn [element]
+            (let [s (str/trim (xml/text element))]
+              (when (and (time/parse-duration s) (not (re-matches #"\d+" s)))
+                {:value s}))))
+   (check :quirk/date-format :pubDate
+          (fn [element]
+            (let [s (str/trim (xml/text element))]
+              (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
+                {:value s}))))
+   (check :quirk/date-format :lastBuildDate
+          (fn [element]
+            (let [s (str/trim (xml/text element))]
+              (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
+                {:value s}))))])
 
-(def rules-by-tag
-  "The `rules` by the tag they apply to."
-  (group-by :tag rules))
+(defn registry-rules
+  "The rules the tag `registry` implies: yes and no written as true and
+  false in every element it types as yes-no."
+  [registry]
+  (for [{:keys [tag content]} (:entries registry)
+        :when (= :yes-no content)]
+    (rewrite :quirk/yes-no-value tag (canonical-text yes-no-values))))
 
 (defn- apply-rules
-  "Apply the rules for the tag of `element`, recording what they did in the
-  `report` accumulator; nil when a rule removed the element."
-  [report element]
+  "Apply the rules of `by-tag` for the tag of `element`, recording what they
+  did in the `report` accumulator; nil when a rule removed the element."
+  [by-tag report element]
   (reduce (fn [element {:keys [id kind f]}]
             (if (nil? element)
               (reduced nil)
@@ -390,22 +331,27 @@
                                                           diagnostic)))
                              element))))
           element
-          (rules-by-tag (xml/tag element))))
+          (by-tag (xml/tag element))))
 
 (defn- walk
-  [report element]
+  [by-tag report element]
   (->> (xml/children element)
-       (keep #(if (string? %) % (walk report %)))
+       (keep #(if (string? %) % (walk by-tag report %)))
        (into [(xml/tag element) (xml/attrs element)])
-       (apply-rules report)))
+       (apply-rules by-tag report)))
 
 (defn normalize
-  "Rewrite the canonical Hiccup `tree` by `rules`, keeping its metadata and
-  adding the diagnostics under `:quirks/report`."
-  [tree]
-  (let [report (volatile! [])
-        tree'  (walk report tree)]
-    (with-meta tree' (assoc (meta tree) :quirks/report @report))))
+  "Rewrite the canonical Hiccup `tree` by `rules` and by the `registry-rules`
+  of the tag registry in `opts` (`:registry`, default `spec/default`),
+  keeping its metadata and adding the diagnostics under `:quirks/report`."
+  ([tree]
+   (normalize tree {}))
+  ([tree {:keys [registry] :or {registry spec/default} :as opts}]
+   {:pre [(map? opts)]}
+   (let [by-tag (group-by :tag (into rules (registry-rules (spec/registry registry))))
+         report (volatile! [])
+         tree'  (walk by-tag report tree)]
+     (with-meta tree' (assoc (meta tree) :quirks/report @report)))))
 
 (defn report
   "The diagnostics `normalize` recorded on `tree`."

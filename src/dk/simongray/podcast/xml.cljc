@@ -17,7 +17,11 @@
   `:xml/namespaces` so that `emit` can declare them again.
 
   `emit` is the inverse: canonical Hiccup back to an XML string, with the
-  declarations for every alias in use written onto the root element."
+  declarations for every alias in use written onto the root element.
+
+  The namespace also holds what every layer above needs of XML itself: the
+  Hiccup accessors, kebab-case names, and the decoding of character and
+  entity references, HTML's included."
   (:require [clojure.set :as set]
             [clojure.string :as str])
   #?(:clj (:import [java.io InputStream Reader StringReader]
@@ -98,6 +102,85 @@
                    (let [s (apply str group)]
                      (when-not (str/blank? s) [s]))
                    group)))))
+
+;;;; Names
+
+(defn kebab
+  "Turn the camelCase XML name `s` into kebab-case: startTime to start-time."
+  [s]
+  (-> s
+      (str/replace #"([a-z0-9])([A-Z])" "$1-$2")
+      str/lower-case))
+
+(defn attr-key
+  "The model key of the XML attribute named `k` (a keyword): kebab-cased when
+  it has no namespace, as it is otherwise."
+  [k]
+  (if (namespace k)
+    k
+    (keyword (kebab (name k)))))
+
+;;;; Character and entity references
+
+(def latin1-entities
+  "The HTML entity names for code points 192 to 255, in order."
+  ["Agrave" "Aacute" "Acirc" "Atilde" "Auml" "Aring" "AElig" "Ccedil" "Egrave"
+   "Eacute" "Ecirc" "Euml" "Igrave" "Iacute" "Icirc" "Iuml" "ETH" "Ntilde"
+   "Ograve" "Oacute" "Ocirc" "Otilde" "Ouml" "times" "Oslash" "Ugrave" "Uacute"
+   "Ucirc" "Uuml" "Yacute" "THORN" "szlig" "agrave" "aacute" "acirc" "atilde"
+   "auml" "aring" "aelig" "ccedil" "egrave" "eacute" "ecirc" "euml" "igrave"
+   "iacute" "icirc" "iuml" "eth" "ntilde" "ograve" "oacute" "ocirc" "otilde"
+   "ouml" "divide" "oslash" "ugrave" "uacute" "ucirc" "uuml" "yacute" "thorn"
+   "yuml"])
+
+(def html-entities
+  "Code point by name for the HTML entities that XML lacks and feeds use."
+  (merge (zipmap latin1-entities (range 192 256))
+         {"nbsp" 160 "iexcl" 161 "cent" 162 "pound" 163 "curren" 164 "yen" 165
+          "brvbar" 166 "sect" 167 "uml" 168 "copy" 169 "ordf" 170 "laquo" 171
+          "not" 172 "shy" 173 "reg" 174 "macr" 175 "deg" 176 "plusmn" 177
+          "sup2" 178 "sup3" 179 "acute" 180 "micro" 181 "para" 182 "middot" 183
+          "cedil" 184 "sup1" 185 "ordm" 186 "raquo" 187 "frac14" 188 "frac12" 189
+          "frac34" 190 "iquest" 191 "OElig" 338 "oelig" 339 "Scaron" 352
+          "scaron" 353 "Yuml" 376 "fnof" 402 "circ" 710 "tilde" 732 "ensp" 8194
+          "emsp" 8195 "thinsp" 8201 "zwnj" 8204 "zwj" 8205 "lrm" 8206 "rlm" 8207
+          "ndash" 8211 "mdash" 8212 "lsquo" 8216 "rsquo" 8217 "sbquo" 8218
+          "ldquo" 8220 "rdquo" 8221 "bdquo" 8222 "dagger" 8224 "Dagger" 8225
+          "bull" 8226 "hellip" 8230 "permil" 8240 "prime" 8242 "Prime" 8243
+          "lsaquo" 8249 "rsaquo" 8250 "euro" 8364 "trade" 8482 "larr" 8592
+          "uarr" 8593 "rarr" 8594 "darr" 8595 "harr" 8596 "infin" 8734 "ne" 8800
+          "le" 8804 "ge" 8805 "hearts" 9829}))
+
+(def xml-entities
+  "The five entities XML predefines."
+  #{"amp" "lt" "gt" "quot" "apos"})
+
+(defn- code-point->str
+  [n]
+  #?(:clj  (String. (Character/toChars n))
+     :cljs (js/String.fromCodePoint n)))
+
+(defn decode-entities
+  "Replace the character and entity references in `s` with the characters
+  they stand for, HTML entities included; unknown references are kept."
+  [s]
+  (str/replace s #"&(#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);"
+               (fn [[whole ref]]
+                 (cond
+                   (re-find #"^#[xX]" ref)
+                   (code-point->str (#?(:clj Long/parseLong :cljs js/parseInt) (subs ref 2) 16))
+
+                   (str/starts-with? ref "#")
+                   (code-point->str (parse-long (subs ref 1)))
+
+                   (xml-entities ref)
+                   ({"amp" "&" "lt" "<" "gt" ">" "quot" "\"" "apos" "'"} ref)
+
+                   (html-entities ref)
+                   (code-point->str (html-entities ref))
+
+                   :else
+                   whole))))
 
 ;;;; Raw parsing
 

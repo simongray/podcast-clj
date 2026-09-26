@@ -5,6 +5,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.xml :as xml]))
 
 (def example
@@ -226,3 +227,31 @@
     (testing "an ISO date with milliseconds in an RFC 2822 field loses only what the field cannot carry"
       (is (= #inst "2024-08-02T19:35:20.000Z" (get-in f [:podcast/trailers 0 :pubdate])))
       (is (= f (podcast/parse (podcast/emit f)))))))
+
+(deftest a-registry-of-your-own
+  (let [tags (into spec/tags [{:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one
+                               :attrs {:scheme {}} :content :decimal :doc "Acme's rating of the show."}
+                              {:tag :acme/hd :key :acme/hd? :parent #{:item} :count :one :content :yes-no}])
+        xml  "<rss version=\"2.0\" xmlns:acme=\"https://acme.example\"><channel><title>T</title>
+                <acme:rating scheme=\"stars\">4.5</acme:rating>
+                <item><title>E</title><acme:hd>true</acme:hd></item></channel></rss>"
+        f    (podcast/parse xml {:registry tags})
+        item (first (:rss/items f))]
+    (testing "the elements are read by the extended registry, its quirks included"
+      (is (= {:scheme "stars" :content 4.5} (:acme/rating f)))
+      (is (true? (:acme/hd? item)))
+      (is (some (comp #{:quirk/yes-no-value} :id) (podcast/report f)))
+      (is (empty? (:xml/unknown f)))
+      (is (empty? (:xml/unknown item))))
+    (testing "and written back by it, the namespace declared"
+      (let [out (podcast/emit f {:registry tags})]
+        (is (re-find #"xmlns:acme=\"https://acme.example\"" out))
+        (is (re-find #"<acme:rating scheme=\"stars\">4.5</acme:rating>" out))
+        (is (re-find #"<acme:hd>yes</acme:hd>" out))
+        (is (= f (podcast/parse out {:registry tags})))))
+    (testing "the library's own registry keeps them as unknown elements"
+      (is (= [[:acme/rating {:scheme "stars"} "4.5"]] (:xml/unknown (podcast/parse xml)))))
+    (testing "an indexed registry serves as well as the entries, and a bad entry is refused"
+      (is (= f (podcast/parse xml {:registry (spec/registry tags)})))
+      (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
+                   (spec/registry [{:tag :acme/rating}]))))))

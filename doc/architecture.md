@@ -53,8 +53,10 @@ the code.
 
 Dependencies point downward only. `spec` knows nothing about parsing; `feed`
 knows nothing about HTTP; the companions depend on `xml`, `time` and `json`
-but not on `feed`. The web app is a separate source path (`web/`, alias
-`:web`) so the library jar never carries Pedestal.
+but not on `feed` or `quirks`, since what they need of XML itself, the
+Hiccup accessors, kebab-case names and entity decoding, lives in `xml`. The
+web app is a separate source path (`web/`, alias `:web`) so the library jar
+never carries Pedestal.
 
 ## The XML layer: Hiccup with namespaces resolved by URI
 
@@ -118,8 +120,19 @@ Three interpreters read the registry:
 - `feed/emit` does the reverse in registry order, formatting coerced values
   back into their canonical string forms and appending `:xml/unknown` verbatim.
 - `validate/validate` checks required attributes, enumerations, cardinality,
-  parents and deprecation, and optionally a *profile* (PSP-1, Apple) that adds
-  required-element rules on top.
+  parents and deprecation, and a *profile* named in its options (PSP-1,
+  Apple) that adds required-element rules on top.
+
+The registry is a value. `spec/tags` is the library's vocabulary as a vector
+of entries; `spec/registry` indexes a vector, that one or one extended with a
+client's own entries, into the map the interpreters read, and `spec/default`
+is the library's vocabulary indexed. Every interpreter takes `:registry` in
+its options: `podcast/parse` and `podcast/emit`, `feed/parse` and `feed/emit`,
+`validate/validate`, `quirks/normalize`, and `schema/schemas` with its
+companions. So a host's proprietary elements, or a new tag before the library
+ships it, are read, written, validated and given schemas the same way as the
+standard ones, without a fork, and the library's own registry can stay
+strict about what it admits.
 
 Spec churn becomes a data change. `podcast:images` is one entry marked
 `:deprecated :podcast/image`; a new attribute is one line. Two more things
@@ -232,9 +245,11 @@ groups, applied around the strict path:
    strict parser's error is thrown.
 
 Every quirk has an id, a severity and a one-line description. `parse` applies
-the default set; a caller can pass a subset or none. Each application is
-recorded in the report attached to the result, so a feed's distance from the
-standards is measurable and the reference app can display it.
+them all, and `{:quirks? false}` is the strict path alone; the yes/no rule is
+derived from the registry in use, so a client's own yes/no elements get it
+too. Each application is recorded in the report attached to the result, so a
+feed's distance from the standards is measurable and the reference app can
+display it.
 
 ## Reports
 
@@ -242,8 +257,12 @@ Parsing returns the feed map; the report travels as metadata under
 `:podcast/report` and is read with `podcast/report`. The report is a vector of
 diagnostics, each a map with `:id`, `:level` (`:info`, `:warning`, `:error`),
 `:message` and, where it applies, `:path` into the model. Quirk applications,
-coercion failures and unknown namespaces all land here. Validation
-diagnostics have the same shape so the reference app can show one list.
+coercion failures and unknown namespaces all land here. Each layer records
+only what it did, namespace resolution and the quirks on the tree, the model
+mapping on the feed, and the front door concatenates them in that order.
+Metadata does not survive printing, transit or `into {}`, so a client that
+persists a parse persists the report beside it. Validation diagnostics have
+the same shape so the reference app can show one list.
 Every id the library raises is catalogued with its level and meaning in
 `dk.simongray.podcast.diagnostics`, from which `doc/diagnostics.md` is
 generated; a test keeps the catalogue and the source in step, since
@@ -440,3 +459,7 @@ to test it; it touches nothing but the public API.
 15. The player state: queue, progress, subscriptions, OPML, merge and the
     reducer, which is also the pure core of the sync model of item 10.
     Done.
+16. The structural review before 1.0: the registry as a value every
+    interpreter takes, so that clients extend the vocabulary without a
+    fork; names and entity decoding moved down into `xml` so that the
+    layering holds; each layer reporting only its own diagnostics. Done.

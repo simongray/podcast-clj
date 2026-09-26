@@ -26,8 +26,11 @@
 
   An element with attributes or child entries becomes a map in the model; one
   with only text becomes the coerced text itself. Attribute names turn into
-  kebab-case keys, node text into :content."
-  (:require [clojure.string :as str]))
+  kebab-case keys, node text into :content.
+
+  `tags` is the library's vocabulary. `registry` indexes it, or it plus a
+  client's own entries, into the value every interpreter takes under
+  `:registry` in its options; `default` is `tags` indexed.")
 
 ;;;; Enumerations from the specifications
 
@@ -557,16 +560,55 @@
    {:tag :item :key :rss/items :parent #{:channel} :count :many :content :none
     :doc "An episode."}])
 
-;;;; Indexes and lookups
+;;;; The registry as a value
 
-(def by-tag
-  "The entries for each tag."
-  (group-by :tag tags))
+(defn registry
+  "The tag `entries` indexed for the interpreters, which take the result
+  under `:registry` in their options: `{:entries :by-tag :by-parent
+  :containers}`. A registry already indexed comes back as it is. Every
+  entry needs a `:tag`, a `:key`, a set of `:parent`s and a `:count`;
+  anything less throws. A client extends the library's vocabulary by
+  indexing `tags` plus its own entries:
+
+      (registry (conj tags {:tag :acme/rating :key :acme/rating
+                            :parent #{:channel} :count :one}))"
+  [entries]
+  (if (map? entries)
+    entries
+    (let [entries (vec entries)]
+      (doseq [entry entries]
+        (when-not (and (keyword? (:tag entry))
+                       (some? (:key entry))
+                       (set? (:parent entry))
+                       (seq (:parent entry))
+                       (some? (:count entry)))
+          (throw (ex-info "A registry entry needs :tag, :key, a set of :parent and :count"
+                          {:entry entry}))))
+      {:entries    entries
+       :by-tag     (group-by :tag entries)
+       :by-parent  (reduce (fn [m entry]
+                             (reduce #(update %1 %2 (fnil conj []) entry) m (:parent entry)))
+                           {}
+                           entries)
+       :containers (into #{} (mapcat :parent) entries)})))
+
+(def default
+  "The registry of `tags`: what every interpreter reads unless its options
+  name another."
+  (registry tags))
+
+;;;; Lookups
 
 (defn entry
-  "The registry entry for `tag` under `parent`, nil when none applies."
-  [tag parent]
-  (some #(when (contains? (:parent %) parent) %) (by-tag tag)))
+  "The entry of `registry` for `tag` under `parent`, nil when none applies."
+  [registry tag parent]
+  (some #(when (contains? (:parent %) parent) %) (get (:by-tag registry) tag)))
+
+(defn entries-for
+  "The entries of `registry` that may appear directly under `parent`, in
+  emit order."
+  [registry parent]
+  (get (:by-parent registry) parent []))
 
 (defn- by-parent
   [x parent]
@@ -584,56 +626,33 @@
   [entry parent]
   (by-parent (:count entry) parent))
 
-(def containers
-  "The tags that have child entries of their own."
-  (into #{} (mapcat :parent) tags))
-
 (defn children-context
   "The parent context the children of `entry` are looked up under: its tag,
   unless the entry borrows another element's children, as liveItem does."
   [entry]
   (or (:children-as entry) (:tag entry)))
 
+(defn container?
+  "Whether `entry` has child entries of its own in `registry`, so that
+  elements inside it are expected."
+  [registry entry]
+  (contains? (:containers registry) (children-context entry)))
+
 (defn map-shaped?
-  "Whether the value of `entry` is a map, because it has attributes or child
-  entries, rather than its coerced text alone."
-  [entry]
+  "Whether the value of `entry` is a map in `registry`, because it has
+  attributes or child entries, rather than its coerced text alone."
+  [registry entry]
   (boolean (or (seq (:attrs entry))
-               (contains? containers (children-context entry)))))
+               (container? registry entry))))
 
 (defn content-type
   "The value type of the node text of `entry`; :text when unspecified."
   [entry]
   (get entry :content :text))
 
-(defn entries-for
-  "The entries that may appear directly under `parent`, in emit order."
-  [parent]
-  (filter #(contains? (:parent %) parent) tags))
-
-(defn kebab
-  "Turn the camelCase XML name `s` into kebab-case: startTime to start-time."
-  [s]
-  (-> s
-      (str/replace #"([a-z0-9])([A-Z])" "$1-$2")
-      str/lower-case))
-
-(defn attr-key
-  "The model key of the XML attribute named `k` (a keyword)."
-  [k]
-  (if (namespace k)
-    k
-    (keyword (kebab (name k)))))
-
-(def attr-names
-  "XML attribute name by model key, for every declared attribute."
-  (into {} (for [{:keys [attrs]} tags
-                 k (keys attrs)]
-             [(attr-key k) k])))
-
 (comment
-  (entry :podcast/remoteItem :podcast/publisher)
-  (key-for (entry :podcast/remoteItem :podcast/podroll) :podcast/podroll)
-  (map :tag (entries-for :item))
-  (kebab "isPermaLink")
+  (entry default :podcast/remoteItem :podcast/publisher)
+  (key-for (entry default :podcast/remoteItem :podcast/podroll) :podcast/podroll)
+  (map :tag (entries-for default :item))
+  (registry (conj tags {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one}))
   #_.)

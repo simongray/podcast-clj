@@ -29,7 +29,7 @@
       (is (= "<rss><channel><title>A &amp; B &#160;</title></channel></rss>" xml)))))
 
 (deftest entities
-  (is (= "it's & … A  x &bogus;" (quirks/decode-entities "it&#39;s &amp; &hellip; &#x41; &nbsp;x &bogus;"))))
+  (is (= "it's & … A  x &bogus;" (xml/decode-entities "it&#39;s &amp; &hellip; &#x41; &nbsp;x &bogus;"))))
 
 (deftest namespace-variants
   (is (= :podcast (quirks/uri->alias "HTTP://podcastindex.org/namespace/1.0/")))

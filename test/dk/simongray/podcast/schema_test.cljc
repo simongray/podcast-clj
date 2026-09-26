@@ -5,18 +5,21 @@
             [dk.simongray.podcast.schema :as schema]
             [dk.simongray.podcast.spec :as spec]))
 
+(def schemas
+  (schema/schemas spec/default))
+
 (deftest registry-shape
   (testing "every element has a schema, under its tag namespaced rss when bare"
     (is (= :rss/title (schema/ref-key :title)))
     (is (= :podcast/transcript (schema/ref-key :podcast/transcript)))
-    (is (every? #(contains? schema/registry (schema/ref-key (:tag %))) spec/tags))
-    (is (contains? schema/registry ::schema/feed)))
+    (is (every? #(contains? schemas (schema/ref-key (:tag %))) spec/tags))
+    (is (contains? schemas ::schema/feed)))
   (testing "a scalar element is its coerced type"
-    (is (= :string (get schema/registry :rss/title)))
-    (is (= 'inst? (get schema/registry :rss/pubDate)))
-    (is (= :int (get schema/registry :itunes/episode)))
-    (is (= 'number? (get schema/registry :itunes/duration)))
-    (is (= :boolean (get schema/registry :itunes/explicit))))
+    (is (= :string (get schemas :rss/title)))
+    (is (= 'inst? (get schemas :rss/pubDate)))
+    (is (= :int (get schemas :itunes/episode)))
+    (is (= 'number? (get schemas :itunes/duration)))
+    (is (= :boolean (get schemas :itunes/explicit))))
   (testing "an element with attributes or children is a map"
     (is (= [:map
             [:url {:optional false} :string]
@@ -24,12 +27,24 @@
             [:language {:optional true} :string]
             [:rel {:optional true} :string]
             [:xml/unknown {:optional true} schema/unknown]]
-           (get schema/registry :podcast/transcript)))
+           (get schemas :podcast/transcript)))
     (is (= [:recipients {:optional true} [:vector {:gen/max 5} [:ref :podcast/valueRecipient]]]
-           (nth (get schema/registry :podcast/value) 4)))
+           (nth (get schemas :podcast/value) 4)))
     (is (= [:content {:optional true} :boolean]
-           (nth (get schema/registry :podcast/locked) 2))))
+           (nth (get schemas :podcast/locked) 2))))
   (testing "the feed and item schemas are self-contained"
-    (is (= [:schema {:registry schema/registry} ::schema/feed] schema/feed))
-    (is (= [:schema {:registry schema/registry} :rss/item] schema/item))
-    (is (= [:schema {:registry schema/registry} :podcast/value] (schema/tag :podcast/value)))))
+    (is (= [:schema {:registry schemas} ::schema/feed] schema/feed))
+    (is (= [:schema {:registry schemas} :rss/item] schema/item))
+    (is (= [:schema {:registry schemas} :podcast/value] (schema/tag :podcast/value)))))
+
+(deftest an-extended-registry
+  (let [tags     (conj spec/tags {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one
+                                  :attrs {:scheme {}} :content :decimal})
+        extended (schema/schemas tags)]
+    (is (= [:map [:scheme {:optional true} :string] [:content {:optional true} 'number?]
+            [:xml/unknown {:optional true} schema/unknown]]
+           (get extended :acme/rating)))
+    (is (some #{[:acme/rating {:optional true} [:ref :acme/rating]]} (get extended ::schema/feed)))
+    (is (= [:schema {:registry extended} ::schema/feed] (schema/feed-schema tags)))
+    (is (= [:schema {:registry extended} :acme/rating] (schema/tag tags :acme/rating)))
+    (is (not (contains? schemas :acme/rating)))))

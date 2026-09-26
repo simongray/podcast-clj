@@ -19,8 +19,8 @@
   a declared type that does not match the file."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.quirks :as quirks]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.time :as time]
+            [dk.simongray.podcast.xml :as xml]))
 
 (def formats
   "Transcript format by the mime type `podcast:transcript` gives it."
@@ -151,7 +151,7 @@
     (when-let [[_ from to] (some->> timing (re-find timing-pattern))]
       (let [text            (str/join "\n" payload)
             voice           (second (re-find #"<v(?:\.[^\s>]*)?\s+([^>]+)>" text))
-            plain           (quirks/decode-entities (str/trim (strip-tags text)))
+            plain           (xml/decode-entities (str/trim (strip-tags text)))
             [prefixed body] (if voice [nil plain] (speaker-prefix stats plain))
             speaker         (or voice prefixed)]
         (cond-> {:start (time/parse-clock from) :end (time/parse-clock to) :body body}
@@ -237,7 +237,7 @@
   "The `[tag text]` pairs of the cite, time and p elements in `s`, in order."
   [s]
   (for [[_ tag body] (re-seq html-token-pattern s)]
-    [(str/lower-case tag) (tidy (quirks/decode-entities (strip-tags body)))]))
+    [(str/lower-case tag) (tidy (xml/decode-entities (strip-tags body)))]))
 
 (defn- html-segments
   "Segments from `tokens`: a cite sets the speaker, a time the start, and

@@ -1,6 +1,7 @@
 (ns dk.simongray.podcast.feed
   "The feed model: canonical Hiccup in, maps out, and back again, by
-  interpreting the tag registry in dk.simongray.podcast.spec.
+  interpreting a tag registry, `dk.simongray.podcast.spec/default` unless
+  the options name another.
 
   A feed is the channel map itself, with items under `:rss/items` and live
   items under `:podcast/live-items`. Scalar elements become coerced scalars,
@@ -16,11 +17,14 @@
             [dk.simongray.podcast.xml :as xml]))
 
 ;;;; Parsing
+;;
+;; The parse threads a context `ctx`: the `:registry` being interpreted and
+;; the `:report` accumulator, a volatile.
 
 (defn- note!
-  "Record the diagnostic `m` in the `report` accumulator."
-  [report m]
-  (vswap! report conj m))
+  "Record the diagnostic `m` in the report of `ctx`."
+  [ctx m]
+  (vswap! (:report ctx) conj m))
 
 (defn- parse-attrs
   "Coerce the attributes `attrs` of an element by its registry `entry`.
@@ -28,19 +32,19 @@
   left blank is absent, with a diagnostic, since it says nothing, while a
   required one left blank stays for the validator to judge. The rest keep
   their XML names and string values."
-  [entry attrs path report]
+  [ctx entry attrs path]
   (reduce-kv (fn [m k v]
                (if-let [{:keys [type required]} (get (:attrs entry) k)]
-                 (let [k' (spec/attr-key k)
+                 (let [k' (xml/attr-key k)
                        v' (coerce/parse (or type :text) v)]
                    (cond
                      (and (str/blank? v) (not required))
-                     (do (note! report {:id :feed/empty-attribute :level :info :path (conj path k')})
+                     (do (note! ctx {:id :feed/empty-attribute :level :info :path (conj path k')})
                          m)
 
                      (coerce/invalid? v')
-                     (do (note! report {:id :feed/invalid-value :level :warning
-                                        :path (conj path k') :type type :value v})
+                     (do (note! ctx {:id :feed/invalid-value :level :warning
+                                     :path (conj path k') :type type :value v})
                          (assoc m k' v))
 
                      :else
@@ -52,40 +56,34 @@
 (defn- parse-content
   "Coerce the node text `s` by the content type of `entry`, or keep it as a
   string with a diagnostic when it does not read as that type."
-  [entry s path report]
+  [ctx entry s path]
   (let [type (spec/content-type entry)
         v    (coerce/parse type s)]
     (if (coerce/invalid? v)
-      (do (note! report {:id :feed/invalid-value :level :warning
-                         :path path :type type :value s})
+      (do (note! ctx {:id :feed/invalid-value :level :warning
+                      :path path :type type :value s})
           s)
       v)))
 
 (declare parse-children)
 
-(defn- container?
-  "Whether `entry` has registry children of its own, so that elements inside
-  it are expected."
-  [entry]
-  (contains? spec/containers (spec/children-context entry)))
-
 (defn- folds-markup?
   "Whether elements found inside an element of `entry` are folded into its
   text: when the registry expects text there and nothing else, as with a
   description embedded as XHTML instead of CDATA."
-  [entry element]
+  [ctx entry element]
   (and (seq (xml/elements element))
-       (not (container? entry))
+       (not (spec/container? (:registry ctx) entry))
        (not= :none (spec/content-type entry))))
 
 (defn- element-text
   "The text of `element` under `entry`: its direct text, or when markup sits
   where the registry expects text alone, the markup itself for `:html`
   content and every descendant's text otherwise, with a diagnostic."
-  [entry element path report]
-  (if (folds-markup? entry element)
-    (do (note! report {:id :feed/markup-in-text :level :info :path path
-                       :tags (mapv xml/tag (xml/elements element))})
+  [ctx entry element path]
+  (if (folds-markup? ctx entry element)
+    (do (note! ctx {:id :feed/markup-in-text :level :info :path path
+                    :tags (mapv xml/tag (xml/elements element))})
         (if (= :html (spec/content-type entry))
           (xml/inner-xml element)
           (xml/deep-text element)))
@@ -94,45 +92,45 @@
 (defn- parse-element
   "Parse the Hiccup `element` by its registry `entry` into a model value, or
   `::empty` for a scalar element with no text."
-  [entry element path report]
-  (let [text (element-text entry element path report)]
+  [ctx entry element path]
+  (let [text (element-text ctx entry element path)]
     (cond
-      (spec/map-shaped? entry)
-      (let [m (cond-> (parse-attrs entry (xml/attrs element) path report)
-                (not (folds-markup? entry element))
-                (merge (parse-children (spec/children-context entry)
-                                       (xml/elements element) path report)))]
+      (spec/map-shaped? (:registry ctx) entry)
+      (let [m (cond-> (parse-attrs ctx entry (xml/attrs element) path)
+                (not (folds-markup? ctx entry element))
+                (merge (parse-children ctx (spec/children-context entry)
+                                       (xml/elements element) path)))]
         (cond
           (= :none (spec/content-type entry))
           (do (when (seq text)
-                (note! report {:id :feed/unexpected-text :level :info
-                               :path path :value text}))
+                (note! ctx {:id :feed/unexpected-text :level :info
+                            :path path :value text}))
               m)
 
           (seq text)
-          (assoc m :content (parse-content entry text path report))
+          (assoc m :content (parse-content ctx entry text path))
 
           :else
           m))
 
       (seq text)
-      (parse-content entry text path report)
+      (parse-content ctx entry text path)
 
       :else
-      (do (note! report {:id :feed/empty-element :level :info :path path})
+      (do (note! ctx {:id :feed/empty-element :level :info :path path})
           ::empty))))
 
 (defn- parse-children
   "Parse the child `elements` of an element in the `parent` context into a
   map keyed by the registry; unknown elements collect under `:xml/unknown`."
-  [parent elements path report]
+  [ctx parent elements path]
   (reduce (fn [m element]
             (let [tag (xml/tag element)]
-              (if-let [entry (spec/entry tag parent)]
+              (if-let [entry (spec/entry (:registry ctx) tag parent)]
                 (let [k     (spec/key-for entry parent)
                       many? (= :many (spec/count-for entry parent))
                       path' (cond-> (conj path k) many? (conj (count (get m k))))
-                      v     (parse-element entry element path' report)]
+                      v     (parse-element ctx entry element path')]
                   (cond
                     (= v ::empty)
                     m
@@ -141,8 +139,8 @@
                     (update m k (fnil conj []) v)
 
                     (contains? m k)
-                    (do (note! report {:id :feed/duplicate-element :level :warning
-                                       :path path' :tag tag})
+                    (do (note! ctx {:id :feed/duplicate-element :level :warning
+                                    :path path' :tag tag})
                         m)
 
                     :else
@@ -152,26 +150,31 @@
           elements))
 
 (defn parse
-  "Parse the canonical Hiccup `tree` of an RSS 2.0 document into a feed map.
-  The report of diagnostics made on the way, and the foreign namespaces the
-  document used, travel as metadata."
-  [tree]
-  ;; RSS 2.0 only, on purpose. Atom, RSS 1.0 and JSON Feed are not podcast
-  ;; formats in practice: the directories require RSS 2.0, and a live sample
-  ;; of 844 indexed feeds (2026-09-25) held no Atom feed at all.
-  (when-not (= :rss (xml/tag tree))
-    (throw (ex-info "Not an RSS 2.0 document" {:type ::unsupported :root (xml/tag tree)})))
-  (let [report  (volatile! [])
-        channel (or (xml/element tree :channel)
-                    (throw (ex-info "No channel element" {:type ::unsupported})))
-        version (:version (xml/attrs tree))
-        feed    (parse-children :channel (xml/elements channel) [] report)
-        others  (remove #{channel} (xml/elements tree))]
-    (with-meta (cond-> feed
-                 version      (assoc :rss/version version)
-                 (seq others) (update :xml/unknown (fnil into []) others))
-      {:podcast/report (into (vec (xml/report tree)) @report)
-       :xml/namespaces (xml/foreign-namespaces tree)})))
+  "Parse the canonical Hiccup `tree` of an RSS 2.0 document into a feed map
+  by the tag registry in `opts` (`:registry`, default `spec/default`). The
+  diagnostics made on the way travel as metadata under `:podcast/report`,
+  and the foreign namespaces the document used under `:xml/namespaces`;
+  what resolving the namespaces found stays `xml/report` on the tree."
+  ([tree]
+   (parse tree {}))
+  ([tree {:keys [registry] :or {registry spec/default} :as opts}]
+   {:pre [(map? opts)]}
+   ;; RSS 2.0 only, on purpose. Atom, RSS 1.0 and JSON Feed are not podcast
+   ;; formats in practice: the directories require RSS 2.0, and a live sample
+   ;; of 844 indexed feeds (2026-09-25) held no Atom feed at all.
+   (when-not (= :rss (xml/tag tree))
+     (throw (ex-info "Not an RSS 2.0 document" {:type ::unsupported :root (xml/tag tree)})))
+   (let [ctx     {:registry (spec/registry registry) :report (volatile! [])}
+         channel (or (xml/element tree :channel)
+                     (throw (ex-info "No channel element" {:type ::unsupported})))
+         version (:version (xml/attrs tree))
+         feed    (parse-children ctx :channel (xml/elements channel) [])
+         others  (remove #{channel} (xml/elements tree))]
+     (with-meta (cond-> feed
+                  version      (assoc :rss/version version)
+                  (seq others) (update :xml/unknown (fnil into []) others))
+       {:podcast/report @(:report ctx)
+        :xml/namespaces (xml/foreign-namespaces tree)}))))
 
 (defn report
   "The diagnostics recorded while parsing `feed`."
@@ -183,55 +186,61 @@
 (declare emit-children)
 
 (defn- emit-attrs
-  "The attribute map for an element of `entry` from the model map `m`, with
-  declared attributes back under their XML names."
-  [entry m]
-  (let [declared (into {} (for [[k {:keys [type]}] (:attrs entry)
-                                :let [v (get m (spec/attr-key k))]
+  "The attribute map for an element of `entry` in `registry` from the model
+  map `m`, with declared attributes back under their XML names."
+  [registry entry m]
+  (let [context  (spec/children-context entry)
+        declared (into {} (for [[k {:keys [type]}] (:attrs entry)
+                                :let [v (get m (xml/attr-key k))]
                                 :when (some? v)]
                             [k (coerce/format (or type :text) v)]))
         taken    (into #{:content :xml/unknown}
-                       (concat (map #(spec/key-for % (spec/children-context entry))
-                                    (spec/entries-for (spec/children-context entry)))
-                               (map spec/attr-key (keys (:attrs entry)))))
+                       (concat (map #(spec/key-for % context) (spec/entries-for registry context))
+                               (map xml/attr-key (keys (:attrs entry)))))
         rest     (into {} (for [[k v] m
                                 :when (not (contains? taken k))]
                             [k (str v)]))]
     (merge rest declared)))
 
 (defn- emit-element
-  "The Hiccup element of `entry` for the model value `v`."
-  [entry v]
+  "The Hiccup element of `entry` in `registry` for the model value `v`."
+  [registry entry v]
   (let [tag  (:tag entry)
         type (spec/content-type entry)]
-    (if (spec/map-shaped? entry)
-      (-> [tag (emit-attrs entry v)]
+    (if (spec/map-shaped? registry entry)
+      (-> [tag (emit-attrs registry entry v)]
           (into (when (contains? v :content)
                   [(coerce/format type (:content v))]))
-          (into (emit-children (spec/children-context entry) v)))
+          (into (emit-children registry (spec/children-context entry) v)))
       [tag {} (coerce/format type v)])))
 
 (defn- emit-children
-  "The Hiccup children of an element in the `parent` context, from the model
-  map `m`, in registry order and with the unknown elements last."
-  [parent m]
-  (concat (for [entry (spec/entries-for parent)
+  "The Hiccup children of an element in the `parent` context of `registry`,
+  from the model map `m`, in registry order and with the unknown elements
+  last."
+  [registry parent m]
+  (concat (for [entry (spec/entries-for registry parent)
                 :let [k (spec/key-for entry parent)]
                 :when (contains? m k)
                 v (if (= :many (spec/count-for entry parent))
                     (get m k)
                     [(get m k)])]
-            (emit-element entry v))
+            (emit-element registry entry v))
           (:xml/unknown m)))
 
 (defn emit
-  "The canonical Hiccup document for `feed`, ready for `xml/emit`. The foreign
+  "The canonical Hiccup document for `feed` by the tag registry in `opts`
+  (`:registry`, default `spec/default`), ready for `xml/emit`. The foreign
   namespaces recorded when the feed was parsed are carried over as metadata
   so that `xml/emit` can declare them."
-  [feed]
-  (with-meta [:rss {:version (or (:rss/version feed) "2.0")}
-              (into [:channel {}] (emit-children :channel (dissoc feed :rss/version)))]
-    {:xml/namespaces (:xml/namespaces (meta feed))}))
+  ([feed]
+   (emit feed {}))
+  ([feed {:keys [registry] :or {registry spec/default} :as opts}]
+   {:pre [(map? opts)]}
+   (let [registry (spec/registry registry)]
+     (with-meta [:rss {:version (or (:rss/version feed) "2.0")}
+                 (into [:channel {}] (emit-children registry :channel (dissoc feed :rss/version)))]
+       {:xml/namespaces (:xml/namespaces (meta feed))}))))
 
 ;;;; Identity
 

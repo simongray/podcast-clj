@@ -9,6 +9,10 @@ Working toward 1.0, the first release.
   into plain data and written back canonically, driven by one tag registry
   that also yields the validator, the Malli schemas and the generated
   reference.
+- The registry is a value: `spec/registry` indexes the library's `tags`, or
+  those plus a client's own entries, and every interpreter takes it under
+  `:registry` in its options, so proprietary elements are parsed, emitted,
+  validated and given schemas like the standard ones.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

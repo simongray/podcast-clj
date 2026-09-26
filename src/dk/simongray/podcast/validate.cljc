@@ -1,20 +1,21 @@
 (ns dk.simongray.podcast.validate
   "Registry-driven validation of a feed map.
 
-  `validate` walks a feed with the tag registry and reports what the
-  specifications say is wrong: missing required attributes, values outside an
-  enumeration, values that would not coerce to their type, deprecated
-  elements, structural rules such as an alternate enclosure without a
-  source, and elements the registry does not know. A *profile* adds the
-  required and recommended elements of a directory or standard on top:
-  `:psp-1` for the Podcast Standards Project baseline, `:apple` for Apple
-  Podcasts.
+  `validate` walks a feed with the tag registry, the library's or the one
+  its options name, and reports what the specifications say is wrong:
+  missing required attributes, values outside an enumeration, values that
+  would not coerce to their type, deprecated elements, structural rules such
+  as an alternate enclosure without a source, and elements the registry does
+  not know. A *profile* named in the options adds the required and
+  recommended elements of a directory or standard on top: `:psp-1` for the
+  Podcast Standards Project baseline, `:apple` for Apple Podcasts.
 
   Diagnostics have the same shape as the parse report: `:id`, `:level`
   (`:error`, `:warning` or `:info`), `:path` into the feed and `:message`."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.spec :as spec]))
+            [dk.simongray.podcast.spec :as spec]
+            [dk.simongray.podcast.xml :as xml]))
 
 (def coerced-types
   "The value types whose model values are not strings, so that a string
@@ -65,7 +66,7 @@
   [entry m path]
   (let [https? (= "podcast" (namespace (:tag entry)))]
     (mapcat (fn [[k {:keys [type required values]}]]
-              (let [k' (spec/attr-key k)]
+              (let [k' (xml/attr-key k)]
                 (if (contains? m k')
                   (typed-diagnostics (or type :text) values (get m k') (conj path k') https?)
                   (when required
@@ -141,15 +142,15 @@
 (declare children-diagnostics)
 
 (defn- value-diagnostics
-  "Diagnostics for the model value `v` of `entry`, its attributes, content,
-  children and structure."
-  [entry v path]
+  "Diagnostics for the model value `v` of `entry` in `registry`, its
+  attributes, content, children and structure."
+  [registry entry v path]
   (let [structural (get structural-rules (:tag entry))]
-    (if (spec/map-shaped? entry)
+    (if (spec/map-shaped? registry entry)
       (concat (attr-diagnostics entry v path)
               (when (contains? v :content)
                 (content-diagnostics entry (:content v) (conj path :content)))
-              (children-diagnostics (spec/children-context entry) v path)
+              (children-diagnostics registry (spec/children-context entry) v path)
               (when structural (structural v path)))
       (concat (content-diagnostics entry v path)
               (when structural (structural v path))))))
@@ -163,11 +164,11 @@
               :replaced-by (when (keyword? d) d))]))
 
 (defn- children-diagnostics
-  "Diagnostics for every registry entry present in the model map `m` of an
-  element in the `parent` context, and for its unknown elements."
-  [parent m path]
+  "Diagnostics for every entry of `registry` present in the model map `m` of
+  an element in the `parent` context, and for its unknown elements."
+  [registry parent m path]
   (concat
-   (for [entry (spec/entries-for parent)
+   (for [entry (spec/entries-for registry parent)
          :let  [k (spec/key-for entry parent)]
          :when (contains? m k)
          [i v] (if (= :many (spec/count-for entry parent))
@@ -175,7 +176,7 @@
                  [[nil (get m k)]])
          :let  [path' (cond-> (conj path k) i (conj i))]
          f     (concat (deprecated-diagnostic entry path')
-                       (value-diagnostics entry v path'))]
+                       (value-diagnostics registry entry v path'))]
      f)
    (for [element (:xml/unknown m)]
      (diagnostic :validate/unknown-element :info (conj path :xml/unknown)
@@ -245,25 +246,29 @@
              (map-indexed vector (:rss/items feed))))))
 
 (defn validate
-  "The diagnostics for `feed`: registry checks, RSS 2.0 basics and, when a
-  `profile` from `profiles` is given, that profile's requirements."
+  "The diagnostics for `feed`: registry checks, RSS 2.0 basics and, when
+  `opts` names a `:profile` from `profiles`, that profile's requirements.
+  `:registry` is the tag registry to check against, `spec/default` unless
+  given."
   ([feed]
-   (validate feed nil))
-  ([feed profile]
+   (validate feed {}))
+  ([feed {:keys [profile registry] :or {registry spec/default} :as opts}]
+   {:pre [(map? opts)]}
    (vec (concat (rss-diagnostics feed)
-                (children-diagnostics :channel feed [])
+                (children-diagnostics (spec/registry registry) :channel feed [])
                 (when profile
                   (profile-diagnostics feed profile))))))
 
 (defn valid?
-  "Whether `validate` finds no errors in `feed`, under `profile` if given."
+  "Whether `validate` finds no errors in `feed`, with `opts` as for
+  `validate`."
   ([feed]
-   (valid? feed nil))
-  ([feed profile]
-   (not-any? (comp #{:error} :level) (validate feed profile))))
+   (valid? feed {}))
+  ([feed opts]
+   (not-any? (comp #{:error} :level) (validate feed opts))))
 
 (comment
   (validate {:rss/version "2.0" :rss/title "T"
              :podcast/values [{:type "lightning" :method "keysend"}]}
-            :psp-1)
+            {:profile :psp-1})
   #_.)

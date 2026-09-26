@@ -12,7 +12,7 @@
   paragraphs; `text` and `markdown` render either shape; `emit` writes
   Hiccup back as HTML."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.quirks :as quirks]))
+            [dk.simongray.podcast.xml :as xml]))
 
 ;;;; Parsing
 
@@ -66,7 +66,7 @@
   (into {} (for [[_ k dq sq bare] (re-seq attribute-pattern s)
                  :let [v (or dq sq bare)]]
              [(keyword (str/lower-case k))
-              (if (nil? v) true (quirks/decode-entities v))])))
+              (if (nil? v) true (xml/decode-entities v))])))
 
 (defn- start-tag
   "`[name attrs self-closing?]` of the start tag `token`."
@@ -162,7 +162,7 @@
 
           :else
           (case (token-kind token)
-            :text        (recur tokens (append stack (quirks/decode-entities token)))
+            :text        (recur tokens (append stack (xml/decode-entities token)))
             :cdata       (recur tokens (append stack (str/replace token #"^<!\[CDATA\[|\]\]>$" "")))
             :start       (let [[name attrs self-closing?] (start-tag token)]
                            (recur tokens (open-element stack name attrs self-closing?)))
@@ -249,7 +249,7 @@
   "The plain text `s` as paragraphs, blank lines between them and line
   breaks within."
   [s]
-  (apply list (for [paragraph (str/split (str/trim (quirks/decode-entities s)) #"\n\s*\n")
+  (apply list (for [paragraph (str/split (str/trim (xml/decode-entities s)) #"\n\s*\n")
                     :let [lines (remove str/blank? (map str/trim (str/split-lines paragraph)))]
                     :when (seq lines)]
                 (into [:p {}] (interpose [:br {}] lines)))))

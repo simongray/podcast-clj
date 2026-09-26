@@ -12,7 +12,10 @@
       validate the registry-driven validator and its profiles
 
   `parse` runs the strict path first and falls back to repair only when the
-  document is malformed. Everything the lenient path did is in the report."
+  document is malformed. Everything the lenient path did is in the report.
+  Every function here takes `:registry` in its options, the tag registry to
+  interpret, so that a vocabulary extended with a client's own elements (see
+  `dk.simongray.podcast.spec/registry`) reads and writes like the library's."
   (:require [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.quirks :as quirks]
             [dk.simongray.podcast.xml :as xml]))
@@ -62,7 +65,8 @@
   `opts` (the default), namespace URI variants are recognized and a document
   the strict parser rejects is repaired and parsed again, leniently as a
   last resort when the platform has a lenient parser; `{:quirks? false}` is
-  the strict path alone. The result carries every diagnostic under
+  the strict path alone. `:registry` is the tag registry the quirks read
+  (default `spec/default`). The result carries every diagnostic under
   `:podcast/report` in its metadata."
   ([xml]
    (parse-tree xml {}))
@@ -75,7 +79,7 @@
            {:keys [raw report]} (if raw {:raw raw :report []} (repaired xml))
            tree                 (-> raw
                                     (xml/resolve-namespaces quirks/uri->alias)
-                                    quirks/normalize)]
+                                    (quirks/normalize (select-keys opts [:registry])))]
        (vary-meta tree assoc :podcast/report
                   (-> []
                       (into report)
@@ -85,16 +89,16 @@
 
 (defn parse
   "Parse the RSS `xml` string into a feed map; `opts` are those of
-  `parse-tree`. The report is metadata, read with `report`."
+  `parse-tree`, and `:registry` the tag registry to read it by (default
+  `spec/default`). The report is metadata, read with `report`: what parsing
+  the tree found, then what mapping it onto the model found."
   ([xml]
    (parse xml {}))
   ([xml opts]
    (let [tree (parse-tree xml opts)
-         feed (feed/parse tree)]
+         feed (feed/parse tree (select-keys opts [:registry]))]
      (vary-meta feed assoc :podcast/report
-                (into (vec (:podcast/report (meta tree)))
-                      (remove (set (xml/report tree)))
-                      (feed/report feed))))))
+                (into (vec (:podcast/report (meta tree))) (feed/report feed))))))
 
 (defn report
   "The diagnostics recorded while parsing `feed` (or a tree from `parse-tree`):
@@ -105,9 +109,12 @@
 
 (defn emit
   "The XML document for `feed`, canonical in every way the library knows how
-  to be."
-  [feed]
-  (xml/emit (feed/emit feed)))
+  to be; `:registry` in `opts` is the tag registry to write it by (default
+  `spec/default`)."
+  ([feed]
+   (emit feed {}))
+  ([feed opts]
+   (xml/emit (feed/emit feed opts))))
 
 (defn summarize
   "Group `diagnostics`, from `report` or from `dk.simongray.podcast.validate`,
