@@ -207,6 +207,6 @@ app's.
 Storage, since the state is EDN and any store will do; HTTP in the
 browser, where feeds and directories decide what a page may fetch;
 playback, through a media element the effects drive; downloads,
-notifications and payments; and the appearance of all of it. A Podping
-consumer and a sync backend are not in the library yet, by decision; the
-pure core of syncing, `player/merge`, is.
+notifications and payments; and the appearance of all of it. A sync
+engine is not in the library yet; `doc/sync.md` designs it, and the pure
+core of syncing, `player/merge`, is.

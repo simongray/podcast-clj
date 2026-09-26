@@ -394,7 +394,8 @@ sets within `played-threshold` seconds of the end; and the queue as one
 ordered entry. `merge` reconciles two devices by letting the later entry
 win, the queue whole, which is commutative, associative and idempotent (a
 generative test says so), so that any backend that can store and fetch a
-document can sync: the backends stay outside the library. `refresh` feeds a
+document can sync; `sync.md` designs the engine and the stores that will
+bring them in, and what the state must gain first. `refresh` feeds a
 fresh parse through `feed/diff` and queues the new episodes of feeds set to
 auto-queue; `to-opml` and `from-opml` bridge to the `opml` namespace with the
 feed guid carried in each outline. Listener `preferences`, the skip amounts
@@ -646,8 +647,8 @@ recorded answers, with a stand-in node that fails on cue.
 7. Real-world chapter and transcript files as a second corpus. Done.
 8. Generated tag reference; Malli schemas from the registry. Done.
 9. Podcast Index: sending requests and mapping responses into the model. Done.
-10. Podping consumer, done as item 23; the sync backend stays deferred, its
-    pure core being `app.player/merge`.
+10. Podping consumer, done as item 23; the sync engine, whose pure core is
+    `app.player/merge`, is designed in `sync.md` as item 24.
 11. Hardening: a sweep of several hundred indexed feeds, with the registry,
     quirks and emitter fixes it turned up. Done.
 12. The small correctness items the sweep left: emit speed, diagnostics
@@ -694,3 +695,7 @@ recorded answers, with a stand-in node that fails on cue.
     a block, writers verified as the accounts podping follows, `poll!` as the poller's
     step, and the host's announcement; the HTTP client made cross-platform
     for the request-building half and given POST. Done.
+24. Syncing: the engine over the player state, stores as maps of
+    functions with one document per device, the folder and memory stores,
+    and the changes to the player state that fix the stored format;
+    designed in `sync.md`, not started.

@@ -135,8 +135,9 @@ The design is described in [doc/architecture.md](doc/architecture.md); the
 ecosystem survey that motivated it is in
 [doc/podcasting-2.0-clojure-survey.md](doc/podcasting-2.0-clojure-survey.md);
 the path from finding a show to playing it, with the function to call at
-each step, is [doc/building-an-app.md](doc/building-an-app.md). In one
-paragraph:
+each step, is [doc/building-an-app.md](doc/building-an-app.md); the design
+for keeping several devices in step, not yet built, is
+[doc/sync.md](doc/sync.md). In one paragraph:
 
 XML becomes Hiccup with namespaces resolved by URI (`:itunes/author`,
 `:podcast/transcript`). A **tag registry** describes every element the
