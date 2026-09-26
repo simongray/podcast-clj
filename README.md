@@ -114,6 +114,7 @@ of four functions.
 
 ```clojure
 (require '[dk.simongray.podcast.app.sync :as sync]
+         '[dk.simongray.podcast.app.sync.encrypted :as encrypted]
          '[dk.simongray.podcast.app.sync.file :as file]
          '[dk.simongray.podcast.app.sync.store :as store]
          '[dk.simongray.podcast.app.sync.webdav :as webdav])
@@ -122,6 +123,7 @@ of four functions.
 (def cloud-root "https://cloud.example.org/remote.php/dav/files/simon/podcasts/")  ; Nextcloud; the guide tables the servers
 (store/check! (webdav/store cloud-root {:credentials creds}))  ; => {:ok? true :checks [{:id :store/reachable …} …]}
 (def cloud  (webdav/backend cloud-root {:credentials creds :opml? true}))
+(def sealed (encrypted/backend (webdav/store cloud-root {:credentials creds}) {:passphrase "…"}))  ; the same, encrypted at rest
 (def folder (file/backend "/Users/simon/Library/Mobile Documents/com~apple~CloudDocs/Podcasts"))  ; iCloud Drive on a Mac
 (sync/sync! s [cloud folder] now)           ; => {:state merged :ctx {…} :report []}; hand :ctx back next time
 (sync/next-at {:at now :changed? true} now) ; when to call again: soon after a change, later when idle
@@ -339,6 +341,7 @@ Namespaces
 | `…podcast.app.sync.store` | Document stores as maps of functions, `memory` for tests, `backend` over any store, one document per device merged on read or one shared document put on condition of its version, and `check!`, which tries any store and reports for a settings screen |
 | `…podcast.app.sync.file` | A folder as a store, for the folders iCloud Drive, Dropbox, Seafile or Syncthing mirror and a Git working tree, `backend` in one call; JVM |
 | `…podcast.app.sync.webdav` | A WebDAV collection as a store, Nextcloud, ownCloud, Seafile, Synology, Box, Fastmail or the inspector's own folder, the ETag as the version, `backend` in one call, the calls as request maps on both platforms, and `handler` to serve any store over WebDAV from a Clojure backend |
+| `…podcast.app.sync.encrypted` | Any store with its documents encrypted at rest: AES-256-GCM under a key PBKDF2 derives from a passphrase, javax.crypto on the JVM and WebCrypto in the browser, each opening the other's envelopes |
 | `…podcast.directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index behind one shape: search, lookup and charts as request maps and shows keyed like the model; `combine` for one entry per show; `search!` and `trending!` on the JVM |
 | `…podcast.directory.podcastindex` | Podcast Index API: requests with auth, responses mapped onto the model, remote value resolution |
 | `…podcast.podping` | Podping: the Hive JSON-RPC calls as request maps, the pings read out of a block, the writers verified, `pinged?` and `affected` for the subscriptions concerned, `poll!` on the JVM; `notify-request` for a host |

@@ -1,0 +1,1 @@
+{:encrypted 1, :cipher "AES-256-GCM", :kdf "PBKDF2-HMAC-SHA256", :iterations 100000, :salt "6MkfweS+EtJuMEVN2MVASQ==", :iv "+8SrZv/EhzaIy40z", :data "dMv7qpTc+8Tfp4f8U/uyM52AKlxl72b8G+S+OqX3hP0QuoEZrcyfrbUcCZeKspxSA9QEJlET+ICr7WPzc1mJgfstCGYJDvd4azUvXNVX2ALvn+6f1tbgtR3jaZJUVBfUna3oD1XFMWJRU4gcIYHmnoVHxbOczxjJb2/wZqqif2tEe4fD45lbRnM9XsHNGrOBiJe5L9TAtp7t13CSKsZKc9Hx"}

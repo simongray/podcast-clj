@@ -733,6 +733,21 @@ for the acknowledgements and one for the compaction that follows, and a
 second property has every tombstone gone and nothing the listener sees
 changed.
 
+The encrypting wrapper, `app.sync.encrypted`, is what the map-of-functions
+contract was chosen for: it wraps any store, seals every body with
+AES-256-GCM under a key PBKDF2 derives from a passphrase, and leaves names
+and versions to the store underneath, so the engine, the generic check and
+the WebDAV handler run over it unchanged and a server holds ciphertext. Each
+document is a small EDN envelope carrying its own salt, IV and iteration
+count, so there is no key file to lose, a document says how to open it,
+and the key is derived once per salt; a body that is not an envelope
+passes through, so encryption can be turned on over a folder that already
+holds plain documents, and a passphrase that does not open one fails that
+backend with the document's name. The JVM uses javax.crypto and
+ClojureScript the platform's WebCrypto, whose promises the store contract
+already allows; the suite holds an envelope sealed on each side and opens
+it on the other.
+
 The player state gained what syncing needs and what would have been
 painful to change once states are persisted. The device is a stable id,
 generated once per installation, and the devices describe themselves in a
@@ -845,3 +860,6 @@ they outlive an unsubscription and come back with the feed.
     by `acknowledge` from the whole documents a sync reads, and `compact`
     dropping the tombstones every other live device has seen, thirty days
     old, on every step; `lagging` for the devices holding it back. Done.
+28. The encrypting wrapper over any store: AES-256-GCM under a
+    passphrase-derived key, javax.crypto and WebCrypto opening each other's
+    envelopes. Done.

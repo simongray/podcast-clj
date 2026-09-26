@@ -91,6 +91,9 @@ Working toward 1.0, the first release.
   every other live device has acknowledged and that are thirty days old;
   `player/lagging` names the devices holding it back. A property test
   found that a device alone must not compact.
+- `app.sync.encrypted`: any store with its documents encrypted at rest,
+  AES-256-GCM under a key PBKDF2 derives from a passphrase, on both
+  platforms, each opening the other's envelopes.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

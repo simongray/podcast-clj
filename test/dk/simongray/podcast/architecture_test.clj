@@ -21,7 +21,7 @@
    "feed" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
    "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.html" 3
    "value" 3 "resolve" 3 "app.player" 3 "app.search" 3
-   "app.sync" 3 "app.sync.store" 3 "app.sync.file" 3 "app.sync.webdav" 3
+   "app.sync" 3 "app.sync.store" 3 "app.sync.file" 3 "app.sync.webdav" 3 "app.sync.encrypted" 3
    "directory" 3 "directory.podcastindex" 3 "podping" 3
    "" 4})
 

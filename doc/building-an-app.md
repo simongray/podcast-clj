@@ -20,6 +20,7 @@ not how.
          '[dk.simongray.podcast.app.player :as player]
          '[dk.simongray.podcast.app.search :as search]
          '[dk.simongray.podcast.app.sync :as sync]
+         '[dk.simongray.podcast.app.sync.encrypted :as encrypted]
          '[dk.simongray.podcast.app.sync.file :as file]
          '[dk.simongray.podcast.app.sync.store :as store]
          '[dk.simongray.podcast.app.sync.webdav :as webdav]
@@ -207,6 +208,9 @@ stopped syncing holds that back until you retire it.
 
 (def cloud  (webdav/backend cloud-root {:credentials creds :opml? true :app "my-app"}))
 (def folder (file/backend "/Users/simon/Library/Mobile Documents/com~apple~CloudDocs/Podcasts" {:app "my-app"}))
+(def sealed (encrypted/backend (webdav/store cloud-root {:credentials creds})        ; the same collection, the documents
+                               {:passphrase (fn [] (from-the-keychain)) :opml? true  ; ciphertext to the server
+                                :except #{store/opml-name}}))                         ; the subscription list left readable
 
 (def step (sync/sync! state [cloud folder] now))                        ; => {:state … :ctx {…} :report [] :failed {…}}
 (def state (:state step))
@@ -222,7 +226,11 @@ stopped syncing holds that back until you retire it.
 
 Every store namespace has the same two: `store` over a place, and
 `backend` in one call with the options of both. `store/check!` tries any
-store and reports as data, for the settings screen's test button. A
+store and reports as data, for the settings screen's test button.
+`encrypted/store` wraps any of them so that the server holds ciphertext:
+AES-GCM under a key derived from a passphrase, each document carrying its
+own salt, a plain document already there still readable, and a wrong
+passphrase failing that backend with the document's name. A
 folder covers the sync clients, WebDAV the self-hosted world and the
 inspector's own folder at `/dav/`, and `webdav/handler` serves a store
 from your own Clojure backend for a browser client. The stores to come,

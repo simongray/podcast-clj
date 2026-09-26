@@ -416,11 +416,16 @@ the Podcast Index credentials are today. The engine never sees credentials,
 and nothing in a result, a report or a `:name` carries one.
 
 A document describes a listener's habits, and a provider can read what it
-stores. An encrypting wrapper is the first extension the map-of-functions
-contract invites: AES-GCM under a key derived from a passphrase with
-PBKDF2, `javax.crypto` on the JVM and WebCrypto in a browser, whose
-asynchrony the promise convention already covers. It is post-1.0, and it
-wraps any store, including the ones not yet written.
+stores. The encrypting wrapper, `app.sync.encrypted`, is the extension the
+map-of-functions contract was chosen for: AES-256-GCM under a key PBKDF2
+derives from a passphrase, `javax.crypto` on the JVM and WebCrypto in a
+browser, whose asynchrony the promise convention covers, over any store,
+the ones not yet written included. Each document is an envelope carrying
+its own salt, IV and iteration count, so there is no key file to lose and
+the key is derived once per salt; a plain document passes through, so a
+folder can be encrypted from now on; a wrong passphrase fails that backend
+naming the document. The subscription list a backend mirrors can be left
+in the clear with `:except`, for other apps to read.
 
 ## Testing
 
@@ -473,9 +478,9 @@ WebDAV with the inspector's folder came next, since it gives the browser
 player a store and the suite a real server, and compaction after it, as
 the engine's missing piece; the design above is as built. Then, in the
 order they earn it, each as one additive namespace with its fixtures:
-gpodder, Dropbox, Drive, OneDrive, the Git hosts, CloudKit JS, the
-encrypting wrapper, JSON documents, JGit, and the Open Podcast API when it
-stabilises. None of them changes a document already written.
+gpodder, Dropbox, Drive, OneDrive, the Git hosts, CloudKit JS, JSON
+documents, JGit, and the Open Podcast API when it stabilises; the
+encrypting wrapper is in. None of them changes a document already written.
 
 ## Decisions
 
