@@ -1,0 +1,67 @@
+{
+ "feed": {
+  "title": "Top Shows",
+  "id": "https://rss.marketingtools.apple.com/api/v2/dk/podcasts/top/3/podcasts.json",
+  "author": {
+   "name": "Apple",
+   "url": "https://www.apple.com/"
+  },
+  "links": [
+   {
+    "self": "https://rss.marketingtools.apple.com/api/v2/dk/podcasts/top/3/podcasts.json"
+   }
+  ],
+  "copyright": "Copyright © 2026 Apple Inc. All rights reserved.",
+  "country": "dk",
+  "icon": "https://www.apple.com/favicon.ico",
+  "updated": "Sat, 26 Sep 2026 15:22:21 +0000",
+  "results": [
+   {
+    "artistName": "Camilla & Kristine",
+    "id": "1350835571",
+    "name": "Mørkeland",
+    "kind": "podcasts",
+    "contentAdvisoryRating": "Explict",
+    "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/f1/4e/e6/f14ee6d7-0cde-525e-d094-2e1cbc59e424/mza_3180602248978488067.jpeg/100x100bb.png",
+    "genres": [
+     {
+      "genreId": "1488",
+      "name": "True Crime",
+      "url": "https://itunes.apple.com/dk/genre/id1488"
+     }
+    ],
+    "url": "https://podcasts.apple.com/dk/podcast/m%C3%B8rkeland/id1350835571"
+   },
+   {
+    "artistName": "DR",
+    "id": "1500746737",
+    "name": "Genstart",
+    "kind": "podcasts",
+    "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/5f/80/46/5f8046e2-fe5f-584a-2f6f-7c3d63597e6c/mza_4934954313151401315.jpg/100x100bb.png",
+    "genres": [
+     {
+      "genreId": "1489",
+      "name": "News",
+      "url": "https://itunes.apple.com/dk/genre/id1489"
+     }
+    ],
+    "url": "https://podcasts.apple.com/dk/podcast/genstart/id1500746737"
+   },
+   {
+    "artistName": "Euroinvestor",
+    "id": "485312851",
+    "name": "Millionærklubben",
+    "kind": "podcasts",
+    "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/db/f6/ce/dbf6cef2-5589-0cca-ac29-460040f571ca/mza_16480173968046813319.jpg/100x100bb.png",
+    "genres": [
+     {
+      "genreId": "1321",
+      "name": "Business",
+      "url": "https://itunes.apple.com/dk/genre/id1321"
+     }
+    ],
+    "url": "https://podcasts.apple.com/dk/podcast/million%C3%A6rklubben/id485312851"
+   }
+  ]
+ }
+}

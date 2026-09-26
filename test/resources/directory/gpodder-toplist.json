@@ -1,0 +1,35 @@
+[
+ {
+  "url": "http://feeds.feedburner.com/linuxoutlaws",
+  "title": "Linux Outlaws",
+  "author": "Sixgun Productions",
+  "description": "New media, new rules",
+  "subscribers": 3321,
+  "logo_url": "http://sixgun.org/files/linuxoutlaws.jpg",
+  "scaled_logo_url": "http://gpodder.net/logo/64/fa9/fa9fd87a4f9e488096e52839450afe0b120684b4",
+  "website": "http://sixgun.org",
+  "mygpo_link": "http://gpodder.net/podcast/linux-outlaws-mp3"
+ },
+ {
+  "url": "http://feeds.thisamericanlife.org/talpodcast",
+  "title": "This American Life",
+  "author": "This American Life",
+  "description": "This American Life is a weekly public radio show, heard by 2.2 million people\non more than 500 stations. Another 2.5 million people download the weekly\npodcast.",
+  "subscribers": 3212,
+  "logo_url": "https://files.thisamericanlife.org/sites/all/themes/thislife/img/tal-name-1400x1400.png",
+  "scaled_logo_url": "http://gpodder.net/logo/64/bd1/bd19f34a26029a393a4d7182682fcb02cc810a5e",
+  "website": "https://www.thisamericanlife.org",
+  "mygpo_link": "http://gpodder.net/podcast/this-american-life"
+ },
+ {
+  "url": "http://leo.am/podcasts/floss",
+  "title": "FLOSS Weekly (Audio)",
+  "author": "Leo Laporte (distro@twit.tv)",
+  "description": "We're not talking dentistry here; FLOSS all about Free Libre Open Source\nSoftware. Join host Doc Searls and his rotating panel of co-hosts every\nWednesday as they talk with the most interesting and important people in the\nOpen Source and Free Software community. Records live every Wednesday at\n12:30pm Eastern / 9:30am Pacific / 16:30 UTC.",
+  "subscribers": 2613,
+  "logo_url": "https://elroy.twit.tv/sites/default/files/styles/twit_album_art_2048x2048/public/images/shows/floss_weekly/album_art/audio/floss_albumart_audio.jpg?itok=KzekxxIt",
+  "scaled_logo_url": "http://gpodder.net/logo/64/108/108df377afa12f82b94e37a6e748baaf21c687e0",
+  "website": "https://twit.tv/shows/floss-weekly",
+  "mygpo_link": "http://gpodder.net/podcast/floss-weekly-mp3"
+ }
+]

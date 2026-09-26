@@ -7,6 +7,7 @@
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.chapters :as chapters]
+            [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.index :as index]
@@ -254,6 +255,21 @@
                   {url feed}
                   url))))))
 
+;;;; The directories
+
+(defn directory-page
+  "The shows the directories answer for the `q` parameter, or their charts
+  for the `country` parameter when there is no query, the Podcast Index
+  among them when its credentials are set."
+  [request]
+  (let [{:keys [q country]} (:query-params request)
+        opts   (cond-> {:limit 10 :country (if (str/blank? country) "us" country)}
+                 index-credentials (assoc :credentials index-credentials))
+        answer (if (str/blank? q)
+                 (directory/trending! opts)
+                 (directory/search! q opts))]
+    (html (page/directory-page (assoc answer :q q :country (:country opts))))))
+
 ;;;; The browser player: a shell page, the episode data it asks for, and its script
 
 (defn queue-page
@@ -306,6 +322,7 @@
     ["/feed.xml" :get feed-xml :route-name :feed-xml]
     ["/item" :get item-page :route-name :item]
     ["/search" :get search-page :route-name :search]
+    ["/directory" :get directory-page :route-name :directory]
     ["/episode.edn" :get episode-edn :route-name :episode-edn]
     ["/queue" :get queue-page :route-name :queue]
     ["/js/*path" :get js-file :route-name :js]

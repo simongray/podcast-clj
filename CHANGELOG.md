@@ -42,6 +42,10 @@ Working toward 1.0, the first release.
 - `resolve/properties` gathers every resolved answer for a show or an
   episode into one map with plain keys, to merge with the raw fields, and
   `resolve/sources` names the fields each answer was read from.
+- `directory`: Apple Podcasts, fyyd, gpodder.net and the Podcast Index
+  behind one shape, search, lookup and charts as request maps and shows
+  keyed like the model, `combine` for one entry per show across sources,
+  and `search!` and `trending!` on the JVM asking every source at once.
 - A quirks layer that repairs malformed feeds, recognizes namespace URI
   variants and normalizes the deviations found in the wild, every step
   reported; jsoup as an optional lenient parser of last resort.

@@ -1,0 +1,111 @@
+{
+ "status": 1,
+ "msg": "ok",
+ "meta": {
+  "API_INFO": {
+   "API_VERSION": "0.2"
+  },
+  "SERVER": "88.99.101.163",
+  "duration": 0
+ },
+ "data": [
+  {
+   "title": "Orgasmic Enlightenment with Kim Anami",
+   "id": 79466,
+   "xmlURL": "https://feeds.transistor.fm/orgasmic-enlightenment",
+   "htmlURL": "http://www.kimanami.com",
+   "imgURL": "https://img.transistorcdn.com/Djt6dgh4HEAtgCtUDP7TnNqbCfWoQwkiMPbOGYP-B4Y/rs:fill:0:0:1/w:1400/h:1400/q:60/mb:500000/aHR0cHM6Ly9pbWct/dXBsb2FkLXByb2R1/Y3Rpb24udHJhbnNp/c3Rvci5mbS9zaG93/LzExMDAyLzE1OTAz/Mjk2NzItYXJ0d29y/ay5qcGc.jpg",
+   "status": 200,
+   "status_since": "2026-04-12 07:36:02",
+   "slug": "orgasmic-enlightenment",
+   "layoutImageURL": "https://img-1.fyyd.de/pd/layout/79466a9b21da50fdea2b72fe60ce79b03bb7d.jpg",
+   "thumbImageURL": "https://img-1.fyyd.de/pd/thumbs/79466a9b21da50fdea2b72fe60ce79b03bb7d.png",
+   "smallImageURL": "https://img-1.fyyd.de/pd/small/79466a9b21da50fdea2b72fe60ce79b03bb7d.jpg",
+   "microImageURL": "https://img-1.fyyd.de/pd/micro/79466a9b21da50fdea2b72fe60ce79b03bb7d.png",
+   "language": "en",
+   "generator": "Transistor (https://transistor.fm)",
+   "categories": [
+    130,
+    136,
+    181,
+    186
+   ],
+   "lastpub": "2026-09-18T17:21:39+02:00",
+   "rank": 844,
+   "url_fyyd": "https://fyyd.de/podcast/orgasmic-enlightenment/0",
+   "description": "Where the sexual and spiritual come together. Sex and relationship coach and vaginal weight lifter Kim Anami gives you the sex education and orgasms you never had. www.kimanami.com",
+   "subtitle": "Where the sexual and spiritual come together.",
+   "tcolor": "#fff",
+   "color": "#a4435b",
+   "episode_count": 275,
+   "iflags": "99",
+   "paymentURL": null,
+   "author": "Kim Anami"
+  },
+  {
+   "title": "The Cynic | A Celtic FC Podcast",
+   "id": 49449,
+   "xmlURL": "https://feeds.acast.com/public/shows/6a6dfdbc88c5585c85536bdb",
+   "htmlURL": "http://thecynic.co",
+   "imgURL": "https://assets.pippa.io/shows/6a6dfdbc88c5585c85536bdb/show-cover.jpg",
+   "status": 200,
+   "status_since": "2026-08-02 04:30:04",
+   "slug": "90minutecynic-football-podcast",
+   "layoutImageURL": "https://img-1.fyyd.de/pd/layout/494497b0768c6920400a963477c7b22218ee9.jpg",
+   "thumbImageURL": "https://img-1.fyyd.de/pd/thumbs/494497b0768c6920400a963477c7b22218ee9.png",
+   "smallImageURL": "https://img-1.fyyd.de/pd/small/494497b0768c6920400a963477c7b22218ee9.jpg",
+   "microImageURL": "https://img-1.fyyd.de/pd/micro/494497b0768c6920400a963477c7b22218ee9.png",
+   "language": "en",
+   "generator": "acast.com",
+   "categories": [
+    187,
+    197,
+    155
+   ],
+   "lastpub": "2026-09-21T19:45:47+02:00",
+   "rank": 794,
+   "url_fyyd": "https://fyyd.de/podcast/90minutecynic-football-podcast/0",
+   "description": "The Cynic is the home of independent Celtic FC podcasts, bringing supporters in-depth analysis, honest debate and coverage of everything happening at Celtic Football Club.The Cynic provides a unique perspective on one of football’s most passionate clubs and features a team of dedicated hosts, supporters and expert contributors. We cover everything from match reactions and tactical breakdowns to transfer discussions and recruitment analysis.Whether you want post-match analysis or the latest news from Paradise, The Cynic delivers independent Celtic FC coverage every week. Hosted on Acast. See acast.com/privacy for more information.",
+   "subtitle": "Independent Celtic FC podcasts, analysis, match reaction and transfer discussion.",
+   "tcolor": "#000",
+   "color": "#eff2f0",
+   "episode_count": 572,
+   "iflags": null,
+   "paymentURL": null,
+   "author": "Christopher Gallagher"
+  },
+  {
+   "title": "Hobby Homies Podcast",
+   "id": 88646,
+   "xmlURL": "https://feed.podbean.com/hobbyhomies/feed.xml",
+   "htmlURL": "https://hobbyhomies.podbean.com",
+   "imgURL": "https://pbcdn1.podbean.com/imglogo/image-logo/9287102/HH_logo_6ccvq.png",
+   "status": 200,
+   "status_since": "2026-08-28 05:30:09",
+   "slug": "hobby-homies-podcast",
+   "layoutImageURL": "https://img-1.fyyd.de/pd/layout/886469c108f23db69db0a3184e2c58e0a0fe6.jpg",
+   "thumbImageURL": "https://img-1.fyyd.de/pd/thumbs/886469c108f23db69db0a3184e2c58e0a0fe6.png",
+   "smallImageURL": "https://img-1.fyyd.de/pd/small/886469c108f23db69db0a3184e2c58e0a0fe6.jpg",
+   "microImageURL": "https://img-1.fyyd.de/pd/micro/886469c108f23db69db0a3184e2c58e0a0fe6.png",
+   "language": "en",
+   "generator": "https://podbean.com/?v=5.5",
+   "categories": [
+    142,
+    148,
+    147,
+    115
+   ],
+   "lastpub": "2026-09-06T09:59:28+02:00",
+   "rank": 683,
+   "url_fyyd": "https://fyyd.de/podcast/hobby-homies-podcast/0",
+   "description": "Aimed at building a community of wargamers, board gamers and tabletop enthusiasts, Hobby Homies Podcast covers all aspects of the tabletop gaming hobby. New episodes released every Sunday!",
+   "subtitle": "Aimed at building a community of wargamers, board gamers and tabletop enthusiasts, Hobby Homies Podcast covers all aspects of the tabletop gaming hobby. New episodes released every Sunday!",
+   "tcolor": "#fff",
+   "color": "#0d1010",
+   "episode_count": 347,
+   "iflags": "99",
+   "paymentURL": null,
+   "author": "HobbyHomies"
+  }
+ ]
+}

@@ -1,0 +1,50 @@
+{
+ "status": 1,
+ "msg": "ok",
+ "meta": {
+  "paging": {
+   "count": null,
+   "page": null,
+   "first_page": 0,
+   "last_page": -1,
+   "next_page": 1,
+   "prev_page": null
+  },
+  "API_INFO": {
+   "API_VERSION": "0.2"
+  },
+  "SERVER": "88.99.101.163",
+  "duration": 0
+ },
+ "data": {
+  "title": "Freakonomics Radio",
+  "id": 1,
+  "xmlURL": "https://feeds.simplecast.com/Y8lFbOT4",
+  "htmlURL": "https://freakonomics.com",
+  "imgURL": "https://image.simplecastcdn.com/images/2be48404-a43c-4fa8-a32c-760a3216272e/fab1584e-8ea9-4efa-9650-5e595861b2cd/3000x3000/image.jpg?aid=rss_feed",
+  "status": 200,
+  "status_since": "2026-07-26 02:02:01",
+  "slug": "freakonomics-radio",
+  "layoutImageURL": "https://img-1.fyyd.de/pd/layout/1746d17b448b35fdf8d12a3270ff8acd7.jpg",
+  "thumbImageURL": "https://img-1.fyyd.de/pd/thumbs/1746d17b448b35fdf8d12a3270ff8acd7.png",
+  "smallImageURL": "https://img-1.fyyd.de/pd/small/1746d17b448b35fdf8d12a3270ff8acd7.jpg",
+  "microImageURL": "https://img-1.fyyd.de/pd/micro/1746d17b448b35fdf8d12a3270ff8acd7.png",
+  "language": "en",
+  "generator": "https://simplecast.com",
+  "categories": [
+   181,
+   182
+  ],
+  "lastpub": "2026-09-25T12:00:00+02:00",
+  "rank": 648,
+  "url_fyyd": "https://fyyd.de/podcast/freakonomics-radio/0",
+  "description": "Freakonomics co-author Stephen J. Dubner uncovers the hidden side of everything. Why is it safer to fly in an airplane than drive a car? How do we decide whom to marry? Why is the media so full of bad news? Also: things you never knew you wanted to know about wolves, bananas, pollution, search engines, and the quirks of human behavior.\n\nTo get every show in the Freakonomics Radio Network without ads and a monthly bonus episode of Freakonomics Radio, start a free trial for SiriusXM Podcasts+ on Apple Podcasts or by visiting siriusxm.com/podcastsplus.",
+  "subtitle": "Freakonomics co-author Stephen J. Dubner uncovers the hidden side of everything. Why is it safer to fly in an airplane than drive a car? How do we decide whom to marry? Why is the media so full of bad news? Also: things you never knew you wanted to know about wolves, bananas, pollution, search engines, and the quirks of human behavior.\n\nTo get every show in the Freakonomics Radio Network without ads and a monthly bonus episode of Freakonomics Radio, start a free trial for SiriusXM Podcasts+ on Apple Podcasts or by visiting siriusxm.com/podcastsplus.",
+  "tcolor": "#000",
+  "color": "#f6f1e6",
+  "episode_count": 968,
+  "iflags": null,
+  "paymentURL": null,
+  "author": "Freakonomics Radio + Stitcher"
+ }
+}

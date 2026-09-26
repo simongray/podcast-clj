@@ -5,6 +5,7 @@
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.chapters :as chapters]
+            [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.html :as html]
             [dk.simongray.podcast.resolve :as resolve]
@@ -82,6 +83,12 @@
            [:input {:type "url" :name "url" :placeholder "https://example.com/feed.xml" :required true}]
            " "
            [:button {:type "submit"} "Inspect"]]
+          [:form {:method "get" :action "/directory"}
+           [:input {:type "search" :name "q" :placeholder "or find a podcast in the directories" :required true}]
+           " "
+           [:button {:type "submit"} "Find"]
+           " "
+           [:a.muted {:href "/directory"} "charts"]]
           (when (seq corpus)
             (list [:h2 "Corpus"]
                   [:p.muted "Real feeds from the hosting platforms the library is tested against."]
@@ -467,6 +474,44 @@
                   [:div.snippet
                    (for [{:keys [text match?]} (search/snippet (html/text (resolve/description item)) q)]
                      (if match? [:mark text] text))])])])))
+
+(defn directory-page
+  "The shows the directories answered for the query `q`, or their charts
+  for `country` without one: `results` as `directory/combine` folds them,
+  and what `failed`."
+  [{:keys [q country results failed]}]
+  (let [charts? (str/blank? q)]
+    (layout (if charts? "Charts" (str "Find: " q))
+            [:h1 (if charts? (str "The charts, " country) "Find a podcast")]
+            [:form {:method "get" :action "/directory"}
+             [:input {:type "search" :name "q" :value q :placeholder "words in a show's title" :required true}]
+             " "
+             [:button {:type "submit"} "Find"]]
+            [:p.muted "Apple Podcasts, fyyd and gpodder.net, and the Podcast Index when its credentials are set, asked at once and combined into one entry per show. Charts: "
+             [:a {:href "/directory?country=us"} "US"] " · " [:a {:href "/directory?country=dk"} "Denmark"]
+             " · " [:a {:href "/directory?country=de"} "Germany"]]
+            (when (seq failed)
+              [:p.warning (str "No answer from " (str/join ", " (map name (keys failed))) ": "
+                               (str/join "; " (vals failed)))])
+            (if (empty? results)
+              [:p.muted "Nothing found."]
+              [:ol.results
+               (for [show results
+                     :let [{:directory/keys [sources episode-count subscribers rank]} show
+                           feed-url (resolve/self-url show)
+                           title    (or (resolve/title show) "(untitled)")]]
+                 [:li
+                  [:strong (if feed-url [:a {:href (feed-href "/feed" feed-url)} title] title)]
+                  " " [:span.muted (resolve/author show)]
+                  [:br]
+                  (for [source (keys sources)]
+                    [:span.badge (:name (directory/sources source))])
+                  (when rank [:span.muted (str " · rank " rank)])
+                  (when episode-count [:span.muted (str " · " episode-count " episodes")])
+                  (when subscribers [:span.muted (str " · " subscribers " subscribers")])
+                  (when-not feed-url [:span.muted " · no feed URL from these sources"])
+                  (when-let [d (resolve/description show)]
+                    [:div.snippet (shorten (html/text d) 200)])])]))))
 
 (defn queue-page
   "The shell of the play queue: the browser player, written in

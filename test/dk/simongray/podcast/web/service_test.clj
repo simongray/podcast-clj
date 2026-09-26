@@ -73,6 +73,34 @@
     (testing "search over the corpus answers whatever the corpus holds"
       (is (= 200 (:status (get* "/search" "q" "podcasting")))))))
 
+(defn- directory-fixture
+  "The recorded answer of the directory that `url` addresses."
+  [url]
+  (slurp (io/resource
+          (cond
+            (str/includes? url "itunes.apple.com/search")     "directory/apple-search.json"
+            (str/includes? url "itunes.apple.com/lookup")     "directory/apple-lookup.json"
+            (str/includes? url "rss.marketingtools.apple.com") "directory/apple-charts.json"
+            (str/includes? url "api.fyyd.de/0.2/search")      "directory/fyyd-search.json"
+            (str/includes? url "api.fyyd.de/0.2/feature")     "directory/fyyd-hot.json"
+            (str/includes? url "gpodder.net/search")          "directory/gpodder-search.json"
+            (str/includes? url "gpodder.net/toplist")         "directory/gpodder-toplist.json"
+            (str/includes? url "api.podcastindex.org")        "index/search-byterm.json"))))
+
+(deftest the-directories
+  (with-redefs [http/call! (fn [{:keys [url]}] {:status 200 :url url :body (directory-fixture url)})]
+    (testing "a search across the directories, combined, each result linking to its feed"
+      (let [{:keys [status body]} (get* "/directory" "q" "podcasting 2.0")]
+        (is (= 200 status))
+        (is (str/includes? body "Podcasting 2.0"))
+        (is (str/includes? body "fyyd"))
+        (is (str/includes? body (str "/feed?url=" (java.net.URLEncoder/encode "https://feeds.podcastindex.org/pc20.xml" "UTF-8"))))))
+    (testing "the charts without a query"
+      (let [{:keys [status body]} (get* "/directory" "country" "dk")]
+        (is (= 200 status))
+        (is (str/includes? body "Mørkeland"))
+        (is (str/includes? body "rank 1"))))))
+
 (deftest the-player
   (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})]
     (testing "every page carries the player bar and its script; the queue page the shell of the detailed view"

@@ -248,6 +248,23 @@ what only the index knows under `:index/*`:
 (value/with-remote block (value/recipients-at block 100) remote)
 ```
 
+The directories of the world answer behind one shape as well: Apple
+Podcasts, fyyd and gpodder.net without credentials, the Podcast Index with
+them, each show keyed like a parsed feed, its feed URL where `resolve/self-url`
+finds it, and combined into one entry per show:
+
+```clojure
+(require '[dk.simongray.podcast.directory :as directory])
+
+(directory/request :apple :search {:q "podcasting 2.0" :limit 5})  ; a request map for any HTTP client
+(directory/response :apple :search body)                           ; => [{:rss/title "…" :itunes/author "…" :podcast/guid "…" :directory/source :apple …} …]
+
+(directory/search! "podcasting 2.0" {:limit 5})                    ; JVM: every source at once, combined
+;; => {:results [{:rss/title "Podcasting 2.0" :directory/sources {:apple "1584274529" :fyyd 61003 :gpodder "https://…"} …} …]}
+(resolve/self-url (first (:results *1)))                           ; the feed to fetch: "https://feeds.podcastindex.org/pc20.xml"
+(directory/trending! {:country "dk" :limit 20})                    ; the charts, combined the same way
+```
+
 Namespaces
 ----------
 
@@ -271,6 +288,7 @@ Namespaces
 | `…podcast.opml` | Subscription lists |
 | `…podcast.value` | Value-for-value arithmetic: splits, fees, time splits, remote blocks folded in; the boostagram record a payment carries |
 | `…podcast.index` | Podcast Index API: requests with auth, responses mapped onto the model, remote value resolution |
+| `…podcast.directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index behind one shape: search, lookup and charts as request maps and shows keyed like the model; `combine` for one entry per show; `search!` and `trending!` on the JVM |
 | `…podcast.guid` | `podcast:guid` (UUIDv5) and SHA-1 |
 | `…podcast.time` | RFC 2822 and ISO 8601 dates, durations, timestamps |
 | `…podcast.rrule` | RFC 5545 recurrence rules parsed, written and evaluated, for `podcast:updateFrequency` |

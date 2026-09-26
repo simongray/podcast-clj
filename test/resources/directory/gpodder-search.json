@@ -1,0 +1,35 @@
+[
+ {
+  "url": "http://feeds.feedburner.com/buhardillapodcast",
+  "title": "La Buhardilla 2.0",
+  "author": "La Buhardilla 2.0 (buhardillapodcast@gmail.com)",
+  "description": "Podcast de Ciencia dónde tratamos temas que van desde las matemáticas hasta la\naeronaútica pasando por Física, Química y Biologia.",
+  "subscribers": 32,
+  "logo_url": "http://www.buhardillapodcast.com/Caratula%20Buhardilla%202014.png",
+  "scaled_logo_url": "http://gpodder.net/logo/64/3ff/3ff077031e09447de29f747417aba4d7f31eb4b2",
+  "website": "https://www.ivoox.com/podcast-buhardilla-2-0_sq_f12186_1.html",
+  "mygpo_link": "http://gpodder.net/podcast/la-buhardilla-20"
+ },
+ {
+  "url": "http://www.ivoox.com/podcast-buhardilla-2-0_fg_f12186_filtro_1.xml",
+  "title": "La Buhardilla 2.0",
+  "author": "buhardilla",
+  "description": "La Buhardilla 2.0 es un podcast sobre ciencia, tratada desde un punto de vista\ndistinto a lo que estamos acostumbrados, pero cuyo fin es hacer que el oyente\naprenda algo nuevo cada vez que acabe de escuchar un episodio.",
+  "subscribers": 20,
+  "logo_url": "https://static-1.ivoox.com/canales/4/6/5/6/3921470916564_XXL.jpg",
+  "scaled_logo_url": "http://gpodder.net/logo/64/936/93628e20cef035222a45904a52a3a258d258a0dc",
+  "website": "https://www.ivoox.com/podcast-buhardilla-2-0_sq_f12186_1.html",
+  "mygpo_link": "http://gpodder.net/podcast/la-buhardilla-20-2"
+ },
+ {
+  "url": "http://feeds.feedburner.com/geeksandgod",
+  "title": "Geeks and God Podcast",
+  "author": "Rob Feature and Matt Farina",
+  "description": "The Geeks & God podcast is all about encouraging and educating Christian\nministries in using Technology. We talk about Web 2.0 stuff like podcasting\nand blogging, and also venture off into other media such as audio or video in\nyour church. Join us and don't forget to visit www.geeksandgod.com!",
+  "subscribers": 22,
+  "logo_url": "http://geeksandgod.com/files/gandglogo.jpg",
+  "scaled_logo_url": "http://gpodder.net/logo/64/e35/e359b63c5ccb4b173b081d103b0fca2ab75884cf",
+  "website": "http://geeksandgod.com/podcast/feed",
+  "mygpo_link": "http://gpodder.net/podcast/geeks-and-god-podcast"
+ }
+]

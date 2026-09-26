@@ -49,7 +49,7 @@ the code.
                  ├────────────────────────────────────────────────┤
   primitives     │ xml   time   rrule   guid   json   coerce      │  the only reader-conditionals
                  └────────────────────────────────────────────────┘
-  jvm only       │ http  (java.net.http fetcher)   index (client) │
+  jvm only       │ http (fetcher)  index, directory (search! …)   │
 ```
 
 Dependencies point downward only. `spec` knows nothing about parsing; `feed`
@@ -544,6 +544,34 @@ two seconds a query; and with a limit, the best results are kept in a
 small sorted vector as candidates stream past, since a sorted set with a
 comparator proved slower than sorting everything.
 
+## The directories
+
+`dk.simongray.podcast.directory` puts the podcast directories behind one
+shape, the way `index` already did for the Podcast Index: Apple Podcasts,
+fyyd and gpodder.net, which need no credentials, and the Podcast Index,
+which does. Three endpoints cover what a client asks a directory for,
+`:search` by words, `:lookup` by the source's id and `:trending` for the
+chart, and every source answers them as far as it can; Apple's chart names
+no feed, so a lookup by its id follows. A request is a map any HTTP client
+can send, so the namespace is `.cljc` and a browser client builds the same
+URLs, its CORS policy permitting. A response reads into shows keyed like a
+parsed feed, `:rss/title`, `:itunes/author`, `:itunes/image`, with the
+feed's URL as the `atom:link rel=self` that `resolve/self-url` reads and
+`:podcast/guid` derived from that URL by the specification's rule when the
+source declares none, which is what makes results from different sources
+comparable at all. What only a directory knows sits under `:directory/*`:
+the source, the show's id there, its page, an episode or subscriber count,
+a chart rank, and the raw record. `combine` folds the answers of several
+sources into one entry per show, the first source's record filled in from
+the later ones, `:directory/sources` naming each with its id, so that a
+chart entry meets its feed. On the JVM `search!` and `trending!` ask every
+source at once, each on its own future, and a source that fails is a line
+under `:failed` rather than an exception. The inspector's front page
+searches the directories and inspects the feed it finds.
+
+Podchaser, Listen Notes and Taddy are left out: each needs an account,
+and the four here already cover discovery for a client that has none.
+
 ## Roadmap
 
 1. Core: `xml`, `time`, `guid`, `spec`, `feed`, `quirks`, `validate`. Done.
@@ -591,3 +619,6 @@ comparator proved slower than sorting everything.
     and taken by `emit` and `validate`, a validator that diagnoses wrong
     shapes instead of throwing, and `resolve/properties` with `sources`
     for the raw and the resolved side by side. Done.
+21. The directories behind one shape: Apple Podcasts, fyyd, gpodder.net and
+    the Podcast Index, searched, looked up and their charts read, combined
+    into one entry per show, with recorded answers as fixtures. Done.
