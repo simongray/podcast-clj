@@ -9,7 +9,7 @@
   override, artwork and funding fall back."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.chapters :as chapters]
-            [dk.simongray.podcast.time :as time]
+            [dk.simongray.podcast.rrule :as rrule]
             [dk.simongray.podcast.value :as value]))
 
 ;;;; Text
@@ -228,11 +228,15 @@
                            (inc (count languages)))))
 
 (defn- timed-transcript?
+  "Whether the transcript reference carries timings: rel=captions, or a type
+  that does as a rule."
   [{:keys [type rel]}]
   (or (= "captions" (some-> rel str/lower-case))
       (contains? timed-transcript-types (str/lower-case (str type)))))
 
 (defn- type-rank
+  "The position of `type` among the preferred `types`, case ignored; after
+  them all when it is not among them."
   [types type]
   (or (first (keep-indexed (fn [i wanted] (when (= (str/lower-case wanted) (str/lower-case (str type))) i))
                            types))
@@ -248,13 +252,14 @@
                                        ; or a type that carries them
 
   Language first, timings second, type third; a reference that names no
-  language is taken to be in the feed's language when `feed` is given, and
-  ranks after the matches and before the mismatches otherwise. Something is
-  always returned when the item has transcripts at all."
+  language is taken to be in the feed's language when `feed` is given (nil
+  stands for no feed), and ranks after the matches and before the mismatches
+  otherwise. Something is always returned when the item has transcripts at
+  all."
   ([item]
-   (transcript item nil))
-  ([item opts]
-   (transcript nil item opts))
+   (transcript nil item nil))
+  ([feed item]
+   (transcript feed item nil))
   ([feed item {:keys [types languages timed?] :or {types transcript-preference}}]
    (let [default-language (:rss/language feed)
          rank             (fn [{:keys [type language] :as ref}]
@@ -373,20 +378,20 @@
 (defn complete?
   "Whether `feed` says it will publish no more episodes."
   [feed]
-  (boolean (or (true? (:itunes/complete feed))
-               (true? (:complete (:podcast/update-frequency feed))))))
+  (or (true? (:itunes/complete feed))
+      (true? (:complete (:podcast/update-frequency feed)))))
 
 (defn next-episode
   "When `feed` says its next episode is due after `at`: the first instant
   after `at` that the recurrence rule of podcast:updateFrequency produces,
   anchored at its dtstart or, failing that, at the latest item's date. Nil
   when the feed is complete, has no rule, or has one the library does not
-  evaluate (see `time/occurrences`)."
+  evaluate (see `rrule/occurrences`)."
   [feed at]
   (let [{:keys [rrule dtstart]} (:podcast/update-frequency feed)
         latest (some->> (:rss/items feed) (keep :rss/pub-date) (filter inst?) seq (apply max-key inst-ms))]
     (when (and (map? rrule) (not (complete? feed)))
-      (time/next-occurrence rrule (or (when (inst? dtstart) dtstart) latest at) at))))
+      (rrule/next-occurrence rrule (or (when (inst? dtstart) dtstart) latest at) at))))
 
 (defn locked?
   "Whether `feed` forbids other platforms to import it."
@@ -405,6 +410,7 @@
         (:atom/links feed)))
 
 (defn- category-paths
+  "The paths of `categories` and of their subcategories, each below `prefix`."
   [prefix categories]
   (mapcat (fn [{:keys [text categories]}]
             (let [path (conj prefix text)]

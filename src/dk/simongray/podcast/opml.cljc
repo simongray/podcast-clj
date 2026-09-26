@@ -42,7 +42,7 @@
     (cond-> {:subscriptions (vec (outlines [] body))}
       (seq title) (assoc :title title))))
 
-(def attr-names
+(def ^:no-doc attr-names
   "OPML attribute name by model key, for the camelCase ones."
   {:xml-url :xmlUrl :html-url :htmlUrl})
 

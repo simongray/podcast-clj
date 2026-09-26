@@ -46,7 +46,7 @@ the code.
                  ├────────────────────────────────────────────────┤
   vocabulary     │ spec  (tag registry, enumerations)   quirks    │  data, and named repairs
                  ├────────────────────────────────────────────────┤
-  primitives     │ xml   time   guid   json   coerce              │  the only reader-conditionals
+  primitives     │ xml   time   rrule   guid   json   coerce      │  the only reader-conditionals
                  └────────────────────────────────────────────────┘
   jvm only       │ http  (java.net.http fetcher)   index (client) │
 ```
@@ -207,15 +207,15 @@ where the overlaps are settled, once, in pure functions over the model:
 `license`, `chat`, `locations`, `value`, the live items in listening order
 (`live-items`, `live?`), and for the feed as a whole `medium`, `list-feed?`,
 `complete?`, `next-episode` (from the recurrence rule of
-`podcast:updateFrequency`, evaluated by `time/occurrences`), `locked?`,
+`podcast:updateFrequency`, evaluated by `rrule/occurrences`), `locked?`,
 `new-feed-url`, `self-url` and `categories`. Each docstring states its
 precedence. The two-argument forms
 take the feed and an item and apply the inheritance the specifications
 describe: people on an item replace the feed's entirely, a value block on an
 item overrides, artwork and funding fall back to the channel. `transcript`
-takes options instead, since a client's preferences (types, languages, a need
-for timings) are its own; with the feed as well, a reference that names no
-language is taken to be in the feed's. Nothing here is stored or cached; it
+takes options as well, since a client's preferences (types, languages, a need
+for timings) are its own; given the feed, a reference that names no language
+is taken to be in the feed's. Nothing here is stored or cached; it
 is all derived on each call, and the reference app renders its item rows
 through it so that the corpus exercises it.
 
@@ -463,3 +463,8 @@ to test it; it touches nothing but the public API.
     interpreter takes, so that clients extend the vocabulary without a
     fork; names and entity decoding moved down into `xml` so that the
     layering holds; each layer reporting only its own diagnostics. Done.
+17. The surface review: a message on every diagnostic, from the catalogue
+    where the parser records only an id; the transcript accessor's arities
+    aligned with the rest of `resolve`; the plumbing hidden from the API
+    documentation with `:no-doc`; `rrule` split out of `time`; the linter
+    in CI and a test that keeps the generated documents current. Done.

@@ -4,12 +4,14 @@
   and JavaScript agree.
 
   Instants are `#inst` values (java.util.Date or js/Date). Durations and
-  timestamps within media are seconds: a long when whole, a double otherwise."
+  timestamps within media are seconds: a long when whole, a double otherwise.
+  Recurrence rules are dk.simongray.podcast.rrule's, built on the calendar
+  arithmetic here."
   (:require [clojure.string :as str]))
 
 ;;;; Civil calendar arithmetic (proleptic Gregorian, Howard Hinnant's algorithms)
 
-(defn days-from-civil
+(defn ^:no-doc days-from-civil
   "The number of days from 1970-01-01 to the date `y`-`m`-`d`."
   [y m d]
   (let [y   (if (<= m 2) (dec y) y)
@@ -19,7 +21,7 @@
         doe (+ (* yoe 365) (quot yoe 4) (- (quot yoe 100)) doy)]
     (+ (* era 146097) doe -719468)))
 
-(defn civil-from-days
+(defn ^:no-doc civil-from-days
   "The date `[y m d]` that is `days` days after 1970-01-01."
   [days]
   (let [z   (+ days 719468)
@@ -45,7 +47,7 @@
   [inst]
   (->inst (* 1000 (quot (inst-ms inst) 1000))))
 
-(defn civil->ms
+(defn ^:no-doc civil->ms
   "Epoch milliseconds of the civil time given in UTC, `offset-minutes` east."
   [y m d hh mm ss ms offset-minutes]
   (-> (days-from-civil y m d)
@@ -55,7 +57,7 @@
 
 ;;;; RFC 2822 (RSS pubDate, lastBuildDate, podcast:trailer pubdate)
 
-(def months
+(def ^:no-doc months
   "Month number by lowercase English name, full and abbreviated."
   (into {} (mapcat (fn [i name]
                      [[name i] [(subs name 0 3) i]])
@@ -63,7 +65,7 @@
                    ["january" "february" "march" "april" "may" "june" "july"
                     "august" "september" "october" "november" "december"])))
 
-(def zones
+(def ^:no-doc zones
   "Offsets in minutes of the zone names RFC 822 and RFC 2822 define, plus the
   ones feeds use anyway. Military single letters are obsolete and read as UTC."
   {"ut" 0 "utc" 0 "gmt" 0 "z" 0
@@ -72,11 +74,11 @@
    "cet" 60 "cest" 120 "bst" 60 "ist" 60 "wet" 0 "west" 60
    "eet" 120 "eest" 180 "jst" 540 "aest" 600 "aedt" 660})
 
-(def rfc2822-strict-pattern
+(def ^:no-doc rfc2822-strict-pattern
   "The format RFC 2822 actually allows for a feed date, weekday included."
   #"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}(?::\d{2})? (?:[+-]\d{4}|GMT|UT)")
 
-(def rfc2822-lenient-pattern
+(def ^:no-doc rfc2822-lenient-pattern
   "Groups: day, month name, year, hour, minute, second, zone. Weekday, seconds,
   time and zone are all optional; separators are forgiving."
   #"(?i)^\s*(?:[a-z]{3,9}\.?,?\s+)?(\d{1,2})(?:st|nd|rd|th)?[\s-]+([a-z]{3,9})\.?,?[\s-]+(\d{2,4})(?:[\s,T]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?\s*(?:([a-z]{1,5}|[+-]\d{1,2}:?\d{2}|(?:gmt|utc)[+-]\d{1,2}:?\d{2}))?\s*$")
@@ -127,7 +129,7 @@
 
 ;;;; ISO 8601 (podcast:liveItem, updateFrequency dtstart, txt release)
 
-(def iso8601-pattern
+(def ^:no-doc iso8601-pattern
   "Groups: year, month, day, hour, minute, second, fraction, zone."
   #"^\s*(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?\s*(Z|z|[+-]\d{2}:?\d{2})?)?\s*$")
 
@@ -158,7 +160,7 @@
   [n]
   (if (< n 10) (str "0" n) (str n)))
 
-(defn- split-ms
+(defn ^:no-doc split-ms
   "Break `ms` since the epoch into `[days hh mm ss millis]` in UTC."
   [ms]
   (let [days   (quot (if (neg? ms) (- ms 86399999) ms) 86400000)
@@ -167,11 +169,11 @@
         secs   (quot rest 1000)]
     [days (quot secs 3600) (rem (quot secs 60) 60) (rem secs 60) millis]))
 
-(def weekdays
+(def ^:no-doc weekdays
   "The RFC 2822 weekday names, Sunday first as `days-from-civil` counts."
   ["Sun" "Mon" "Tue" "Wed" "Thu" "Fri" "Sat"])
 
-(def month-names
+(def ^:no-doc month-names
   "The RFC 2822 month names, January first."
   ["Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"])
 
@@ -198,7 +200,7 @@
 
 ;;;; Durations and timestamps within media
 
-(defn whole->long
+(defn ^:no-doc whole->long
   "The long equal to `n` when it is a whole number, else `n` itself, so that
   \"16.0\" and \"16\" read as the same value."
   [n]
@@ -265,203 +267,6 @@
          total  (quot millis 1000)]
      (str (pad2 (quot total 3600)) ":" (pad2 (rem (quot total 60) 60)) ":"
           (pad2 (rem total 60)) separator (subs (str (+ 1000 (rem millis 1000))) 1)))))
-
-;;;; RFC 5545 recurrence rules (podcast:updateFrequency rrule)
-
-(def rrule-parts
-  "The parts of a recurrence rule, as model keys and as written, in the
-  order the RFC lists them."
-  [[:freq "FREQ"] [:interval "INTERVAL"] [:count "COUNT"] [:until "UNTIL"]
-   [:bysecond "BYSECOND"] [:byminute "BYMINUTE"] [:byhour "BYHOUR"] [:byday "BYDAY"]
-   [:bymonthday "BYMONTHDAY"] [:byyearday "BYYEARDAY"] [:byweekno "BYWEEKNO"]
-   [:bymonth "BYMONTH"] [:bysetpos "BYSETPOS"] [:wkst "WKST"]])
-
-(def rrule-frequencies
-  "The values RFC 5545 allows for FREQ."
-  #{"SECONDLY" "MINUTELY" "HOURLY" "DAILY" "WEEKLY" "MONTHLY" "YEARLY"})
-
-(defn- rrule-value
-  "The model value of the rule part `k` written as `s`; nil when it does not
-  read. Numbers become longs, UNTIL an instant, the BY lists vectors."
-  [k s]
-  (let [longs (fn [s]
-                (let [xs (str/split s #",")]
-                  (when (every? #(re-matches #"[+-]?\d+" %) xs)
-                    (mapv parse-long xs))))]
-    (case k
-      :freq  (let [f (str/upper-case s)]
-               (when (rrule-frequencies f) f))
-      :until (when-let [[_ y m d hh mm ss] (re-matches #"(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z?)?" s)]
-               (->inst (civil->ms (parse-long y) (parse-long m) (parse-long d)
-                                  (if hh (parse-long hh) 0) (if mm (parse-long mm) 0)
-                                  (if ss (parse-long ss) 0) 0 0)))
-      :byday (let [days (mapv str/upper-case (str/split s #","))]
-               (when (every? #(re-matches #"[+-]?\d{0,2}(?:MO|TU|WE|TH|FR|SA|SU)" %) days)
-                 days))
-      :wkst  (let [d (str/upper-case s)]
-               (when (re-matches #"MO|TU|WE|TH|FR|SA|SU" d) d))
-      (:interval :count) (when (re-matches #"\d+" s) (parse-long s))
-      (:bysecond :byminute :byhour :bymonthday :byyearday :byweekno :bymonth :bysetpos) (longs s)
-      s)))
-
-(defn parse-rrule
-  "Parse the RFC 5545 recurrence rule `s`, \"FREQ=WEEKLY;BYDAY=MO,WE\", into
-  a map of its parts by lower-case key: `{:freq \"WEEKLY\" :byday [\"MO\"
-  \"WE\"]}`. INTERVAL and COUNT are numbers, UNTIL an instant, the BY lists
-  vectors of numbers or day names. Nil when FREQ is missing or invalid or
-  a part does not read."
-  [s]
-  (let [parts (for [part (str/split (str/replace-first (str/trim (str s)) #"(?i)^RRULE:" "") #";")
-                    :when (not (str/blank? part))
-                    :let  [[k v] (str/split part #"=" 2)]]
-                [(keyword (str/lower-case (str/trim k))) (some-> v str/trim)])
-        m     (reduce (fn [m [k v]]
-                        (if-some [v' (when v (rrule-value k v))]
-                          (assoc m k v')
-                          (reduced nil)))
-                      {}
-                      parts)]
-    (when (:freq m) m)))
-
-(defn format-rrule
-  "Write the recurrence rule map `m` (see `parse-rrule`) as RFC 5545 does,
-  parts in the RFC's order and any other part last."
-  [m]
-  (let [known (mapv first rrule-parts)
-        names (into {} rrule-parts)
-        part  (fn [k v]
-                (str (or (names k) (str/upper-case (name k))) "="
-                     (cond
-                       (inst? v)       (str/replace (format-iso8601 v) #"[-:]|\.\d+" "")
-                       (sequential? v) (str/join "," (map str v))
-                       :else           (str v))))]
-    (str/join ";" (concat (for [k known
-                                :let [v (get m k)]
-                                :when (and (some? v) (not (and (coll? v) (empty? v))))]
-                            (part k v))
-                          (for [[k v] m
-                                :when (not (contains? names k))]
-                            (part k v))))))
-
-;;;; Evaluating recurrence rules
-
-(def weekday-codes
-  "The RFC 5545 weekday codes, Sunday first as `days-from-civil` counts."
-  ["SU" "MO" "TU" "WE" "TH" "FR" "SA"])
-
-(def weekday-numbers
-  "Weekday number, 0 Sunday to 6 Saturday, by RFC 5545 code."
-  (zipmap weekday-codes (range)))
-
-(def evaluable-parts
-  "The rule parts `occurrences` evaluates. A rule with any other part yields
-  nil rather than wrong dates."
-  #{:freq :interval :count :until :byday :bymonthday :bymonth :wkst})
-
-(defn- weekday-of
-  "The weekday, 0 Sunday to 6 Saturday, of the day `days` after the epoch,
-  which was a Thursday."
-  [days]
-  (mod (+ 4 days) 7))
-
-(defn- days-in-month
-  [y m]
-  (- (if (= m 12) (days-from-civil (inc y) 1 1) (days-from-civil y (inc m) 1))
-     (days-from-civil y m 1)))
-
-(defn- parse-byday
-  "The BYDAY value `s` as `[ordinal weekday]`: \"MO\" is [nil 1], \"-1FR\"
-  is [-1 5]."
-  [s]
-  (let [[_ ordinal code] (re-matches #"([+-]?\d{1,2})?(SU|MO|TU|WE|TH|FR|SA)" s)]
-    [(some-> ordinal parse-long) (weekday-numbers code)]))
-
-(defn- month-days
-  "The days of the month `y`-`m` that `rule` selects: BYMONTHDAY, negative
-  from the end, intersected with BYDAY when both are given; BYDAY alone, with
-  ordinals such as -1FR or every such weekday; else `default-day` when the
-  month has it."
-  [{:keys [bymonthday byday]} y m default-day]
-  (let [n        (days-in-month y m)
-        first    (days-from-civil y m 1)
-        weekdays (fn [wd] (filterv #(= wd (weekday-of (+ first (dec %)))) (range 1 (inc n))))
-        by-day   (when byday
-                   (set (mapcat (fn [s]
-                                  (let [[ordinal wd] (parse-byday s)
-                                        ds           (weekdays wd)]
-                                    (cond
-                                      (nil? ordinal) ds
-                                      (pos? ordinal) (when (<= ordinal (count ds)) [(nth ds (dec ordinal))])
-                                      :else          (when (<= (- ordinal) (count ds)) [(nth ds (+ (count ds) ordinal))]))))
-                                byday)))
-        by-month-day (when bymonthday
-                       (set (keep #(let [d (if (neg? %) (+ n 1 %) %)] (when (<= 1 d n) d)) bymonthday)))]
-    (sort (cond
-            (and by-month-day by-day) (filter by-day by-month-day)
-            by-month-day              by-month-day
-            by-day                    by-day
-            (<= default-day n)        [default-day]
-            :else                     []))))
-
-(defn occurrences
-  "The instants the recurrence rule `rule` (see `parse-rrule`) produces from
-  the instant `start`, in order, as a lazy sequence: `start`'s time of day
-  on every day the rule selects, for up to a century. DAILY, WEEKLY, MONTHLY
-  and YEARLY rules with INTERVAL, COUNT, UNTIL, BYDAY, BYMONTHDAY, BYMONTH
-  and WKST are evaluated; anything else, such as an hourly rule or BYHOUR,
-  yields nil, since a wrong date is worse than none."
-  [{:keys [freq interval until byday bymonth wkst] n :count :as rule} start]
-  (when (and (map? rule)
-             (inst? start)
-             (every? evaluable-parts (keys rule))
-             (#{"DAILY" "WEEKLY" "MONTHLY" "YEARLY"} freq)
-             (not (and (= "YEARLY" freq) byday (not bymonth))))
-    (let [[day0 hh mm ss millis] (split-ms (inst-ms start))
-          time-of-day (+ (* hh 3600000) (* mm 60000) (* ss 1000) millis)
-          [y0 m0 d0]  (civil-from-days day0)
-          interval    (or interval 1)
-          months      (some-> bymonth set)
-          in-month?   (fn [days] (or (nil? months) (contains? months (second (civil-from-days days)))))
-          days
-          (case freq
-            "DAILY"   (let [weekdays (some->> byday (map (comp second parse-byday)) set)]
-                        (->> (iterate #(+ % interval) day0)
-                             (take 36525)
-                             (filter in-month?)
-                             (filter #(or (nil? weekdays) (contains? weekdays (weekday-of %))))))
-            "WEEKLY"  (let [week-start (weekday-numbers (or wkst "MO"))
-                            offset     #(mod (- % week-start) 7)
-                            week0      (- day0 (offset (weekday-of day0)))
-                            weekdays   (or (seq (sort (map (comp second parse-byday) byday)))
-                                           [(weekday-of day0)])]
-                        (->> (iterate #(+ % (* 7 interval)) week0)
-                             (take 5218)
-                             (mapcat (fn [week] (map #(+ week (offset %)) weekdays)))
-                             (filter #(>= % day0))
-                             (filter in-month?)))
-            "MONTHLY" (->> (iterate inc 0)
-                           (take 1200)
-                           (map #(let [total (+ (dec m0) (* % interval))]
-                                   [(+ y0 (quot total 12)) (inc (mod total 12))]))
-                           (filter (fn [[_ m]] (or (nil? months) (contains? months m))))
-                           (mapcat (fn [[y m]] (map #(days-from-civil y m %) (month-days rule y m d0))))
-                           (filter #(>= % day0)))
-            "YEARLY"  (->> (iterate #(+ % interval) y0)
-                           (take 100)
-                           (mapcat (fn [y]
-                                     (for [m (or (seq (sort bymonth)) [m0])
-                                           d (month-days rule y m d0)]
-                                       (days-from-civil y m d))))
-                           (filter #(>= % day0))))
-          insts (map #(->inst (+ (* % 86400000) time-of-day)) days)
-          insts (if until (take-while #(<= (inst-ms %) (inst-ms until)) insts) insts)]
-      (if n (take n insts) insts))))
-
-(defn next-occurrence
-  "The first instant after `at` that `rule` produces from `start`; nil when
-  the rule cannot be evaluated or has run out."
-  [rule start at]
-  (first (drop-while #(<= (inst-ms %) (inst-ms at)) (occurrences rule start))))
 
 (comment
   (parse-rfc2822 "Fri, 25 Sep 2026 16:42:40 +0000")

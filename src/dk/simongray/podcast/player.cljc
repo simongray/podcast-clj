@@ -302,7 +302,7 @@
   [state list at]
   (reduce (fn [state {:keys [xml-url text guid]}]
             (if xml-url
-              (subscribe state (or guid (guid/feed-guid xml-url)) {:url xml-url :title text} at)
+              (subscribe state (or guid (guid/from-url xml-url)) {:url xml-url :title text} at)
               state))
           state
           (:subscriptions list)))

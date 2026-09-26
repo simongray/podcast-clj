@@ -23,7 +23,8 @@
   Hiccup accessors, kebab-case names, and the decoding of character and
   entity references, HTML's included."
   (:require [clojure.set :as set]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics])
   #?(:clj (:import [java.io InputStream Reader StringReader]
                    [javax.xml.stream XMLInputFactory XMLStreamConstants
                                      XMLStreamException XMLStreamReader])))
@@ -92,7 +93,7 @@
   [element]
   (apply str (filter string? (tree-seq vector? children element))))
 
-(defn compact-text
+(defn ^:no-doc compact-text
   "Merge adjacent strings in `nodes` and drop the ones that are blank; what
   every raw-parsing adapter does to the children it reads."
   [nodes]
@@ -122,7 +123,7 @@
 
 ;;;; Character and entity references
 
-(def latin1-entities
+(def ^:no-doc latin1-entities
   "The HTML entity names for code points 192 to 255, in order."
   ["Agrave" "Aacute" "Acirc" "Atilde" "Auml" "Aring" "AElig" "Ccedil" "Egrave"
    "Eacute" "Ecirc" "Euml" "Igrave" "Iacute" "Icirc" "Iuml" "ETH" "Ntilde"
@@ -184,7 +185,7 @@
 
 ;;;; Raw parsing
 
-(defn strip-bom
+(defn ^:no-doc strip-bom
   "Remove a byte order mark that survived decoding from the front of `s`."
   [s]
   (if (str/starts-with? s "﻿")
@@ -192,7 +193,7 @@
     s))
 
 #?(:clj
-   (defn input-factory
+   (defn ^:no-doc input-factory
      "A StAX factory with namespace processing off, so that undeclared prefixes
      survive and xmlns declarations arrive as plain attributes, and with DTDs
      and external entities disabled."
@@ -347,14 +348,14 @@
 
 ;;;; Namespace resolution
 
-(defn split-qname
+(defn ^:no-doc split-qname
   "Split the raw XML name `s` into `[prefix local]`, `prefix` nil when absent."
   [s]
   (if-let [i (str/index-of s ":")]
     [(subs s 0 i) (subs s (inc i))]
     [nil s]))
 
-(defn declarations
+(defn ^:no-doc declarations
   "The namespace declarations among raw `attrs`, as a map from prefix to URI.
   The default namespace, if declared, is under the key nil."
   [attrs]
@@ -443,9 +444,10 @@
    (resolve-namespaces (parse-raw xml) uri->alias)))
 
 (defn report
-  "The problems recorded while resolving the namespaces of `tree`."
+  "The problems recorded while resolving the namespaces of `tree`, each with
+  its message from the diagnostics catalogue."
   [tree]
-  (:xml/report (meta tree)))
+  (mapv diagnostics/describe (:xml/report (meta tree))))
 
 (defn foreign-namespaces
   "The URIs of the namespaces in `tree` that the library does not know, by the
@@ -455,7 +457,7 @@
 
 ;;;; Emitting
 
-(def illegal-characters
+(def ^:no-doc illegal-characters
   "The characters XML 1.0 forbids anywhere, as a pattern."
   #"[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]")
 
@@ -525,7 +527,7 @@
     (str ns ":" (name k))
     (name k)))
 
-(defn aliases
+(defn ^:no-doc aliases
   "The set of namespace aliases used by tags and attributes in `tree`."
   [tree]
   (->> (tree-seq vector? elements tree)

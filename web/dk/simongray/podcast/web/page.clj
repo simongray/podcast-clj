@@ -106,9 +106,9 @@
          [:td {:class (level-class level)} (name (or level :info))]
          [:td [:code (str id)]]
          [:td n]
-         [:td (or message
-                  (str/join ", " (for [[k v] (dissoc example :id :level :message)]
-                                   (str (name k) "=" (pr-str v)))))]])]]))
+         [:td message
+          (when-let [extras (seq (dissoc example :id :level :message :path))]
+            [:span.muted (str " · " (str/join ", " (for [[k v] extras] (str (name k) "=" (pr-str v)))))])]])]]))
 
 ;;;; The feed
 

@@ -21,13 +21,14 @@
   Every rule has an id, and every application lands in a report, so that a
   feed's distance from the standards is measurable."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.time :as time]
             [dk.simongray.podcast.xml :as xml]))
 
 ;;;; Namespace URI variants
 
-(defn uri-key
+(defn ^:no-doc uri-key
   "Normalize the namespace `uri` for lookup: no scheme, no case, no trailing
   slashes, since feeds get every one of them wrong."
   [uri]
@@ -67,7 +68,7 @@
 
 ;;;; Repairing XML text
 
-(defn map-outside-cdata
+(defn ^:no-doc map-outside-cdata
   "Apply `f` to every stretch of `s` that lies outside a CDATA section."
   [f s]
   (loop [from 0
@@ -354,9 +355,10 @@
      (with-meta tree' (assoc (meta tree) :quirks/report @report)))))
 
 (defn report
-  "The diagnostics `normalize` recorded on `tree`."
+  "The diagnostics `normalize` recorded on `tree`, each with its message from
+  the diagnostics catalogue."
   [tree]
-  (:quirks/report (meta tree)))
+  (mapv diagnostics/describe (:quirks/report (meta tree))))
 
 (comment
   (repair "﻿<rss><channel><title>A & B &nbsp;<itunes:author>x</itunes:author></title></channel></rss>")

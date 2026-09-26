@@ -34,14 +34,14 @@
   {:key "K" :secret "S"})
 
 (deftest requests
-  (let [r (index/request credentials :search/by-term {:q "podcasting 2.0" :max 5 :fulltext true} 1700000000)]
+  (let [r (index/request credentials :search/by-term {:q "podcasting 2.0" :max 5 :fulltext true} {:auth-date 1700000000})]
     (is (= :get (:method r)))
     (is (= "https://api.podcastindex.org/api/1.0/search/byterm?q=podcasting%202.0&max=5&fulltext" (:url r)))
     (is (= {"User-Agent" "dk.simongray/podcast" "X-Auth-Key" "K" "X-Auth-Date" "1700000000"
             "Authorization" "2112f595eb505b9d54dc5eab2336b197daf80af4"}
            (:headers r))))
   (is (= "https://api.podcastindex.org/api/1.0/value/byepisodeguid?podcastguid=a94f&episodeguid=x%231"
-         (:url (index/request credentials :value/by-episode-guid {:podcastguid "a94f" :episodeguid "x#1"} 1))))
+         (:url (index/request credentials :value/by-episode-guid {:podcastguid "a94f" :episodeguid "x#1"} {:auth-date 1}))))
   (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
                (index/request credentials :nope {}))))
 
@@ -142,12 +142,12 @@
 
 (deftest resolving-remote-items
   (let [remote {:feed-guid "a94f5cc9-8c58-55fc-91fe-a324087a655b" :item-guid "https://podcastindex.org/podcast/4148683#1"}
-        urls   (map :url (index/remote-value-requests credentials remote 1))]
+        urls   (map :url (index/remote-value-requests credentials remote {:auth-date 1}))]
     (testing "the item's own block is asked for first, then the feed's"
       (is (= ["https://api.podcastindex.org/api/1.0/value/byepisodeguid?podcastguid=a94f5cc9-8c58-55fc-91fe-a324087a655b&episodeguid=https%3A%2F%2Fpodcastindex.org%2Fpodcast%2F4148683%231"
               "https://api.podcastindex.org/api/1.0/value/bypodcastguid?guid=a94f5cc9-8c58-55fc-91fe-a324087a655b"]
              urls))
-      (is (= 1 (count (index/remote-value-requests credentials {:feed-guid "a94f"} 1)))))
+      (is (= 1 (count (index/remote-value-requests credentials {:feed-guid "a94f"} {:auth-date 1})))))
     (testing "sending with a stub, the first answer with a block wins"
       (let [sent (atom [])
             send (fn [{:keys [url]}]
@@ -173,8 +173,8 @@
   (let [remote {:feed-guid "9b024349-ccf0-5f69-a609-6b82873eab3c" :item-guid "PC2084"}]
     (is (= ["https://api.podcastindex.org/api/1.0/episodes/byguid?guid=PC2084&podcastguid=9b024349-ccf0-5f69-a609-6b82873eab3c"
             "https://api.podcastindex.org/api/1.0/podcasts/byguid?guid=9b024349-ccf0-5f69-a609-6b82873eab3c"]
-           (map :url (index/remote-item-requests credentials remote 1))))
-    (is (= 1 (count (index/remote-item-requests credentials {:feed-guid "x"} 1))))
+           (map :url (index/remote-item-requests credentials remote {:auth-date 1}))))
+    (is (= 1 (count (index/remote-item-requests credentials {:feed-guid "x"} {:auth-date 1}))))
     (let [send (fn [{:keys [url]}]
                  {:status 200 :body (if (str/includes? url "episodes/byguid") episode-body podcast-body)})
           {:keys [feed episode]} (index/remote-item credentials remote send)]

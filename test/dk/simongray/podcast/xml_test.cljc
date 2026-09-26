@@ -36,14 +36,17 @@
       (is (= [:acme/thing {:acme/mode "on"}] (-> tree (nth 2) (nth 4)))))
     (is (= #{{:id :xml/default-namespace :level :info :uri "http://www.w3.org/2005/Atom"}
              {:id :xml/unknown-namespace :level :info :prefix "acme" :uri "https://acme.example"}}
-           (set (xml/report tree))))
+           (set (map #(dissoc % :message) (xml/report tree)))))
+    (testing "the report carries the catalogue's message for each"
+      (is (every? (comp string? :message) (xml/report tree))))
     (is (= {:acme "https://acme.example"} (xml/foreign-namespaces tree)))))
 
 #?(:clj
    (deftest undeclared-prefixes-survive-on-the-jvm
      (let [tree (xml/parse undeclared)]
        (is (= [:foo/bar {:x "1"}] (-> tree (nth 2) (nth 2))))
-       (is (= [{:id :xml/undeclared-prefix :level :warning :prefix "foo"}] (xml/report tree))))))
+       (is (= [{:id :xml/undeclared-prefix :level :warning :prefix "foo"}]
+              (map #(dissoc % :message) (xml/report tree)))))))
 
 (deftest helpers
   (let [el [:a {:x "1"} "t1" [:b {} "inner"] "t2" [:c {}] [:b {} "again"]]]

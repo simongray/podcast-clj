@@ -19,7 +19,8 @@
   "The User-Agent sent with every request unless the caller sets one."
   "dk.simongray/podcast (+https://github.com/simongray)")
 
-(defonce ^{:doc "The shared HTTP client, built on first use: redirects
+(defonce ^{:no-doc true
+           :doc    "The shared HTTP client, built on first use: redirects
   followed, a 15 second connect timeout."}
   client
   (delay (-> (HttpClient/newBuilder)
@@ -92,7 +93,7 @@
    (let [body (if (= "gzip" (header headers "content-encoding")) (gunzip body max-bytes nil) body)]
      (String. body ^Charset (declared-charset headers body)))))
 
-(def legal-url-characters
+(def ^:no-doc legal-url-characters
   "The ASCII characters a URI may contain as they are: RFC 3986's unreserved
   and reserved sets, plus the percent sign of an escape."
   (set "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%"))

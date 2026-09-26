@@ -12,6 +12,7 @@
   `:podcast/report`, and `report` reads it."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.coerce :as coerce]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.xml :as xml]))
@@ -177,9 +178,10 @@
         :xml/namespaces (xml/foreign-namespaces tree)}))))
 
 (defn report
-  "The diagnostics recorded while parsing `feed`."
+  "The diagnostics recorded while parsing `feed`, each with its message from
+  the diagnostics catalogue."
   [feed]
-  (:podcast/report (meta feed)))
+  (mapv diagnostics/describe (:podcast/report (meta feed))))
 
 ;;;; Emitting
 
@@ -256,7 +258,7 @@
   specification derives from `url` when it declares none."
   [feed url]
   (or (not-empty (:podcast/guid feed))
-      (when url (guid/feed-guid url))))
+      (when url (guid/from-url url))))
 
 ;;;; Change between two parses
 

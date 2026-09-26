@@ -124,27 +124,27 @@
 
 ;;;; Attribute shorthands
 
-(def url
+(def ^:no-doc url
   "Attribute shorthand: a URL."
   {:type :url})
 
-(def req-url
+(def ^:no-doc req-url
   "Attribute shorthand: a required URL."
   {:type :url :required true})
 
-(def req
+(def ^:no-doc req
   "Attribute shorthand: required text."
   {:required true})
 
-(def integer
+(def ^:no-doc integer
   "Attribute shorthand: an integer."
   {:type :integer})
 
-(def decimal
+(def ^:no-doc decimal
   "Attribute shorthand: a decimal number."
   {:type :decimal})
 
-(def bool
+(def ^:no-doc bool
   "Attribute shorthand: true or false."
   {:type :boolean})
 

@@ -5,6 +5,7 @@
   value back into its canonical string."
   (:refer-clojure :exclude [format])
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.rrule :as rrule]
             [dk.simongray.podcast.time :as time]))
 
 (def types
@@ -79,7 +80,7 @@
     :rfc2822  (or-invalid (some-> (time/parse-date s) time/floor-seconds))
     :iso8601  (or-invalid (or (time/parse-iso8601 s) (time/parse-rfc2822 s)))
     :duration (or-invalid (time/parse-duration s))
-    :rrule    (or-invalid (time/parse-rrule s))
+    :rrule    (or-invalid (rrule/parse s))
     :geo      (or-invalid (read-geo s))
     :osm      (or-invalid (read-osm s))
     :html     (clean s)
@@ -132,7 +133,7 @@
     :iso8601  (if (inst? v) (time/format-iso8601 v) (str v))
     :duration (if (number? v) (plain-decimal v) (str v))
     :decimal  (if (number? v) (plain-decimal v) (str v))
-    :rrule    (if (map? v) (time/format-rrule v) (str v))
+    :rrule    (if (map? v) (rrule/format v) (str v))
     :geo      (if (map? v) (format-geo v) (str v))
     :osm      (if (map? v) (format-osm v) (str v))
     (str v)))

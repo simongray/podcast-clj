@@ -72,7 +72,7 @@
    :add/by-itunes-id            "add/byitunesid"
    :lookup                      "lookup"})
 
-(defn now-seconds
+(defn ^:no-doc now-seconds
   "The current Unix time in seconds, as the auth date."
   []
   #?(:clj  (quot (System/currentTimeMillis) 1000)
@@ -97,7 +97,7 @@
                (str/replace "%7E" "~"))
      :cljs (js/encodeURIComponent (str s))))
 
-(defn query-string
+(defn ^:no-doc query-string
   "The query string for `params`, keys and values URL-encoded; booleans
   become the bare flags the API expects."
   [params]
@@ -110,16 +110,18 @@
 (defn request
   "The request map for `endpoint` (a key of `endpoints`) with query
   `params`, authenticated with `credentials` (`:key`, `:secret`, optional
-  `:user-agent`) at `seconds` (default: now)."
+  `:user-agent`). `opts` may fix the authentication time with `:auth-date`,
+  Unix seconds; the default is now."
   ([credentials endpoint params]
-   (request credentials endpoint params (now-seconds)))
-  ([credentials endpoint params seconds]
+   (request credentials endpoint params {}))
+  ([credentials endpoint params {:keys [auth-date] :as opts}]
+   {:pre [(map? opts)]}
    (let [path (or (endpoints endpoint)
                   (throw (ex-info "Unknown Podcast Index endpoint" {:endpoint endpoint})))
          qs   (query-string params)]
      {:method  :get
       :url     (str base-url path (when (seq qs) (str "?" qs)))
-      :headers (auth-headers credentials seconds)})))
+      :headers (auth-headers credentials (or auth-date (now-seconds)))})))
 
 ;;;; Responses, in the shape of the model
 
@@ -188,7 +190,7 @@
         (some? suggested)    (assoc :suggested suggested)
         (seq destinations)   (assoc :recipients (mapv destination->recipient destinations))))))
 
-(def feed-fields
+(def ^:no-doc feed-fields
   "The scalar fields of the index's feed object and their model keys."
   [["title" :rss/title] ["link" :rss/link] ["description" :rss/description]
    ["language" :rss/language] ["generator" :rss/generator]
@@ -217,7 +219,7 @@
       (seq categories)   (assoc :itunes/categories (vec (for [[_ text] (sort-by (comp ->number key) categories)]
                                                            {:text text}))))))
 
-(def episode-fields
+(def ^:no-doc episode-fields
   "The scalar fields of the index's episode object and their model keys."
   [["title" :rss/title] ["link" :rss/link] ["description" :rss/description]
    ["datePublished" :rss/pub-date ->inst]
@@ -299,17 +301,17 @@
 (defn remote-value-requests
   "The requests that resolve the value block the `remote-item` of a time
   split points at, to try in order: the item's own block when the remote
-  item names one, then the feed's."
+  item names one, then the feed's. `opts` are those of `request`."
   ([credentials remote-item]
-   (remote-value-requests credentials remote-item (now-seconds)))
-  ([credentials {:keys [feed-guid item-guid]} seconds]
+   (remote-value-requests credentials remote-item {}))
+  ([credentials {:keys [feed-guid item-guid]} opts]
    (cond-> []
      (and feed-guid item-guid)
      (conj (request credentials :value/by-episode-guid
-                    {:podcastguid feed-guid :episodeguid item-guid} seconds))
+                    {:podcastguid feed-guid :episodeguid item-guid} opts))
 
      feed-guid
-     (conj (request credentials :value/by-podcast-guid {:guid feed-guid} seconds)))))
+     (conj (request credentials :value/by-podcast-guid {:guid feed-guid} opts)))))
 
 (defn- block-in
   "The value block in the response `body`, when it answers with one."
@@ -334,16 +336,16 @@
 (defn remote-item-requests
   "The requests that resolve `remote-item`, a podroll, publisher, list or
   time-split entry with a `:feed-guid` and perhaps an `:item-guid`: the
-  episode when it names one, then the feed."
+  episode when it names one, then the feed. `opts` are those of `request`."
   ([credentials remote-item]
-   (remote-item-requests credentials remote-item (now-seconds)))
-  ([credentials {:keys [feed-guid item-guid]} seconds]
+   (remote-item-requests credentials remote-item {}))
+  ([credentials {:keys [feed-guid item-guid]} opts]
    (cond-> []
      (and feed-guid item-guid)
-     (conj (request credentials :episodes/by-guid {:guid item-guid :podcastguid feed-guid} seconds))
+     (conj (request credentials :episodes/by-guid {:guid item-guid :podcastguid feed-guid} opts))
 
      feed-guid
-     (conj (request credentials :podcasts/by-guid {:guid feed-guid} seconds)))))
+     (conj (request credentials :podcasts/by-guid {:guid feed-guid} opts)))))
 
 (defn remote-item
   "What `remote-item` points at, as `{:feed ... :episode ...}` in the shape
@@ -393,6 +395,6 @@
      (remote-item credentials remote-item http/call!)))
 
 (comment
-  (request {:key "K" :secret "S"} :search/by-term {:q "podcasting 2.0" :max 5} 1700000000)
-  (remote-value-requests {:key "K" :secret "S"} {:feed-guid "a94f" :item-guid "x"} 1700000000)
+  (request {:key "K" :secret "S"} :search/by-term {:q "podcasting 2.0" :max 5} {:auth-date 1700000000})
+  (remote-value-requests {:key "K" :secret "S"} {:feed-guid "a94f" :item-guid "x"} {:auth-date 1700000000})
   #_.)

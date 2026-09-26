@@ -139,3 +139,14 @@
 (def by-id
   "The catalogue by id."
   (into {} (map (juxt :id identity)) catalogue))
+
+(defn describe
+  "The `diagnostic` with a `:message`: its own when it has one, else what
+  the catalogue says its id means. The parser records only the id, the
+  level and the specifics of a diagnostic, so every `report` function runs
+  its diagnostics through here. An id the catalogue does not know is left
+  as it is."
+  [diagnostic]
+  (if-let [doc (and (not (:message diagnostic)) (:doc (by-id (:id diagnostic))))]
+    (assoc diagnostic :message doc)
+    diagnostic))

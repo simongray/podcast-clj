@@ -135,7 +135,7 @@ Learn one part of the library and the rest behaves the same way.
    positional argument; what it may be told is a map, never a positional
    flag: `(parse xml {:quirks? false})`, `(validate/validate feed {:profile
    :psp-1})`, `(chapters/emit-json doc {:pretty? true})`,
-   `(resolve/transcript item {:languages ["da"]})`.
+   `(resolve/transcript feed item {:languages ["da"]})`.
 
 Keys are namespaced by vocabulary and kebab-cased: `:rss/pub-date`,
 `:itunes/episode-type`, `:podcast/alternate-enclosures`. Attributes become
@@ -223,6 +223,7 @@ Namespaces
 | `…podcast.index` | Podcast Index API: requests with auth, responses mapped onto the model, remote value resolution |
 | `…podcast.guid` | `podcast:guid` (UUIDv5) and SHA-1 |
 | `…podcast.time` | RFC 2822 and ISO 8601 dates, durations, timestamps |
+| `…podcast.rrule` | RFC 5545 recurrence rules parsed, written and evaluated, for `podcast:updateFrequency` |
 | `…podcast.http` | JVM feed fetcher with conditional requests |
 
 Reference web app

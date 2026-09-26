@@ -16,34 +16,34 @@
 
 ;;;; Parsing
 
-(def token-pattern
+(def ^:no-doc token-pattern
   "One token of HTML at a time: a comment, a CDATA section, a doctype or
   other declaration, a processing instruction, an end tag, a start tag, a
   run of text, or a stray angle bracket."
   #"(?s)<!--.*?(?:-->|$)|<!\[CDATA\[.*?(?:\]\]>|$)|<![^>]*>?|<\?[^>]*>?|</[a-zA-Z][^>]*>?|<[a-zA-Z][^>]*>?|[^<]+|<")
 
-(def attribute-pattern
+(def ^:no-doc attribute-pattern
   "An attribute: a name, and perhaps a value in double quotes, single quotes
   or none."
   #"([^\s\"'=<>/]+)(?:\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+)))?")
 
-(def void-elements
+(def ^:no-doc void-elements
   "Elements that never have content or an end tag."
   #{"area" "base" "br" "col" "embed" "hr" "img" "input" "link" "meta" "param"
     "source" "track" "wbr"})
 
-(def raw-text-elements
+(def ^:no-doc raw-text-elements
   "Elements whose content is text however much it looks like markup."
   #{"script" "style"})
 
-(def block-elements
+(def ^:no-doc block-elements
   "Elements whose start tag closes an open paragraph, as HTML defines."
   #{"address" "article" "aside" "blockquote" "details" "div" "dl" "fieldset"
     "figcaption" "figure" "footer" "form" "h1" "h2" "h3" "h4" "h5" "h6"
     "header" "hgroup" "hr" "main" "menu" "nav" "ol" "p" "pre" "section"
     "table" "ul"})
 
-(def implied-end
+(def ^:no-doc implied-end
   "Elements whose start tag closes an open element of the listed kinds, and
   the ancestors that bound the search: a new li closes an open li, but not
   one outside the list it belongs to."
@@ -200,11 +200,11 @@
    :abbr       #{:title}
    :dfn        #{:title}})
 
-(def url-attributes
+(def ^:no-doc url-attributes
   "The attributes whose value is a URL, checked by scheme."
   #{:href :src :cite})
 
-(def structural-tags
+(def ^:no-doc structural-tags
   "Elements whose text children are layout whitespace, never content."
   #{:ul :ol :dl :table :thead :tbody :tfoot :tr})
 
@@ -267,11 +267,11 @@
 
 ;;;; Rendering
 
-(def paragraph-tags
+(def ^:no-doc paragraph-tags
   "Elements set off by a blank line in text and Markdown."
   #{:p :h1 :h2 :h3 :h4 :h5 :h6 :blockquote :pre :ul :ol :dl :table :hr :figure})
 
-(def line-tags
+(def ^:no-doc line-tags
   "Elements that end a line in text and Markdown."
   #{:div :li :tr :dt :dd :figcaption :address :caption :thead :tbody :tfoot :section :article})
 

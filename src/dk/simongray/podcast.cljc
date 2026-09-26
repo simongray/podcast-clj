@@ -16,7 +16,8 @@
   Every function here takes `:registry` in its options, the tag registry to
   interpret, so that a vocabulary extended with a client's own elements (see
   `dk.simongray.podcast.spec/registry`) reads and writes like the library's."
-  (:require [dk.simongray.podcast.feed :as feed]
+  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.quirks :as quirks]
             [dk.simongray.podcast.xml :as xml]))
 
@@ -25,7 +26,7 @@
   (= ::xml/malformed (:type (ex-data e))))
 
 #?(:clj
-   (def lenient-parser
+   (def ^:no-doc lenient-parser
      "The raw parser to fall back on when a document is malformed even after
      repair: `dk.simongray.podcast.xml.jsoup/parse-raw` when org.jsoup/jsoup
      is on the classpath, nil otherwise. Adding jsoup to the dependencies is
@@ -103,9 +104,11 @@
 (defn report
   "The diagnostics recorded while parsing `feed` (or a tree from `parse-tree`):
   repairs, namespace variants, quirks applied, and values that would not
-  coerce. Each is a map with `:id` and `:level` at least."
+  coerce. Each is a map with `:id`, `:level` and `:message`, the message
+  from the diagnostics catalogue, plus the specifics: a `:path` into the
+  model, the `:value` that would not read, the `:tag` a quirk rewrote."
   [feed]
-  (:podcast/report (meta feed)))
+  (mapv diagnostics/describe (:podcast/report (meta feed))))
 
 (defn emit
   "The XML document for `feed`, canonical in every way the library knows how

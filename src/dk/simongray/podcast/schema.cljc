@@ -64,12 +64,12 @@
     tag
     (keyword "rss" (name tag))))
 
-(def unknown
+(def ^:no-doc unknown
   "The schema of the Hiccup an element may keep for elements the registry
   does not know; never generated."
   [:vector {:gen/max 0} :any])
 
-(def generated-max
+(def ^:no-doc generated-max
   "How many of a repeatable element a generated feed holds at most. A bound
   on every vector keeps generation of a feed, with its items and their
   repeatable children, from growing multiplicatively with Malli's size
@@ -94,7 +94,7 @@
        [:vector {:gen/max generated-max} schema]
        schema)]))
 
-(defn entry-schema
+(defn ^:no-doc entry-schema
   "The schema for one occurrence of the element `entry` of `registry`
   describes: its coerced text when it is a scalar, otherwise a map of its
   attributes, its `:content` and its children."

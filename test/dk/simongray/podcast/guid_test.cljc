@@ -4,13 +4,13 @@
 
 (deftest specification-examples
   (testing "the examples given in the podcast:guid specification"
-    (is (= "917393e3-1b1e-5cef-ace4-edaa54e1f810" (guid/feed-guid "mp3s.nashownotes.com/pc20rss.xml")))
-    (is (= "9b024349-ccf0-5f69-a609-6b82873eab3c" (guid/feed-guid "podnews.net/rss"))))
+    (is (= "917393e3-1b1e-5cef-ace4-edaa54e1f810" (guid/from-url "mp3s.nashownotes.com/pc20rss.xml")))
+    (is (= "9b024349-ccf0-5f69-a609-6b82873eab3c" (guid/from-url "podnews.net/rss"))))
   (testing "scheme and trailing slashes do not matter"
-    (is (= (guid/feed-guid "podnews.net/rss")
-           (guid/feed-guid "https://podnews.net/rss")
-           (guid/feed-guid "http://podnews.net/rss/")
-           (guid/feed-guid "  podnews.net/rss//  ")))))
+    (is (= (guid/from-url "podnews.net/rss")
+           (guid/from-url "https://podnews.net/rss")
+           (guid/from-url "http://podnews.net/rss/")
+           (guid/from-url "  podnews.net/rss//  ")))))
 
 (deftest sha1
   (is (= "a9993e364706816aba3e25717850c26c9cd0d89d" (guid/sha1-hex "abc")))

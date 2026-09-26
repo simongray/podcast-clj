@@ -1,8 +1,9 @@
 # Diagnostics the library reports
 
 Generated from `dk.simongray.podcast.diagnostics` by `dev/reference.clj`; do not edit
-by hand. Every diagnostic is a map with `:id` and `:level`, usually a `:message`, and
-a `:path` into the data where one applies. `report` reads them off a parsed feed,
+by hand. Every diagnostic is a map with `:id`, `:level` and `:message`, the message
+below unless the code has a more specific one, and a `:path` into the data where
+one applies. `report` reads them off a parsed feed,
 transcript or chapters document, `validate` returns them for a feed, and `summarize`
 groups them by kind.
 

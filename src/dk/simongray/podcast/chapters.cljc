@@ -24,18 +24,18 @@
   "The JSON Chapters format version this namespace writes."
   "1.2.0")
 
-(def document-keys
+(def ^:no-doc document-keys
   "Model key by JSON property, for the document."
   {"version" :version "author" :author "title" :title "podcastName" :podcast-name
    "description" :description "fileName" :file-name "waypoints" :waypoints
    "chapters" :chapters})
 
-(def chapter-keys
+(def ^:no-doc chapter-keys
   "Model key by JSON property, for a chapter."
   {"startTime" :start-time "endTime" :end-time "title" :title "img" :img
    "url" :url "toc" :toc "location" :location})
 
-(def location-keys
+(def ^:no-doc location-keys
   "The keys of a chapter's location object, JSON name to model key."
   {"name" :name "geo" :geo "osm" :osm})
 

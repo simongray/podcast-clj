@@ -17,7 +17,7 @@
             [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.xml :as xml]))
 
-(def coerced-types
+(def ^:no-doc coerced-types
   "The value types whose model values are not strings, so that a string
   where one is expected means the value did not coerce."
   #{:integer :decimal :boolean :yes-no :rfc2822 :iso8601 :duration :rrule :geo :osm})

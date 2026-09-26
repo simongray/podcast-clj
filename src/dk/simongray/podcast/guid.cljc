@@ -11,13 +11,13 @@
   "The UUID namespace every `podcast:guid` is derived in."
   "ead4c236-bf58-58c6-a2c6-a6b28d128cb6")
 
-(defn utf8-bytes
+(defn ^:no-doc utf8-bytes
   "The UTF-8 encoding of the string `s` as a byte array."
   [s]
   #?(:clj  (.getBytes ^String s StandardCharsets/UTF_8)
      :cljs (crypt/stringToUtf8ByteArray s)))
 
-(defn sha1
+(defn ^:no-doc sha1
   "The SHA-1 digest of `bytes` as a byte array."
   [bytes]
   #?(:clj  (.digest (MessageDigest/getInstance "SHA-1") ^bytes bytes)
@@ -25,7 +25,7 @@
              (.update h bytes)
              (.digest h))))
 
-(defn hex
+(defn ^:no-doc hex
   "Lowercase hexadecimal rendering of `bytes`."
   [bytes]
   (apply str (map (fn [b]
@@ -79,13 +79,13 @@
       (str/replace #"^[a-zA-Z][a-zA-Z0-9+.-]*://" "")
       (str/replace #"/+$" "")))
 
-(defn feed-guid
+(defn from-url
   "The `podcast:guid` a feed at `url` is assigned when its author has not
   declared one."
   [url]
   (uuid-v5 podcast-namespace (guid-name url)))
 
-(def guid-pattern
+(def ^:no-doc guid-pattern
   "Matches a UUID in its canonical hyphenated form."
   #"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
@@ -95,8 +95,8 @@
   (boolean (and (string? s) (re-matches guid-pattern s))))
 
 (comment
-  (feed-guid "https://mp3s.nashownotes.com/pc20rss.xml")
+  (from-url "https://mp3s.nashownotes.com/pc20rss.xml")
   ;; => "917393e3-1b1e-5cef-ace4-edaa54e1f810"
-  (feed-guid "podnews.net/rss")
+  (from-url "podnews.net/rss")
   ;; => "9b024349-ccf0-5f69-a609-6b82873eab3c"
   #_.)

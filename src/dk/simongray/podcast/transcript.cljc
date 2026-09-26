@@ -32,7 +32,7 @@
    "text/html"            :html
    "text/plain"           :text})
 
-(def timing-pattern
+(def ^:no-doc timing-pattern
   "A cue timing line in SRT or WebVTT: start, arrow, end, optional settings."
   #"^\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}[.,]\d{1,3})\s*-->\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}[.,]\d{1,3})")
 
@@ -229,7 +229,7 @@
        (remove str/blank?)
        (str/join "\n\n")))
 
-(def html-token-pattern
+(def ^:no-doc html-token-pattern
   "A `<cite>`, `<time>` or `<p>` element and its content."
   #"(?is)<(cite|time|p)(?:\s[^>]*)?>(.*?)</\1>")
 
