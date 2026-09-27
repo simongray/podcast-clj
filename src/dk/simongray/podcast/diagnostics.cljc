@@ -13,7 +13,11 @@
 
 (def catalogue
   "The diagnostics, in the order they tend to arise."
-  [;; repairs of the XML text, applied only when the strict parse failed
+  [;; fetching
+   {:id :fetch/page-failed :level :warning
+    :doc "A page of a feed that comes in pages could not be fetched or read, so the items of the pages from there on are missing."}
+
+   ;; repairs of the XML text, applied only when the strict parse failed
    {:id :repair/leading-junk :level :warning
     :doc "Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed."}
    {:id :repair/trailing-junk :level :warning

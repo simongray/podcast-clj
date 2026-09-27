@@ -74,7 +74,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `format.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters from the timestamps in show notes. |
 | `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers. |
 | `format.opml` | Subscription lists as OPML. |
-| `format.html` | The HTML in descriptions, as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. |
+| `format.html` | The HTML in descriptions, as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. `feed-links` finds the feeds that a web page names. |
 | `value` | Value for value: splits, fees, time splits and remote blocks. `boostagram` writes the record of a payment. |
 
 ### Directories and notifications
@@ -108,6 +108,6 @@ Each name below is relative to `dk.simongray.podcast`.
 | `time.rrule` | RFC 5545 recurrence rules: parse, write and evaluate. |
 | `guid` | The `podcast:guid` UUIDv5, and SHA-1. |
 | `json` | JSON strings to data and back, on both platforms. |
-| `http` | Requests as maps. JVM: the client that sends them, with conditional requests. |
+| `http` | Requests as maps, credentials as a header, URLs made absolute, and when a server says to ask again. JVM: the client that sends them, with conditional requests and redirects that keep the credentials to their origin. |
 | `async` | Deferred values: futures on the JVM, and promises in JavaScript. |
 | `rank` | Ranks that always leave room for another rank between two ranks. |

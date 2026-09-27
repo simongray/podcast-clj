@@ -145,28 +145,83 @@
    (xml/emit (feed/emit feed opts))))
 
 #?(:clj
+   (defn- page!
+     "The page at `url` of a feed that comes in pages, fetched and parsed as
+     `opts` say: `{:url :feed}`, or `{:url :failure}` with the reason it
+     could not be read."
+     [url opts]
+     (try
+       (let [{:keys [status body]} (http/fetch! url (select-keys opts [:credentials :timeout-seconds :max-bytes :user-agent]))]
+         (if (and (= 200 status) body)
+           {:url url :feed (parse body (select-keys opts [:quirks? :registry :except]))}
+           {:url url :failure (str "HTTP " status)}))
+       (catch Exception e
+         {:url url :failure (or (ex-message e) (str e))}))))
+
+#?(:clj
+   (defn- later-pages
+     "The pages after `feed`, the page at `url`, as `page!` reads them: each
+     the page that the one before names as the next (see
+     `resolve/next-page`), `n` at most, a page read before ending them. The
+     `:credentials` in `opts` go only to the pages at the origin of `url`,
+     since the feed names the pages."
+     [url feed n opts]
+     (let [next-of  (fn [url feed seen]
+                      (when-let [next (some->> (resolve/next-page feed) (http/absolute-url url))]
+                        (when-not (seen next)
+                          {:url next :seen (conj seen next)})))
+           opts-for (fn [page-url] (cond-> opts (not (http/same-origin? url page-url)) (dissoc :credentials)))]
+       (into []
+             (take n)
+             (iteration (fn [k] (when k (assoc (page! (:url k) (opts-for (:url k))) :seen (:seen k))))
+                        :initk (next-of url feed #{url})
+                        :kf    (fn [{:keys [url feed seen]}] (when feed (next-of url feed seen))))))))
+
+#?(:clj
    (defn fetch!
      "Fetch the feed at `url` and parse it, the one step a poller repeats:
 
-         {:status 200 :url \"…\"           ; the final URL, after redirects
-          :etag \"…\" :last-modified \"…\"  ; to hand back next time
-          :body \"…\" :feed {…} :report [...]  ; on a 200: the XML, the feed, its report
-          :new-feed-url \"…\"}             ; when the feed declares it has moved
+         {:status 200 :url \"…\"             ; the final URL, after redirects
+          :permanent-url \"…\"               ; when redirects moved it for good
+          :etag \"…\" :last-modified \"…\"    ; to hand back next time
+          :not-before #inst \"…\"            ; when the server says to wait
+          :body \"…\" :feed {…} :report [...] ; on a 200: the XML, the feed, its report
+          :new-feed-url \"…\"}               ; when the feed declares it has moved
 
      `opts` may carry the `:etag` and `:last-modified` of the last fetch,
-     which a server answers with a 304 when nothing changed, the
-     `:timeout-seconds`, `:max-bytes` and `:user-agent` of `http/fetch!`,
-     and the options of `parse`. It throws as `http/fetch!` and `parse` do."
+     which a server answers with a 304 when nothing changed; the
+     `:credentials` of a private feed, `:timeout-seconds`, `:max-bytes` and
+     `:user-agent` of `http/fetch!`; and the options of `parse`. A user name
+     and a password in `url` are the credentials when `opts` give none, and
+     no URL in the result holds them. It throws as `http/fetch!` and `parse`
+     do.
+
+     A feed can come in pages, each naming the next (see
+     `resolve/next-page`). `:max-pages` above 1 fetches that many pages at
+     most and joins them into one feed (see `feed/join-pages`), for the
+     first fetch of a feed with a long past; `:body` stays the XML of the
+     first page. A later page that cannot be read ends the pages, and the
+     report says so."
      ([url]
       (fetch! url {}))
-     ([url opts]
+     ([url {:keys [max-pages] :or {max-pages 1} :as opts}]
       {:pre [(map? opts)]}
-      (let [{:keys [status body] :as response}
-            (http/fetch! url (select-keys opts [:etag :last-modified :timeout-seconds :max-bytes :user-agent]))
-            result (select-keys response [:status :url :etag :last-modified])]
+      (let [[url in-url] (http/split-credentials url)
+            opts         (cond-> opts (and in-url (not (:credentials opts))) (assoc :credentials in-url))
+            {:keys [status body] :as response}
+            (http/fetch! url (select-keys opts [:etag :last-modified :credentials :timeout-seconds :max-bytes :user-agent]))
+            result (select-keys response [:status :url :permanent-url :etag :last-modified :not-before])]
         (if (and (= 200 status) body)
-          (let [feed  (parse body (select-keys opts [:quirks? :registry :except]))
-                moved (resolve/new-feed-url feed)]
+          (let [first-page (parse body (select-keys opts [:quirks? :registry :except]))
+                pages      (when (> max-pages 1) (later-pages (:url response) first-page (dec max-pages) opts))
+                failed     (first (remove :feed pages))
+                feed       (cond-> (if (seq pages)
+                                     (feed/join-pages (cons first-page (keep :feed pages)))
+                                     first-page)
+                             failed (vary-meta update :podcast/report conj
+                                               {:id :fetch/page-failed :level :warning
+                                                :url (:url failed) :reason (:failure failed)}))
+                moved      (resolve/new-feed-url feed)]
             (cond-> (assoc result :body body :feed feed :report (report feed))
               moved (assoc :new-feed-url moved)))
           result)))))

@@ -1,7 +1,8 @@
 (ns dk.simongray.podcast.fetch-test
   "The front door's fetch!: from a URL to a parsed feed in one step, with the
-  conditional headers and the moved-feed hint, against a server on
-  localhost."
+  conditional headers, the moved-feed hints, the pages of a paged feed, the
+  credentials of a private one and the server's word on when to ask again,
+  against a server on localhost."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast])
@@ -67,3 +68,95 @@
           (let [gone (podcast/fetch! (str base "/gone"))]
             (is (= 404 (:status gone)))
             (is (not (contains? gone :feed)))))))))
+
+(defn- page-xml
+  "A page of a paged feed with the items `guids`, linking to `next`."
+  [next guids]
+  (str "<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\"><channel><title>Paged</title>"
+       (when next (str "<atom:link rel=\"next\" href=\"" next "\"/>"))
+       (apply str (for [g guids] (str "<item><title>E" g "</title><guid>" g "</guid></item>")))
+       "</channel></rss>"))
+
+(defn- with-routes
+  "Call `f` with the base URL of a server on localhost that answers each
+  request by `(routes path-and-query exchange)`."
+  [routes f]
+  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.createContext server "/"
+                    (reify HttpHandler
+                      (handle [_ exchange]
+                        (let [uri (.getRequestURI exchange)]
+                          (routes (str (.getPath uri) (some->> (.getQuery uri) (str "?"))) exchange)))))
+    (.start server)
+    (try
+      (f (str "http://127.0.0.1:" (.getPort (.getAddress server))))
+      (finally
+        (.stop server 0)))))
+
+(deftest pages-credentials-and-hints
+  (with-routes
+    (fn [path ^HttpExchange exchange]
+      (let [auth (.getFirst (.getRequestHeaders exchange) "Authorization")]
+        (case path
+          "/feed.xml"        (respond exchange 200 (page-xml "?page=2" [9 8 7]) {"Cache-Control" "max-age=600"})
+          "/feed.xml?page=2" (respond exchange 200 (page-xml "/feed.xml?page=3" [7 6 5]) {})
+          "/feed.xml?page=3" (respond exchange 200 (page-xml "/feed.xml" [4]) {})
+          "/broken.xml"      (respond exchange 200 (page-xml "/missing.xml" [1]) {})
+          "/private.xml"     (if (= "Basic dTpw" auth)
+                               (respond exchange 200 (page-xml nil [1]) {})
+                               (respond exchange 401 "" {"WWW-Authenticate" "Basic"}))
+          "/busy.xml"        (respond exchange 429 "" {"Retry-After" "120"})
+          "/old.xml"         (respond exchange 301 "" {"Location" "/feed.xml"})
+          (respond exchange 404 "nope" {}))))
+    (fn [base]
+      (let [titles #(map :rss/title (:rss/items (:feed %)))]
+        (testing "one page unless asked for more"
+          (is (= ["E9" "E8" "E7"] (titles (podcast/fetch! (str base "/feed.xml"))))))
+        (testing "the pages joined, each item once, and a page named before ends them"
+          (is (= ["E9" "E8" "E7" "E6" "E5" "E4"] (titles (podcast/fetch! (str base "/feed.xml") {:max-pages 10}))))
+          (is (= ["E9" "E8" "E7" "E6" "E5"] (titles (podcast/fetch! (str base "/feed.xml") {:max-pages 2})))))
+        (testing "a page that does not read ends the pages, and the report says so"
+          (let [r (podcast/fetch! (str base "/broken.xml") {:max-pages 5})]
+            (is (= ["E1"] (titles r)))
+            (is (= [[:fetch/page-failed (str base "/missing.xml") "HTTP 404"]]
+                   (map (juxt :id :url :reason) (:report r))))))
+        (testing "the credentials of a private feed"
+          (is (= 401 (:status (podcast/fetch! (str base "/private.xml")))))
+          (is (= ["E1"] (titles (podcast/fetch! (str base "/private.xml") {:credentials {:username "u" :password "p"}})))))
+        (testing "the server's hints on when to ask again"
+          (let [before (System/currentTimeMillis)
+                busy   (podcast/fetch! (str base "/busy.xml"))]
+            (is (= 429 (:status busy)))
+            (is (<= (+ before 120000) (inst-ms (:not-before busy)) (+ (System/currentTimeMillis) 120000))))
+          (is (inst? (:not-before (podcast/fetch! (str base "/feed.xml")))) "Cache-Control: max-age"))
+        (testing "a permanent redirect gives the URL to keep"
+          (let [old (podcast/fetch! (str base "/old.xml"))]
+            (is (= (str base "/feed.xml") (:url old) (:permanent-url old)))))))))
+
+(deftest credentials-in-the-url
+  (let [seen (atom [])
+        note (fn [where ^HttpExchange exchange]
+               (swap! seen conj [where (.getFirst (.getRequestHeaders exchange) "Authorization")]))]
+    (with-routes
+      (fn [_ exchange]
+        (note :other exchange)
+        (respond exchange 200 (page-xml nil [1]) {}))
+      (fn [other]
+        (with-routes
+          (fn [path ^HttpExchange exchange]
+            (note path exchange)
+            (cond
+              (not= "Basic c2ltb25AZXhhbXBsZS5vcmc6cCBw" (.getFirst (.getRequestHeaders exchange) "Authorization"))
+              (respond exchange 401 "" {})
+              (= "/private.xml" path) (respond exchange 200 (page-xml "/page2.xml" [3]) {})
+              :else                   (respond exchange 200 (page-xml (str other "/page3.xml") [2]) {})))
+          (fn [base]
+            (let [url (str/replace base "http://" "http://simon%40example.org:p%20p@")
+                  r   (podcast/fetch! (str url "/private.xml") {:max-pages 5})]
+              (is (= ["E3" "E2" "E1"] (map :rss/title (:rss/items (:feed r)))))
+              (is (= (str base "/private.xml") (:url r)) "no URL in the result holds them")
+              (is (= [["/private.xml" "Basic c2ltb25AZXhhbXBsZS5vcmc6cCBw"]
+                      ["/page2.xml" "Basic c2ltb25AZXhhbXBsZS5vcmc6cCBw"]
+                      [:other nil]]
+                     @seen)
+                  "the pages of the same origin get them, and a page elsewhere does not"))))))))

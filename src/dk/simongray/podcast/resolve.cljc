@@ -453,23 +453,33 @@
   plus that gap once that time has passed. Items dated after `at` do not
   count, and the answer is at most a year after `at`, the longest period a
   feed can name. Nil when the feed is complete, or gives no basis at all:
-  no rule, no ttl, no period and fewer than two dated items."
-  [feed at]
-  (when-not (complete? feed)
-    (let [now (inst-ms at)
-          ttl (:rss/ttl feed)
-          due (or (some-> (next-episode feed at) inst-ms)
-                  ;; in floating point, so that an absurd ttl cannot overflow
-                  (when (and (number? ttl) (pos? ttl))
-                    (+ now (* 60000.0 ttl)))
-                  (when-let [period (syndication-periods (some-> (:sy/update-period feed) str/lower-case))]
-                    (let [frequency (:sy/update-frequency feed)]
-                      (+ now (quot period (if (and (number? frequency) (pos? frequency)) frequency 1)))))
-                  (when-let [gap (cadence feed now)]
-                    (let [due (+ (first (dates feed now)) gap)]
-                      (if (> due now) due (+ now gap)))))]
-      (when due
-        (time/->inst (long (min due (+ now (syndication-periods "yearly")))))))))
+  no rule, no ttl, no period, fewer than two dated items and no
+  `:not-before`.
+
+  `opts` may give `:not-before`, the earliest instant the server allows,
+  such as the `:not-before` of `dk.simongray.podcast/fetch!`; the answer is
+  then no earlier."
+  ([feed at]
+   (next-check feed at {}))
+  ([feed at {:keys [not-before] :as opts}]
+   {:pre [(map? opts)]}
+   (when-not (complete? feed)
+     (let [now   (inst-ms at)
+           ttl   (:rss/ttl feed)
+           due   (or (some-> (next-episode feed at) inst-ms)
+                     ;; in floating point, so that an absurd ttl cannot overflow
+                     (when (and (number? ttl) (pos? ttl))
+                       (+ now (* 60000.0 ttl)))
+                     (when-let [period (syndication-periods (some-> (:sy/update-period feed) str/lower-case))]
+                       (let [frequency (:sy/update-frequency feed)]
+                         (+ now (quot period (if (and (number? frequency) (pos? frequency)) frequency 1)))))
+                     (when-let [gap (cadence feed now)]
+                       (let [due (+ (first (dates feed now)) gap)]
+                         (if (> due now) due (+ now gap)))))
+           due   (some-> due (min (+ now (syndication-periods "yearly"))))
+           floor (some-> not-before inst-ms)]
+       (when-let [t (if (and due floor) (max due floor) (or due floor))]
+         (time/->inst (long t)))))))
 
 (defn locked?
   "Whether `feed` forbids other platforms to import it."
@@ -504,6 +514,16 @@
   [feed]
   (some #(when (= "self" (some-> (:rel %) str/lower-case)) (:href %))
         (:atom/links feed)))
+
+(defn next-page
+  "The URL of the page with the older items of `feed`, when it comes in
+  pages as RFC 5005 defines them: the atom:link rel=next of a paged feed,
+  else the rel=prev-archive of an archived one. It is as the feed writes
+  it, which can be relative to the URL of the page."
+  [feed]
+  (let [href (fn [rel] (some #(when (= rel (some-> (:rel %) str/lower-case)) (:href %))
+                             (:atom/links feed)))]
+    (or (href "next") (href "prev-archive"))))
 
 (defn- category-paths
   "The paths of `categories` and of their subcategories, each below `prefix`."

@@ -20,7 +20,7 @@
 
 (defn- ids-in-source
   []
-  (->> (re-seq #":(?:repair|quirk|xml|feed|transcript|chapters|validate|sync)/[a-z0-9-]+" source)
+  (->> (re-seq #":(?:fetch|repair|quirk|xml|feed|transcript|chapters|validate|sync)/[a-z0-9-]+" source)
        (map #(keyword (subs % 1)))
        (remove not-diagnostics)
        set))

@@ -648,7 +648,16 @@ On the JVM, the front door adds `fetch!`, the step that a poller repeats. It
 sends the conditional headers, and returns a parsed feed or a 304, with the
 validators for the next fetch and the XML itself. The URL in the result is
 the final URL after redirects. If the feed declares a new URL,
-`:new-feed-url` gives it.
+`:new-feed-url` gives it, and if permanent redirects moved it,
+`:permanent-url` does. `:not-before` gives the time that the server asks a
+client to wait, from `Retry-After` or `Cache-Control`. With `:max-pages`,
+`fetch!` follows the pages of a paged feed with `clojure.core/iteration`,
+and joins them.
+
+The HTTP client of `http` follows redirects itself, not through the client
+of the JDK. The JDK sends the `Authorization` header on to another host
+after a redirect. The client of `http` leaves it behind, so the credentials
+of a private feed or a WebDAV store go only to their own origin.
 
 
 ## The inspector

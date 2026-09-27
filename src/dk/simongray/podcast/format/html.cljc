@@ -4,8 +4,10 @@
   of nodes, `[tag attrs & children]` with keyword tags and attribute keys
   and strings for text; `sanitize` keeps what a client may render; `hiccup`
   does both and turns a plain-text description into paragraphs; `text` and
-  `markdown` render either shape; `emit` writes Hiccup back as HTML."
+  `markdown` render either shape; `emit` writes Hiccup back as HTML.
+  `feed-links` finds the feeds that a web page names."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.xml :as xml]))
 
 (def ^:no-doc token-pattern
@@ -216,6 +218,30 @@
         (if (= 1 (count (:stack state)))
           (apply list (drop 2 (merge-text (peek (:stack state)))))
           (recur (close-top state)))))))
+
+(defn feed-links
+  "The feeds that the web page `s` names, as the RSS autodiscovery spec and
+  the HTML standard define: `{:href :type :title}` for each `link` element
+  with the rel alternate or feed and the type of an RSS or an Atom feed, in
+  the order of the page. With `base`, the URL of the page, each href is
+  made absolute, and one that does not read as a URL is left out. This is
+  how an app finds the feed of a show when the listener gives the address
+  of its website."
+  ([s]
+   (feed-links s nil))
+  ([s base]
+   (for [node  (tree-seq vector? #(drop 2 %) (into [:root {}] (parse s)))
+         :when (and (vector? node) (= :link (first node)))
+         :let  [{:keys [rel type href title]} (second node)
+                rels (set (str/split (str/lower-case (str rel)) #"\s+"))
+                type (some-> type str/trim str/lower-case)]
+         :when (and (or (rels "alternate") (rels "feed"))
+                    (#{"application/rss+xml" "application/atom+xml"} type)
+                    (not (str/blank? href)))
+         :let  [href (if base (http/absolute-url base href) href)]
+         :when href]
+     (cond-> {:href href :type type}
+       (not (str/blank? title)) (assoc :title title)))))
 
 (def allowed-tags
   "The elements `sanitize` keeps."

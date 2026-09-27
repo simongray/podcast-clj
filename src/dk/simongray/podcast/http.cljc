@@ -9,11 +9,13 @@
   can send; `query-string` encodes the parameters of one the same way on
   both platforms. Responses are plain maps; the `:url` of a response is its
   final URL after redirects."
-  (:require [clojure.string :as str])
+  (:require [clojure.string :as str]
+            [dk.simongray.podcast.time :as time])
   #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream IOException]
                    [java.net URI]
                    [java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$Builder
-                                  HttpRequest$BodyPublishers HttpResponse HttpResponse$BodyHandlers]
+                                  HttpRequest$BodyPublishers HttpResponse HttpResponse$BodyHandlers
+                                  HttpTimeoutException]
                    [java.nio.charset Charset StandardCharsets]
                    [java.time Duration]
                    [java.util.concurrent ScheduledFuture ScheduledThreadPoolExecutor ThreadFactory TimeUnit]
@@ -61,13 +63,79 @@
                     (encode (name k))
                     (str (encode (name k)) "=" (encode v))))))
 
+(defn- base64
+  "The UTF-8 bytes of `s` in base64."
+  [s]
+  #?(:clj  (.encodeToString (java.util.Base64/getEncoder) (.getBytes ^String s "UTF-8"))
+     :cljs (js/btoa (js/unescape (js/encodeURIComponent s)))))
+
+(defn authorization
+  "The Authorization header for `credentials`, a map or a function of no
+  arguments that returns one: `{:username :password}` for basic
+  authentication, `{:token}` for a bearer token; nil for none."
+  [credentials]
+  (let [{:keys [username password token]} (if (fn? credentials) (credentials) credentials)]
+    (cond
+      token    (str "Bearer " token)
+      username (str "Basic " (base64 (str username ":" password)))
+      :else    nil)))
+
+(defn not-before
+  "The earliest instant to ask again, by the response `headers` that arrived
+  at `at`: the `Retry-After`, in seconds or as a date; else the end of the
+  freshness that `Cache-Control: max-age` gives, less the `Age`; else the
+  `Expires`. A date counts from the `Date` of the response, as RFC 9111
+  says, so that neither the clock of the server nor a wrong time zone
+  matters; without a `Date`, it counts from `at`. At most an hour after
+  `at`: a feed host can give its feed a freshness of days and still publish
+  within them, and a server set up wrong must not hold the polling back.
+  Nil when the headers name no later time, or forbid a cache. `headers`
+  maps lower-case names to a value or a vector of values, as the responses
+  of `call!` do."
+  [headers at]
+  (let [value   (fn [k] (let [v (get headers k)] (if (sequential? v) (first v) v)))
+        now     (inst-ms at)
+        seconds (fn [s] (some->> s str/trim (re-matches #"\d{1,10}") parse-long))
+        date    (fn [s] (some-> s time/parse-rfc2822 inst-ms))
+        served  (date (value "date"))
+        ;; a time on the clock of the server, as a time on ours
+        ours    (fn [t] (if served (+ now (- t served)) t))
+        age     (* 1000 (or (seconds (value "age")) 0))
+        cache   (some-> (value "cache-control") str/lower-case)
+        retry   (value "retry-after")
+        until   (if retry
+                  (or (some->> (seconds retry) (* 1000) (+ now)) (some-> (date retry) ours))
+                  (when-not (some->> cache (re-find #"no-cache|no-store"))
+                    (if-let [max-age (some->> cache (re-find #"max-age=(\d{1,10})") second parse-long)]
+                      (- (+ now (* 1000 max-age)) age)
+                      (some-> (date (value "expires")) ours (- (if served age 0))))))]
+    (when (and until (> until now))
+      (time/->inst (min until (+ now (* 60 60 1000)))))))
+
+(defn split-credentials
+  "The URL `url` without the user name and password that it holds, as in
+  `https://user:pass@host/feed.xml`, and those as credentials for
+  `authorization`: `[url credentials]`, the credentials nil when it holds
+  none. An app can use it when it adds a feed, to keep the password apart
+  from the address, since an address travels: into OPML, sync documents
+  and messages."
+  [url]
+  (let [[_ scheme authority tail] (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://)([^/?#]*)(.*)" (str url))
+        at                        (some-> authority (str/last-index-of "@"))]
+    (if at
+      (let [[user password] (str/split (subs authority 0 at) #":" 2)]
+        [(str scheme (subs authority (inc at)) tail)
+         (when-not (str/blank? user)
+           {:username (percent-decode user) :password (percent-decode (or password ""))})])
+      [url nil])))
+
 #?(:clj
    (defonce ^{:no-doc true
-              :doc    "The shared HTTP client, built on first use: redirects
-  followed, a 15 second connect timeout."}
+              :doc    "The shared HTTP client, built on first use: a 15 second
+  connect timeout, and redirects left to `call!`, which follows them."}
      client
      (delay (-> (HttpClient/newBuilder)
-                (.followRedirects HttpClient$Redirect/NORMAL)
+                (.followRedirects HttpClient$Redirect/NEVER)
                 (.connectTimeout (Duration/ofSeconds 15))
                 (.build)))))
 
@@ -214,6 +282,122 @@
      (let [[_ head path tail] (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*)?([^?#]*)(.*)" url)]
        (str (encode-illegal (str head) #{}) (encode-illegal path #{\[ \]}) (encode-illegal tail #{})))))
 
+(defn absolute-url
+  "`url` made absolute against `base`, the URL of the document it is in, as
+  a browser does it: a path, a path from the root, a query alone or a URL
+  without a scheme resolves against `base`, and an absolute URL stays as it
+  is. Nil when either does not read as a URL."
+  [base url]
+  #?(:clj  (try
+             (let [base (legal-url (str base))
+                   url  (legal-url (str url))
+                   b    (URI. base)]
+               ;; java.net.URI resolves by RFC 2396, which differs from browsers
+               ;; on a query or a fragment alone and on a base with no path
+               (cond
+                 (str/starts-with? url "#") (str (first (str/split base #"#" 2)) url)
+                 (str/starts-with? url "?") (str (first (str/split base #"[?#]" 2)) url)
+                 :else                      (str (.resolve (if (and (.getRawAuthority b) (str/blank? (.getRawPath b)))
+                                                             (URI. (str (.getScheme b) "://" (.getRawAuthority b) "/"))
+                                                             b)
+                                                           (URI. url)))))
+             (catch Exception _
+               nil))
+     :cljs (try
+             (.-href (js/URL. (str url) (str base)))
+             (catch :default _
+               nil))))
+
+#?(:clj
+   (defn- java-request
+     "The java.net.http request of `method` to `uri`, with `headers` and the
+     `body` string, answered within `timeout-ms` milliseconds or given up."
+     ^HttpRequest [^URI uri method headers body timeout-ms]
+     (let [builder (-> (HttpRequest/newBuilder uri)
+                       (.timeout (Duration/ofMillis timeout-ms))
+                       (.header "Accept-Encoding" "gzip"))
+           builder (reduce-kv (fn [^HttpRequest$Builder b k v] (.header b (str k) (str v))) builder headers)]
+       (-> (if (or (nil? method) (= :get method))
+             (.GET ^HttpRequest$Builder builder)
+             (.method ^HttpRequest$Builder builder
+                      (str/upper-case (name method))
+                      (if (some? body)
+                        (HttpRequest$BodyPublishers/ofString (str body))
+                        (HttpRequest$BodyPublishers/noBody))))
+           (.build)))))
+
+#?(:clj
+   (defn- origin
+     "The scheme, host and port of `uri`, the port of the scheme when it
+     names none."
+     [^URI uri]
+     (let [scheme (some-> (.getScheme uri) str/lower-case)]
+       [scheme
+        (some-> (.getHost uri) str/lower-case)
+        (if (neg? (.getPort uri)) (get {"http" 80 "https" 443} scheme) (.getPort uri))])))
+
+#?(:clj
+   (defn ^:no-doc same-origin?
+     "Whether the URLs `a` and `b` have the same scheme, host and port."
+     [a b]
+     (try
+       (= (origin (URI. (legal-url a))) (origin (URI. (legal-url b))))
+       (catch Exception _
+         false))))
+
+#?(:clj
+   (defn- redirect-target
+     "Where the redirect `response` to `uri` leads; nil when it names no
+     place that reads as a URL, or leaves https for http, which the client of
+     the JDK refuses as well."
+     [^URI uri ^HttpResponse response]
+     (when-let [location (.orElse (.firstValue (.headers response) "location") nil)]
+       (when-let [target (some-> (absolute-url (str uri) location) (URI.))]
+         (when-not (and (= "https" (.getScheme uri)) (= "http" (.getScheme target)))
+           target)))))
+
+#?(:clj
+   (defn- send-following!
+     "Send `method` to `url` with `headers` and `body`, and follow the
+     redirects, five at most, until the instant `deadline` in epoch
+     milliseconds. A 303, or a 301 or 302 to a POST, turns into a GET, as
+     browsers and the JDK do. Credentials stay behind when a redirect leaves
+     the origin, because the JDK would send them on. Returns the last
+     response, and the redirects before it as `[status url]`."
+     [url method headers body deadline]
+     (loop [uri (URI. (legal-url url)) method method headers headers body body chain []]
+       (let [left (- deadline (System/currentTimeMillis))]
+         (when-not (pos? left)
+           (throw (HttpTimeoutException. (str "request timed out: " uri))))
+         (let [response (.send ^HttpClient @client (java-request uri method headers body left)
+                               (HttpResponse$BodyHandlers/ofInputStream))
+               status   (.statusCode response)
+               target   (when (and (#{301 302 303 307 308} status) (< (count chain) 5))
+                          (redirect-target uri response))]
+           (if-not target
+             [response chain]
+             (let [get? (or (= 303 status) (and (#{301 302} status) (= :post method)))]
+               (.close ^InputStream (.body response))
+               (recur target
+                      (if (and get? (not= :head method)) :get method)
+                      (cond->> headers
+                        (not= (origin uri) (origin target))
+                        (into {} (remove (fn [[k _]] (#{"authorization" "cookie" "proxy-authorization"}
+                                                     (str/lower-case (str k)))))))
+                      (when-not get? body)
+                      (conj chain [status (str uri)])))))))))
+
+#?(:clj
+   (defn- permanent-url
+     "The URL the first request moved to for good: the one that the permanent
+     redirects, 301 or 308, at the start of `chain` lead to, the requests
+     after them ending at `final-url`; nil when the first is no permanent
+     redirect."
+     [chain final-url]
+     (let [n (count (take-while #(#{301 308} (first %)) chain))]
+       (when (pos? n)
+         (get (conj (mapv second chain) final-url) n)))))
+
 #?(:clj
    (defn call!
      "Send the request map `{:method :url :headers :body}` and return
@@ -224,52 +408,55 @@
      headers are awaited and `::timeout` while the body is read;
      `:max-bytes` (default `default-max-bytes`, nil for no limit) bounds the
      body, beyond which `::too-large` is thrown. gzip is undone and the URL
-     made legal first (see `legal-url`)."
+     made legal first (see `legal-url`).
+
+     Redirects are followed, five at most and never from https to http, and
+     a redirect to another origin leaves the credentials behind. When the
+     redirects begin with permanent ones, `:permanent-url` is where the URL
+     moved for good."
      [{:keys [method url headers body timeout-seconds max-bytes]
        :or   {timeout-seconds 30 max-bytes default-max-bytes}}]
-     (let [deadline (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
-           builder  (-> (HttpRequest/newBuilder (URI. (legal-url url)))
-                        (.timeout (Duration/ofSeconds timeout-seconds))
-                        (.header "Accept-Encoding" "gzip"))
-           builder  (reduce-kv (fn [^HttpRequest$Builder b k v] (.header b (str k) (str v)))
-                               builder
-                               (merge {"User-Agent" user-agent} headers))
-           request  (-> (if (or (nil? method) (= :get method))
-                          (.GET ^HttpRequest$Builder builder)
-                          (.method ^HttpRequest$Builder builder
-                                   (str/upper-case (name method))
-                                   (if (some? body)
-                                     (HttpRequest$BodyPublishers/ofString (str body))
-                                     (HttpRequest$BodyPublishers/noBody))))
-                        (.build))
-           response (.send ^HttpClient @client request (HttpResponse$BodyHandlers/ofInputStream))
-           bytes    (with-open [^InputStream in (.body ^HttpResponse response)]
-                      (read-within in deadline max-bytes url))
-           response (response->map response bytes)]
-       (assoc response :body (when (and (not= 304 (:status response)) (pos? (alength bytes)))
-                               (decode (:headers response) bytes max-bytes))))))
+     (let [deadline         (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
+           [response chain] (send-following! url method (merge {"User-Agent" user-agent} headers) body deadline)
+           ^bytes bytes     (with-open [^InputStream in (.body ^HttpResponse response)]
+                              (read-within in deadline max-bytes url))
+           response         (response->map response bytes)
+           moved            (permanent-url chain (:url response))]
+       (cond-> (assoc response :body (when (and (not= 304 (:status response)) (pos? (alength bytes)))
+                                       (decode (:headers response) bytes max-bytes)))
+         moved (assoc :permanent-url moved)))))
 
 #?(:clj
    (defn fetch!
      "GET the feed at `url` and return `{:status :url :headers :body}` with the
-     body as a decoded string, plus `:etag` and `:last-modified` when present.
-     `opts` may carry an `:etag` and `:last-modified` from an earlier response,
-     sent as If-None-Match and If-Modified-Since, on which a 304 comes back
-     with no body; a `:user-agent` to send instead of `user-agent`; and the
-     `:timeout-seconds` and `:max-bytes` of `call!`."
+     body as a decoded string, plus `:etag` and `:last-modified` when present,
+     `:not-before` when the server says how long to wait (see `not-before`),
+     and the `:permanent-url` of `call!`. `opts` may carry an `:etag` and
+     `:last-modified` from an earlier response, sent as If-None-Match and
+     If-Modified-Since, on which a 304 comes back with no body; the
+     `:credentials` of a private feed (see `authorization`); a `:user-agent`
+     to send instead of `user-agent`; and the `:timeout-seconds` and
+     `:max-bytes` of `call!`. A user name and a password in `url` are the
+     credentials when `opts` give none, and the request goes to `url`
+     without them (see `split-credentials`)."
      ([url]
       (fetch! url {}))
-     ([url {:keys [etag last-modified user-agent]
+     ([url {:keys [etag last-modified credentials user-agent]
             :or   {user-agent dk.simongray.podcast.http/user-agent}
             :as   opts}]
-      (let [accept   "application/rss+xml, application/xml, text/xml, */*"
-            headers  (cond-> {"User-Agent" user-agent "Accept" accept}
-                       etag          (assoc "If-None-Match" etag)
-                       last-modified (assoc "If-Modified-Since" last-modified))
-            response (call! (assoc opts :url url :headers headers))]
-        (assoc response
-               :etag          (header (:headers response) "etag")
-               :last-modified (header (:headers response) "last-modified"))))))
+      (let [[url in-url] (split-credentials url)
+            accept       "application/rss+xml, application/xml, text/xml, */*"
+            auth         (authorization (or credentials in-url))
+            headers      (cond-> {"User-Agent" user-agent "Accept" accept}
+                           etag          (assoc "If-None-Match" etag)
+                           last-modified (assoc "If-Modified-Since" last-modified)
+                           auth          (assoc "Authorization" auth))
+            response     (call! (assoc opts :url url :headers headers))
+            wait         (not-before (:headers response) (java.util.Date.))]
+        (cond-> (assoc response
+                       :etag          (header (:headers response) "etag")
+                       :last-modified (header (:headers response) "last-modified"))
+          wait (assoc :not-before wait))))))
 
 #?(:clj
    (comment

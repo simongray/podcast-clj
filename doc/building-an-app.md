@@ -36,6 +36,7 @@ The examples use these aliases:
          '[dk.simongray.podcast.format.html :as html]
          '[dk.simongray.podcast.format.opml :as opml]
          '[dk.simongray.podcast.format.transcript :as transcript]
+         '[dk.simongray.podcast.http :as http]
          '[dk.simongray.podcast.podping :as podping]
          '[dk.simongray.podcast.resolve :as resolve]
          '[dk.simongray.podcast.value :as value])
@@ -73,7 +74,7 @@ Fetch the feed, keep the validators for the next fetch, and add the
 subscription to the player state:
 
 ```clojure
-(def r (podcast/fetch! url))  ; {:status 200 :feed … :etag … :last-modified … :url …}
+(def r (podcast/fetch! url {:max-pages 20}))  ; {:status 200 :feed … :etag … :last-modified … :url …}
 (def show (:feed r))
 (def guid (feed/feed-guid show url))
 
@@ -92,6 +93,32 @@ subscription to the player state:
 guid that the specification derives from the URL. All ids in the player
 state use this guid. `(:url r)` is the final URL after redirects.
 
+Some feeds come in pages, and the first page holds only the newest
+episodes. `:max-pages` makes `fetch!` read the older pages too, and join
+them into one feed. Use it on the first fetch. Later fetches need only the
+first page.
+
+A listener can give the address of the website of a show, not of its feed.
+`html/feed-links` finds the feeds that the page names:
+
+```clojure
+(html/feed-links (:body (http/fetch! site-url)) site-url)
+;; => ({:href "https://example.com/feed.xml" :type "application/rss+xml" :title "The show"})
+```
+
+A private feed can need a user name and a password, or a token. Give them
+to `fetch!` as `:credentials`, such as `{:username "…" :password "…"}`.
+`fetch!` does not send them on when a redirect leads to another host. A
+private feed with a token in its URL needs no credentials.
+
+An address can also hold the user name and the password, as in
+`https://user:pass@host/feed.xml`. `fetch!` then sends them as the
+credentials, and the URLs in its result do not hold them. Do not keep the
+password in the address that the app stores. The player state syncs to the
+other devices and to the stores, and an address goes into OPML too.
+`http/split-credentials` gives the address and the credentials apart. Keep
+the password in the keychain of the platform.
+
 In a browser, `fetch!` does not exist, and few feed servers accept requests
 from other origins. Get the XML through your own server, and give the string
 to `podcast/parse`.
@@ -106,17 +133,27 @@ future, and it never waits more than a year. Send the validators of the
 last fetch with the next fetch. If the feed did not change, the server
 answers 304 and the result has no `:feed`.
 
-```clojure
-(resolve/next-check show now)  ; => #inst "…", or nil for a complete feed
+The server can also say when to ask again, with `Retry-After` or
+`Cache-Control`. The result then has `:not-before`. Give it to
+`next-check`, which then answers no earlier. `:not-before` is at most an
+hour ahead, because a host can publish an episode before the time that its
+`Cache-Control` names.
 
+```clojure
 (let [{:keys [etag last-modified]} (feeds guid)
       r2 (podcast/fetch! url {:etag etag :last-modified last-modified})]
+  (resolve/next-check show now {:not-before (:not-before r2)})  ; => #inst "…", or nil for a complete feed
   (when-let [fresh (:feed r2)]  ; absent on a 304
     (let [{:keys [state added]} (player/refresh state show fresh url now)]
       (podcast/report fresh)   ; what podcast-clj had to repair or normalize
       (:new-feed-url r2)       ; if present, change the URL of the subscription
+      (:permanent-url r2)      ; if present, the feed moved for good: change the URL too
       added)))                 ; the ids of the new episodes, oldest first
 ```
+
+A permanent redirect, 301 or 308, moves a feed for good, and
+`:permanent-url` gives the new URL. A temporary redirect does not change
+the URL of the subscription.
 
 If the subscription has `:auto-queue?` set, `player/refresh` adds the new
 episodes of the feed to the end of the queue, oldest first. On the first

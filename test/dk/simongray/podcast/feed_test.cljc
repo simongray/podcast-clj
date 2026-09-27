@@ -191,6 +191,22 @@
                (select-keys (feed/diff twice twice) [:added :removed :changed :unchanged])))
         (is (= [(item "1" "One") (item "2" "Two")] (:added (feed/diff {} twice))))))))
 
+(deftest joining-pages
+  (let [item  (fn [id] {:rss/guid {:content id} :rss/title id})
+        page  (fn [title ids report]
+                (with-meta {:rss/title title :rss/items (mapv item ids)} {:podcast/report report}))
+        feed  (feed/join-pages [(page "First" ["3" "3" "2"] [{:id :a}])
+                                (page "Second" ["2" "1"] [{:id :b}])
+                                (page "Third" [] [])])]
+    (is (= "First" (:rss/title feed)) "the channel of the first page")
+    (is (= ["3" "3" "2" "1"] (map :rss/title (:rss/items feed)))
+        "an item that an earlier page holds is left out, and a page is left as it is")
+    (is (= [{:id :a} {:id :b}] (feed/report feed)))
+    (is (not (contains? (feed/join-pages [(with-meta {:rss/title "Empty"} {:podcast/report []})
+                                          (page "Also empty" [] [])])
+                        :rss/items))
+        "no items, no key")))
+
 (deftest summarizing-diagnostics
   (let [diagnostics [{:id :a :level :warning :message "m" :path [:rss/items 0]}
                   {:id :a :level :warning :message "m" :path [:rss/items 1]}

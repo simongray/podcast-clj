@@ -119,6 +119,21 @@
       (is (= nodes (html/parse (html/emit nodes))))))
   (is (= "<p>x</p>" (html/emit [:p "x"])) "hiccup without an attribute map"))
 
+(deftest feeds-a-page-names
+  (let [page (str "<!DOCTYPE html><html><head><title>A show</title>"
+                  "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"The show\" href=\"/feed.xml\">"
+                  "<link rel=\"Alternate Feed\" type=\"application/atom+xml\" href=\"https://b.example/atom\">"
+                  "<link rel=alternate type=text/html href=/other>"
+                  "<link rel=alternate type=application/rss+xml>"
+                  "<link rel=stylesheet href=style.css></head><body><p>Listen</p></body></html>")]
+    (is (= [{:href "/feed.xml" :type "application/rss+xml" :title "The show"}
+            {:href "https://b.example/atom" :type "application/atom+xml"}]
+           (html/feed-links page))
+        "RSS and Atom links only, and none without an href")
+    (is (= ["https://a.example/feed.xml" "https://b.example/atom"]
+           (map :href (html/feed-links page "https://a.example/show/")))
+        "made absolute against the address of the page")))
+
 #?(:clj
    (deftest descriptions-in-the-corpus-render
      (testing "every description of every corpus feed, when the corpus is there"

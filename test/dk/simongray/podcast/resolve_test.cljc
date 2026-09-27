@@ -188,6 +188,10 @@
     (is (= "https://new/feed.xml" (resolve/new-feed-url {:itunes/new-feed-url "https://new/feed.xml"})))
     (is (= "https://a/rss" (resolve/self-url {:atom/links [{:href "https://hub" :rel "hub"} {:href "https://a/rss" :rel "Self"}]})))
     (is (nil? (resolve/self-url f)))
+    (is (= "?page=2" (resolve/next-page {:atom/links [{:href "https://a/rss" :rel "self"} {:href "?page=2" :rel "Next"}]}))
+        "the next page of a paged feed, as the feed writes it")
+    (is (= "/2025.xml" (resolve/next-page {:atom/links [{:href "/2025.xml" :rel "prev-archive"}]})) "or of an archived one")
+    (is (nil? (resolve/next-page f)))
     (is (= [["Technology"] ["News" "Tech News"]] (resolve/categories f)))))
 
 (deftest renditions-in-a-media-group
@@ -255,7 +259,13 @@
       (is (= #inst "2027-03-01T18:00:00Z" (resolve/next-check {:rss/ttl 8999999999999999} at)))
       (is (= #inst "2027-03-01T18:00:00Z" (resolve/next-check (weekly #inst "2026-02-26T09:00:00Z" #inst "2016-02-26T09:00:00Z") at))))
     (is (nil? (resolve/next-check (weekly #inst "2026-02-22T09:00:00Z") at)))
-    (is (nil? (resolve/next-check {:rss/ttl 30 :itunes/complete true} at)))))
+    (is (nil? (resolve/next-check {:rss/ttl 30 :itunes/complete true} at)))
+    (testing "no earlier than the server allows"
+      (let [later #inst "2026-03-01T14:00:00Z"]
+        (is (= later (resolve/next-check {:rss/ttl 30} at {:not-before later})))
+        (is (= #inst "2026-03-01T12:30:00Z" (resolve/next-check {:rss/ttl 30} at {:not-before #inst "2026-03-01T12:10:00Z"})))
+        (is (= later (resolve/next-check {} at {:not-before later})) "the server's word is a basis of its own")
+        (is (nil? (resolve/next-check {:itunes/complete true} at {:not-before later})))))))
 
 (deftest blocking
   (is (resolve/blocked? {:itunes/block true} :apple))

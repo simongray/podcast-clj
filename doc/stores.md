@@ -230,7 +230,9 @@ A sync document is an EDN map:
 
 Give the credentials of a WebDAV store in `:credentials`. The store does not
 send a user name or a password that is in the URL, such as
-`https://user:pass@host/`. The name of the store is the host alone.
+`https://user:pass@host/`. The name of the store is the host alone. On the
+JVM, the store sends the credentials only to the origin of the collection.
+A redirect to another host does not get them.
 
 
 ## Where the stores are, as of September 2026

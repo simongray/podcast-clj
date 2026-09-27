@@ -27,22 +27,6 @@
   `:make-collection` for the collection itself."
   #{:list :fetch :put :delete :head :make-collection})
 
-(defn- base64
-  [s]
-  #?(:clj  (.encodeToString (java.util.Base64/getEncoder) (.getBytes ^String s "UTF-8"))
-     :cljs (js/btoa (js/unescape (js/encodeURIComponent s)))))
-
-(defn- authorization
-  "The Authorization header for `credentials`, a map or a function of no
-  arguments returning one: `{:username :password}` for basic
-  authentication, `{:token}` for a bearer token; nil for none."
-  [credentials]
-  (let [{:keys [username password token]} (if (fn? credentials) (credentials) credentials)]
-    (cond
-      token    (str "Bearer " token)
-      username (str "Basic " (base64 (str username ":" password)))
-      :else    nil)))
-
 (def ^:no-doc propfind-body
   "The properties a listing asks for: the ETag and whether an entry is a
   collection."
@@ -68,7 +52,7 @@
    (request call root name {}))
   ([call root name {:keys [credentials body] :as opts}]
    {:pre [(map? opts)]}
-   (let [auth    (authorization credentials)
+   (let [auth    (http/authorization credentials)
          headers (cond-> {"User-Agent" http/user-agent} auth (assoc "Authorization" auth))
          url     (str root (http/encode name))
          [method url headers body]

@@ -16,6 +16,7 @@ for the validator, and `sync` for the sync between devices.
 
 | Id | Level | Meaning |
 |---|---|---|
+| `:fetch/page-failed` | warning | A page of a feed that comes in pages could not be fetched or read, so the items of the pages from there on are missing. |
 | `:repair/leading-junk` | warning | Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed. |
 | `:repair/trailing-junk` | warning | Text after the end of the rss element, such as a PHP warning, was removed. |
 | `:repair/control-characters` | warning | Control characters XML forbids, and character references to them, were removed. |

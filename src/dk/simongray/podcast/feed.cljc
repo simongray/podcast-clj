@@ -402,6 +402,24 @@
            :live-items (item-changes (:podcast/live-items before) (:podcast/live-items after))
            :channel-changed? (not= (apply dissoc before churn) (apply dissoc after churn)))))
 
+(defn join-pages
+  "One feed of `pages`, the parsed pages of a feed that comes in pages, in
+  their order: the channel of the first page with the items of all pages.
+  An item of a later page that an earlier page holds is left out, by
+  `item-guid`, since a feed can gain items while its pages are read. The
+  report is the reports of the pages together."
+  [[first-page & more :as pages]]
+  (let [items (:rss/items (reduce (fn [{:keys [seen] :as acc} page]
+                                    (let [fresh (remove #(contains? seen (item-guid %)) (:rss/items page))]
+                                      (-> acc
+                                          (update :rss/items into fresh)
+                                          (update :seen into (keep item-guid fresh)))))
+                                  {:rss/items (vec (:rss/items first-page))
+                                   :seen      (set (keep item-guid (:rss/items first-page)))}
+                                  more))]
+    (vary-meta (cond-> first-page (seq items) (assoc :rss/items items))
+               assoc :podcast/report (into [] (mapcat report) pages))))
+
 (comment
   (-> "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">
         <channel><title>T</title><podcast:funding url=\"https://x\">Give</podcast:funding>

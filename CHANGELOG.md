@@ -102,3 +102,10 @@
   `:fetch` is given. A chapter title, link or place name that is not text
   is left out and reported. After `sync!`, merge its state and then
   compact, or the merge brings back the tombstones that the step removed.
+- `fetch!` reads the pages of a paged feed with `:max-pages`, and sends the
+  `:credentials` of a private feed, or those in its URL. It gives
+  `:permanent-url` when permanent redirects moved the feed, and
+  `:not-before` when the server asks a client to wait, which `next-check`
+  takes. `html/feed-links` finds the feeds that a web page names. On the
+  JVM, a redirect to another host no longer gets the credentials of a
+  request.
