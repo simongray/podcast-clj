@@ -30,6 +30,13 @@
     (catch #?(:clj Exception :cljs :default) _
       nil)))
 
+(defn ^:no-doc text
+  "The JSON value `v` read for a field that holds text: a string as it is, a
+  number as its digits, and nil for anything else, such as an object."
+  [v]
+  (when (or (string? v) (number? v))
+    (str v)))
+
 (defn write-str
   "Serialize `x` as JSON, indented when `opts` has `:pretty?`. Characters
   outside ASCII are written as they are, on the JVM as in JavaScript."

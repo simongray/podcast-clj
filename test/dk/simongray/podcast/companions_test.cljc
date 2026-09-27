@@ -193,7 +193,10 @@
       (is (= [:transcript/not-an-object] (report-ids t))))
     (let [t (transcript/parse "{\"segments\": [1, {\"startTime\": 0, \"body\": \"a\"}]}" "application/json")]
       (is (= [{:body "a" :start 0}] (:segments t)))
-      (is (= [:transcript/malformed] (report-ids t)))))
+      (is (= [:transcript/malformed] (report-ids t))))
+    (let [t (transcript/parse "{\"segments\": [{\"speaker\": {\"name\": \"A\"}, \"startTime\": 0, \"body\": \"a\"}]}" "application/json")]
+      (is (= [{:body "a" :start 0}] (:segments t)) "a speaker that is not text is left out")
+      (is (= [:transcript/not-text] (report-ids t)))))
   (testing "cue timings come before a tag, and SRT without fractions of a second"
     (is (= :srt (:format (transcript/parse "1\n00:00:01,000 --> 00:00:03,000\n<p>Hello</p>\n" "application/x-subrip"))))
     (is (= ["I said <p> once." "Then more."] (map :body (:segments (transcript/parse "I said <p> once.\n\nThen more." "text/plain")))))

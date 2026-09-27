@@ -9,8 +9,9 @@ follow, and one line for each namespace. The docstrings give the details.
 
 - **Reading does not throw on content.** The functions that read a format,
   such as `parse` and `chapters/parse-json`, keep a value that does not read
-  as its type as a string. They throw only when the input is not in the
-  format at all. The functions that write a format, such as `emit` and
+  as its type as a string. They leave out a value that cannot be a string,
+  such as a JSON object as the title of a chapter. They throw only when the
+  input is not in the format at all. The functions that write a format, such as `emit` and
   `transcript/emit-vtt`, write its canonical form.
 - **What a reader forgave is in the report.** A parsed feed, transcript or
   chapters document is clean data. What the reader had to repair or

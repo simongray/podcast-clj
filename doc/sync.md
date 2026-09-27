@@ -149,8 +149,11 @@ a time budget. It then does the steps itself: list, fetch, `reconcile`, put.
 podcast-clj schedules nothing. An app calls `sync!` when it starts, when it
 goes to the background, and after a series of changes. It also calls `sync!`
 when a file watcher or a push from a service tells that the store changed.
-`next-at` gives the timer of the app a policy: soon after a change, later
-when nothing changed, and with longer waits after failures.
+The app runs one step at a time, because a step that overlaps another can
+write an older state after a newer one. A file watcher also reports the
+writes of the step itself, so the app lets such a call wait until the step
+ends. `next-at` gives the timer of the app a policy: soon after a change,
+later when nothing changed, and with longer waits after failures.
 
 
 ## The documents
@@ -310,7 +313,9 @@ device that joins later can bring back what it forgot.
 removals that pass this test and are older than 30 days. The 30 days are a
 buffer for a device that joins with a state of its own. The played marks
 stay, because the listener still sees them. `sync!` compacts at each step,
-unless its options tell it not to.
+unless its options tell it not to. The app merges the result of a step into
+its current state, and the merge keeps what either state holds, the removed
+tombstones too. For this reason, the app compacts after the merge as well.
 
 A device that stops syncing blocks compaction until the listener retires it,
 and `player/lagging` names such devices for the user interface. A device

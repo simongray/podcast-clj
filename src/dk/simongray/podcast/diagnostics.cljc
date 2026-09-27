@@ -96,6 +96,8 @@
     :doc "A JSON transcript is not JSON, or not a JSON object, so it holds no segments."}
    {:id :transcript/malformed :level :warning
     :doc "Segments of a JSON transcript that are not JSON objects in a list were left out."}
+   {:id :transcript/not-text :level :warning
+    :doc "Speakers in a JSON transcript that are not text, such as a JSON object, were left out."}
 
    ;; chapters
    {:id :chapters/string-times :level :warning

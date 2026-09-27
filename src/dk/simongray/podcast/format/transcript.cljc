@@ -194,8 +194,9 @@
   "Read the JSON transcript `s`: `{\"version\" \"segments\" [{\"speaker\"
   \"startTime\" \"endTime\" \"body\"}]}`. Times written as strings are read
   as numbers and reported, and a speaker written as a number as its string.
-  A file that is not JSON, or not a JSON object, reads as no segments, and
-  segments that are not objects are left out; the report says so."
+  A file that is not JSON, or not a JSON object, reads as no segments,
+  segments that are not objects are left out, and so are speakers that are
+  not text; the report says so."
   [s]
   (let [doc      (json/parse s)
         raw      (when (map? doc) (get doc "segments"))
@@ -204,11 +205,11 @@
                        (some? raw)       1
                        :else             0)
         strings  (count (filter #(or (string? (get % "startTime")) (string? (get % "endTime"))) objects))
+        not-text (count (filter #(let [v (get % "speaker")] (and (some? v) (nil? (json/text v)))) objects))
         segments (vec (for [segment objects
                             :let [start   (time/seconds (get segment "startTime"))
                                   end     (time/seconds (get segment "endTime"))
-                                  speaker (let [v (get segment "speaker")]
-                                            (when (or (string? v) (number? v)) (str v)))]]
+                                  speaker (json/text (get segment "speaker"))]]
                         (cond-> {:body (str (get segment "body"))}
                           (some? start) (assoc :start start)
                           (some? end)   (assoc :end end)
@@ -226,7 +227,12 @@
         (pos? strings)
         (conj (diagnostic :transcript/string-times :warning
                           (str strings " segments give their times as strings rather than numbers")
-                          :count strings))))))
+                          :count strings))
+
+        (pos? not-text)
+        (conj (diagnostic :transcript/not-text :warning
+                          (str not-text " speakers are not text and were left out")
+                          :count not-text))))))
 
 (defn emit-json
   "Write `transcript` in the JSON transcript format, indented unless `opts`
