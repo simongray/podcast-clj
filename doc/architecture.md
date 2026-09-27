@@ -74,7 +74,7 @@ The names follow the design where one part belongs to another:
   syncs (`app.sync`). The stores are under `app.sync`.
 - The Podcast Index client is under `directory`, because the Podcast Index
   is one of the directories.
-- `resolve`, `value`, `guid`, `json`, `http`, `rank`, `async` and
+- `resolve`, `value`, `guid`, `json`, `http`, `bytes`, `rank`, `async` and
   `diagnostics` belong to no group.
 
 
@@ -406,6 +406,27 @@ list and the source agree.
   HTML only when it holds a tag or a comment, so plain text that mentions
   `<show@example.com>` stays text. Hiccup is the center, because a
   Clojure app gives Hiccup directly to its renderer.
+- **Media files** (`format.media`, with `format.id3`, `format.mp3` and
+  `format.mp4`) read what an MP3 or M4A file says about itself: its
+  duration, its chapters and its artwork. The readers follow the standards.
+  For MP3 files, these are ID3v2.2 to 2.4 with the ID3v2 Chapter Frame
+  Addendum, and the MPEG audio frames with a Xing, Info or VBRI header. For
+  M4A files, these are the boxes of ISO/IEC 14496-12, with a QuickTime
+  chapter track or Nero chapters, and the index of a file written in
+  fragments. Each quirk that real files taught the readers has an id, and
+  `:except` leaves it out. Examples are a frame size in the form of the
+  other ID3 version, and junk between the tag and the audio. The chapters
+  have the shape of a JSON chapters document. A reader takes a view of the
+  parts of a file that have arrived (`bytes`). When it needs a part that
+  has not arrived, it throws the ranges that it needs. `read!` fetches
+  these ranges with range requests, and reads again. So the readers do no
+  I/O, and one loop fetches with futures on the JVM and with promises in
+  JavaScript. Most files need one or two requests and a few hundred
+  kilobytes. From a server that ignores ranges, `read!` reads only the
+  start of the file that it needs. A host that inserts ads can send a
+  different file to each request, so the duration is that of the file that
+  came. `verify!` checks a file against the `podcast:integrity` of an
+  alternate enclosure, by the rules of W3C Subresource Integrity.
 - **Value** (`value`) finds the value block that applies to an item, and
   divides amounts into shares and fees. With time splits, it finds the
   recipients at a position in the episode. It is arithmetic only, and it
@@ -752,6 +773,15 @@ Pedestal reads the body of a put before the handler can read it.
   that do not coerce, and changes in a round trip, by the number of feeds.
   These sweeps found gaps in the registry, quirks and emitter bugs. Each
   correction came with a test.
+- A fourth corpus, in `dev-resources/corpus/media/`, holds the parts of
+  media files that `media/read!` fetched: one episode from each of some
+  ninety hosts, with a manifest. `corpus/download-media!` fetches them
+  again, and `corpus/media-report` reads them offline. It shows the
+  duration of each file beside the duration in its feed. Most durations
+  agree within two seconds, and most of the others come from hosts that
+  insert ads. The ID3 chapters of a show agreed with its JSON chapters.
+  Each quirk that the corpus showed has a fixture in the tests, built byte
+  by byte.
 - Generative tests cover these properties:
   - the three properties of the merge
   - the order of the ranks

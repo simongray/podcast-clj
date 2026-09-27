@@ -3,11 +3,18 @@
   encoding, body decoding, and fetching from servers on localhost."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.http :as http])
+            [dk.simongray.podcast.http :as http]
+            #?(:clj [dk.simongray.podcast.test-support :refer [with-file-server]]))
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
                    [java.io ByteArrayOutputStream]
                    [java.net InetSocketAddress]
+                   [java.security MessageDigest]
                    [java.util.zip GZIPOutputStream])))
+
+(deftest byte-ranges
+  (is (= {:start 0 :end 1023 :total 146515} (http/content-range "bytes 0-1023/146515")))
+  (is (= {:start 5 :end 9 :total nil} (http/content-range "bytes 5-9/*")))
+  (is (nil? (http/content-range "bytes */1000")) "an unsatisfiable range names none"))
 
 (deftest credentials-as-a-header
   (is (= "Basic dTpw" (http/authorization {:username "u" :password "p"})))
@@ -239,3 +246,24 @@
            (is (< (- (System/currentTimeMillis) started) 3000) "given up at the deadline, not when the body ends"))
          (finally
            (.stop server 0))))))
+
+#?(:clj
+   (deftest bytes-of-a-media-file
+     (let [b (byte-array (map unchecked-byte (range 1000)))]
+       (with-file-server b {}
+         (fn [url]
+           (let [{:keys [status body content-range]} (http/call! {:url url :as :bytes :range [10 19]})]
+             (is (= 206 status))
+             (is (= {:start 10 :end 19 :total 1000} content-range))
+             (is (= (range 10 20) (map #(bit-and % 0xFF) body))))
+           (is (= 990 (count (:body (http/call! {:url url :as :bytes :range [10 nil]})))) "to the end")
+           (testing "the digest of the whole file, streamed through"
+             (is (= (seq (.digest (MessageDigest/getInstance "SHA-384") b))
+                    (seq (get-in (http/digest! url ["SHA-384"]) [:digests "SHA-384"])))))))
+       (with-file-server b {:ranges? false}
+         (fn [url]
+           (let [{:keys [status body content-range]} (http/call! {:url url :as :bytes :range [10 19]})]
+             (is (= 200 status) "a server that sends the whole file instead")
+             (is (nil? content-range))
+             (is (= (range 20) (map #(bit-and % 0xFF) body)) "of which the start up to the range is read"))
+           (is (= 1000 (count (:body (http/call! {:url url :as :bytes :range [10 nil]})))) "all of it for the rest"))))))

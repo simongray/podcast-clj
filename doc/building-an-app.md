@@ -31,11 +31,13 @@ The examples use these aliases:
          '[dk.simongray.podcast.app.sync.file :as file]
          '[dk.simongray.podcast.app.sync.store :as store]
          '[dk.simongray.podcast.app.sync.webdav :as webdav]
+         '[dk.simongray.podcast.bytes :as bytes]
          '[dk.simongray.podcast.directory :as directory]
          '[dk.simongray.podcast.directory.podcastindex :as podcastindex]
          '[dk.simongray.podcast.feed :as feed]
          '[dk.simongray.podcast.format.chapters :as chapters]
          '[dk.simongray.podcast.format.html :as html]
+         '[dk.simongray.podcast.format.media :as media]
          '[dk.simongray.podcast.format.opml :as opml]
          '[dk.simongray.podcast.format.transcript :as transcript]
          '[dk.simongray.podcast.http :as http]
@@ -228,15 +230,42 @@ of the listener.
 [:div.notes (html/hiccup (resolve/description item))]  ; the show notes, sanitized, as Hiccup
 ```
 
-An episode can have chapters in three places: a linked chapters file,
-Podlove chapters in the feed, or timestamps in the show notes. Try them in
-this order. In these examples, `fetch-body` is your own HTTP function.
+An episode can have chapters in four places: a linked chapters file,
+Podlove chapters in the feed, the media file itself, or timestamps in the
+show notes. Try them in this order. In these examples, `fetch-body` is your
+own HTTP function.
 
 ```clojure
 (def doc (or (some-> (resolve/chapters-url item) fetch-body chapters/parse-json)
              (resolve/embedded-chapters item)
+             (some-> (resolve/enclosure item) :url media/read! :chapters)
              (resolve/inferred-chapters item)))
 (chapters/at doc 754)  ; the chapter at 12:34
+```
+
+The media file also gives its own duration, and it can hold artwork.
+`media/read!` reads them with range requests: most often one or two, and a
+few hundred kilobytes. A host that inserts ads can send a different file to
+each request. So the duration is that of the file that came, and it can
+differ from the duration in the feed. In ClojureScript, `media/read!`
+returns a promise.
+
+```clojure
+(def file (media/read! (:url (resolve/enclosure item))))
+(:duration file)          ; => 3712.4, in seconds
+(map :id (:report file))  ; => (:mp3/estimated-duration)
+(let [{:keys [type data]} (:artwork file)]
+  [:img {:src (bytes/data-url type data)}])
+```
+
+An alternate enclosure can give the hash of its file in
+`podcast:integrity`. `resolve/enclosure` keeps it under `:integrity`, and
+`media/verify!` checks the file against it:
+
+```clojure
+(let [{:keys [url integrity]} (resolve/enclosure item {:types ["video/mp4"]})]
+  (when integrity
+    (media/verify! url integrity)))  ; => {:valid? true :algorithm "sha384"}
 ```
 
 `resolve/transcript` selects the transcript that suits the listener: by

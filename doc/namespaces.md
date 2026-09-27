@@ -75,6 +75,10 @@ Each name below is relative to `dk.simongray.podcast`.
 | `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers. |
 | `format.opml` | Subscription lists as OPML, with folders, the categories and creation time of each outline, inclusions of other lists, and the dates and owner of the list. |
 | `format.html` | The HTML in descriptions, as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. `feed-links` finds the feeds that a web page names. |
+| `format.media` | What a media file says about itself: the duration, the chapters and the artwork, read with byte ranges by `read!`. `verify!` checks a file against its `podcast:integrity`. |
+| `format.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |
+| `format.mp3` | The MPEG audio frames of an MP3 file, and its duration. |
+| `format.mp4` | The boxes of an MP4 or M4A file: its duration, its QuickTime or Nero chapters, and its artwork. |
 | `value` | Value for value: splits, fees, time splits and remote blocks. `boostagram` writes the record of a payment. |
 
 ### Directories and notifications
@@ -108,6 +112,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `time.rrule` | RFC 5545 recurrence rules: parse, write and evaluate. |
 | `guid` | The `podcast:guid` UUIDv5, and SHA-1. |
 | `json` | JSON strings to data and back, on both platforms. |
-| `http` | Requests as maps, credentials as a header, URLs made absolute, and when a server says to ask again. JVM: the client that sends them, with conditional requests and redirects that keep the credentials to their origin. |
+| `http` | Requests as maps, credentials as a header, URLs made absolute, and when a server says to ask again. JVM: the client that sends them, with conditional requests, byte ranges, and redirects that keep the credentials to their origin, and `digest!`, which streams a body through a digest. |
+| `bytes` | Bytes on both platforms, read as numbers and text, and a view of the parts of a file that have arrived, which says what a reader still needs. |
 | `async` | Deferred values: futures on the JVM, and promises in JavaScript. |
 | `rank` | Ranks that always leave room for another rank between two ranks. |

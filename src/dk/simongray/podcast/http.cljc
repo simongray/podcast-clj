@@ -17,6 +17,7 @@
                                   HttpRequest$BodyPublishers HttpResponse HttpResponse$BodyHandlers
                                   HttpTimeoutException]
                    [java.nio.charset Charset StandardCharsets]
+                   [java.security MessageDigest]
                    [java.time Duration]
                    [java.util.concurrent ScheduledFuture ScheduledThreadPoolExecutor ThreadFactory TimeUnit]
                    [java.util.zip GZIPInputStream])))
@@ -160,22 +161,29 @@
   (* 100 1024 1024))
 
 #?(:clj
-   (defn- read-bounded
-     "Read `in` to its end into a byte array, throwing `::too-large` once more
-     than `max-bytes` have arrived; nil `max-bytes` reads everything."
-     ^bytes [^InputStream in max-bytes url]
-     (let [out    (ByteArrayOutputStream.)
-           buffer (byte-array 65536)]
+   (defn- pump
+     "Read `in` to its end in pieces, handing each to `(f buffer n)`, and
+     throw `::too-large` once more than `max-bytes` have arrived; nil
+     `max-bytes` reads everything."
+     [^InputStream in max-bytes url f]
+     (let [buffer (byte-array 65536)]
        (loop [total 0]
          (let [n (.read in buffer)]
-           (if (neg? n)
-             (.toByteArray out)
+           (when-not (neg? n)
              (let [total (+ total n)]
                (when (and max-bytes (> total max-bytes))
                  (throw (ex-info (str "Response body exceeds " max-bytes " bytes: " url)
                                  {:type ::too-large :url url :max-bytes max-bytes})))
-               (.write out buffer 0 n)
+               (f buffer n)
                (recur total))))))))
+
+#?(:clj
+   (defn- read-bounded
+     "Read `in` to its end into a byte array, as `pump` reads it."
+     ^bytes [^InputStream in max-bytes url]
+     (let [out (ByteArrayOutputStream.)]
+       (pump in max-bytes url (fn [^bytes buffer n] (.write out buffer 0 (int n))))
+       (.toByteArray out))))
 
 #?(:clj
    (defonce ^{:no-doc true
@@ -190,12 +198,11 @@
               (.setRemoveOnCancelPolicy true)))))
 
 #?(:clj
-   (defn- read-within
-     "Read `in` as `read-bounded` does, but only until the instant `deadline`
-     in epoch milliseconds, when the stream is closed and `::timeout`
-     thrown, so that a server sending its body slowly holds no thread for
-     longer than that."
-     ^bytes [^InputStream in deadline max-bytes url]
+   (defn- within
+     "`(f)`, which reads `in`, but only until the instant `deadline` in epoch
+     milliseconds, when the stream is closed and `::timeout` thrown, so that
+     a server sending its body slowly holds no thread for longer than that."
+     [^InputStream in deadline url f]
      (let [late? (atom false)
            task  (.schedule ^ScheduledThreadPoolExecutor @watchdog
                             ^Runnable (fn [] (reset! late? true) (.close in))
@@ -203,13 +210,19 @@
                             TimeUnit/MILLISECONDS)
            late  #(ex-info (str "The response did not arrive in time: " url) {:type ::timeout :url url})]
        (try
-         (let [bytes (read-bounded in max-bytes url)]
+         (let [result (f)]
            ;; a stream closed under a read can end as if the body had ended
-           (if @late? (throw (late)) bytes))
+           (if @late? (throw (late)) result))
          (catch IOException e
            (throw (if @late? (late) e)))
          (finally
            (.cancel ^ScheduledFuture task false))))))
+
+#?(:clj
+   (defn- read-within
+     "Read `in` as `read-bounded` does, `within` the `deadline`."
+     ^bytes [^InputStream in deadline max-bytes url]
+     (within in deadline url #(read-bounded in max-bytes url))))
 
 #?(:clj
    (defn- gunzip
@@ -234,6 +247,15 @@
            StandardCharsets/UTF_8)))))
 
 #?(:clj
+   (defn- inflated
+     "The `body` bytes of the response with `headers`, gunzipped when the
+     response says so, to at most `max-bytes` (nil for no limit)."
+     ^bytes [headers ^bytes body max-bytes]
+     (if (= "gzip" (some-> (header headers "content-encoding") str/trim str/lower-case))
+       (gunzip body max-bytes nil)
+       body)))
+
+#?(:clj
    (defn decode
      "The `body` bytes of the response with `headers` as a string, gunzipped
      when the response says so, to at most `max-bytes` (nil for no limit), and
@@ -242,10 +264,18 @@
      ([headers body]
       (decode headers body nil))
      ([headers ^bytes body max-bytes]
-      (let [gzip? (= "gzip" (some-> (header headers "content-encoding") str/trim str/lower-case))
-            body  (if gzip? (gunzip body max-bytes nil) body)
-            s     (String. body ^Charset (declared-charset headers body))]
+      (let [body (inflated headers body max-bytes)
+            s    (String. body ^Charset (declared-charset headers body))]
         (cond-> s (str/starts-with? s "\uFEFF") (subs 1))))))
+
+(defn content-range
+  "The byte range and the size of the whole that the Content-Range header
+  value `s` names, such as `bytes 0-1023/146515`, as `{:start :end :total}`,
+  the total nil when the server does not know it; nil when `s` does not
+  read."
+  [s]
+  (when-let [[_ start end total] (some->> s (re-matches #"(?i)\s*bytes\s+(\d{1,15})-(\d{1,15})/(\d{1,15}|\*)\s*"))]
+    {:start (parse-long start) :end (parse-long end) :total (when (not= "*" total) (parse-long total))}))
 
 (def ^:no-doc legal-url-characters
   "The ASCII characters a URI may contain as they are: RFC 3986's unreserved
@@ -311,11 +341,12 @@
 #?(:clj
    (defn- java-request
      "The java.net.http request of `method` to `uri`, with `headers` and the
-     `body` string, answered within `timeout-ms` milliseconds or given up."
+     `body` string, answered within `timeout-ms` milliseconds or given up;
+     gzip is accepted unless `headers` name an Accept-Encoding."
      ^HttpRequest [^URI uri method headers body timeout-ms]
-     (let [builder (-> (HttpRequest/newBuilder uri)
-                       (.timeout (Duration/ofMillis timeout-ms))
-                       (.header "Accept-Encoding" "gzip"))
+     (let [builder (cond-> (.timeout (HttpRequest/newBuilder uri) (Duration/ofMillis timeout-ms))
+                     (not-any? #(= "accept-encoding" (str/lower-case (str %))) (keys headers))
+                     (.header "Accept-Encoding" "gzip"))
            builder (reduce-kv (fn [^HttpRequest$Builder b k v] (.header b (str k) (str v))) builder headers)]
        (-> (if (or (nil? method) (= :get method))
              (.GET ^HttpRequest$Builder builder)
@@ -399,6 +430,21 @@
          (get (conj (mapv second chain) final-url) n)))))
 
 #?(:clj
+   (defn- prefix-length
+     "How much of the body of `response` to read when it answers a request
+     for the bytes `range` with the whole file as it is, a 200 not gzipped:
+     the file from its start to the end of the range, when that end is given
+     and within `max-bytes`; nil to read all of the body."
+     [^HttpResponse response range max-bytes]
+     (let [n (some-> (second range) inc)]
+       (when (and n
+                  (= 200 (.statusCode response))
+                  (<= n (or max-bytes Integer/MAX_VALUE))
+                  (not= "gzip" (some-> (.orElse (.firstValue (.headers response) "content-encoding") nil)
+                                       str/trim str/lower-case)))
+         n))))
+
+#?(:clj
    (defn call!
      "Send the request map `{:method :url :headers :body}` and return
      `{:status :url :headers :body}`, the body decoded to a string. A GET
@@ -413,18 +459,35 @@
      Redirects are followed, five at most and never from https to http, and
      a redirect to another origin leaves the credentials behind. When the
      redirects begin with permanent ones, `:permanent-url` is where the URL
-     moved for good."
-     [{:keys [method url headers body timeout-seconds max-bytes]
+     moved for good.
+
+     `:as :bytes` keeps the body as bytes, gzip undone, for a media file.
+     `:range [start end]` asks for those bytes alone, the end included or
+     nil for the rest, as RFC 9110 has it, and not gzipped, so that the
+     offsets are those of the file; a server that sends them answers 206,
+     and `:content-range` is then what `content-range` reads. A server that
+     does not answers 200 with the whole file, of which only the bytes from
+     its start to the end of the range are read, when the range has an end."
+     [{:keys [method url headers body timeout-seconds max-bytes as range]
        :or   {timeout-seconds 30 max-bytes default-max-bytes}}]
      (let [deadline         (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
-           [response chain] (send-following! url method (merge {"User-Agent" user-agent} headers) body deadline)
+           headers          (cond-> (merge {"User-Agent" user-agent} headers)
+                              range (assoc "Range" (str "bytes=" (first range) "-" (second range))
+                                           "Accept-Encoding" "identity"))
+           [response chain] (send-following! url method headers body deadline)
            ^bytes bytes     (with-open [^InputStream in (.body ^HttpResponse response)]
-                              (read-within in deadline max-bytes url))
+                              (if-let [n (prefix-length response range max-bytes)]
+                                (within in deadline url #(.readNBytes in (int n)))
+                                (read-within in deadline max-bytes url)))
            response         (response->map response bytes)
-           moved            (permanent-url chain (:url response))]
+           moved            (permanent-url chain (:url response))
+           received         (content-range (header (:headers response) "content-range"))]
        (cond-> (assoc response :body (when (and (not= 304 (:status response)) (pos? (alength bytes)))
-                                       (decode (:headers response) bytes max-bytes)))
-         moved (assoc :permanent-url moved)))))
+                                       (if (= :bytes as)
+                                         (inflated (:headers response) bytes max-bytes)
+                                         (decode (:headers response) bytes max-bytes))))
+         moved    (assoc :permanent-url moved)
+         received (assoc :content-range received)))))
 
 #?(:clj
    (defn fetch!
@@ -457,6 +520,31 @@
                        :etag          (header (:headers response) "etag")
                        :last-modified (header (:headers response) "last-modified"))
           wait (assoc :not-before wait))))))
+
+#?(:clj
+   (defn digest!
+     "GET `url` and compute the digests of its body as it streams in, with
+     the MessageDigest `algorithms`, such as SHA-384, keeping none of the
+     body, which can be a large media file: `{:status :url :digests
+     {algorithm bytes}}`, the digests for a 200 alone. `opts` may carry
+     `:headers` and `:timeout-seconds` (default 600), which bounds the
+     whole exchange as for `call!`."
+     ([url algorithms]
+      (digest! url algorithms {}))
+     ([url algorithms {:keys [headers timeout-seconds] :or {timeout-seconds 600}}]
+      (let [deadline      (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
+            [response _]  (send-following! url :get (merge {"User-Agent" user-agent "Accept-Encoding" "identity"} headers)
+                                           nil deadline)
+            status        (.statusCode ^HttpResponse response)
+            digests       (into {} (for [a algorithms] [a (MessageDigest/getInstance a)]))]
+        (with-open [^InputStream in (.body ^HttpResponse response)]
+          (when (= 200 status)
+            (within in deadline url
+                    #(pump in nil url (fn [^bytes buffer n]
+                                        (doseq [^MessageDigest d (vals digests)]
+                                          (.update d buffer 0 (int n))))))))
+        (cond-> {:status status :url (str (.uri ^HttpResponse response))}
+          (= 200 status) (assoc :digests (update-vals digests #(.digest ^MessageDigest %))))))))
 
 #?(:clj
    (comment

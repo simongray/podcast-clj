@@ -202,7 +202,8 @@
   then every alternateEnclosure source, then Media RSS contents, in the item
   or its media:group, as maps with `:url`, `:source` (:enclosure, :alternate
   or :media) and whatever else was declared: `:type`, `:length`, `:bitrate`,
-  `:title`, `:default`."
+  `:title`, `:default`, and the `:integrity` of an alternate, which
+  dk.simongray.podcast.format.media/verify! checks."
   [item]
   (concat
    (when-let [{:keys [url] :as enclosure} (:rss/enclosure item)]
@@ -212,7 +213,7 @@
          {:keys [uri content-type]}      sources
          :when uri]
      (cond-> (-> alternate
-                 (dissoc :sources :integrity)
+                 (dissoc :sources)
                  (assoc :url uri :source :alternate))
        content-type (assoc :transport content-type)))
    (for [{:keys [url file-size] :as content} (media-contents item)

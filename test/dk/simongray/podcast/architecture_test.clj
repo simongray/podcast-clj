@@ -16,10 +16,11 @@
   the vocabulary, the feed model with its interpreters, the companions with
   the formats, the app and the directories, and the front door."
   {"diagnostics" 0 "time" 0 "time.rrule" 0 "guid" 0 "json" 0 "xml" 0 "xml.jsoup" 0
-   "http" 0 "rank" 0 "async" 0
+   "http" 0 "rank" 0 "async" 0 "bytes" 0
    "spec" 1 "quirks" 1
    "feed" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
    "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.html" 3
+   "format.id3" 3 "format.mp3" 3 "format.mp4" 3 "format.media" 3
    "value" 3 "resolve" 3 "app.player" 3 "app.search" 3
    "app.sync" 3 "app.sync.store" 3 "app.sync.file" 3 "app.sync.webdav" 3 "app.sync.webdav.server" 3
    "app.sync.encrypted" 3
@@ -87,7 +88,8 @@
   (testing "the registry is data with no interpreter in sight"
     (is (= #{} (get @graph "spec"))))
   (testing "the companion formats stand on the primitives and each other alone"
-    (doseq [ns ["format.chapters" "format.transcript" "format.opml" "format.html" "value"]]
+    (doseq [ns ["format.chapters" "format.transcript" "format.opml" "format.html" "format.id3"
+                "format.mp3" "format.mp4" "format.media" "value"]]
       (is (every? #(or (zero? (get layers %)) (str/starts-with? % "format.")) (get @graph ns))
           (str ns " requires " (get @graph ns)))))
   (testing "the XML layer needs only the diagnostics"

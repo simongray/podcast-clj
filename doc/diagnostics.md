@@ -65,6 +65,25 @@ for the validator, and `sync` for the sync between devices.
 | `:chapters/inferred` | info | The chapters were read from timestamps in the show notes rather than from a chapters file. |
 | `:chapters/not-an-object` | warning | The document is not JSON, or not a JSON object, so it holds no chapters. |
 | `:chapters/malformed` | warning | Chapters that are not JSON objects in a list were left out. |
+| `:id3/frame-size` | info | An ID3v2 frame gave its size in the form of the other version, a plain number in ID3v2.4 or a syncsafe one in ID3v2.3, and was read in that form. |
+| `:id3/utf8-latin1` | info | ID3 text declared ISO-8859-1 was UTF-8, and was read as UTF-8. |
+| `:id3/utf16-bom` | info | ID3 text declared UTF-16 had no byte order mark, and its byte order was taken from where its zero bytes fall. |
+| `:id3/image-type` | info | The type of an ID3 picture was loose, such as JPG or image/jpg, or missing, and was taken from the bytes of the image. |
+| `:id3/chapter-end` | info | An ID3 chapter ended at or before its start, and its end was left out. |
+| `:id3/second-tag` | info | A second ID3v2 tag followed the first, as a writer that adds a tag in front of another leaves it, and was read too. |
+| `:id3/skipped-frame` | info | An ID3v2 frame was compressed or encrypted, and was skipped. |
+| `:id3/malformed` | warning | An ID3v2 frame could not be read; the frames before it were kept. |
+| `:id3/padding-junk` | info | Bytes other than zeros lay in the padding after the ID3v2 frames, as a writer that does not clear the padding leaves them, or as a frame of a wrong size makes it seem. |
+| `:mp3/junk-before-audio` | info | Bytes that are no MPEG audio frame, such as padding that the size of the tag leaves out, lay between the tags and the first frame, and were skipped. |
+| `:mp3/estimated-duration` | info | The MP3 file has no Xing, Info or VBRI header, so its duration was estimated from the bitrate of its first frames and its size, which is exact for a constant bitrate. |
+| `:mp3/no-audio` | warning | No MPEG audio frame was found after the tags, so the file has no duration. |
+| `:mp4/zero-duration` | info | The movie header of the MP4 file gave no duration, so the duration of its longest track was taken. |
+| `:mp4/fragments-unread` | info | The MP4 file is written in fragments, and neither an mehd box nor an index at the end of the file gave the duration of all of them, so the file has no duration. |
+| `:mp4/no-movie` | warning | The MP4 file has no movie box, so it gives neither a duration nor chapters. |
+| `:file/unknown-format` | warning | The media file is neither MP3 nor MP4, so nothing was read from it. |
+| `:file/truncated` | warning | The media file ends before its structures say that it does. |
+| `:file/malformed` | warning | The media file could not be read as its format says. |
+| `:file/incomplete` | warning | Bytes that the reading of the media file needed did not arrive, so the file was not read. |
 | `:validate/rss-version` | warning | The rss element's version is not 2.0. |
 | `:validate/missing-element` | error | An element RSS 2.0 requires is missing. |
 | `:validate/missing-enclosure` | warning | An item has no enclosure, so there is nothing to play. |

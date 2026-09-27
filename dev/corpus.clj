@@ -7,7 +7,9 @@
             [clojure.pprint :as pprint :refer [print-table]]
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.format.chapters :as chapters]
+            [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.directory.podcastindex :as index]
@@ -305,11 +307,78 @@
                       (sort-by (comp - :count)))
      :changed    (map :file (remove :round-trip ok))}))
 
+(def media-dir
+  "Where the parts of media files that the readers fetched are kept."
+  (io/file dir "media"))
+
+(defn first-enclosures
+  "The media file of the first item of each feed in the corpus and its
+  sweep, one for each host, with the file of the feed and its declared
+  duration, up to `n` of them."
+  [n]
+  (->> (concat (files dir) (files sweep-dir))
+       (keep (fn [^java.io.File file]
+               (try (let [item (first (:rss/items (podcast/parse (slurp file))))
+                          url  (:url (:rss/enclosure item))]
+                      (when (and url (re-find #"(?i)audio/(mpeg|mp3|mp4|x-m4a)" (str (:type (:rss/enclosure item)))))
+                        {:feed (.getName file) :url url :declared (:itunes/duration item)}))
+                    (catch Exception _ nil))))
+       (reduce (fn [[hosts acc] {:keys [url] :as e}]
+                 (let [host (try (.getHost (java.net.URI. (http/legal-url url))) (catch Exception _ nil))]
+                   (if (contains? hosts host) [hosts acc] [(conj hosts host) (conj acc e)])))
+               [#{} []])
+       second
+       (take n)))
+
+(defn download-media!
+  "Read the media files of `first-enclosures` with `media/read!`, and keep
+  the parts that each reading fetched in `media-dir`, with a manifest, so
+  that `media-report` reads them again without the network."
+  ([] (download-media! 150))
+  ([n]
+   (.mkdirs media-dir)
+   (let [manifest (vec (for [[i {:keys [url] :as e}] (map-indexed vector (first-enclosures n))]
+                         (let [parts (atom [])
+                               fetch (media/fetcher url {})
+                               r     (try (media/read! url {:fetch (fn [start end]
+                                                                    (let [part (fetch start end)]
+                                                                      (swap! parts conj part)
+                                                                      part))})
+                                          (catch Exception ex {:error (ex-message ex)}))]
+                           (doseq [[k {b :bytes}] (map-indexed vector @parts)]
+                             (with-open [out (io/output-stream (io/file media-dir (str i "-" k ".bin")))]
+                               (.write out ^bytes b)))
+                           (println i (:format r) (:error r))
+                           (assoc e :n i :error (:error r)
+                                  :parts (vec (for [[k {:keys [start total]}] (map-indexed vector @parts)]
+                                                {:file (str i "-" k ".bin") :start start :total total}))))))]
+     (spit (io/file media-dir "manifest.edn") (with-out-str (pprint/pprint manifest)))
+     manifest)))
+
+(defn media-report
+  "Read again each media file that `download-media!` kept, from its parts,
+  and print its format, its duration beside the one its feed declares, the
+  number of its chapters, its artwork and the ids of its report."
+  []
+  (print-table
+   [:n :feed :format :duration :declared :chapters :artwork :report]
+   (for [{:keys [n feed declared parts error]} (edn/read-string (slurp (io/file media-dir "manifest.edn")))
+         :when (and (not error) (seq parts))
+         :let [view (reduce (fn [v {:keys [file start total]}]
+                              (bytes/add v start (java.nio.file.Files/readAllBytes (.toPath (io/file media-dir file))) total))
+                            (bytes/view) parts)
+               r    (media/read view)]]
+     {:n n :feed feed :format (:format r) :duration (some-> (:duration r) Math/round) :declared declared
+      :chapters (count (:chapters (:chapters r))) :artwork (:type (:artwork r))
+      :report (str/join " " (map (comp name :id) (:report r)))})))
+
 (comment
   (download!)
   (sweep)
   (download-companions!)
   (sweep-companions)
+  (download-media!)
+  (media-report)
   (let [creds (:podcastindex (edn/read-string (slurp (str (System/getProperty "user.home") "/Code/secrets.edn"))))]
     (download-sweep! (sweep-populations creds)))
   (sweep-report)

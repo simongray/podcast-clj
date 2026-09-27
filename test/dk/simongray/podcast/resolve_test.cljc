@@ -92,6 +92,9 @@
             :length 43200000 :bitrate 128000 :default true :title "Standard"}
            (nth all 2)))
     (is (= "https://example.com/file-03.mp3" (:url (resolve/enclosure item))))
+    (is (= [{:type "sri" :value "sha384-ExVqijgYHm15PqQqdXfW95x+Rs6C+d6E/ICxyQOeFevnxNLR/wtJNrNYTjIysUBo"}]
+           (distinct (keep :integrity all)))
+        "each source of an alternate carries the integrity of its file")
     (testing "without an enclosure, the default alternate, then anything"
       (is (= "https://a/hi.opus"
              (:url (resolve/enclosure {:podcast/alternate-enclosures

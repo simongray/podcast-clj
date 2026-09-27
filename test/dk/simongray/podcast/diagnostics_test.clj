@@ -20,7 +20,7 @@
 
 (defn- ids-in-source
   []
-  (->> (re-seq #":(?:fetch|repair|quirk|xml|feed|transcript|chapters|validate|sync)/[a-z0-9-]+" source)
+  (->> (re-seq #":(?:fetch|repair|quirk|xml|feed|transcript|chapters|id3|mp3|mp4|file|validate|sync)/[a-z0-9-]+" source)
        (map #(keyword (subs % 1)))
        (remove not-diagnostics)
        set))
@@ -30,9 +30,9 @@
   literals, the `diagnostic` helpers of the validator and companions, and
   the profile requirements."
   []
-  (concat (for [[_ id level] (re-seq #"\{:id (:[a-z]+/[a-z0-9-]+) :level (:[a-z]+)" source)]
+  (concat (for [[_ id level] (re-seq #"\{:id (:[a-z][a-z0-9]*/[a-z0-9-]+) :level (:[a-z]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])
-          (for [[_ id level] (re-seq #"\(diagnostic (:[a-z]+/[a-z0-9-]+) (:[a-z]+)" source)]
+          (for [[_ id level] (re-seq #"\(diagnostic (:[a-z][a-z0-9]*/[a-z0-9-]+) (:[a-z]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])
           (for [[_ level id] (re-seq #"\(requirement-diagnostics (:[a-z]+) (:validate/[a-z-]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])))

@@ -1,14 +1,18 @@
 (ns dk.simongray.podcast.test-support
   "What the tests share: fixtures inlined from the classpath, the instants
   and the two devices the sync tests put through a store, and on the JVM a
-  temporary directory and the feeds of the corpus."
+  temporary directory, a server of a file on localhost and the feeds of the
+  corpus."
   #?(:cljs (:require-macros [dk.simongray.podcast.test-support]))
   (:require #?(:clj [clojure.java.io :as io])
             #?(:clj [dk.simongray.podcast :as podcast])
             [dk.simongray.podcast.app.player :as player])
-  #?(:clj (:import [java.io File]
+  #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
+                   [java.io File]
+                   [java.net InetSocketAddress]
                    [java.nio.file Files]
-                   [java.nio.file.attribute FileAttribute])))
+                   [java.nio.file.attribute FileAttribute]
+                   [java.util Arrays])))
 
 #?(:clj
    (defmacro fixture
@@ -76,6 +80,37 @@
          (finally
            (doseq [file (reverse (file-seq dir))]
              (io/delete-file file true)))))))
+
+#?(:clj
+   (defn with-file-server
+     "Call `f` with the URL of the bytes `b` as a file on a server on
+     localhost, which answers a Range request with those bytes, as RFC 9110
+     has it, unless `:ranges?` in `opts` is false; `:log`, an atom, gets the
+     Range header of each request, nil for none."
+     [^bytes b {:keys [ranges? log] :or {ranges? true}} f]
+     (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
+       (.createContext server "/"
+                       (reify HttpHandler
+                         (handle [_ exchange]
+                           (let [^HttpExchange exchange exchange
+                                 range (.getFirst (.getRequestHeaders exchange) "Range")
+                                 [_ s e] (when range (re-matches #"bytes=(\d+)-(\d*)" range))
+                                 total (alength b)]
+                             (when log (swap! log conj range))
+                             (if (and ranges? s)
+                               (let [start (parse-long s)
+                                     end   (min (dec total) (if (seq e) (parse-long e) (dec total)))
+                                     part  (Arrays/copyOfRange b (int start) (int (inc end)))]
+                                 (.add (.getResponseHeaders exchange) "Content-Range" (str "bytes " start "-" end "/" total))
+                                 (.sendResponseHeaders exchange 206 (alength part))
+                                 (with-open [out (.getResponseBody exchange)] (.write out part)))
+                               (do (.sendResponseHeaders exchange 200 total)
+                                   (with-open [out (.getResponseBody exchange)] (.write out b))))))))
+       (.start server)
+       (try
+         (f (str "http://127.0.0.1:" (.getPort (.getAddress server)) "/episode"))
+         (finally
+           (.stop server 0))))))
 
 #?(:clj
    (def corpus-feeds

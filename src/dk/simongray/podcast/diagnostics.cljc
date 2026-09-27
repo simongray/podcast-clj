@@ -7,9 +7,10 @@
   Ids are namespaced by the layer that raises them: `repair` for the text
   repairs of a malformed document, `xml` for namespace resolution, `quirk`
   for the normalizations of the tree, `feed` for the model, `transcript` and
-  `chapters` for the companion formats, `validate` for the validator, whose
-  diagnostics are about the feed rather than about reading it, and `sync`
-  for a step of keeping devices in step.")
+  `chapters` for the companion formats, `id3`, `mp3`, `mp4` and `file` for
+  the media files, `validate` for the validator, whose diagnostics are
+  about the feed rather than about reading it, and `sync` for a step of
+  keeping devices in step.")
 
 (def catalogue
   "The diagnostics, in the order they tend to arise."
@@ -124,6 +125,46 @@
     :doc "The document is not JSON, or not a JSON object, so it holds no chapters."}
    {:id :chapters/malformed :level :warning
     :doc "Chapters that are not JSON objects in a list were left out."}
+
+   ;; media files: the ID3v2 tags, the MPEG audio frames and the MP4 boxes
+   {:id :id3/frame-size :level :info
+    :doc "An ID3v2 frame gave its size in the form of the other version, a plain number in ID3v2.4 or a syncsafe one in ID3v2.3, and was read in that form."}
+   {:id :id3/utf8-latin1 :level :info
+    :doc "ID3 text declared ISO-8859-1 was UTF-8, and was read as UTF-8."}
+   {:id :id3/utf16-bom :level :info
+    :doc "ID3 text declared UTF-16 had no byte order mark, and its byte order was taken from where its zero bytes fall."}
+   {:id :id3/image-type :level :info
+    :doc "The type of an ID3 picture was loose, such as JPG or image/jpg, or missing, and was taken from the bytes of the image."}
+   {:id :id3/chapter-end :level :info
+    :doc "An ID3 chapter ended at or before its start, and its end was left out."}
+   {:id :id3/second-tag :level :info
+    :doc "A second ID3v2 tag followed the first, as a writer that adds a tag in front of another leaves it, and was read too."}
+   {:id :id3/skipped-frame :level :info
+    :doc "An ID3v2 frame was compressed or encrypted, and was skipped."}
+   {:id :id3/malformed :level :warning
+    :doc "An ID3v2 frame could not be read; the frames before it were kept."}
+   {:id :id3/padding-junk :level :info
+    :doc "Bytes other than zeros lay in the padding after the ID3v2 frames, as a writer that does not clear the padding leaves them, or as a frame of a wrong size makes it seem."}
+   {:id :mp3/junk-before-audio :level :info
+    :doc "Bytes that are no MPEG audio frame, such as padding that the size of the tag leaves out, lay between the tags and the first frame, and were skipped."}
+   {:id :mp3/estimated-duration :level :info
+    :doc "The MP3 file has no Xing, Info or VBRI header, so its duration was estimated from the bitrate of its first frames and its size, which is exact for a constant bitrate."}
+   {:id :mp3/no-audio :level :warning
+    :doc "No MPEG audio frame was found after the tags, so the file has no duration."}
+   {:id :mp4/zero-duration :level :info
+    :doc "The movie header of the MP4 file gave no duration, so the duration of its longest track was taken."}
+   {:id :mp4/fragments-unread :level :info
+    :doc "The MP4 file is written in fragments, and neither an mehd box nor an index at the end of the file gave the duration of all of them, so the file has no duration."}
+   {:id :mp4/no-movie :level :warning
+    :doc "The MP4 file has no movie box, so it gives neither a duration nor chapters."}
+   {:id :file/unknown-format :level :warning
+    :doc "The media file is neither MP3 nor MP4, so nothing was read from it."}
+   {:id :file/truncated :level :warning
+    :doc "The media file ends before its structures say that it does."}
+   {:id :file/malformed :level :warning
+    :doc "The media file could not be read as its format says."}
+   {:id :file/incomplete :level :warning
+    :doc "Bytes that the reading of the media file needed did not arrive, so the file was not read."}
 
    ;; validation
    {:id :validate/rss-version :level :warning

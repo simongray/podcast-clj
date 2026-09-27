@@ -6,7 +6,8 @@ podcast-clj is a Clojure library for podcast feeds and podcast apps.
 It reads RSS 2.0 feeds into plain Clojure maps, and writes the maps back as
 XML. It supports the iTunes namespace and the `podcast` namespace of
 [Podcasting 2.0](https://podcasting2.org). It also reads the files that
-feeds link to: JSON chapters, transcripts and OPML subscription lists. For
+feeds link to: JSON chapters, transcripts, OPML subscription lists, and the
+MP3 and M4A files themselves, for their chapters, duration and artwork. For
 apps, it searches the podcast directories and the Podcast Index, reads
 Podping notifications, keeps the player state, and syncs this state between
 devices.

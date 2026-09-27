@@ -133,3 +133,10 @@
   connect to list feeds of the podcast namespace. `step` counts the
   seconds heard of each show by month, one count for each device, and
   `listened` adds them up.
+- `format.media` reads the duration, the chapters and the artwork of MP3
+  and M4A files: ID3v2 tags with chapters, MPEG audio frames, and MP4
+  boxes with QuickTime or Nero chapters, also in a file written in
+  fragments. `read!` fetches only the byte ranges that the reading needs,
+  and `verify!` checks a file against its `podcast:integrity`, which
+  `resolve/enclosures` now keeps. On the JVM, `http/call!` asks for byte
+  ranges, and `http/digest!` streams a body through a digest.
