@@ -29,6 +29,10 @@ version token.
 - A store without `:list` cannot hold one document per device. It holds one
   shared document.
 
+`store/check!` tests a store through this contract, with a probe document.
+It tests a store without `:list` for one shared document, which needs a
+refused stale version. A store without `:delete` keeps the probe document.
+
 Each store namespace has two constructors. `store` makes the store over a
 place. `backend` makes the store and the backend in one call, with the
 options of both.
@@ -67,10 +71,13 @@ these options:
 |---|---|---|
 | `:strategy` | `:per-device` or `:shared` | `:per-device` if the store has `:list`, else `:shared` |
 | `:direction` | `:both`, `:pull` (read only) or `:push` (write only) | `:both` |
-| `:opml?` | Write `subscriptions.opml` next to the documents (per-device strategy only) | `false` |
+| `:opml?` | Write `subscriptions.opml` next to the documents | `false` |
 | `:app` | The name of the app, written into each document | none |
 | `:name` | The name of the backend | the name of the store |
 | `:document` | The name of the shared document | `"podcast.edn"` |
+
+With either strategy, a retired device writes nothing, and the report
+contains `:sync/retired-device`.
 
 
 ## The per-device strategy
@@ -91,8 +98,7 @@ Each device writes only its own document, `<device-id>.edn`. One step of
 
 If the version of the document of this device changed since the last step,
 another installation uses the same device id. The report then contains
-`:sync/shared-device`. A retired device writes nothing, and the report
-contains `:sync/retired-device`.
+`:sync/shared-device`.
 
 
 ## The shared strategy
@@ -107,6 +113,8 @@ All devices write one document, `podcast.edn` by default. One step of
    with `:if-version` set to the version in the cursor.
 4. If the store refuses the put, fetch the document again, merge it, and put
    again. After three such retries, stop and report `:sync/conflict`.
+5. Unless step 4 stopped, put `subscriptions.opml` if `:opml?` is true and
+   the subscriptions changed.
 
 
 ## The result of `sync!`

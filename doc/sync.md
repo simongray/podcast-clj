@@ -111,12 +111,13 @@ URL shape of a server or the folder of a sync client. These facts change.
 For this reason, podcast-clj contains none of them, and [Sync stores and
 documents](stores.md) has a dated table instead.
 
-`store/check!` tests any store that can list, through the contract. It lists
-the store, writes a probe document, puts it again with a stale version,
-reads it back and removes it. It reports the result as data, for a settings
-screen. Because it uses only the contract, it also works for future stores.
-`app.sync.webdav.server/handler` serves any store over WebDAV, so a Clojure
-server becomes a sync server with two lines of code.
+`store/check!` tests any store through the contract. It lists the store,
+writes a probe document, puts it again with a stale version, reads it back
+and removes it. It reports the result as data, for a settings screen. For a
+store that cannot list, it tests what one shared document needs: a refused
+stale version. Because `check!` uses only the contract, it also works for
+future stores. `app.sync.webdav.server/handler` serves any store over
+WebDAV, so a Clojure server becomes a sync server with two lines of code.
 
 
 ## The engine
@@ -206,10 +207,10 @@ Each device writes only its own entry, so a user interface can list the
 devices and let the listener retire one.
 
 A retirement is a tombstone of its own, under `:retired`, so the retired
-device cannot undo it by describing itself again. With one document per
-device, each device that sees the retirement deletes the document of the
-retired device, if the store can delete. The retired device then writes no
-more.
+device cannot undo it by describing itself again. A retired device writes no
+more, with either strategy. With one document per device, each device that
+sees the retirement also deletes the document of the retired device, if the
+store can delete.
 
 The registry does not keep a last-synced instant. Such an instant changes at
 each step, so each document changes at each step, and the devices never stop

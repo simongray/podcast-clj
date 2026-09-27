@@ -106,6 +106,21 @@
        (let [{:keys [ok? checks]} (store/check! (forgetful))]
          (is ok? (pr-str checks))
          (is (= [false] (map :ok? (filter #(= :store/conflicts (:id %)) checks))))))
+     (testing "a store that cannot list is tried for one shared document"
+       (let [{:keys [ok? checks]} (store/check! (dissoc (store/memory) :list))]
+         (is ok? (pr-str checks))
+         (is (= [:store/reachable :store/authenticated :store/listing :store/put :store/conflicts :store/fetch :store/delete]
+                (map :id checks)))
+         (is (= [false] (map :ok? (filter #(= :store/listing (:id %)) checks)))))
+       (let [{:keys [ok? checks]} (store/check! (dissoc (forgetful) :list))]
+         (is (not ok?) "one shared document needs a stale version refused")
+         (is (= [false] (map :ok? (filter #(= :store/conflicts (:id %)) checks))))))
+     (testing "a store that cannot delete is usable, and keeps the probe"
+       (let [documents            (atom {})
+             {:keys [ok? checks]} (store/check! (dissoc (store/memory documents) :delete))]
+         (is ok? (pr-str checks))
+         (is (= [false] (map :ok? (filter #(= :store/delete (:id %)) checks))))
+         (is (= [store/probe-name] (keys @documents)))))
      (testing "what cannot be reached, and what refuses the credentials"
        (let [{:keys [ok? checks]} (store/check! (unreachable))]
          (is (not ok?))
@@ -126,6 +141,10 @@
            (.then (fn [{:keys [ok? checks]}]
                     (is ok? (pr-str checks))
                     (is (= [false] (map :ok? (filter #(= :store/conflicts (:id %)) checks))))
+                    (store/check! (dissoc (store/memory) :list))))
+           (.then (fn [{:keys [ok? checks]}]
+                    (is ok? (pr-str checks))
+                    (is (= [false] (map :ok? (filter #(= :store/listing (:id %)) checks))))
                     (store/check! (unreachable))))
            (.then (fn [{:keys [ok? checks]}]
                     (is (not ok?))
@@ -264,7 +283,25 @@
                                                       t4)]
            (is (= [:sync/conflict] (map :id report)))
            (is (= 1500 (:position (player/episode state a))) "what was fetched along the way is kept")
-           (is (nil? (:hash (get ctx "memory"))) "nothing was written"))))))
+           (is (nil? (:hash (get ctx "memory"))) "nothing was written")))
+       (testing "the subscription list beside the document, when asked"
+         (let [documents (atom {})
+               backend   (store/backend (dissoc (store/memory documents) :list) {:opml? true})
+               phone     (sync/sync! (phone-state) [backend] t2)]
+           (is (= #{"podcast.edn" "subscriptions.opml"} (set (keys @documents))))
+           (is (str/includes? (:body (@documents "subscriptions.opml")) "https://a/rss"))
+           (sync/sync! (:state phone) [backend] t3 {:ctx (:ctx phone)})
+           (is (= "1" (:version (@documents "subscriptions.opml"))) "and not again while the subscriptions stay")))
+       (testing "a retired device writes nothing"
+         (let [documents (atom {})
+               backend   (store/backend (dissoc (store/memory documents) :list))
+               phone     (sync/sync! (phone-state) [backend] t2)
+               _         (sync/sync! (player/retire (laptop-state) "phone" t3) [backend] t3)
+               written   (:version (@documents "podcast.edn"))
+               phone2    (sync/sync! (player/prefer (:state phone) {:rate 2.0} t4) [backend] t4 {:ctx (:ctx phone)})]
+           (is (player/retired? (:state phone2) "phone") "it learns of its retirement")
+           (is (= [:sync/retired-device] (map :id (:report phone2))))
+           (is (= written (:version (@documents "podcast.edn"))) "and the shared document stays as it was"))))))
 
 #?(:clj
    (deftest several-backends-one-failing
