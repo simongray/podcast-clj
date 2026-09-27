@@ -10,7 +10,10 @@
     (is (= (guid/from-url "podnews.net/rss")
            (guid/from-url "https://podnews.net/rss")
            (guid/from-url "http://podnews.net/rss/")
-           (guid/from-url "  podnews.net/rss//  ")))))
+           (guid/from-url "  podnews.net/rss//  "))))
+  (testing "a long run of slashes inside the URL is kept, and read in linear time"
+    (let [slashes (apply str (repeat 100000 "/"))]
+      (is (= (str "a" slashes "b") (guid/guid-name (str "https://a" slashes "b/")))))))
 
 (deftest sha1
   (is (= "a9993e364706816aba3e25717850c26c9cd0d89d" (guid/sha1-hex "abc")))

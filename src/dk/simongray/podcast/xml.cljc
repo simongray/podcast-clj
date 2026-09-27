@@ -184,6 +184,20 @@
   [message cause]
   (ex-info (str "Malformed XML: " message) {:type ::malformed} cause))
 
+(def max-depth
+  "How deep elements may nest in a document the parsers read, the root being
+  at 1: deeper than any feed goes, and shallow enough for every walk of the
+  tree to recurse on a thread with a stack of the default size. A document
+  nested deeper is malformed."
+  256)
+
+(defn ^:no-doc check-depth
+  "Throw `::malformed` when an element at `depth` nests deeper than
+  `max-depth`."
+  [depth]
+  (when (> depth max-depth)
+    (throw (malformed (str "elements nest deeper than " max-depth " levels") nil))))
+
 (defn- document
   "The document in `xml`, ready to read.
 
@@ -206,8 +220,11 @@
                      (.setProperty XMLInputFactory/IS_SUPPORTING_EXTERNAL_ENTITIES false)
                      (.setProperty XMLInputFactory/IS_REPLACING_ENTITY_REFERENCES true))]
        ;; Recent JDKs cap a single text node at 100,000 characters, which show
-       ;; notes exceed in the wild. With DTDs off the limits guard nothing.
-       (doseq [limit ["jdk.xml.maxGeneralEntitySizeLimit" "jdk.xml.totalEntitySizeLimit"]]
+       ;; notes exceed in the wild, and JDK 24 caps nesting at 100 levels. With
+       ;; DTDs off the entity limits guard nothing, and read-element checks the
+       ;; depth itself, the same on every JDK and in JavaScript.
+       (doseq [limit ["jdk.xml.maxGeneralEntitySizeLimit" "jdk.xml.totalEntitySizeLimit"
+                      "jdk.xml.maxElementDepth"]]
          (try
            (.setProperty factory limit "0")
            (catch Exception _)))
@@ -255,17 +272,18 @@
 (declare read-element)
 
 (defn- read-children
-  "The raw children of the element at `x`, its elements and its text.
+  "The raw children of the element at `x`, its elements and its text, which
+  nest at `depth`.
 
   They are read from the StAX reader up to the element's end tag on the
   JVM, and from the child nodes of the DOM element in JavaScript."
-  [x]
+  [x depth]
   #?(:clj  (let [^XMLStreamReader r x]
              (loop [acc (transient [])]
                (let [event (.next r)]
                  (cond
                    (= event XMLStreamConstants/START_ELEMENT)
-                   (recur (conj! acc (read-element r)))
+                   (recur (conj! acc (read-element r depth)))
 
                    (or (= event XMLStreamConstants/CHARACTERS)
                        (= event XMLStreamConstants/CDATA)
@@ -281,20 +299,22 @@
              (keep (fn [i]
                      (let [node (.item nodes i)]
                        (case (.-nodeType node)
-                         1     (read-element node)
+                         1     (read-element node depth)
                          (3 4) (.-nodeValue node)
                          nil)))
                    (range (.-length nodes))))))
 
 (defn- read-element
-  "The raw Hiccup of the element at `x`, with its subtree.
+  "The raw Hiccup of the element at `x`, with its subtree, the element
+  nesting at `depth`, 1 for the root; see `check-depth`.
 
   `x` is a StAX reader on the element's start tag on the JVM, and a DOM
   element in JavaScript."
-  [x]
+  [x depth]
+  (check-depth depth)
   (let [head (start-tag x)]
     ;; the start tag first: on the JVM, reading the children moves past it
-    (into head (compact-text (read-children x)))))
+    (into head (compact-text (read-children x (inc depth))))))
 
 (defn parse-raw
   "Parse `xml` into raw Hiccup: names as written, declarations kept as
@@ -303,21 +323,22 @@
 
   `xml` is a string; on the JVM it may also be an InputStream, which lets the
   parser honour the document's own encoding declaration, or a Reader. A
-  document the parser rejects throws an ex-info of type `::malformed`."
+  document the parser rejects throws an ex-info of type `::malformed`, and
+  so does one whose elements nest deeper than `max-depth`."
   [xml]
   #?(:clj
      (let [^XMLStreamReader r (document xml)]
        (try
          (loop []
            (if (= (.next r) XMLStreamConstants/START_ELEMENT)
-             (read-element r)
+             (read-element r 1)
              (recur)))
          (catch XMLStreamException e
            (throw (malformed (.getMessage e) e)))
          (finally
            (.close r))))
      :cljs
-     (read-element (document xml))))
+     (read-element (document xml) 1)))
 
 (defn- split-qname
   "Split the raw XML name `s` into `[prefix local]`, `prefix` nil when absent."
@@ -337,11 +358,11 @@
         attrs))
 
 (defn- resolve-name
-  "Resolve the raw name `s` in `scope`; returns `[keyword problem]` where
-  `problem` is nil unless the prefix was undeclared or its URI unknown. An
-  unknown URI keeps the prefix as its alias and is reported with the URI, so
-  that `emit` can declare it again."
-  [uri->alias scope s]
+  "Resolve the raw name `s` in `scope`, a map from prefix to `[uri alias]`;
+  returns `[keyword problem]` where `problem` is nil unless the prefix was
+  undeclared or its URI unknown. An unknown URI keeps the prefix as its
+  alias and is reported with the URI, so that `emit` can declare it again."
+  [scope s]
   (let [[prefix local] (split-qname s)]
     (cond
       (nil? prefix)
@@ -351,8 +372,8 @@
       [(keyword "xml" local) nil]
 
       :else
-      (if-let [uri (get scope prefix)]
-        (if-let [alias (uri->alias uri)]
+      (if-let [[uri alias] (get scope prefix)]
+        (if alias
           [(keyword (name alias) local) nil]
           [(keyword prefix local)
            {:id :xml/unknown-namespace :level :info :prefix prefix :uri uri}])
@@ -362,26 +383,28 @@
 (defn- resolve-attrs
   "Resolve the attribute names in `attrs`, dropping the xmlns declarations;
   returns `[attrs problems]`."
-  [uri->alias scope problems attrs]
+  [scope problems attrs]
   (reduce-kv (fn [[m problems] k v]
                (if (or (= k "xmlns") (str/starts-with? k "xmlns:"))
                  [m problems]
-                 (let [[k' problem] (resolve-name uri->alias scope k)]
+                 (let [[k' problem] (resolve-name scope k)]
                    [(assoc m k' v) (cond-> problems problem (conj problem))])))
              [{} problems]
              attrs))
 
 (defn- resolve-element
-  "Resolve `[tag attrs & children]` in `scope`; returns `[element problems]`."
+  "Resolve `[tag attrs & children]` in `scope`, prefix to `[uri alias]`;
+  returns `[element problems]`. The alias of a declared URI is looked up
+  once, where it is declared, not again for every name that uses it."
   [uri->alias scope problems [tag attrs & children]]
   (let [decls           (declarations attrs)
-        scope           (into scope (remove (comp nil? key)) decls)
+        scope           (into scope (keep (fn [[prefix uri]] (when prefix [prefix [uri (uri->alias uri)]]))) decls)
         problems        (cond-> problems
                           (contains? decls nil)
                           (conj {:id :xml/default-namespace :level :info :uri (get decls nil)}))
-        [tag' problem]  (resolve-name uri->alias scope tag)
+        [tag' problem]  (resolve-name scope tag)
         problems        (cond-> problems problem (conj problem))
-        [attrs' problems] (resolve-attrs uri->alias scope problems attrs)
+        [attrs' problems] (resolve-attrs scope problems attrs)
         [children' problems] (reduce (fn [[acc problems] child]
                                        (if (string? child)
                                          [(conj acc child) problems]

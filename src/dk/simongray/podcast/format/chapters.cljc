@@ -198,7 +198,9 @@
   such lines make a list when the time comes first, three in rising order
   when it comes last. The report says the chapters were inferred."
   [s]
-  (let [lines    (str/split-lines (html/text (html/hiccup s)))
+  ;; the patterns' optional parts meet around runs of spaces, over which they
+  ;; would backtrack quadratically, so each run is one space first
+  (let [lines    (map #(str/replace % #"\s+" " ") (str/split-lines (html/text (html/hiccup s))))
         leading  (keep #(line-chapter timestamp-first true %) lines)
         trailing (keep #(line-chapter timestamp-last false %) lines)
         chapters (cond

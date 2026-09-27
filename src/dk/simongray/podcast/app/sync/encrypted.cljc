@@ -40,6 +40,12 @@
   per salt."
   600000)
 
+(def max-iterations
+  "The most PBKDF2 iterations an envelope may ask for, ten times the
+  default: a document asking for more is not taken for an envelope, since
+  deriving its key would hold a device up for minutes."
+  (* 10 default-iterations))
+
 (defn- ->base64
   [bytes]
   #?(:clj  (.encodeToString (Base64/getEncoder) ^bytes bytes)
@@ -124,12 +130,13 @@
 
 (defn envelope
   "The envelope in the string `s`, when it is one: `{:encrypted :cipher :kdf
-  :iterations :salt :iv :data}`; nil for anything else, a plain document
-  included."
+  :iterations :salt :iv :data}`, its iterations at least one and at most
+  `max-iterations`; nil for anything else, a plain document included."
   [s]
   (when (and (string? s) (str/starts-with? s "{:encrypted"))
-    (let [m (try (edn/read-string s) (catch #?(:clj Exception :cljs :default) _ nil))]
-      (when (and (map? m) (integer? (:encrypted m)) (string? (:salt m)) (string? (:iv m)) (string? (:data m)))
+    (let [m (try (edn/read-string s) (catch #?(:clj Throwable :cljs :default) _ nil))]
+      (when (and (map? m) (integer? (:encrypted m)) (string? (:salt m)) (string? (:iv m)) (string? (:data m))
+                 (integer? (:iterations m)) (<= 1 (:iterations m) max-iterations))
         m))))
 
 (defn- seal-with

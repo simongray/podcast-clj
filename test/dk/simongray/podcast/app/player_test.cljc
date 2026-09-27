@@ -202,6 +202,27 @@
     (is (= 2 (:zoom merged)) "unless only the other device has it")
     (is (= (dissoc (player/merge laptop phone) :device :theme) (dissoc merged :device :theme)))))
 
+(deftest what-another-device-may-not-send
+  (testing "what the operations write passes"
+    (is (nil? (player/problem (-> (player/state "phone")
+                                  (player/subscribe "feed-a" {:url "https://a/rss"} t0)
+                                  (player/configure "feed-a" {:skip-intro 20} t0)
+                                  (player/progress a 100 3600 t1)
+                                  (player/enqueue b t1)
+                                  (player/acknowledge [(player/subscribe (player/state "laptop") "feed-b" {:url "https://b/rss"} t0)] t2))))))
+  (testing "what would make an operation throw on every device it reached"
+    (doseq [[state found] [[{:clock "now"} #"clock"]
+                           [{:episodes {a {:updated-at "soon" :device "x"}}} #"stamped \"soon\""]
+                           [{:subscriptions [1 2 3]} #":subscriptions is not a map"]
+                           [{:episodes {a "x"}} #"not a map"]
+                           [{:queue {a {:rank "V!" :updated-at t0 :device "x"}}} #"not a rank"]
+                           [{:devices {"x" {:seen {"y" 5} :updated-at t0 :device "x"}}} #"seen"]]]
+      (is (re-find found (str (player/problem state))) (pr-str state)))))
+
+(deftest merging-entries-with-keys-of-any-kind
+  (let [s (player/identify (player/state "phone") {:name "Phone" "custom" 1} t0)]
+    (is (= s (player/merge s s)) "an entry ties with itself, and its keys still sort")))
+
 (deftest devices-and-the-clock
   (let [s (-> (player/state "phone-id")
               (player/identify {:name "Simon's phone" :platform "ios"} t0)

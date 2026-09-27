@@ -26,6 +26,16 @@
     (is (nil? (time/parse-rfc2822 "yesterday")))
     (is (nil? (time/parse-rfc2822 "")))))
 
+(deftest spaces-before-and-after-the-zone
+  (testing "still read"
+    (is (= #inst "2026-09-25T14:42:40Z" (time/parse-rfc2822 "Fri, 25 Sep 2026 16:42:40   +0200  ")))
+    (is (= #inst "2026-09-25T16:42:40Z" (time/parse-rfc2822 "Fri, 25 Sep 2026 16:42:40GMT")))
+    (is (= #inst "2021-09-26T13:30:00Z" (time/parse-iso8601 "2021-09-26T07:30:00 -06:00"))))
+  (testing "a long run of them that leads nowhere is given up in linear time, not quadratic"
+    (let [spaces (apply str (repeat 100000 " "))]
+      (is (nil? (time/parse-rfc2822 (str "01 Jan 2020" spaces "!"))))
+      (is (nil? (time/parse-iso8601 (str "2020-01-01T10:00" spaces "!")))))))
+
 (deftest iso8601
   (is (= #inst "2021-09-26T13:30:00Z" (time/parse-iso8601 "2021-09-26T07:30:00.000-0600")))
   (is (= #inst "2021-09-26T13:30:00.250Z" (time/parse-iso8601 "2021-09-26T13:30:00.25Z")))

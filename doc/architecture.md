@@ -313,6 +313,13 @@ same raw Hiccup as that of the strict parser, so all later steps are shared.
 jsoup is optional, and `parse` finds it with `requiring-resolve`. Without
 jsoup, `parse` throws the error of the strict parser.
 
+Elements can nest 256 levels deep, the value of `xml/max-depth`. A document
+that nests deeper is malformed, with or without jsoup, on every JDK and in
+JavaScript. So each walk of the tree stays in the stack of a thread of the
+default size. JDK 24 limits the nesting to 100 levels by default, and older
+JDKs have no limit. podcast-clj turns off the limit of the JDK and checks
+the depth itself.
+
 Each quirk has an id, a level and a one-line description. `parse` applies
 all quirks. `{:quirks? false}` gives the strict path alone, and `:except`
 leaves out the repairs and quirks that it names. The yes/no rule comes from
@@ -359,11 +366,14 @@ list and the source agree.
   thirty elements, such as paragraphs, breaks, links, emphasis, lists,
   headings and images. Some descriptions also contain tables, unclosed
   paragraphs and list items, or tags from word processors. A small lenient
-  parser reads them the way that a browser does. It has no dependency, so
-  the JVM and JavaScript give the same result. `sanitize` keeps the
-  elements, attributes and URL schemes that an app can render safely, and
-  removes scripts and similar elements. Hiccup is the center, because a
-  Clojure app gives Hiccup directly to its renderer.
+  parser reads them the way that a browser does. Like a browser, it nests
+  elements at most 512 levels deep, the value of `html/max-depth`. It has
+  no dependency, so the JVM and JavaScript give the same result. `sanitize`
+  keeps the elements, attributes and URL schemes that an app can render
+  safely, and removes scripts and similar elements. Before it checks the
+  scheme of a URL, it removes what a browser removes: tabs and line breaks
+  anywhere, and control characters at the start. Hiccup is the center,
+  because a Clojure app gives Hiccup directly to its renderer.
 - **Value** (`value`) finds the value block that applies to an item, and
   divides amounts into shares and fees. With time splits, it finds the
   recipients at a position in the episode. It is arithmetic only, and it

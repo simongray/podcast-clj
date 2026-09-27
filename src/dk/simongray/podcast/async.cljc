@@ -22,9 +22,11 @@
 (defn attempt
   "`(f)` as `{:value v}`, or `{:error e}` when it threw or, in
   ClojureScript, rejected; deferred, on a future of its own on the JVM, so
-  that several attempts run at once and `all` waits for them."
+  that several attempts run at once and `all` waits for them. On the JVM an
+  error counts too, such as the StackOverflowError of deeply nested input,
+  as anything thrown does in ClojureScript."
   [f]
-  #?(:clj  (future (try {:value (f)} (catch Exception e {:error e})))
+  #?(:clj  (future (try {:value (f)} (catch Throwable e {:error e})))
      :cljs (-> (js/Promise.resolve nil)
                (.then (fn [_] (f)))
                (.then (fn [v] {:value v}))

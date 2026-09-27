@@ -76,7 +76,9 @@
   (-> url
       str/trim
       (str/replace #"^[a-zA-Z][a-zA-Z0-9+.-]*://" "")
-      (str/replace #"/+$" "")))
+      ;; a match may start only where a run of slashes starts: /+$ alone is
+      ;; tried again from every slash of a long run, quadratically
+      (str/replace #"(^|[^/])/+$" "$1")))
 
 (defn from-url
   "The `podcast:guid` a feed at `url` is assigned when its author has not

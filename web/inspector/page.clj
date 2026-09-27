@@ -67,6 +67,14 @@
   (str route "?url=" (http/encode url)
        (apply str (for [[k v] params :when v] (str "&" (name k) "=" (http/encode v))))))
 
+(defn- link
+  "The URL `url`, which a feed chose, when a link may lead there: over http
+  or https. Nil otherwise, which leaves the attribute out, so that a
+  `javascript:` URL is never a link."
+  [url]
+  (when (re-find #"(?i)^https?://" (str url))
+    url))
+
 (defn home
   "The landing page: a URL form and the corpus, `corpus` being a seq of
   `[name url]`."
@@ -178,7 +186,7 @@
       (when (resolve/explicit? feed item)
         [:span.muted " · explicit"])]
      [:td (when url
-            [:span [:a {:href url} (or type "media")]
+            [:span [:a {:href (link url)} (or type "media")]
              (when (number? length) [:span.muted (str " · " (quot length 1000000) " MB")])
              (when (> alternatives 1) [:span.muted (str " · " alternatives " sources")])])]
      [:td (concat
@@ -192,7 +200,7 @@
            (when (resolve/value feed item) [[:span.badge "value"]])
            (when (seq (:podcast/soundbites item)) [[:span.badge "soundbites"]])
            (when (seq (:podcast/social-interacts item)) [[:span.badge "social"]])
-           (when-let [art (resolve/artwork item)] [[:span.badge [:a {:href art} "artwork"]]])
+           (when-let [art (resolve/artwork item)] [[:span.badge [:a {:href (link art)} "artwork"]]])
            (for [[tag] (:xml/unknown item)] [:span.badge.muted (str tag)]))]]))
 
 (defn- selection-form
@@ -283,7 +291,7 @@
 (defn- companion-status
   "A line about a fetched companion file: `{:url :status :error :parsed}`."
   [{:keys [url status error]} label]
-  [:p.muted label " " [:a {:href url} url]
+  [:p.muted label " " [:a {:href (link url)} url]
    (when status (str " · HTTP " status))
    (when error [:span.error (str " · " error)])])
 
@@ -315,7 +323,7 @@
              [:td (or title [:span.muted "(silent chapter)"])
               (when (false? toc) [:span.badge.muted "hidden"])
               (when location [:span.badge (str (:name location) " " (:geo location))])]
-             [:td (when url [:a {:href url} "link"]) " " (when img [:a {:href img} "image"])]])]])))))
+             [:td (when url [:a {:href (link url)} "link"]) " " (when img [:a {:href (link img)} "image"])]])]])))))
 
 (defn- transcript-section
   "The transcript chosen for an item, fetched and parsed, with its report."
@@ -421,7 +429,7 @@
                 [:tr
                  [:td (name source) (when default " (default)")]
                  [:td type]
-                 [:td [:a {:href url} url]]
+                 [:td [:a {:href (link url)} url]]
                  [:td (str/join " · " (remove nil? details))]])]]
             (chapters-section companions)
             (transcript-section companions)

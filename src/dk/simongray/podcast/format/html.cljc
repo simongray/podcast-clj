@@ -47,6 +47,18 @@
    "th"     [#{"td" "th"} #{"tr" "table"}]
    "option" [#{"option"} #{"select"}]})
 
+(def ^:no-doc paragraph-scope
+  "The elements that bound the search for an open p: block-level ones, list
+  items and table cells."
+  (into block-elements #{"li" "td" "th" "dt" "dd" "body"}))
+
+(def max-depth
+  "How deep `parse` nests elements, as deep as WebKit and Chromium nest them:
+  an element opened deeper still is kept, empty, and its content goes to
+  the element it stands in, so that no walk of the tree recurses without
+  bound."
+  512)
+
 (defn- tag-name
   [node]
   (name (first node)))
@@ -72,56 +84,80 @@
   [token]
   (str/lower-case (second (re-find #"</([a-zA-Z][\w:.-]*)" token))))
 
+;; The parse state is `{:stack [...] :open {...}}`: the open elements, the
+;; root first, and how many are open by tag, so that an end tag nothing
+;; matches costs nothing to ignore.
+
+(defn ^:no-doc merge-text
+  "The element `node` with each run of adjacent strings among its children
+  joined into one."
+  [node]
+  (into [] (comp (partition-by string?) (mapcat #(if (string? (first %)) [(apply str %)] %))) node))
+
 (defn- append
-  "Append `child` to the element on top of `stack`, merging text with a
-  preceding text node."
-  [stack child]
-  (let [top (peek stack)
-        top (if (and (string? child) (string? (peek top)) (> (count top) 2))
-              (conj (pop top) (str (peek top) child))
-              (conj top child))]
-    (conj (pop stack) top)))
+  "Append `child` to the element on top of the parse `state`."
+  [state child]
+  (update state :stack #(conj (pop %) (conj (peek %) child))))
+
+(defn- push
+  "Open the element `node` on top of the parse `state`."
+  [state node]
+  (-> state
+      (update :stack conj node)
+      (update-in [:open (tag-name node)] (fnil inc 0))))
 
 (defn- close-top
-  "Pop the element on top of `stack` into its parent."
-  [stack]
+  "Close the element on top of the parse `state` into its parent, its text
+  joined once rather than on every token."
+  [{:keys [stack] :as state}]
   (let [top (peek stack)]
-    (append (pop stack) top)))
+    (-> state
+        (assoc :stack (pop stack))
+        (update-in [:open (tag-name top)] dec)
+        (append (merge-text top)))))
+
+(defn ^:no-doc open-index
+  "The index in the stack of the parse `state` of the nearest open element
+  whose tag is in `names`, searching from the top and giving up at one of
+  `boundaries`; nil when there is none."
+  [{:keys [stack open]} names boundaries]
+  (when (some #(pos? (get open % 0)) names)
+    (loop [i (dec (count stack))]
+      (when (pos? i)
+        (let [tag (tag-name (nth stack i))]
+          (cond
+            (names tag)      i
+            (boundaries tag) nil
+            :else            (recur (dec i))))))))
 
 (defn- close-through
   "Close open elements from the top down to and including the nearest one
-  whose tag is in `names`, stopping without closing anything when one of
-  `boundaries` is met first or none of `names` is open."
-  [stack names boundaries]
-  (let [open (map tag-name (rest stack))
-        hit  (->> (reverse open) (take-while #(not (boundaries %))) (some names))]
-    (if-not hit
-      stack
-      (loop [stack stack]
-        (let [top (peek stack)
-              stack (close-top stack)]
-          (if (names (tag-name top)) stack (recur stack)))))))
+  whose tag is in `names`, closing nothing when one of `boundaries` is met
+  first or none of `names` is open."
+  [state names boundaries]
+  (if-let [i (open-index state names boundaries)]
+    (nth (iterate close-top state) (- (count (:stack state)) i))
+    state))
 
 (defn- open-paragraph?
-  "Whether the nearest open block-level element of `stack` is a p."
-  [stack]
-  (= "p" (some #(when (or (block-elements %) (#{"li" "td" "th" "dt" "dd" "body"} %)) %)
-               (reverse (map tag-name (rest stack))))))
+  "Whether the nearest open block-level element of the parse `state` is a p."
+  [state]
+  (some? (open-index state #{"p"} paragraph-scope)))
 
 (defn- open-element
   "Push or append the element `name` with `attrs`, closing what its start
-  tag implies."
-  [stack name attrs self-closing?]
-  (let [stack (if (and (block-elements name) (open-paragraph? stack))
-                (close-through stack #{"p"} #{})
-                stack)
-        stack (if-let [[names boundaries] (implied-end name)]
-                (close-through stack names boundaries)
-                stack)
+  tag implies; past `max-depth`, append it."
+  [state name attrs self-closing?]
+  (let [state (if (and (block-elements name) (open-paragraph? state))
+                (close-through state #{"p"} #{})
+                state)
+        state (if-let [[names boundaries] (implied-end name)]
+                (close-through state names boundaries)
+                state)
         node  [(keyword name) attrs]]
-    (if (or (void-elements name) self-closing?)
-      (append stack node)
-      (conj stack node))))
+    (if (or (void-elements name) self-closing? (> (count (:stack state)) max-depth))
+      (append state node)
+      (push state node))))
 
 (defn- token-kind
   [token]
@@ -144,26 +180,26 @@
   straight into a parent element: `[:div (parse s)]`."
   [s]
   (loop [tokens (re-seq token-pattern (str s))
-         stack  [[:root {}]]]
+         state  {:stack [[:root {}]] :open {}}]
     (if-let [token (first tokens)]
       (let [tokens (rest tokens)
-            raw    (raw-text-elements (tag-name (peek stack)))]
+            raw    (raw-text-elements (tag-name (peek (:stack state))))]
         (cond
           (and raw (not (and (= :end (token-kind token)) (= raw (end-tag token)))))
-          (recur tokens (append stack token))
+          (recur tokens (append state token))
 
           :else
           (case (token-kind token)
-            :text        (recur tokens (append stack (xml/decode-entities token)))
-            :cdata       (recur tokens (append stack (str/replace token #"^<!\[CDATA\[|\]\]>$" "")))
+            :text        (recur tokens (append state (xml/decode-entities token)))
+            :cdata       (recur tokens (append state (str/replace token #"^<!\[CDATA\[|\]\]>$" "")))
             :start       (let [[name attrs self-closing?] (start-tag token)]
-                           (recur tokens (open-element stack name attrs self-closing?)))
-            :end         (recur tokens (close-through stack #{(end-tag token)} #{}))
-            (recur tokens stack))))
-      (loop [stack stack]
-        (if (= 1 (count stack))
-          (apply list (drop 2 (peek stack)))
-          (recur (close-top stack)))))))
+                           (recur tokens (open-element state name attrs self-closing?)))
+            :end         (recur tokens (close-through state #{(end-tag token)} #{}))
+            (recur tokens state))))
+      (loop [state state]
+        (if (= 1 (count (:stack state)))
+          (apply list (drop 2 (merge-text (peek (:stack state)))))
+          (recur (close-top state)))))))
 
 (def allowed-tags
   "The elements `sanitize` keeps."
@@ -199,9 +235,14 @@
   #{:ul :ol :dl :table :thead :tbody :tfoot :tr})
 
 (defn- safe-url?
-  "Whether the URL `s` is relative or uses a scheme a client may follow."
+  "Whether the URL `s` is relative or uses a scheme a client may follow,
+  judged as a browser reads it: without the tabs and line breaks it drops
+  anywhere, and the control characters and spaces it drops in front, so
+  that `java&#9;script:` is `javascript:` here too."
   [s]
-  (let [s (str/trim (str s))]
+  (let [s (-> (str s)
+              (str/replace #"[\t\n\r]" "")
+              (str/replace #"^[\x00-\x20]+" ""))]
     (or (not (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:" s))
         (boolean (re-find #"(?i)^(?:https?|mailto):" s)))))
 
@@ -276,12 +317,19 @@
   [s]
   (str/replace s #"\s+" " "))
 
-(defn- tidy
-  "Trim the rendered `s` and reduce its blank lines to one."
+(defn- trim-blanks
+  "`s` without the spaces and tabs at its ends, found without a regular
+  expression: `[ \\t]+$` is tried again from every blank of a long run."
   [s]
-  (-> s
-      (str/replace #"[ \t]+\n" "\n")
-      (str/replace #"\n[ \t]+" "\n")
+  (let [blank? #(contains? #{\space \tab} (nth s %))
+        end    (loop [i (count s)] (if (and (pos? i) (blank? (dec i))) (recur (dec i)) i))
+        start  (loop [i 0] (if (and (< i end) (blank? i)) (recur (inc i)) i))]
+    (subs s start end)))
+
+(defn- tidy
+  "Trim the rendered `s` and its lines, and reduce its blank lines to one."
+  [s]
+  (-> (str/join "\n" (map trim-blanks (str/split-lines s)))
       (str/replace #"\n{3,}" "\n\n")
       str/trim))
 

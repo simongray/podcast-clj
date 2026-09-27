@@ -139,7 +139,9 @@
 
 (defn- strip-tags
   [s]
-  (str/replace s #"<[^>]*>" ""))
+  ;; [^<>] rather than [^>], so that a < with no > after it is given up at
+  ;; the next <, not at the end of the text, once for every < there is
+  (str/replace s #"<[^<>]*>" ""))
 
 (defn- vtt-cue
   "The segment for a WebVTT cue block, reading `<v Speaker>` voice spans and,
@@ -148,7 +150,7 @@
   (let [[timing & payload] (if (re-find timing-pattern (first lines)) lines (rest lines))]
     (when-let [[_ from to] (some->> timing (re-find timing-pattern))]
       (let [text            (str/join "\n" payload)
-            voice           (second (re-find #"<v(?:\.[^\s>]*)?\s+([^>]+)>" text))
+            voice           (second (re-find #"<v(?:\.[^\s<>]*)?\s+([^<>]+)>" text))
             plain           (xml/decode-entities (str/trim (strip-tags text)))
             [prefixed body] (if voice [nil plain] (speaker-prefix stats plain))
             speaker         (or voice prefixed)]
@@ -227,8 +229,11 @@
        (str/join "\n\n")))
 
 (def ^:no-doc html-token-pattern
-  "A `<cite>`, `<time>` or `<p>` element and its content."
-  #"(?is)<(cite|time|p)(?:\s[^>]*)?>(.*?)</\1>")
+  "A `<cite>`, `<time>` or `<p>` element and its content, which ends at its
+  end tag or, the end tag of a p being optional in HTML, at the next p or
+  the end of the text, so that an unclosed p is read, and not searched to
+  the end of the text for an end tag once for every p there is."
+  #"(?is)<(cite|time|p)(?:\s[^>]*)?>(.*?)(?:</\1>|(?=<p\b)|$)")
 
 (defn- html-tokens
   "The `[tag text]` pairs of the cite, time and p elements in `s`, in order."

@@ -491,16 +491,26 @@
           state
           (:subscriptions list)))
 
+(defn- key-order
+  "The order `printed` puts the keys of an entry in: keywords as `compare`
+  puts them, and after them every other key by its printed form, so that
+  any two keys compare."
+  [a b]
+  (if (and (keyword? a) (keyword? b))
+    (compare a b)
+    (compare [(if (keyword? a) 0 1) (pr-str a)] [(if (keyword? b) 0 1) (pr-str b)])))
+
 (defn- printed
   "The entry `e` printed with its keys in order, the same string for the
   same entry on either platform."
   [e]
-  (pr-str (into (sorted-map) e)))
+  (pr-str (into (sorted-map-by key-order) e)))
 
 (defn- later
   "The later of the stamped entries `a` and `b`; on the same instant the
   device decides, and failing that the content as printed, so that the
-  choice is the same whichever side asks, on whichever platform."
+  choice is the same whichever side asks, on whichever platform. Equal
+  entries, which two states that agree tie on everywhere, are not printed."
   [a b]
   (let [ms (fn [x] (or (some-> (:updated-at x) inst-ms) 0))]
     (cond
@@ -508,6 +518,7 @@
       (nil? b)               a
       (> (ms a) (ms b))      a
       (< (ms a) (ms b))      b
+      (= a b)                a
       :else                  (if (pos? (compare [(str (:device a)) (printed a)]
                                                 [(str (:device b)) (printed b)]))
                                a
@@ -539,6 +550,54 @@
   (reduce (fn [m k] (assoc m k (join (get a k) (get b k))))
           {:device (:device a)}
           (disj (into (set (keys a)) (keys b)) :device)))
+
+(def ^:no-doc collections
+  "The keys of a state that hold maps of entries."
+  [:subscriptions :settings :episodes :queue :preferences :devices :retired])
+
+(defn- stamp-problem
+  "The first stamped entry in `v`, at `path`, whose stamp is not an instant,
+  described; nil when there is none."
+  [path v]
+  (cond
+    (stamped? v) (when-not (inst? (:updated-at v))
+                   (str "the entry at " (pr-str path) " is stamped " (pr-str (:updated-at v))
+                        ", not an instant"))
+    (map? v)     (some (fn [[k x]] (stamp-problem (conj path k) x)) v)
+    :else        nil))
+
+(defn problem
+  "What in `state`, as another device wrote it, breaks what `merge` and the
+  operations here rely on, described; nil when nothing does. Merged in,
+  such a value would reach every device, and there the first operation to
+  meet it would throw: a clock or a stamp that is not an instant, a
+  collection or an entry that is not a map, a rank in the queue that is
+  not a rank, or a device's record of what it has seen that is not a map
+  of instants."
+  [state]
+  (or (when-not (map? state)
+        "the state is not a map")
+      (when-some [clock (:clock state)]
+        (when-not (inst? clock)
+          (str "the clock is " (pr-str clock) ", not an instant")))
+      (some (fn [k]
+              (when-some [entries (get state k)]
+                (if (map? entries)
+                  (some (fn [[id entry]]
+                          (when-not (map? entry)
+                            (str "the entry at " (pr-str [k id]) " is not a map")))
+                        entries)
+                  (str k " is not a map"))))
+            collections)
+      (stamp-problem [] state)
+      (some (fn [[id {:keys [rank]}]]
+              (when (and (some? rank) (not (rank/rank? rank)))
+                (str "the rank of " (pr-str id) " in the queue is " (pr-str rank) ", not a rank")))
+            (:queue state))
+      (some (fn [[id {:keys [seen]}]]
+              (when (and (some? seen) (not (and (map? seen) (every? inst? (vals seen)))))
+                (str "what device " (pr-str id) " has seen is not a map of instants")))
+            (:devices state))))
 
 (defn- written-after
   "The part of `v` stamped after `since`: a stamped entry when it is, a map

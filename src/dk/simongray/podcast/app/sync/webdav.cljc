@@ -95,7 +95,9 @@
   "The name of the document an `href` addresses: its last path segment,
   decoded."
   [href]
-  (-> (str/replace href #"/+$" "")
+  ;; a match may start only where a run of slashes starts: /+$ alone is
+  ;; tried again from every slash of a long run, quadratically
+  (-> (str/replace href #"(^|[^/])/+$" "$1")
       (str/split #"/")
       last
       http/percent-decode))

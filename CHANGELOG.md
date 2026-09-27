@@ -47,3 +47,9 @@
   the architecture keeps each require pointing down the layers. The
   inspector is a reference web app, with a browser player that syncs through
   its own WebDAV folder.
+- Hostile input takes linear time and bounded stack. No regular expression
+  backtracks quadratically. Elements nest at most `xml/max-depth` levels in
+  XML and `html/max-depth` in HTML. `:timeout-seconds` bounds the whole
+  HTTP exchange. `sanitize` reads a URL the way a browser does.
+  `sync/read-document` refuses a state that `player/problem` finds fault
+  with, and an envelope asks for at most `encrypted/max-iterations`.

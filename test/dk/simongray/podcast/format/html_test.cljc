@@ -48,7 +48,28 @@
             [:img {:alt "pic"}]]
            (html/sanitize (html/parse dirty))))
     (is (= [[:dfn {:title "term"} "x"]]
-           (html/sanitize (html/parse "<dfn title=\"term\" class=\"c\">x</dfn>"))))))
+           (html/sanitize (html/parse "<dfn title=\"term\" class=\"c\">x</dfn>")))))
+  (testing "javascript: behind the tabs, line breaks and control characters a browser drops"
+    (doseq [href ["java&#9;script:alert(1)" "java&#10;script:alert(1)" "java&#x0D;script:alert(1)"
+                  "&#1;javascript:alert(1)" " javascript:alert(1)" "java\tscript:alert(1)"]]
+      (is (= [[:a {} "x"]] (html/sanitize (html/parse (str "<a href=\"" href "\">x</a>")))) href))))
+
+(deftest hostile-markup
+  (testing "nesting stops at max-depth, so that no walk of the tree overflows the stack"
+    (let [deep  (apply str (repeat 10000 "<span>"))
+          depth (fn depth [x] (if (vector? x) (inc (reduce max 0 (map depth (drop 2 x)))) 0))]
+      (is (>= (inc html/max-depth) (reduce max 0 (map depth (html/parse deep)))))
+      (is (= 1 (count (html/hiccup deep))))
+      (is (= "" (html/text deep)))
+      (is (string? (html/emit (html/parse deep))))))
+  (testing "end tags that close nothing are ignored at once, however deep the tree"
+    (is (= "ab" (html/text (str (apply str (repeat 500 "<span>")) "a" (apply str (repeat 50000 "</b>")) "b")))))
+  (testing "a long run of stray angle brackets is one text, read in linear time"
+    (let [text (apply str (repeat 50000 "1<"))]
+      (is (= [[:p {} text]] (html/parse (str "<p>" text))))))
+  (testing "a long run of blanks in a pre is kept, and tidied in linear time"
+    (let [blanks (apply str (repeat 100000 " "))]
+      (is (= (str "a" blanks "b") (html/text (str "<pre>a" blanks "b</pre>")))))))
 
 (deftest hiccup-for-a-client
   (testing "markup is parsed and sanitized"

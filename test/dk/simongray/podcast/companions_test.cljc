@@ -97,7 +97,21 @@
     (is (nil? (chapters/from-text "<p>Recorded at 10:30. Runtime 45:00.</p>")))
     (is (nil? (chapters/from-text "00:00 Intro")))
     (is (nil? (chapters/from-text "Doors 19:00\nShow 20:00")))
-    (is (nil? (chapters/from-text nil)))))
+    (is (nil? (chapters/from-text nil))))
+  (testing "runs of blanks are one space, and a long one is read in linear time"
+    (is (= ["Intro" "The middle bit"]
+           (map :title (:chapters (chapters/from-text "<pre>00:00  Intro\n12:34   The   middle   bit</pre>")))))
+    (is (nil? (chapters/from-text (str "<pre>12:34 a" (apply str (repeat 100000 " ")) "b</pre>"))))))
+
+(deftest transcripts-that-bend-html
+  (testing "paragraphs without their optional end tags"
+    (is (= [{:body "One" :start 0 :speaker "A"} {:body "Two" :start 0 :speaker "A"}]
+           (:segments (transcript/parse-html "<cite>A:</cite><time>0:00</time><p>One<p>Two"))))
+    (is (= 20000 (count (:segments (transcript/parse-html (apply str (repeat 20000 "<p>word "))))))
+        "read in linear time"))
+  (testing "a cue full of stray angle brackets is read in linear time"
+    (let [text (str (apply str (repeat 50000 "a <v b ")) "c")]
+      (is (= [text] (map :body (:segments (transcript/parse-vtt (str "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n" text)))))))))
 
 (deftest transcript-formats
   (let [vtt  (transcript/parse vtt-text)

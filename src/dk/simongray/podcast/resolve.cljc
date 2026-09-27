@@ -25,11 +25,19 @@
       (:googleplay/description x)))
 
 (defn- email-name
-  "The name in an RSS email field written as \"address (Name)\", else `s`."
+  "The name in an RSS email field written as \"address (Name)\", else `s`.
+  The field is cut at its first parenthesis rather than matched whole: one
+  pattern for all of it backtracks quadratically over a long address."
   [s]
-  (if-let [[_ name] (re-matches #"\s*\S+@\S+\s*\((.+)\)\s*" (str s))]
-    name
-    s))
+  (let [t    (str/trim (str s))
+        open (str/index-of t "(")
+        end  (dec (count t))]
+    (if (and open
+             (< (inc open) end)
+             (str/ends-with? t ")")
+             (re-find #"^\S+@\S+$" (str/trimr (subs t 0 open))))
+      (subs t (inc open) end)
+      s)))
 
 (defn author
   "Who made `x`: the iTunes author, the Dublin Core creator, the Google Play

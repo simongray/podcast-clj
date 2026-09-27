@@ -95,3 +95,15 @@
 
 (deftest bom
   (is (= [:a {}] (xml/parse "﻿<a/>"))))
+
+(deftest nesting-depth
+  (let [nested (fn [n] (str (apply str (repeat n "<a>")) (apply str (repeat n "</a>"))))
+        depth  (fn depth [x] (if (vector? x) (inc (reduce max 0 (map depth (xml/elements x)))) 0))]
+    (testing "a document nested as deep as max-depth is read"
+      (is (= xml/max-depth (depth (xml/parse (nested xml/max-depth))))))
+    (testing "a deeper one is malformed, before any walk of it can overflow the stack"
+      (doseq [n [(inc xml/max-depth) 10000]]
+        (is (= ::xml/malformed
+               (try (xml/parse (nested n)) nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
+                      (:type (ex-data e))))))))))

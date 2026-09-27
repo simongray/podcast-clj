@@ -20,8 +20,21 @@
     (is (= s (:state (sync/read-document (sync/document s t2)))))
     (testing "what is not a document"
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"EDN" (sync/read-document "{:version 1 :state")))
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"EDN" (sync/read-document (apply str (repeat 100000 "["))))
+          "not even when the reader runs out of stack")
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"sync document" (sync/read-document "[1 2 3]")))
-      (is (thrown? #?(:clj Exception :cljs js/Error) (sync/read-document nil))))))
+      (is (thrown? #?(:clj Exception :cljs js/Error) (sync/read-document nil))))
+    (testing "a document whose state the player cannot take"
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"cannot take"
+                            (sync/read-document (pr-str {:version 1 :state {:clock "now"}})))))))
+
+(deftest a-document-that-would-break-the-merge
+  (let [fetched [{:name "phone.edn" :body (sync/document (phone-state) t2)}
+                 {:name "poison.edn" :body (pr-str {:version 1 :device "x" :written-at t2
+                                                    :state {:episodes {a {:updated-at "soon" :device "x"}}}})}]
+        {:keys [state report]} (sync/reconcile (player/state "tablet") fetched t2)]
+    (is (= [[:sync/unreadable-document "poison.edn"]] (map (juxt :id :name) report)))
+    (is (= 100 (:position (player/episode state a))) "the other documents are merged")))
 
 (deftest reading-documents
   (let [fetched [{:name "phone.edn" :body (sync/document (phone-state) t2)}

@@ -20,12 +20,14 @@
              [(.getKey a) (.getValue a)])))
 
 (defn- node->raw
-  "Raw Hiccup for the jsoup `node`: elements and their text, nothing else."
-  [^Node node]
+  "Raw Hiccup for the jsoup `node` at `depth`, 1 for the root: elements and
+  their text, nothing else; see `xml/check-depth`."
+  [^Node node depth]
   (condp instance? node
     TextNode (.getWholeText ^TextNode node)
-    Element  (into [(.tagName ^Element node) (attrs node)]
-                   (xml/compact-text (keep node->raw (.childNodes ^Element node))))
+    Element  (do (xml/check-depth depth)
+                 (into [(.tagName ^Element node) (attrs node)]
+                       (xml/compact-text (keep #(node->raw % (inc depth)) (.childNodes ^Element node)))))
     nil))
 
 (defn- document
@@ -44,10 +46,11 @@
   "Parse `xml` (a String, or an InputStream whose charset jsoup detects) into
   raw Hiccup the way `dk.simongray.podcast.xml/parse-raw` does, but
   leniently: jsoup rejects nothing. Throws `::xml/malformed` only when the
-  document has no element in it at all."
+  document has no element in it at all, or nests deeper than
+  `xml/max-depth`."
   [xml]
   (if-let [root (first (.children (document xml)))]
-    (node->raw root)
+    (node->raw root 1)
     (throw (ex-info "Malformed XML: no root element" {:type ::xml/malformed}))))
 
 (comment

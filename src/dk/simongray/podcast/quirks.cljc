@@ -22,7 +22,9 @@
   (-> (str uri)
       str/lower-case
       (str/replace #"^https?://" "")
-      (str/replace #"/+$" "")))
+      ;; a match may start only where a run of slashes starts: /+$ alone is
+      ;; tried again from every slash of a long run, quadratically
+      (str/replace #"(^|[^/])/+$" "$1")))
 
 (def uri-variants
   "Namespace URIs seen in the wild that differ from the canonical ones by
@@ -323,9 +325,14 @@
 
 (defn- walk
   [by-tag report element]
-  (->> (xml/children element)
-       (keep #(if (string? %) % (walk by-tag report %)))
-       (into [(xml/tag element) (xml/attrs element)])
+  ;; reduce rather than a lazy keep, which costs the stack several frames
+  ;; more for every level of nesting
+  (->> (reduce (fn [acc child]
+                 (if-some [child' (if (string? child) child (walk by-tag report child))]
+                   (conj acc child')
+                   acc))
+               [(xml/tag element) (xml/attrs element)]
+               (xml/children element))
        (apply-rules by-tag report)))
 
 (defn normalize

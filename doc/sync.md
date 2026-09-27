@@ -126,11 +126,15 @@ WebDAV, so a Clojure server becomes a sync server with two lines of code.
 
 `document` writes the state of a device into an envelope, as EDN.
 `read-document` reads it back, and throws for a body that is not a sync
-document. `read-documents` reads the documents of a pull at the instant of
-the step, and `reconcile` merges their states into the local state. Both
-report problems: a device clock that runs ahead, a document that does not
-read, and a document from a newer version of podcast-clj. A reader leaves
-out a newer document, because it cannot understand all of it.
+document. It also throws for a state with a value that the merge cannot
+take, such as a stamp that is not an instant. Without this check, the
+merge gives such a value to every device, and an operation fails there.
+`player/problem` finds these values. `read-documents` reads the documents
+of a pull at the instant of the step, and `reconcile` merges their states
+into the local state. Both report problems: a device clock that runs
+ahead, a document that does not read, and a document from a newer version
+of podcast-clj. A reader leaves out a newer document, because it cannot
+understand all of it.
 
 `sync!` drives one or more backends in one step, and asks all of them at the
 same time. At each step, it acknowledges in the device registry the whole

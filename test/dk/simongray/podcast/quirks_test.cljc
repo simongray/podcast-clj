@@ -10,6 +10,18 @@
 (def quirky
   (delay (fixture "feeds/quirky.xml")))
 
+(deftest namespace-uris-with-long-runs-of-slashes
+  (testing "a trailing run is dropped for the lookup, an inner one kept"
+    (is (= :podcast (quirks/uri->alias "https://podcastindex.org/namespace/1.0///")))
+    (let [slashes (apply str (repeat 100000 "/"))]
+      (is (= (str "acme.example" slashes "ns") (quirks/uri-key (str "https://acme.example" slashes "ns"))))))
+  (testing "a feed that uses such a URI for many names parses in linear time"
+    (let [uri  (str "https://acme.example" (apply str (repeat 20000 "/")) "ns")
+          feed (podcast/parse (str "<rss version=\"2.0\" xmlns:acme=\"" uri "\"><channel><title>T</title>"
+                                   (apply str (repeat 500 "<acme:x>1</acme:x>"))
+                                   "</channel></rss>"))]
+      (is (= 500 (count (:xml/unknown feed)))))))
+
 (deftest repairs
   (testing "each repair on its own"
     (is (= "<a/>" (quirks/strip-leading-junk "﻿\n junk <a/>")))

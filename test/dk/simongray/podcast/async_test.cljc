@@ -12,6 +12,8 @@
      (is (= [1 2 3] (deferred/all [1 (future 2) 3])))
      (is (= {:value 1} @(deferred/attempt (constantly 1))))
      (is (= "boom" (deferred/explain (:error @(deferred/attempt #(throw (ex-info "boom" {})))))))
+     (is (= "deep" (deferred/explain (:error @(deferred/attempt #(throw (StackOverflowError. "deep"))))))
+         "an error, as deeply nested input brings about, is a failure like any other")
      (let [started (System/currentTimeMillis)
            results (deferred/all (map (fn [n] (deferred/attempt #(do (Thread/sleep 200) n))) (range 4)))]
        (is (= [{:value 0} {:value 1} {:value 2} {:value 3}] results))

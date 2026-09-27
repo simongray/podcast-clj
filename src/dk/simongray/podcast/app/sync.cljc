@@ -46,15 +46,22 @@
 
 (defn read-document
   "The envelope in the EDN string `s`, `{:version :device :written-at :app
-  :state}`; a string that is not one throws `::malformed`."
+  :state}`; a string that is not one throws `::malformed`, and so does one
+  of this format version whose state has a value the player cannot take,
+  as `player/problem` finds it."
   [s]
   (let [envelope (try
                    (when (string? s) (edn/read-string s))
-                   (catch #?(:clj Exception :cljs :default) e
+                   ;; Throwable on the JVM for the StackOverflowError that
+                   ;; deeply nested EDN brings about
+                   (catch #?(:clj Throwable :cljs :default) e
                      (throw (ex-info "The document is not EDN" {:type ::malformed} e))))]
-    (if (and (map? envelope) (integer? (:version envelope)) (map? (:state envelope)))
-      envelope
-      (throw (ex-info "The document is not a sync document" {:type ::malformed})))))
+    (when-not (and (map? envelope) (integer? (:version envelope)) (map? (:state envelope)))
+      (throw (ex-info "The document is not a sync document" {:type ::malformed})))
+    (when-let [problem (and (<= (:version envelope) version) (player/problem (:state envelope)))]
+      (throw (ex-info (str "The document holds a state the player cannot take: " problem)
+                      {:type ::malformed})))
+    envelope))
 
 (def skew-tolerance
   "How far ahead of now a document may have been written before its writer's

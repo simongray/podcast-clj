@@ -18,6 +18,11 @@
   [c]
   (str/index-of digits (str c)))
 
+(defn rank?
+  "Whether `x` is a rank: a string of `digits` that does not end in a zero."
+  [x]
+  (boolean (and (string? x) (re-find #"^[0-9A-Za-z]*[1-9A-Za-z]$" x))))
+
 (defn- midpoint
   "A string of digits strictly between `a` and `b`, `a` below `b`, where
   \"\" is the bottom and a nil `b` the top, neither ending in a zero."
@@ -36,15 +41,18 @@
 
 (defn between
   "A rank between `before` and `after`, either or both nil for the ends of
-  the list; `before` must sort before `after`, and two equal ranks leave no
-  room. After the last rank or before the first, the last digit moves by
-  one while it can."
+  the list; `before` must sort before `after`, two equal ranks leave no
+  room, and what is not a rank throws. After the last rank or before the
+  first, the last digit moves by one while it can."
   [before after]
+  (when-not (and (or (nil? before) (= "" before) (rank? before))
+                 (or (nil? after) (rank? after)))
+    (throw (ex-info "Not a rank" {:before before :after after})))
   (when (and before after (not (neg? (compare before after))))
     (throw (ex-info "The ranks are not in order, or are the same" {:before before :after after})))
   (cond
     (and before after) (midpoint before after)
-    before             (let [d (digit (last before))]
+    (seq before)       (let [d (digit (last before))]
                          (if (< d (dec (count digits)))
                            (str (subs before 0 (dec (count before))) (nth digits (inc d)))
                            (str before "1")))

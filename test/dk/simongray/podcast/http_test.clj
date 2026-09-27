@@ -82,3 +82,28 @@
           (is (= (* 2 1024 1024) (count (:body (http/fetch! (str base "/big.xml")))))))
         (testing "an error status still comes back as a map"
           (is (= 404 (:status (http/fetch! (str base "/gone"))))))))))
+
+(deftest a-body-sent-too-slowly
+  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.createContext server "/"
+                    (reify HttpHandler
+                      (handle [_ exchange]
+                        (.sendResponseHeaders exchange 200 0)
+                        (let [out (.getResponseBody exchange)]
+                          (try
+                            (dotimes [_ 50]
+                              (.write out (.getBytes " "))
+                              (.flush out)
+                              (Thread/sleep 100))
+                            (catch java.io.IOException _)
+                            (finally
+                              (try (.close out) (catch java.io.IOException _))))))))
+    (.start server)
+    (try
+      (let [started (System/currentTimeMillis)]
+        (is (= ::http/timeout
+               (try (http/fetch! (str "http://127.0.0.1:" (.getPort (.getAddress server)) "/") {:timeout-seconds 1}) nil
+                    (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))
+        (is (< (- (System/currentTimeMillis) started) 3000) "given up at the deadline, not when the body ends"))
+      (finally
+        (.stop server 0)))))

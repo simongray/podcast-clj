@@ -76,8 +76,11 @@
 
 (def ^:no-doc rfc2822-lenient-pattern
   "Groups: day, month name, year, hour, minute, second, zone. Weekday, seconds,
-  time and zone are all optional; separators are forgiving."
-  #"(?i)^\s*(?:[a-z]{3,9}\.?,?\s+)?(\d{1,2})(?:st|nd|rd|th)?[\s-]+([a-z]{3,9})\.?,?[\s-]+(\d{2,4})(?:[\s,T]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?\s*(?:([a-z]{1,5}|[+-]\d{1,2}:?\d{2}|(?:gmt|utc)[+-]\d{1,2}:?\d{2}))?\s*$")
+  time and zone are all optional; separators are forgiving. The spaces before
+  the zone belong to the optional zone group, so that they and the trailing
+  spaces never compete for one run of whitespace: that backtracks
+  quadratically."
+  #"(?i)^\s*(?:[a-z]{3,9}\.?,?\s+)?(\d{1,2})(?:st|nd|rd|th)?[\s-]+([a-z]{3,9})\.?,?[\s-]+(\d{2,4})(?:[\s,T]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:\s*([a-z]{1,5}|[+-]\d{1,2}:?\d{2}|(?:gmt|utc)[+-]\d{1,2}:?\d{2}))?\s*$")
 
 (defn- parse-zone
   "The offset in minutes east of UTC named by `s`, or nil when unknown."
@@ -124,8 +127,9 @@
   (boolean (re-matches rfc2822-strict-pattern s)))
 
 (def ^:no-doc iso8601-pattern
-  "Groups: year, month, day, hour, minute, second, fraction, zone."
-  #"^\s*(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?\s*(Z|z|[+-]\d{2}:?\d{2})?)?\s*$")
+  "Groups: year, month, day, hour, minute, second, fraction, zone. As in
+  `rfc2822-lenient-pattern`, the spaces before the zone belong to its group."
+  #"^\s*(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?(?:\s*(Z|z|[+-]\d{2}:?\d{2}))?)?\s*$")
 
 (defn parse-iso8601
   "Parse the ISO 8601 date or date-time `s` into an instant, or nil. A missing

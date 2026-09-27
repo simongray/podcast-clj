@@ -10,12 +10,13 @@
   both platforms. Responses are plain maps; the `:url` of a response is its
   final URL after redirects."
   (:require [clojure.string :as str])
-  #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream]
+  #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream IOException]
                    [java.net URI]
                    [java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$Builder
                                   HttpRequest$BodyPublishers HttpResponse HttpResponse$BodyHandlers]
                    [java.nio.charset Charset StandardCharsets]
                    [java.time Duration]
+                   [java.util.concurrent ScheduledFuture ScheduledThreadPoolExecutor ThreadFactory TimeUnit]
                    [java.util.zip GZIPInputStream])))
 
 (def user-agent
@@ -102,6 +103,40 @@
                (recur total))))))))
 
 #?(:clj
+   (defonce ^{:no-doc true
+              :doc    "The daemon thread that closes the body of a response still
+  being read when its time is up, built on first use."}
+     watchdog
+     (delay (doto (ScheduledThreadPoolExecutor.
+                   1 (reify ThreadFactory
+                       (newThread [_ runnable]
+                         (doto (Thread. runnable "podcast-clj http watchdog")
+                           (.setDaemon true)))))
+              (.setRemoveOnCancelPolicy true)))))
+
+#?(:clj
+   (defn- read-within
+     "Read `in` as `read-bounded` does, but only until the instant `deadline`
+     in epoch milliseconds, when the stream is closed and `::timeout`
+     thrown, so that a server sending its body slowly holds no thread for
+     longer than that."
+     ^bytes [^InputStream in deadline max-bytes url]
+     (let [late? (atom false)
+           task  (.schedule ^ScheduledThreadPoolExecutor @watchdog
+                            ^Runnable (fn [] (reset! late? true) (.close in))
+                            (long (max 0 (- deadline (System/currentTimeMillis))))
+                            TimeUnit/MILLISECONDS)
+           late  #(ex-info (str "The response did not arrive in time: " url) {:type ::timeout :url url})]
+       (try
+         (let [bytes (read-bounded in max-bytes url)]
+           ;; a stream closed under a read can end as if the body had ended
+           (if @late? (throw (late)) bytes))
+         (catch IOException e
+           (throw (if @late? (late) e)))
+         (finally
+           (.cancel ^ScheduledFuture task false))))))
+
+#?(:clj
    (defn- gunzip
      "Inflate the gzipped `body`, reading at most `max-bytes` of the result."
      ^bytes [^bytes body max-bytes url]
@@ -158,13 +193,16 @@
      "Send the request map `{:method :url :headers :body}` and return
      `{:status :url :headers :body}`, the body decoded to a string. A GET
      unless `:method` names another, sent with the `:body` string when there
-     is one; `:timeout-seconds` (default 30) bounds the wait for the headers,
-     `:max-bytes` (default `default-max-bytes`, nil for no limit) the body,
-     beyond which `::too-large` is thrown. gzip is undone and the URL made
-     legal first (see `legal-url`)."
+     is one; `:timeout-seconds` (default 30) bounds the whole exchange,
+     beyond which the client's HttpTimeoutException is thrown while the
+     headers are awaited and `::timeout` while the body is read;
+     `:max-bytes` (default `default-max-bytes`, nil for no limit) bounds the
+     body, beyond which `::too-large` is thrown. gzip is undone and the URL
+     made legal first (see `legal-url`)."
      [{:keys [method url headers body timeout-seconds max-bytes]
        :or   {timeout-seconds 30 max-bytes default-max-bytes}}]
-     (let [builder  (-> (HttpRequest/newBuilder (URI. (legal-url url)))
+     (let [deadline (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
+           builder  (-> (HttpRequest/newBuilder (URI. (legal-url url)))
                         (.timeout (Duration/ofSeconds timeout-seconds))
                         (.header "Accept-Encoding" "gzip"))
            builder  (reduce-kv (fn [^HttpRequest$Builder b k v] (.header b (str k) (str v)))
@@ -178,9 +216,9 @@
                                      (HttpRequest$BodyPublishers/ofString (str body))
                                      (HttpRequest$BodyPublishers/noBody))))
                         (.build))
-           response (.send @client request (HttpResponse$BodyHandlers/ofInputStream))
-           bytes    (with-open [^InputStream in (.body response)]
-                      (read-bounded in max-bytes url))
+           response (.send ^HttpClient @client request (HttpResponse$BodyHandlers/ofInputStream))
+           bytes    (with-open [^InputStream in (.body ^HttpResponse response)]
+                      (read-within in deadline max-bytes url))
            response (response->map response bytes)]
        (assoc response :body (when (and (not= 304 (:status response)) (pos? (alength bytes)))
                                (decode (:headers response) bytes max-bytes))))))

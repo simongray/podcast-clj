@@ -173,6 +173,9 @@ A sync document is an EDN map:
   IV.
 - The key comes from the passphrase through PBKDF2 with HMAC-SHA256, with
   the iterations and the salt of the envelope.
+- An envelope asks for at most `max-iterations`, ten times the default. A
+  body that asks for more is not an envelope, and the reader reports it as
+  a document that does not read.
 - A body that is not an envelope passes through unchanged.
 - If the passphrase does not open a document, the call fails with the
   exception type `:dk.simongray.podcast.app.sync.encrypted/locked`.

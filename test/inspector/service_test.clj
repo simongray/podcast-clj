@@ -23,6 +23,20 @@
                             (str "?" (str/join "&" (for [[k v] params]
                                                      (str k "=" (java.net.URLEncoder/encode (str v) "UTF-8")))))))))
 
+(deftest links-a-feed-chooses
+  (with-redefs [http/fetch! (fn [url & _]
+                              {:status 200 :url url
+                               :body   (str "<rss version=\"2.0\"><channel><title>T</title>"
+                                            "<item><title>E</title><guid>g</guid>"
+                                            "<description><![CDATA[<a href=\"java&#9;script:alert(1)\">notes</a>]]></description>"
+                                            "<enclosure url=\"javascript:alert(1)\" type=\"audio/mpeg\" length=\"1\"/></item>"
+                                            "</channel></rss>")})]
+    (doseq [[path & params] [["/feed" "url" "https://example.com/links.xml"]
+                             ["/item" "url" "https://example.com/links.xml" "guid" "g"]]]
+      (let [{:keys [status body]} (apply get* path params)]
+        (is (= 200 status))
+        (is (not (re-find #"href=\"[^\"]*script:" body)) (str path " links nowhere a script runs"))))))
+
 (deftest the-pages
   (with-redefs [http/fetch! (fn [url & _]
                               (if (str/includes? url "missing")

@@ -24,6 +24,16 @@
     (is (thrown? #?(:clj Exception :cljs js/Error) (rank/between "W" "V")))
     (is (thrown? #?(:clj Exception :cljs js/Error) (rank/between "V" "V")))))
 
+(deftest what-a-rank-is
+  (is (every? rank/rank? ["V" "zz1" "00z"]))
+  (is (not-any? rank/rank? ["" "0" "V0" "V!" nil 5]))
+  (testing "between refuses what is not a rank, as another device may have written it"
+    (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"Not a rank" (rank/between "V" "V!")))
+    (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"Not a rank" (rank/between nil "0")))
+    (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"Not a rank" (rank/between 5 nil))))
+  (testing "and takes \"\" for the bottom"
+    (is (= "V" (rank/between "" nil)))))
+
 (defn- in-order?
   [ranks]
   (every? neg? (map compare ranks (rest ranks))))

@@ -18,7 +18,12 @@
     (is (= "Jane" (resolve/author {:dc/creator "Jane" :rss/author "a@b.c (Al)"})))
     (is (= "Al" (resolve/author {:rss/author "a@b.c (Al)"})))
     (is (= "ed@b.c" (resolve/author {:rss/managing-editor "ed@b.c"})))
-    (is (nil? (resolve/author {}))))
+    (is (= "Al" (resolve/author {:rss/author "  a@b.c(Al) "})))
+    (is (= "Al (Jr)" (resolve/author {:rss/author "a@b.c (Al (Jr))"})))
+    (is (= "Al (Jr)" (resolve/author {:rss/author "Al (Jr)"})) "no address, no name to pick out")
+    (is (nil? (resolve/author {})))
+    (let [ats (str (apply str (repeat 100000 "@")) " x")]
+      (is (= ats (resolve/author {:rss/author ats})) "read in linear time")))
   (testing "links, permalinks included"
     (is (= "https://x/page" (resolve/link {:rss/link "https://x/page"})))
     (is (= "https://x/1" (resolve/link {:rss/guid {:content "https://x/1"}})))

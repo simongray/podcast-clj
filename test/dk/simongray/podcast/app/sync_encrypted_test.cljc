@@ -7,7 +7,7 @@
             #?@(:clj [[dk.simongray.podcast.app.player :as player]
                       [dk.simongray.podcast.app.sync :as sync]])
             [clojure.string :as str]
-            [clojure.test :refer [deftest is #?@(:clj [testing]) #?(:cljs async)]]
+            [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast.app.sync.encrypted :as encrypted]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.test-support :refer [fixture #?@(:clj [t0 t1 t2 t3 a])]]))
@@ -40,7 +40,10 @@
       (is (every? string? ((juxt :salt :iv :data) env)))))
   (is (nil? (encrypted/envelope plaintext)) "a plain document is not one")
   (is (nil? (encrypted/envelope "{:encrypted 1}")) "nor a map without its parts")
-  (is (nil? (encrypted/envelope nil))))
+  (is (nil? (encrypted/envelope nil)))
+  (testing "nor one asking for an iteration count that would hold the device up, or none at all"
+    (doseq [n [0 -1 "\"x\"" "nil" (inc encrypted/max-iterations)]]
+      (is (nil? (encrypted/envelope (str/replace sealed-by-the-jvm #":iterations \d+" (str ":iterations " n)))) n))))
 
 #?(:clj
    (deftest sealing-and-opening
