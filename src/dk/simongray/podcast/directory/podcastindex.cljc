@@ -333,24 +333,20 @@
                     :when v]
                 [k v])))))
 
-#?(:clj
-   (defn call!
-     "Send `endpoint` with `params` for `credentials`, signed now, with the
-     library's HTTP client, and read the answer with `response`."
-     [credentials endpoint params]
-     (-> (request credentials endpoint params {:auth-date (now-seconds)}) http/call! :body response)))
+(defn call!
+  "Send `endpoint` with `params` for `credentials`, signed now, and read the
+  answer with `response`.
 
-#?(:cljs
-   (defn call!
-     "Send `endpoint` with `params` for `credentials`, signed now, with the
-     platform's `fetch`, and read the answer with `response`. Returns a
-     js/Promise of the result; in a browser the API's CORS policy decides
-     whether the call is allowed at all."
-     [credentials endpoint params]
-     (let [{:keys [url headers]} (request credentials endpoint params {:auth-date (now-seconds)})]
-       (-> (js/fetch url (clj->js {:headers headers}))
-           (.then (fn [res] (.text res)))
-           (.then response)))))
+  The JVM sends it with the library's HTTP client, and ClojureScript with
+  the platform's `fetch`, returning a js/Promise of the result. In a
+  browser, the API's CORS policy decides whether the call is allowed at
+  all."
+  [credentials endpoint params]
+  (let [req (request credentials endpoint params {:auth-date (now-seconds)})]
+    #?(:clj  (-> req http/call! :body response)
+       :cljs (-> (js/fetch (:url req) (clj->js {:headers (:headers req)}))
+                 (.then (fn [res] (.text res)))
+                 (.then response)))))
 
 #?(:clj
    (defn remote-value!

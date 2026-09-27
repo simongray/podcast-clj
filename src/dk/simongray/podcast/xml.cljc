@@ -178,12 +178,27 @@
     (subs s 1)
     s))
 
-#?(:clj
-   (defn- input-factory
-     "A StAX factory with namespace processing off, so that undeclared prefixes
-     survive and xmlns declarations arrive as plain attributes, and with DTDs
-     and external entities disabled."
-     []
+(defn ^:no-doc malformed
+  "The error for XML that the parser rejects with `message`, and `cause`,
+  the exception that carried the message, or nil."
+  [message cause]
+  (ex-info (str "Malformed XML: " message) {:type ::malformed} cause))
+
+(defn- document
+  "The document in `xml`, ready to read.
+
+  On the JVM, `xml` is a string, an InputStream or a Reader, and the result
+  a StAX reader at its start, from a factory with namespace processing off,
+  so that undeclared prefixes survive and xmlns declarations arrive as plain
+  attributes, and with DTDs and external entities disabled.
+
+  In JavaScript, `xml` is a string, and the result the root element of the
+  DOM that the platform's DOMParser builds: the browser's, or one a host
+  such as Node has installed as `js/DOMParser`. Browsers report errors as a
+  parsererror element; other implementations throw or hand back a document
+  without a root."
+  [xml]
+  #?(:clj
      (let [factory (doto (XMLInputFactory/newInstance)
                      (.setProperty XMLInputFactory/IS_NAMESPACE_AWARE false)
                      (.setProperty XMLInputFactory/IS_COALESCING true)
@@ -196,116 +211,90 @@
          (try
            (.setProperty factory limit "0")
            (catch Exception _)))
-       factory)))
-
-#?(:clj
-   (defn- qname-str
-     "Join `prefix` and `local` back into the name as written in the document."
-     [prefix local]
-     (if (str/blank? prefix)
-       local
-       (str prefix ":" local))))
-
-#?(:clj
-   (defn- raw-attrs
-     [^XMLStreamReader r]
-     (-> {}
-         (into (for [i (range (.getAttributeCount r))]
-                 [(qname-str (.getAttributePrefix r i) (.getAttributeLocalName r i))
-                  (.getAttributeValue r i)]))
-         (into (for [i (range (.getNamespaceCount r))]
-                 [(qname-str "xmlns" (.getNamespacePrefix r i))
-                  (.getNamespaceURI r i)])))))
-
-#?(:clj
-   (declare read-element))
-
-#?(:clj
-   (defn- read-children
-     "Read the children of the element `r` is inside, up to its end tag."
-     [^XMLStreamReader r]
-     (loop [acc (transient [])]
-       (let [event (.next r)]
-         (cond
-           (= event XMLStreamConstants/START_ELEMENT)
-           (recur (conj! acc (read-element r)))
-
-           (or (= event XMLStreamConstants/CHARACTERS)
-               (= event XMLStreamConstants/CDATA)
-               (= event XMLStreamConstants/SPACE))
-           (recur (conj! acc (.getText r)))
-
-           (= event XMLStreamConstants/END_ELEMENT)
-           (persistent! acc)
-
-           :else
-           (recur acc))))))
-
-#?(:clj
-   (defn- read-element
-     "Read the element `r` is positioned on, including its subtree."
-     [^XMLStreamReader r]
-     (let [tag   (qname-str (.getPrefix r) (.getLocalName r))
-           attrs (raw-attrs r)]
-       (into [tag attrs] (compact-text (read-children r))))))
-
-#?(:clj
-   (defn- stream-reader
-     ^XMLStreamReader [^XMLInputFactory factory xml]
-     (cond
-       (string? xml)
-       (.createXMLStreamReader factory (StringReader. ^String (strip-bom xml)))
-
-       (instance? InputStream xml)
-       (.createXMLStreamReader factory ^InputStream xml)
-
-       (instance? Reader xml)
-       (.createXMLStreamReader factory ^Reader xml)
-
-       :else
-       (throw (ex-info "Cannot parse XML from this value" {:type (type xml)})))))
-
-#?(:cljs
-   (defn- items
-     "The members of the DOM collection `coll` (a NodeList or NamedNodeMap),
-     through the `item` method every implementation has."
-     [coll]
-     (map #(.item coll %) (range (.-length coll)))))
-
-#?(:cljs
-   (defn- node->raw
-     "The raw Hiccup for the DOM `node`: elements and their text, nothing else."
-     [node]
-     (case (.-nodeType node)
-       1 (into [(.-nodeName node)
-                (into {} (for [a (items (.-attributes node))]
-                           [(.-nodeName a) (.-nodeValue a)]))]
-               (compact-text (keep node->raw (items (.-childNodes node)))))
-       (3 4) (.-nodeValue node)
-       nil)))
-
-#?(:cljs
-   (defn- malformed
-     [message]
-     (ex-info (str "Malformed XML: " message) {:type ::malformed})))
-
-#?(:cljs
-   (defn- dom-parse
-     "Parse `xml` with the DOMParser of the platform (the browser's, or one a
-     host such as Node has installed as `js/DOMParser`) into its root element.
-     Browsers report errors as a parsererror element; other implementations
-     may throw or hand back a document without a root."
-     [xml]
+       (cond
+         (string? xml)               (.createXMLStreamReader factory (StringReader. ^String (strip-bom xml)))
+         (instance? InputStream xml) (.createXMLStreamReader factory ^InputStream xml)
+         (instance? Reader xml)      (.createXMLStreamReader factory ^Reader xml)
+         :else                       (throw (ex-info "Cannot parse XML from this value" {:type (type xml)}))))
+     :cljs
      (let [doc    (try
-                    (.parseFromString (js/DOMParser.) xml "text/xml")
+                    (.parseFromString (js/DOMParser.) (strip-bom xml) "text/xml")
                     (catch :default e
-                      (throw (malformed (or (ex-message e) (str e))))))
+                      (throw (malformed (or (ex-message e) (str e)) e))))
            errors (.getElementsByTagName doc "parsererror")
            root   (.-documentElement doc)]
        (cond
-         (pos? (.-length errors)) (throw (malformed (.-textContent (.item errors 0))))
-         (nil? root)              (throw (malformed "no root element"))
+         (pos? (.-length errors)) (throw (malformed (.-textContent (.item errors 0)) nil))
+         (nil? root)              (throw (malformed "no root element" nil))
          :else                    root))))
+
+(defn- start-tag
+  "The name and the attributes of the element at `x` as `[tag attrs]`.
+
+  Both are as the document writes them, with the namespace declarations
+  among the attributes. `x` is a StAX reader on the element's start tag on
+  the JVM, and a DOM element in JavaScript."
+  [x]
+  #?(:clj  (let [^XMLStreamReader r x
+                 qname (fn [prefix local]
+                         (if (str/blank? prefix) local (str prefix ":" local)))]
+             [(qname (.getPrefix r) (.getLocalName r))
+              (-> {}
+                  (into (for [i (range (.getAttributeCount r))]
+                          [(qname (.getAttributePrefix r i) (.getAttributeLocalName r i))
+                           (.getAttributeValue r i)]))
+                  (into (for [i (range (.getNamespaceCount r))]
+                          [(qname "xmlns" (.getNamespacePrefix r i))
+                           (.getNamespaceURI r i)])))])
+     :cljs (let [attrs (.-attributes x)]
+             [(.-nodeName x)
+              (into {} (for [i (range (.-length attrs))
+                             :let [a (.item attrs i)]]
+                         [(.-nodeName a) (.-nodeValue a)]))])))
+
+(declare read-element)
+
+(defn- read-children
+  "The raw children of the element at `x`, its elements and its text.
+
+  They are read from the StAX reader up to the element's end tag on the
+  JVM, and from the child nodes of the DOM element in JavaScript."
+  [x]
+  #?(:clj  (let [^XMLStreamReader r x]
+             (loop [acc (transient [])]
+               (let [event (.next r)]
+                 (cond
+                   (= event XMLStreamConstants/START_ELEMENT)
+                   (recur (conj! acc (read-element r)))
+
+                   (or (= event XMLStreamConstants/CHARACTERS)
+                       (= event XMLStreamConstants/CDATA)
+                       (= event XMLStreamConstants/SPACE))
+                   (recur (conj! acc (.getText r)))
+
+                   (= event XMLStreamConstants/END_ELEMENT)
+                   (persistent! acc)
+
+                   :else
+                   (recur acc)))))
+     :cljs (let [nodes (.-childNodes x)]
+             (keep (fn [i]
+                     (let [node (.item nodes i)]
+                       (case (.-nodeType node)
+                         1     (read-element node)
+                         (3 4) (.-nodeValue node)
+                         nil)))
+                   (range (.-length nodes))))))
+
+(defn- read-element
+  "The raw Hiccup of the element at `x`, with its subtree.
+
+  `x` is a StAX reader on the element's start tag on the JVM, and a DOM
+  element in JavaScript."
+  [x]
+  (let [head (start-tag x)]
+    ;; the start tag first: on the JVM, reading the children moves past it
+    (into head (compact-text (read-children x)))))
 
 (defn parse-raw
   "Parse `xml` into raw Hiccup: names as written, declarations kept as
@@ -317,20 +306,18 @@
   document the parser rejects throws an ex-info of type `::malformed`."
   [xml]
   #?(:clj
-     (let [r (stream-reader (input-factory) xml)]
+     (let [^XMLStreamReader r (document xml)]
        (try
          (loop []
            (if (= (.next r) XMLStreamConstants/START_ELEMENT)
              (read-element r)
              (recur)))
          (catch XMLStreamException e
-           (throw (ex-info (str "Malformed XML: " (.getMessage e))
-                           {:type ::malformed}
-                           e)))
+           (throw (malformed (.getMessage e) e)))
          (finally
            (.close r))))
      :cljs
-     (node->raw (dom-parse (strip-bom xml)))))
+     (read-element (document xml))))
 
 (defn- split-qname
   "Split the raw XML name `s` into `[prefix local]`, `prefix` nil when absent."

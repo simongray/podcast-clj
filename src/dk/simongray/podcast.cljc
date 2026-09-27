@@ -28,20 +28,17 @@
   [e]
   (= ::xml/malformed (:type (ex-data e))))
 
-#?(:clj
-   (def ^:no-doc lenient-parser
-     "The raw parser to fall back on when a document is malformed even after
-     repair: `dk.simongray.podcast.xml.jsoup/parse-raw` when org.jsoup/jsoup
-     is on the classpath, nil otherwise. Adding jsoup to the dependencies is
-     all it takes to enable it."
-     (delay (try
-              (requiring-resolve 'dk.simongray.podcast.xml.jsoup/parse-raw)
-              (catch Exception _ nil)))))
+(def ^:no-doc lenient-parser
+  "The raw parser to fall back on when a document is malformed even after
+  repair, or nil.
 
-(defn- lenient
-  "The lenient raw parser of the platform, or nil when it has none."
-  []
-  #?(:clj @lenient-parser :cljs nil))
+  On the JVM it is `dk.simongray.podcast.xml.jsoup/parse-raw` when
+  org.jsoup/jsoup is on the classpath, so adding jsoup to the dependencies
+  is all it takes to enable it. ClojureScript has none."
+  (delay #?(:clj  (try
+                    (requiring-resolve 'dk.simongray.podcast.xml.jsoup/parse-raw)
+                    (catch Exception _ nil))
+            :cljs nil)))
 
 (defn- strict
   "Parse `xml` strictly: `{:raw tree}`, or `{:error e}` when it is malformed."
@@ -59,7 +56,7 @@
   [xml opts]
   (let [{repaired :xml report :report} (quirks/repair xml opts)
         {:keys [raw error]}            (strict repaired)
-        parse-leniently                (lenient)]
+        parse-leniently                @lenient-parser]
     (cond
       raw             {:raw raw :report report}
       parse-leniently {:raw    (parse-leniently repaired)

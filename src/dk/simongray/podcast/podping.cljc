@@ -186,46 +186,40 @@
     :url     (str "https://podping.cloud/?" (http/query-string {:url url :reason reason :medium medium}))
     :headers {"Authorization" token "User-Agent" http/user-agent}}))
 
-#?(:clj
-   (defn- ask!
-     "The body `node` answers `call` with, or the failure as `{:failure …}`:
-     an exception, or a status that is not 200."
-     [node call params timeout]
-     (try
-       (let [{:keys [status body]} (http/call! (assoc (request call params {:node node}) :timeout-seconds timeout))]
-         (if (= 200 status)
-           {:body body}
-           {:failure (str "answered " status)}))
-       (catch Exception e
-         {:failure (async/explain e)}))))
+(defn call!
+  "Send `call` with `params` as `opts` say, and return the body, for
+  `head-block`, `pings` or `writers` to read.
 
-#?(:clj
-   (defn call!
-     "Send `call` with `params` with the library's HTTP client and return the
-     body, for `head-block`, `pings` or `writers` to read. The `:nodes` in
-     `opts` (default `nodes`), or the one `:node`, are tried in turn until
-     one answers, each given `:timeout-seconds` (default 10); when none
-     does, the exception names them all."
-     [call params opts]
-     {:pre [(map? opts)]}
+  On the JVM, the library's HTTP client tries the `:nodes` in `opts`
+  (default `nodes`), or the one `:node`, in turn until one answers, each
+  given `:timeout-seconds` (default 10); an exception or a status other
+  than 200 is that node's failure, and when every node fails, the
+  exception names them all. In ClojureScript, the platform's `fetch` sends
+  it to the node in `opts`, which the public nodes allow from any origin,
+  and a js/Promise of the body comes back."
+  [call params opts]
+  {:pre [(map? opts)]}
+  #?(:clj
      (let [candidates (if-let [node (:node opts)] [node] (or (:nodes opts) nodes))
-           timeout    (:timeout-seconds opts 10)]
+           timeout    (:timeout-seconds opts 10)
+           ask!       (fn [node]
+                        (try
+                          (let [{:keys [status body]} (http/call! (assoc (request call params {:node node})
+                                                                         :timeout-seconds timeout))]
+                            (if (= 200 status)
+                              {:body body}
+                              {:failure (str "answered " status)}))
+                          (catch Exception e
+                            {:failure (async/explain e)})))]
        (loop [[node & more] candidates
               failures      []]
-         (let [{:keys [body failure]} (ask! node call params timeout)]
+         (let [{:keys [body failure]} (ask! node)]
            (cond
              body       body
              (seq more) (recur more (conj failures [node failure]))
              :else      (throw (ex-info (str "No node answered " (name call))
-                                        {:type ::unavailable :failures (conj failures [node failure])}))))))))
-
-#?(:cljs
-   (defn call!
-     "Send `call` with `params` to the node in `opts` with the platform's
-     `fetch`, which the public nodes allow from any origin, and return a
-     js/Promise of the body, for `head-block`, `pings` or `writers` to read."
-     [call params opts]
-     {:pre [(map? opts)]}
+                                        {:type ::unavailable :failures (conj failures [node failure])}))))))
+     :cljs
      (let [{:keys [url headers body]} (request call params opts)]
        (-> (js/fetch url (clj->js {:method "POST" :headers headers :body body}))
            (.then (fn [res] (.text res)))))))

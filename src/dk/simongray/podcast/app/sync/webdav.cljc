@@ -155,28 +155,25 @@
   [root]
   (second (re-find #"^[a-z]+://([^/]+)" root)))
 
-#?(:cljs
-   (defn- fetch-with
-     "A sender over `fetch`, js/fetch or one given: the request map sent, the
-     answer as `{:status :headers :body}` in a promise."
-     [fetch]
-     (fn [{:keys [method url headers body]}]
-       (-> (fetch url (clj->js (cond-> {:method (str/upper-case (name method)) :headers headers}
-                                 (some? body) (assoc :body body))))
-           (.then (fn [res]
-                    (.then (.text res)
-                           (fn [text]
-                             {:status  (.-status res)
-                              :headers {"etag" [(.get (.-headers res) "etag")]}
-                              :body    text}))))))))
-
 (defn- sender
-  "What sends a request map for `opts`: the library's HTTP client with the
-  `:timeout-seconds` (default 30) on the JVM, the `:fetch` given or
-  js/fetch in ClojureScript."
+  "What sends a request map for `opts`.
+
+  On the JVM it is the library's HTTP client, with the `:timeout-seconds`
+  (default 30). In ClojureScript it is the `:fetch` given or js/fetch, with
+  the answer as `{:status :headers :body}` in a promise."
   [opts]
-  #?(:clj  (fn [request] (http/call! (assoc request :timeout-seconds (:timeout-seconds opts 30))))
-     :cljs (fetch-with (or (:fetch opts) js/fetch))))
+  #?(:clj  (fn [request]
+             (http/call! (assoc request :timeout-seconds (:timeout-seconds opts 30))))
+     :cljs (let [fetch (or (:fetch opts) js/fetch)]
+             (fn [{:keys [method url headers body]}]
+               (-> (fetch url (clj->js (cond-> {:method (str/upper-case (name method)) :headers headers}
+                                         (some? body) (assoc :body body))))
+                   (.then (fn [res]
+                            (.then (.text res)
+                                   (fn [text]
+                                     {:status  (.-status res)
+                                      :headers {"etag" [(.get (.-headers res) "etag")]}
+                                      :body    text})))))))))
 
 (defn store
   "The store over the WebDAV collection at `root`, a URL such as
