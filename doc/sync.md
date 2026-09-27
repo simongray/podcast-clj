@@ -234,8 +234,26 @@ of them get the same stamp.
 A convergence test showed why this rule is necessary. Without the rule, a
 device sometimes wrote at an instant that was not later than an entry that
 it merged before. That device then kept its own entry, while all other
-devices kept the merged entry, and the states never met. The report still
-tells about skew, as `:sync/clock-skew`.
+devices kept the merged entry, and the states never met.
+
+A skew of some seconds does no harm. A write after a merge still wins, and
+the stamps run ahead of real time by the skew at most, for about as long.
+The only effect is on two changes to one entry that two devices make
+before either syncs: the device with the fast clock wins, as it does with
+any clock and last-writer-wins.
+
+A clock that is years ahead does more. A merge keeps the later clock, so
+all devices then stamp in that year until real time catches up. Nothing is
+lost, and the states still meet. But the stamps no longer tell when a
+thing happened, and `compact` keeps each tombstone until its stamp is
+thirty days in the past. To refuse such a state would stop the spread, but
+it would also stop the sync of that device, and its own state would keep
+the future stamps after its clock was set right. For this reason, the
+report warns and nothing more: `:sync/clock-skew` names a device that
+wrote its document more than a minute ahead of this device's clock. The
+time of the write is the time of the device, not a stamp, so the warning
+names the device with the wrong clock, and not the devices that only
+merged its stamps.
 
 ### The queue as a set of ranked entries
 
