@@ -8,6 +8,8 @@ target/
 .idea/
 # raw downloaded feed corpus; recreate with (corpus/download!) from dev/corpus.clj
 dev-resources/corpus/
+# the inspector's sync folder, served over WebDAV at /dav/
+dev-resources/sync/
 
 # ClojureScript tooling
 node_modules/

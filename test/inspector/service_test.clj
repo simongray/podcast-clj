@@ -66,6 +66,45 @@
         (is (= 502 status))
         (is (str/includes? body "HTTP 404"))))))
 
+(deftest quotes-and-parameters
+  (with-redefs [http/fetch! (fn [url & _]
+                              {:status 200 :url url
+                               :body   (str "<rss version=\"2.0\"><channel><title>A \"quoted\" show</title>"
+                                            "<item><title>E</title><guid>g</guid></item></channel></rss>")})]
+    (testing "a double quote stays a double quote, in text and in attribute values"
+      (let [body (:body (get* "/feed" "url" "https://example.com/quoted.xml" "q" "say \"hi\""))]
+        (is (str/includes? body "A &quot;quoted&quot; show"))
+        (is (str/includes? body "value=\"say &quot;hi&quot;\""))
+        (is (not (str/includes? body "&#39;")))))
+    (testing "a parameter given twice counts once, and a profile or an order the page does not offer is left out"
+      (is (= 200 (:status (response-for @connector :get "/feed?url=https%3A%2F%2Fexample.com%2Fquoted.xml&url=x"))))
+      (is (= 200 (:status (get* "/feed" "url" "https://example.com/quoted.xml" "profile" "bogus"))))
+      (is (= 200 (:status (get* "/feed" "url" "https://example.com/quoted.xml" "order" "recent")))))))
+
+(deftest fetching-once
+  (reset! service/cache {})
+  (let [url   "https://example.com/once.xml"
+        calls (atom [])]
+    (with-redefs [http/fetch! (fn [u & [opts]]
+                                (when (= url u) (swap! calls conj opts))
+                                (if (:etag opts)
+                                  {:status 304 :url u :etag "v1"}
+                                  {:status 200 :url u :etag "v1" :body example}))]
+      (testing "the pages of a feed fetch and parse it once"
+        (is (= 200 (:status (get* "/feed" "url" url))))
+        (is (= 200 (:status (get* "/item" "url" url "guid" "https://example.com/ep0003"))))
+        (is (= 200 (:status (get* "/search" "url" url "q" "future"))))
+        (is (= [{}] @calls)))
+      (testing "and later ask the server whether it changed"
+        (with-redefs [service/cache-seconds 0]
+          (is (= 200 (:status (get* "/feed" "url" url)))))
+        (is (= {:etag "v1"} (last @calls))))
+      (testing "the cache keeps the most recently used"
+        (with-redefs [service/cache-limit 2]
+          (doseq [name ["a" "b" "c"]]
+            (get* "/feed" "url" (str "https://example.com/" name ".xml")))
+          (is (= 2 (count @service/cache))))))))
+
 (deftest search-and-selection
   (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})]
     (testing "the feed page filters and orders its items by the library's criteria"
@@ -135,7 +174,11 @@
       (is (str/includes? body "podping.eee"))
       (is (not (str/includes? body "pp_podcast_update")) "the id is not shown, the medium and reason are")
       (is (str/includes? body "Head block 110255098"))
-      (is (str/includes? body "writers podping follows")))))
+      (is (str/includes? body "writers podping follows"))))
+  (with-redefs [http/call! (fn [_] (throw (ex-info "offline" {})))]
+    (let [{:keys [status body]} (get* "/podping")]
+      (is (= 502 status) "a chain that cannot be read is an error page")
+      (is (str/includes? body "Could not read the Hive chain")))))
 
 (deftest the-player
   (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})]

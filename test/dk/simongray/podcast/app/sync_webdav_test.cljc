@@ -315,3 +315,18 @@
                       (is (= #{"phone.edn" "laptop.edn"} (set (keys (dissoc @documents ::created)))) "the probe is gone")))
              (.catch (fn [e] (is false (str "rejected: " e))))
              (.finally done))))))
+
+#?(:cljs
+   (deftest the-global-fetch-by-default
+     (async done
+       (let [documents (atom {})
+             original  (.-fetch js/globalThis)]
+         (set! (.-fetch js/globalThis) (fetch-stand-in documents))
+         (-> (sync/sync! (phone-state) [(store/backend (webdav/store "https://dav.example.org/dav/"))] t2)
+             (.then (fn [phone]
+                      (is (nil? (:failed phone)) "a store without :fetch sends with js/fetch")
+                      (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))))
+             (.catch (fn [e] (is false (str "rejected: " e))))
+             (.finally (fn []
+                         (set! (.-fetch js/globalThis) original)
+                         (done))))))))

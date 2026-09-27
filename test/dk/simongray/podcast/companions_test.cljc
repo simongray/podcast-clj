@@ -75,6 +75,11 @@
       (is (= [:chapters/malformed] (map :id (chapters/report doc))))
       (is (string? (chapters/emit-json doc)) "a location that is not an object is written as it is"))
     (is (= [] (:chapters (chapters/parse-json "{\"chapters\": {\"startTime\": 1}}")))))
+  (testing "a title, link or place name that is not text is left out, and a number is text"
+    (let [doc (chapters/parse-json (str "{\"chapters\": [{\"startTime\": 0, \"title\": {\"a\": 1}, \"url\": [1]},"
+                                        " {\"startTime\": 5, \"title\": 1984, \"location\": {\"name\": {}, \"geo\": \"geo:1,2\"}}]}"))]
+      (is (= [{:start-time 0} {:start-time 5 :title "1984" :location {:geo "geo:1,2"}}] (:chapters doc)))
+      (is (= [{:id :chapters/not-text :count 3}] (map #(select-keys % [:id :count]) (chapters/report doc))))))
   (testing "a document without a version is not reported as an old one"
     (is (= [] (chapters/report (chapters/parse-json "{\"chapters\":[{\"startTime\":0}]}"))))))
 

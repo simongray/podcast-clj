@@ -100,6 +100,8 @@
    ;; chapters
    {:id :chapters/string-times :level :warning
     :doc "Chapter times were given as strings rather than numbers and were read as numbers."}
+   {:id :chapters/not-text :level :warning
+    :doc "Chapter titles, links or place names that are not text, such as a JSON object, were left out."}
    {:id :chapters/missing-start-time :level :warning
     :doc "Chapters without a start time cannot be placed."}
    {:id :chapters/unsorted :level :info

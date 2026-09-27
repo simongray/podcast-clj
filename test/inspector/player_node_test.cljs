@@ -6,6 +6,8 @@
   (:require ["jsdom" :as jsdom]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing async]]
+            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.time :as time]
             [inspector.player :as shell]))
 
 (def page-html
@@ -70,6 +72,33 @@
            (let [input (.querySelector app "input[type=number]")]
              (set! (.-value input) "20")
              (.dispatchEvent input (js/Event. "change" #js {:bubbles true}))
-             (is (str/includes? (.-textContent bar) "−20s")))))
+             (is (str/includes? (.-textContent bar) "−20s"))))
+         (testing "what another tab saves is merged in"
+           (let [other {:player (player/enqueue (:player @shell/app) ["feed" "b"] (js/Date.))
+                        :titles {["feed" "b"] (assoc episode :id ["feed" "b"] :title "From the other tab")}}]
+             (.dispatchEvent js/window (new (.-StorageEvent js/window) "storage"
+                                            #js {:key shell/storage-key :newValue (pr-str other)}))
+             (is (str/includes? (.-textContent app) "From the other tab"))
+             (is (str/includes? (.-textContent bar) "First") "this tab's episode plays on"))))
        (done))
      100)))
+
+(deftest merging-into-the-page-state
+  (let [t      #(time/->inst (+ (inst-ms #inst "2026-01-01T00:00:00Z") (* % 24 60 60 1000)))
+        a      ["feed" "a"]
+        b      ["feed" "b"]
+        mine   {:player (player/enqueue (player/state "browser") a (t 0)) :titles {a {:title "A"}}}
+        other  {:player (player/enqueue (player/state "browser") b (t 1)) :titles {b {:title "B"}}}]
+    (testing "another tab's state joins this one's, titles and all"
+      (let [merged (shell/with-other-tab mine other)]
+        (is (= [a b] (player/queue (:player merged))))
+        (is (= {a {:title "A"} b {:title "B"}} (:titles merged)))))
+    (testing "a sync step keeps what the listener did during it, and the tombstones it dropped stay dropped"
+      (let [phone  (-> (player/state "phone") (player/enqueue a (t 1)) (player/dequeue a (t 2)))
+            laptop (player/acknowledge (player/merge (player/state "laptop") phone) [phone] (t 3))
+            phone  (player/acknowledge (player/merge phone laptop) [laptop] (t 3))
+            result {:state (player/compact phone (t 40)) :ctx {"inspector" {}} :report []}
+            synced (shell/with-synced {:player (player/enqueue phone b (t 40)) :titles {}} result (t 40))]
+        (is (= [b] (player/queue (:player synced))))
+        (is (not (contains? (:queue (:player synced)) a)))
+        (is (= {"inspector" {}} (:sync-ctx synced)))))))

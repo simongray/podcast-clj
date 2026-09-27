@@ -203,6 +203,11 @@
            (when-let [art (resolve/artwork item)] [[:span.badge [:a {:href (link art)} "artwork"]]])
            (for [[tag] (:xml/unknown item)] [:span.badge.muted (str tag)]))]]))
 
+(def orders
+  "The orders the feed page offers: those of `search/orders` that need no
+  player state, which the server does not have."
+  [:listening :newest :oldest :shortest :longest :title])
+
 (defn- selection-form
   "The form that filters and orders the items of the feed at `url`, showing
   the current `selection`; its choices are the library's own criteria and
@@ -219,7 +224,7 @@
       [:option {:value v :selected (= v (or (:type where) ""))} label])]
    " "
    [:select {:name "order"}
-    (for [o [:listening :newest :oldest :shortest :longest :title]]
+    (for [o orders]
       [:option {:value (name o) :selected (= o (or order :listening))} (name o)])]
    " "
    [:button {:type "submit"} "Apply"]
@@ -548,11 +553,11 @@
             [:code "clojure -M:cljs compile player"]]]))
 
 (defn error-page
-  "The page shown when `url` could not be fetched or parsed, with the
-  `message` of the failure."
-  [url message]
+  "The page shown when what `heading` names failed: `subject` is what it was
+  about, when anything, and `message` says why."
+  [heading subject message]
   (layout "Error"
-          [:h1 "Could not inspect the feed"]
-          [:p [:code url]]
+          [:h1 heading]
+          (when subject [:p [:code subject]])
           [:pre message]
           [:p [:a {:href "/"} "Back"]]))

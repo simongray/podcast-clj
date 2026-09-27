@@ -55,12 +55,39 @@
                (player/identify {:name "browser"} (now)))
    :titles {}})
 
+(defn- read-state
+  "The state saved as the string `s`; nil when there is none, or it does not
+  read."
+  [s]
+  (try
+    (some-> s reader/read-string)
+    (catch :default _ nil)))
+
 (defn- load-state
   []
   (or (try
-        (some-> (.getItem js/localStorage storage-key) reader/read-string)
+        (read-state (.getItem js/localStorage storage-key))
         (catch :default _ nil))
       (fresh)))
+
+(defn with-other-tab
+  "The page `state` with `other`, the state another tab of this browser
+  saved, merged in: the player states joined as two devices' are, and the
+  titles of both. The sync cursors stay this tab's."
+  [state other]
+  (-> state
+      (update :player player/merge (:player other))
+      (update :titles merge (:titles other))))
+
+(defn with-synced
+  "The page `state` with the `result` of a sync step at `at`: its player
+  state merged into the one the page has now, which can hold changes from
+  during the step, and compacted as the step compacted, since the merge
+  brings back the tombstones the step dropped."
+  [state {:keys [ctx failed report] :as result} at]
+  (-> state
+      (update :player #(player/compact (player/merge % (:state result)) at))
+      (assoc :sync-ctx ctx :syncing? false :synced {:at at :failed failed :report report})))
 
 (defn- save!
   [state]
@@ -80,9 +107,7 @@
   []
   (swap! app assoc :syncing? true)
   (-> (sync/sync! (:player @app) [(backend)] (now) {:ctx (:sync-ctx @app)})
-      (.then (fn [{:keys [state ctx failed report]}]
-               (swap! app assoc :player state :sync-ctx ctx :syncing? false
-                      :synced {:at (now) :failed failed :report report})))
+      (.then (fn [result] (swap! app with-synced result (now))))
       (.catch (fn [e]
                 (swap! app assoc :syncing? false
                        :synced {:at (now) :failed {"inspector" (str e)} :report []})))))
@@ -165,20 +190,28 @@
           (.catch #(swap! app assoc :error (str %)))))))
 
 (defn- render!
-  []
+  "Render the bar, and the queue page too when `page?`."
+  [page?]
   (when-let [bar (js/document.getElementById "player-bar")]
     (replicant/render bar (view/bar @app)))
-  (when-let [el (js/document.getElementById "app")]
-    (replicant/render el (view/page @app))))
+  (when page?
+    (when-let [el (js/document.getElementById "app")]
+      (replicant/render el (view/page @app)))))
 
 (defn- same-origin?
   [href]
   (and (seq href)
        (= (.-origin (js/URL. href js/location.href)) js/location.origin)))
 
+(defn- raw-view?
+  "Whether `href` leads to a raw view, such as the model as EDN or the
+  round-tripped XML, which has no content area to swap in."
+  [href]
+  (boolean (re-find #"\.(edn|xml)$" (.-pathname (js/URL. href js/location.href)))))
+
 (defn- after-navigation!
   []
-  (render!)
+  (render! true)
   (add-from-query!))
 
 (defn- swap-content!
@@ -194,7 +227,10 @@
                      content (.getElementById doc "content")
                      target  (js/document.getElementById "content")]
                  (if (and content target)
-                   (do (set! (.-innerHTML target) (.-innerHTML content))
+                   ;; the queue page's root goes with the content, and
+                   ;; Replicant forgets it only when told
+                   (do (some-> (js/document.getElementById "app") replicant/unmount)
+                       (set! (.-innerHTML target) (.-innerHTML content))
                        (set! js/document.title (.-title doc))
                        (when push? (js/history.pushState nil "" url))
                        (js/window.scrollTo 0 0)
@@ -220,6 +256,7 @@
                                       (not= "_blank" (.-target a))
                                       (not (.hasAttribute a "download"))
                                       (same-origin? href)
+                                      (not (raw-view? href))
                                       (not (str/includes? href "#")))
                              (.preventDefault e)
                              (swap-content! href true))))))
@@ -234,10 +271,21 @@
                              (swap-content! (str (.-pathname action) "?" (.toString params)) true))))))
   (.addEventListener js/window "popstate" (fn [_] (swap-content! js/location.href false))))
 
+(defn- listen-to-other-tabs!
+  "Merge in the state another tab of this browser saves, so that neither
+  tab's saves overwrite the other's changes."
+  []
+  (.addEventListener js/window "storage"
+                     (fn [e]
+                       (when (= storage-key (.-key e))
+                         (when-let [other (read-state (.-newValue e))]
+                           (when-not (player/problem (:player other))
+                             (swap! app with-other-tab other)))))))
+
 (defn ^:export init
   "Mount the player: load the state, watch it, route the view's events to
-  `handle!`, take over navigation, and handle an episode the URL asks to
-  add."
+  `handle!`, take over navigation and the other tabs' saves, and handle an
+  episode the URL asks to add."
   []
   (reset! app (load-state))
   (save! @app)
@@ -246,7 +294,10 @@
                             (let [kept [:player :titles :sync-ctx]]
                               (when (not= (select-keys old kept) (select-keys new kept))
                                 (save! new)))
-                            (render!)))
+                            ;; the audio reports its time four times a second,
+                            ;; and only the bar shows it
+                            (render! (not= (dissoc old :readout :reported) (dissoc new :readout :reported)))))
   (intercept-navigation!)
-  (render!)
+  (listen-to-other-tabs!)
+  (render! true)
   (add-from-query!))

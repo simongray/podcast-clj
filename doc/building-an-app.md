@@ -237,8 +237,10 @@ documents of the other devices. `sync!` does one step: pull, merge and push.
 3. Make a backend for each place. `webdav/backend` and `file/backend` make
    the store and the backend in one call.
 4. Call `sync!` when the app starts, when it goes to the background, and
-   after a series of changes. Keep the `:ctx` of the result for the next
-   call.
+   after a series of changes. Merge the `:state` of the result into the
+   state the app has now, which can hold changes from during the step. Then
+   compact it, because the merge brings back the tombstones that the step
+   removed. Keep the `:ctx` of the result for the next call.
 5. Ask `sync/next-at` when to call `sync!` again, and set a timer.
 
 ```clojure
@@ -250,7 +252,7 @@ documents of the other devices. `sync!` does one step: pull, merge and push.
 (def folder (file/backend "/Users/simon/Library/Mobile Documents/com~apple~CloudDocs/Podcasts" {:app "my-app"}))
 
 (def synced (sync/sync! state [cloud folder] now))  ; => {:state … :ctx {…} :report [] :failed {…}}
-(def state (player/merge state (:state synced)))  ; keeps what the listener did during the step
+(def state (-> state (player/merge (:state synced)) (player/compact now)))  ; keeps what the listener did during the step
 (sync/sync! state [cloud folder] (java.util.Date.) {:ctx (:ctx synced)})  ; reads only what changed
 (sync/next-at {:at now :changed? true :failures 0} (java.util.Date.))     ; when to call sync! again
 ```

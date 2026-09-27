@@ -211,9 +211,10 @@
   Steps run one at a time: a step that overlaps another can write an older
   state after a newer one. What the listener did during a step is not in
   its `:state`, so merge that into the state as it is by then, with
-  `player/merge`, rather than put it in its place. The backends need
-  distinct names, which the cursors are kept by; the same name twice
-  throws."
+  `player/merge`, rather than put it in its place, and compact the result
+  as the step did: the merge brings back the tombstones the step dropped.
+  The backends need distinct names, which the cursors are kept by; the
+  same name twice throws."
   ([state backends at]
    (sync! state backends at {}))
   ([state backends at {:keys [ctx compact] :as opts}]

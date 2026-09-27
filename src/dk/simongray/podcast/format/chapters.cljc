@@ -61,12 +61,27 @@
   [id level message & {:as extra}]
   (merge {:id id :level level :message message} extra))
 
+(def ^:no-doc text-paths
+  "Where a chapter holds text, as paths into its JSON object."
+  [["title"] ["img"] ["url"] ["location" "name"] ["location" "geo"]])
+
+(defn- text
+  "The JSON value `v` as text: a string as it is, a number as its digits,
+  and nil for anything else, which a title or a URL cannot be."
+  [v]
+  (when (or (string? v) (number? v))
+    (str v)))
+
 (defn- diagnostics
   "The diagnostics for the read document `doc`, given the `raw` chapter maps it
   was read from."
   [doc raw]
   (let [chapters (:chapters doc)
         strings  (count (filter #(or (string? (get % "startTime")) (string? (get % "endTime"))) raw))
+        not-text (count (for [m raw, path text-paths
+                              :let [v (get-in m path)]
+                              :when (and (some? v) (nil? (text v)))]
+                          path))
         missing  (count (remove (comp number? :start-time) chapters))
         starts   (filter number? (map :start-time chapters))
         unknown  (into (sorted-set) (comp (mapcat keys) (filter string?))
@@ -77,6 +92,11 @@
       (conj (diagnostic :chapters/string-times :warning
                      (str strings " chapters give their times as strings rather than numbers")
                      :count strings))
+
+      (pos? not-text)
+      (conj (diagnostic :chapters/not-text :warning
+                     (str not-text " titles, links or place names are not text and were left out")
+                     :count not-text))
 
       (pos? missing)
       (conj (diagnostic :chapters/missing-start-time :warning
@@ -98,9 +118,20 @@
                           "the specification is at " version)
                      :version v)))))
 
+(defn- read-text
+  "The raw chapter `m` with the value at `path` as text, as `text` reads it,
+  or without it when it is no text."
+  [m path]
+  (let [v (get-in m path)]
+    (if (nil? v)
+      m
+      (if-some [t (text v)]
+        (assoc-in m path t)
+        (if (next path) (update-in m (pop path) dissoc (peek path)) (dissoc m (peek path)))))))
+
 (defn- read-chapter
   [m]
-  (let [chapter (rename chapter-keys m)]
+  (let [chapter (rename chapter-keys (reduce read-text m text-paths))]
     (cond-> chapter
       (contains? chapter :start-time) (update :start-time time/seconds)
       (contains? chapter :end-time)   (update :end-time time/seconds)
@@ -108,8 +139,9 @@
 
 (defn parse-json
   "Read the JSON Chapters document `s` into a chapters map. A document that
-  is not JSON, or not a JSON object, reads as no chapters, and chapters that
-  are not objects are left out; the report says so."
+  is not JSON, or not a JSON object, reads as no chapters, chapters that are
+  not objects are left out, and so are titles, links and place names that
+  are not text; the report says so. A number counts as text."
   [s]
   (let [raw (json/parse s)]
     (if (map? raw)

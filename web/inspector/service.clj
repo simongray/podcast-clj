@@ -13,6 +13,7 @@
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.http :as http]
@@ -23,6 +24,7 @@
             [io.pedestal.connector :as conn]
             [io.pedestal.http.jetty :as jetty]
             [io.pedestal.http.secure-headers :as secure-headers]
+            [io.pedestal.interceptor :as interceptor]
             [replicant.string :as replicant]))
 
 (def corpus-dir
@@ -38,61 +40,99 @@
        sort
        (map (fn [name] [name (str "corpus/" name)]))))
 
-(defonce ^{:doc "Fetched bodies by URL, with the time they were fetched."}
+(defn- corpus-file
+  "The file of the corpus feed `name`."
+  ^java.io.File [name]
+  (io/file corpus-dir (str name ".xml")))
+
+(defonce ^{:doc "Recent readings by key, fetched feeds and companion files and
+  the corpus feeds read from disk, each with the time it was last used."}
   cache
   (atom {}))
 
 (def cache-seconds
-  "How long a fetched body is reused before it is fetched again."
+  "How long a fetch is reused before the server is asked whether it changed."
   300)
 
+(def cache-limit
+  "How many readings the cache keeps; the least recently used goes first."
+  16)
+
+(defn- cached
+  "The entry under `k` in the cache while `fresh?` holds for it, or else the
+  one `make` makes of it, or of nil when there is none, kept in its place."
+  [k fresh? make]
+  (let [old   (get @cache k)
+        entry (assoc (if (and old (fresh? old)) old (make old)) :used (System/nanoTime))]
+    (swap! cache (fn [c]
+                   (let [c (assoc c k entry)]
+                     (if (> (count c) cache-limit)
+                       (into {} (take cache-limit) (sort-by (comp :used val) > c))
+                       c))))
+    entry))
+
 (defn- fetch
-  "The body of the feed at `url`, from the cache when it is fresh."
-  [url]
-  (let [now (System/currentTimeMillis)
-        hit (get @cache url)]
-    (if (and hit (< (- now (:at hit)) (* 1000 cache-seconds)))
-      hit
-      (let [{:keys [status body] :as response} (http/fetch! url)
-            entry {:at now :status status :body body :url (:url response)}]
-        (when-not (and (= 200 status) body)
-          (throw (ex-info (str "HTTP " status " for " url) {:status status})))
-        (swap! cache assoc url entry)
-        entry))))
+  "What `read` makes of the body at `url`, in `{:url :status :value}` with
+  the final URL and the status; `kind` tells the readings of one URL apart.
+  A fetch is reused for `cache-seconds`, and after that for as long as the
+  server answers that the body has not changed."
+  [kind url read]
+  (let [now (System/currentTimeMillis)]
+    (cached [kind url]
+            #(< (- now (:at %)) (* 1000 cache-seconds))
+            (fn [old]
+              (let [{:keys [status body] :as response} (http/fetch! url (select-keys old [:etag :last-modified]))]
+                (cond
+                  (and old (= 304 status))  (assoc old :at now)
+                  (and (= 200 status) body) (-> (select-keys response [:url :status :etag :last-modified])
+                                                (assoc :at now :value (read body)))
+                  :else                     (throw (ex-info (str "HTTP " status " for " url) {:status status}))))))))
 
 (defn- load-feed
   "The parsed feed at `url`, or the corpus file when `url` names one, as
-  `{:url :feed :report :status}`."
+  `{:url :feed :report :status}`, parsed again only when it changed."
   [url]
   (if-let [[_ name] (re-matches #"corpus/([\w.-]+)" url)]
-    (let [feed (podcast/parse (slurp (io/file corpus-dir (str name ".xml"))))]
+    (let [file     (corpus-file name)
+          modified (.lastModified file)
+          feed     (:value (cached [:corpus name]
+                                   #(= modified (:modified %))
+                                   (fn [_] {:modified modified :value (podcast/parse (slurp file))})))]
       {:url url :feed feed :report (podcast/report feed)})
-    (let [{:keys [body status]} (fetch url)
-          feed (podcast/parse body)]
-      {:url url :feed feed :report (podcast/report feed) :status status})))
+    (let [{:keys [value status]} (fetch :feed url podcast/parse)]
+      {:url url :feed value :report (podcast/report value) :status status})))
 
 (defn- html
   [hiccup]
   {:status  200
    :headers {"Content-Type" "text/html; charset=utf-8"}
-   :body    (str "<!DOCTYPE html>\n" (replicant/render hiccup))})
+   ;; Replicant 2026.06.2 and later write a double quote as &#39;, which is
+   ;; an apostrophe. They write an apostrophe as &apos; and an ampersand as
+   ;; &amp;, so every &#39; stands for a double quote.
+   :body    (str "<!DOCTYPE html>\n" (str/replace (replicant/render hiccup) "&#39;" "&quot;"))})
 
 (defn- text
   [content-type s]
   {:status 200 :headers {"Content-Type" content-type} :body s})
 
+(defn- failure
+  "The error page, with the status 502, for the failure `e` of what
+  `heading` names, about `subject` when anything."
+  [heading subject e]
+  (-> (html (page/error-page heading subject (or (ex-message e) (str e))))
+      (assoc :status 502)))
+
 (defn- with-feed
   "Call `f` with the loaded feed for the `url` query parameter of `request`,
-  rendering an error page when loading fails."
+  rendering an error page when anything fails, a stack overflow included."
   [request f]
   (let [url (get-in request [:query-params :url])]
     (if (str/blank? url)
       {:status 302 :headers {"Location" "/"}}
       (try
         (f (load-feed url))
-        (catch Exception e
-          (-> (html (page/error-page url (or (ex-message e) (str e))))
-              (assoc :status 502)))))))
+        (catch Throwable e
+          (failure "Could not inspect the feed" url e))))))
 
 (defn home
   "The landing page: the URL form and the corpus."
@@ -101,7 +141,8 @@
 
 (defn- selection
   "What the feed page's filter form asks for, from the query `params`: the
-  criteria and the order of `search/episodes`."
+  criteria and the order of `search/episodes`, an order the page does not
+  offer left out."
   [{:keys [q season type order]}]
   (let [where (cond-> {}
                 (not (str/blank? q))                         (assoc :text q)
@@ -109,18 +150,18 @@
                 (contains? #{"full" "trailer" "bonus"} type) (assoc :type type))
         order (some-> order not-empty keyword)]
     (cond-> {:where where}
-      (contains? search/orders order) (assoc :order order))))
+      (some #{order} page/orders) (assoc :order order))))
 
 (defn feed-page
   "The inspection of the feed named by the `url` query parameter, validated
-  against the `profile` parameter when given, its items filtered and
+  against the `profile` parameter when it names one, its items filtered and
   ordered as the `q`, `season`, `type` and `order` parameters ask."
   [request]
   (with-feed request
     (fn [loaded]
       (let [profile (some-> (get-in request [:query-params :profile]) not-empty keyword)]
         (html (page/feed-page (assoc loaded
-                                     :profile profile
+                                     :profile (when (contains? validate/profiles profile) profile)
                                      :selection (selection (:query-params request)))))))))
 
 (defn feed-edn
@@ -144,12 +185,13 @@
                        (str "corpus/" (get-in request [:path-params :name])))))
 
 (defn- companion
-  "Fetch the companion file at `url` and parse its body with `parse`, as
-  `{:url :status :parsed}` or `{:url :status :error}`; never throws."
-  [url parse]
+  "Fetch the companion file at `url` and read its body with `read`, as
+  `{:url :status :parsed}` or `{:url :status :error}`; never throws. `kind`
+  tells the readings of one URL apart."
+  [kind url read]
   (try
-    (let [{:keys [status body]} (fetch url)]
-      {:url url :status status :parsed (parse body)})
+    (let [{:keys [status value]} (fetch kind url read)]
+      {:url url :status status :parsed value})
     (catch Exception e
       {:url url :status (:status (ex-data e)) :error (or (ex-message e) (str e))})))
 
@@ -184,7 +226,7 @@
       (seq (:time-splits block))
       (assoc :remote-values (remote-values block) :index? (some? index-credentials))
       (resolve/chapters-url item)
-      (assoc :chapters (companion (resolve/chapters-url item) chapters/parse-json))
+      (assoc :chapters (companion :chapters (resolve/chapters-url item) chapters/parse-json))
 
       (resolve/embedded-chapters item)
       (assoc :embedded (resolve/embedded-chapters item))
@@ -196,7 +238,8 @@
 
       transcript-ref
       (assoc :transcript
-             (-> (companion (:url transcript-ref) #(transcript/parse % (:type transcript-ref)))
+             (-> (companion [:transcript (:type transcript-ref)] (:url transcript-ref)
+                            #(transcript/parse % (:type transcript-ref)))
                  (assoc :ref transcript-ref))))))
 
 (defn item-page
@@ -209,18 +252,25 @@
             item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
         (if item
           (html (page/item-page (assoc loaded :item item :companions (companions feed item))))
-          (-> (html (page/error-page (:url loaded) (str "No item with guid " guid)))
+          (-> (html (page/error-page "No such item in the feed" (:url loaded) (str "No item with guid " guid)))
               (assoc :status 404)))))))
 
-(defonce ^{:doc "The corpus feeds parsed and indexed for the search page, on
-  first use."}
+(defonce ^{:doc "The corpus feeds parsed and indexed for the search page, nil
+  until the first search makes them."}
   corpus-search
-  (delay
-    (let [feeds (into {} (for [[_ url] (corpus)] [url (:feed (load-feed url))]))]
-      {:feeds feeds
-       :index (search/index (for [[url feed] feeds
-                                  item       (:rss/items feed)]
-                              (search/item-document feed item {:url url})))})))
+  (atom nil))
+
+(defn- corpus-index
+  "The corpus feeds by URL and their index, made by the first search and
+  kept; a failure is not kept, so that the next search tries again."
+  []
+  (or @corpus-search
+      (reset! corpus-search
+              (let [feeds (into {} (for [[name url] (corpus)] [url (podcast/parse (slurp (corpus-file name)))]))]
+                {:feeds feeds
+                 :index (search/index (for [[url feed] feeds
+                                            item       (:rss/items feed)]
+                                        (search/item-document feed item {:url url})))}))))
 
 (defn- with-items
   "The search `results` with the feed and item each came from, looked up in
@@ -242,13 +292,21 @@
                                           :url     url
                                           :results (with-items (search/query index q {:limit 50}) feeds)})))]
     (if (str/blank? url)
-      (let [{:keys [index feeds]} @corpus-search]
-        (render index feeds nil))
+      (try
+        (let [{:keys [index feeds]} (corpus-index)]
+          (render index feeds nil))
+        (catch Throwable e
+          (failure "Could not search the corpus" nil e)))
       (with-feed request
         (fn [{:keys [feed url]}]
-          (render (search/index (map #(search/item-document feed % {:url url}) (:rss/items feed)))
-                  {url feed}
-                  url))))))
+          ;; the index of a big feed takes a second to make, so it is kept
+          ;; for as long as the feed it was made of
+          (let [index (:value (cached [:index url]
+                                      #(identical? feed (:feed %))
+                                      (fn [_] {:feed  feed
+                                               :value (search/index (map #(search/item-document feed % {:url url})
+                                                                         (:rss/items feed)))})))]
+            (render index {url feed} url)))))))
 
 (defn directory-page
   "The shows the directories answer for the `q` parameter, or their charts
@@ -256,21 +314,27 @@
   among them when its credentials are set."
   [request]
   (let [{:keys [q country]} (:query-params request)
-        opts   (cond-> {:limit 10 :country (if (str/blank? country) "us" country)}
-                 index-credentials (assoc :credentials index-credentials))
-        answer (if (str/blank? q)
-                 (directory/trending! opts)
-                 (directory/search! q opts))]
-    (html (page/directory-page (assoc answer :q q :country (:country opts))))))
+        opts (cond-> {:limit 10 :country (if (str/blank? country) "us" country)}
+               index-credentials (assoc :credentials index-credentials))]
+    (try
+      (let [answer (if (str/blank? q)
+                     (directory/trending! opts)
+                     (directory/search! q opts))]
+        (html (page/directory-page (assoc answer :q q :country (:country opts)))))
+      (catch Throwable e
+        (failure "Could not ask the directories" (if (str/blank? q) (:country opts) q) e)))))
 
 (defn podping-page
   "The podpings of the last minute or so of the Hive chain: twenty blocks
   before the head, read live, verified against the writers podping
   follows."
   [_]
-  (let [head (:block (podping/head-block (podping/call! :head-block {} {})))
-        step (podping/poll! (- head 20) {:max-blocks 20})]
-    (html (page/podping-page (assoc step :head head)))))
+  (try
+    (let [head (:block (podping/head-block (podping/call! :head-block {} {})))
+          step (podping/poll! (- head 20) {:max-blocks 20})]
+      (html (page/podping-page (assoc step :head head))))
+    (catch Throwable e
+      (failure "Could not read the Hive chain" nil e))))
 
 (defn queue-page
   "The shell the browser player mounts into; the player itself is
@@ -316,8 +380,8 @@
 (def sync-dir
   "The folder the inspector serves over WebDAV at /dav/, for the browser
   player and any other device to keep in step through: INSPECTOR_SYNC_DIR in
-  the environment, else target/sync."
-  (io/file (or (System/getenv "INSPECTOR_SYNC_DIR") "target/sync")))
+  the environment, else dev-resources/sync, which `clean` leaves alone."
+  (io/file (or (System/getenv "INSPECTOR_SYNC_DIR") "dev-resources/sync")))
 
 (defn routes
   "The inspector's routes, in Pedestal's set syntax, the WebDAV ones serving
@@ -339,6 +403,14 @@
      ["/dav" :any (webdav-server/handler sync-store "/dav/") :route-name :dav-collection]
      ["/dav/*path" :any (webdav-server/handler sync-store "/dav/") :route-name :dav]
      ["/corpus/:name" :get corpus-page :route-name :corpus]}))
+
+(def single-params
+  "An interceptor that keeps the first value of a query parameter given more
+  than once, so that every handler reads a string."
+  (interceptor/interceptor
+   {:name  ::single-params
+    :enter (fn [context]
+             (update-in context [:request :query-params] update-vals #(if (vector? %) (first %) %)))}))
 
 (defonce ^{:doc "The running connector, nil when stopped."}
   server
@@ -362,6 +434,7 @@
        ;; ahead of the default interceptors, so that a put's body reaches
        ;; the WebDAV handler unread
        (update :interceptors #(into [(dav/requests "/dav/")] %))
+       (conn/with-interceptor single-params)
        (conn/with-routes (routes (file/store sync-dir)))
        (jetty/create-connector nil))))
 

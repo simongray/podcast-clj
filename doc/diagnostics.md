@@ -54,6 +54,7 @@ for the validator, and `sync` for the sync between devices.
 | `:transcript/not-an-object` | warning | A JSON transcript is not JSON, or not a JSON object, so it holds no segments. |
 | `:transcript/malformed` | warning | Segments of a JSON transcript that are not JSON objects in a list were left out. |
 | `:chapters/string-times` | warning | Chapter times were given as strings rather than numbers and were read as numbers. |
+| `:chapters/not-text` | warning | Chapter titles, links or place names that are not text, such as a JSON object, were left out. |
 | `:chapters/missing-start-time` | warning | Chapters without a start time cannot be placed. |
 | `:chapters/unsorted` | info | The chapters were not in order of start time, which the format assumes. |
 | `:chapters/unknown-keys` | info | Keys the format does not define were kept as they are. |

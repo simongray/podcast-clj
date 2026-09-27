@@ -92,3 +92,13 @@
   a prefix. `enqueue` finds the end of the queue without a sort, `turns`
   and `seasons` take linear time, `from-text` skips notes that hold no
   time, and search folds text many times faster.
+- The inspector shows double quotes, which Replicant 2026.06.2 and later
+  write as apostrophes. It parses a feed once, asks the server whether the
+  feed changed, and keeps a bounded number of feeds. A bad parameter or a
+  failing service gives a page, not an exception. The player merges what
+  other tabs and sync steps did. The sync folder is dev-resources/sync,
+  which `clean` keeps.
+- In ClojureScript, the WebDAV store sends with js/fetch again when no
+  `:fetch` is given. A chapter title, link or place name that is not text
+  is left out and reported. After `sync!`, merge its state and then
+  compact, or the merge brings back the tombstones that the step removed.
