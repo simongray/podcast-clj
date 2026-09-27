@@ -49,7 +49,9 @@
       (let [again (player/mark-unplayed (player/mark-played s a t2) a t3)]
         (is (not (player/played? again a)))
         (is (= 0 (:position (player/episode again a))))))
-    (is (= [b a] (player/history (-> s (player/progress b 10 t2)))))))
+    (is (= [b a] (player/history (-> s (player/progress b 10 t2)))))
+    (is (= [a b] (player/history (-> s (player/mark-played a t1) (player/mark-played b t2) (player/progress a 5 t3))))
+        "an episode heard again comes first again")))
 
 (deftest skipping
   (let [s (-> (player/state "phone") (player/progress a 100 3600 t0))]
@@ -58,6 +60,11 @@
     (is (= 0 (:position (player/episode (player/skip s a -500 t1) a))) "never before the start")
     (is (= 3600 (:position (player/episode (player/skip s a 5000 t1) a))) "never past the end")
     (is (= 40 (:position (player/episode (player/skip (player/state "x") c 40 t1) c))) "an unknown episode starts at zero")
+    (doseq [duration [0 ##NaN]]
+      (is (= 130 (:position (player/episode (player/skip (player/progress s a 100 duration t0) a 30 t1) a)))
+          (str "a duration of " duration " is not known, and no bound")))
+    (is (= [[:seek a 3590] [:played a]] (:effects (player/step s [:skip a 3490] t1)))
+        "a skip into the end marks it played, and says so")
     (testing "the preferred amounts, through the reducer, with the seek as the effect"
       (let [s (player/prefer s {:skip-forward 45} t0)]
         (is (= {:skip-forward 45 :skip-back 15 :rate 1.0} (player/preferences s)))
@@ -82,6 +89,9 @@
     (is (= [c] (player/queue (player/play-next (player/state "phone") c t1))))
     (is (= [b] (player/queue (player/dequeue s a t1))))
     (is (= [b a] (player/queue (player/move s a 5 t1))) "an index past the end means the end")
+    (is (= [b a c] (player/queue (player/move (player/enqueue s c t1) a 1.9 t1)))
+        "an index that is not whole counts as the whole number below it")
+    (is (= [b a] (player/queue (player/move s b ##NaN t1))) "and NaN as 0, on both platforms")
     (is (= [b] (player/queue (player/advance s t1))))
     (is (= [] (player/queue (player/advance (player/state "x") t1))))
     (is (= t2 (get-in (player/advance s t2) [:queue a :updated-at])) "the current episode is left as a tombstone")
@@ -238,6 +248,10 @@
     (is (= t2 (player/after s t2)) "a later now is used as it is")
     (is (= (time/->inst (inc (inst-ms t1))) (player/after s t0)) "an earlier now becomes the millisecond after the clock")
     (is (= t2 (:clock (player/merge s (player/progress (player/state "x") b 5 t2)))) "and it follows what is merged")
+    (let [s (-> s (player/write [:notes "x"] #(assoc % :text "one") t0) (player/write [:notes "y"] #(assoc % :text "two") t0))]
+      (is (not= (get-in s [:notes "x" :updated-at]) (get-in s [:notes "y" :updated-at]))
+          "two entries of the app's own, written through write, are never stamped alike")
+      (is (= (get-in s [:notes "y" :updated-at]) (:clock s))))
     (testing "retiring a device from another"
       (let [laptop (player/retire (player/state "laptop-id") "phone-id" t2)
             merged (player/merge s laptop)]
@@ -282,17 +296,21 @@
             "a device part of the way is named with how far it got")
         (is (= ["feed-a"] (keys (:subscriptions (player/compact (player/retire phone "tablet" t3) far)))))))))
 
-(deftest the-changes-since-an-instant
-  (let [s       (-> (player/state "phone")
+(deftest the-changes-since-a-state
+  (let [taken   (-> (player/state "phone")
                     (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
-                    (player/prefer {:rate 1.5} t1)
+                    (player/prefer {:rate 1.5} t1))
+        s       (-> taken
                     (player/progress a 100 3600 t2)
                     (player/enqueue a t3))
-        changes (player/changes-since s t1)]
+        changes (player/changes-since s taken)]
     (is (= #{:device :clock :episodes :queue} (set (keys changes)))
-        "what was written after the instant, with the device and the clock")
+        "what was written since the state was taken, with the device and the clock")
     (is (= (player/episode s a) (player/episode changes a)))
     (is (= s (player/merge s changes)) "a partial state merges into the whole without changing it")
+    (let [laptop (player/subscribe (player/state "laptop") "feed-b" {:url "https://b/rss" :title "B"} t0)]
+      (is (contains? (:subscriptions (player/changes-since (player/merge s laptop) taken)) "feed-b")
+          "and what was merged in since, however early its stamp"))
     (is (= (dissoc s :device)
            (dissoc (player/merge (player/state "laptop") (player/changes-since s nil)) :device))
         "nil means everything")))

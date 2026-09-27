@@ -227,8 +227,9 @@ in the future wins each tie, until the other clocks catch up. The state
 keeps `:clock`, the latest stamp that it wrote or merged. A merge keeps the
 later of the two clocks. Each write stamps with the given instant. If that
 instant is not later than the clock, the write stamps with the millisecond
-after the clock, as a hybrid logical clock does. `player/after` gives the
-same rule to an app that stamps its own entries.
+after the clock, as a hybrid logical clock does. `player/write` writes the
+entries of an app by the same rule, and moves the clock on, so that no two
+of them get the same stamp.
 
 A convergence test showed why this rule is necessary. Without the rule, a
 device sometimes wrote at an instant that was not later than an entry that

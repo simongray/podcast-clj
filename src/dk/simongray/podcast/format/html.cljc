@@ -9,10 +9,22 @@
             [dk.simongray.podcast.xml :as xml]))
 
 (def ^:no-doc token-pattern
-  "One token of HTML at a time: a comment, a CDATA section, a doctype or
-  other declaration, a processing instruction, an end tag, a start tag, a
-  run of text, or a stray angle bracket."
-  #"(?s)<!--.*?(?:-->|$)|<!\[CDATA\[.*?(?:\]\]>|$)|<![^>]*>?|<\?[^>]*>?|</[a-zA-Z][^>]*>?|<[a-zA-Z][^>]*>?|[^<]+|<")
+  "One token of HTML at a time: a script or style element whole, its text
+  running to its end tag, or to the end when it has none, as a browser
+  reads it, however much of it looks like markup; a comment, a CDATA
+  section, a doctype or other declaration, a processing instruction, an
+  end tag, a start tag, whose quoted values may hold a `>`, a run of text,
+  or a stray angle bracket. The start tag is a run of plain characters and
+  then quoted values each followed by another, which a regular expression
+  matches in one pass, where a choice for every character costs a third
+  of the time of the whole parse."
+  #"(?s)<[sS][cC][rR][iI][pP][tT](?=[\s/>])[^>]*>.*?(?:</[sS][cC][rR][iI][pP][tT]\s*>|$)|<[sS][tT][yY][lL][eE](?=[\s/>])[^>]*>.*?(?:</[sS][tT][yY][lL][eE]\s*>|$)|<!--.*?(?:-->|$)|<!\[CDATA\[.*?(?:\]\]>|$)|<![^>]*>?|<\?[^>]*>?|</[a-zA-Z][^>]*>?|<[a-zA-Z][^>\"']*(?:(?:\"[^\"]*\"|'[^']*'|[\"'])[^>\"']*)*>?|[^<]+|<")
+
+(def ^:no-doc markup
+  "What makes a description HTML rather than plain text: a comment, or a
+  tag whole, `<p>`, `<a href=\"…\">` or `</b>`. Plain text may hold
+  `<show@example.com>` or `<3`, and neither is a tag."
+  #"<!--|<[a-zA-Z][a-zA-Z0-9]*(?:\s[^<>]*)?/?>|</[a-zA-Z][a-zA-Z0-9]*\s*>")
 
 (def ^:no-doc attribute-pattern
   "An attribute: a name, and perhaps a value in double quotes, single quotes
@@ -23,10 +35,6 @@
   "Elements that never have content or an end tag."
   #{"area" "base" "br" "col" "embed" "hr" "img" "input" "link" "meta" "param"
     "source" "track" "wbr"})
-
-(def ^:no-doc raw-text-elements
-  "Elements whose content is text however much it looks like markup."
-  #{"script" "style"})
 
 (def ^:no-doc block-elements
   "Elements whose start tag closes an open paragraph, as HTML defines."
@@ -73,12 +81,24 @@
               (if (nil? v) true (xml/decode-entities v))])))
 
 (defn- start-tag
-  "`[name attrs self-closing?]` of the start tag `token`."
+  "`[name attrs self-closing?]` of the start tag `token`. A slash before
+  the `>` closes the element when white space, a quote or the name comes
+  before it, not at the end of a value without quotes, as in
+  `href=https://x/`."
   [token]
-  (let [[_ name rest] (re-matches #"(?s)^<([a-zA-Z][\w:.-]*)(.*?)/?>?$" token)]
+  (let [[_ name rest] (re-matches #"(?s)^<([a-zA-Z][\w:.-]*)(.*?)>?$" token)
+        rest          (or rest "")
+        self-closing? (boolean (re-find #"(?:^|[\s\"'])/$" rest))]
     [(str/lower-case name)
-     (parse-attributes (str/replace (or rest "") #"/\s*$" ""))
-     (boolean (re-find #"/\s*>?$" token))]))
+     (parse-attributes (if self-closing? (subs rest 0 (dec (count rest))) rest))
+     self-closing?]))
+
+(defn- raw-element
+  "The script or style element of the token `token`, its text as it is."
+  [token]
+  (let [[_ name rest text] (re-matches #"(?is)^<(script|style)([^>]*)>(.*?)(?:</\1\s*>)?$" token)]
+    (cond-> [(keyword (str/lower-case name)) (parse-attributes (str/replace rest #"/$" ""))]
+      (seq text) (conj text))))
 
 (defn- end-tag
   [token]
@@ -162,13 +182,14 @@
 (defn- token-kind
   [token]
   (cond
-    (str/starts-with? token "<!--")       :comment
-    (str/starts-with? token "<![CDATA[")  :cdata
-    (str/starts-with? token "<!")         :declaration
-    (str/starts-with? token "<?")         :instruction
-    (re-find #"^</[a-zA-Z]" token)        :end
-    (re-find #"^<[a-zA-Z]" token)         :start
-    :else                                 :text))
+    (str/starts-with? token "<!--")                      :comment
+    (str/starts-with? token "<![CDATA[")                 :cdata
+    (str/starts-with? token "<!")                        :declaration
+    (str/starts-with? token "<?")                        :instruction
+    (re-find #"^</[a-zA-Z]" token)                       :end
+    (re-find #"(?i)^<(?:script|style)(?=[\s/>])" token)  :raw
+    (re-find #"^<[a-zA-Z]" token)                        :start
+    :else                                                :text))
 
 (defn parse
   "Read the HTML fragment `s` into Hiccup the way a browser would, as a
@@ -182,20 +203,15 @@
   (loop [tokens (re-seq token-pattern (str s))
          state  {:stack [[:root {}]] :open {}}]
     (if-let [token (first tokens)]
-      (let [tokens (rest tokens)
-            raw    (raw-text-elements (tag-name (peek (:stack state))))]
-        (cond
-          (and raw (not (and (= :end (token-kind token)) (= raw (end-tag token)))))
-          (recur tokens (append state token))
-
-          :else
-          (case (token-kind token)
-            :text        (recur tokens (append state (xml/decode-entities token)))
-            :cdata       (recur tokens (append state (str/replace token #"^<!\[CDATA\[|\]\]>$" "")))
-            :start       (let [[name attrs self-closing?] (start-tag token)]
-                           (recur tokens (open-element state name attrs self-closing?)))
-            :end         (recur tokens (close-through state #{(end-tag token)} #{}))
-            (recur tokens state))))
+      (let [tokens (rest tokens)]
+        (case (token-kind token)
+          :text  (recur tokens (append state (xml/decode-entities token)))
+          :cdata (recur tokens (append state (str/replace token #"^<!\[CDATA\[|\]\]>$" "")))
+          :raw   (recur tokens (append state (raw-element token)))
+          :start (let [[name attrs self-closing?] (start-tag token)]
+                   (recur tokens (open-element state name attrs self-closing?)))
+          :end   (recur tokens (close-through state #{(end-tag token)} #{}))
+          (recur tokens state)))
       (loop [state state]
         (if (= 1 (count (:stack state)))
           (apply list (drop 2 (merge-text (peek (:stack state)))))
@@ -246,6 +262,14 @@
     (or (not (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:" s))
         (boolean (re-find #"(?i)^(?:https?|mailto):" s)))))
 
+(defn ^:no-doc parts
+  "The tag, the attributes and the children of the Hiccup element `node`,
+  whose attribute map may be left out, as in `[:p \"x\"]`."
+  [[tag & more]]
+  (if (map? (first more))
+    [tag (first more) (rest more)]
+    [tag {} more]))
+
 (defn- safe-attributes
   [tag attrs]
   (into {} (for [[k v] attrs
@@ -265,7 +289,7 @@
               (string? x)       [x]
               (not (vector? x)) []
               :else
-              (let [[tag attrs & children] x
+              (let [[tag attrs children] (parts x)
                     kids (mapcat node children)
                     kids (if (structural-tags tag)
                            (remove #(and (string? %) (str/blank? %)) kids)
@@ -288,11 +312,11 @@
 (defn hiccup
   "The Hiccup a client can render for the description `s`, as a sequence of
   nodes to put inside a parent element, `[:div (hiccup s)]`: parsed and
-  sanitized when it holds markup, paragraphs with line breaks when it is
+  sanitized when it holds `markup`, paragraphs with line breaks when it is
   plain text."
   [s]
   (let [s (str s)]
-    (if (re-find #"<[a-zA-Z!/]" s)
+    (if (re-find markup s)
       (sanitize (parse s))
       (paragraphs s))))
 
@@ -305,10 +329,11 @@
   #{:div :li :tr :dt :dd :figcaption :address :caption :thead :tbody :tfoot :section :article})
 
 (defn- nodes-of
-  "`x` as a sequence of nodes: a string is parsed, a node wrapped."
+  "`x` as a sequence of nodes: a string parsed when it holds `markup` and
+  read as paragraphs when it is plain text, a node wrapped."
   [x]
   (cond
-    (string? x)             (parse x)
+    (string? x)             (if (re-find markup x) (parse x) (paragraphs x))
     (and (vector? x)
          (keyword? (first x))) [x]
     :else                   x))
@@ -326,29 +351,53 @@
         start  (loop [i 0] (if (and (< i end) (blank? i)) (recur (inc i)) i))]
     (subs s start end)))
 
-(defn- tidy
-  "Trim the rendered `s` and its lines, and reduce its blank lines to one."
+(def ^:no-doc pre-mark
+  "What `render` puts at the start of every line of preformatted text, a
+  character of the private use area, which no text holds, so that `tidy`
+  leaves the indentation of those lines alone, and then removes it."
+  "\uE000")
+
+(defn- marked-lines
+  "The preformatted text `s` with `pre-mark` at the start of each of its
+  lines, the line breaks at its end dropped."
   [s]
-  (-> (str/join "\n" (map trim-blanks (str/split-lines s)))
+  (let [end (loop [i (count s)]
+              (if (and (pos? i) (contains? #{\newline \return} (nth s (dec i))))
+                (recur (dec i))
+                i))]
+    (str pre-mark (str/replace (subs s 0 end) "\n" (str "\n" pre-mark)))))
+
+(defn- tidy
+  "Trim the rendered `s` and its lines, but for the lines of preformatted
+  text, and reduce its blank lines to one."
+  [s]
+  (-> (str/join "\n" (map #(if (str/starts-with? % pre-mark) % (trim-blanks %)) (str/split-lines s)))
       (str/replace #"\n{3,}" "\n\n")
-      str/trim))
+      str/trim
+      (str/replace pre-mark "")))
 
 (defn- render
   "Render `nodes` with `inline`, a function of a text string and the
-  context, and `element`, a function of a node, its rendered children and
-  the context, which is a map with `:list` (:ul or :ol), `:index` (an atom
-  counting list items) and `:pre?`."
+  context, and `element`, a function of the tag and the attributes of a
+  node, its rendered children and the context, which is a map with
+  `:list` (:ul or :ol), `:index` (an atom counting list items) and
+  `:pre?`. The `dropped-tags` render as nothing, as a browser shows no
+  script, and every line of a pre starts with `pre-mark`."
   [nodes inline element context]
   (letfn [(node [x ctx]
             (cond
               (string? x)       (inline x ctx)
               (not (vector? x)) ""
               :else
-              (let [[tag _ & children] x
+              (let [[tag attrs children] (parts x)
                     ctx (cond-> ctx
                           (#{:ul :ol} tag) (assoc :list tag :index (atom 0))
-                          (= :pre tag)      (assoc :pre? true))]
-                (element x (str/join (map #(node % ctx) children)) ctx))))]
+                          (= :pre tag)      (assoc :pre? true))
+                    inner (str/join (map #(node % ctx) children))]
+                (cond
+                  (dropped-tags tag) ""
+                  (= :pre tag)       (element [tag attrs] (marked-lines inner) ctx)
+                  :else              (element [tag attrs] inner ctx)))))]
     (tidy (str/join (map #(node % context) nodes)))))
 
 (defn- list-marker
@@ -432,7 +481,7 @@
               (string? x)       (escape x)
               (not (vector? x)) ""
               :else
-              (let [[tag attrs & children] x
+              (let [[tag attrs children] (parts x)
                     name (name tag)]
                 (if (void-elements name)
                   (str "<" name (attributes-html attrs) ">")

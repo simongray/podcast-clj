@@ -187,6 +187,13 @@
     (let [t (transcript/parse "{\"segments\": [1, {\"startTime\": 0, \"body\": \"a\"}]}" "application/json")]
       (is (= [{:body "a" :start 0}] (:segments t)))
       (is (= [:transcript/malformed] (report-ids t)))))
+  (testing "cue timings come before a tag, and SRT without fractions of a second"
+    (is (= :srt (:format (transcript/parse "1\n00:00:01,000 --> 00:00:03,000\n<p>Hello</p>\n" "application/x-subrip"))))
+    (is (= ["I said <p> once." "Then more."] (map :body (:segments (transcript/parse "I said <p> once.\n\nThen more." "text/plain")))))
+    (is (= [{:start 1 :end 3 :body "Hello"}] (:segments (transcript/parse "1\n00:00:01 --> 00:00:03\nHello\n")))))
+  (testing "a blank line in a body is no end of the cue it is written as"
+    (doseq [emit [transcript/emit-srt transcript/emit-vtt]]
+      (is (= ["one\ntwo"] (map :body (:segments (transcript/parse (emit {:segments [{:start 1 :end 2 :body "one\n\ntwo"}]}))))))))
   (testing "text that only looks like JSON is read as text, and a byte order mark is no text"
     (doseq [type [nil "text/plain"]]
       (let [t (transcript/parse "{Intro music}\n\nHost: Welcome." type)]
@@ -263,7 +270,12 @@
             {:type "rss" :text "ATP" :xml-url "https://atp.fm/rss" :html-url "https://atp.fm"}]
            (:subscriptions list)))
     (is (= list (opml/parse (opml/emit list))))
-    (is (re-find #"xmlUrl=\"https://atp.fm/rss\"" (opml/emit list)))))
+    (is (re-find #"xmlUrl=\"https://atp.fm/rss\"" (opml/emit list))))
+  (testing "xmlUrl in any case, and a blank one, which is no subscription"
+    (is (= [{:text "A" :xml-url "https://a/rss"} {:text "C" :xml-url "https://c/rss" :html-url "https://c"}]
+           (:subscriptions (opml/parse "<opml version=\"2.0\"><body><outline text=\"A\" xmlurl=\"https://a/rss\"/>
+                                        <outline text=\"B\" xmlUrl=\"\"/>
+                                        <outline text=\"C\" XMLURL=\"https://c/rss\" HTMLURL=\"https://c\"/></body></opml>"))))))
 
 (def block
   {:type "lightning" :method "keysend" :suggested 1.5E-7

@@ -77,3 +77,12 @@
   undeclared prefix. `:namespaces` wins over the URIs of the library.
   `inner-xml` escapes text for HTML. The rule parser and the schemas agree
   on the ranges of RFC 5545, and srcset reads URLs with commas in them.
+- The companion formats, search and the player take odd input. A script is
+  text up to its end tag, and `html/text` leaves it out; a pre keeps its
+  indentation, and plain text stays plain. The cue timings of a transcript
+  count before a tag, and a blank line in a body survives SRT and WebVTT.
+  OPML reads xmlUrl in any case. Search folds the marks that text holds
+  already, handles any limit fast, and reads an index read back from EDN.
+  `player/skip` ignores a duration of zero or NaN, `player/write` stamps
+  the entries of an app, and `changes-since` takes the state as it was, so
+  that nothing merged since is missed.

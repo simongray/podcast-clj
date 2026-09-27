@@ -50,16 +50,30 @@
   #?(:clj  (java.text.Normalizer/normalize s java.text.Normalizer$Form/NFD)
      :cljs (.normalize s "NFD")))
 
+(defn- marked?
+  "Whether `s` holds a combining mark of the ranges `marks` covers, found
+  with a loop, which costs text without one far less than the pattern."
+  [^String s]
+  (let [n (count s)]
+    (loop [i 0]
+      (if (= i n)
+        false
+        (let [c #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))]
+          (if (or (<= 0x0300 c 0x036F) (<= 0x1AB0 c 0x1AFF) (<= 0x1DC0 c 0x1DFF)
+                  (<= 0x20D0 c 0x20FF) (<= 0xFE20 c 0xFE2F))
+            true
+            (recur (inc i))))))))
+
 (defn fold
   "`s` lower-cased, its diacritics stripped and its ligatures spelled out,
   so that texts and queries compare the way a listener types: \"Café Ø\"
   folds to \"cafe o\". Decomposing text with nothing to decompose gives
-  the same string back, on both platforms, and only text that changed has
-  marks to strip."
+  the same string back, on both platforms, and such text has marks to
+  strip only when it held them already, as \"İ\" lower-cased does."
   [s]
   (let [s (str/lower-case (str s))
         d (decompose s)]
-    (str/escape (if (identical? d s) s (str/replace d marks "")) ligatures)))
+    (str/escape (if (and (identical? d s) (not (marked? s))) s (str/replace d marks "")) ligatures)))
 
 (def ^:no-doc word
   "A run of letters, marks and digits: one word of text."
@@ -88,11 +102,18 @@
         (recur more end (conj acc {:start start :end end :term (fold w)})))
       acc)))
 
+(defn ^:no-doc spaced
+  "The query `q` with every kind of white space as a space, so that the
+  JVM, whose `\\s` knows only the ASCII ones, reads it as JavaScript does."
+  [q]
+  (str/replace q #"[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]" " "))
+
 (defn- words
   "The terms of the query `q` and, unless it ends in whitespace, the last
   one as the `:prefix` to complete: `{:terms [...] :prefix \"clo\"}`."
   [q]
-  (let [terms (tokens q)]
+  (let [q     (spaced q)
+        terms (tokens q)]
     (if (and (seq terms) (not (re-find #"\s$" q)))
       {:terms (pop terms) :prefix (peek terms)}
       {:terms terms})))
@@ -117,7 +138,8 @@
   knows it, the fields `:title`, `:show`, `:description`, `:people`,
   `:keywords` and `:chapters`, and `:transcript` when `opts` carries one;
   stored for results, the title, the show, the guid, when it was
-  published, how long it is and the url. `opts`:
+  published, how long it is and the url. A feed without a podcast:guid and
+  without `:url` has no identity to give its episodes, and throws. `opts`:
 
       {:url        \"https://…\"   ; where the feed was fetched, needed for the
                                  ; identity of a feed without a podcast:guid
@@ -131,8 +153,12 @@
    {:pre [(map? opts)]}
    (let [chapters (or chapters (resolve/embedded-chapters item))
          title    (resolve/title item)
-         show     (resolve/title feed)]
-     {:id     (player/episode-id feed url item)
+         show     (resolve/title feed)
+         id       (player/episode-id feed url item)]
+     (when (nil? (first id))
+       (throw (ex-info "A feed without a podcast:guid needs :url, or its episodes share ids with those of other shows"
+                       {:title show})))
+     {:id     id
       :fields (present {:title       title
                         :show        show
                         :description (notes item)
@@ -182,7 +208,9 @@
   field and the terms held; `:postings` from term to its positions in
   every document that has it; `:terms` the same terms in order, for
   prefixes; `:fields` with each field's number and the lengths BM25
-  normalizes by."
+  normalizes by. Printed as EDN and read back, `:terms` is a hash set, and
+  prefixes are found by a scan of every term until `(update index :terms
+  #(into (sorted-set) %))` sorts it again."
   ([]
    {:docs {} :postings {} :terms (sorted-set) :fields {}})
   ([docs]
@@ -215,9 +243,13 @@
     index))
 
 (defn- analyze
-  "The terms of a field value: a string analyzed, a sequence taken as is."
+  "The terms of a field value: a string analyzed, a vector taken as terms
+  analyzed already, and the strings of any other collection analyzed each."
   [v]
-  (if (string? v) (tokens v) (vec v)))
+  (cond
+    (string? v) (tokens v)
+    (vector? v) v
+    :else       (into [] (mapcat tokens) v)))
 
 (defn- numbered
   "The `fields` of an index with a number for every field of `analyzed`,
@@ -354,11 +386,14 @@
 
 (defn- expansions
   "The index terms `term` stands for: itself, or every term it is a prefix
-  of when `prefix?`."
+  of when `prefix?`, from the sorted terms or, in an index read back from
+  EDN, by a scan of them."
   [index term prefix?]
-  (if prefix?
-    (subseq (:terms index) >= term < (str term "￿"))
-    (when (contains? (:postings index) term) [term])))
+  (let [terms (:terms index)]
+    (cond
+      (not prefix?)   (when (contains? (:postings index) term) [term])
+      (sorted? terms) (subseq terms >= term < (str term "￿"))
+      :else           (filter #(str/starts-with? % term) terms))))
 
 (defn- term-scores
   "The score of every document of `index` holding `term`, or when
@@ -441,13 +476,16 @@
     :any (into [] (distinct) (mapcat keys scored))))
 
 (defn- better
-  "Whether the result `a` ranks before `b`: the higher score, then the
-  hash of the id and finally the id printed, so that the order is total
-  and stable. BM25 ties are common, so this must stay cheap."
+  "Whether the result `a` ranks before `b`: the higher score, then the id
+  when both are numbers, else the hash of the id and finally the id
+  printed, so that the order is total and stable, and the same on both
+  platforms, whose hashes of a number differ. BM25 ties are common, so
+  this must stay cheap."
   [a b]
   (let [sa (double (:score a)) sb (double (:score b))]
     (cond (> sa sb) -1
           (< sa sb) 1
+          (and (number? (:id a)) (number? (:id b))) (compare (:id a) (:id b))
           :else     (let [ha (long (hash (:id a))) hb (long (hash (:id b)))]
                       (cond (< ha hb) -1
                             (> ha hb) 1
@@ -455,13 +493,17 @@
 
 (defn- best
   "`results` in the order of the comparator `before`, at most `n` of them
-  when `n` is given. The best so far are kept as a small sorted vector, so
-  that a candidate below the worst of them costs one comparison, which is
-  what nearly every candidate does."
+  when `n` is given. When `n` is small next to the results, the best so
+  far are kept as a small sorted vector, so that a candidate below the
+  worst of them costs one comparison, which is what nearly every candidate
+  does; otherwise, as for `n` beyond the square root of their number, all
+  are sorted."
   [before n results]
   (cond
-    (nil? n)  (vec (sort before results))
-    (<= n 0)  []
+    (and n (<= n 0)) []
+    (or (nil? n) (>= n (Math/sqrt (count results))))
+    (let [sorted (sort before results)]
+      (vec (if n (take n sorted) sorted)))
     :else     (reduce (fn [top result]
                         (if (and (= (count top) n) (<= 0 (before result (peek top))))
                           top
@@ -491,9 +533,10 @@
        :rank       f}              ; order the results by this function of each
                                    ; instead of by score, ascending
 
-  Without `:rank`, equal scores are ordered by the hash of the id, so
-  that the order is stable; `(fn [r] [(- (:score r)) (- (inst-ms (:published (:stored r))))])`
-  ranks by score and then puts the newest first."
+  Without `:rank`, equal scores are ordered by the id, so that the order
+  is stable; `(fn [r] [(- (:score r)) (- (or (some-> r :stored :published inst-ms) 0))])`
+  ranks by score and then puts the newest first. The white space of a
+  query is the same on both platforms, no-break spaces included."
   ([index q]
    (query index q {}))
   ([index q {:keys [limit match prefix? min-prefix where rank]
@@ -501,6 +544,7 @@
              :as   opts}]
    {:pre [(map? opts)]}
    (let [weighing (weighing index (or (:boosts opts) boosts) (:k1 opts k1) (:b opts b))
+         q        (if (string? q) (spaced q) q)
          scored   (mapv #(clause-scores index weighing %) (clauses q prefix? min-prefix))
          result   (fn [id]
                     {:id     id
@@ -515,7 +559,7 @@
   matches marked: a vector of `{:text}` parts with `:match? true` on the
   words found and an ellipsis where the window cuts the text, for a
   result list to render. `:width` in `opts` is the number of characters
-  shown (default 160)."
+  shown (default 160), more when the first match is longer."
   ([text q]
    (snippet text q {}))
   ([text q {:keys [width] :or {width 160} :as opts}]
@@ -530,7 +574,7 @@
          length (count text)
          from   (if-let [{:keys [start]} (first hits)] (max 0 (- start (quot width 3))) 0)
          from   (or (some #(when (>= (:start %) from) (:start %)) spans) from)
-         to     (min length (+ from width))
+         to     (min length (max (+ from width) (or (:end (first hits)) 0)))
          to     (if (< to length)
                   (or (last (keep #(when (<= (:end %) to) (:end %)) spans)) to)
                   to)
@@ -696,19 +740,27 @@
 
   Given a collection of feeds instead, the selection runs over all of
   them and comes back as `[feed item]` pairs in one order, the inbox of
-  an app; `:url` is then a function of the feed."
+  an app; `:url` is then a function of the feed. The listening order is
+  that of one show, so across shows each keeps its episodes together, in
+  the order the feeds are given."
   ([feed]
    (episodes feed {}))
   ([feed {:keys [limit] :as opts}]
    {:pre [(map? opts)]}
-   (let [ctx   (select-keys opts [:player :url])
-         pred  (where (or (:where opts) {}) ctx)
-         key   (order (or (:order opts) :listening) ctx)
-         feeds (if (map? feed) [feed] feed)
-         pairs (->> (for [f feeds, item (:rss/items f) :when (pred f item)] [f item])
-                    (sort-by (fn [[f item]] (key f item))))
-         pairs (if limit (take limit pairs) pairs)]
-     (vec (if (map? feed) (map second pairs) pairs)))))
+   (let [ctx       (select-keys opts [:player :url])
+         pred      (where (or (:where opts) {}) ctx)
+         k         (or (:order opts) :listening)
+         key       (order k ctx)
+         feeds     (if (map? feed) [feed] feed)
+         sort-key  (if (= :listening k)
+                     (fn [[i f item]] [i (key f item)])
+                     (fn [[_ f item]] (key f item)))
+         pairs     (->> (for [[i f] (map-indexed vector feeds), item (:rss/items f) :when (pred f item)]
+                          [i f item])
+                        (sort-by sort-key)
+                        (map rest))
+         pairs     (if limit (take limit pairs) pairs)]
+     (vec (if (map? feed) (map second pairs) (map vec pairs))))))
 
 #?(:clj
    (comment

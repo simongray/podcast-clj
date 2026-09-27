@@ -33,8 +33,9 @@
    "text/plain"           :text})
 
 (def ^:no-doc timing-pattern
-  "A cue timing line in SRT or WebVTT: start, arrow, end, optional settings."
-  #"^\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}[.,]\d{1,3})\s*-->\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}[.,]\d{1,3})")
+  "A cue timing line in SRT or WebVTT: start, arrow, end, optional settings;
+  the fraction of a second may be missing, as some exports leave it out."
+  #"^\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}(?:[.,]\d{1,3})?)")
 
 (defn report
   "The diagnostics recorded while reading `transcript`."
@@ -125,6 +126,13 @@
   [transcript]
   (filter (comp number? :start) (:segments transcript)))
 
+(defn ^:no-doc cue-body
+  "The `body` of a segment as a cue carries it: trimmed, and without blank
+  lines, which end a cue in SRT and WebVTT, so that the next read would
+  lose the rest of the body."
+  [body]
+  (str/replace (str/trim (str body)) #"\n[ \t\r]*\n\s*" "\n"))
+
 (defn emit-srt
   "Write `transcript` as SRT, one numbered cue per segment with a start time,
   the speaker as a \"Name: \" prefix; segments without one are left out."
@@ -134,7 +142,7 @@
                            (str (inc i) "\n"
                                 (time/format-timestamp start ",") " --> "
                                 (time/format-timestamp (or end start) ",") "\n"
-                                (when speaker (str speaker ": ")) body))
+                                (when speaker (str speaker ": ")) (cue-body body)))
                          (timed-segments transcript))))
 
 (defn- strip-tags
@@ -179,7 +187,7 @@
                        (timed-segments transcript)]
                    (str (time/format-timestamp start) " --> "
                         (time/format-timestamp (or end start)) "\n"
-                        (when speaker (str "<v " speaker ">")) body)))
+                        (when speaker (str "<v " speaker ">")) (cue-body body))))
        "\n"))
 
 (defn parse-json
@@ -307,15 +315,18 @@
       (prefix-diagnostics (:prefixes @stats 0)))))
 
 (defn sniff
-  "Guess the format of the transcript text `s`."
+  "Guess the format of the transcript text `s`. Cue timings come before
+  markup, and markup counts only when the text starts with it, since a
+  cue or a paragraph of plain text may mention a tag."
   [s]
   (let [s (str/triml s)]
     (cond
       (str/starts-with? s "WEBVTT")            :vtt
       (str/starts-with? s "{")                 :json
-      (re-find #"(?i)<(cite|time|p)\b" s)     :html
       (re-find #"^\d+\s*\n\s*\d{1,2}:\d{2}" s) :srt
       (re-find timing-pattern s)               :srt
+      (and (str/starts-with? s "<")
+           (re-find #"(?i)<(cite|time|p)\b" s)) :html
       :else                                    :text)))
 
 (def ^:no-doc format-keys

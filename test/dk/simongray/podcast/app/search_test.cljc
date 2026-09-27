@@ -1,6 +1,7 @@
 (ns dk.simongray.podcast.app.search-test
   "Filtering and ordering by criteria as data, and the full-text index."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
+            #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.player :as player]
@@ -120,7 +121,9 @@
            (mapv (comp :rss/title second)
                  (search/episodes [show other] {:where {:status :in-progress} :player listened
                                                 :url (fn [feed] (str "https://x/" (:podcast/guid feed)))})))
-        "the url as a function of the feed, for the identities the player uses")))
+        "the url as a function of the feed, for the identities the player uses")
+    (is (= ["Other" "Test Show"] (distinct (mapv (comp :rss/title first) (search/episodes [other show]))))
+        "in the listening order, each show keeps its episodes together, in the order the feeds come")))
 
 (deftest the-index
   (let [idx (search/index [{:id 1 :stored {:title "Clojure…"}
@@ -174,7 +177,20 @@
         (is (= [:a] (mapv :id (search/query idx ["kaffe"]))))
         (is (= [:a] (mapv :id (search/query idx "Kaffe"))))
         (is (= [] (search/query idx ["Kaffe"])) "no analysis, so no folding")))
+    (testing "but the strings of a set or a list are analyzed each"
+      (is (= [:a] (mapv :id (search/query (search/index [{:id :a :fields {:keywords #{"Café" "Politics"}}}]) "cafe")))))
+    (testing "an index printed as EDN and read back, whose terms come back unsorted"
+      (let [thawed (edn/read-string (pr-str idx))]
+        (is (= [1 2] (mapv :id (search/query thawed "cloj"))))))
+    (testing "every kind of white space is one, on both platforms"
+      (is (= [2] (ids "value\u00A0for\u3000value")) "no-break and ideographic spaces"))
     (is (thrown? #?(:clj Exception :cljs js/Error) (search/add idx {:fields {:title "no id"}})))))
+
+(deftest limits-and-ties
+  (let [idx (search/index (for [i (range 200)] {:id i :fields {:title "same words"}}))]
+    (is (= (range 10) (mapv :id (search/query idx "same" {:limit 10}))) "equal scores in the order of numeric ids")
+    (is (= 200 (count (search/query idx "same" {:limit #?(:clj Long/MAX_VALUE :cljs js/Number.MAX_SAFE_INTEGER)}))))
+    (is (= (range 150) (mapv :id (search/query idx "same" {:limit 150}))) "a limit near the count sorts all")))
 
 (deftest documents-from-the-model
   (let [feed (deref example)
@@ -199,6 +215,9 @@
       (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"]] (mapv :id (search/query idx "futu"))))
       (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0002"]] (mapv :id (search/query idx "\"the present\""))))
       (is (= "Episode 3 - The Future" (:title (:stored (first (search/query idx "future")))))))
+    (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"needs :url"
+                          (search/item-document (dissoc feed :podcast/guid) item))
+        "a feed without an identity would give its episodes the ids of other shows")
     (let [doc (search/feed-document feed)]
       (is (= "y0ur-gu1d-g035-h3r3" (:id doc)))
       (is (= "Podcasting 2.0 Namespace Example" (get-in doc [:fields :title])))
@@ -219,4 +238,7 @@
            (search/snippet text "cat")) "no match, the start of the text")
     (is (= [{:text "Café"}] (search/snippet "Café" "tea")))
     (is (= [] (search/snippet nil "tea")) "no text, no parts")
-    (is (= [{:text "Café" :match? true}] (search/snippet "Café" "cafe")) "folded like the index")))
+    (is (= [{:text "Café" :match? true}] (search/snippet "Café" "cafe")) "folded like the index")
+    (is (= [{:text "…"} {:text "supercalifragilistic" :match? true} {:text "…"}]
+           (search/snippet "see supercalifragilistic word" "super" {:width 8}))
+        "a match wider than the window is shown whole")))

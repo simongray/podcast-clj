@@ -29,7 +29,13 @@
     (is (= [[:o:p {} "word"]] (html/parse "<o:p>word</o:p>"))))
   (testing "scripts keep their content as text"
     (is (= [[:script {} "if (a < b) { x() }"]]
-           (html/parse "<script>if (a < b) { x() }</script>"))))
+           (html/parse "<script>if (a < b) { x() }</script>")))
+    (is (= [[:p {} "a"] [:script {} "for(i=0;i<n;i++){}"] [:p {} "b"]]
+           (html/parse "<p>a</p><SCRIPT>for(i=0;i<n;i++){}</script><p>b</p>"))
+        "however much of it looks like a tag, up to its end tag in any case"))
+  (testing "a > in a quoted value, and a slash at the end of one without quotes"
+    (is (= [[:img {:alt "a > b" :src "x.png"}] [:a {:href "https://x/"} "link"]]
+           (html/parse "<img alt=\"a > b\" src=\"x.png\"><a href=https://x/>link</a>"))))
   (testing "text alone is text"
     (is (= ["just words"] (html/parse "just words")))
     (is (= [] (html/parse ""))))
@@ -76,7 +82,9 @@
     (is (= [[:p {} "Hi " [:b {} "there"]]] (html/hiccup "<p>Hi <b>there</b><script>x</script></p>"))))
   (testing "plain text becomes paragraphs with breaks"
     (is (= [[:p {} "Line one" [:br {}] "line two"] [:p {} "Second & last"]]
-           (html/hiccup "Line one\nline two\n\n\nSecond &amp; last\n"))))
+           (html/hiccup "Line one\nline two\n\n\nSecond &amp; last\n")))
+    (is (= [[:p {} "Write to <show@example.com> <3"]] (html/hiccup "Write to <show@example.com> <3"))
+        "an address in angle brackets is no tag"))
   (is (= [] (html/hiccup nil)))
   (is (= [] (html/hiccup "   "))))
 
@@ -88,20 +96,28 @@
     (is (str/includes? (html/text notes {:links? true}) "world (https://x/)"))
     (is (= "a\n\nb" (html/text [[:p {} "a"] [:p {} "b"]])))
     (is (= "keep   this" (html/text "<pre>keep   this</pre>")))
-    (is (= "plain text" (html/text "plain text")))))
+    (is (= "plain text" (html/text "plain text")))
+    (is (= "Hello\n\nWorld" (html/text "<p>Hello</p><script>for(i=0;i<n;i++){}</script><style>p{}</style><p>World</p>"))
+        "what a browser does not show is no text")
+    (is (= "  a\n    b" (html/text "<pre>  a\n    b\n</pre>")) "a pre keeps its indentation")
+    (is (= "Write to <show@example.com>\nsoon" (html/text "Write to <show@example.com>\nsoon")) "plain text stays plain")
+    (is (= "x" (html/text [:p "x"])) "hiccup without an attribute map")))
 
 (deftest rendering-markdown
   (is (= "## Notes\n\nHello **world** and *you*, [link](https://x/)\\\nnext line.\n\n- one\n- two\n\n1. first\n2. second\n\n> quoted\\\n> lines\n\n---\n\n```\ncode block\n```\n\n![art](a.png) `x`"
          (html/markdown "<h2>Notes</h2><p>Hello <strong>world</strong> and <em>you</em>, <a href=\"https://x/\">link</a><br>next line.</p>
                          <ul><li>one</li><li>two</li></ul><ol><li>first</li><li>second</li></ol>
-                         <blockquote>quoted<br>lines</blockquote><hr><pre>code block</pre><p><img src=\"a.png\" alt=\"art\"> <code>x</code></p>"))))
+                         <blockquote>quoted<br>lines</blockquote><hr><pre>code block</pre><p><img src=\"a.png\" alt=\"art\"> <code>x</code></p>")))
+  (is (= "```\n  indented\n    more\n```\n\nafter" (html/markdown "<pre>  indented\n    more\n</pre><p>after</p>"))
+      "a pre keeps its indentation"))
 
 (deftest emitting-html
   (is (= "<p class=\"c\">a &amp; b<br><a href=\"https://x/?a=1&amp;b=2\">l</a></p><input disabled>"
          (html/emit [[:p {:class "c"} "a & b" [:br {}] [:a {:href "https://x/?a=1&b=2"} "l"]] [:input {:disabled true}]])))
   (testing "sanitized Hiccup survives a trip through HTML"
     (let [nodes (html/sanitize (html/parse "<p>Hi <a href=\"https://x/\">there</a><br>you</p><ul><li>one</li></ul>"))]
-      (is (= nodes (html/parse (html/emit nodes)))))))
+      (is (= nodes (html/parse (html/emit nodes))))))
+  (is (= "<p>x</p>" (html/emit [:p "x"])) "hiccup without an attribute map"))
 
 #?(:clj
    (deftest descriptions-in-the-corpus-render

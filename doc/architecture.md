@@ -375,8 +375,9 @@ list and the source agree.
   only when the speaker changes. podcast-clj carries the name over to the
   cues that follow. Some hosts write JSON times as strings. HTML transcripts
   contain layout whitespace, and some contain a whole SRT file in `<p>`
-  elements. `turns` joins the words of a word-level JSON transcript into
-  prose.
+  elements. A caption can quote a tag, so the format is read from the cue
+  timings before the markup. `turns` joins the words of a word-level JSON
+  transcript into prose.
 - **OPML** (`format.opml`) reads and writes subscription lists. Folders
   become a path.
 - **HTML** (`format.html`) reads the show notes in descriptions into Hiccup.
@@ -390,8 +391,11 @@ list and the source agree.
   keeps the elements, attributes and URL schemes that an app can render
   safely, and removes scripts and similar elements. Before it checks the
   scheme of a URL, it removes what a browser removes: tabs and line breaks
-  anywhere, and control characters at the start. Hiccup is the center,
-  because a Clojure app gives Hiccup directly to its renderer.
+  anywhere, and control characters at the start. A script is text up to
+  its end tag, as in a browser, and `text` leaves it out. A description is
+  HTML only when it holds a tag or a comment, so plain text that mentions
+  `<show@example.com>` stays text. Hiccup is the center, because a
+  Clojure app gives Hiccup directly to its renderer.
 - **Value** (`value`) finds the value block that applies to an item, and
   divides amounts into shares and fees. With time splits, it finds the
   recipients at a position in the episode. It is arithmetic only, and it
@@ -577,7 +581,8 @@ index does not keep the text.
 
 Lucene was the JVM alternative, but it does not run in a browser. The index
 of podcast-clj is a few hundred lines, runs wherever the model runs, and
-prints as EDN.
+prints as EDN. Read back, its sorted set of terms is a hash set, and prefix
+search then scans the terms, until the app sorts them again.
 
 The cost is that of an inverted index in persistent maps. On 36,000 items
 with their show notes, indexing took five seconds and about 10 KB of heap

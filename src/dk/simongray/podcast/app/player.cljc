@@ -67,9 +67,10 @@
   "The instant a write at `now` is stamped with: `now`, or the millisecond
   after the state's clock when that is at or past `now`, so that a device
   whose clock runs behind still writes later than what it has merged, the
-  way a hybrid logical clock does. Every write applies this itself; an app
-  calls it for entries of its own. The instant is the platform's date
-  whatever `now` is, so that a document prints it as `#inst`."
+  way a hybrid logical clock does. Every write applies this itself, `write`
+  too, which an app uses for entries of its own, since it also moves the
+  clock on. The instant is the platform's date whatever `now` is, so that
+  a document prints it as `#inst`."
   [state now]
   (let [clock (:clock state)]
     (if (and clock (>= (inst-ms clock) (inst-ms now)))
@@ -85,7 +86,12 @@
     (-> (reduce (fn [s [path f]] (update-in s path #(stamp state (f %) at))) state writes)
         (assoc :clock at))))
 
-(defn- write
+(defn write
+  "`state` with the entry at `path` replaced by `(f entry)` and stamped as
+  changed on this device at `at`, as `after` adjusts it, the clock moved on
+  to that instant: how every operation here writes, and how an app writes
+  entries of its own, so that two of them are never stamped alike and
+  `merge` reconciles them like the rest."
   [state path f at]
   (write-each state [[path f]] at))
 
@@ -340,11 +346,14 @@
 (defn skip
   "Move `seconds` forward, or back when negative, in the episode `id` at
   `at`, never before its start nor, when the duration is known, past its
-  end. The new position is in the state for the UI to seek to."
+  end. A duration of zero, or one that is not a finite number, as a player
+  reports before it knows, is not known. The new position is in the state
+  for the UI to seek to."
   [state id seconds at]
   (let [{:keys [position duration]} (episode state id)
-        target (+ (or position 0) seconds)
-        target (max 0 (if (number? duration) (min target duration) target))]
+        finite?  #(and (number? %) (== % %) (not (infinite? %)))
+        target   (+ (if (finite? position) position 0) seconds)
+        target   (max 0 (if (and (finite? duration) (pos? duration)) (min target duration) target))]
     (progress state id target at)))
 
 (defn resume-position
@@ -359,10 +368,10 @@
 
 (defn history
   "The episode ids `state` knows about, most recently played or touched
-  first."
+  first: an episode heard again comes first again."
   [state]
   (->> (:episodes state)
-       (sort-by (fn [[_ e]] (- (inst-ms (or (:played-at e) (:updated-at e))))))
+       (sort-by (fn [[_ e]] (- (or (some-> (later-inst (:played-at e) (:updated-at e)) inst-ms) 0))))
        (map key)))
 
 (defn- queue-order
@@ -433,12 +442,14 @@
     state))
 
 (defn move
-  "Move the queued episode `id` to position `index` of the queue at `at`."
+  "Move the queued episode `id` to position `index` of the queue at `at`;
+  an index that is not whole counts as the whole number below it, and NaN
+  as 0, on both platforms."
   [state id index at]
   (if-not (queued? state id)
     state
     (let [others (vec (remove #{id} (queue state)))
-          index  (max 0 (min index (count others)))]
+          index  (long (max 0 (min (if (== index index) index 0) (count others))))]
       (place state id (rank-between state (get others (dec index)) (get others index)) at))))
 
 (defn advance
@@ -606,27 +617,29 @@
                 (str "what device " (pr-str id) " has seen is not a map of instants")))
             (:devices state))))
 
-(defn- written-after
-  "The part of `v` stamped after `since`: a stamped entry when it is, a map
-  with what of its values is, nil when nothing; nil `since` keeps all."
-  [v since]
+(defn- changed-part
+  "The part of `v` that is not in `was`, the same place in an earlier
+  state: a stamped entry that differs, a map with what of its values does,
+  nil when nothing does."
+  [v was]
   (cond
-    (stamped? v) (when (or (nil? since) (> (inst-ms (:updated-at v)) (inst-ms since)))
-                   v)
-    (map? v)     (let [m (into {} (keep (fn [[k x]] (when-some [y (written-after x since)] [k y]))) v)]
+    (stamped? v) (when (not= v was) v)
+    (map? v)     (let [m (into {} (keep (fn [[k x]] (when-some [y (changed-part x (get was k))] [k y]))) v)]
                    (when (seq m) m))
     :else        nil))
 
 (defn changes-since
-  "The part of `state` written after the instant `since` (all of it when
-  `since` is nil), by whichever device: the entries stamped later, with the
-  device and the clock, as a partial state that `merge` takes. What a sync
-  pushes to a service that wants the changes rather than the state."
-  [state since]
+  "The part of `state` that is not in `previous`, the state as it was when
+  the changes were last taken, all of it when `previous` is nil: every
+  entry written since, and every entry merged since from another device,
+  however early its stamp, with the device and the clock, as a partial
+  state that `merge` takes. What a sync pushes to a service that wants the
+  changes rather than the state."
+  [state previous]
   (into (select-keys state [:device :clock])
         (keep (fn [[k v]]
                 (when-not (#{:device :clock} k)
-                  (when-some [w (written-after v since)]
+                  (when-some [w (changed-part v (get previous k))]
                     [k w]))))
         state))
 
@@ -641,15 +654,18 @@
                                         when another episode is queued
       [:play id]                        makes it current at the front of the queue
       [:skip id amount]                 moves `amount` seconds, or the preferred amount
-                                        for :forward or :back; effect [:seek id position]"
+                                        for :forward or :back; effect [:seek id position],
+                                        and [:played id] when it now counts as played"
   [state [kind id & args] at]
   (case kind
     :skip     (let [[amount] args
                     {:keys [skip-forward skip-back]} (preferences state)
                     seconds (case amount :forward skip-forward :back (- skip-back) amount)
+                    was     (played? state id)
                     state'  (skip state id seconds at)]
                 {:state   state'
-                 :effects [[:seek id (:position (episode state' id))]]})
+                 :effects (cond-> [[:seek id (:position (episode state' id))]]
+                            (and (not was) (played? state' id)) (conj [:played id]))})
     :progress (let [[position duration] args
                     was    (played? state id)
                     state' (progress state id position duration at)]
