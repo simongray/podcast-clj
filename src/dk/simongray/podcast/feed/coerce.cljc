@@ -69,12 +69,13 @@
 
 (defn- read-osm
   "An OpenStreetMap reference, \"R113314\" or \"W5013364#3\", as a map; nil
-  when a number in it does not read."
+  when a number in it does not read or is 0, which OpenStreetMap never
+  gives."
   [s]
   (when-let [[_ type id revision] (re-matches #"\s*([NWR])(\d+)(?:#(\d+))?\s*" (str s))]
     (let [m (cond-> {:type type :id (read-integer id)}
               revision (assoc :revision (read-integer revision)))]
-      (when-not (some #{::invalid} (vals m))
+      (when (every? #(and (number? %) (pos? %)) (vals (dissoc m :type)))
         m))))
 
 (defn- or-invalid
@@ -104,6 +105,26 @@
   "Whether `x` is the marker `parse` returns for an unreadable value."
   [x]
   (= x ::invalid))
+
+(defn- finite?
+  [n]
+  (and (number? n) (== n n) (not (infinite? n))))
+
+(defn of-type?
+  "Whether `v` is a model value of `type`, of the kind `parse` makes of a
+  string that reads: a whole number both platforms hold exactly, a finite
+  number, a boolean, an instant, the map of a rule, a geo URI or an OSM
+  reference, and for the types that stay strings, a string."
+  [type v]
+  (case type
+    :integer             (and (integer? v) (<= (abs v) time/max-whole))
+    (:decimal :duration) (finite? v)
+    (:boolean :yes-no)   (boolean? v)
+    (:rfc2822 :iso8601)  (inst? v)
+    :rrule               (and (map? v) (contains? rrule/freq-values (:freq v)))
+    :geo                 (and (map? v) (finite? (:lat v)) (finite? (:lon v)))
+    :osm                 (and (map? v) (string? (:type v)) (integer? (:id v)))
+    (string? v)))
 
 (defn plain-decimal
   "Write the number `n` without an exponent, as XML consumers expect:
@@ -138,16 +159,19 @@
   (str type id (when (some? revision) (str "#" revision))))
 
 (defn format
-  "Write the model value `v` of `type` in its canonical string form."
+  "Write the model value `v` of `type` in its canonical string form. A value
+  that is not of its type, which `validate` reports, is written as it is,
+  a keyword by its name, so that `:no` for a boolean stays no."
   [type v]
-  (case type
-    :boolean  (if (string? v) v (if v "true" "false"))
-    :yes-no   (if (string? v) v (if v "yes" "no"))
-    :rfc2822  (if (inst? v) (time/format-rfc2822 v) (str v))
-    :iso8601  (if (inst? v) (time/format-iso8601 v) (str v))
-    :duration (if (number? v) (plain-decimal v) (str v))
-    :decimal  (if (number? v) (plain-decimal v) (str v))
-    :rrule    (if (map? v) (rrule/format v) (str v))
-    :geo      (if (map? v) (format-geo v) (str v))
-    :osm      (if (map? v) (format-osm v) (str v))
-    (str v)))
+  (if-not (of-type? type v)
+    (if (keyword? v) (name v) (str v))
+    (case type
+      :boolean             (if v "true" "false")
+      :yes-no              (if v "yes" "no")
+      :rfc2822             (time/format-rfc2822 v)
+      :iso8601             (time/format-iso8601 v)
+      (:duration :decimal) (plain-decimal v)
+      :rrule               (rrule/format v)
+      :geo                 (format-geo v)
+      :osm                 (format-osm v)
+      (str v))))

@@ -45,6 +45,7 @@ for the validator, and `sync` for the sync between devices.
 | `:feed/invalid-value` | warning | A value did not read as its type and stays a string. |
 | `:feed/markup-in-text` | info | Markup sat where the registry expects text; kept as markup for HTML content, flattened to text otherwise. |
 | `:feed/unexpected-text` | info | Text inside an element the specification leaves empty was dropped. |
+| `:feed/dropped-attributes` | info | Attributes the model has no place for were dropped: those of an element read as a single value, of rss other than its version, and of channel. |
 | `:transcript/speaker-prefixes` | info | Speakers were taken from Name: prefixes in the cues and carried over the cues that follow. |
 | `:transcript/string-times` | warning | Segment times were given as strings rather than numbers and were read as numbers. |
 | `:transcript/wrapped-srt` | warning | An HTML transcript was an SRT file with every line wrapped in an element, and was read as SRT. |
@@ -68,13 +69,14 @@ for the validator, and `sync` for the sync between devices.
 | `:validate/wrong-shape` | error | A value is not the shape its element takes: a bare value where a map of attributes belongs, or a map or sequence where a single value does. |
 | `:validate/missing-child` | error | A container lacks a child the specification requires. |
 | `:validate/invalid-structure` | error | A container's children contradict the specification, such as a time split with both recipients and a remote item. |
-| `:validate/invalid-value` | error | A value did not read as its type. |
+| `:validate/invalid-value` | error | A value is not of its type, such as a string where a date belongs or :no where a boolean does, or it is a number below zero, as no quantity in a feed is. |
 | `:validate/invalid-enum` | warning | A value is not one of those the specification lists. |
 | `:validate/invalid-url` | warning | A URL is not absolute. |
 | `:validate/http-url` | info | A hypertext URL uses http where the podcast namespace requires https. |
 | `:validate/invalid-guid` | warning | A podcast:guid is not a UUID. |
 | `:validate/unknown-role` | info | A person's role is not in the Podcast Taxonomy. |
 | `:validate/unknown-element` | info | An element the registry does not know, kept under :xml/unknown. |
+| `:validate/unknown-key` | warning | A key the registry does not define: a typo such as :rss/titel, or on the channel, where a parse keeps no attributes, any key that is not an element. |
 | `:validate/deprecated` | info | An element its specification has deprecated. |
 | `:validate/profile-required` | error | An element the chosen profile requires is missing. |
 | `:validate/profile-recommended` | warning | An element the chosen profile recommends is missing. |

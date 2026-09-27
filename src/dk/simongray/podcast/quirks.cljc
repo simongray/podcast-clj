@@ -252,15 +252,34 @@
    "text"             "text/plain"
    "text/text"        "text/plain"})
 
+(defn- srcset-candidates
+  "The `[url descriptor]` pairs of the srcset `s`, read as a browser reads
+  them: a URL runs to white space, and only commas at its end end it, so
+  that a URL with commas in it survives; a descriptor runs to the next
+  comma, and nil stands for none."
+  [^String s]
+  (let [n      (count s)
+        blank? #(contains? #{\space \tab \newline \return \formfeed} (.charAt s %))
+        comma? #(= \, (.charAt s %))
+        skip   (fn [i pred] (loop [i i] (if (and (< i n) (pred i)) (recur (inc i)) i)))]
+    (loop [i 0 acc []]
+      (let [start (skip i #(or (blank? %) (comma? %)))]
+        (if (>= start n)
+          acc
+          (let [end     (skip start (complement blank?))
+                url-end (loop [j end] (if (comma? (dec j)) (recur (dec j)) j))]
+            (if (< url-end end)
+              (recur end (conj acc [(subs s start url-end) nil]))
+              (let [stop (or (str/index-of s "," end) n)]
+                (recur (inc stop) (conj acc [(subs s start end) (not-empty (str/trim (subs s end stop)))]))))))))))
+
 (defn- srcset->images
   "The podcast:image elements equivalent to the deprecated `images` element."
   [images]
-  (for [candidate (str/split (str (:srcset (xml/attrs images))) #",")
-        :let [[url width] (str/split (str/trim candidate) #"\s+")]
-        :when (seq url)]
+  (for [[url descriptor] (srcset-candidates (str (:srcset (xml/attrs images))))]
     [:podcast/image (cond-> {:href url}
-                      (and width (re-matches #"\d+w" width))
-                      (assoc :width (subs width 0 (dec (count width)))))]))
+                      (and descriptor (re-matches #"\d+w" descriptor))
+                      (assoc :width (subs descriptor 0 (dec (count descriptor)))))]))
 
 (defn- add-images
   "Add podcast:image children to `parent` for its deprecated podcast:images

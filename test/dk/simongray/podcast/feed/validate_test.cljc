@@ -82,6 +82,27 @@
     (testing "and reports it as unknown by the library's"
       (is (= {:validate/unknown-element 1} (ids (validate/validate (podcast/parse xml))))))))
 
+(deftest typos-wrong-types-and-nothing
+  (let [base  {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"}
+        found (fn [f] (set (map (juxt :id :path) (validate/validate f))))]
+    (testing "a key the registry does not define: any on the channel, one in a namespace of the library elsewhere"
+      (is (= #{[:validate/unknown-key [:rss/titel]] [:validate/unknown-key [:title]]
+               [:validate/unknown-key [:rss/items 0 :itunes/autor]]}
+             (found (assoc base :rss/titel "x" :title "merged"
+                           :rss/items [{:rss/title "E" :itunes/autor "A" :foo "an attribute a parse kept"
+                                        :rss/enclosure {:url "https://a/1.mp3" :type "audio/mpeg"}}])))))
+    (testing "a value that is not of its type, whatever it is instead of a string"
+      (is (= #{[:validate/invalid-value [:rss/pub-date]] [:validate/invalid-value [:itunes/explicit]]}
+             (found (assoc base :rss/pub-date 1700000000000 :itunes/explicit :no)))))
+    (testing "a negative number, and one that is no number at all"
+      (is (= #{[:validate/invalid-value [:rss/items 0 :rss/enclosure :length]]
+               [:validate/invalid-value [:rss/items 0 :itunes/duration]]}
+             (found (assoc base :rss/items [{:rss/title "E" :itunes/duration ##NaN
+                                             :rss/enclosure {:url "https://a/1.mp3" :type "audio/mpeg" :length -5}}])))))
+    (testing "nil is no value, as it is to emit"
+      (is (= #{} (found (assoc base :rss/copyright nil :itunes/explicit nil))))
+      (is (= #{[:validate/missing-element [:rss/title]]} (found (assoc base :rss/title nil)))))))
+
 (deftest wrong-shapes-are-diagnosed
   (let [f {:rss/version     "2.0"
            :rss/title       {:content "T"}

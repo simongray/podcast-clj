@@ -32,6 +32,14 @@
                               <item><title>E</title><itunes:episode>seven</itunes:episode></item></channel></rss>")]
     (is (= {:rss/items [{:itunes/episode ["should be an integer"]}]} (explain feed)))))
 
+(deftest schemas-take-what-parse-reads
+  (doseq [rule ["FREQ=MONTHLY;BYMONTHDAY=-1" "FREQ=MONTHLY;BYDAY=53MO,-1FR" "FREQ=DAILY;INTERVAL=1;COUNT=1"]]
+    (let [feed (podcast/parse (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>"
+                                   "<podcast:updateFrequency rrule=\"" rule "\">x</podcast:updateFrequency>"
+                                   "<podcast:location osm=\"R1\">Here</podcast:location></channel></rss>"))]
+      (is (map? (get-in feed [:podcast/update-frequency :rrule])) rule)
+      (is (nil? (explain feed)) rule))))
+
 (deftest generated-feeds-emit-and-parse
   (testing "whatever the generators produce, at Malli's default sizes, emit writes XML that parses"
     (doseq [seed (range 20)]

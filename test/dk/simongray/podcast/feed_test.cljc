@@ -95,6 +95,43 @@
       (is (= "Big News" (:rss/title (first (:rss/items f)))))
       (is (= f (podcast/parse (podcast/emit f)))))))
 
+(deftest emitting-odd-values
+  (let [f   {:rss/version "2.0" :rss/title "T" :rss/copyright nil :itunes/explicit :no
+             :rss/items [{:rss/title "E" :explicit? false :images [{:href "x"}] :title "merged" :duration 3793
+                          :rss/enclosure "https://a/1.mp3"}]}
+        out (podcast/emit f)]
+    (is (re-find #"<itunes:explicit>no</itunes:explicit>" out) "not true, as any truthy value was")
+    (is (not (re-find #"copyright" out)) "a nil value is no value")
+    (is (re-find #"<item title=\"merged\">" out) "a string under an XML name is an attribute a parse could have kept")
+    (is (not (re-find #"explicit\?|images|duration=|enclosure" out))
+        "a key that makes no attribute, or a value that does not, is left out, as is an enclosure that is not a map")
+    (is (= "E" (:rss/title (first (:rss/items (podcast/parse out))))) "and the document reads")))
+
+(deftest what-the-model-drops-is-reported
+  (let [f   (podcast/parse "<rss version=\"2.0\" xml:lang=\"en\"><channel foo=\"1\">stray text<title xml:lang=\"en\">T</title></channel></rss>")
+        ids (set (map (juxt :id :path :tag :attributes) (podcast/report f)))]
+    (is (= "T" (:rss/title f)))
+    (is (contains? ids [:feed/dropped-attributes [] :rss [:xml/lang]]))
+    (is (contains? ids [:feed/dropped-attributes [] :channel [:foo]]))
+    (is (contains? ids [:feed/dropped-attributes [:rss/title] nil [:xml/lang]]))
+    (is (some (comp #{:feed/unexpected-text} :id) (podcast/report f)))))
+
+(deftest namespaces-given-to-emit-win
+  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><channel><title>T</title><dc:creator>C</dc:creator></channel></rss>")]
+    (is (re-find #"xmlns:dc=\"http://purl.org/dc/elements/1.1/\"" (podcast/emit f)))
+    (is (re-find #"xmlns:dc=\"http://purl.org/dc/terms/\"" (podcast/emit f {:namespaces {:dc "http://purl.org/dc/terms/"}}))
+        "over the URI of the library"))
+  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:dc=\"http://purl.org/dc/terms/\"><channel><title>T</title><dc:creator>C</dc:creator></channel></rss>")]
+    (is (re-find #"xmlns:dc=\"http://purl.org/dc/terms/\"" (podcast/emit f)) "as the one a feed declared does")))
+
+#?(:clj
+   (deftest an-undeclared-prefix-on-the-jvm
+     (let [f   (podcast/parse "<rss version=\"2.0\"><channel><title>T</title><feedburner:origLink>https://x/1</feedburner:origLink></channel></rss>")
+           out (podcast/emit f)]
+       (is (= [[:feedburner/origLink {} "https://x/1"]] (:xml/unknown f)) "the parse keeps it for reading")
+       (is (not (re-find #"feedburner" out)) "emit leaves it out, as XML cannot write it without a URI")
+       (is (= "T" (:rss/title (podcast/parse out)))))))
+
 (deftest no-break-spaces-and-big-numbers
   (let [f     (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>Show&#160;</title>
                                <item><title>E</title><guid>&#160;</guid><itunes:episode>5&#160;</itunes:episode>

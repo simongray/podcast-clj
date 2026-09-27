@@ -32,13 +32,18 @@
     (boolean (some #(= v (str/lower-case %)) values))))
 
 (defn- typed-diagnostics
-  "Diagnostics for the value `v` of `type` at `path`: not coerced, outside the
-  enumeration `values`, or an http URL where https is expected."
+  "Diagnostics for the value `v` of `type` at `path`: not of its type (see
+  `coerce/of-type?`), a negative number, outside the enumeration `values`,
+  or an http URL where https is expected."
   [type values v path https?]
   (cond
-    (and (contains? coerce/coerced-types type) (string? v))
+    (and (contains? coerce/coerced-types type) (not (coerce/of-type? type v)))
     [(diagnostic :validate/invalid-value :error path
               (str "value " (pr-str v) " is not a valid " (name type)))]
+
+    (and (#{:integer :decimal :duration} type) (neg? v))
+    [(diagnostic :validate/invalid-value :error path
+              (str "value " (pr-str v) " is below zero, as no quantity in a feed is"))]
 
     (and (= type :enum) values (not (enum-ok? values v)))
     [(diagnostic :validate/invalid-enum :warning path
@@ -133,6 +138,27 @@
 
 (declare children-diagnostics)
 
+(defn- unknown-key-diagnostics
+  "Diagnostics for the keys of the model map `m` that `registry` defines
+  neither as a child in the `context` nor as an attribute of `entry`, nil
+  for the channel: typos such as :rss/titel. On the channel, where a parse
+  keeps no attributes, every such key counts; elsewhere only one in a
+  namespace of the library, since any other can be an attribute that a
+  parse kept."
+  [registry context entry m path]
+  (let [known (cond-> (into #{:content :xml/unknown}
+                            (concat (map #(spec/key-for % context) (spec/entries-for registry context))
+                                    (map xml/attr-key (keys (:attrs entry)))))
+                (nil? entry) (conj :rss/version))
+        ours? (fn [k]
+                (let [ns (namespace k)]
+                  (or (= "rss" ns) (contains? xml/namespaces (keyword ns)))))]
+    (for [k     (keys m)
+          :when (and (not (contains? known k))
+                     (or (nil? entry) (and (keyword? k) (namespace k) (ours? k))))]
+      (diagnostic :validate/unknown-key :warning (conj path k)
+                  (str "unknown key " (pr-str k))))))
+
 (defn- shape
   "What kind of value `v` is, for a message."
   [v]
@@ -162,9 +188,10 @@
 
       map-shaped?
       (concat (attr-diagnostics entry v path)
-              (when (contains? v :content)
+              (when (some? (:content v))
                 (content-diagnostics entry (:content v) (conj path :content)))
               (children-diagnostics registry (spec/children-context entry) v path)
+              (unknown-key-diagnostics registry (spec/children-context entry) entry v path)
               (when structural (structural v path)))
 
       :else
@@ -181,15 +208,16 @@
 
 (defn- children-diagnostics
   "Diagnostics for every entry of `registry` present in the model map `m` of
-  an element in the `parent` context, and for its unknown elements."
+  an element in the `parent` context, and for its unknown elements. A nil
+  value is no value, as it is to `emit`."
   [registry parent m path]
   (concat
    (for [entry (spec/entries-for registry parent)
          :let  [k (spec/key-for entry parent)]
-         :when (contains? m k)
          [i v] (if (= :many (spec/count-for entry parent))
                  (map-indexed vector (get m k))
                  [[nil (get m k)]])
+         :when (some? v)
          :let  [path' (cond-> (conj path k) i (conj i))]
          f     (concat (deprecated-diagnostic entry path')
                        (value-diagnostics registry entry v path'))]
@@ -206,7 +234,7 @@
      [(diagnostic :validate/rss-version :warning [:rss/version]
                (str "rss version is " (pr-str (:rss/version feed)) ", expected 2.0"))])
    (for [k [:rss/title :rss/link :rss/description]
-         :when (not (contains? feed k))]
+         :when (nil? (get feed k))]
      (diagnostic :validate/missing-element :error [k]
               (str "RSS 2.0 requires a channel " (name k))))
    (for [[i item] (map-indexed vector (:rss/items feed))
@@ -243,7 +271,7 @@
   (for [req requirements
         :when (map? m)
         :let [[k pred label] (if (vector? req) req [req nil (xml/qname req)])]
-        :when (not (and (contains? m k) (or (nil? pred) (pred (get m k)))))]
+        :when (not (and (some? (get m k)) (or (nil? pred) (pred (get m k)))))]
     (diagnostic id level (conj path k) (str label " is " (if (= :error level) "required" "recommended")))))
 
 (defn- profile-diagnostics
@@ -274,6 +302,7 @@
          feed     (feed/normalize feed {:registry registry})]
      (vec (concat (rss-diagnostics feed)
                   (children-diagnostics registry :channel feed [])
+                  (unknown-key-diagnostics registry :channel nil feed [])
                   (when profile
                     (profile-diagnostics feed profile)))))))
 

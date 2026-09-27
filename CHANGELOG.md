@@ -69,3 +69,11 @@
   space is whitespace, and a space between two inline elements stays. The
   repairs remove junk before and after the document, as a PHP warning
   leaves it.
+- `validate` checks the type of each value, not only that it read, and
+  reports negative numbers and keys that the registry does not define,
+  such as `:rss/titel`. `emit` leaves out nil values and writes a value of
+  another type as it is: `:no` stays no. It writes back only the unknown
+  attributes that XML can hold, and leaves out the elements of an
+  undeclared prefix. `:namespaces` wins over the URIs of the library.
+  `inner-xml` escapes text for HTML. The rule parser and the schemas agree
+  on the ranges of RFC 5545, and srcset reads URLs with commas in them.

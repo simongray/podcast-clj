@@ -33,8 +33,9 @@
               [:until {:optional true} 'inst?]
               [:byday {:optional true} [:vector {:gen/max 3}
                                         [:re {:gen/elements ["MO" "TU" "WE" "TH" "FR" "SA" "SU" "1MO" "-1FR"]}
-                                         #"^([+-]?\d{1,2})?(MO|TU|WE|TH|FR|SA|SU)$"]]]
-              [:bymonthday {:optional true} [:vector {:gen/max 3} [:int {:min 1 :max 31}]]]
+                                         #"^([+-]?(?:0?[1-9]|[1-4]\d|5[0-3]))?(MO|TU|WE|TH|FR|SA|SU)$"]]]
+              [:bymonthday {:optional true} [:vector {:gen/max 3}
+                                             [:or [:int {:min 1 :max 31}] [:int {:min -31 :max -1}]]]]
               [:bymonth {:optional true} [:vector {:gen/max 3} [:int {:min 1 :max 12}]]]
               [:wkst {:optional true} [:enum "MO" "TU" "WE" "TH" "FR" "SA" "SU"]]]
    :geo      [:map

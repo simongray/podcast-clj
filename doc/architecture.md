@@ -138,7 +138,8 @@ space between two elements on one line, because inline markup needs it:
 the document malformed, on the JVM as in a browser. `emit` declares each
 namespace that the tree uses on the root element. These are the namespaces
 of podcast-clj, the foreign namespaces of a parsed feed, and those in the
-`:namespaces` option. `emit` escapes text, or wraps text that contains
+`:namespaces` option, which win over those of podcast-clj for the same
+alias. `emit` escapes text, or wraps text that contains
 markup in CDATA. It indents, but writes mixed content as it is, because
 indentation would become part of its text.
 
@@ -173,12 +174,14 @@ Three interpreters read the registry:
   `:xml/unknown`.
 - `feed/emit` does the opposite, in the order of the registry. It writes
   each coerced value back in its canonical form, and appends `:xml/unknown`
-  unchanged.
+  unchanged. A nil value is no value. A value of another type goes out as
+  it is, and `validate` reports it.
 - `validate/validate` finds what breaks the specifications. Examples are
-  missing required elements and attributes, values that do not read as their
-  type or are outside an enumeration, unknown elements and deprecated
-  elements. A profile (PSP-1 or Apple) adds rules for required and
-  recommended elements.
+  missing required elements and attributes, values that are not of their
+  type or are outside an enumeration, negative numbers, keys that the
+  registry does not define, such as `:rss/titel`, unknown elements and
+  deprecated elements. A profile (PSP-1 or Apple) adds rules for required
+  and recommended elements.
 
 The registry is a value. `spec/tags` is the vocabulary of podcast-clj as a
 vector of entries. `spec/registry` indexes such a vector into the map that
@@ -239,7 +242,12 @@ model is true to the feed. An app that wants one title uses `resolve` (see
 the next section).
 
 Unknown elements stay as Hiccup, and unknown attributes stay as strings. As
-a result, `emit` can write back all that `parse` read.
+a result, `emit` can write back all that `parse` read, with two exceptions,
+which the report names. The model has no place for the attributes of an
+element that it reads as one value, or for those of `<rss>` and
+`<channel>`. The parser of the JVM accepts a prefix that no declaration
+names, but XML cannot write such a prefix without a URI, so `emit` leaves
+its elements out.
 
 A producer can write a shorthand. It can give a bare value for an element
 with only text, such as `{:rss/guid "x"}`, or a single value for a vector.

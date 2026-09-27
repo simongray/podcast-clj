@@ -636,7 +636,9 @@
   unanswered left out: for `feed` alone the show's, `:title` to
   `:categories`; for `feed` and `item` the episode's, inheriting from the
   feed as each accessor does. What needs a time or a platform, `next-check`,
-  `live?` and `blocked?`, is asked on its own.
+  `live?` and `blocked?`, is asked on its own. A map merged so is one to
+  read: `emit` would take its plain keys with string values for
+  attributes.
 
       (merge item (properties feed item))
       ;; => {:rss/title \"…\" :title \"…\" :artwork \"…\" …}"

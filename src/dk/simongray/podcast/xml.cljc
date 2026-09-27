@@ -454,15 +454,18 @@
   "Rewrite the raw Hiccup `tree` into canonical Hiccup: keyword tags and
   attributes namespaced by alias, xmlns declarations removed. `uri->alias`
   maps a namespace URI to its alias keyword. Problems are recorded under
-  `:xml/report` in the metadata of the result, and the URIs of namespaces
-  the lookup did not know under `:xml/namespaces`."
+  `:xml/report` in the metadata of the result, and under `:xml/namespaces`
+  the URIs of namespaces the lookup did not know, and nil for the prefixes
+  no declaration named, whose elements `emit` leaves out."
   [tree uri->alias]
   (let [[tree' problems] (resolve-element uri->alias {} [] tree)
-        problems         (distinct problems)]
+        problems         (distinct problems)
+        by-prefix        (fn [id] (into {} (for [{:keys [prefix uri] :as problem} problems
+                                                 :when (= id (:id problem))]
+                                             [(keyword prefix) uri])))]
     (with-meta tree' {:xml/report     (vec problems)
-                      :xml/namespaces (into {} (for [{:keys [id prefix uri]} problems
-                                                     :when (= id :xml/unknown-namespace)]
-                                                 [(keyword prefix) uri]))})))
+                      :xml/namespaces (merge (by-prefix :xml/undeclared-prefix)
+                                             (by-prefix :xml/unknown-namespace))})))
 
 (defn parse
   "Parse `xml` into canonical Hiccup; see `parse-raw` and `resolve-namespaces`."
@@ -479,7 +482,8 @@
 
 (defn foreign-namespaces
   "The URIs of the namespaces in `tree` that the library does not know, by the
-  prefix the document used for them."
+  prefix the document used for them, and nil for a prefix that no
+  declaration named."
   [tree]
   (:xml/namespaces (meta tree)))
 
@@ -581,7 +585,7 @@
   (let [indent   (apply str (repeat (* 2 depth) " "))
         children (children element)]
     (if (and (some string? children) (some vector? children))
-      (emit-compact* (conj! acc indent) element)
+      (emit-compact* (conj! acc indent) element append-text)
       (let [name (qname (tag element))
             acc  (-> acc (conj! indent) (conj! "<") (conj! name) (conj! (attrs-str (attrs element))))]
         (cond
@@ -602,49 +606,74 @@
   [depth element]
   (str/join (persistent! (emit-element* (transient []) depth element))))
 
+(defn- without
+  "The Hiccup `element` without the elements and attributes in the
+  namespaces `aliases` names; nil when the element itself is in one."
+  [aliases element]
+  (let [in? #(contains? aliases (some-> (namespace %) keyword))]
+    (when-not (in? (tag element))
+      (into [(tag element) (into {} (remove (comp in? key)) (attrs element))]
+            (keep #(if (string? %) % (without aliases %)))
+            (children element)))))
+
 (defn emit
   "Serialize the canonical Hiccup `tree` to an XML string, declaring the
   namespaces it uses on the root element. `alias->uri` supplies the URI for
-  each alias; it defaults to `namespaces` plus whatever foreign namespaces
-  were recorded when `tree` was parsed."
+  each alias; it defaults to `namespaces`, overridden by the foreign
+  namespaces recorded when `tree` was parsed or given to
+  `dk.simongray.podcast.feed/emit`. An alias it maps to nil, as a parse
+  records a prefix no declaration named, has no URI to declare, and its
+  elements and attributes are left out; an alias it does not map at all is
+  an error."
   ([tree]
-   (emit tree (merge (foreign-namespaces tree) namespaces)))
+   (emit tree (merge namespaces (foreign-namespaces tree))))
   ([tree alias->uri]
-   (let [decls (into (sorted-map)
-                     (for [alias (aliases tree)]
-                       [(keyword "xmlns" (name alias))
-                        (or (alias->uri alias)
-                            (throw (ex-info "Unknown namespace alias" {:alias alias})))]))
-         root  (update tree 1 #(into decls %))]
+   (let [undeclared (when (map? alias->uri)
+                      (set (keep (fn [[alias uri]] (when (nil? uri) alias)) alias->uri)))
+         tree       (if (seq undeclared) (or (without undeclared tree) tree) tree)
+         decls      (into (sorted-map)
+                          (for [alias (aliases tree)]
+                            [(keyword "xmlns" (name alias))
+                             (or (alias->uri alias)
+                                 (throw (ex-info "Unknown namespace alias" {:alias alias})))]))
+         root       (update tree 1 #(into decls %))]
      (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
           (emit-element 0 root)
           "\n"))))
 
 (defn- emit-compact*
   "Append the one-line serialization of `element` to the transient vector
-  `acc` of string parts."
-  [acc element]
+  `acc` of string parts, its text appended by `text`, a function of the
+  vector and a string."
+  [acc element text]
   (let [name (qname (tag element))
         acc  (-> acc (conj! "<") (conj! name) (conj! (attrs-str (attrs element))))]
     (if (empty? (children element))
       (conj! acc "/>")
       (-> (reduce (fn [acc child]
                     (if (string? child)
-                      (append-text acc child)
-                      (emit-compact* acc child)))
+                      (text acc child)
+                      (emit-compact* acc child text)))
                   (conj! acc ">")
                   (children element))
           (conj! "</") (conj! name) (conj! ">")))))
 
+(defn- escaped-text
+  "Append the text `s` to the transient vector `acc` of string parts,
+  escaped, and never as CDATA, which HTML does not read."
+  [acc s]
+  (conj! acc (escape-legal-text (legal s))))
+
 (defn inner-xml
-  "The content of `element` as markup: its text as written and its child
+  "The content of `element` as markup: its text escaped and its child
   elements serialized compactly. This is what an HTML description looks like
-  when a feed embeds it as XML rather than wrapping it in CDATA."
+  when a feed embeds it as XML rather than wrapping it in CDATA, so that
+  `&lt;pre&gt;` in the feed stays text and does not become an element."
   [element]
   (str/join (persistent! (reduce (fn [acc child]
                                    (if (string? child)
-                                     (conj! acc child)
-                                     (emit-compact* acc child)))
+                                     (escaped-text acc child)
+                                     (emit-compact* acc child escaped-text)))
                                  (transient [])
                                  (children element)))))
 

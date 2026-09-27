@@ -113,12 +113,14 @@
           :else
           m))
 
-      (seq text)
-      (parse-content ctx entry text path)
-
       :else
-      (do (note! ctx {:id :feed/empty-element :level :info :path path})
-          ::empty))))
+      (do (when-let [attrs (not-empty (xml/attrs element))]
+            (note! ctx {:id :feed/dropped-attributes :level :info :path path
+                        :attributes (vec (keys attrs))}))
+          (if (seq text)
+            (parse-content ctx entry text path)
+            (do (note! ctx {:id :feed/empty-element :level :info :path path})
+                ::empty))))))
 
 (defn- parse-children
   "Parse the child `elements` of an element in the `parent` context into a
@@ -155,7 +157,8 @@
   diagnostics made on the way travel as metadata under `:podcast/report`,
   and the foreign namespaces the document used under `:xml/namespaces`;
   what resolving the namespaces found stays under `:xml/report` on the
-  tree."
+  tree. The attributes of rss other than its version, and those of channel,
+  have no place in the model; the report says when there are any."
   ([tree]
    (parse tree {}))
   ([tree {:keys [registry] :or {registry spec/default} :as opts}]
@@ -168,6 +171,12 @@
          version (:version (xml/attrs tree))
          feed    (parse-children ctx :channel (xml/elements channel) [])
          others  (remove #{channel} (xml/elements tree))]
+     (doseq [[tag attrs] [[:rss (dissoc (xml/attrs tree) :version)] [:channel (xml/attrs channel)]]
+             :when (seq attrs)]
+       (note! ctx {:id :feed/dropped-attributes :level :info :path [] :tag tag
+                   :attributes (vec (keys attrs))}))
+     (when-not (= "" (xml/trim (xml/text channel)))
+       (note! ctx {:id :feed/unexpected-text :level :info :path [] :value (xml/text channel)}))
      (with-meta (cond-> feed
                   version      (assoc :rss/version version)
                   (seq others) (update :xml/unknown (fnil into []) others))
@@ -226,9 +235,19 @@
 
 (declare emit-children)
 
+(defn- xml-name?
+  "Whether the keyword `k` makes an XML attribute name: its name, and its
+  namespace when it has one, start with a letter or an underscore and go on
+  with letters, digits, dots, hyphens and underscores."
+  [k]
+  (every? #(re-matches #"[A-Za-z_\u0080-\uFFFF][A-Za-z0-9._\-\u0080-\uFFFF]*" %)
+          (keep identity [(namespace k) (name k)])))
+
 (defn- emit-attrs
   "The attribute map for an element of `entry` in `registry` from the model
-  map `m`, with declared attributes back under their XML names."
+  map `m`, with declared attributes back under their XML names. Any other
+  key is an attribute a parse kept, written when it can be one: a string
+  under an XML name."
   [registry entry m]
   (let [context  (spec/children-context entry)
         declared (into {} (for [[k {:keys [type]}] (:attrs entry)
@@ -238,43 +257,48 @@
         taken    (into #{:content :xml/unknown}
                        (concat (map #(spec/key-for % context) (spec/entries-for registry context))
                                (map xml/attr-key (keys (:attrs entry)))))
-        rest     (into {} (for [[k v] m
-                                :when (not (contains? taken k))]
-                            [k (str v)]))]
+        rest     (into {} (filter (fn [[k v]]
+                                    (and (keyword? k) (not (contains? taken k)) (string? v) (xml-name? k))))
+                       m)]
     (merge rest declared)))
 
 (defn- emit-element
-  "The Hiccup element of `entry` in `registry` for the model value `v`."
+  "The Hiccup element of `entry` in `registry` for the model value `v`; nil
+  for a value of a map-shaped element that is not a map, which `validate`
+  reports."
   [registry entry v]
   (let [tag  (:tag entry)
         type (spec/content-type entry)]
     (if (spec/map-shaped? registry entry)
-      (-> [tag (emit-attrs registry entry v)]
-          (into (when (contains? v :content)
-                  [(coerce/format type (:content v))]))
-          (into (emit-children registry (spec/children-context entry) v)))
+      (when (map? v)
+        (-> [tag (emit-attrs registry entry v)]
+            (into (when (some? (:content v))
+                    [(coerce/format type (:content v))]))
+            (into (emit-children registry (spec/children-context entry) v))))
       [tag {} (coerce/format type v)])))
 
 (defn- emit-children
   "The Hiccup children of an element in the `parent` context of `registry`,
   from the model map `m`, in registry order and with the unknown elements
-  last."
+  last. A nil value is no value."
   [registry parent m]
   (concat (for [entry (spec/entries-for registry parent)
-                :let [k (spec/key-for entry parent)]
-                :when (contains? m k)
-                v (if (= :many (spec/count-for entry parent))
-                    (get m k)
-                    [(get m k)])]
-            (emit-element registry entry v))
+                :let  [k (spec/key-for entry parent)]
+                v     (if (= :many (spec/count-for entry parent))
+                        (get m k)
+                        [(get m k)])
+                :let  [element (when (some? v) (emit-element registry entry v))]
+                :when element]
+            element)
           (:xml/unknown m)))
 
 (defn emit
   "The canonical Hiccup document for `feed` by the tag registry in `opts`
   (`:registry`, default `spec/default`), ready for `xml/emit`, the
-  shorthand of `normalize` taken. The foreign namespaces recorded when the
-  feed was parsed, and `:namespaces` in `opts`, alias to URI for elements
-  of namespaces it was not, go along as metadata for `xml/emit` to
+  shorthand of `normalize` taken and nil values left out. The foreign
+  namespaces recorded when the feed was parsed, and `:namespaces` in
+  `opts`, alias to URI for elements of namespaces it was not, or for
+  another URI of one it was, go along as metadata for `xml/emit` to
   declare."
   ([feed]
    (emit feed {}))

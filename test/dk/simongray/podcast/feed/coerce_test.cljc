@@ -28,7 +28,16 @@
     (is (= 1.0E20 (coerce/parse :decimal "99999999999999999999")) "a decimal may be approximate")
     (is (coerce/invalid? (coerce/parse :decimal (str "1" (apply str (repeat 400 "0")) ".5"))))
     (is (coerce/invalid? (coerce/parse :geo (str "geo:1" (apply str (repeat 400 "0")) ".5,1"))))
-    (is (coerce/invalid? (coerce/parse :osm "R99999999999999999999"))))
+    (is (coerce/invalid? (coerce/parse :osm "R99999999999999999999")))
+    (is (coerce/invalid? (coerce/parse :osm "R0")) "OpenStreetMap numbers from 1"))
+  (testing "what counts as a value of each type"
+    (is (coerce/of-type? :integer 5))
+    (is (not (coerce/of-type? :integer 5.5)))
+    (is (not (coerce/of-type? :decimal ##NaN)))
+    (is (not (coerce/of-type? :boolean :no)))
+    (is (not (coerce/of-type? :rfc2822 1700000000000)))
+    (is (coerce/of-type? :text "x"))
+    (is (every? #(coerce/of-type? % (coerce/parse % "5")) [:integer :decimal :duration :text])))
   (testing "no-break spaces are white space, on the JVM as in JavaScript"
     (is (= 5 (coerce/parse :integer "5\u00A0")))
     (is (= "Show" (coerce/parse :text "\uFEFFShow\u00A0\u202F"))))
@@ -51,7 +60,10 @@
   (is (= "R113314#3" (coerce/format :osm {:type "R" :id 113314 :revision 3})))
   (testing "a value kept as a string writes back as it came"
     (is (= "seven" (coerce/format :integer "seven")))
-    (is (= "yesterday" (coerce/format :rfc2822 "yesterday")))))
+    (is (= "yesterday" (coerce/format :rfc2822 "yesterday"))))
+  (testing "a value of another type is written as it is, a keyword by its name"
+    (is (= "no" (coerce/format :boolean :no)) "not true, as any truthy value was")
+    (is (= "5" (coerce/format :text 5)))))
 
 (deftest plain-decimals
   (is (= "5" (coerce/plain-decimal 5)))

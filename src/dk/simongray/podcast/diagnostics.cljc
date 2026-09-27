@@ -78,6 +78,8 @@
     :doc "Markup sat where the registry expects text; kept as markup for HTML content, flattened to text otherwise."}
    {:id :feed/unexpected-text :level :info
     :doc "Text inside an element the specification leaves empty was dropped."}
+   {:id :feed/dropped-attributes :level :info
+    :doc "Attributes the model has no place for were dropped: those of an element read as a single value, of rss other than its version, and of channel."}
 
    ;; transcripts
    {:id :transcript/speaker-prefixes :level :info
@@ -131,7 +133,7 @@
    {:id :validate/invalid-structure :level :error
     :doc "A container's children contradict the specification, such as a time split with both recipients and a remote item."}
    {:id :validate/invalid-value :level :error
-    :doc "A value did not read as its type."}
+    :doc "A value is not of its type, such as a string where a date belongs or :no where a boolean does, or it is a number below zero, as no quantity in a feed is."}
    {:id :validate/invalid-enum :level :warning
     :doc "A value is not one of those the specification lists."}
    {:id :validate/invalid-url :level :warning
@@ -144,6 +146,8 @@
     :doc "A person's role is not in the Podcast Taxonomy."}
    {:id :validate/unknown-element :level :info
     :doc "An element the registry does not know, kept under :xml/unknown."}
+   {:id :validate/unknown-key :level :warning
+    :doc "A key the registry does not define: a typo such as :rss/titel, or on the channel, where a parse keeps no attributes, any key that is not an element."}
    {:id :validate/deprecated :level :info
     :doc "An element its specification has deprecated."}
    {:id :validate/profile-required :level :error

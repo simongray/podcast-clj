@@ -49,7 +49,9 @@
      (let [tree (xml/parse undeclared)]
        (is (= [:foo/bar {:x "1"}] (-> tree (nth 2) (nth 2))))
        (is (= [{:id :xml/undeclared-prefix :level :warning :prefix "foo"}]
-              (map #(dissoc % :message) (xml/report tree)))))))
+              (map #(dissoc % :message) (xml/report tree))))
+       (is (= {:foo nil} (xml/foreign-namespaces tree)) "recorded with no URI")
+       (is (not (re-find #"foo" (xml/emit tree))) "so that emit leaves it out"))))
 
 (deftest helpers
   (let [el [:a {:x "1"} "t1" [:b {} "inner"] "t2" [:c {}] [:b {} "again"]]]
@@ -84,6 +86,12 @@
       (is (re-find #"x=\"a&#10;b&#9;c&#13;d\"" out))
       (is (re-find #"<t>line&#13;\nnext &lt;b&gt;</t>" out))
       (is (= tree (xml/parse out)))))
+  (testing "inner-xml escapes text for HTML, and never wraps it in CDATA"
+    (is (= "Use &lt;pre&gt; &amp; <b>x &lt; y</b>"
+           (xml/inner-xml [:description {} "Use <pre> & " [:b {} "x < y"]]))))
+  (testing "an alias mapped to nil has no URI, and its elements and attributes are left out"
+    (is (= "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss>\n  <t/>\n</rss>\n"
+           (xml/emit [:rss {} [:t {:fb/x "1"}] [:fb/link {} "x"]] (assoc xml/namespaces :fb nil)))))
   (testing "mixed content is written as it is, so that a round trip keeps it"
     (let [tree (xml/parse "<rss><x>Hello <b>big</b> <i>world</i>!</x></rss>")]
       (is (= tree (xml/parse (xml/emit tree))))

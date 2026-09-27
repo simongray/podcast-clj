@@ -100,6 +100,19 @@
   (is (= :media (quirks/uri->alias "http://www.rssboard.org/media-rss")))
   (is (nil? (quirks/uri->alias "https://acme.example"))))
 
+(deftest srcset-as-a-browser-reads-it
+  (let [images (fn [srcset]
+                 (->> (podcast/parse (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>"
+                                          "<podcast:images srcset=\"" srcset "\"/></channel></rss>"))
+                      :podcast/images
+                      (mapv (juxt :href :width))))]
+    (is (= [["https://res.cloudinary.com/x/w_300,h_300/a.jpg" 300] ["https://x/b.jpg" 1500] ["https://x/c.jpg" 600]]
+           (images "https://res.cloudinary.com/x/w_300,h_300/a.jpg 300w, https://x/b.jpg 1500w,https://x/c.jpg 600w"))
+        "commas inside a URL, and after a descriptor without a space")
+    (is (= [["https://x/d.jpg" nil] ["https://x/e.jpg" nil]] (images "https://x/d.jpg,, https://x/e.jpg")))
+    (let [many (apply str (repeat 20000 "https://x/a.jpg 1w, "))]
+      (is (= 20000 (count (images many))) "in linear time"))))
+
 (deftest normalizations
   (let [tree (quirks/normalize
               (xml/parse

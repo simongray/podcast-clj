@@ -29,15 +29,29 @@
   53, \"-1FR\"."
   #"([+-]?(?:0?[1-9]|[1-4]\d|5[0-3]))?(SU|MO|TU|WE|TH|FR|SA)")
 
+(defn- in-range?
+  "Whether RFC 5545 allows the number `n` in the rule part `k`."
+  [k n]
+  (case k
+    (:interval :count)     (pos? n)
+    :bysecond              (<= 0 n 60)
+    :byminute              (<= 0 n 59)
+    :byhour                (<= 0 n 23)
+    :bymonth               (<= 1 n 12)
+    :bymonthday            (<= 1 (abs n) 31)
+    :byweekno              (<= 1 (abs n) 53)
+    (:byyearday :bysetpos) (<= 1 (abs n) 366)))
+
 (defn- part-value
   "The model value of the rule part `k` written as `s`; nil when it does not
-  read. Numbers become longs, UNTIL an instant, the BY lists vectors."
+  read, or names a number out of the range RFC 5545 gives the part. Numbers
+  become longs, UNTIL an instant, the BY lists vectors."
   [k s]
   (let [longs (fn [s]
                 (let [xs (str/split s #",")]
                   (when (every? #(re-matches #"[+-]?\d+" %) xs)
                     (let [ns (mapv parse-long xs)]
-                      (when (every? some? ns)
+                      (when (every? #(and % (in-range? k %)) ns)
                         ns)))))]
     (case k
       :freq  (let [f (str/upper-case s)]
@@ -51,7 +65,10 @@
                  days))
       :wkst  (let [d (str/upper-case s)]
                (when (re-matches #"MO|TU|WE|TH|FR|SA|SU" d) d))
-      (:interval :count) (when (re-matches #"\d+" s) (parse-long s))
+      (:interval :count) (when (re-matches #"\d+" s)
+                           (let [n (parse-long s)]
+                             (when (and n (in-range? k n))
+                               n)))
       (:bysecond :byminute :byhour :bymonthday :byyearday :byweekno :bymonth :bysetpos) (longs s)
       s)))
 
@@ -59,8 +76,8 @@
   "Parse the RFC 5545 recurrence rule `s`, \"FREQ=WEEKLY;BYDAY=MO,WE\", into
   a map of its parts by lower-case key: `{:freq \"WEEKLY\" :byday [\"MO\"
   \"WE\"]}`. INTERVAL and COUNT are numbers, UNTIL an instant, the BY lists
-  vectors of numbers or day names. Nil when FREQ is missing or invalid or
-  a part does not read."
+  vectors of numbers or day names. Nil when FREQ is missing or invalid, or
+  a part does not read or is out of its range, such as INTERVAL=0."
   [s]
   (let [pairs (for [part (str/split (str/replace-first (str/trim (str s)) #"(?i)^RRULE:" "") #";")
                     :when (not (str/blank? part))

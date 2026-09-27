@@ -57,6 +57,10 @@
     (is (nil? (rrule/parse "FREQ=MONTHLY;BYDAY=0FR")))
     (is (nil? (rrule/parse "FREQ=MONTHLY;BYMONTHDAY=99999999999999999999")))
     (is (nil? (rrule/parse "FREQ=DAILY;UNTIL=20261345")))
+    (doseq [s ["FREQ=DAILY;INTERVAL=0" "FREQ=DAILY;COUNT=0" "FREQ=MONTHLY;BYMONTHDAY=0" "FREQ=MONTHLY;BYMONTHDAY=32"
+               "FREQ=YEARLY;BYMONTH=13" "FREQ=DAILY;BYHOUR=24" "FREQ=YEARLY;BYWEEKNO=54" "FREQ=YEARLY;BYYEARDAY=-367"]]
+      (is (nil? (rrule/parse s)) s))
+    (is (= {:freq "MONTHLY" :bymonthday [-31 31]} (rrule/parse "FREQ=MONTHLY;BYMONTHDAY=-31,31")))
     (is (= {:freq "MONTHLY" :byday ["53MO" "-1FR"]} (rrule/parse "FREQ=MONTHLY;BYDAY=53MO,-1FR"))))
   (let [start #inst "2026-01-05T18:00:00Z"]
     (testing "an interval longer than the century read gives the start alone, without overflow"
