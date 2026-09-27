@@ -2,7 +2,8 @@
   "Deferred values on both platforms, so that the sync and its stores are
   written once: a deferred value is a future on the JVM and a promise in
   ClojureScript, and `then`, `all` and `attempt` take a value or a deferred
-  one alike.")
+  one alike."
+  (:require [clojure.string :as str]))
 
 (defn then
   "`f` of `x` once `x` is a value: at once when it is one, and when `x`, a
@@ -34,6 +35,14 @@
 
 (defn explain
   "The message of the failure `e`, an exception or whatever else was
-  thrown."
+  thrown, and those of its causes that add to it, since the client of the
+  JDK and the fetch of Node give the reason that a connection failed in a
+  cause: `java.net.ConnectException:
+  java.nio.channels.UnresolvedAddressException`."
   [e]
-  (or (ex-message e) (str e)))
+  (->> (iterate #?(:clj ex-cause :cljs #(some-> % .-cause)) e)
+       (take-while some?)
+       (take 4)
+       (map #(or (ex-message %) (str %)))
+       dedupe
+       (str/join ": ")))

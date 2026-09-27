@@ -10,6 +10,7 @@
             [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.app.sync.file :as file]
             [dk.simongray.podcast.app.sync.webdav.server :as webdav-server]
+            [dk.simongray.podcast.check :as check]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed :as feed]
@@ -163,6 +164,38 @@
         (html (page/feed-page (assoc loaded
                                      :profile (when (contains? validate/profiles profile) profile)
                                      :selection (selection (:query-params request)))))))))
+
+(defn- checked
+  "The check over the network of `feed`, fetched from `url`, for its newest
+  `items`, reading what the files hold, and their integrity when
+  `integrity?`: reused for `cache-seconds` while the feed is the same, so
+  that the page judges one check by each profile."
+  [url feed items integrity?]
+  (let [now (System/currentTimeMillis)]
+    (:value (cached [:check url items integrity?]
+                    #(and (identical? feed (:feed %)) (< (- now (:at %)) (* 1000 cache-seconds)))
+                    (fn [_]
+                      {:at    now
+                       :feed  feed
+                       :value (check/feed! feed {:url url :items items :read? true :integrity? integrity?})})))))
+
+(defn check-page
+  "The check over the network of the files that the feed named by the `url`
+  query parameter links to, for its newest `items` (default 5, at most 50),
+  against the `profile` parameter when it names one, reading what the files
+  hold, and with the `integrity` parameter, checking each file that has a
+  podcast:integrity against it."
+  [request]
+  (with-feed request
+    (fn [{:keys [url feed]}]
+      (let [{:keys [profile items integrity]} (:query-params request)
+            profile    (some-> profile not-empty keyword)
+            profile    (when (contains? check/profiles profile) profile)
+            items      (or (some-> items parse-long (max 1) (min 50)) 5)
+            integrity? (= "1" integrity)
+            {:keys [files]} (checked url feed items integrity?)]
+        (html (page/check-page {:url url :feed feed :profile profile :items items :integrity? integrity?
+                                :result {:files files :report (check/report files profile)}}))))))
 
 (defn feed-edn
   "The parsed feed as pretty-printed EDN."
@@ -393,6 +426,7 @@
      ["/feed" :get feed-page :route-name :feed]
      ["/feed.edn" :get feed-edn :route-name :feed-edn]
      ["/feed.xml" :get feed-xml :route-name :feed-xml]
+     ["/check" :get check-page :route-name :check]
      ["/item" :get item-page :route-name :item]
      ["/search" :get search-page :route-name :search]
      ["/directory" :get directory-page :route-name :directory]

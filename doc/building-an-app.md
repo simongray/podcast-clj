@@ -32,6 +32,7 @@ The examples use these aliases:
          '[dk.simongray.podcast.app.sync.store :as store]
          '[dk.simongray.podcast.app.sync.webdav :as webdav]
          '[dk.simongray.podcast.bytes :as bytes]
+         '[dk.simongray.podcast.check :as check]
          '[dk.simongray.podcast.directory :as directory]
          '[dk.simongray.podcast.directory.podcastindex :as podcastindex]
          '[dk.simongray.podcast.feed :as feed]
@@ -482,6 +483,43 @@ goes with a payment. The app makes the payment itself.
 (value/payments (:recipients (value/recipients-at block 754)) 1000)  ; 1000 sats, divided at 12:34
 (value/boostagram {:sats 1000 :position 754 :message "Great episode"
                    :feed-guid guid :item-guid (feed/item-guid item)})
+```
+
+
+## Check the files that a feed links to
+
+A host checks a feed before it publishes, and an app can check a feed that
+a podcaster submits. `check/feed!` fetches the files that the feed and its
+newest items link to, and tells whether they reach a listener as the feed
+says: the media files, the images, the transcripts and the chapters files.
+Give it the URL of the feed to check the feed too, and a profile to add
+the rules of PSP-1 or Apple Podcasts. It sends a HEAD request for each
+file, asks for two bytes of each file but the images, and reads the header
+of each image. `:read? true` also reads what the files hold: the format and
+duration of each media file, as far as its duration, and each transcript
+and chapters file whole.
+
+```clojure
+(def result (check/feed! show {:url "https://example.com/feed.xml" :items 10 :profile :apple}))
+
+(podcast/summarize (:report result))
+;; => ({:id :check/cors :level :warning :count 10 :message "The server does not let pages of other sites read the file, …"}
+;;     {:id :check/ranges :level :error :count 3 :message "The server does not answer a request for a byte range …"} …)
+
+(first (filter #(= :media (:kind %)) (:files result)))
+;; => {:kind :media :url "https://…" :path [:rss/items 0 :rss/enclosure] :declared {:type "audio/mpeg" :length 43200000}
+;;     :facts {:head {:status 200 …} :get {:status 206 :range {:start 0 :end 1 :total 43200000} …}}}
+
+(check/report (:files result) :psp-1)  ; the same check by another profile, with no request sent again
+```
+
+Each diagnostic has the `:url` of the file and the `:path` of the element
+that names it. `check/verdicts` gives the diagnostics of facts that the app
+gathered itself. `http/probe!` gives the same facts of any file, such as
+the size of an episode before the app downloads it:
+
+```clojure
+(get-in (http/probe! (:url (resolve/enclosure item))) [:get :range :total])  ; => 43200000
 ```
 
 

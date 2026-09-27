@@ -17,9 +17,7 @@
   `:except` in the options leaves out the quirks it names."
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.bytes :as bytes]
-            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.id3 :as id3]
             [dk.simongray.podcast.format.mp3 :as mp3]
@@ -71,142 +69,24 @@
    (read view {}))
   ([view opts]
    {:pre [(map? opts)]}
-   (let [result (try
-                  (case (sniff view)
-                    :mp3 (mp3-result view opts)
-                    :mp4 (mp4-result view opts)
-                    {:report [{:id :file/unknown-format :level :warning}]})
-                  (catch #?(:clj Exception :cljs :default) e
-                    (cond
-                      (bytes/missing e)    {:need (bytes/missing e)}
-                      (bytes/truncated? e) {:report [{:id :file/truncated :level :warning}]}
-                      :else                {:report [{:id :file/malformed :level :warning :reason (async/explain e)}]})))]
-     (cond-> result
-       (:report result) (update :report #(mapv diagnostics/describe %))))))
-
-(def ^:no-doc chunk-size
-  "The least that `read!` fetches at a time, so that small reads come in
-  one request."
-  (* 64 1024))
-
-(def ^:no-doc max-rounds
-  "How many times `read!` fetches before it gives up."
-  8)
-
-(defn- whole-size
-  "The size of the file whose first `n` bytes came in a 200, the answer of
-  a server that ignores ranges, to a request for the first `asked`: `n`
-  when that is less, since the file ended; else the `content-length` of the
-  answer, unless the `content-encoding` changed the size."
-  [n asked content-length content-encoding]
-  (cond
-    (< n asked)
-    n
-
-    (contains? #{nil "identity"} (some-> content-encoding str/trim str/lower-case))
-    (some-> content-length str/trim parse-long)))
-
-#?(:cljs
-   (defn- read-prefix
-     "A promise of the first `n` bytes of the body of the fetch response
-     `res`, all of it when it is shorter, the rest left unread."
-     [res n]
-     (let [reader (.getReader (.-body res))]
-       (letfn [(join [chunks]
-                 (.catch (.cancel reader) (fn [_] nil))
-                 (let [size (min n (reduce + (map #(.-length %) chunks)))
-                       out  (js/Uint8Array. size)]
-                   (reduce (fn [p chunk]
-                             (let [k (min (.-length chunk) (- size p))]
-                               (.set out (.subarray chunk 0 k) p)
-                               (+ p k)))
-                           0 chunks)
-                   out))
-               (step [chunks got]
-                 (if (>= got n)
-                   (join chunks)
-                   (.then (.read reader)
-                          (fn [r]
-                            (if (.-done r)
-                              (join chunks)
-                              (step (conj chunks (.-value r)) (+ got (.-length (.-value r)))))))))]
-         (js/Promise.resolve (step [] 0))))))
-
-(defn fetcher
-  "The function that `read!` fetches the bytes of the file at `url` with,
-  unless it is given another: a function of a start and an end, end
-  excluded, that gives `{:bytes :start :total}`. A server that ignores
-  ranges sends the file from its start, and only the bytes up to the end
-  are read. On the JVM it sends with the library's HTTP client; in
-  ClojureScript it sends with fetch and gives a promise, the total known
-  when the server exposes Content-Range. An app wraps it to log or keep
-  what it fetches. `opts` may give the `:headers` and the
-  `:timeout-seconds` of the requests (default 30, on the JVM)."
-  [url {:keys [headers] :as opts}]
-  #?(:clj
-     (fn [start end]
-       (let [{:keys [status body content-range] :as response}
-             (http/call! {:url url :headers headers :timeout-seconds (:timeout-seconds opts 30)
-                          :as :bytes :range [start (dec end)]})
-             body   (or body (bytes/of []))
-             header #(first (get-in response [:headers %]))]
-         (case (long status)
-           206 {:bytes body :start (:start content-range) :total (:total content-range)}
-           200 {:bytes body :start 0
-                :total (whole-size (bytes/length body) end (header "content-length") (header "content-encoding"))}
-           (throw (ex-info (str "The media file answered " status ": " url) {:status status :url url})))))
-     :cljs
-     (fn [start end]
-       (-> (js/fetch url (clj->js {:headers (assoc headers "Range" (str "bytes=" start "-" (dec end)))}))
-           (.then (fn [res]
-                    (let [header #(.get (.-headers res) %)]
-                      (case (.-status res)
-                        206 (.then (.arrayBuffer res)
-                                   (fn [buffer]
-                                     (let [range (http/content-range (header "content-range"))]
-                                       {:bytes (js/Uint8Array. buffer) :start (or (:start range) start) :total (:total range)})))
-                        200 (.then (read-prefix res end)
-                                   (fn [b]
-                                     {:bytes b :start 0
-                                      :total (whole-size (.-length b) end (header "content-length") (header "content-encoding"))}))
-                        (throw (ex-info (str "The media file answered " (.-status res) ": " url) {:status (.-status res)}))))))))))
+   (bytes/reading #(case (sniff view)
+                     :mp3 (mp3-result view opts)
+                     :mp4 (mp4-result view opts)
+                     {:report [{:id :file/unknown-format :level :warning}]}))))
 
 (defn read!
   "What the media file at `url` says about itself, as `read` gives it,
-  fetching the ranges that the reading needs, all that one reading needs
-  at once: on the JVM the result, in ClojureScript a promise of it. `opts`
-  may give `:fetch`, a function as `fetcher` makes, for an app that fetches
-  its own way; the `:headers` and `:timeout-seconds` of `fetcher`; and the
-  `:except` of `read`. A file whose ranges do not come gives what the
-  reading could do without them, with `:file/incomplete` in the report."
+  fetching by `dk.simongray.podcast.bytes/read!` the ranges that the
+  reading needs: on the JVM the result, in ClojureScript a promise of it.
+  `opts` may give `:fetch`, a function as `http/fetcher` makes, for an app
+  that fetches its own way; the `:headers` and `:timeout-seconds` of
+  `http/fetcher`, and its `:send`; and the `:except` of `read`. A file
+  whose ranges do not come gives a report of `:file/incomplete`."
   ([url]
    (read! url {}))
   ([url {:keys [fetch] :as opts}]
-   (let [fetch (or fetch (fetcher url opts))
-         opts  (select-keys opts [:except])]
-     (letfn [(step [view round previous]
-               (let [{:keys [need] :as result} (read view opts)]
-                 (cond
-                   (nil? need)
-                   result
-
-                   (or (>= round max-rounds) (= need previous))
-                   {:report [(diagnostics/describe {:id :file/incomplete :level :warning :ranges need})]}
-
-                   :else
-                   ;; one range, such as a tag, is fetched with what follows
-                   ;; it, where the reading most often goes next
-                   (async/then (async/all (for [[start end] need]
-                                            (fetch start (if (next need)
-                                                           (max end (+ start chunk-size))
-                                                           (+ end chunk-size)))))
-                               (fn [parts]
-                                 (step (reduce (fn [v {b :bytes :keys [start total]}]
-                                                 (cond-> v b (bytes/add start b total)))
-                                               view parts)
-                                       (inc round)
-                                       need))))))]
-       (step (bytes/view) 0 nil)))))
+   (let [read-opts (select-keys opts [:except])]
+     (bytes/read! (or fetch (http/fetcher url opts)) #(read % read-opts)))))
 
 (def ^:no-doc sri-algorithms
   "The hash algorithms of Subresource Integrity, weakest first, with their
@@ -241,8 +121,9 @@
   hashes, false when not, and `{:valid? nil :reason …}` for a PGP
   signature, which needs the publisher's key, or for a value with no hash
   that Subresource Integrity knows. On the JVM the file streams through the
-  digest; in ClojureScript it comes whole, and the result is a promise.
-  `opts` may give the `:headers` and `:timeout-seconds` of the request."
+  digest; in ClojureScript it comes whole, up to the `:max-bytes` of
+  `http/call!`, and the result is a promise. `opts` may give the `:headers`
+  and `:timeout-seconds` (default 600) of the request."
   ([url integrity]
    (verify! url integrity {}))
   ([url {:keys [type value]} opts]
@@ -258,10 +139,10 @@
                   (if digests
                     (verdict metadata (bytes/base64 (get digests algorithm)))
                     {:valid? nil :reason (str "The file answered " status ".")}))
-          :cljs (-> (js/fetch url (clj->js {:headers (:headers opts)}))
-                    (.then (fn [res]
-                             (if (.-ok res)
-                               (-> (.arrayBuffer res)
-                                   (.then #(.digest (.-subtle js/crypto) (names (:algorithm metadata)) %))
+          :cljs (-> (http/call! (merge {:url url :as :bytes :timeout-seconds 600}
+                                       (select-keys opts [:headers :timeout-seconds :max-bytes])))
+                    (.then (fn [{:keys [status body]}]
+                             (if (= 200 status)
+                               (-> (.digest (.-subtle js/crypto) (names (:algorithm metadata)) (or body (js/Uint8Array. 0)))
                                    (.then #(verdict metadata (bytes/base64 (js/Uint8Array. %)))))
-                               {:valid? nil :reason (str "The file answered " (.-status res) ".")})))))))))
+                               {:valid? nil :reason (str "The file answered " status ".")})))))))))

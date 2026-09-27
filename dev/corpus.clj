@@ -7,7 +7,9 @@
             [clojure.pprint :as pprint :refer [print-table]]
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.bytes :as bytes]
+            [dk.simongray.podcast.check :as check]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.feed :as feed]
@@ -339,7 +341,7 @@
    (.mkdirs media-dir)
    (let [manifest (vec (for [[i {:keys [url] :as e}] (map-indexed vector (first-enclosures n))]
                          (let [parts (atom [])
-                               fetch (media/fetcher url {})
+                               fetch (http/fetcher url {})
                                r     (try (media/read! url {:fetch (fn [start end]
                                                                     (let [part (fetch start end)]
                                                                       (swap! parts conj part)
@@ -372,6 +374,38 @@
       :chapters (count (:chapters (:chapters r))) :artwork (:type (:artwork r))
       :report (str/join " " (map (comp name :id) (:report r)))})))
 
+(defn check-feeds!
+  "Fetch each feed of `feeds` and check the files that it and its newest
+  `items` link to over the network, as `check/feed!` does with `opts`, the
+  feed at the URL that the corpus lists, so that its redirects count:
+  `[{:name :files :report}]`, or `{:name :error}` for a feed that could not
+  be fetched."
+  ([] (check-feeds! {:items 2 :profile :apple :read? true}))
+  ([opts]
+   (vec (pmap (fn [[name url]]
+                (try
+                  (let [{:keys [feed]}         (podcast/fetch! url)
+                        {:keys [files report]} (check/feed! feed (assoc opts :url url))]
+                    {:name name :files (count files) :report report})
+                  (catch Exception e
+                    {:name name :error (async/explain e)})))
+              (sort feeds)))))
+
+(defn check-report
+  "Print a table of the diagnostics of `checked`, from `check-feeds!`: each
+  id with its level, how many files it concerns, and on which feeds; then
+  the feeds that could not be fetched."
+  [checked]
+  (print-table
+   [:id :level :files :feeds]
+   (for [[[id level] ds] (sort-by (comp - count val)
+                                  (group-by (juxt :id :level)
+                                            (for [{:keys [name report]} checked d report] (assoc d :feed name))))]
+     {:id id :level level :files (count (distinct (map :url ds))) :feeds (str/join " " (sort (distinct (map :feed ds))))}))
+  (doseq [{:keys [name error]} checked
+          :when error]
+    (println name "could not be fetched:" error)))
+
 (comment
   (download!)
   (sweep)
@@ -379,6 +413,7 @@
   (sweep-companions)
   (download-media!)
   (media-report)
+  (check-report (check-feeds!))
   (let [creds (:podcastindex (edn/read-string (slurp (str (System/getProperty "user.home") "/Code/secrets.edn"))))]
     (download-sweep! (sweep-populations creds)))
   (sweep-report)

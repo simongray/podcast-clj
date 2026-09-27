@@ -41,10 +41,10 @@ ecosystem that podcast-clj was written for.
 
 ```
   4  front door   dk.simongray.podcast
-  3  companions   format.*  value  resolve  directory  directory.podcastindex  podping  app.*
+  3  companions   format.*  value  resolve  check  directory  directory.podcastindex  podping  app.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
   1  vocabulary   spec  quirks
-  0  primitives   xml  xml.jsoup  time  time.rrule  guid  json  http  rank  async  diagnostics
+  0  primitives   xml  xml.jsoup  time  time.rrule  guid  json  http  bytes  rank  async  diagnostics
 ```
 
 A namespace requires only namespaces in its own layer or in a lower layer.
@@ -74,8 +74,8 @@ The names follow the design where one part belongs to another:
   syncs (`app.sync`). The stores are under `app.sync`.
 - The Podcast Index client is under `directory`, because the Podcast Index
   is one of the directories.
-- `resolve`, `value`, `guid`, `json`, `http`, `bytes`, `rank`, `async` and
-  `diagnostics` belong to no group.
+- `resolve`, `check`, `value`, `guid`, `json`, `http`, `bytes`, `rank`,
+  `async` and `diagnostics` belong to no group.
 
 
 ## Why the API is regular
@@ -418,20 +418,141 @@ list and the source agree.
   other ID3 version, and junk between the tag and the audio. The chapters
   have the shape of a JSON chapters document. A reader takes a view of the
   parts of a file that have arrived (`bytes`). When it needs a part that
-  has not arrived, it throws the ranges that it needs. `read!` fetches
-  these ranges with range requests, and reads again. So the readers do no
-  I/O, and one loop fetches with futures on the JVM and with promises in
-  JavaScript. Most files need one or two requests and a few hundred
-  kilobytes. From a server that ignores ranges, `read!` reads only the
-  start of the file that it needs. A host that inserts ads can send a
-  different file to each request, so the duration is that of the file that
-  came. `verify!` checks a file against the `podcast:integrity` of an
-  alternate enclosure, by the rules of W3C Subresource Integrity.
+  has not arrived, it throws the ranges that it needs. `bytes/read!`
+  fetches these ranges with the range requests of `http/fetcher`, and
+  reads again. So the readers do no I/O, and one loop fetches with futures
+  on the JVM and with promises in JavaScript. Most files need one or two
+  requests and a few hundred kilobytes. From a server that ignores ranges,
+  the fetcher reads only the start of the file that the reader needs. A
+  host that inserts ads can send a different file to each request, so the
+  duration is that of the file that came. `verify!` checks a file against
+  the `podcast:integrity` of an alternate enclosure, by the rules of W3C
+  Subresource Integrity.
+- **Images** (`format.image`) reads the header of a PNG, JPEG, GIF or WebP
+  image: its type, its size in pixels, its color model and whether it can
+  be transparent, and of a JPEG also its coding process and its EXIF
+  orientation. It follows the W3C PNG specification, ITU-T T.81 with JFIF,
+  and RFC 9649. It knows AVIF, HEIC, HEIF, SVG, BMP, TIFF and ICO images by
+  their first bytes, and gives their type alone. The header is in the first
+  bytes, so a check of artwork needs no image library, and `read!` fetches
+  it through the same loop as the media readers. The first 64 KB hold it
+  in most files. A JPEG whose frame comes after large segments, such as a
+  color profile, takes a few more requests.
 - **Value** (`value`) finds the value block that applies to an item, and
   divides amounts into shares and fees. With time splits, it finds the
   recipients at a position in the episode. It is arithmetic only, and it
   makes no payments. `boostagram` writes the bLIP-10 record that an app
   attaches to the keysend payment that it makes.
+
+
+## Checks over the network
+
+`validate` checks the data of a feed. `check` checks the files that the
+feed links to, over the network: the media files, the images, the
+transcripts, the chapters files and the feed itself. A host can run it
+before it publishes, and the inspector shows it.
+
+`check/files` lists what a check fetches: the files of the feed and of its
+newest items, each once. `check/feed!` sends the requests and keeps the
+facts of each answer. `check/verdicts` turns the facts of a file into
+diagnostics. `files` and `verdicts` are pure, so the tests give them feeds
+and facts written by hand, with no network. A check fetches as little as
+it can:
+
+- a HEAD request and a request for the first two bytes of each media
+  file, transcript and chapters file, and of the feed, which `http/probe!`
+  sends, and which tell the status, the type, the size, the byte ranges,
+  CORS and the validators of the file
+- a HEAD request and the header of each image
+- with `:read?`, the ranges that the media reader needs of each media file,
+  for its format and duration, and each transcript and chapters file whole
+  in place of its two bytes
+- with `:integrity?`, each file that has a `podcast:integrity`, whole
+
+The requests for the files that web players read, the transcripts, the
+chapters and the feed, name an origin that no site has, to learn what CORS
+allows. The credentials of a private feed go with the requests for the
+feed alone. A source of an alternate enclosure with a type of its own,
+such as a torrent, is checked as a file of that type. A host of an overlay
+network, such as Tor, is left out, since only its own clients reach it.
+
+The rules come from the standards first:
+
+- RFC 9110 requires HEAD of every general-purpose server. It makes byte
+  ranges optional, but says that servers ought to support them when
+  possible.
+- RSS 2.0 gives the length of an enclosure in bytes, and its type. A
+  length of 0 is a size that is not known, as the RSS Profile has it.
+- The podcast namespace requires CORS for transcripts, and gives the size
+  and the aspect ratio of a `podcast:image`. It takes an image without them
+  as square, but the model cannot tell such an image from one of the
+  deprecated `podcast:images`, which makes no such claim. So the check
+  compares only a size that is declared, with the image as a viewer shows
+  it, turned by its EXIF orientation.
+- The Fetch standard decides what a web player on another site can read.
+  A browser applies the CORS rules to each redirect on the way, as well as
+  to the answer. After a redirect to another origin it names the origin
+  `null`. So each answer must allow any origin with `*`, or allow the
+  origin that it gets, as a server does that repeats it.
+
+A profile adds the rules of a standard or a directory on top, with the
+names that `validate` uses. PSP-1 asks for artwork in `itunes:image` that
+is a square of 1400 to 3000 pixels, JPEG or PNG, in RGB, with a file
+extension that matches its type. A JPEG must also be one that apps and
+browsers decode, not lossless, hierarchical or arithmetic-coded. Apple
+Podcasts asks for the same, and also refuses transparency, requires byte
+ranges, and asks for Last-Modified on the artwork. An image that several
+elements name gets the rules of each. The catalogue gives the level of
+each diagnostic, and a profile can raise it: a server that ignores byte
+ranges is a warning, and an error with `:apple`.
+
+In September 2026, a check of the 28 feeds of the corpus, two items each,
+with the Apple profile, found two errors, both artwork with transparency.
+Every host answered HEAD and byte ranges. The lengths and the durations of
+the files of hosts that insert ads differ from the feed by some percent,
+because each request gets another file, so these diagnostics are only
+info. Five hosts serve transcripts or chapters without CORS.
+
+In ClojureScript, `feed!` sends with fetch. Node can check any server. A
+browser fails without a reason where CORS does not allow the page to read,
+and hides the headers that an answer does not expose, such as
+Content-Range and ETag. The facts mark such an answer `:filtered?`, and the
+rules that need a hidden header pass it. So a check sees most on the JVM or
+in Node.
+
+
+## Careful with the network
+
+podcast-clj moves no more bytes than a purpose needs, and asks a server no
+more often than it must:
+
+- A poller sends the ETag and the Last-Modified of the last fetch, so an
+  unchanged feed costs a 304 and no body (`podcast/fetch!`). It waits as
+  long as the server says (`http/not-before`) and as the feed says
+  (`resolve/next-check`).
+- The readers of media files and images read by byte ranges, and stop when
+  they know enough (`bytes/read!`, `http/fetcher`). Most media files take
+  one or two requests and a few hundred kilobytes. Ranges near each other
+  come in one request, and a round sends at most 16 requests, one after
+  another. A walk through the segments of a file reads further ahead each
+  round, up to 1 MB. After 8 rounds the reader gives up.
+- `http/probe!` learns the facts of a file from a HEAD request and two
+  bytes of it.
+- A server that ignores a byte range sends the whole file, and some send
+  more than the range. The client reads the bytes that it asked for, and
+  then closes the connection.
+- A check probes each file. It reads what a file holds only when it is
+  asked to, and then fetches the transcripts and chapters whole. It fetches
+  a media file whole only to check its integrity. At most four files are
+  under way at a time, and a lane takes the next file as soon as its last
+  is done.
+- Every body that the client keeps has a limit of size (`:max-bytes`, 100
+  MB by default), and every exchange a limit of time (`:timeout-seconds`),
+  on both platforms.
+
+A check of five corpus feeds, ten items each, sends 490 requests and moves
+4.5 MB in about 20 seconds. The first version fetched every feed,
+transcript and chapters file whole: 48.9 MB in 79 seconds.
 
 
 ## The directories and the Podcast Index
@@ -782,6 +903,11 @@ Pedestal reads the body of a put before the handler can read it.
   insert ads. The ID3 chapters of a show agreed with its JSON chapters.
   Each quirk that the corpus showed has a fixture in the tests, built byte
   by byte.
+- `corpus/check-feeds!` checks the feeds of the corpus over the network,
+  and `corpus/check-report` prints what the check found, by diagnostic and
+  by feed. Its first run showed the rules that fired on files that were
+  right, such as an extension read from a URL in the query. Each fix came
+  with a test.
 - Generative tests cover these properties:
   - the three properties of the merge
   - the order of the ranks

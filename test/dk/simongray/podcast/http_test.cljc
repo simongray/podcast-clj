@@ -2,7 +2,7 @@
   "The HTTP layer: the pure parts on both platforms, and on the JVM URL
   encoding, body decoding, and fetching from servers on localhost."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast.http :as http]
             #?(:clj [dk.simongray.podcast.test-support :refer [with-file-server]]))
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
@@ -15,6 +15,83 @@
   (is (= {:start 0 :end 1023 :total 146515} (http/content-range "bytes 0-1023/146515")))
   (is (= {:start 5 :end 9 :total nil} (http/content-range "bytes 5-9/*")))
   (is (nil? (http/content-range "bytes */1000")) "an unsatisfiable range names none"))
+
+(deftest facts-of-an-answer
+  (is (= {:status 206 :url "https://b/e.mp3" :type "audio/mpeg" :length 2 :range {:start 0 :end 1 :total 1000}
+          :etag "\"1\"" :cors "*" :permanent-url "https://b/e.mp3"
+          :redirects [{:status 301 :url "https://a/e.mp3" :cors "*"}]}
+         (http/facts {:status        206
+                      :url           "https://b/e.mp3"
+                      :redirects     [[301 "https://a/e.mp3" {"access-control-allow-origin" ["*"]}]]
+                      :permanent-url "https://b/e.mp3"
+                      :content-range {:start 0 :end 1 :total 1000}
+                      :headers       {"content-type"                ["Audio/MPEG; charset=binary"]
+                                      "content-length"              ["2"]
+                                      "etag"                        ["\"1\""]
+                                      "access-control-allow-origin" ["*"]}})))
+  (is (= {:status 404} (http/facts {:status 404 :headers {}})) "only what the answer tells")
+  (is (= "*, *" (:cors (http/facts {:status 200 :headers {"access-control-allow-origin" ["*" "*"]}})))
+      "two values, which a browser reads as one that allows no page")
+  (is (= [200 "text/vtt" 12] ((juxt :status :type :length)
+                              (http/facts {:status 200 :headers {"content-type" "text/vtt" "content-length" "12"}})))
+      "headers as strings, as an app's own client can give them")
+  (is (nil? (:length (http/facts {:status 200 :headers {"content-length" ["-1"]}}))))
+  (is (nil? (http/media-type " ")) "no type"))
+
+#?(:cljs
+   (deftest fetching-by-range-with-fetch
+     (async done
+       (let [real        (.-fetch js/globalThis)
+             pulls       (atom 0)
+             whole       (js/ReadableStream. #js {:pull (fn [controller]
+                                                          (if (< (swap! pulls inc) 100)
+                                                            (.enqueue controller (js/Uint8Array. 65536))
+                                                            (.close controller)))})
+             answers     (atom [(js/Response. (js/Uint8Array. 10)
+                                              #js {:status 206 :headers #js {"content-range" "bytes 5-14/1000"}})
+                                (js/Response. whole
+                                              #js {:status 200 :headers #js {"content-length" (str (* 99 65536))}})])
+             fetch-bytes (http/fetcher "https://example.org/a.mp3" {})]
+         ;; the global fetch, as the fetcher finds it
+         (set! (.-fetch js/globalThis) (fn [_ _]
+                                         (let [res (first @answers)]
+                                           (swap! answers rest)
+                                           (js/Promise.resolve res))))
+         (-> (fetch-bytes 5 15)
+             (.then (fn [{b :bytes :keys [start total]}]
+                      (is (= [10 5 1000] [(.-length b) start total]) "a range")
+                      (fetch-bytes 0 100000)))
+             (.then (fn [{b :bytes :keys [start total]}]
+                      (is (= [100000 0 (* 99 65536)] [(.-length b) start total]) "the start of the whole file")
+                      (is (< @pulls 10) "the rest of the file left unread")))
+             (.catch (fn [e] (is false (str "rejected: " e))))
+             (.finally (fn []
+                         (set! (.-fetch js/globalThis) real)
+                         (done))))))))
+
+#?(:cljs
+   (deftest probing-with-fetch
+     (async done
+       (let [real     (.-fetch js/globalThis)
+             requests (atom [])]
+         ;; the global fetch, as call! finds it
+         (set! (.-fetch js/globalThis)
+               (fn [_ init]
+                 (swap! requests conj [(.-method init) (or (aget (.-headers init) "Range") nil)])
+                 (js/Promise.resolve
+                  (if (= "HEAD" (.-method init))
+                    (js/Response. nil #js {:status 200 :headers #js {"content-type" "audio/mpeg" "content-length" "1000"}})
+                    (js/Response. (js/Uint8Array. 2) #js {:status 206 :headers #js {"content-type" "audio/mpeg"
+                                                                                     "content-range" "bytes 0-1/1000"}})))))
+         (-> (http/probe! "https://a/e.mp3")
+             (.then (fn [{:keys [head get]}]
+                      (is (= [200 "audio/mpeg" 1000] ((juxt :status :type :length) head)))
+                      (is (= [206 {:start 0 :end 1 :total 1000}] ((juxt :status :range) get)))
+                      (is (= #{["HEAD" nil] ["GET" "bytes=0-1"]} (set @requests)))))
+             (.catch (fn [e] (is false (str "rejected: " e))))
+             (.finally (fn []
+                         (set! (.-fetch js/globalThis) real)
+                         (done))))))))
 
 (deftest credentials-as-a-header
   (is (= "Basic dTpw" (http/authorization {:username "u" :password "p"})))
@@ -197,6 +274,7 @@
              "/then-for-now" (redirect exchange 301 "/for-now")
              "/see-other"  (redirect exchange 303 "/feed")
              "/loop"       (redirect exchange 302 "/loop")
+             "/elsewhere"  (redirect exchange 302 "ftp://files.example/feed")
              (do (.sendResponseHeaders exchange 200 2)
                  (with-open [out (.getResponseBody exchange)]
                    (.write out (.getBytes "ok"))))))
@@ -207,7 +285,13 @@
              (testing "a redirect to another origin leaves the credentials behind"
                (let [r (call "/away")]
                  (is (= [200 (str other "/feed")] [(:status r) (:url r)]))
-                 (is (= ["Basic dTpw" nil] (map last @seen)))))
+                 (is (= ["Basic dTpw" nil] (map last @seen)))
+                 (is (= [[302 (str base "/away") (str other "/feed")]]
+                        (map (fn [[status url headers]] [status url (first (get headers "location"))]) (:redirects r)))
+                     "each redirect, with the headers of its answer")))
+             (testing "a redirect to a URL of another scheme is not followed"
+               (is (= [302 "ftp://files.example/feed"] ((juxt :status #(first (get-in % [:headers "location"])))
+                                                        (call "/elsewhere")))))
              (testing "permanent redirects give the URL they lead to"
                (is (= (str base "/feed") (:permanent-url (call "/moved"))))
                (is (= ["Basic dTpw" "Basic dTpw" "Basic dTpw"] (map last @seen)) "the same origin keeps them")
@@ -267,3 +351,36 @@
              (is (nil? content-range))
              (is (= (range 20) (map #(bit-and % 0xFF) body)) "of which the start up to the range is read"))
            (is (= 1000 (count (:body (http/call! {:url url :as :bytes :range [10 nil]})))) "all of it for the rest"))))))
+
+#?(:clj
+   (deftest probing-a-file
+     (let [b (byte-array (map unchecked-byte (range 1000)))]
+       (with-file-server b {}
+         (fn [url]
+           (let [{:keys [head get]} (http/probe! url)]
+             (is (= [200 1000] ((juxt :status :length) head)))
+             (is (= [206 {:start 0 :end 1 :total 1000}] ((juxt :status :range) get))))))
+       (with-file-server b {:ranges? false}
+         (fn [url]
+           (is (= [200 1000] ((juxt :status :length) (:get (http/probe! url))))
+               "a server that sends the whole file, of which two bytes are read"))))
+     (let [closed (with-open [s (java.net.ServerSocket. 0)] (.getLocalPort s))]
+       (is (every? :error (vals (http/probe! (str "http://127.0.0.1:" closed "/nothing"))))
+           "a port where no server listens"))))
+
+#?(:clj
+   (deftest more-than-was-asked
+     (let [b (byte-array (map unchecked-byte (range 1000)))]
+       (with-server {"/a.mp3" [206 {"Content-Range" "bytes 0-999/1000"} b]}
+         (fn [base]
+           (let [{:keys [status body content-range]} (http/call! {:url (str base "/a.mp3") :as :bytes :range [0 1]})]
+             (is (= [206 {:start 0 :end 999 :total 1000}] [status content-range]))
+             (is (= [0 1] (map #(bit-and % 0xFF) body)) "a 206 of the whole file, of which the range is read")))))))
+
+#?(:clj
+   (deftest fetching-past-the-end
+     (with-file-server (byte-array 1000) {}
+       (fn [url]
+         (let [{:keys [bytes start total]} ((http/fetcher url {}) 2000 2100)]
+           (is (= [0 2000 1000] [(alength ^bytes bytes) start total])
+               "a 416 gives no bytes and the size of the file"))))))

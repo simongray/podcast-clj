@@ -2,35 +2,28 @@
   "The readers of media files, on files built here byte by byte: ID3v2 tags
   of each version with their chapters and pictures, MPEG audio frames with
   their Xing and VBRI headers, and MP4 boxes with a QuickTime chapter
-  track, Nero chapters and artwork; each quirk with and without it."
+  track, Nero chapters and artwork; each quirk with and without it. Also
+  files built to hurt a reader, and on the JVM random bytes and mangled
+  files, which a reader must answer with a report, never an exception."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
+            #?@(:clj [[clojure.test.check.clojure-test :refer [defspec]]
+                      [clojure.test.check.generators :as gen]
+                      [clojure.test.check.properties :as prop]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
+            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.format.id3 :as id3]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.mp3 :as mp3]
             [dk.simongray.podcast.format.mp4 :as mp4]
-            #?(:clj [dk.simongray.podcast.test-support :refer [with-file-server]])))
-
-(defn- be
-  "The `n` bytes of the number `x`, big-endian."
-  [n x]
-  (for [i (range (dec n) -1 -1)]
-    (mod (quot x (long (Math/pow 256 i))) 256)))
+            #?(:clj [dk.simongray.podcast.http :as http])
+            [dk.simongray.podcast.test-support :refer [ascii be code fetch-from view
+                                                       #?(:clj with-file-server)]]))
 
 (defn- syncsafe
   [x]
   (for [i [21 14 7 0]] (bit-and (quot x (long (Math/pow 2 i))) 0x7F)))
-
-(defn- code
-  "The code of the character `c`, on both platforms."
-  [c]
-  #?(:clj (int c) :cljs (.charCodeAt c 0)))
-
-(defn- ascii
-  [s]
-  (map code s))
 
 (defn- utf16be
   "The UTF-16BE bytes of `s`, which holds only characters of the BMP."
@@ -50,12 +43,6 @@
   [s]
   #?(:clj  (map #(bit-and % 0xFF) (.getBytes ^String s "UTF-8"))
      :cljs (array-seq (.encode (js/TextEncoder.) s))))
-
-(defn- view
-  "A view of all of the bytes `xs`."
-  [xs]
-  (let [b (bytes/of xs)]
-    (bytes/add (bytes/view (bytes/length b)) 0 b (bytes/length b))))
 
 (def jpeg
   "The start of a JPEG image."
@@ -101,7 +88,9 @@
     (is (= [[0 10] [18 20]] (bytes/missing (try (bytes/need-all v [[0 12] [15 20]]) (catch #?(:clj Exception :cljs :default) e e))))
         "every range it lacks, at once")
     (is (bytes/truncated? (try (bytes/need v 100 104) (catch #?(:clj Exception :cljs :default) e e))))
-    (is (nil? (bytes/need (bytes/add v 90 (bytes/of (range 10)) 100) 95 104)) "the end cut at the end of the file"))
+    (is (nil? (bytes/need (bytes/add v 90 (bytes/of (range 10)) 100) 95 104)) "the end cut at the end of the file")
+    (is (= [[0 20]] (map (fn [[o b]] [o (bytes/length b)]) (:parts (bytes/add v 0 (bytes/of (range 20)) 100))))
+        "a part in place of those it covers, as a server that ignores ranges sends the start again"))
   (testing "a slice across the parts of a view"
     (let [v       (-> (bytes/view 16) (bytes/add 0 (bytes/of (range 8)) 16) (bytes/add 8 (bytes/of (range 8 16)) 16))
           numbers (fn [b] (map #(bytes/at b %) (range (bytes/length b))))]
@@ -117,6 +106,40 @@
   (is (= "AQID" (bytes/base64 (bytes/of [1 2 3]))))
   (is (= "image/jpeg" (bytes/image-type (bytes/of jpeg))))
   (is (nil? (bytes/image-type (bytes/of [1 2 3 4])))))
+
+(defn- zeros
+  "A fetch of a file of `total` zero bytes, as `bytes/read!` takes it,
+  noting each range in `log`."
+  [total log]
+  (fn [start end]
+    (swap! log conj [start end])
+    (let [end (min end total)]
+      {:bytes (bytes/of (repeat (- end start) 0)) :start start :total total})))
+
+(deftest reading-by-rounds
+  (let [spread (fn [v] (bytes/reading #(do (bytes/need-all v (for [i (range 40)] [(* i 100000) (+ (* i 100000) 10)]))
+                                            {:read :spread})))
+        near   (fn [v] (bytes/reading #(do (bytes/need-all v (for [i (range 100)] [(* i 1000) (+ (* i 1000) 10)]))
+                                            {:read :near})))
+        walk   (fn [v] (bytes/reading #(loop [p 0 k 0]
+                                         (if (= k 10)
+                                           {:read :walk}
+                                           (do (bytes/need v p (+ p 4))
+                                               (recur (+ p 65537) (inc k)))))))
+        cases  [[spread 40 "40 ranges far apart, 16 requests a round"]
+                [near 1 "100 ranges near each other, in one request"]
+                [walk 4 "a walk through segments of 64 KB, which reads more ahead each round"]]
+        run    (fn [[reader n message]]
+                 (let [log (atom [])]
+                   (async/then (bytes/read! (zeros 4000000 log) reader)
+                               (fn [r]
+                                 (is (:read r) message)
+                                 (is (= n (count @log)) message)))))]
+    #?(:clj  (run! run cases)
+       :cljs (async done
+               (-> (reduce (fn [p c] (.then p #(run c))) (js/Promise.resolve nil) cases)
+                   (.catch (fn [e] (is false (str "rejected: " e))))
+                   (.finally done))))))
 
 (deftest id3-tags
   (doseq [version [3 4]]
@@ -392,14 +415,6 @@
       (is (= {:version "1.2.0" :chapters [{:start-time 0.0 :end-time 5.0 :title "A"}]} (:chapters r)))))
   (is (every? :message (:report (media/read (view (ascii "not audio at all"))))) "every diagnostic with its message"))
 
-(defn- fetch-from
-  "A fetch over the bytes `b`, as `read!` takes it, noting each range in `log`."
-  [b log]
-  (fn [start end]
-    (swap! log conj [start end])
-    (let [end (min end (bytes/length b))]
-      {:bytes (bytes/copy b start end) :start start :total (bytes/length b)})))
-
 #?(:clj
    (deftest reading-media-in-rounds
      (let [b   (bytes/of (chapter-file ["Intro" "Talk"] [60000 90500] true))
@@ -426,37 +441,6 @@
              (.catch (fn [e] (is false (str "rejected: " e))))
              (.finally done))))))
 
-#?(:cljs
-   (deftest fetching-with-fetch
-     (async done
-       (let [real        (.-fetch js/globalThis)
-             pulls       (atom 0)
-             whole       (js/ReadableStream. #js {:pull (fn [controller]
-                                                          (if (< (swap! pulls inc) 100)
-                                                            (.enqueue controller (js/Uint8Array. 65536))
-                                                            (.close controller)))})
-             answers     (atom [(js/Response. (js/Uint8Array. 10)
-                                              #js {:status 206 :headers #js {"content-range" "bytes 5-14/1000"}})
-                                (js/Response. whole
-                                              #js {:status 200 :headers #js {"content-length" (str (* 99 65536))}})])
-             fetch-bytes (media/fetcher "https://example.org/a.mp3" {})]
-         ;; the global fetch, as the fetcher finds it
-         (set! (.-fetch js/globalThis) (fn [_ _]
-                                         (let [res (first @answers)]
-                                           (swap! answers rest)
-                                           (js/Promise.resolve res))))
-         (-> (fetch-bytes 5 15)
-             (.then (fn [{b :bytes :keys [start total]}]
-                      (is (= [10 5 1000] [(bytes/length b) start total]) "a range")
-                      (fetch-bytes 0 100000)))
-             (.then (fn [{b :bytes :keys [start total]}]
-                      (is (= [100000 0 (* 99 65536)] [(bytes/length b) start total]) "the start of the whole file")
-                      (is (< @pulls 10) "the rest of the file left unread")))
-             (.catch (fn [e] (is false (str "rejected: " e))))
-             (.finally (fn []
-                         (set! (.-fetch js/globalThis) real)
-                         (done))))))))
-
 #?(:clj
    (deftest media-over-http
      (let [b   (bytes/of (chapter-file ["Intro" "Talk"] [60000 90500] true))
@@ -472,7 +456,7 @@
              sizes (atom [])]
          (with-file-server b {:ranges? false}
            (fn [url]
-             (let [fetch (media/fetcher url {})
+             (let [fetch (http/fetcher url {})
                    r     (media/read! url {:fetch (fn [start end]
                                                     (let [part (fetch start end)]
                                                       (swap! sizes conj (bytes/length (:bytes part)))
@@ -488,6 +472,85 @@
                     (media/verify! url {:type "sri" :value (str "sha256-nope sha384-" digest)})))
              (is (= {:valid? false :algorithm "sha384"}
                     (media/verify! url {:type "sri" :value "sha384-AAAA"})))))))))
+
+;; files built to hurt a reader
+
+(defn- id3-tag
+  "An ID3v2.3 tag around the bytes of `frames`, and two audio frames."
+  [frames]
+  (let [n (count frames)]
+    (-> (into (vec (ascii "ID3")) [3 0 0])
+        (into (for [shift [21 14 7 0]] (bit-and (quot n (long (Math/pow 2 shift))) 0x7F)))
+        (into frames)
+        (into (audio-frame))
+        (into (audio-frame)))))
+
+(defn- frame-of
+  "The bytes of an ID3v2.3 frame `id` with the bytes `body`."
+  [id body]
+  (-> (vec (ascii id)) (into (be 4 (count body))) (into [0 0]) (into body)))
+
+(defn- nested-chaps
+  "CHAP frames, each inside the one before, `depth` deep."
+  [depth]
+  (let [head (-> (vec (ascii "a")) (into [0]) (into (be 4 0)) (into (be 4 1000)) (into (be 4 0xFFFFFFFF)) (into (be 4 0xFFFFFFFF)))]
+    (nth (iterate #(frame-of "CHAP" (into head %)) []) depth)))
+
+(defn- ctoc-of
+  "A CTOC frame `id` that lists `children`, top-level when `top?`."
+  [id children top?]
+  (frame-of "CTOC" (-> (vec (ascii id)) (into [0 (if top? 3 1) (count children)])
+                       (into (mapcat #(concat (ascii %) [0])) children))))
+
+(deftest hurtful-tags
+  (testing "chapters inside chapters inside chapters, 2000 deep"
+    (is (= :mp3 (:format (media/read (view (id3-tag (nested-chaps 2000))))))))
+  (testing "a chain of 20000 tables of contents, each listing the next"
+    (let [tables (into [] (mapcat #(ctoc-of (str "t" %) [(str "t" (inc %))] (zero? %))) (range 20000))]
+      (is (= :mp3 (:format (media/read (view (id3-tag (into tables (nested-chaps 1))))))))))
+  (testing "tables that list the same tables, 2^40 ways through them"
+    (let [level  (fn [i] (concat (ctoc-of (str "a" i) [(str "b" i) (str "c" i)] (zero? i))
+                                 (ctoc-of (str "b" i) [(str "a" (inc i))] false)
+                                 (ctoc-of (str "c" i) [(str "a" (inc i))] false)))
+          tables (into [] (mapcat level) (range 40))]
+      (is (= :mp3 (:format (media/read (view (id3-tag tables)))))))))
+
+(deftest a-hurtful-chapter-track
+  (let [n     50000
+        stbl  (box "stbl"
+                   (box "stts" [0 0 0 0] (be 4 1) (be 4 n) (be 4 1))
+                   (box "stsz" [0 0 0 0] (be 4 2) (be 4 n))
+                   (box "stsc" [0 0 0 0] (be 4 n) (into [] (mapcat #(concat (be 4 (inc %)) (be 4 1) (be 4 1))) (range n)))
+                   (box "stco" [0 0 0 0] (be 4 n) (into [] (mapcat (fn [_] (be 4 8))) (range n))))
+        text  (box "trak"
+                   (box "tkhd" [0 0 0 7] (be 4 0) (be 4 0) (be 4 2) (repeat 60 0))
+                   (box "mdia"
+                        (box "mdhd" [0 0 0 0] (be 4 0) (be 4 0) (be 4 1000) (be 4 n) [0 0 0 0])
+                        (box "hdlr" [0 0 0 0] (be 4 0) (ascii "text") (repeat 12 0) [0])
+                        (box "minf" stbl)))
+        xs    (concat (box "ftyp" (ascii "M4A ") (be 4 0))
+                      (box "moov" (mvhd 1000 n) (trak 1 1000 n "soun" (box "tref" (box "chap" (be 4 2)))) text))]
+    (is (= mp4/max-samples (count (:chapters (mp4/read (view xs)))))
+        "50000 chunks in as many runs, read in one pass, and no more chapters than the most")))
+
+#?(:clj
+   (def mangled
+     "A file of each format that the readers know, and bytes changed in it."
+     (gen/let [file    (gen/elements [(concat (tag 3 (ctoc 3 "toc" ["a"]) (chap 3 "a" 0 5000 (text 3 "TIT2" "A")))
+                                              (xing-frame 10) (audio-frame))
+                                      (concat (tag 4 (text 4 "TIT2" "B")) (audio-frame) (audio-frame))
+                                      (chapter-file ["Intro" "Talk"] [60000 90500] true)
+                                      (fragmented-file 120000 true true)])
+               changes (gen/vector (gen/tuple gen/nat (gen/choose 0 255)) 1 8)
+               cut     gen/nat]
+       (let [xs (reduce (fn [v [i x]] (assoc v (mod i (count v)) x)) (vec file) changes)]
+         (subvec xs 0 (max 0 (- (count xs) (mod cut 64))))))))
+
+#?(:clj
+   (defspec any-bytes-give-a-reading 300
+     (prop/for-all [xs (gen/one-of [(gen/vector (gen/choose 0 255) 0 600) mangled])]
+       (let [r (media/read (view xs))]
+         (and (map? r) (or (:format r) (seq (:report r))))))))
 
 (deftest subresource-integrity
   (is (= {:algorithm "sha384" :digests #{"abc="}} (media/sri "sha256-xyz= sha384-abc=")) "the strongest wins")

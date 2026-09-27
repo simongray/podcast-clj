@@ -105,32 +105,50 @@
      :chapters (when chap (mapv #(bytes/u32 view %) (range (:content chap) (- (:end chap) 3) 4)))
      :stbl     (at-path view mdia "minf" "stbl")}))
 
+(def ^:no-doc max-samples
+  "The most samples of a chapter track that the reading takes."
+  10000)
+
+(defn- per-chunk
+  "How many samples each of `n` chunks holds, as the sample-to-chunk `runs`
+  `[[first-chunk samples] ...]`, in the order of their first chunks, give
+  it, in one pass over both."
+  [runs n]
+  (loop [i 1 runs (seq runs) per 0 acc (transient [])]
+    (cond
+      (> i n)                         (persistent! acc)
+      (and runs (<= (ffirst runs) i)) (recur i (next runs) (second (first runs)) acc)
+      :else                           (recur (inc i) runs per (conj! acc per)))))
+
 (defn- samples-of
   "The samples of the sample table whose time-to-sample, sample-size,
   sample-to-chunk and chunk-offset boxes are `stts`, `stsz`, `stsc` and
-  `stco`, as `samples` gives them."
+  `stco`, as `samples` gives them: at most `max-samples`, in one pass over
+  the tables, whose counts need not agree."
   [view stts stsz stsc stco]
   (let [wide?   (= "co64" (:type stco))
-        deltas  (mapcat (fn [[n d]] (repeat n d))
-                        (entries view stts 0 8 #(vector (bytes/u32 view %) (bytes/u32 view (+ % 4)))))
+        deltas  (into [] (comp (mapcat (fn [[n d]] (repeat n d))) (take max-samples))
+                      (entries view stts 0 8 #(vector (bytes/u32 view %) (bytes/u32 view (+ % 4)))))
         fixed   (bytes/u32 view (+ (:content stsz) 4))
         sizes   (if (pos? fixed)
-                  (repeat (bytes/u32 view (+ (:content stsz) 8)) fixed)
+                  (vec (repeat (min max-samples (bytes/u32 view (+ (:content stsz) 8))) fixed))
                   (entries view stsz 4 4 #(bytes/u32 view %)))
         runs    (entries view stsc 0 12 #(vector (bytes/u32 view %) (bytes/u32 view (+ % 4))))
         offsets (entries view stco 0 (if wide? 8 4) #(if wide? (bytes/u64 view %) (bytes/u32 view %)))
-        per     (fn [chunk] (second (last (take-while #(<= (first %) chunk) runs))))
-        places  (for [[i offset] (map-indexed vector offsets)
-                      :let [n (or (per (inc i)) 0)]
-                      k (range n)]
-                  [offset k])]
-    (loop [[[offset k] & places] places [size & sizes] sizes [delta & deltas] deltas
-           previous nil start 0 acc []]
-      (if (and offset size delta)
-        (let [at (if (zero? k) offset (+ (:offset previous) (:size previous)))
-              s  {:offset at :size size :start start :duration delta}]
-          (recur places sizes deltas s (+ start delta) (conj acc s)))
-        acc))))
+        counts  (per-chunk runs (count offsets))
+        n       (min max-samples (count sizes) (count deltas))]
+    (loop [chunk 0 k 0 at 0 i 0 start 0 acc (transient [])]
+      (cond
+        (or (= i n) (= chunk (count offsets)))
+        (persistent! acc)
+
+        (>= k (counts chunk))
+        (recur (inc chunk) 0 0 i start acc)
+
+        :else
+        (let [at (if (zero? k) (offsets chunk) at)]
+          (recur chunk (inc k) (+ at (sizes i)) (inc i) (+ start (deltas i))
+                 (conj! acc {:offset at :size (sizes i) :start start :duration (deltas i)})))))))
 
 (defn- samples
   "The samples of the sample table `stbl`, `[{:offset :size :start :duration}]`
@@ -164,7 +182,7 @@
                                  (mapcat :chapters tracks))]
     (let [[scale _] (:timing chapter-track)
           samples   (when (and scale (pos? scale) (:stbl chapter-track))
-                      (take 10000 (samples view (:stbl chapter-track))))]
+                      (samples view (:stbl chapter-track)))]
       (bytes/need-all view (map (fn [{:keys [offset size]}] [offset (+ offset size)]) samples))
       (seq (for [s samples]
              (let [title (sample-text view s)]

@@ -8,9 +8,10 @@
   repairs of a malformed document, `xml` for namespace resolution, `quirk`
   for the normalizations of the tree, `feed` for the model, `transcript` and
   `chapters` for the companion formats, `id3`, `mp3`, `mp4` and `file` for
-  the media files, `validate` for the validator, whose diagnostics are
-  about the feed rather than about reading it, and `sync` for a step of
-  keeping devices in step.")
+  the media files and images, `validate` for the validator, whose
+  diagnostics are about the feed rather than about reading it, `check` for
+  the checks over the network of what the feed links to, and `sync` for a
+  step of keeping devices in step.")
 
 (def catalogue
   "The diagnostics, in the order they tend to arise."
@@ -126,7 +127,8 @@
    {:id :chapters/malformed :level :warning
     :doc "Chapters that are not JSON objects in a list were left out."}
 
-   ;; media files: the ID3v2 tags, the MPEG audio frames and the MP4 boxes
+   ;; media files and images: the ID3v2 tags, the MPEG audio frames, the MP4
+   ;; boxes and the headers of images
    {:id :id3/frame-size :level :info
     :doc "An ID3v2 frame gave its size in the form of the other version, a plain number in ID3v2.4 or a syncsafe one in ID3v2.3, and was read in that form."}
    {:id :id3/utf8-latin1 :level :info
@@ -158,13 +160,67 @@
    {:id :mp4/no-movie :level :warning
     :doc "The MP4 file has no movie box, so it gives neither a duration nor chapters."}
    {:id :file/unknown-format :level :warning
-    :doc "The media file is neither MP3 nor MP4, so nothing was read from it."}
+    :doc "The file is in no format that its reader knows, so nothing was read from it: MP3 or MP4 for a media file, and for an image PNG, JPEG, GIF or WebP, whose headers it reads, or AVIF, HEIC, HEIF, SVG, BMP, TIFF or ICO, whose type it knows."}
    {:id :file/truncated :level :warning
-    :doc "The media file ends before its structures say that it does."}
+    :doc "The file ends before its structures say that it does."}
    {:id :file/malformed :level :warning
-    :doc "The media file could not be read as its format says."}
+    :doc "The file could not be read as its format says."}
    {:id :file/incomplete :level :warning
-    :doc "Bytes that the reading of the media file needed did not arrive, so the file was not read."}
+    :doc "Bytes that the reading of the file needed did not arrive, so the file was not read."}
+
+   ;; checks over the network of the files a feed links to
+   {:id :check/unreachable :level :error
+    :doc "The file could not be fetched: the connection, the TLS handshake or the time allowed failed."}
+   {:id :check/status :level :error
+    :doc "The server answered the request for the file with a status that is not a success, so a listener does not get the file."}
+   {:id :check/downgrade :level :error
+    :doc "A redirect leads from https to http, which clients refuse to follow."}
+   {:id :check/redirects :level :warning
+    :doc "The file lies more than five redirects away, more than the check and some clients follow."}
+   {:id :check/moved :level :warning
+    :doc "The file moved for good, by a redirect with status 301 or 308, so the feed can name its new URL."}
+   {:id :check/head :level :error
+    :doc "The server does not answer a HEAD request for the file, which RFC 9110 requires of every general-purpose server, and which directories use to check files."}
+   {:id :check/type :level :warning
+    :doc "The server gives the file another media type than the feed declares."}
+   {:id :check/length :level :info
+    :doc "The size of the file differs from the length that the feed declares. A host that inserts ads sends a file of another size to each request, so the length cannot be exact."}
+   {:id :check/ranges :level :warning
+    :doc "The server does not answer a request for a byte range with that range. RFC 9110 makes ranges optional, but says that servers ought to support them when possible, and players need them to seek and to resume. Apple Podcasts requires them."}
+   {:id :check/format :level :warning
+    :doc "The media file is in another format than the type that the feed declares."}
+   {:id :check/duration :level :info
+    :doc "The duration of the media file differs from the duration that the feed declares by more than 10 seconds and 2 percent. A host that inserts ads can explain it."}
+   {:id :check/unread :level :warning
+    :doc "The file came, but reading what it holds failed: a request for more of its bytes failed, or its reader did, so its contents were not checked."}
+   {:id :check/integrity :level :error
+    :doc "The media file does not match the hash of its podcast:integrity."}
+   {:id :check/unverified :level :info
+    :doc "The media file was not checked against its podcast:integrity: a PGP signature needs the key of the publisher, the integrity names no hash that Subresource Integrity knows, or the whole file did not come."}
+   {:id :check/image-type :level :info
+    :doc "The server gives the image another media type than its bytes have, such as image/jpg for a JPEG image. Browsers read the type from the bytes of an image."}
+   {:id :check/image-size :level :warning
+    :doc "The size of the image differs from the width, height or aspect ratio that its podcast:image declares."}
+   {:id :check/artwork-size :level :error
+    :doc "The image of an itunes:image is not a square of 1400 to 3000 pixels, as the profile requires."}
+   {:id :check/artwork-type :level :error
+    :doc "The image of an itunes:image is neither JPEG nor PNG, as the profile requires, or is a JPEG that apps and browsers do not decode: lossless, hierarchical, arithmetic-coded or JPEG-LS, or with more than 8 bits a sample."}
+   {:id :check/artwork-color :level :error
+    :doc "The image of an itunes:image is not in RGB colors, as the profile requires."}
+   {:id :check/artwork-alpha :level :error
+    :doc "The image of an itunes:image has an alpha channel or transparency, which the profile does not allow."}
+   {:id :check/artwork-extension :level :warning
+    :doc "The file extension of the URL of an itunes:image does not match the type of its image, as the profile requires."}
+   {:id :check/last-modified :level :warning
+    :doc "The server answers a HEAD request for the artwork without Last-Modified, which the profile asks for."}
+   {:id :check/cors :level :warning
+    :doc "The server does not let pages of other sites read the file, by the CORS header Access-Control-Allow-Origin of its answer or of a redirect on the way, so web players cannot show it. The podcast namespace requires CORS for transcripts."}
+   {:id :check/empty :level :error
+    :doc "The transcript or chapters file holds no segments or chapters in the format that the feed declares."}
+   {:id :check/feed-cors :level :info
+    :doc "The server does not let pages of other sites read the feed, so a web app cannot read it without a server of its own."}
+   {:id :check/validators :level :info
+    :doc "The server sends the feed without ETag or Last-Modified, so a client cannot ask whether the feed changed, and fetches it whole each time."}
 
    ;; validation
    {:id :validate/rss-version :level :warning

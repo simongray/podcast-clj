@@ -140,3 +140,26 @@
   and `verify!` checks a file against its `podcast:integrity`, which
   `resolve/enclosures` now keeps. On the JVM, `http/call!` asks for byte
   ranges, and `http/digest!` streams a body through a digest.
+- `check/feed!` checks over the network the files that a feed links to:
+  HEAD and byte ranges, types and lengths, the headers of images, and
+  CORS for transcripts and chapters, at each redirect on the way. The
+  rules follow RFC 9110, RSS 2.0, the podcast namespace and the Fetch
+  standard, and the profiles `:psp-1` and `:apple` add the rules for
+  artwork. It moves two bytes of most files unless it is asked to read
+  them, and sends the credentials of a private feed to the feed alone.
+  `check/report` judges a check by another profile with no request sent
+  again. The inspector has a page for it.
+- The readers of media files and images take hostile files in linear time
+  and bounded stack: ID3 chapter frames nested deep, tables of contents
+  that list each other, and MP4 sample tables of any size. Random and
+  mangled files give a report, not an exception.
+- `http/probe!` learns the facts of a file from a HEAD request and two
+  bytes of it. `http/call!` also runs in ClojureScript, with fetch and
+  limits of time and size, and on the JVM it gives the redirects it
+  followed, with their headers. It reads no more of an answer than the
+  range asked for. `format.image` reads the header of an image, and
+  `bytes/read!` and `http/fetcher` now serve every reader that fetches by
+  range: ranges near each other in one request, at most 16 requests a
+  round, and further ahead in a walk through the segments of a file.
+  `async/explain` adds the causes of a failure, where the JDK and Node
+  tell why a connection failed.

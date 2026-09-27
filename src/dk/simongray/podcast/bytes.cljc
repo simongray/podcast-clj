@@ -1,7 +1,7 @@
 (ns dk.simongray.podcast.bytes
-  "Bytes on both platforms, for the readers of media files: a byte array on
-  the JVM and a Uint8Array in JavaScript, read as unsigned numbers, decoded
-  as text and encoded as base64.
+  "Bytes on both platforms, for the readers of media files and images: a
+  byte array on the JVM and a Uint8Array in JavaScript, read as unsigned
+  numbers, decoded as text and encoded as base64.
 
   A view holds the parts of a file that have arrived, each at its offset.
   A reader asks it for a range with `need`, or for several with
@@ -9,7 +9,10 @@
   them with `u8`, `u32` and `text`. A range that the view does not hold
   throws, and `missing` gives the ranges from the exception, so that the
   caller can fetch them and read again. A range past the end of the file
-  throws too, and `truncated?` says so."
+  throws too, and `truncated?` says so. `reading` turns what a reader
+  throws into data, and `read!` fetches what it needs until it is done."
+  (:require [dk.simongray.podcast.async :as async]
+            [dk.simongray.podcast.diagnostics :as diagnostics])
   #?(:clj (:import [java.nio.charset StandardCharsets]
                    [java.util Arrays Base64])))
 
@@ -120,11 +123,17 @@
    {:parts [] :total total}))
 
 (defn add
-  "`view` with the bytes `b` that begin at `offset` in the file, and the
-  `total` size of the file when it is known."
+  "`view` with the bytes `b` that begin at `offset` in the file, in place
+  of the parts that they cover, and the `total` size of the file when it is
+  known."
   [view offset b total]
-  (cond-> (update view :parts conj [offset b])
-    total (assoc :total total)))
+  (let [end (+ offset (length b))]
+    (cond-> view
+      (pos? (length b)) (update :parts (fn [parts]
+                                         (conj (into [] (remove (fn [[o x]] (and (<= offset o) (<= (+ o (length x)) end))))
+                                                     parts)
+                                               [offset b])))
+      total             (assoc :total total))))
 
 (defn- part-at
   "The part `[offset bytes]` of `view` that holds the byte at `p`."
@@ -249,3 +258,105 @@
   the four-character codes of ID3 frames and MP4 boxes."
   [view p n]
   (text view p (+ p n) :latin1))
+
+(defn reading
+  "What `(f)`, a reading of a view, gives: its result; `{:need [[start end]
+  ...]}`, the ranges that the view lacked, end excluded; or a report of
+  `:file/truncated` when the reading went past the end of the file, and of
+  `:file/malformed` when it failed otherwise, on the JVM also by
+  overflowing the stack. Every diagnostic in the report of the result has
+  its message."
+  [f]
+  (let [failed #(cond
+                  (missing %)    {:need (missing %)}
+                  (truncated? %) {:report [{:id :file/truncated :level :warning}]}
+                  :else          {:report [{:id :file/malformed :level :warning :reason (async/explain %)}]})
+        result (try
+                 (f)
+                 (catch #?(:clj Exception :cljs :default) e
+                   (failed e))
+                 #?(:clj (catch StackOverflowError e
+                           (failed e))))]
+    (cond-> result
+      (:report result) (update :report #(mapv diagnostics/describe %)))))
+
+(def ^:no-doc chunk-size
+  "The least that `read!` fetches at a time, so that small reads come in
+  one request."
+  (* 64 1024))
+
+(def ^:no-doc max-rounds
+  "How many times `read!` fetches before it gives up."
+  8)
+
+(def ^:no-doc max-requests
+  "How many requests `read!` sends in one round at most; the ranges that a
+  reading needs beyond them come in the rounds after."
+  16)
+
+(defn- spans
+  "The `ranges` that a reading needs, `[[start end] ...]`, in order, and
+  those less than `chunk-size` apart joined, so that ranges near each
+  other come in one request."
+  [ranges]
+  (reduce (fn [acc [start end]]
+            (let [[s e] (peek acc)]
+              (if (and e (< (- start e) chunk-size))
+                (conj (pop acc) [s (max e end)])
+                (conj acc [start end]))))
+          []
+          (sort ranges)))
+
+(defn- fetch-all
+  "The parts that `fetch` gives of the `ranges`, one request after another;
+  deferred."
+  [fetch ranges]
+  (reduce (fn [parts [start end]]
+            (async/then parts (fn [got] (async/then (fetch start end) #(conj got %)))))
+          []
+          ranges))
+
+(defn read!
+  "What the reader `read` gives of the file whose bytes `fetch` gets.
+  `read` is a function of a view that gives its result, or `{:need
+  [[start end] ...]}` as `reading` gives it; `fetch` is a function of a
+  start and an end, end excluded, that gives `{:bytes :start :total}` or a
+  deferred one, as `dk.simongray.podcast.http/fetcher` makes.
+
+  The ranges that one reading needs come in one round, in 16 requests at
+  most, one after another, each of 64 KB at least, and ranges near each
+  other in one request. A single range comes with 64 KB more, where a
+  reading most often goes next, and with twice as much more as the last
+  time, up to 1 MB, when it is shorter than that and starts where the last
+  ended, as a walk through the segments of a file asks. On the JVM the
+  result, in ClojureScript a promise of it; ranges that have not come
+  after 8 rounds give a report of `:file/incomplete`."
+  [fetch read]
+  (letfn [(step [v round previous [until ahead]]
+            (let [{:keys [need] :as result} (read v)]
+              (cond
+                (nil? need)
+                result
+
+                (or (>= round max-rounds) (= need previous))
+                {:report [(diagnostics/describe {:id :file/incomplete :level :warning :ranges need})]}
+
+                :else
+                (let [batch       (vec (take max-requests (spans need)))
+                      [start end] (first batch)
+                      ahead       (if (and until (< (- start until) chunk-size) (< (- end start) chunk-size))
+                                    (min (* 2 ahead) (* 16 chunk-size))
+                                    chunk-size)
+                      ranges      (if (next batch)
+                                    (mapv (fn [[s e]] [s (max e (+ s chunk-size))]) batch)
+                                    [[start (+ end ahead)]])]
+                  (async/then (fetch-all fetch ranges)
+                              (fn [parts]
+                                (step (reduce (fn [v {b :bytes :keys [start total]}]
+                                                (cond-> v b (add start b total)))
+                                              v parts)
+                                      (inc round)
+                                      need
+                                      (when-not (next batch) [(second (first ranges)) ahead]))))))))]
+    #?(:clj  (step (view) 0 nil nil)
+       :cljs (js/Promise.resolve (step (view) 0 nil nil)))))

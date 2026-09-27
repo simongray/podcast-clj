@@ -80,10 +80,36 @@ for the validator, and `sync` for the sync between devices.
 | `:mp4/zero-duration` | info | The movie header of the MP4 file gave no duration, so the duration of its longest track was taken. |
 | `:mp4/fragments-unread` | info | The MP4 file is written in fragments, and neither an mehd box nor an index at the end of the file gave the duration of all of them, so the file has no duration. |
 | `:mp4/no-movie` | warning | The MP4 file has no movie box, so it gives neither a duration nor chapters. |
-| `:file/unknown-format` | warning | The media file is neither MP3 nor MP4, so nothing was read from it. |
-| `:file/truncated` | warning | The media file ends before its structures say that it does. |
-| `:file/malformed` | warning | The media file could not be read as its format says. |
-| `:file/incomplete` | warning | Bytes that the reading of the media file needed did not arrive, so the file was not read. |
+| `:file/unknown-format` | warning | The file is in no format that its reader knows, so nothing was read from it: MP3 or MP4 for a media file, and for an image PNG, JPEG, GIF or WebP, whose headers it reads, or AVIF, HEIC, HEIF, SVG, BMP, TIFF or ICO, whose type it knows. |
+| `:file/truncated` | warning | The file ends before its structures say that it does. |
+| `:file/malformed` | warning | The file could not be read as its format says. |
+| `:file/incomplete` | warning | Bytes that the reading of the file needed did not arrive, so the file was not read. |
+| `:check/unreachable` | error | The file could not be fetched: the connection, the TLS handshake or the time allowed failed. |
+| `:check/status` | error | The server answered the request for the file with a status that is not a success, so a listener does not get the file. |
+| `:check/downgrade` | error | A redirect leads from https to http, which clients refuse to follow. |
+| `:check/redirects` | warning | The file lies more than five redirects away, more than the check and some clients follow. |
+| `:check/moved` | warning | The file moved for good, by a redirect with status 301 or 308, so the feed can name its new URL. |
+| `:check/head` | error | The server does not answer a HEAD request for the file, which RFC 9110 requires of every general-purpose server, and which directories use to check files. |
+| `:check/type` | warning | The server gives the file another media type than the feed declares. |
+| `:check/length` | info | The size of the file differs from the length that the feed declares. A host that inserts ads sends a file of another size to each request, so the length cannot be exact. |
+| `:check/ranges` | warning | The server does not answer a request for a byte range with that range. RFC 9110 makes ranges optional, but says that servers ought to support them when possible, and players need them to seek and to resume. Apple Podcasts requires them. |
+| `:check/format` | warning | The media file is in another format than the type that the feed declares. |
+| `:check/duration` | info | The duration of the media file differs from the duration that the feed declares by more than 10 seconds and 2 percent. A host that inserts ads can explain it. |
+| `:check/unread` | warning | The file came, but reading what it holds failed: a request for more of its bytes failed, or its reader did, so its contents were not checked. |
+| `:check/integrity` | error | The media file does not match the hash of its podcast:integrity. |
+| `:check/unverified` | info | The media file was not checked against its podcast:integrity: a PGP signature needs the key of the publisher, the integrity names no hash that Subresource Integrity knows, or the whole file did not come. |
+| `:check/image-type` | info | The server gives the image another media type than its bytes have, such as image/jpg for a JPEG image. Browsers read the type from the bytes of an image. |
+| `:check/image-size` | warning | The size of the image differs from the width, height or aspect ratio that its podcast:image declares. |
+| `:check/artwork-size` | error | The image of an itunes:image is not a square of 1400 to 3000 pixels, as the profile requires. |
+| `:check/artwork-type` | error | The image of an itunes:image is neither JPEG nor PNG, as the profile requires, or is a JPEG that apps and browsers do not decode: lossless, hierarchical, arithmetic-coded or JPEG-LS, or with more than 8 bits a sample. |
+| `:check/artwork-color` | error | The image of an itunes:image is not in RGB colors, as the profile requires. |
+| `:check/artwork-alpha` | error | The image of an itunes:image has an alpha channel or transparency, which the profile does not allow. |
+| `:check/artwork-extension` | warning | The file extension of the URL of an itunes:image does not match the type of its image, as the profile requires. |
+| `:check/last-modified` | warning | The server answers a HEAD request for the artwork without Last-Modified, which the profile asks for. |
+| `:check/cors` | warning | The server does not let pages of other sites read the file, by the CORS header Access-Control-Allow-Origin of its answer or of a redirect on the way, so web players cannot show it. The podcast namespace requires CORS for transcripts. |
+| `:check/empty` | error | The transcript or chapters file holds no segments or chapters in the format that the feed declares. |
+| `:check/feed-cors` | info | The server does not let pages of other sites read the feed, so a web app cannot read it without a server of its own. |
+| `:check/validators` | info | The server sends the feed without ETag or Last-Modified, so a client cannot ask whether the feed changed, and fetches it whole each time. |
 | `:validate/rss-version` | warning | The rss element's version is not 2.0. |
 | `:validate/missing-element` | error | An element RSS 2.0 requires is missing. |
 | `:validate/missing-enclosure` | warning | An item has no enclosure, so there is nothing to play. |

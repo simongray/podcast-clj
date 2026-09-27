@@ -151,7 +151,7 @@ the listener.
 | The duration, from the media file | The libraries podgen and music-metadata | Target | Medium |
 | Checks of media delivery: HEAD, byte ranges, length, type | Rules of Apple Podcasts. Cast Feed Validator, Podbase | Target | Medium |
 | Checks of artwork: size, format, color | Rules of Apple Podcasts. Cast Feed Validator, Podbase | Target | Small |
-| CORS on transcript and chapter files | The Livewire validator, podcast-partytime | Target | Small |
+| CORS on transcript and chapter files | podcast-partytime | Target | Small |
 | A check of `podcast:integrity` | No app found | Target | Small |
 | Silence trimming, voice boost, loudness, equalizer | Overcast, Pocket Casts, Castro, AntennaPod, Podcast Addict | Out | |
 

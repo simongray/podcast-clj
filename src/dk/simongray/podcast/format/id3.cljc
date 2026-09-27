@@ -76,15 +76,18 @@
 
 (defn- resync
   "The bytes `b` with unsynchronisation undone: the zero byte after each
-  0xFF removed."
+  0xFF removed, into bytes of the same size, of which as many as remain are
+  kept."
   [b]
-  (let [n (bytes/length b)]
-    (bytes/of (loop [i 0 acc (transient [])]
-                (if (>= i n)
-                  (persistent! acc)
-                  (let [x (bytes/at b i)]
-                    (recur (if (and (= 0xFF x) (< (inc i) n) (zero? (bytes/at b (inc i)))) (+ i 2) (inc i))
-                           (conj! acc x))))))))
+  (let [n   (bytes/length b)
+        out #?(:clj (byte-array n) :cljs (js/Uint8Array. n))]
+    (loop [i 0 j 0]
+      (if (>= i n)
+        (bytes/copy out 0 j)
+        (let [x (bytes/at b i)]
+          #?(:clj (aset-byte out j (unchecked-byte x)) :cljs (aset out j x))
+          (recur (if (and (= 0xFF x) (< (inc i) n) (zero? (bytes/at b (inc i)))) (+ i 2) (inc i))
+                 (inc j)))))))
 
 (def ^:no-doc encodings
   "The text encoding of each encoding byte, and the width of its terminator."
@@ -198,16 +201,19 @@
             {:id id :type (image-type ctx declared data) :picture-type picture-type
              :description description :data data})))
 
-      (= "CHAP" id)
+      ;; the frames inside a CHAP or CTOC frame are its title and the like;
+      ;; one inside those is not read as a chapter again, so that nesting
+      ;; cannot run deeper than one level
+      (and (= "CHAP" id) (not (:embedded? ctx)))
       (let [stop (terminator view 0 end 1)
             p    (inc stop)]
         {:id         id
          :element-id (bytes/text view 0 stop :latin1)
          :start-ms   (bytes/u32 view p)
          :end-ms     (bytes/u32 view (+ p 4))
-         :frames     (frames ctx view version (+ p 16) end)})
+         :frames     (frames (assoc ctx :embedded? true) view version (+ p 16) end)})
 
-      (= "CTOC" id)
+      (and (= "CTOC" id) (not (:embedded? ctx)))
       (let [stop  (terminator view 0 end 1)
             flags (bytes/u8 view (inc stop))
             n     (bytes/u8 view (+ stop 2))
@@ -223,7 +229,7 @@
          :top-level? (bit-test flags 1)
          :ordered?   (bit-test flags 0)
          :children   children
-         :frames     (frames ctx view version p end)})
+         :frames     (frames (assoc ctx :embedded? true) view version p end)})
 
       (re-matches #"T[A-Z0-9]{2,3}" id)
       (let [values (texts ctx view 1 end encoding width)]
@@ -377,13 +383,27 @@
 
 (defn- listed
   "The element ids that the table of contents `toc` lists, through the
-  tables it lists, found among `tocs` by id, in order."
-  [toc tocs seen]
-  (mapcat (fn [child]
-            (if-let [sub (and (not (seen child)) (get tocs child))]
-              (listed sub tocs (conj seen child))
-              [child]))
-          (:children toc)))
+  tables it lists, found among `tocs` by id, in order. Each table is
+  followed once, however many tables list it, so neither a long chain of
+  tables nor tables that list the same ones can make the walk deep or
+  long."
+  [toc tocs]
+  (loop [todo  (seq (:children toc))
+         stack ()
+         seen  #{(:element-id toc)}
+         acc   []]
+    (cond
+      todo
+      (let [[child & more] todo]
+        (if-let [sub (and (not (seen child)) (get tocs child))]
+          (recur (seq (:children sub)) (conj stack more) (conj seen child) acc)
+          (recur more stack seen (conj acc child))))
+
+      (seq stack)
+      (recur (first stack) (rest stack) seen acc)
+
+      :else
+      acc)))
 
 (defn chapters
   "The chapters of the frames `frames`, from their CHAP and CTOC frames, as
@@ -399,7 +419,7 @@
    (let [ctx    (context opts)
          tocs   (into {} (map (juxt :element-id identity)) (filter #(= "CTOC" (:id %)) frames))
          top    (or (some #(when (:top-level? %) %) (vals tocs)) (first (vals tocs)))
-         rank   (into {} (map-indexed (fn [i id] [id i])) (when top (listed top tocs #{(:element-id top)})))
+         rank   (into {} (comp (distinct) (map-indexed (fn [i id] [id i]))) (when top (listed top tocs)))
          ->ch   (fn [{:keys [element-id start-ms end-ms frames]}]
                   (let [title   (:text (frame frames "TIT2"))
                         url     (some #(when (and (re-matches #"W[A-Z0-9]{3}" (:id %)) (not (str/blank? (:url %))))

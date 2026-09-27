@@ -264,6 +264,7 @@
             [:p
              [:a {:href (feed-href "/feed.edn" url)} "model as EDN"] " · "
              [:a {:href (feed-href "/feed.xml" url)} "round-tripped XML"] " · "
+             [:a {:href (feed-href "/check" url {:profile (some-> profile name)})} "check the files over the network"] " · "
              "profile: "
              (for [p [nil :psp-1 :apple]]
                (list (if (= p profile)
@@ -292,6 +293,96 @@
              [:tbody (map-indexed (partial item-row url feed) (take 200 items))]]
             (when (> (count items) 200)
               [:p.muted (str "Showing the first 200 of " (count items) " items.")]))))
+
+(defn- size-str
+  "The size `n` in bytes, in the unit that suits it."
+  [n]
+  (cond
+    (>= n 1000000) (str (quot n 1000000) " MB")
+    (>= n 1000)    (str (quot n 1000) " KB")
+    :else          (str n " B")))
+
+(defn- file-row
+  "A row of the table of the files that a check fetched: what the answers
+  to its requests told, what the file holds, and the ids of the `findings`
+  about it."
+  [findings {:keys [kind url facts]}]
+  (let [{:keys [head image media read integrity] got :get} facts
+        answer  (or got head)
+        failed  (or (:error facts) (:error answer))
+        ;; the length of a 206 is that of the part
+        size    (or (get-in got [:range :total])
+                    (when (= 200 (:status got)) (:length got))
+                    (when (= 200 (:status head)) (:length head)))
+        unread  (or (:error media) (:error image) (:error read))]
+    [:tr
+     [:td (name kind)]
+     [:td [:a {:href (link url)} (shorten url 70)]]
+     [:td (if failed
+            [:span.error failed]
+            (list (str "HTTP " (:status answer))
+                  (when-let [hops (seq (:redirects answer))]
+                    [:span.muted (str " · " (count hops) (if (next hops) " redirects" " redirect"))])
+                  (when (= :media kind)
+                    [:span.muted (if (= 206 (:status got)) " · ranges" " · no ranges")])
+                  (when-let [cors (:cors answer)]
+                    [:span.muted (str " · CORS " cors)])))]
+     [:td (:type answer) (when size [:span.muted (str " · " (size-str size))])]
+     [:td (cond
+            unread          [:span.error unread]
+            (:width image)  (str (:width image) "×" (or (:height image) "?") " " (some-> (:color image) name)
+                                 (when (:alpha? image) ", alpha"))
+            (:type image)   (:type image)
+            (:format media) (str (name (:format media))
+                                 (when-let [d (time/format-clock (:duration media))] (str " · " d)))
+            read            (str (:count read) (if (= :transcript kind) " segments" " chapters")))
+      (when integrity
+        (case (:valid? integrity)
+          true  [:span.muted (str " · " (:algorithm integrity) " matches")]
+          false [:span.error (str " · " (:algorithm integrity) " does not match")]
+          [:span.muted (str " · integrity not checked: " (or (:reason integrity) (:error integrity)))]))]
+     [:td (for [{:keys [id level]} findings]
+            (list [:code {:class (level-class level)} (subs (str id) 1)] " "))]]))
+
+(defn check-page
+  "The check over the network of `feed`, fetched from `url`, against
+  `profile`: the diagnostics of `result`, from `check/feed!`, and the
+  files it fetched, of the newest `items`, with their integrity when
+  `integrity?`."
+  [{:keys [url feed profile items integrity? result]}]
+  (let [files  (:files result)
+        hashed (count (filter #(get-in % [:declared :integrity]) files))
+        judged (count (filter #(boolean? (get-in % [:facts :integrity :valid?])) files))
+        by-url (group-by :url (:report result))]
+    (layout (str "Check · " (or (resolve/title feed) url))
+            [:h1 (or (resolve/title feed) "(untitled)")]
+            [:p [:a {:href (feed-href "/feed" url {:profile (some-> profile name)})} "back to the feed"] " · "
+             "profile: "
+             (for [p [nil :psp-1 :apple]]
+               (list (if (= p profile)
+                       [:strong (if p (name p) "none")]
+                       [:a {:href (feed-href "/check" url {:profile (some-> p name) :items items
+                                                           :integrity (when integrity? "1")})}
+                        (if p (name p) "none")])
+                     " "))]
+            [:p.muted (str "The files that the feed and its " items " newest items link to, fetched as a listener's app "
+                           "fetches them: HEAD and the first two bytes of the feed and of each media file, HEAD and "
+                           "the header of each image, HEAD and the whole of each transcript and chapters file, and "
+                           "what the media reader needs of each media file.")]
+            (when (pos? hashed)
+              [:p (if integrity?
+                    [:span.muted (str judged " of the " hashed " files with a podcast:integrity were fetched whole "
+                                      "and checked against it.")]
+                    (list (str hashed " files have a podcast:integrity. ")
+                          [:a {:href (feed-href "/check" url {:profile (some-> profile name) :items items :integrity "1"})}
+                           "Check them against it"]
+                          [:span.muted " (this fetches each of them whole)."]))])
+            [:h2 "Diagnostics"]
+            (diagnostics-table (:report result))
+            [:h2 (str "Files (" (count files) ")")]
+            [:table
+             [:thead [:tr [:th "Kind"] [:th "File"] [:th "Answer"] [:th "Type"] [:th "Holds"] [:th "Findings"]]]
+             [:tbody (map #(file-row (by-url (:url %)) %) files)]])))
 
 (defn- companion-status
   "A line about a fetched companion file: `{:url :status :error :parsed}`."

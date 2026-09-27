@@ -4,6 +4,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.check :as check]
             [dk.simongray.podcast.http :as http]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))
@@ -65,6 +66,35 @@
       (let [{:keys [status body]} (get* "/feed" "url" "https://example.com/missing.xml")]
         (is (= 502 status))
         (is (str/includes? body "HTTP 404"))))))
+
+(deftest the-check-page
+  (reset! service/cache {})
+  (let [runs  (atom [])
+        files [{:kind :media :url "https://example.com/e.mp3" :path [:rss/items 0 :rss/enclosure]
+                :declared {:type "audio/mpeg"}
+                :facts {:head {:status 200 :type "audio/mpeg" :length 1000}
+                        :get  {:status 200 :type "audio/mpeg" :length 1000}}}
+               {:kind :media :url "https://example.com/f.mp3" :path [:rss/items 1 :rss/enclosure]
+                :declared {:type "audio/mpeg"}
+                :facts {:error "java.net.ConnectException: java.nio.channels.UnresolvedAddressException"}}
+               {:kind :image :url "javascript:alert(1)" :path [] :declared {:sources #{:itunes}}
+                :facts {:head {:status 200 :type "image/png"} :image {:type "image/png" :width 1000 :height 1000 :color :rgb}}}]]
+    (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})
+                  check/feed! (fn [_ opts]
+                                (swap! runs conj opts)
+                                {:files files :report (check/report files (:profile opts))})]
+      (let [{:keys [status body]} (get* "/check" "url" "https://example.com/check.xml" "items" "3")]
+        (is (= 200 status))
+        (is (= [{:url "https://example.com/check.xml" :items 3 :read? true :integrity? false}] @runs))
+        (is (str/includes? body "check/ranges") "the findings of each file")
+        (is (str/includes? body "UnresolvedAddressException") "the reason a file did not come")
+        (is (not (str/includes? body "artwork-size")) "no profile, no artwork rules")
+        (is (not (re-find #"href=\"[^\"]*script:" body)) "a URL that runs a script is no link"))
+      (let [body (:body (get* "/check" "url" "https://example.com/check.xml" "items" "3" "profile" "apple"))]
+        (is (str/includes? body "check/artwork-size"))
+        (is (= 1 (count @runs)) "another profile judges the same check again, and sends no request"))
+      (get* "/check" "url" "https://example.com/check.xml" "items" "999" "integrity" "1")
+      (is (= [50 true] ((juxt :items :integrity?) (last @runs))) "at most 50 items"))))
 
 (deftest quotes-and-parameters
   (with-redefs [http/fetch! (fn [url & _]
