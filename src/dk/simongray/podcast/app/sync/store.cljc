@@ -87,10 +87,11 @@
                                              (conj (describe {:id :sync/shared-device :name own :device (:device state)})))})))))))
 
 (defn- mirror-opml
-  "The cursor `ctx` once the subscription list of `state` is put beside the
-  documents, when `opts` ask for it with `:opml?` and the subscriptions
-  changed since the cursor last saw them."
-  [{:keys [put]} {:keys [opml?]} state ctx]
+  "Put the subscription list of `state` beside the documents of `store` when
+  `opts` ask for it and the subscriptions changed since the cursor `ctx`.
+
+  Returns the cursor, which remembers the subscriptions last mirrored."
+  [{:keys [put] :as store} {:keys [opml?]} state ctx]
   (let [subs (hash (player/subscriptions state))]
     (if (and opml? (not= subs (:opml ctx)))
       (async/then (put opml-name (opml/emit (player/to-opml state)) {})
@@ -99,24 +100,21 @@
 
 (defn- push-document
   "The per-device push: this device's document written when the state
-  changed since it was last written, the subscription list beside it when
-  asked and the subscriptions changed, and the documents of retired devices
+  changed since it was last written, and the documents of retired devices
   deleted."
-  [{:keys [put delete] :as store} opts state {:keys [versions] :as ctx} at]
+  [{:keys [put delete]} opts state {:keys [versions] :as ctx} at]
   (let [own     (document-name (:device state))
         written (hash state)
         retired (filter #(contains? versions (document-name %)) (keys (:retired state)))]
     (async/then (when (not= written (:hash ctx))
                   (put own (sync/document state at (select-keys opts [:app])) {}))
                 (fn [result]
-                  (async/then (mirror-opml store opts state ctx)
-                              (fn [ctx]
-                                (async/then (async/all (when delete (map #(delete (document-name %)) retired)))
-                                            (fn [_]
-                                              {:ctx (cond-> (assoc ctx
-                                                                   :hash written
-                                                                   :versions (reduce dissoc versions (map document-name retired)))
-                                                      result (assoc-in [:versions own] (:version result)))}))))))))
+                  (async/then (async/all (when delete (map #(delete (document-name %)) retired)))
+                              (fn [_]
+                                {:ctx (cond-> (assoc ctx
+                                                     :hash written
+                                                     :versions (reduce dissoc versions (map document-name retired)))
+                                        result (assoc-in [:versions own] (:version result)))}))))))
 
 (defn- pull-shared
   "The shared-document pull: the one document, read at `at`, when its version
@@ -132,10 +130,8 @@
 (defn- push-shared
   "The shared-document push: `state` put on condition of the version the
   cursor `ctx` holds and, on a conflict, fetched, merged and put again, up
-  to three more times, the merged state coming back for the caller; then,
-  unless the document could not be put, the subscription list beside it
-  when asked."
-  [{:keys [fetch put] :as store} name opts state ctx at]
+  to three more times; the merged state comes back for the caller."
+  [{:keys [fetch put]} name opts state ctx at]
   (letfn [(put-conditionally [state {:keys [version] :as ctx} attempts]
             (async/then (put name (sync/document state at (select-keys opts [:app])) {:if-version version})
                         (fn [{:keys [conflict?] :as result}]
@@ -152,16 +148,10 @@
                                         (fn [next]
                                           (-> next
                                               (assoc :state merged)
-                                              (update :report #(into (vec report) %)))))))))
-          (mirrored [{:keys [report] :as pushed}]
-            (if (some #(= :sync/conflict (:id %)) report)
-              pushed
-              (async/then (mirror-opml store opts (:state pushed state) (:ctx pushed))
-                          #(assoc pushed :ctx %))))]
-    (async/then (if (= (hash state) (:hash ctx))
-                  {:ctx ctx}
-                  (put-conditionally state ctx 3))
-                mirrored)))
+                                              (update :report #(into (vec report) %)))))))))]
+    (if (= (hash state) (:hash ctx))
+      {:ctx ctx}
+      (put-conditionally state ctx 3))))
 
 (def probe-name
   "The document `check!` writes and removes to see that it can; not an
@@ -179,10 +169,11 @@
   (contains? #{401 403} (:status (ex-data (:error answer)))))
 
 (defn- reachability
-  "The checks the first `answer` of the store gives, a listing when it
-  `lists?` and otherwise a fetch of the probe: reachable, authenticated
-  and, when both, how many documents the store holds, or that it cannot
-  list them."
+  "The checks that the first `answer` of the store gives: reachable,
+  authenticated and, when both, how many documents it holds.
+
+  The answer is a listing when the store `lists?`, and otherwise a fetch of
+  the probe, after which the listing check says that it cannot list."
   [answer lists?]
   (cond
     (refused? answer)
@@ -210,8 +201,9 @@
     :else                          (check :store/put true "A document can be written and gets a version.")))
 
 (defn- refusing-stale-versions
-  "The check the put of the probe under a `stale` version answers:
-  advisory for a store that can list, and what one `shared?` document
+  "The check that the put of the probe under a `stale` version answers.
+
+  It is advisory for a store that can list, and what one `shared?` document
   needs of a store that cannot."
   [stale shared?]
   (let [refuses? (:conflict? (:value stale))]
@@ -341,6 +333,11 @@
                 {:ctx ctx :report [(describe {:id :sync/retired-device :device (:device state)})]}
 
                 :else
-                (case strategy
-                  :per-device (push-document store opts state ctx at)
-                  :shared     (push-shared store document opts state ctx at))))})))
+                (async/then (case strategy
+                              :per-device (push-document store opts state ctx at)
+                              :shared     (push-shared store document opts state ctx at))
+                            (fn [{:keys [report] :as pushed}]
+                              (if (some #(= :sync/conflict (:id %)) report)
+                                pushed
+                                (async/then (mirror-opml store opts (:state pushed state) (:ctx pushed))
+                                            #(assoc pushed :ctx %)))))))})))

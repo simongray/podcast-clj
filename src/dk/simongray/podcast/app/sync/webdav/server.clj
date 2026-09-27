@@ -53,22 +53,15 @@
   []
   (plain 405 "Method Not Allowed"))
 
-(defn- header
-  "The value of the header `name`, given in lower case, among the request
-  `headers`, whatever the case of their names, since only a real servlet
-  lower-cases them."
-  [headers name]
-  (some (fn [[k v]] (when (= name (str/lower-case k)) v)) headers))
-
 (defn- precondition
-  "What the request's If-Match or If-None-Match asks of a put, as the
-  `:if-version` a store takes: absent for none."
+  "What the If-Match or If-None-Match of the request `headers`, by their
+  lower-case names, asks of a put, as the `:if-version` a store takes:
+  absent for none."
   [headers]
-  (let [if-match (header headers "if-match")]
-    (cond
-      if-match                                 {:if-version (unquoted if-match)}
-      (= "*" (header headers "if-none-match")) {:if-version nil}
-      :else                                    {})))
+  (cond
+    (get headers "if-match")              {:if-version (unquoted (get headers "if-match"))}
+    (= "*" (get headers "if-none-match")) {:if-version nil}
+    :else                                 {}))
 
 (defn- body-text
   "The text of a Ring request `body`: a string, a stream, or nothing."
@@ -88,16 +81,19 @@
     (:version (fetch name))))
 
 (defn- options
-  "The methods the handler answers, DELETE only when `store` can delete."
-  [{:keys [delete]}]
+  "The methods the handler answers for `store`, DELETE only when it can
+  delete."
+  [{:keys [delete] :as store}]
   {:status  200
    :headers {"DAV" "1" "Allow" (str "OPTIONS, GET, HEAD, PUT, " (when delete "DELETE, ") "PROPFIND, MKCOL")}
    :body    ""})
 
 (defn- propfind
-  "The multistatus for the document `name`, or for the collection at `base`
-  when there is none: the collection alone at `depth` \"0\", and with its
-  documents otherwise, which a store without `:list` cannot give."
+  "The multistatus of `store` for the document `name`, or for the collection
+  at `base` when there is none, at `depth`.
+
+  The collection comes alone at depth \"0\", and with its documents
+  otherwise, which a store without `:list` cannot give."
   [{:keys [list] :as store} base name depth]
   (cond
     name
@@ -139,8 +135,8 @@
     (not-allowed)))
 
 (defn- delete-document
-  "The document `name` deleted: 204, or 404 when it is not there, or 405
-  when the store cannot delete."
+  "The document `name` deleted from `store`: 204, or 404 when it is not
+  there, or 405 when the store cannot delete."
   [{:keys [delete] :as store} name]
   (cond
     (not delete)                       (not-allowed)
@@ -164,8 +160,10 @@
   [store base]
   (let [collection (subs base 0 (dec (count base)))]
     (fn [{:keys [request-method uri headers body]}]
-      (let [name (when (and (str/starts-with? uri base) (> (count uri) (count base)))
-                   (http/percent-decode (subs uri (count base))))]
+      (let [name    (when (and (str/starts-with? uri base) (> (count uri) (count base)))
+                      (http/percent-decode (subs uri (count base))))
+            ;; only a real servlet lower-cases the header names
+            headers (into {} (map (fn [[k v]] [(str/lower-case k) v])) headers)]
         (try
           (cond
             (and (not name) (not (#{base collection} uri)))
@@ -177,7 +175,7 @@
             :else
             (case request-method
               :options     (options store)
-              :propfind    (propfind store base name (header headers "depth"))
+              :propfind    (propfind store base name (get headers "depth"))
               (:get :head) (get-document store name (= :head request-method))
               :put         (put-document store name headers body)
               :delete      (delete-document store name)
