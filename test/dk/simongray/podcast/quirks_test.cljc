@@ -25,7 +25,15 @@
 (deftest repairs
   (testing "each repair on its own"
     (is (= "<a/>" (quirks/strip-leading-junk "﻿\n junk <a/>")))
+    (is (= "<?xml version=\"1.0\"?><rss/>"
+           (quirks/strip-leading-junk "<br />\n<b>Warning</b>: x<br />\n<?xml version=\"1.0\"?><rss/>"))
+        "stray markup from the server too")
+    (is (= "<rss version=\"2.0\"/>" (quirks/strip-leading-junk "<b>Notice</b>: x\n<rss version=\"2.0\"/>")))
+    (is (= "<rss></rss>" (quirks/strip-trailing-junk "<rss></rss>\n<br />\n<b>Warning</b>: x")))
+    (is (= "<rss></rss>\n" (quirks/strip-trailing-junk "<rss></rss>\n")) "white space after the end is no junk")
     (is (= "ab" (quirks/strip-control-characters "a\u0000\u0008b")))
+    (is (= "abc&#9;d <![CDATA[&#11;]]>" (quirks/strip-control-characters "a&#11;b&#x1F;c&#9;d <![CDATA[&#11;]]>"))
+        "and references to them, outside CDATA")
     (is (= "&#160;x &amp; &amp;bogus; <![CDATA[&nbsp;]]>"
            (quirks/replace-html-entities "&nbsp;x &amp; &bogus; <![CDATA[&nbsp;]]>")))
     (is (= "a &amp; b &amp; &#38; <![CDATA[a & b]]>"
@@ -40,6 +48,33 @@
 
 (deftest entities
   (is (= "it's & … A  x &bogus;" (xml/decode-entities "it&#39;s &amp; &hellip; &#x41; &nbsp;x &bogus;"))))
+
+(deftest junk-around-the-document
+  (let [read (fn [xml]
+               (let [f (podcast/parse xml)]
+                 [(:rss/title f) (mapv :id (podcast/report f))]))]
+    (is (= ["T" [:repair/leading-junk]]
+           (read "<br />\n<b>Warning</b>: x in <b>feed.php</b><br />\n<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>T</title></channel></rss>")))
+    (is (= ["T" [:repair/leading-junk]]
+           (read "<b>Notice</b>: x<br />\n<rss version=\"2.0\"><channel><title>T</title></channel></rss>")))
+    (is (= ["T" [:repair/trailing-junk]]
+           (read "<rss version=\"2.0\"><channel><title>T</title></channel></rss>\n<br />\n<b>Warning</b>: x")))
+    (is (= ["T" []] (read "<rss version=\"2.0\"><channel><title>T</title></channel></rss>\n<!-- served in 0.2 s -->\n"))
+        "a comment after the end is no junk")
+    ;; the xmldom of the Node tests accepts the reference, which the JVM and
+    ;; browsers refuse
+    #?(:clj
+       (is (= ["AB" [:repair/control-characters]] (read "<rss version=\"2.0\"><channel><title>A&#11;B</title></channel></rss>")))))
+  (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"Not an RSS"
+                        (podcast/parse "<guid/>"))
+      "a document that is one empty guid is no feed, and no quirk removes it"))
+
+#?(:clj
+   (deftest repairing-a-stream-or-a-reader
+     (let [xml "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><rss version=\"2.0\"><channel><title>Café &nbsp;</title></channel></rss>"]
+       (is (= "Café" (:rss/title (podcast/parse (java.io.ByteArrayInputStream. (.getBytes xml "ISO-8859-1")))))
+           "read once, in the encoding the document declares, and repaired")
+       (is (= "Café" (:rss/title (podcast/parse (java.io.StringReader. xml))))))))
 
 (deftest numeric-references-a-string-cannot-hold
   (is (= "&#1114112; &#x110000; &#99999999999999999999; A"

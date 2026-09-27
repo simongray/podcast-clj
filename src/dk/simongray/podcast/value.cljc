@@ -29,6 +29,14 @@
   [recipient]
   (true? (:fee recipient)))
 
+(defn ^:no-doc split-of
+  "The split of `recipient` as a number no less than zero: zero when it
+  gives none that is a number, as when \"12.5\" did not read as a whole
+  number."
+  [recipient]
+  (let [split (:split recipient)]
+    (if (and (number? split) (pos? split)) split 0)))
+
 (defn time-split-at
   "The `valueTimeSplit` of `block` in effect `seconds` into playback, if any."
   [block seconds]
@@ -52,8 +60,8 @@
       (if remote-item
         {:recipients (vec fees)
          :remote     {:remote-item remote-item
-                      :percentage  (-> (or remote-percentage 100) (max 0) (min 100))
-                      :start-time  (or remote-start-time 0)
+                      :percentage  (-> (if (number? remote-percentage) remote-percentage 100) (max 0) (min 100))
+                      :start-time  (if (number? remote-start-time) remote-start-time 0)
                       :offset      (- seconds (:start-time split))}}
         {:recipients (into (vec fees) (:recipients split))})
       {:recipients (vec recipients)})))
@@ -61,7 +69,7 @@
 (defn share-total
   "The sum of the splits of the non-fee `recipients`."
   [recipients]
-  (transduce (comp (remove fee?) (map :split) (filter number?)) + 0 recipients))
+  (transduce (comp (remove fee?) (map split-of)) + 0 recipients))
 
 (defn with-remote
   "Fold the `remote` value block a time split pointed at into `at`, the
@@ -82,10 +90,10 @@
         {:recipients (vec (:recipients block))}
         {:recipients (->> (concat fees
                                   (for [r local]
-                                    (assoc r :split (* (:split r 0) (- 100 percentage) total')))
+                                    (assoc r :split (* (split-of r) (- 100 percentage) total')))
                                   (for [r others]
-                                    (assoc r :split (* (:split r 0) percentage (max total 1)))))
-                          (remove #(and (not (fee? %)) (zero? (:split % 0))))
+                                    (assoc r :split (* (split-of r) percentage (max total 1)))))
+                          (remove #(and (not (fee? %)) (zero? (:split %))))
                           vec)}))
     at))
 
@@ -94,22 +102,30 @@
   `recipients` the way the specification prescribes: each fee recipient
   takes its split as a percentage off the top, and the rest is shared among
   the others by their splits. Returns `[{:recipient r :amount n} ...]` with
-  whole-unit amounts; a rounding remainder goes to the largest share."
+  whole-unit amounts; a rounding remainder goes to the largest share. A
+  split that is not a number counts as none, a fee takes at most all, and
+  the fees stop where the amount runs out, so that no amount is negative."
   [recipients amount]
   (let [fees      (filter fee? recipients)
         shares    (remove fee? recipients)
-        fee-paid  (for [r fees]
-                    {:recipient r :amount (long (Math/floor (/ (* amount (:split r 0)) 100)))})
+        fee-paid  (second (reduce (fn [[left paid] r]
+                                    (let [fee (/ (* amount (min 100 (split-of r))) 100)
+                                          n   (min left (long (Math/floor fee)))]
+                                      [(- left n) (conj paid {:recipient r :amount n})]))
+                                  [amount []]
+                                  fees))
         remaining (- amount (transduce (map :amount) + 0 fee-paid))
         total     (share-total shares)
+        ;; *' on the JVM, where a large split times the amount can overflow a
+        ;; long; a JavaScript number cannot
         paid      (for [r shares]
                     {:recipient r
                      :amount    (if (pos? total)
-                                  (long (Math/floor (/ (* remaining (:split r 0)) total)))
+                                  (long (Math/floor (/ (#?(:clj *' :cljs *) remaining (split-of r)) total)))
                                   0)})
         leftover  (- remaining (transduce (map :amount) + 0 paid))
         largest   (when (seq paid)
-                    (apply max-key #(:split (:recipient %) 0) paid))]
+                    (apply max-key #(split-of (:recipient %)) paid))]
     (vec (concat fee-paid
                  (map (fn [p]
                         (if (and (pos? leftover) (identical? p largest))
@@ -144,12 +160,13 @@
         record  (into {} (for [[k v] payment
                                :when (some? v)
                                :when (not (derived k))]
-                           [(get boostagram-keys k (str/replace (name k) "-" "_")) v]))]
+                           [(get boostagram-keys k (str/replace (name k) "-" "_")) v]))
+        clock   (time/format-timestamp position)]
     (cond-> (assoc record "action" (name (or action :boost)))
-      (number? position) (assoc "ts" (long (Math/floor position))
-                                "time" (subs (time/format-timestamp position) 0 8))
-      (number? sats)     (assoc "value_msat" (* 1000 (long sats))
-                                "value_msat_total" (* 1000 (long (or total-sats sats)))))))
+      clock          (assoc "ts" (max 0 (long (Math/floor position)))
+                            "time" (subs clock 0 (- (count clock) 4)))
+      (number? sats) (assoc "value_msat" (* 1000 (long sats))
+                            "value_msat_total" (* 1000 (long (or total-sats sats)))))))
 
 (comment
   (def block {:type "lightning" :method "keysend" :suggested 0.00000015

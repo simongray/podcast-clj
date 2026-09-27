@@ -451,13 +451,19 @@
 
 (defn new-episodes
   "The ids of the items that the parse `after` of the feed at `url` has and
-  the earlier parse `before` had not, oldest first."
+  the earlier parse `before` had not, oldest first: in the order the feed
+  lists them when it lists its dated items oldest first, else in reverse.
+  None without `before`, since a first parse finds a back catalogue, not new
+  episodes."
   [before after url]
-  (let [feed-guid (feed/feed-guid after url)]
-    (->> (:added (feed/diff before after))
-         (map #(vector feed-guid (feed/item-guid %)))
-         reverse
-         vec)))
+  (if (nil? before)
+    []
+    (let [feed-guid     (feed/feed-guid after url)
+          dates         (keep #(let [d (:rss/pub-date %)] (when (inst? d) (inst-ms d))) (:rss/items after))
+          oldest-first? (< (or (first dates) 0) (or (last dates) 0))
+          added         (:added (feed/diff before after))]
+      (mapv #(vector feed-guid (feed/item-guid %))
+            (if oldest-first? added (reverse added))))))
 
 (defn refresh
   "Note a fresh parse `after` of the feed at `url`, previously `before`, at

@@ -33,6 +33,23 @@
         m   (if (< mp 10) (+ mp 3) (- mp 9))]
     [(if (<= m 2) (inc y) y) m d]))
 
+(defn ^:no-doc civil?
+  "Whether `y`-`m`-`d` `hh`:`mm`:`ss` is a real date and time: a day the
+  month has, an hour up to 23, or 24:00:00 for the end of the day, and up
+  to 60 seconds, for a leap second."
+  [y m d hh mm ss]
+  (and (<= 1 m 12)
+       (<= 1 d 31)
+       (= [y m d] (civil-from-days (days-from-civil y m d)))
+       (or (< hh 24) (= [hh mm ss] [24 0 0]))
+       (< mm 60)
+       (<= ss 60)))
+
+(def ^:no-doc max-whole
+  "The largest magnitude the library gives a whole number, just under 2^53:
+  up to it, both platforms hold every whole number exactly."
+  9.0E15)
+
 (defn ->inst
   "The instant `ms` milliseconds after the epoch."
   [ms]
@@ -75,7 +92,8 @@
    "est" -300 "edt" -240 "cst" -360 "cdt" -300
    "mst" -420 "mdt" -360 "pst" -480 "pdt" -420
    "cet" 60 "cest" 120 "bst" 60 "ist" 60 "wet" 0 "west" 60
-   "eet" 120 "eest" 180 "jst" 540 "aest" 600 "aedt" 660})
+   "eet" 120 "eest" 180 "jst" 540 "aest" 600 "aedt" 660
+   "hst" -600 "hdt" -540 "akst" -540 "akdt" -480 "nzst" 720 "nzdt" 780})
 
 (def ^:no-doc rfc2822-strict-pattern
   "The format RFC 2822 actually allows for a feed date, weekday included."
@@ -90,16 +108,21 @@
   #"(?i)^\s*(?:[a-z]{3,9}\.?,?\s+)?(\d{1,2})(?:st|nd|rd|th)?[\s-]+([a-z]{3,9})\.?,?[\s-]+(\d{2,4})(?:[\s,T]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:\s*([a-z]{1,5}|[+-]\d{1,2}:?\d{2}|(?:gmt|utc)[+-]\d{1,2}:?\d{2}))?\s*$")
 
 (defn- parse-zone
-  "The offset in minutes east of UTC named by `s`, or nil when unknown."
+  "The offset in minutes east of UTC named by `s`, 0 when there is none. A
+  zone name the table lacks reads as UTC too, as a missing zone does, so
+  that the date is not lost. Nil for AM and PM, which say that the time is
+  on a 12-hour clock, and for an offset beyond 23:59."
   [s]
   (if (nil? s)
     0
     (let [s (str/lower-case s)]
       (or (zones s)
           (when-let [[_ sign hh mm] (re-find #"^(?:gmt|utc)?([+-])(\d{1,2}):?(\d{2})$" s)]
-            (* (if (= sign "-") -1 1)
-               (+ (* 60 (parse-long hh)) (parse-long mm))))
-          (when (re-matches #"[a-z]" s)
+            (let [h (parse-long hh)
+                  m (parse-long mm)]
+              (when (and (< h 24) (< m 60))
+                (* (if (= sign "-") -1 1) (+ (* 60 h) m)))))
+          (when (and (re-matches #"[a-z]+" s) (not (#{"am" "pm"} s)))
             0)))))
 
 (defn- expand-year
@@ -113,25 +136,24 @@
 (defn parse-rfc2822
   "Parse the RFC 2822 date `s` into an instant, forgiving the deviations feeds
   are known for: missing weekday, full month names, two-digit years, zone
-  names, missing seconds or a missing zone (read as UTC). Returns nil when the
-  string is not a date at all."
+  names, missing seconds or a missing or unknown zone (read as UTC). Returns
+  nil when the string is not a date at all, or names a day or a time that
+  does not exist, such as 31 February."
   [s]
   (when-let [[_ d mon y hh mm ss zone] (re-find rfc2822-lenient-pattern s)]
-    (let [m      (months (str/lower-case mon))
-          offset (parse-zone zone)]
-      (when (and m offset)
-        (->inst (civil->ms (expand-year (parse-long y)) m (parse-long d)
-                           (if hh (parse-long hh) 0)
-                           (if mm (parse-long mm) 0)
-                           (if ss (parse-long ss) 0)
-                           0
-                           offset))))))
+    (let [m          (months (str/lower-case mon))
+          offset     (parse-zone zone)
+          y          (expand-year (parse-long y))
+          d          (parse-long d)
+          [hh mm ss] (map #(if % (parse-long %) 0) [hh mm ss])]
+      (when (and m offset (civil? y m d hh mm ss))
+        (->inst (civil->ms y m d hh mm ss 0 offset))))))
 
 (defn rfc2822-strict?
   "Whether `s` is a date RFC 2822 permits, written the way the RSS ecosystem
-  expects it."
+  expects it, on a day and at a time that exist."
   [s]
-  (boolean (re-matches rfc2822-strict-pattern s)))
+  (boolean (and (re-matches rfc2822-strict-pattern s) (parse-rfc2822 s))))
 
 (def ^:no-doc iso8601-pattern
   "Groups: year, month, day, hour, minute, second, fraction, zone. As in
@@ -139,19 +161,15 @@
   #"^\s*(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?(?:\s*(Z|z|[+-]\d{2}:?\d{2}))?)?\s*$")
 
 (defn parse-iso8601
-  "Parse the ISO 8601 date or date-time `s` into an instant, or nil. A missing
-  zone is read as UTC."
+  "Parse the ISO 8601 date or date-time `s` into an instant, or nil, as for a
+  day or a time that does not exist. A missing zone is read as UTC."
   [s]
   (when-let [[_ y m d hh mm ss frac zone] (re-find iso8601-pattern s)]
-    (let [ms     (if frac (parse-long (subs (str frac "00") 0 3)) 0)
-          offset (parse-zone zone)]
-      (when offset
-        (->inst (civil->ms (parse-long y) (parse-long m) (parse-long d)
-                           (if hh (parse-long hh) 0)
-                           (if mm (parse-long mm) 0)
-                           (if ss (parse-long ss) 0)
-                           ms
-                           offset))))))
+    (let [ms               (if frac (parse-long (subs (str frac "00") 0 3)) 0)
+          offset           (parse-zone zone)
+          [y m d hh mm ss] (map #(if % (parse-long %) 0) [y m d hh mm ss])]
+      (when (and offset (civil? y m d hh mm ss))
+        (->inst (civil->ms y m d hh mm ss ms offset))))))
 
 (defn parse-date
   "Parse `s` as an RFC 2822 date, falling back to ISO 8601; nil when neither."
@@ -205,18 +223,19 @@
   "The long equal to `n` when it is a whole number, else `n` itself, so that
   \"16.0\" and \"16\" read as the same value."
   [n]
-  (if (and (float? n) (== n (Math/floor n)) (< (abs n) 9.0E15))
+  (if (and (float? n) (== n (Math/floor n)) (< (abs n) max-whole))
     (long n)
     n))
 
 (defn- parse-number
   "The long or double written as `s`, with `,` accepted as decimal separator;
-  a whole number is a long whichever way it was written."
+  a whole number is a long whichever way it was written. Nil when the
+  number is too large to hold."
   [s]
-  (let [s (str/replace s "," ".")]
-    (if (str/includes? s ".")
-      (whole->long (parse-double s))
-      (parse-long s))))
+  (let [s (str/replace s "," ".")
+        n (if (str/includes? s ".") (parse-double s) (parse-long s))]
+    (when (and n (not (infinite? n)))
+      (whole->long n))))
 
 (defn parse-clock
   "Parse a clock-style timestamp such as \"1:02:03\", \"02:03\", \"00:00:02.760\"
@@ -246,28 +265,41 @@
     (string? x) (parse-duration x)
     :else       nil))
 
+(defn ^:no-doc countable?
+  "Whether `x` is a number of seconds that `format-clock` and
+  `format-timestamp` can write: one both platforms count exactly."
+  [x]
+  (and (number? x) (< (abs x) max-whole)))
+
 (defn format-clock
   "Format `seconds` as \"H:MM:SS\", or \"M:SS\" under an hour, dropping any
-  fraction of a second."
+  fraction of a second, with a minus sign when negative; nil when `seconds`
+  is not a number or beyond `max-whole`."
   [seconds]
-  (let [total (long seconds)
-        h     (quot total 3600)
-        m     (rem (quot total 60) 60)
-        s     (rem total 60)]
-    (if (pos? h)
-      (str h ":" (pad2 m) ":" (pad2 s))
-      (str m ":" (pad2 s)))))
+  (when (countable? seconds)
+    (let [total (long seconds)
+          t     (abs total)
+          h     (quot t 3600)
+          m     (rem (quot t 60) 60)
+          s     (rem t 60)]
+      (str (when (neg? total) "-")
+           (if (pos? h)
+             (str h ":" (pad2 m) ":" (pad2 s))
+             (str m ":" (pad2 s)))))))
 
 (defn format-timestamp
   "Format `seconds` as the \"HH:MM:SS.mmm\" timestamp used by WebVTT, Podlove
-  Simple Chapters and, with `separator` \",\", SRT."
+  Simple Chapters and, with `separator` \",\", SRT; a negative time, which
+  those formats lack, as zero. Nil when `seconds` is not a number or beyond
+  `max-whole`."
   ([seconds]
    (format-timestamp seconds "."))
   ([seconds separator]
-   (let [millis (long (Math/round (* 1000.0 seconds)))
-         total  (quot millis 1000)]
-     (str (pad2 (quot total 3600)) ":" (pad2 (rem (quot total 60) 60)) ":"
-          (pad2 (rem total 60)) separator (subs (str (+ 1000 (rem millis 1000))) 1)))))
+   (when (countable? seconds)
+     (let [millis (max 0 (long (Math/round (* 1000.0 seconds))))
+           total  (quot millis 1000)]
+       (str (pad2 (quot total 3600)) ":" (pad2 (rem (quot total 60) 60)) ":"
+            (pad2 (rem total 60)) separator (subs (str (+ 1000 (rem millis 1000))) 1))))))
 
 (comment
   (parse-rfc2822 "Fri, 25 Sep 2026 16:42:40 +0000")

@@ -51,3 +51,16 @@
       (is (nil? (rrule/occurrences nil start))))
     (is (= #inst "2026-01-12T18:00:00Z"
            (rrule/next-occurrence (rrule/parse "FREQ=WEEKLY") start #inst "2026-01-05T18:00:00Z")))))
+
+(deftest parts-out-of-range
+  (testing "a part out of range is no rule"
+    (is (nil? (rrule/parse "FREQ=MONTHLY;BYDAY=0FR")))
+    (is (nil? (rrule/parse "FREQ=MONTHLY;BYMONTHDAY=99999999999999999999")))
+    (is (nil? (rrule/parse "FREQ=DAILY;UNTIL=20261345")))
+    (is (= {:freq "MONTHLY" :byday ["53MO" "-1FR"]} (rrule/parse "FREQ=MONTHLY;BYDAY=53MO,-1FR"))))
+  (let [start #inst "2026-01-05T18:00:00Z"]
+    (testing "an interval longer than the century read gives the start alone, without overflow"
+      (doseq [freq ["DAILY" "WEEKLY" "MONTHLY" "YEARLY"]]
+        (is (= [start] (vec (rrule/occurrences (rrule/parse (str "FREQ=" freq ";INTERVAL=1000000000")) start)))
+            freq)))
+    (is (nil? (rrule/occurrences {:freq "DAILY" :interval 0} start)) "an interval of 0 is no rule")))

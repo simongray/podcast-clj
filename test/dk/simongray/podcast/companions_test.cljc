@@ -68,6 +68,13 @@
     (let [doc (chapters/parse-json "[{\"startTime\":0,\"title\":\"Intro\"}]")]
       (is (= [] (:chapters doc)))
       (is (= [:chapters/not-an-object] (map :id (chapters/report doc))))))
+  (testing "nor does one that is not JSON, and chapters that are not objects are left out"
+    (is (= [:chapters/not-an-object] (map :id (chapters/report (chapters/parse-json "<html><body>404</body></html>")))))
+    (let [doc (chapters/parse-json "\uFEFF{\"chapters\": [1, \"x\", {\"startTime\": 5, \"location\": \"Copenhagen\"}]}")]
+      (is (= [{:start-time 5 :location "Copenhagen"}] (:chapters doc)))
+      (is (= [:chapters/malformed] (map :id (chapters/report doc))))
+      (is (string? (chapters/emit-json doc)) "a location that is not an object is written as it is"))
+    (is (= [] (:chapters (chapters/parse-json "{\"chapters\": {\"startTime\": 1}}")))))
   (testing "a document without a version is not reported as an old one"
     (is (= [] (chapters/report (chapters/parse-json "{\"chapters\":[{\"startTime\":0}]}"))))))
 
@@ -80,7 +87,10 @@
     (is (= [:psc/chapters {:version "1.2"}
             [:psc/chapter {:start "00:00:00.000" :title "Intro"}]
             [:psc/chapter {:start "00:12:30.500" :title "Main" :href "https://x" :image "https://i"}]]
-           (chapters/to-psc doc)))))
+           (chapters/to-psc doc)))
+    (is (= [:psc/chapters {:version "1.2"} [:psc/chapter {:start "00:00:05.000" :title "A"}]]
+           (chapters/to-psc {:chapters [{:title "No start"} {:start-time 5 :title "A"}]}))
+        "a chapter without a start is left out, as Podlove requires one")))
 
 (deftest chapters-from-show-notes
   (testing "timestamp lines at the start, however they are marked"
@@ -143,7 +153,9 @@
       (is (= (:segments js) (:segments (transcript/parse (transcript/emit-json js))))))
     (testing "text and position"
       (is (re-find #"^Sarah: In today's episode" (transcript/text vtt)))
-      (is (= 11.61 (:start (transcript/at vtt 12)))))))
+      (is (= 11.61 (:start (transcript/at vtt 12))))
+      (is (= "b" (:body (transcript/at {:segments [{:body "a"} {:start 1 :body "b"}]} 3)))
+          "a segment without a start does not end the search"))))
 
 (defn- report-ids
   [x]
@@ -165,6 +177,22 @@
       (is (= 2 (:count (first (transcript/report vtt)))))
       (is (= ["Mark" "Mark"] (map :speaker (:segments srt))))
       (is (= "Design is everywhere,\nbut do we get it wrong?" (:body (first (:segments srt)))))))
+  (testing "odd JSON"
+    (is (= [{:body "hi" :start 0 :speaker "1"}]
+           (:segments (transcript/parse "{\"segments\": [{\"speaker\": 1, \"startTime\": 0, \"body\": \"hi\"}]}" "application/json")))
+        "a speaker written as a number")
+    (let [t (transcript/parse "not json" "application/json")]
+      (is (= [] (:segments t)))
+      (is (= [:transcript/not-an-object] (report-ids t))))
+    (let [t (transcript/parse "{\"segments\": [1, {\"startTime\": 0, \"body\": \"a\"}]}" "application/json")]
+      (is (= [{:body "a" :start 0}] (:segments t)))
+      (is (= [:transcript/malformed] (report-ids t)))))
+  (testing "text that only looks like JSON is read as text, and a byte order mark is no text"
+    (doseq [type [nil "text/plain"]]
+      (let [t (transcript/parse "{Intro music}\n\nHost: Welcome." type)]
+        (is (= :text (:format t)) (pr-str type))
+        (is (= ["{Intro music}" "Welcome."] (map :body (:segments t))) (pr-str type))))
+    (is (= :vtt (:format (transcript/parse "\uFEFFWEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi")))))
   (testing "a clean file has an empty report"
     (is (= [] (transcript/report (transcript/parse vtt-text "text/vtt")))))
   (testing "a declared type the file contradicts is reported, and the file read as what it is"
@@ -256,6 +284,17 @@
     (is (= [["A" 3] ["B" 7] ["C" 0]]
            (map (juxt (comp :name :recipient) :amount)
                 (value/payments [{:name "A" :split 1} {:name "B" :split 2} {:name "C"}] 10)))))
+  (testing "a split that did not read counts as none, and no amount is negative"
+    (is (= [["A" 0] ["B" 10]]
+           (map (juxt (comp :name :recipient) :amount)
+                (value/payments [{:name "A" :split "12.5"} {:name "B" :split 50}] 10))))
+    (is (= [600 400 0] (map :amount (value/payments [{:split 60 :fee true} {:split 60 :fee true} {:split 50}] 1000)))
+        "the fees stop where the amount runs out")
+    (is (= [1000 0 0] (map :amount (value/payments [{:split 200 :fee true} {:split -10} {:split 10}] 1000))))
+    (is (= 100 (get-in (value/recipients-at {:time-splits [{:start-time 0 :duration 10 :remote-percentage "half"
+                                                            :remote-item {:feed-guid "a"}}]}
+                                           5)
+                       [:remote :percentage]))))
   (is (= 15 (value/sats block)))
   (is (= 100 (value/share-total (:recipients block))))
   (testing "which block applies"
@@ -302,7 +341,8 @@
                             :message "Great show" :uuid "abc" :sender-name nil})))
   (is (= {"action" "stream" "value_msat" 10000 "value_msat_total" 10000}
          (value/boostagram {:action :stream :sats 10})))
-  (is (= {"action" "boost"} (value/boostagram {}))))
+  (is (= {"action" "boost"} (value/boostagram {})))
+  (is (= "100:00:00" (get (value/boostagram {:position 360000.5}) "time")) "a hundred hours"))
 
 (deftest query-string-encoding
   (testing "the same on both platforms: %20 for a space, the marks kept"

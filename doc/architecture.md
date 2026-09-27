@@ -132,11 +132,19 @@ then reads `<title>` as an Atom element. podcast-clj ignores the default
 namespace for element names, and reports it.
 
 The parser drops comments and processing instructions, joins adjacent text
-and CDATA, and removes text nodes that contain only whitespace. `emit`
-declares each namespace that the tree uses on the root element. These are
-the namespaces of podcast-clj, the foreign namespaces of a parsed feed, and
-those in the `:namespaces` option. `emit` escapes text, or wraps text that
-contains markup in CDATA, and it indents.
+and CDATA, and removes text nodes that contain only whitespace. It keeps a
+space between two elements on one line, because inline markup needs it:
+`<b>Hello</b> <i>world</i>`. Markup or text after the root element makes
+the document malformed, on the JVM as in a browser. `emit` declares each
+namespace that the tree uses on the root element. These are the namespaces
+of podcast-clj, the foreign namespaces of a parsed feed, and those in the
+`:namespaces` option. `emit` escapes text, or wraps text that contains
+markup in CDATA. It indents, but writes mixed content as it is, because
+indentation would become part of its text.
+
+A no-break space is whitespace on both platforms. The trim of Java keeps
+it and the trim of JavaScript removes it, so podcast-clj trims with a
+function of its own.
 
 
 ## The tag registry
@@ -288,9 +296,11 @@ comes from a default, or from several fields together, has no source.
 
 1. **Repairs** of the XML text, for a new parse after the strict parse
    failed. They do these things:
-   - remove a byte order mark, or other bytes before `<?xml`
+   - remove a byte order mark, or other text before `<?xml` or `<rss>`,
+     such as a PHP warning
+   - remove text after `</rss>`
    - replace the HTML entities that XML does not define, such as `&nbsp;`
-   - remove control characters
+   - remove control characters, and the character references to them
    - escape bare ampersands
    - declare known prefixes that a feed uses without an `xmlns`
 2. **Normalizations** of the tree, after parsing and before the mapping to

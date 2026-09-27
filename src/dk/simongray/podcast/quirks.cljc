@@ -66,15 +66,38 @@
       (apply str (conj acc (f (subs s from)))))))
 
 (defn strip-leading-junk
-  "Remove anything before the first `<` of `s`: byte order marks, blank lines
-  and stray output from the server."
+  "Remove anything before the XML declaration or the `<rss>` start tag of
+  `s`, whichever comes first, or before its first `<` when it has neither:
+  byte order marks, blank lines and stray output from the server, such as a
+  PHP warning."
   [s]
-  (str/replace s #"^[^<]+" ""))
+  (if-let [start (some->> (re-find #"<\?xml|<rss[\s>/]" s) (str/index-of s))]
+    (subs s start)
+    (str/replace s #"^[^<]+" "")))
+
+(defn strip-trailing-junk
+  "Remove anything but white space after the `</rss>` end tag of `s`: stray
+  output from the server, such as a PHP warning."
+  [s]
+  (let [end (some->> (str/last-index-of s "</rss") (str/index-of s ">") inc)]
+    (if (and end (not= "" (xml/trim (subs s end))))
+      (subs s 0 end)
+      s)))
+
+(defn- legal-code-point?
+  "Whether XML 1.0 allows the character with the code point `n`."
+  [n]
+  (or (= n 9) (= n 10) (= n 13) (<= 0x20 n 0xD7FF) (<= 0xE000 n 0xFFFD) (<= 0x10000 n 0x10FFFF)))
 
 (defn strip-control-characters
-  "Remove the control characters XML 1.0 forbids from `s`."
+  "Remove the control characters XML 1.0 forbids from `s`, and outside CDATA
+  the character references to them, which XML forbids as well."
   [s]
-  (str/replace s xml/illegal-characters ""))
+  (map-outside-cdata
+   #(str/replace % #"&(#\d+|#[xX][0-9a-fA-F]+);"
+                 (fn [[whole ref]]
+                   (if (some-> (xml/code-point ref) legal-code-point?) whole "")))
+   (str/replace s xml/illegal-characters "")))
 
 (defn replace-html-entities
   "Replace the HTML entities in `s` outside CDATA with numeric references,
@@ -123,6 +146,7 @@
 (def repairs
   "The text repairs, in the order they are applied."
   [{:id :repair/leading-junk        :f strip-leading-junk}
+   {:id :repair/trailing-junk       :f strip-trailing-junk}
    {:id :repair/control-characters  :f strip-control-characters}
    {:id :repair/undeclared-prefixes :f declare-known-prefixes}
    {:id :repair/html-entities       :f replace-html-entities}
@@ -173,7 +197,7 @@
   "A rewrite of an element's text by the `values` table, case ignored."
   [values]
   (fn [element]
-    (let [v (str/lower-case (str/trim (xml/text element)))]
+    (let [v (str/lower-case (xml/trim (xml/text element)))]
       (if-let [canonical (values v)]
         (if (= canonical v) element (text-element element canonical))
         element))))
@@ -251,7 +275,7 @@
   "`{:value s}` when the text of `element` is a date the library reads but
   not in the strict RFC 2822 form; nil otherwise."
   [element]
-  (let [s (str/trim (xml/text element))]
+  (let [s (xml/trim (xml/text element))]
     (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
       {:value s})))
 
@@ -261,14 +285,14 @@
   ones a registry implies."
   [(rewrite :quirk/itunes-image-text :itunes/image
             (fn [[tag attrs :as element]]
-              (let [href (or (:href attrs) (:url attrs) (not-empty (str/trim (xml/text element))))]
+              (let [href (or (:href attrs) (:url attrs) (not-empty (xml/trim (xml/text element))))]
                 (if href
                   [tag (-> attrs (dissoc :url) (assoc :href href))]
                   element))))
    (rewrite :quirk/explicit-value :itunes/explicit (canonical-text explicit-values))
    (rewrite :quirk/transcript-type :podcast/transcript
             (fn [[tag attrs :as element]]
-              (if-let [t (transcript-types (some-> (:type attrs) str/trim str/lower-case))]
+              (if-let [t (transcript-types (some-> (:type attrs) xml/trim str/lower-case))]
                 [tag (assoc attrs :type t)]
                 element)))
    (rewrite :quirk/attribute-name :podcast/transcript href->url)
@@ -281,7 +305,7 @@
                 element)))
    (rewrite :quirk/empty-guid :guid
             (fn [element]
-              (if (str/blank? (xml/text element))
+              (if (= "" (xml/trim (xml/text element)))
                 nil
                 element)))
    (rewrite :quirk/deprecated-images :channel add-images)
@@ -290,7 +314,7 @@
    (rewrite :quirk/item-image :item item-image->itunes)
    (check :quirk/duration-format :itunes/duration
           (fn [element]
-            (let [s (str/trim (xml/text element))]
+            (let [s (xml/trim (xml/text element))]
               (when (and (time/parse-duration s) (not (re-matches #"\d+" s)))
                 {:value s}))))
    (check :quirk/date-format :pubDate non-canonical-date)
@@ -348,7 +372,8 @@
                      (remove (comp except :id))
                      (group-by :tag))
          report (volatile! [])
-         tree'  (walk by-tag report tree)]
+         ;; a rule may remove any element but the root
+         tree'  (or (walk by-tag report tree) tree)]
      (with-meta tree' (assoc (meta tree) :quirks/report @report)))))
 
 (defn report

@@ -35,6 +35,9 @@
       (is (= 1 (:repair/bare-ampersands ids)))
       (is (= 1 (:repair/html-entities ids)))
       (is (= 1 (:repair/lenient-parser ids))))
+    (testing "unless :except leaves it out"
+      (is (= ::xml/malformed (try (podcast/parse @broken {:except #{:repair/lenient-parser}})
+                                  (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
     (testing "the model"
       (is (= "Broken & Proud <3" (:rss/title f)))
       (is (= "Someone … anyone" (:itunes/author f)))

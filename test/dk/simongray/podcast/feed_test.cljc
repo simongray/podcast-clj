@@ -86,7 +86,28 @@
       (is (= "Ep 1" (:rss/title (first (:rss/items f)))))
       (is (= [[:rss/description] [:rss/items 0 :rss/title]]
              (map :path (filter (comp #{:feed/markup-in-text} :id) (podcast/report f))))))
-    (is (= f (podcast/parse (podcast/emit f))))))
+    (is (= f (podcast/parse (podcast/emit f)))))
+  (testing "a space between two inline elements is kept"
+    (let [f (podcast/parse "<rss version=\"2.0\"><channel><title>T</title>
+                             <description><p><b>Hello</b> <i>world</i></p></description>
+                             <item><title><b>Big</b> <i>News</i></title></item></channel></rss>")]
+      (is (= "<p><b>Hello</b> <i>world</i></p>" (:rss/description f)))
+      (is (= "Big News" (:rss/title (first (:rss/items f)))))
+      (is (= f (podcast/parse (podcast/emit f)))))))
+
+(deftest no-break-spaces-and-big-numbers
+  (let [f     (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>Show&#160;</title>
+                               <item><title>E</title><guid>&#160;</guid><itunes:episode>5&#160;</itunes:episode>
+                               <enclosure url=\"https://a/1.mp3\" length=\"1\" type=\"audio/mpeg\"/></item>
+                               <item><title>F</title><itunes:episode>99999999999999999999</itunes:episode></item></channel></rss>")
+        [a b] (:rss/items f)]
+    (testing "a no-break space is white space, on the JVM as in JavaScript"
+      (is (= "Show" (:rss/title f)))
+      (is (= 5 (:itunes/episode a)))
+      (is (= "https://a/1.mp3" (feed/item-guid a)) "a guid of white space alone is none"))
+    (testing "a number too large for both platforms stays a string, and the report says so"
+      (is (= "99999999999999999999" (:itunes/episode b)))
+      (is (some #(= [:rss/items 1 :itunes/episode] (:path %)) (podcast/report f))))))
 
 (deftest duplicates-and-empties
   (let [f (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>A</title><title>B</title><link></link>
@@ -126,7 +147,12 @@
       (is (= {:added [] :removed [] :changed [] :unchanged 0} (:live-items (feed/diff {} {})))))
     (testing "timestamps and live items alone do not count as a channel change"
       (is (false? (:channel-changed? d)))
-      (is (true? (:channel-changed? (feed/diff before (assoc after :rss/title "Renamed"))))))))
+      (is (true? (:channel-changed? (feed/diff before (assoc after :rss/title "Renamed"))))))
+    (testing "of the items that share an identity, the first counts"
+      (let [twice {:rss/items [(item "1" "One") (item "1" "One again") (item "2" "Two")]}]
+        (is (= {:added [] :removed [] :changed [] :unchanged 2}
+               (select-keys (feed/diff twice twice) [:added :removed :changed :unchanged])))
+        (is (= [(item "1" "One") (item "2" "Two")] (:added (feed/diff {} twice))))))))
 
 (deftest summarizing-diagnostics
   (let [diagnostics [{:id :a :level :warning :message "m" :path [:rss/items 0]}

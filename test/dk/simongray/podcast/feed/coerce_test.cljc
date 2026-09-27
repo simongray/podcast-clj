@@ -22,6 +22,16 @@
     (doseq [[type s] [[:integer "seven"] [:decimal "1,5"] [:boolean "yes"] [:yes-no "true"]
                       [:rfc2822 "yesterday"] [:duration "long"] [:geo "30,-97"] [:osm "X1"]]]
       (is (coerce/invalid? (coerce/parse type s)) (str type " " (pr-str s)))))
+  (testing "a number beyond what both platforms hold exactly"
+    (is (coerce/invalid? (coerce/parse :integer "99999999999999999999")))
+    (is (coerce/invalid? (coerce/parse :integer "9007199254740993")) "on the JVM too, so that the platforms agree")
+    (is (= 1.0E20 (coerce/parse :decimal "99999999999999999999")) "a decimal may be approximate")
+    (is (coerce/invalid? (coerce/parse :decimal (str "1" (apply str (repeat 400 "0")) ".5"))))
+    (is (coerce/invalid? (coerce/parse :geo (str "geo:1" (apply str (repeat 400 "0")) ".5,1"))))
+    (is (coerce/invalid? (coerce/parse :osm "R99999999999999999999"))))
+  (testing "no-break spaces are white space, on the JVM as in JavaScript"
+    (is (= 5 (coerce/parse :integer "5\u00A0")))
+    (is (= "Show" (coerce/parse :text "\uFEFFShow\u00A0\u202F"))))
   (testing "the string types are trimmed and nothing more"
     (is (= "<p>Hi</p>" (coerce/parse :html " <p>Hi</p> ")))
     (is (= "x" (coerce/parse :enum " x ")))

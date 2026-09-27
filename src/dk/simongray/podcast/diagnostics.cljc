@@ -15,9 +15,11 @@
   "The diagnostics, in the order they tend to arise."
   [;; repairs of the XML text, applied only when the strict parse failed
    {:id :repair/leading-junk :level :warning
-    :doc "Bytes before the XML declaration, such as whitespace or a byte order mark, were removed."}
+    :doc "Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed."}
+   {:id :repair/trailing-junk :level :warning
+    :doc "Text after the end of the rss element, such as a PHP warning, was removed."}
    {:id :repair/control-characters :level :warning
-    :doc "Control characters XML forbids were removed."}
+    :doc "Control characters XML forbids, and character references to them, were removed."}
    {:id :repair/undeclared-prefixes :level :warning
     :doc "Known namespace prefixes used without a declaration were declared."}
    {:id :repair/html-entities :level :warning
@@ -88,6 +90,10 @@
     :doc "The declared type is not one the specification names; the format was sniffed instead."}
    {:id :transcript/type-mismatch :level :warning
     :doc "The declared type does not match the file, which was read as the format it is."}
+   {:id :transcript/not-an-object :level :warning
+    :doc "A JSON transcript is not JSON, or not a JSON object, so it holds no segments."}
+   {:id :transcript/malformed :level :warning
+    :doc "Segments of a JSON transcript that are not JSON objects in a list were left out."}
 
    ;; chapters
    {:id :chapters/string-times :level :warning
@@ -105,7 +111,9 @@
    {:id :chapters/inferred :level :info
     :doc "The chapters were read from timestamps in the show notes rather than from a chapters file."}
    {:id :chapters/not-an-object :level :warning
-    :doc "The document is not a JSON object, so it holds no chapters."}
+    :doc "The document is not JSON, or not a JSON object, so it holds no chapters."}
+   {:id :chapters/malformed :level :warning
+    :doc "Chapters that are not JSON objects in a list were left out."}
 
    ;; validation
    {:id :validate/rss-version :level :warning

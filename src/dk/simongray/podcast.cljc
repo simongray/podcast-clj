@@ -40,23 +40,39 @@
                     (catch Exception _ nil))
             :cljs nil)))
 
+(defn- held
+  "`xml` in a form that can be read twice, first strictly and then for the
+  repairs: on the JVM an InputStream as its bytes and a Reader as its text."
+  [xml]
+  #?(:clj  (cond
+             (instance? java.io.InputStream xml) (.readAllBytes ^java.io.InputStream xml)
+             (instance? java.io.Reader xml)      (slurp xml)
+             :else                               xml)
+     :cljs xml))
+
 (defn- strict
-  "Parse `xml` strictly: `{:raw tree}`, or `{:error e}` when it is malformed."
+  "Parse `xml`, as `held` gives it, strictly: `{:raw tree}`, or `{:error e}`
+  when it is malformed. Bytes go to the parser as a stream, so that it
+  honours the document's own encoding declaration."
   [xml]
   (try
-    {:raw (xml/parse-raw xml)}
+    {:raw (xml/parse-raw #?(:clj  (if (bytes? xml) (java.io.ByteArrayInputStream. ^bytes xml) xml)
+                            :cljs xml))}
     (catch #?(:clj Exception :cljs :default) e
       (if (malformed? e) {:error e} (throw e)))))
 
 (defn- repaired
-  "Repair the malformed `xml`, with `opts` as for `quirks/repair`, and parse
-  it again: strictly when the repairs sufficed, leniently when a lenient
-  parser is available, and otherwise by throwing the strict parser's error.
-  Returns `{:raw tree :report [...]}`."
-  [xml opts]
-  (let [{repaired :xml report :report} (quirks/repair xml opts)
+  "Repair the malformed `xml`, as `held` gives it, with `opts` as for
+  `quirks/repair`, and parse it again: strictly when the repairs sufficed,
+  leniently when a lenient parser is available and `:except` does not name
+  `:repair/lenient-parser`, and otherwise by throwing the strict parser's
+  error. Returns `{:raw tree :report [...]}`."
+  [xml {:keys [except] :as opts}]
+  (let [text                           #?(:clj  (if (bytes? xml) (http/decode {} xml) xml)
+                                          :cljs xml)
+        {repaired :xml report :report} (quirks/repair text opts)
         {:keys [raw error]}            (strict repaired)
-        parse-leniently                @lenient-parser]
+        parse-leniently                (when-not (contains? except :repair/lenient-parser) @lenient-parser)]
     (cond
       raw             {:raw raw :report report}
       parse-leniently {:raw    (parse-leniently repaired)
@@ -64,7 +80,8 @@
       :else           (throw error))))
 
 (defn parse-tree
-  "Parse the RSS `xml` string into canonical Hiccup, normalized by
+  "Parse the RSS document `xml`, a string or, on the JVM, an InputStream or a
+  Reader, into canonical Hiccup, normalized by
   `dk.simongray.podcast.quirks/normalize`. With `:quirks?` in `opts` (the
   default), namespace URI variants are recognized and a document the strict
   parser rejects is repaired and parsed again, leniently as a last resort
@@ -80,7 +97,8 @@
    (if-not quirks?
      (let [tree (xml/parse xml)]
        (vary-meta tree assoc :podcast/report (xml/report tree)))
-     (let [{:keys [raw]}        (strict xml)
+     (let [xml                  (held xml)
+           {:keys [raw]}        (strict xml)
            {:keys [raw report]} (if raw {:raw raw :report []} (repaired xml (select-keys opts [:except])))
            tree                 (-> raw
                                     (xml/resolve-namespaces quirks/uri->alias)

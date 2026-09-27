@@ -185,24 +185,40 @@
 (defn parse-json
   "Read the JSON transcript `s`: `{\"version\" \"segments\" [{\"speaker\"
   \"startTime\" \"endTime\" \"body\"}]}`. Times written as strings are read
-  as numbers and reported."
+  as numbers and reported, and a speaker written as a number as its string.
+  A file that is not JSON, or not a JSON object, reads as no segments, and
+  segments that are not objects are left out; the report says so."
   [s]
-  (let [doc      (json/read-str s)
-        raw      (get doc "segments")
-        strings  (count (filter #(or (string? (get % "startTime")) (string? (get % "endTime"))) raw))
-        segments (vec (for [segment raw
+  (let [doc      (json/parse s)
+        raw      (when (map? doc) (get doc "segments"))
+        objects  (if (sequential? raw) (filterv map? raw) [])
+        dropped  (cond (sequential? raw) (- (count raw) (count objects))
+                       (some? raw)       1
+                       :else             0)
+        strings  (count (filter #(or (string? (get % "startTime")) (string? (get % "endTime"))) objects))
+        segments (vec (for [segment objects
                             :let [start   (time/seconds (get segment "startTime"))
                                   end     (time/seconds (get segment "endTime"))
-                                  speaker (get segment "speaker")]]
+                                  speaker (let [v (get segment "speaker")]
+                                            (when (or (string? v) (number? v)) (str v)))]]
                         (cond-> {:body (str (get segment "body"))}
                           (some? start) (assoc :start start)
                           (some? end)   (assoc :end end)
                           (seq speaker) (assoc :speaker speaker))))]
-    (with-report {:format :json :version (get doc "version") :segments segments}
-      (when (pos? strings)
-        [(diagnostic :transcript/string-times :warning
-                  (str strings " segments give their times as strings rather than numbers")
-                  :count strings)]))))
+    (with-report {:format :json :version (when (map? doc) (get doc "version")) :segments segments}
+      (cond-> []
+        (not (map? doc))
+        (conj (diagnostic :transcript/not-an-object :warning "the file is not a JSON object"))
+
+        (pos? dropped)
+        (conj (diagnostic :transcript/malformed :warning
+                          (str dropped " segments are not JSON objects in a list and were left out")
+                          :count dropped))
+
+        (pos? strings)
+        (conj (diagnostic :transcript/string-times :warning
+                          (str strings " segments give their times as strings rather than numbers")
+                          :count strings))))))
 
 (defn emit-json
   "Write `transcript` in the JSON transcript format, indented unless `opts`
@@ -319,18 +335,26 @@
   "Read the transcript `s` in the format its `type` names: a mime type from
   `podcast:transcript`, or one of the keywords in `format-keys`. Without a
   type the format is sniffed. When the file plainly is another format than
-  its type says, it is read as what it is and the mismatch is reported."
+  its type says, it is read as what it is and the mismatch is reported. A
+  sniff for JSON or HTML can be wrong, since plain text can start with {
+  or hold a p tag: when such a reading finds no segments, the file is read
+  as its type says after all, or as plain text when it names none."
   ([s]
    (parse s nil))
   ([s type]
-   (let [declared (get formats type (when (contains? format-keys type) type))
+   (let [s        (cond-> s (str/starts-with? s "\uFEFF") (subs 1))
+         declared (get formats type (when (contains? format-keys type) type))
          sniffed  (sniff s)
-         format   (cond
+         guess    (cond
                     (nil? declared)       sniffed
                     (= declared sniffed)  declared
                     (= sniffed :text)     declared
                     :else                 sniffed)
-         result   (parse-as format s)]
+         fallback (when (#{:json :html} guess) (or declared :text))
+         tried    (parse-as guess s)
+         [format result] (if (and fallback (not= guess fallback) (empty? (:segments tried)))
+                           [fallback (parse-as fallback s)]
+                           [guess tried])]
      (cond-> result
        (and (some? type) (nil? declared))
        (add-diagnostic (diagnostic :transcript/unknown-type :warning
@@ -373,9 +397,10 @@
        (str/join "\n")))
 
 (defn at
-  "The segment of `transcript` being spoken `seconds` into the media."
+  "The segment of `transcript` being spoken `seconds` into the media, among
+  the segments that have a start time."
   [transcript seconds]
-  (last (take-while #(and (:start %) (<= (:start %) seconds)) (:segments transcript))))
+  (last (take-while #(<= (:start %) seconds) (filter (comp number? :start) (:segments transcript)))))
 
 #?(:clj
    (comment

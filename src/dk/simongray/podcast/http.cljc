@@ -169,13 +169,15 @@
    (defn decode
      "The `body` bytes of the response with `headers` as a string, gunzipped
      when the response says so, to at most `max-bytes` (nil for no limit), and
-     decoded by `declared-charset`."
+     decoded by `declared-charset`, a byte order mark dropped, as a browser
+     drops it."
      ([headers body]
       (decode headers body nil))
      ([headers ^bytes body max-bytes]
       (let [gzip? (= "gzip" (some-> (header headers "content-encoding") str/trim str/lower-case))
-            body  (if gzip? (gunzip body max-bytes nil) body)]
-        (String. body ^Charset (declared-charset headers body))))))
+            body  (if gzip? (gunzip body max-bytes nil) body)
+            s     (String. body ^Charset (declared-charset headers body))]
+        (cond-> s (str/starts-with? s "\uFEFF") (subs 1))))))
 
 (def ^:no-doc legal-url-characters
   "The ASCII characters a URI may contain as they are: RFC 3986's unreserved

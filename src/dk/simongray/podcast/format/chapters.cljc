@@ -104,18 +104,27 @@
     (cond-> chapter
       (contains? chapter :start-time) (update :start-time time/seconds)
       (contains? chapter :end-time)   (update :end-time time/seconds)
-      (:location chapter)             (update :location #(rename location-keys %)))))
+      (map? (:location chapter))      (update :location #(rename location-keys %)))))
 
 (defn parse-json
   "Read the JSON Chapters document `s` into a chapters map. A document that
-  is not a JSON object reads as no chapters, and the report says so."
+  is not JSON, or not a JSON object, reads as no chapters, and chapters that
+  are not objects are left out; the report says so."
   [s]
-  (let [raw (json/read-str s)]
+  (let [raw (json/parse s)]
     (if (map? raw)
-      (let [doc (-> (rename document-keys raw)
-                    (update :chapters #(mapv read-chapter %)))]
+      (let [entries (get raw "chapters")
+            objects (if (sequential? entries) (filterv map? entries) [])
+            dropped (cond (sequential? entries) (- (count entries) (count objects))
+                          (some? entries)       1
+                          :else                 0)
+            doc     (assoc (rename document-keys raw) :chapters (mapv read-chapter objects))]
         (with-meta doc
-          {:podcast/report (diagnostics doc (get raw "chapters"))}))
+          {:podcast/report (cond-> (diagnostics doc objects)
+                             (pos? dropped)
+                             (conj (diagnostic :chapters/malformed :warning
+                                               (str dropped " chapters are not JSON objects in a list and were left out")
+                                               :count dropped)))}))
       (with-meta {:chapters []}
         {:podcast/report [(diagnostic :chapters/not-an-object :warning
                                       "the document is not a JSON object")]}))))
@@ -123,7 +132,7 @@
 (defn- write-chapter
   [chapter]
   (let [m (cond-> chapter
-            (:location chapter) (update :location #(unname location-keys %)))]
+            (map? (:location chapter)) (update :location #(unname location-keys %)))]
     (unname chapter-keys m)))
 
 (defn emit-json
@@ -161,10 +170,12 @@
 
 (defn to-psc
   "The `psc:chapters` Hiccup element for the chapters map `doc`, for feeds
-  that embed chapters as well as linking to them."
+  that embed chapters as well as linking to them; chapters without a start
+  time are left out, as Podlove requires one."
   [doc]
   (into [:psc/chapters {:version "1.2"}]
-        (for [{:keys [start-time title url img]} (:chapters doc)]
+        (for [{:keys [start-time title url img]} (:chapters doc)
+              :when (time/format-timestamp start-time)]
           [:psc/chapter (cond-> {:start (time/format-timestamp start-time)}
                           title (assoc :title title)
                           url   (assoc :href url)

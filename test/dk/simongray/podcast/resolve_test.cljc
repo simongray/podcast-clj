@@ -50,7 +50,11 @@
                                              {:href "https://i/sq.jpg"}]})))
       (is (= "https://i/it.jpg"
              (resolve/artwork {:podcast/images [{:href "https://i/banner.jpg" :purpose "banner"}]
-                            :itunes/image {:href "https://i/it.jpg"}}))))
+                            :itunes/image {:href "https://i/it.jpg"}})))
+      (is (= "https://i/300.jpg"
+             (resolve/artwork {:podcast/images [{:href "https://i/big.jpg" :width "big"}
+                                             {:href "https://i/300.jpg" :width 300}]}))
+          "a width that did not read is no width"))
     (is (= 6 (count (resolve/images f))))
     (is (= #{"artwork"} (:purpose (first (resolve/images f)))))))
 
@@ -72,6 +76,10 @@
            (resolve/numbering {:itunes/season 2 :itunes/episode 7 :itunes/episode-type "Bonus"})))
     (is (= {:type "full" :episode 204 :episode-display "Ch.3"}
            (resolve/numbering {:podcast/episode {:content 204 :display "Ch.3"} :itunes/episode 3})))
+    (is (= {:type "full" :season 2 :episode 7}
+           (resolve/numbering {:podcast/season {:content "Two"} :itunes/season 2
+                               :podcast/episode {:content "7a"} :itunes/episode 7}))
+        "a number that did not read leaves the other namespace to answer")
     (is (= {:type "full"} (resolve/numbering {})))))
 
 (deftest media
@@ -115,7 +123,10 @@
                                          {:url "vtt" :type "text/vtt"}]}]
         (is (= "vtt" (:url (resolve/transcript nil mixed {:timed? true}))))
         (is (= "captions" (:url (resolve/transcript nil mixed {:timed? true :types ["text/plain" "text/html"]}))))
-        (is (= "html" (:url (resolve/transcript nil mixed {:types ["text/html"]}))))))
+        (is (= "html" (:url (resolve/transcript nil mixed {:types ["text/html"]}))))
+        (is (= "srt" (:url (resolve/transcript {:podcast/transcripts [{:url "txt" :type "text/plain"}
+                                                                      {:url "srt" :type "application/srt"}]})))
+            "SRT by any of its names ranks above plain text")))
     (is (= "https://example.com/ep3_chapters.json" (resolve/chapters-url item)))
     (is (= [{:start-time 0 :title "Intro"}]
            (:chapters (resolve/embedded-chapters {:psc/chapters {:chapters [{:start "00:00:00.000" :title "Intro"}]}}))))
@@ -211,7 +222,13 @@
              (resolve/next-episode {:podcast/update-frequency {:rrule {:freq "WEEKLY"}}
                                     :rss/items [{:rss/pub-date #inst "2026-01-12T09:00:00Z"}
                                                 {:rss/pub-date #inst "2026-01-05T09:00:00Z"}]}
-                                   #inst "2026-01-12T10:00:00Z"))))))
+                                   #inst "2026-01-12T10:00:00Z")))
+      (is (= #inst "2026-01-19T09:00:00Z"
+             (resolve/next-episode {:podcast/update-frequency {:rrule {:freq "WEEKLY"}}
+                                    :rss/items [{:rss/pub-date #inst "2062-01-12T09:00:00Z"}
+                                                {:rss/pub-date #inst "2026-01-12T09:00:00Z"}]}
+                                   #inst "2026-01-12T10:00:00Z"))
+          "but not an item dated after the moment asked about"))))
 
 (deftest when-to-check-again
   (let [at     #inst "2026-03-01T12:00:00Z"
@@ -229,6 +246,14 @@
              (resolve/next-check (weekly #inst "2026-02-26T09:00:00Z" #inst "2026-02-19T09:00:00Z" #inst "2026-02-12T09:00:00Z") at)))
       (is (= #inst "2026-03-08T12:00:00Z"
              (resolve/next-check (weekly #inst "2026-02-22T09:00:00Z" #inst "2026-02-15T09:00:00Z" #inst "2026-02-08T09:00:00Z") at))))
+    (testing "an item dated in the future, a scheduled episode or a mistake, does not count"
+      (is (= #inst "2026-03-05T09:00:00Z"
+             (resolve/next-check (weekly #inst "2062-02-26T09:00:00Z" #inst "2026-02-26T09:00:00Z"
+                                         #inst "2026-02-19T09:00:00Z" #inst "2026-02-12T09:00:00Z")
+                                 at))))
+    (testing "no answer lies more than a year ahead, however large the ttl or the gap"
+      (is (= #inst "2027-03-01T18:00:00Z" (resolve/next-check {:rss/ttl 8999999999999999} at)))
+      (is (= #inst "2027-03-01T18:00:00Z" (resolve/next-check (weekly #inst "2026-02-26T09:00:00Z" #inst "2016-02-26T09:00:00Z") at))))
     (is (nil? (resolve/next-check (weekly #inst "2026-02-22T09:00:00Z") at)))
     (is (nil? (resolve/next-check {:rss/ttl 30 :itunes/complete true} at)))))
 

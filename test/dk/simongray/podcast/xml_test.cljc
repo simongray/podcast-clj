@@ -24,7 +24,10 @@
            (second raw)))
     (is (= ["title" {} "T & U"] (-> raw (nth 2) (nth 2))))
     (testing "CDATA and text merge, comments vanish"
-      (is (= ["description" {} "<p>Hi</p> tail"] (-> raw (nth 2) (nth 5)))))))
+      (is (= ["description" {} "<p>Hi</p> tail"] (-> raw (nth 2) (nth 5))))))
+  (testing "a space between two elements on one line is kept, layout is not"
+    (is (= ["p" {} ["b" {} "Hello"] " " ["i" {} "world"]] (xml/parse-raw "<p><b>Hello</b> <i>world</i></p>")))
+    (is (= ["p" {} ["b" {} "Hello"] ["i" {} "world"]] (xml/parse-raw "<p>\n  <b>Hello</b>\n  <i>world</i>\n</p>")))))
 
 (deftest namespace-resolution
   (let [tree (xml/parse sample)]
@@ -55,7 +58,9 @@
     (is (= "t1t2" (xml/text el)))
     (is (= 3 (count (xml/elements el))))
     (is (= 2 (count (xml/elements el :b))))
-    (is (= [:b {} "inner"] (xml/element el :b)))))
+    (is (= [:b {} "inner"] (xml/element el :b))))
+  (is (= "Show" (xml/trim "\u00A0 Show\t\u00A0")) "no-break spaces are white space on both platforms")
+  (is (= "a b" (xml/trim "a b"))))
 
 (deftest emitting
   (testing "declarations for the aliases used, foreign ones included"
@@ -78,7 +83,11 @@
           out  (xml/emit tree)]
       (is (re-find #"x=\"a&#10;b&#9;c&#13;d\"" out))
       (is (re-find #"<t>line&#13;\nnext &lt;b&gt;</t>" out))
-      (is (= tree (xml/parse out))))))
+      (is (= tree (xml/parse out)))))
+  (testing "mixed content is written as it is, so that a round trip keeps it"
+    (let [tree (xml/parse "<rss><x>Hello <b>big</b> <i>world</i>!</x></rss>")]
+      (is (= tree (xml/parse (xml/emit tree))))
+      (is (= tree (xml/parse (xml/emit (xml/parse (xml/emit tree)))))))))
 
 #?(:clj
    (deftest long-text-nodes-on-the-jvm
@@ -91,7 +100,21 @@
   (is (= ::xml/malformed
          (try (xml/parse "nope")
               (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
-                (:type (ex-data e)))))))
+                (:type (ex-data e))))))
+  (testing "markup or text after the root is an error, a comment is not"
+    (doseq [s ["<rss/><b>Warning</b>" "<rss/>junk"]]
+      (is (= ::xml/malformed
+             (try (xml/parse s)
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
+                    (:type (ex-data e)))))
+          s))
+    (is (= [:rss {}] (xml/parse "<rss/>\n<!-- served in 0.2 s -->\n"))))
+  #?(:clj
+     (testing "and so is an XML declaration the parser does not read"
+       (is (= ::xml/malformed
+              (try (xml/parse "<?xml version=\"2.0\"?><rss/>")
+                   (catch clojure.lang.ExceptionInfo e
+                     (:type (ex-data e)))))))))
 
 (deftest bom
   (is (= [:a {}] (xml/parse "﻿<a/>"))))

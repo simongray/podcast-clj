@@ -16,8 +16,9 @@ for the validator, and `sync` for the sync between devices.
 
 | Id | Level | Meaning |
 |---|---|---|
-| `:repair/leading-junk` | warning | Bytes before the XML declaration, such as whitespace or a byte order mark, were removed. |
-| `:repair/control-characters` | warning | Control characters XML forbids were removed. |
+| `:repair/leading-junk` | warning | Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed. |
+| `:repair/trailing-junk` | warning | Text after the end of the rss element, such as a PHP warning, was removed. |
+| `:repair/control-characters` | warning | Control characters XML forbids, and character references to them, were removed. |
 | `:repair/undeclared-prefixes` | warning | Known namespace prefixes used without a declaration were declared. |
 | `:repair/html-entities` | warning | HTML entities XML lacks, such as &nbsp;, were replaced by character references. |
 | `:repair/bare-ampersands` | warning | Bare ampersands were escaped. |
@@ -49,6 +50,8 @@ for the validator, and `sync` for the sync between devices.
 | `:transcript/wrapped-srt` | warning | An HTML transcript was an SRT file with every line wrapped in an element, and was read as SRT. |
 | `:transcript/unknown-type` | warning | The declared type is not one the specification names; the format was sniffed instead. |
 | `:transcript/type-mismatch` | warning | The declared type does not match the file, which was read as the format it is. |
+| `:transcript/not-an-object` | warning | A JSON transcript is not JSON, or not a JSON object, so it holds no segments. |
+| `:transcript/malformed` | warning | Segments of a JSON transcript that are not JSON objects in a list were left out. |
 | `:chapters/string-times` | warning | Chapter times were given as strings rather than numbers and were read as numbers. |
 | `:chapters/missing-start-time` | warning | Chapters without a start time cannot be placed. |
 | `:chapters/unsorted` | info | The chapters were not in order of start time, which the format assumes. |
@@ -56,7 +59,8 @@ for the validator, and `sync` for the sync between devices.
 | `:chapters/old-version` | info | The document was written against an older version of the format. |
 | `:chapters/bad-timestamps` | warning | Podlove chapters whose start is not a timestamp were dropped. |
 | `:chapters/inferred` | info | The chapters were read from timestamps in the show notes rather than from a chapters file. |
-| `:chapters/not-an-object` | warning | The document is not a JSON object, so it holds no chapters. |
+| `:chapters/not-an-object` | warning | The document is not JSON, or not a JSON object, so it holds no chapters. |
+| `:chapters/malformed` | warning | Chapters that are not JSON objects in a list were left out. |
 | `:validate/rss-version` | warning | The rss element's version is not 2.0. |
 | `:validate/missing-element` | error | An element RSS 2.0 requires is missing. |
 | `:validate/missing-enclosure` | warning | An item has no enclosure, so there is nothing to play. |

@@ -76,16 +76,45 @@
   [element]
   (apply str (filter string? (tree-seq vector? children element))))
 
+(defn- space?
+  "Whether the character of `s` at `i` is white space to the trim of either
+  platform: Java's keeps the no-break spaces and the byte order mark, which
+  JavaScript's removes."
+  [s i]
+  (let [c #?(:clj (int (.charAt ^String s i)) :cljs (.charCodeAt s i))]
+    (or (<= c 32) (= c 0xA0) (= c 0x1680) (<= 0x2000 c 0x200A) (= c 0x2028) (= c 0x2029)
+        (= c 0x202F) (= c 0x205F) (= c 0x3000) (= c 0xFEFF))))
+
+(defn ^:no-doc trim
+  "`s` without the white space at either end, the no-break spaces included,
+  so that a value reads the same on the JVM and in JavaScript; `s` itself
+  when there is none."
+  [s]
+  (let [n     (count s)
+        start (loop [i 0] (if (and (< i n) (space? s i)) (recur (inc i)) i))
+        end   (loop [i n] (if (and (> i start) (space? s (dec i))) (recur (dec i)) i))]
+    (if (and (zero? start) (= end n))
+      s
+      (subs s start end))))
+
 (defn ^:no-doc compact-text
-  "Merge adjacent strings in `nodes` and drop the ones that are blank; what
-  every raw-parsing adapter does to the children it reads."
+  "Merge adjacent strings in `nodes` and drop the ones that are blank, but
+  for a space between two elements on one line, which inline markup needs:
+  `<b>Hello</b> <i>world</i>`. What every raw-parsing adapter does to the
+  children it reads."
   [nodes]
-  (->> (partition-by string? nodes)
-       (mapcat (fn [group]
-                 (if (string? (first group))
-                   (let [s (apply str group)]
-                     (when-not (str/blank? s) [s]))
-                   group)))))
+  (let [groups (vec (partition-by string? nodes))
+        end    (dec (count groups))]
+    (into []
+          (comp (map-indexed (fn [i group]
+                               (if (string? (first group))
+                                 (let [s (apply str group)]
+                                   (when (or (not= "" (trim s))
+                                             (and (< 0 i end) (not (re-find #"[\r\n]" s))))
+                                     [s]))
+                                 group)))
+                cat)
+          groups)))
 
 (defn kebab
   "Turn the camelCase XML name `s` into kebab-case: startTime to start-time."
@@ -140,7 +169,7 @@
   #?(:clj  (String. (Character/toChars n))
      :cljs (js/String.fromCodePoint n)))
 
-(defn- code-point
+(defn ^:no-doc code-point
   "The code point of the numeric reference `ref`, `#65` or `#x41`; nil when
   it is not one a string can hold."
   [ref]
@@ -174,7 +203,7 @@
 (defn- strip-bom
   "Remove a byte order mark that survived decoding from the front of `s`."
   [s]
-  (if (str/starts-with? s "﻿")
+  (if (str/starts-with? s "\uFEFF")
     (subs s 1)
     s))
 
@@ -323,20 +352,27 @@
 
   `xml` is a string; on the JVM it may also be an InputStream, which lets the
   parser honour the document's own encoding declaration, or a Reader. A
-  document the parser rejects throws an ex-info of type `::malformed`, and
-  so does one whose elements nest deeper than `max-depth`."
+  document the parser rejects throws an ex-info of type `::malformed`, as
+  does one with an XML declaration it cannot read, markup or text after the
+  root element, or elements nested deeper than `max-depth`."
   [xml]
   #?(:clj
-     (let [^XMLStreamReader r (document xml)]
-       (try
-         (loop []
-           (if (= (.next r) XMLStreamConstants/START_ELEMENT)
-             (read-element r 1)
-             (recur)))
-         (catch XMLStreamException e
-           (throw (malformed (.getMessage e) e)))
-         (finally
-           (.close r))))
+     (try
+       (let [^XMLStreamReader r (document xml)]
+         (try
+           (let [root (loop []
+                        (if (= (.next r) XMLStreamConstants/START_ELEMENT)
+                          (read-element r 1)
+                          (recur)))]
+             ;; on to the end, where anything but a comment or white space
+             ;; after the root is an error, as it is in a browser
+             (while (.hasNext r)
+               (.next r))
+             root)
+           (finally
+             (.close r))))
+       (catch XMLStreamException e
+         (throw (malformed (.getMessage e) e))))
      :cljs
      (read-element (document xml) 1)))
 
@@ -533,31 +569,34 @@
   (apply str (for [[k v] attrs]
                (str " " (qname k) "=\"" (escape-attr (str v)) "\""))))
 
+(declare emit-compact*)
+
 (defn- emit-element*
   "Append the serialization of `element`, indented for `depth`, to the
   transient vector `acc` of string parts. One flat vector joined once at the
-  end keeps a 30 MB feed from being copied once per level of nesting."
+  end keeps a 30 MB feed from being copied once per level of nesting. Mixed
+  content is written as it is, since indentation would join its text and
+  grow it on every round trip."
   [acc depth element]
   (let [indent   (apply str (repeat (* 2 depth) " "))
-        name     (qname (tag element))
-        children (children element)
-        acc      (-> acc (conj! indent) (conj! "<") (conj! name) (conj! (attrs-str (attrs element))))]
-    (cond
-      (empty? children)
-      (conj! acc "/>")
+        children (children element)]
+    (if (and (some string? children) (some vector? children))
+      (emit-compact* (conj! acc indent) element)
+      (let [name (qname (tag element))
+            acc  (-> acc (conj! indent) (conj! "<") (conj! name) (conj! (attrs-str (attrs element))))]
+        (cond
+          (empty? children)
+          (conj! acc "/>")
 
-      (every? string? children)
-      (-> acc (conj! ">") (append-text (apply str children)) (conj! "</") (conj! name) (conj! ">"))
+          (every? string? children)
+          (-> acc (conj! ">") (append-text (apply str children)) (conj! "</") (conj! name) (conj! ">"))
 
-      :else
-      (-> (reduce (fn [acc [i child]]
-                    (let [acc (if (pos? i) (conj! acc "\n") acc)]
-                      (if (string? child)
-                        (-> acc (conj! indent) (conj! "  ") (append-text child))
-                        (emit-element* acc (inc depth) child))))
-                  (conj! acc ">\n")
-                  (map-indexed vector children))
-          (conj! "\n") (conj! indent) (conj! "</") (conj! name) (conj! ">")))))
+          :else
+          (-> (reduce (fn [acc [i child]]
+                        (emit-element* (if (pos? i) (conj! acc "\n") acc) (inc depth) child))
+                      (conj! acc ">\n")
+                      (map-indexed vector children))
+              (conj! "\n") (conj! indent) (conj! "</") (conj! name) (conj! ">")))))))
 
 (defn- emit-element
   [depth element]

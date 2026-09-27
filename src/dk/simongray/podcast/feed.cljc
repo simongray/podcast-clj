@@ -10,8 +10,7 @@
   under `:xml/unknown`. Nothing throws on bad values: they stay strings and
   the report says so. The report is metadata on the result, under
   `:podcast/report`, and `report` reads it."
-  (:require [clojure.string :as str]
-            [dk.simongray.podcast.feed.coerce :as coerce]
+  (:require [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.spec :as spec]
@@ -37,7 +36,7 @@
                  (let [k' (xml/attr-key k)
                        v' (coerce/parse (or type :text) v)]
                    (cond
-                     (and (str/blank? v) (not required))
+                     (and (= "" (xml/trim v)) (not required))
                      (do (note! ctx {:id :feed/empty-attribute :level :info :path (conj path k')})
                          m)
 
@@ -92,7 +91,9 @@
   "Parse the Hiccup `element` by its registry `entry` into a model value, or
   `::empty` for a scalar element with no text."
   [ctx entry element path]
-  (let [text (element-text ctx entry element path)]
+  (let [text (element-text ctx entry element path)
+        ;; the spaces kept between two elements are no text of their own
+        text (when-not (= "" (xml/trim text)) text)]
     (cond
       (spec/map-shaped? (:registry ctx) entry)
       (let [m (cond-> (parse-attrs ctx entry (xml/attrs element) path)
@@ -299,28 +300,32 @@
   (or (not-empty (:podcast/guid feed))
       (when url (guid/from-url url))))
 
-(defn- by-guid
-  "The `items` that have an identity, by it."
+(defn- identified
+  "The items among `items` that have an identity, and of those that share
+  one, the first."
   [items]
-  (into {} (keep (fn [item]
-                   (when-let [id (item-guid item)]
-                     [id item])))
-        items))
+  (let [seen (volatile! #{})]
+    (filterv (fn [item]
+               (let [id (item-guid item)]
+                 (when (and id (not (contains? @seen id)))
+                   (vswap! seen conj id))))
+             items)))
 
 (defn- item-changes
   "What changed between the item sequences `before` and `after`, by item
   identity; see `diff`."
   [before after]
-  (let [old     (by-guid before)
-        new     (by-guid after)
-        current (filter item-guid after)]
-    {:added     (vec (remove #(contains? old (item-guid %)) current))
-     :removed   (vec (remove #(contains? new (item-guid %)) (filter item-guid before)))
-     :changed   (vec (for [item current
+  (let [before (identified before)
+        after  (identified after)
+        old    (into {} (map (juxt item-guid identity)) before)
+        new    (into {} (map (juxt item-guid identity)) after)]
+    {:added     (filterv #(not (contains? old (item-guid %))) after)
+     :removed   (filterv #(not (contains? new (item-guid %))) before)
+     :changed   (vec (for [item after
                            :let [previous (get old (item-guid item))]
                            :when (and previous (not= previous item))]
                        {:before previous :after item}))
-     :unchanged (count (filter #(= % (get old (item-guid %))) current))}))
+     :unchanged (count (filter #(= % (get old (item-guid %))) after))}))
 
 (defn diff
   "What changed from the feed `before` to the feed `after`, by item identity:
@@ -330,9 +335,9 @@
        :live-items {:added [...] :removed [...] :changed [...] :unchanged 1}
        :channel-changed? false}
 
-  Items without an identity (no guid and no enclosure) are not compared, and
-  the channel counts as changed when anything but its items, live items and
-  timestamps differs."
+  Items without an identity (no guid and no enclosure) are not compared, nor
+  are the later of the items that share one; the channel counts as changed
+  when anything but its items, live items and timestamps differs."
   [before after]
   (let [churn [:rss/items :podcast/live-items :rss/last-build-date :rss/pub-date]]
     (assoc (item-changes (:rss/items before) (:rss/items after))

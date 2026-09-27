@@ -119,8 +119,9 @@
   media thumbnail. With `feed` and `item`, the item's own or else the feed's."
   ([x]
    (let [candidates (images x)
-         artworks   (filter #(and (= :podcast (:source %)) (artwork? %)) candidates)]
-     (:href (or (first (sort-by #(- (or (:width %) 0)) artworks))
+         artworks   (filter #(and (= :podcast (:source %)) (artwork? %)) candidates)
+         width      #(let [w (:width %)] (if (number? w) w 0))]
+     (:href (or (first (sort-by #(- (width %)) artworks))
                 (first (remove #(= :podcast (:source %)) candidates))))))
   ([feed item]
    (or (artwork item) (artwork feed))))
@@ -159,12 +160,13 @@
 (defn numbering
   "The season and episode of `item`, from the podcast namespace first and
   iTunes second: `{:type \"full\" :season 2 :season-name \"…\" :episode 3
-  :episode-display \"Ch.3\"}`, with `:type` always and the rest as declared."
+  :episode-display \"Ch.3\"}`, with `:type` always and the rest as declared.
+  A number that did not read in one namespace leaves the other to answer."
   [item]
   (let [season  (:podcast/season item)
         episode (:podcast/episode item)
-        s       (or (:content season) (:itunes/season item))
-        e       (or (:content episode) (:itunes/episode item))]
+        s       (first (filter number? [(:content season) (:itunes/season item)]))
+        e       (first (filter number? [(:content episode) (:itunes/episode item)]))]
     (cond-> {:type (str/lower-case (or (:itunes/episode-type item) "full"))}
       (number? s)        (assoc :season s)
       (:name season)     (assoc :season-name (:name season))
@@ -228,7 +230,8 @@
 (def ^:no-doc transcript-preference
   "Transcript types in the order a client is best served by them: WebVTT
   (timed, speakers, played by browsers), then SRT, JSON, HTML, plain text."
-  ["text/vtt" "application/x-subrip" "application/json" "text/html" "text/plain"])
+  ["text/vtt" "application/x-subrip" "application/srt" "text/srt"
+   "application/json" "text/html" "text/plain"])
 
 (def timed-transcript-types
   "Transcript types whose files carry timings as a rule."
@@ -395,15 +398,28 @@
   (or (true? (:itunes/complete feed))
       (true? (:complete (:podcast/update-frequency feed)))))
 
+(defn- dates
+  "The instants of the items of `feed` dated no later than `now`, newest
+  first, as milliseconds. An item dated after it is an episode scheduled
+  ahead, or a mistake, and neither tells when the feed changes."
+  [feed now]
+  (->> (:rss/items feed)
+       (keep :rss/pub-date)
+       (filter inst?)
+       (map inst-ms)
+       (remove #(> % now))
+       (sort >)))
+
 (defn next-episode
   "When `feed` says its next episode is due after `at`: the first instant
   after `at` that the recurrence rule of podcast:updateFrequency produces,
-  anchored at its dtstart or, failing that, at the latest item's date, or
-  at `at`. Nil when the feed is complete, has no rule, or has one the
-  library does not evaluate (see `rrule/occurrences`)."
+  anchored at its dtstart or, failing that, at the date of the latest item
+  published by `at`, or at `at`, on the days of UTC. Nil when the feed is
+  complete, has no rule, or has one the library does not evaluate (see
+  `rrule/occurrences`)."
   [feed at]
   (let [{:keys [rrule dtstart]} (:podcast/update-frequency feed)
-        latest (some->> (:rss/items feed) (keep :rss/pub-date) (filter inst?) seq (apply max-key inst-ms))]
+        latest (some-> (first (dates feed (inst-ms at))) time/->inst)]
     (when (and (map? rrule) (not (complete? feed)))
       (rrule/next-occurrence rrule (or (when (inst? dtstart) dtstart) latest at) at))))
 
@@ -419,16 +435,12 @@
       (v (quot n 2))
       (quot (+ (v (dec (quot n 2))) (v (quot n 2))) 2))))
 
-(defn- dates
-  "The instants of the dated items of `feed`, newest first, as milliseconds."
-  [feed]
-  (->> (:rss/items feed) (keep :rss/pub-date) (filter inst?) (map inst-ms) (sort >)))
-
 (defn- cadence
-  "The median gap in milliseconds between the ten most recent dated items
-  of `feed`; nil when fewer than two of them differ in date."
-  [feed]
-  (let [recent (take 10 (dates feed))
+  "The median gap in milliseconds between the ten most recent items of
+  `feed` dated no later than `now`; nil when fewer than two of them differ
+  in date."
+  [feed now]
+  (let [recent (take 10 (dates feed now))
         gaps   (filter pos? (map - recent (rest recent)))]
     (when (seq gaps)
       (median gaps))))
@@ -438,22 +450,26 @@
   occurrence of its update-frequency rule; else `at` plus its ttl; else `at`
   plus its syndication period divided by its syndication frequency; else the
   latest item's date plus the median gap between its recent items, or `at`
-  plus that gap once that time has passed. Nil when the feed is complete, or
-  gives no basis at all: no rule, no ttl, no period and fewer than two dated
-  items."
+  plus that gap once that time has passed. Items dated after `at` do not
+  count, and the answer is at most a year after `at`, the longest period a
+  feed can name. Nil when the feed is complete, or gives no basis at all:
+  no rule, no ttl, no period and fewer than two dated items."
   [feed at]
   (when-not (complete? feed)
     (let [now (inst-ms at)
-          ttl (:rss/ttl feed)]
-      (or (next-episode feed at)
-          (when (and (number? ttl) (pos? ttl))
-            (time/->inst (+ now (* ttl 60000))))
-          (when-let [period (syndication-periods (some-> (:sy/update-period feed) str/lower-case))]
-            (let [frequency (:sy/update-frequency feed)]
-              (time/->inst (+ now (quot period (if (and (number? frequency) (pos? frequency)) frequency 1))))))
-          (when-let [gap (cadence feed)]
-            (let [due (+ (first (dates feed)) gap)]
-              (time/->inst (if (> due now) due (+ now gap)))))))))
+          ttl (:rss/ttl feed)
+          due (or (some-> (next-episode feed at) inst-ms)
+                  ;; in floating point, so that an absurd ttl cannot overflow
+                  (when (and (number? ttl) (pos? ttl))
+                    (+ now (* 60000.0 ttl)))
+                  (when-let [period (syndication-periods (some-> (:sy/update-period feed) str/lower-case))]
+                    (let [frequency (:sy/update-frequency feed)]
+                      (+ now (quot period (if (and (number? frequency) (pos? frequency)) frequency 1)))))
+                  (when-let [gap (cadence feed now)]
+                    (let [due (+ (first (dates feed now)) gap)]
+                      (if (> due now) due (+ now gap)))))]
+      (when due
+        (time/->inst (long (min due (+ now (syndication-periods "yearly")))))))))
 
 (defn locked?
   "Whether `feed` forbids other platforms to import it."

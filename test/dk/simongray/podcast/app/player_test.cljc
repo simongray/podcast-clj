@@ -136,6 +136,11 @@
         after  {:podcast/guid "feed-a" :rss/items [(item "a4") (item "a3") (item "a2") (item "a1")]}
         s      (-> (player/state "phone") (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0))]
     (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (player/new-episodes before after "https://a/rss")) "oldest first")
+    (testing "oldest first by date also for a feed that lists them so, and none on a first parse"
+      (let [dated (fn [id day] (assoc (item id) :rss/pub-date (time/->inst (* day 86400000))))
+            after {:podcast/guid "feed-a" :rss/items [(dated "a1" 1) (dated "a2" 2) (dated "a3" 3) (dated "a4" 4)]}]
+        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (player/new-episodes before after "https://a/rss")))
+        (is (= [] (player/new-episodes nil after "https://a/rss")))))
     (testing "without auto-queue the new episodes are reported, not queued"
       (let [{:keys [state added]} (player/refresh s before after "https://a/rss" t1)]
         (is (= 2 (count added)))

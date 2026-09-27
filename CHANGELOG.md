@@ -61,3 +61,11 @@
   Podping goes to the next node when a node answers with an error, and
   `poll!` reads again the blocks that a node left out. A directory that
   refuses a request is a failure, not an answer with no shows.
+- Odd values in a feed give no exception and no wrong answer. A date that
+  does not exist does not read, and an unknown zone reads as UTC. An
+  integer that JavaScript cannot hold exactly does not read, on the JVM
+  either. `next-check` ignores items dated in the future and waits at most
+  a year. The chapter and transcript readers take any text. A no-break
+  space is whitespace, and a space between two inline elements stays. The
+  repairs remove junk before and after the document, as a PHP warning
+  leaves it.

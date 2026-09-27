@@ -101,9 +101,10 @@ to `podcast/parse`.
 
 `resolve/next-check` tells when to fetch a feed again. It uses the
 update-frequency rule of the feed, its `ttl`, its syndication period, or the
-interval between its recent episodes. Send the validators of the last fetch
-with the next fetch. If the feed did not change, the server answers 304 and
-the result has no `:feed`.
+interval between its recent episodes. It ignores episodes dated in the
+future, and it never waits more than a year. Send the validators of the
+last fetch with the next fetch. If the feed did not change, the server
+answers 304 and the result has no `:feed`.
 
 ```clojure
 (resolve/next-check show now)  ; => #inst "…", or nil for a complete feed
@@ -118,7 +119,9 @@ the result has no `:feed`.
 ```
 
 If the subscription has `:auto-queue?` set, `player/refresh` adds the new
-episodes of the feed to the end of the queue, oldest first.
+episodes of the feed to the end of the queue, oldest first. On the first
+fetch there is no earlier parse, and no episode is new: the episodes in the
+feed are its back catalogue.
 
 Podping tells which feeds changed. Fetch these feeds at once, and keep the
 schedule for the other feeds. Keep the last block that you read and the list
