@@ -16,13 +16,26 @@
             [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.xml :as xml]))
 
-;; The parse threads a context `ctx`: the `:registry` being interpreted and
-;; the `:report` accumulator, a volatile.
+;; The parse threads a context `ctx`: the `:registry` being interpreted, the
+;; `:report` accumulator and the `:keys` of the attributes seen, volatiles.
+;; The emit threads one too: the `:registry` and the `:plans` of the
+;; entries met.
 
 (defn- note!
   "Record the diagnostic `m` in the report of `ctx`."
   [ctx m]
   (vswap! (:report ctx) conj m))
+
+(defn- model-key
+  "The model key of the attribute `k`, as `xml/attr-key` gives it, kept in
+  `ctx` for the rest of the parse, since a feed names the same attributes
+  on every item."
+  [ctx k]
+  (let [keys (:keys ctx)]
+    (or (get @keys k)
+        (let [k' (xml/attr-key k)]
+          (vswap! keys assoc k k')
+          k'))))
 
 (defn- parse-attrs
   "Coerce the attributes `attrs` of an element by its registry `entry`.
@@ -33,7 +46,7 @@
   [ctx entry attrs path]
   (reduce-kv (fn [m k v]
                (if-let [{:keys [type required]} (get (:attrs entry) k)]
-                 (let [k' (xml/attr-key k)
+                 (let [k' (model-key ctx k)
                        v' (coerce/parse (or type :text) v)]
                    (cond
                      (and (= "" (xml/trim v)) (not required))
@@ -165,12 +178,13 @@
    {:pre [(map? opts)]}
    (when-not (= :rss (xml/tag tree))
      (throw (ex-info "Not an RSS 2.0 document" {:type ::unsupported :root (xml/tag tree)})))
-   (let [ctx     {:registry (spec/registry registry) :report (volatile! [])}
+   (let [ctx     {:registry (spec/registry registry) :report (volatile! []) :keys (volatile! {})}
          channel (or (xml/element tree :channel)
                      (throw (ex-info "No channel element" {:type ::unsupported})))
          version (:version (xml/attrs tree))
          feed    (parse-children ctx :channel (xml/elements channel) [])
-         others  (remove #{channel} (xml/elements tree))]
+         ;; by identity: a set of the channel would hash all of the feed
+         others  (remove #(identical? % channel) (xml/elements tree))]
      (doseq [[tag attrs] [[:rss (dissoc (xml/attrs tree) :version)] [:channel (xml/attrs channel)]]
              :when (seq attrs)]
        (note! ctx {:id :feed/dropped-attributes :level :info :path [] :tag tag
@@ -243,54 +257,73 @@
   (every? #(re-matches #"[A-Za-z_\u0080-\uFFFF][A-Za-z0-9._\-\u0080-\uFFFF]*" %)
           (keep identity [(namespace k) (name k)])))
 
+(defn- attr-plan
+  "What `emit-attrs` needs of `entry`, worked out once for each entry an
+  emit meets and kept in `ctx`: the model keys that its children and its
+  declared attributes take, and its declared attributes as `[name key
+  type]`."
+  [ctx entry]
+  (let [plans (:plans ctx)]
+    (or (get @plans entry)
+        (let [context (spec/children-context entry)
+              plan    {:taken    (into #{:content :xml/unknown}
+                                       (concat (map #(spec/key-for % context) (spec/entries-for (:registry ctx) context))
+                                               (map xml/attr-key (keys (:attrs entry)))))
+                       :declared (mapv (fn [[k {:keys [type]}]] [k (xml/attr-key k) (or type :text)]) (:attrs entry))}]
+          (vswap! plans assoc entry plan)
+          plan))))
+
 (defn- emit-attrs
-  "The attribute map for an element of `entry` in `registry` from the model
-  map `m`, with declared attributes back under their XML names. Any other
-  key is an attribute a parse kept, written when it can be one: a string
-  under an XML name."
-  [registry entry m]
-  (let [context  (spec/children-context entry)
-        declared (into {} (for [[k {:keys [type]}] (:attrs entry)
-                                :let [v (get m (xml/attr-key k))]
-                                :when (some? v)]
-                            [k (coerce/format (or type :text) v)]))
-        taken    (into #{:content :xml/unknown}
-                       (concat (map #(spec/key-for % context) (spec/entries-for registry context))
-                               (map xml/attr-key (keys (:attrs entry)))))
-        rest     (into {} (filter (fn [[k v]]
-                                    (and (keyword? k) (not (contains? taken k)) (string? v) (xml-name? k))))
-                       m)]
+  "The attribute map for an element of `entry` from the model map `m`, with
+  declared attributes back under their XML names. Any other key is an
+  attribute a parse kept, written when it can be one: a string under an
+  XML name."
+  [ctx entry m]
+  (let [{:keys [taken declared]} (attr-plan ctx entry)
+        declared (reduce (fn [acc [k k' type]]
+                           (let [v (get m k')]
+                             (if (some? v) (assoc acc k (coerce/format type v)) acc)))
+                         {}
+                         declared)
+        rest     (reduce-kv (fn [acc k v]
+                              (if (and (keyword? k) (not (contains? taken k)) (string? v) (xml-name? k))
+                                (assoc acc k v)
+                                acc))
+                            {}
+                            m)]
     (merge rest declared)))
 
 (defn- emit-element
-  "The Hiccup element of `entry` in `registry` for the model value `v`; nil
-  for a value of a map-shaped element that is not a map, which `validate`
-  reports."
-  [registry entry v]
+  "The Hiccup element of `entry` for the model value `v`; nil for a value
+  of a map-shaped element that is not a map, which `validate` reports."
+  [ctx entry v]
   (let [tag  (:tag entry)
         type (spec/content-type entry)]
-    (if (spec/map-shaped? registry entry)
+    (if (spec/map-shaped? (:registry ctx) entry)
       (when (map? v)
-        (-> [tag (emit-attrs registry entry v)]
+        (-> [tag (emit-attrs ctx entry v)]
             (into (when (some? (:content v))
                     [(coerce/format type (:content v))]))
-            (into (emit-children registry (spec/children-context entry) v))))
+            (into (emit-children ctx (spec/children-context entry) v))))
       [tag {} (coerce/format type v)])))
 
 (defn- emit-children
-  "The Hiccup children of an element in the `parent` context of `registry`,
-  from the model map `m`, in registry order and with the unknown elements
-  last. A nil value is no value."
-  [registry parent m]
-  (concat (for [entry (spec/entries-for registry parent)
-                :let  [k (spec/key-for entry parent)]
-                v     (if (= :many (spec/count-for entry parent))
-                        (get m k)
-                        [(get m k)])
-                :let  [element (when (some? v) (emit-element registry entry v))]
-                :when element]
-            element)
-          (:xml/unknown m)))
+  "The Hiccup children of an element in the `parent` context, from the
+  model map `m`, in registry order and with the unknown elements last. A
+  nil value is no value."
+  [ctx parent m]
+  (let [add (fn [acc entry v]
+              (if-some [element (when (some? v) (emit-element ctx entry v))]
+                (conj! acc element)
+                acc))
+        acc (reduce (fn [acc entry]
+                      (let [v (get m (spec/key-for entry parent))]
+                        (if (= :many (spec/count-for entry parent))
+                          (reduce #(add %1 entry %2) acc v)
+                          (add acc entry v))))
+                    (transient [])
+                    (spec/entries-for (:registry ctx) parent))]
+    (persistent! (reduce conj! acc (:xml/unknown m)))))
 
 (defn emit
   "The canonical Hiccup document for `feed` by the tag registry in `opts`
@@ -305,9 +338,10 @@
   ([feed {:keys [registry namespaces] :or {registry spec/default} :as opts}]
    {:pre [(map? opts)]}
    (let [registry (spec/registry registry)
+         ctx      {:registry registry :plans (volatile! {})}
          feed     (normalize feed {:registry registry})]
      (with-meta [:rss {:version (or (:rss/version feed) "2.0")}
-                 (into [:channel {}] (emit-children registry :channel (dissoc feed :rss/version)))]
+                 (into [:channel {}] (emit-children ctx :channel (dissoc feed :rss/version)))]
        {:xml/namespaces (merge (:xml/namespaces (meta feed)) namespaces)}))))
 
 (defn item-guid

@@ -45,15 +45,27 @@
 
 (defn namespace-variants
   "Diagnostics for every namespace declaration in the raw Hiccup `tree` whose
-  URI is not the canonical one for its alias."
+  URI is not the canonical one for its alias, found in one walk that looks
+  at the xmlns attributes alone."
   [tree]
-  (for [element (tree-seq vector? xml/elements tree)
-        [prefix uri] (xml/declarations (xml/attrs element))
-        :when prefix
-        :let [alias (uri->alias uri)]
-        :when (and alias (not= alias (xml/uri->alias uri)))]
-    {:id :quirk/namespace-variant :level :info :prefix prefix :uri uri
-     :canonical (xml/namespaces alias)}))
+  (letfn [(walk [acc element]
+            (let [acc (reduce-kv (fn [acc k uri]
+                                   (if (str/starts-with? k "xmlns:")
+                                     (let [alias (uri->alias uri)]
+                                       (if (and alias (not= alias (xml/uri->alias uri)))
+                                         (conj acc {:id :quirk/namespace-variant :level :info :prefix (subs k 6)
+                                                    :uri uri :canonical (xml/namespaces alias)})
+                                         acc))
+                                     acc))
+                                 acc
+                                 (xml/attrs element))
+                  n   (count element)]
+              (loop [i 2 acc acc]
+                (if (< i n)
+                  (let [child (nth element i)]
+                    (recur (inc i) (if (vector? child) (walk acc child) acc)))
+                  acc))))]
+    (walk [] tree)))
 
 (defn ^:no-doc map-outside-cdata
   "Apply `f` to every stretch of `s` that lies outside a CDATA section."
@@ -84,20 +96,39 @@
       (subs s 0 end)
       s)))
 
-(defn- legal-code-point?
+(defn ^:no-doc legal-code-point?
   "Whether XML 1.0 allows the character with the code point `n`."
   [n]
   (or (= n 9) (= n 10) (= n 13) (<= 0x20 n 0xD7FF) (<= 0xE000 n 0xFFFD) (<= 0x10000 n 0x10FFFF)))
 
+(defn- illegal-reference?
+  "Whether `s` may hold a character reference to a character XML 1.0
+  forbids, judged at each `&#` alone. One in CDATA, which is no reference,
+  counts too; it only sends `strip-control-characters` to look closer."
+  [s]
+  (let [n (count s)]
+    (loop [from 0]
+      (if-let [at (str/index-of s "&#" from)]
+        (let [[_ ref] (re-find #"^&(#\d+|#[xX][0-9a-fA-F]+);" (subs s at (min n (+ at 32))))]
+          (if (and ref (not (some-> (xml/code-point ref) legal-code-point?)))
+            true
+            (recur (+ at 2))))
+        false))))
+
 (defn strip-control-characters
   "Remove the control characters XML 1.0 forbids from `s`, and outside CDATA
-  the character references to them, which XML forbids as well."
+  the character references to them, which XML forbids as well. A loop over
+  the characters and a look at each `&#` come first, so that only a
+  document with something to remove pays for the patterns."
   [s]
-  (map-outside-cdata
-   #(str/replace % #"&(#\d+|#[xX][0-9a-fA-F]+);"
-                 (fn [[whole ref]]
-                   (if (some-> (xml/code-point ref) legal-code-point?) whole "")))
-   (str/replace s xml/illegal-characters "")))
+  (let [s (if (xml/legal? s) s (str/replace s xml/illegal-characters ""))]
+    (if (illegal-reference? s)
+      (map-outside-cdata
+       #(str/replace % #"&(#\d+|#[xX][0-9a-fA-F]+);"
+                     (fn [[whole ref]]
+                       (if (some-> (xml/code-point ref) legal-code-point?) whole "")))
+       s)
+      s)))
 
 (defn replace-html-entities
   "Replace the HTML entities in `s` outside CDATA with numeric references,
@@ -119,13 +150,53 @@
    #(str/replace % #"&(?!(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);)" "&amp;")
    s))
 
+(defn- prefix-before?
+  "Whether the colon at `i` of `s` ends a name that follows a `<` or white
+  space, as a namespace prefix does; the colon of `https:` in a quoted value
+  follows a quote."
+  [^String s ^long i]
+  (loop [j (dec i)]
+    (if (neg? j)
+      false
+      (let [c #?(:clj (int (.charAt s j)) :cljs (.charCodeAt s j))]
+        (if (or (and (<= 97 c) (<= c 122)) (and (<= 65 c) (<= c 90)) (and (<= 48 c) (<= c 57))
+                (== c 95) (== c 46) (== c 45))
+          (recur (dec j))
+          (and (< j (dec i)) (or (== c 60) (== c 32) (== c 9) (== c 10) (== c 13))))))))
+
+(defn- prefixed-tags
+  "The start tags of `s` that name a namespace prefix, cut as
+  `<[A-Za-z][^<>]*` cuts them, found in one pass over the characters: the
+  text is most of a feed, and few of its tags name a prefix."
+  [^String s]
+  ;; primitive locals throughout, -1 for no tag, and comparisons of two
+  ;; arguments, which Clojure compiles inline, since this runs for every
+  ;; character of the feed
+  (let [n (count s)]
+    (loop [i 0 start -1 prefixed? false acc (transient [])]
+      (if (< i n)
+        (let [c #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))]
+          (cond
+            (== c 60) (let [letter? (and (< (inc i) n)
+                                         (let [d #?(:clj (int (.charAt s (inc i))) :cljs (.charCodeAt s (inc i)))]
+                                           (or (and (<= 65 d) (<= d 90)) (and (<= 97 d) (<= d 122)))))]
+                        (recur (inc i) (if letter? i -1) false (if prefixed? (conj! acc (subs s start i)) acc)))
+            (== c 62) (recur (inc i) -1 false (if prefixed? (conj! acc (subs s start i)) acc))
+            (and (== c 58) (>= start 0) (not prefixed?))
+            (recur (inc i) start (prefix-before? s i) acc)
+            :else     (recur (inc i) start prefixed? acc)))
+        (persistent! (if prefixed? (conj! acc (subs s start n)) acc))))))
+
 (defn undeclared-prefixes
   "The namespace prefixes that tags and attributes in `s` use without any
-  `xmlns:` declaration."
+  `xmlns:` declaration, looked for inside the start tags alone."
   [s]
-  (let [used     (into #{} (comp (map rest) (mapcat identity) (remove nil?))
-                       (re-seq #"<([A-Za-z][\w.-]*):|\s([A-Za-z][\w.-]*):[\w.-]+=" s))
-        declared (into #{"xml" "xmlns"} (map second) (re-seq #"xmlns:([\w.-]+)=" s))]
+  (let [tags     (prefixed-tags s)
+        used     (into #{} (comp (mapcat #(re-seq #"^<([A-Za-z][\w.-]*):|[ \t\r\n]([A-Za-z][\w.-]*):[\w.-]+=" %))
+                                 (mapcat rest)
+                                 (remove nil?))
+                       tags)
+        declared (into #{"xml" "xmlns"} (comp (mapcat #(re-seq #"[ \t\r\n]xmlns:([\w.-]+)=" %)) (map second)) tags)]
     (remove declared used)))
 
 (defn declare-known-prefixes
@@ -367,16 +438,25 @@
           (by-tag (xml/tag element))))
 
 (defn- walk
+  "`element` with the rules of `by-tag` applied to it and below it, children
+  before parents, recording in `report` what they did; the element itself
+  when nothing below it changed, so that no untouched subtree is copied."
   [by-tag report element]
-  ;; reduce rather than a lazy keep, which costs the stack several frames
+  ;; a loop rather than a lazy keep, which costs the stack several frames
   ;; more for every level of nesting
-  (->> (reduce (fn [acc child]
-                 (if-some [child' (if (string? child) child (walk by-tag report child))]
-                   (conj acc child')
-                   acc))
-               [(xml/tag element) (xml/attrs element)]
-               (xml/children element))
-       (apply-rules by-tag report)))
+  (let [n       (count element)
+        rebuilt (loop [i 2 acc nil]
+                  (if (< i n)
+                    (let [child  (nth element i)
+                          child' (if (string? child) child (walk by-tag report child))
+                          acc    (cond
+                                   acc                       acc
+                                   (identical? child child') nil
+                                   :else                     (reduce conj! (transient [(xml/tag element) (xml/attrs element)])
+                                                                     (subvec element 2 i)))]
+                      (recur (inc i) (if (and acc (some? child')) (conj! acc child') acc)))
+                    acc))]
+    (apply-rules by-tag report (if rebuilt (persistent! rebuilt) element))))
 
 (defn normalize
   "Rewrite the canonical Hiccup `tree` by `rules` and by the `registry-rules`

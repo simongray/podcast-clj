@@ -209,22 +209,25 @@
   such lines make a list when the time comes first, three in rising order
   when it comes last. The report says the chapters were inferred."
   [s]
+  ;; notes with no digit, colon and two digits in a row, a colon reference
+  ;; counted, hold no time, and most notes have none, so they skip the parse;
   ;; the patterns' optional parts meet around runs of spaces, over which they
   ;; would backtrack quadratically, so each run is one space first
-  (let [lines    (map #(str/replace % #"\s+" " ") (str/split-lines (html/text (html/hiccup s))))
-        leading  (keep #(line-chapter timestamp-first true %) lines)
-        trailing (keep #(line-chapter timestamp-last false %) lines)
-        chapters (cond
-                   (<= 2 (count leading))
-                   leading
+  (when (and s (re-find #"\d(?::|&#0*58;|&#[xX]0*3[aA];|&colon;)\d\d" s))
+    (let [lines    (map #(str/replace % #"\s+" " ") (str/split-lines (html/text (html/hiccup s))))
+          leading  (keep #(line-chapter timestamp-first true %) lines)
+          trailing (keep #(line-chapter timestamp-last false %) lines)
+          chapters (cond
+                     (<= 2 (count leading))
+                     leading
 
-                   (and (<= 3 (count trailing)) (apply < (map :start-time trailing)))
-                   trailing)]
-    (when chapters
-      (with-meta {:version version :chapters (vec chapters)}
-        {:podcast/report [(diagnostic :chapters/inferred :info
-                                      (str (count chapters) " chapters were read from timestamps in the show notes")
-                                      :count (count chapters))]}))))
+                     (and (<= 3 (count trailing)) (apply < (map :start-time trailing)))
+                     trailing)]
+      (when chapters
+        (with-meta {:version version :chapters (vec chapters)}
+          {:podcast/report [(diagnostic :chapters/inferred :info
+                                        (str (count chapters) " chapters were read from timestamps in the show notes")
+                                        :count (count chapters))]})))))
 
 (defn sorted
   "The chapters of `doc` that have a start time, in order of it."

@@ -39,6 +39,10 @@
     (is (= "a &amp; b &amp; &#38; <![CDATA[a & b]]>"
            (quirks/escape-bare-ampersands "a & b &amp; &#38; <![CDATA[a & b]]>")))
     (is (= ["itunes" "podcast" "x"] (sort (quirks/undeclared-prefixes "<rss><itunes:author/><podcast:guid/><x:y/></rss>"))))
+    (is (= ["xlink"] (quirks/undeclared-prefixes "<a href=\"https://x\"\n xlink:title=\"t\">At 12:30</a>"))
+        "a colon in a value or in text names no prefix")
+    (is (= ["data-xmlns" "itunes"] (sort (quirks/undeclared-prefixes "<rss data-xmlns:itunes=\"x\"><itunes:author/></rss>")))
+        "only an xmlns attribute declares one")
     (is (re-find #"^<rss xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\">"
                  (quirks/declare-known-prefixes "<rss><itunes:author/></rss>"))))
   (testing "repair reports what it changed"

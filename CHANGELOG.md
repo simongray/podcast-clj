@@ -86,3 +86,9 @@
   `player/skip` ignores a duration of zero or NaN, `player/write` stamps
   the entries of an app, and `changes-since` takes the state as it was, so
   that nothing merged since is missed.
+- The same results with less work. A big feed parses in about half the time
+  and emits in less than half. The repairs look at the characters in one
+  loop before they use a pattern, and only an `xmlns:` attribute declares
+  a prefix. `enqueue` finds the end of the queue without a sort, `turns`
+  and `seasons` take linear time, `from-text` skips notes that hold no
+  time, and search folds text many times faster.

@@ -57,7 +57,10 @@
 (defn text
   "The concatenated text content of the Hiccup `element`."
   [element]
-  (apply str (filter string? (children element))))
+  ;; one string is the common case, and needs no concatenation
+  (if (and (vector? element) (== 3 (count element)) (string? (nth element 2)))
+    (nth element 2)
+    (apply str (filter string? (children element)))))
 
 (defn elements
   "The element children of `element`, optionally only those tagged `tag`."
@@ -76,52 +79,65 @@
   [element]
   (apply str (filter string? (tree-seq vector? children element))))
 
-(defn- space?
-  "Whether the character of `s` at `i` is white space to the trim of either
-  platform: Java's keeps the no-break spaces and the byte order mark, which
-  JavaScript's removes."
-  [s i]
-  (let [c #?(:clj (int (.charAt ^String s i)) :cljs (.charCodeAt s i))]
-    (or (<= c 32) (= c 0xA0) (= c 0x1680) (<= 0x2000 c 0x200A) (= c 0x2028) (= c 0x2029)
-        (= c 0x202F) (= c 0x205F) (= c 0x3000) (= c 0xFEFF))))
+(defn- space-code?
+  "Whether the character with the code `c` is white space to the trim of
+  either platform: Java's keeps the no-break spaces and the byte order
+  mark, which JavaScript's removes. A primitive argument, and comparisons of
+  two arguments, which Clojure compiles inline, as this runs for the ends of
+  every value a parse reads."
+  [^long c]
+  (or (<= c 32) (== c 0xA0) (== c 0x1680) (and (<= 0x2000 c) (<= c 0x200A)) (== c 0x2028) (== c 0x2029)
+      (== c 0x202F) (== c 0x205F) (== c 0x3000) (== c 0xFEFF)))
 
 (defn ^:no-doc trim
   "`s` without the white space at either end, the no-break spaces included,
   so that a value reads the same on the JVM and in JavaScript; `s` itself
   when there is none."
-  [s]
+  [^String s]
   (let [n     (count s)
-        start (loop [i 0] (if (and (< i n) (space? s i)) (recur (inc i)) i))
-        end   (loop [i n] (if (and (> i start) (space? s (dec i))) (recur (dec i)) i))]
-    (if (and (zero? start) (= end n))
+        start (loop [i 0]
+                (if (and (< i n) (space-code? #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))))
+                  (recur (inc i))
+                  i))
+        end   (loop [i n]
+                (if (and (> i start) (space-code? #?(:clj (int (.charAt s (dec i))) :cljs (.charCodeAt s (dec i)))))
+                  (recur (dec i))
+                  i))]
+    (if (and (zero? start) (== end n))
       s
       (subs s start end))))
+
+(defn- kept-run
+  "`acc` with the run of text `run` added, unless it is blank, and a blank
+  run is kept when it is `between?` two elements on one line."
+  [acc run between?]
+  (if (and run (or (not= "" (trim run)) (and between? (not (re-find #"[\r\n]" run)))))
+    (conj! acc run)
+    acc))
 
 (defn ^:no-doc compact-text
   "Merge adjacent strings in `nodes` and drop the ones that are blank, but
   for a space between two elements on one line, which inline markup needs:
   `<b>Hello</b> <i>world</i>`. What every raw-parsing adapter does to the
-  children it reads."
+  children it reads, in one pass."
   [nodes]
-  (let [groups (vec (partition-by string? nodes))
-        end    (dec (count groups))]
-    (into []
-          (comp (map-indexed (fn [i group]
-                               (if (string? (first group))
-                                 (let [s (apply str group)]
-                                   (when (or (not= "" (trim s))
-                                             (and (< 0 i end) (not (re-find #"[\r\n]" s))))
-                                     [s]))
-                                 group)))
-                cat)
-          groups)))
+  (loop [nodes (seq nodes) acc (transient []) run nil after-element? false]
+    (if nodes
+      (let [node (first nodes)]
+        (if (string? node)
+          (recur (next nodes) acc (if run (str run node) node) after-element?)
+          (recur (next nodes) (conj! (kept-run acc run after-element?) node) nil true)))
+      (persistent! (kept-run acc run false)))))
 
 (defn kebab
   "Turn the camelCase XML name `s` into kebab-case: startTime to start-time."
   [s]
-  (-> s
-      (str/replace #"([a-z0-9])([A-Z])" "$1-$2")
-      str/lower-case))
+  ;; most names are in lower case already, and need no pattern
+  (if (= s (str/lower-case s))
+    s
+    (-> s
+        (str/replace #"([a-z0-9])([A-Z])" "$1-$2")
+        str/lower-case)))
 
 (defn attr-key
   "The model key of the XML attribute named `k` (a keyword): kebab-cased when
@@ -491,7 +507,7 @@
   "The characters XML 1.0 forbids anywhere, as a pattern."
   #"[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]")
 
-(defn- legal?
+(defn ^:no-doc legal?
   "Whether the string `s` has no character XML 1.0 forbids. A plain loop over
   the characters: a regular expression crawls the megabytes of show notes in
   a big feed thirty times slower."
@@ -513,6 +529,25 @@
     s
     (str/replace s illegal-characters "")))
 
+(defn ^:no-doc plain?
+  "Whether the string `s` goes into a text node as it is, or with `attr?`
+  into an attribute value: nothing in it that XML 1.0 forbids, and nothing
+  to escape. One loop over the characters, which most values pass, in place
+  of `legal?` and a pattern each."
+  [^String s attr?]
+  (let [n (count s)]
+    (loop [i 0]
+      (if (== i n)
+        true
+        (let [c #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))]
+          (if (if (< c 63)
+                (or (== c 38) (== c 60) (== c 62)
+                    (and (< c 32) (or attr? (< c 9) (> c 10)))
+                    (and attr? (== c 34)))
+                (>= c 0xFFFE))
+            false
+            (recur (inc i))))))))
+
 (defn- escape-legal-text
   "Escape the legal string `s` for a text node; `s` itself when nothing
   needs escaping. A carriage return becomes a character reference, the only
@@ -530,25 +565,29 @@
   "Escape `s` for an attribute value, where a parser also normalizes
   newlines and tabs to spaces unless they are character references."
   [s]
-  (let [s (escape-legal-text (legal s))]
-    (if (re-find #"[\"\n\t]" s)
-      (-> s
-          (str/replace "\"" "&quot;")
-          (str/replace "\n" "&#10;")
-          (str/replace "\t" "&#9;"))
-      s)))
+  (if (plain? s true)
+    s
+    (let [s (escape-legal-text (legal s))]
+      (if (re-find #"[\"\n\t]" s)
+        (-> s
+            (str/replace "\"" "&quot;")
+            (str/replace "\n" "&#10;")
+            (str/replace "\t" "&#9;"))
+        s))))
 
 (defn- append-text
   "Append the text `s` to the transient vector `acc` of string parts: as
   CDATA when it contains markup but no carriage return, which CDATA cannot
   carry through a parser, and escaped otherwise."
   [acc s]
-  (let [s (legal s)]
-    (if (and (str/includes? s "<")
-             (not (str/includes? s "]]>"))
-             (not (str/includes? s "\r")))
-      (-> acc (conj! "<![CDATA[") (conj! s) (conj! "]]>"))
-      (conj! acc (escape-legal-text s)))))
+  (if (plain? s false)
+    (conj! acc s)
+    (let [s (legal s)]
+      (if (and (str/includes? s "<")
+               (not (str/includes? s "]]>"))
+               (not (str/includes? s "\r")))
+        (-> acc (conj! "<![CDATA[") (conj! s) (conj! "]]>"))
+        (conj! acc (escape-legal-text s))))))
 
 (defn qname
   "The XML name of the keyword `k`: `itunes:author` for `:itunes/author`,
@@ -559,19 +598,33 @@
     (name k)))
 
 (defn- aliases
-  "The set of namespace aliases used by tags and attributes in `tree`."
+  "The set of namespace aliases used by tags and attributes in `tree`, in
+  one walk that makes no lazy sequence."
   [tree]
-  (->> (tree-seq vector? elements tree)
-       (mapcat (fn [el] (cons (tag el) (keys (attrs el)))))
-       (keep namespace)
-       (remove #{"xml"})
-       (map keyword)
-       set))
+  (letfn [(walk [acc el]
+            (let [acc (if-let [ns (namespace (tag el))] (conj! acc ns) acc)
+                  acc (reduce-kv (fn [acc k _] (if-let [ns (namespace k)] (conj! acc ns) acc)) acc (attrs el))
+                  n   (count el)]
+              (loop [i 2 acc acc]
+                (if (< i n)
+                  (let [child (nth el i)]
+                    (recur (inc i) (if (vector? child) (walk acc child) acc)))
+                  acc))))]
+    (into #{} (comp (remove #{"xml"}) (map keyword)) (persistent! (walk (transient #{}) tree)))))
 
-(defn- attrs-str
-  [attrs]
-  (apply str (for [[k v] attrs]
-               (str " " (qname k) "=\"" (escape-attr (str v)) "\""))))
+(defn ^:no-doc append-attrs
+  "Append the attributes `attrs` to the transient vector `acc` of string
+  parts, each as ` name=\"value\"`."
+  [acc attrs]
+  (reduce-kv (fn [acc k v]
+               (-> acc (conj! " ") (conj! (qname k)) (conj! "=\"") (conj! (escape-attr (str v))) (conj! "\"")))
+             acc
+             attrs))
+
+(def ^:no-doc indents
+  "The indentation of an element at each depth down to `max-depth`, two
+  spaces a level, made once rather than for every element."
+  (vec (take (inc max-depth) (iterate #(str % "  ") ""))))
 
 (declare emit-compact*)
 
@@ -582,12 +635,12 @@
   content is written as it is, since indentation would join its text and
   grow it on every round trip."
   [acc depth element]
-  (let [indent   (apply str (repeat (* 2 depth) " "))
+  (let [indent   (or (get indents depth) (apply str (repeat (* 2 depth) " ")))
         children (children element)]
     (if (and (some string? children) (some vector? children))
       (emit-compact* (conj! acc indent) element append-text)
       (let [name (qname (tag element))
-            acc  (-> acc (conj! indent) (conj! "<") (conj! name) (conj! (attrs-str (attrs element))))]
+            acc  (-> acc (conj! indent) (conj! "<") (conj! name) (append-attrs (attrs element)))]
         (cond
           (empty? children)
           (conj! acc "/>")
@@ -601,10 +654,6 @@
                       (conj! acc ">\n")
                       (map-indexed vector children))
               (conj! "\n") (conj! indent) (conj! "</") (conj! name) (conj! ">")))))))
-
-(defn- emit-element
-  [depth element]
-  (str/join (persistent! (emit-element* (transient []) depth element))))
 
 (defn- without
   "The Hiccup `element` without the elements and attributes in the
@@ -637,9 +686,11 @@
                              (or (alias->uri alias)
                                  (throw (ex-info "Unknown namespace alias" {:alias alias})))]))
          root       (update tree 1 #(into decls %))]
-     (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-          (emit-element 0 root)
-          "\n"))))
+     ;; the declaration and the last line break are parts too, so that the
+     ;; document is put together once
+     (str/join (persistent! (-> (transient ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"])
+                                (emit-element* 0 root)
+                                (conj! "\n")))))))
 
 (defn- emit-compact*
   "Append the one-line serialization of `element` to the transient vector
@@ -647,7 +698,7 @@
   vector and a string."
   [acc element text]
   (let [name (qname (tag element))
-        acc  (-> acc (conj! "<") (conj! name) (conj! (attrs-str (attrs element))))]
+        acc  (-> acc (conj! "<") (conj! name) (append-attrs (attrs element)))]
     (if (empty? (children element))
       (conj! acc "/>")
       (-> (reduce (fn [acc child]
@@ -662,7 +713,7 @@
   "Append the text `s` to the transient vector `acc` of string parts,
   escaped, and never as CDATA, which HTML does not read."
   [acc s]
-  (conj! acc (escape-legal-text (legal s))))
+  (conj! acc (if (plain? s false) s (escape-legal-text (legal s)))))
 
 (defn inner-xml
   "The content of `element` as markup: its text escaped and its child

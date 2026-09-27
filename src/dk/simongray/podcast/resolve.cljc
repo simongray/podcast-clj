@@ -578,9 +578,10 @@
   a group without one, where their first item falls."
   [feed]
   (let [ordered (episodes feed)
-        season  #(:season (numbering %))]
+        season  #(:season (numbering %))
+        groups  (group-by season ordered)]
     (for [s     (distinct (map season ordered))
-          :let  [items (filterv #(= s (season %)) ordered)
+          :let  [items (groups s)
                  name  (some (comp :season-name numbering) items)]]
       (cond-> {:items items}
         s    (assoc :season s)

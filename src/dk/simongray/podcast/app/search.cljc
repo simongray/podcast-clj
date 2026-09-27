@@ -52,15 +52,17 @@
 
 (defn- marked?
   "Whether `s` holds a combining mark of the ranges `marks` covers, found
-  with a loop, which costs text without one far less than the pattern."
+  with a loop, which costs text without one far less than the pattern. The
+  comparisons take two arguments, which Clojure compiles inline."
   [^String s]
   (let [n (count s)]
     (loop [i 0]
       (if (= i n)
         false
         (let [c #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))]
-          (if (or (<= 0x0300 c 0x036F) (<= 0x1AB0 c 0x1AFF) (<= 0x1DC0 c 0x1DFF)
-                  (<= 0x20D0 c 0x20FF) (<= 0xFE20 c 0xFE2F))
+          (if (or (and (<= 0x0300 c) (<= c 0x036F)) (and (<= 0x1AB0 c) (<= c 0x1AFF))
+                  (and (<= 0x1DC0 c) (<= c 0x1DFF)) (and (<= 0x20D0 c) (<= c 0x20FF))
+                  (and (<= 0xFE20 c) (<= c 0xFE2F)))
             true
             (recur (inc i))))))))
 

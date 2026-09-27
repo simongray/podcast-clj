@@ -89,6 +89,8 @@
     (is (= [c] (player/queue (player/play-next (player/state "phone") c t1))))
     (is (= [b] (player/queue (player/dequeue s a t1))))
     (is (= [b a] (player/queue (player/move s a 5 t1))) "an index past the end means the end")
+    (is (= [b a c] (player/queue (player/enqueue (player/move s a 5 t1) c t1))) "a new episode goes after the last")
+    (is (= [a c] (player/queue (player/enqueue (player/dequeue s b t1) c t1))) "and a removed one takes no place")
     (is (= [b a c] (player/queue (player/move (player/enqueue s c t1) a 1.9 t1)))
         "an index that is not whole counts as the whole number below it")
     (is (= [b a] (player/queue (player/move s b ##NaN t1))) "and NaN as 0, on both platforms")

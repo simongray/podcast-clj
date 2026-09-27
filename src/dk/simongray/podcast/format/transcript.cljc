@@ -379,6 +379,14 @@
                                   (name format) ", which is how it was read")
                              :declared declared :used format))))))
 
+(defn- turn
+  "The segments `run` by one speaker as one turn: the first segment, with
+  the bodies of all joined by spaces and the last end the others have."
+  [[segment & more :as run]]
+  (let [end (some :end (reverse more))]
+    (cond-> (assoc segment :body (str/join " " (map :body run)))
+      end (assoc :end end))))
+
 (defn turns
   "`transcript` with consecutive segments by the same speaker merged into
   one turn each, spanning their time with their text joined by spaces.
@@ -387,14 +395,10 @@
   [transcript]
   (update transcript :segments
           (fn [segments]
-            (reduce (fn [acc {:keys [speaker end body] :as segment}]
-                      (let [previous (peek acc)]
-                        (if (and speaker (= speaker (:speaker previous)))
-                          (conj (pop acc) (cond-> (update previous :body str " " body)
-                                            end (assoc :end end)))
-                          (conj acc segment))))
-                    []
-                    segments))))
+            (into []
+                  (comp (partition-by :speaker)
+                        (mapcat #(if (and (:speaker (first %)) (next %)) [(turn %)] %)))
+                  segments))))
 
 (defn text
   "The plain text of `transcript`: the bodies of its segments, one line per

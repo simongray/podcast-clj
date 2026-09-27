@@ -416,13 +416,21 @@
   [state id rank at]
   (write state [:queue id] (constantly {:rank rank :removed? false}) at))
 
+(defn- last-rank
+  "The greatest rank in the queue of `state`, nil when it is empty, found in
+  one pass, so that queuing many episodes in a row sorts nothing."
+  [state]
+  (reduce-kv (fn [r _ {:keys [rank removed?]}] (if (and (not removed?) (pos? (compare rank r))) rank r))
+             nil
+             (:queue state)))
+
 (defn enqueue
   "Put the episode `id` at the end of the queue at `at`, unless it is queued
   already."
   [state id at]
   (if (queued? state id)
     state
-    (place state id (rank-between state (peek (queue state)) nil) at)))
+    (place state id (rank/between (last-rank state) nil) at)))
 
 (defn play-next
   "Put the episode `id` right after the current episode at `at`, moving it

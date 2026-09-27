@@ -108,6 +108,8 @@
     (is (nil? (chapters/from-text "00:00 Intro")))
     (is (nil? (chapters/from-text "Doors 19:00\nShow 20:00")))
     (is (nil? (chapters/from-text nil))))
+  (testing "a colon written as a character reference counts"
+    (is (= [0 312] (map :start-time (:chapters (chapters/from-text "<p>00&#58;00 Intro</p><p>05&#x3A;12 The news</p>"))))))
   (testing "runs of blanks are one space, and a long one is read in linear time"
     (is (= ["Intro" "The middle bit"]
            (map :title (:chapters (chapters/from-text "<pre>00:00  Intro\n12:34   The   middle   bit</pre>")))))
@@ -247,7 +249,11 @@
               {:start 0.5 :end 0.9 :speaker "Kevin" :body "Yes."}
               {:start 1 :end 1.5 :body "(music)"}
               {:start 2 :end 2.5 :body "(music)"}]
-             (:segments t))))))
+             (:segments t)))
+      (is (= [{:start 0 :end 1 :speaker "A" :body "a b"}]
+             (:segments (transcript/turns {:segments [{:start 0 :end 1 :speaker "A" :body "a"}
+                                                      {:start 1 :speaker "A" :body "b"}]})))
+          "a turn ends where the last segment with an end does"))))
 
 (deftest emitting-untimed-segments
   (let [untimed (transcript/parse "Justin: Hi.\n\nBye." "text/plain")
