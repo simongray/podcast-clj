@@ -13,8 +13,6 @@
   (:require [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.http :as http]))
 
-;; the header of each format, walked from its start
-
 (defn- u16le
   "The little-endian 16-bit number at `p` in `view`."
   [view p]

@@ -27,8 +27,6 @@
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.resolve :as resolve]))
 
-;; the files
-
 (def ^:no-doc overlays
   "The top-level domains of overlay networks, whose hosts only their own
   clients reach: Tor's, which RFC 7686 sets aside, I2P's and Lokinet's."
@@ -125,8 +123,6 @@
                    {:kind :media :url url :path [:podcast/trailers j] :declared (present {:type type :length length})})
                  (image-files feed [])
                  (mapcat item-files (newest feed items))))))
-
-;; the requests
 
 (def ^:no-doc origin
   "The origin that a check names in its requests for the files that pages
@@ -281,8 +277,6 @@
                 (fn [lanes]
                   (let [by-index (into {} (mapcat :value) lanes)]
                     (mapv #(get by-index % {:error "The file was not checked."}) (range (count files))))))))
-
-;; the verdicts
 
 (def profiles
   "The rules that a check adds for a standard or a directory, under the
