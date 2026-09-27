@@ -43,7 +43,10 @@
   (is (nil? (encrypted/envelope nil)))
   (testing "nor one asking for an iteration count that would hold the device up, or none at all"
     (doseq [n [0 -1 "\"x\"" "nil" (inc encrypted/max-iterations)]]
-      (is (nil? (encrypted/envelope (str/replace sealed-by-the-jvm #":iterations \d+" (str ":iterations " n)))) n))))
+      (is (nil? (encrypted/envelope (str/replace sealed-by-the-jvm #":iterations \d+" (str ":iterations " n)))) n)))
+  (testing "nor one whose parts are not base64"
+    (doseq [iv ["\"\"" "\"not base64!\"" "\"AAA\"" "1"]]
+      (is (nil? (encrypted/envelope (str/replace sealed-by-the-jvm #":iv \"[^\"]*\"" (str ":iv " iv)))) iv))))
 
 #?(:clj
    (deftest sealing-and-opening
@@ -83,6 +86,12 @@
            (is (= plaintext (:body ((:fetch s2) "phone.edn"))))
            (is (= plaintext (:body ((:fetch s2) "phone.edn"))))
            (is (= 1 @asked) "and the key is derived once per salt")))
+       (testing "and one corrected later is asked for again when the cached key opens nothing"
+         (let [typed (atom "typo")
+               s3    (encrypted/store (store/memory documents) {:passphrase #(deref typed) :iterations 1000})]
+           (is (thrown? Exception ((:fetch s3) "phone.edn")))
+           (reset! typed passphrase)
+           (is (= plaintext (:body ((:fetch s3) "phone.edn"))))))
        (is (:ok? (store/check! s)) "the generic check passes through it"))))
 
 #?(:clj

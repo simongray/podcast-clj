@@ -42,12 +42,18 @@
    {:name   "memory"
     :fetch  (fn [name] (get @documents name))
     :put    (fn [name body opts]
-              (let [current (:version (get @documents name))]
-                (if (and (contains? opts :if-version) (not= (:if-version opts) current))
+              ;; the version checked and the document written in one swap,
+              ;; so that of two puts on the same version only one succeeds
+              (let [[before after] (swap-vals! documents
+                                               (fn [docs]
+                                                 (let [current (:version (get docs name))]
+                                                   (if (and (contains? opts :if-version) (not= (:if-version opts) current))
+                                                     docs
+                                                     (assoc docs name {:body    body
+                                                                       :version (str (inc (or (some-> current parse-long) 0)))})))))]
+                (if (identical? before after)
                   {:conflict? true}
-                  (let [version (str (inc (or (some-> current parse-long) 0)))]
-                    (swap! documents assoc name {:body body :version version})
-                    {:version version}))))
+                  {:version (:version (get after name))})))
     :list   (fn [] (vec (sort-by :name (for [[name {:keys [version]}] @documents] {:name name :version version}))))
     :delete (fn [name] (swap! documents dissoc name) nil)}))
 
@@ -67,23 +73,32 @@
 
 (defn- pull-documents
   "The per-device pull: the documents in the store, the `.edn` files of
-  its listing, that changed since the cursor `ctx` was taken, read at `at`,
-  with this device's own noted when it changed under it."
+  its listing, that changed since the cursor `ctx` was taken, fetched at
+  once and read at `at`, with this device's own noted when it changed
+  under it. A document the listing gives no version is always fetched,
+  and this device's own, when it has gone from the store, is written
+  again by the push."
   [{:keys [list fetch]} state {:keys [versions] :as ctx} at]
   (async/then (list)
               (fn [listing]
                 (let [own       (document-name (:device state))
                       documents (filter #(str/ends-with? (:name %) ".edn") listing)
-                      stale     (remove #(= (:version %) (get versions (:name %))) documents)]
-                  (async/then (async/all (map (fn [{:keys [name]}] (async/then (fetch name) #(some-> % (assoc :name name)))) stale))
-                              (fn [fetched]
-                                (let [fetched (remove nil? fetched)
+                      stale     (remove #(and (some? (:version %)) (= (:version %) (get versions (:name %)))) documents)
+                      gone?     (and (contains? versions own) (not-any? #(= own (:name %)) documents))]
+                  (async/then (async/all (map (fn [{:keys [name]}]
+                                                (async/attempt #(async/then (fetch name) (fn [doc] (some-> doc (assoc :name name))))))
+                                              stale))
+                              (fn [results]
+                                (when-let [error (some :error results)]
+                                  (throw error))
+                                (let [fetched (keep :value results)
                                       {:keys [states report]} (sync/read-documents fetched at)]
                                   {:states states
-                                   :ctx    (assoc ctx :versions (-> (into {} (map (juxt :name :version)) documents)
-                                                                    (into (map (juxt :name :version)) fetched)))
+                                   :ctx    (cond-> (assoc ctx :versions (-> (into {} (map (juxt :name :version)) documents)
+                                                                            (into (map (juxt :name :version)) fetched)))
+                                             gone? (dissoc :hash))
                                    :report (cond-> report
-                                             (and (contains? versions own) (some #(= own (:name %)) stale))
+                                             (and (contains? versions own) (some #(and (= own (:name %)) (some? (:version %))) stale))
                                              (conj (describe {:id :sync/shared-device :name own :device (:device state)})))})))))))
 
 (defn- mirror-opml
@@ -118,19 +133,34 @@
 
 (defn- pull-shared
   "The shared-document pull: the one document, read at `at`, when its version
-  is not the one the cursor `ctx` remembers."
+  is not the one the cursor `ctx` remembers. A document that has gone from
+  the store is written again by the push, and one of a newer format than
+  this library writes is marked in the cursor, for the push to leave alone."
   [{:keys [fetch]} name {:keys [version] :as ctx} at]
   (async/then (fetch name)
               (fn [doc]
-                (if (or (nil? doc) (= version (:version doc)))
+                (cond
+                  (nil? doc)
+                  {:states [] :ctx (cond-> ctx version (dissoc :version :hash)) :report []}
+
+                  (= version (:version doc))
                   {:states [] :ctx ctx :report []}
-                  (let [{:keys [states report]} (sync/read-documents [(assoc doc :name name)] at)]
-                    {:states states :ctx (assoc ctx :version (:version doc)) :report report})))))
+
+                  :else
+                  (let [{:keys [states report]} (sync/read-documents [(assoc doc :name name)] at)
+                        newer? (some #(= :sync/newer-format (:id %)) report)]
+                    {:states states
+                     :ctx    (cond-> (assoc ctx :version (:version doc))
+                               newer?       (assoc :newer? true)
+                               (not newer?) (dissoc :newer?))
+                     :report report})))))
 
 (defn- push-shared
   "The shared-document push: `state` put on condition of the version the
   cursor `ctx` holds and, on a conflict, fetched, merged and put again, up
-  to three more times; the merged state comes back for the caller."
+  to three more times; the merged state comes back for the caller. A
+  document of a newer format is left alone, since writing over it would
+  lose what this library cannot read."
   [{:keys [fetch put]} name opts state ctx at]
   (letfn [(put-conditionally [state {:keys [version] :as ctx} attempts]
             (async/then (put name (sync/document state at (select-keys opts [:app])) {:if-version version})
@@ -144,12 +174,14 @@
                         (fn [doc]
                           (let [{:keys [states report]} (sync/read-documents (when doc [(assoc doc :name name)]) at)
                                 merged (reduce player/merge state states)]
-                            (async/then (put-conditionally merged (assoc ctx :version (:version doc)) (dec attempts))
-                                        (fn [next]
-                                          (-> next
-                                              (assoc :state merged)
-                                              (update :report #(into (vec report) %)))))))))]
-    (if (= (hash state) (:hash ctx))
+                            (if (some #(= :sync/newer-format (:id %)) report)
+                              {:ctx (assoc ctx :version (:version doc) :newer? true) :report report}
+                              (async/then (put-conditionally merged (assoc ctx :version (:version doc)) (dec attempts))
+                                          (fn [next]
+                                            (-> next
+                                                (assoc :state merged)
+                                                (update :report #(into (vec report) %))))))))))]
+    (if (or (:newer? ctx) (= (hash state) (:hash ctx)))
       {:ctx ctx}
       (put-conditionally state ctx 3))))
 

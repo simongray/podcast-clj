@@ -39,6 +39,13 @@
   #?(:clj  (java.util.Date. (long ms))
      :cljs (js/Date. ms)))
 
+(defn date
+  "The instant `inst`, of any kind `inst?` takes, as the platform's own:
+  java.util.Date on the JVM, js/Date in JavaScript. A java.time.Instant,
+  which EDN has no way to print, comes out as one EDN writes as `#inst`."
+  [inst]
+  (->inst (inst-ms inst)))
+
 (defn floor-seconds
   "The instant `inst` with its milliseconds dropped, the precision an RFC
   2822 date can carry."

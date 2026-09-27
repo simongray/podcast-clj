@@ -18,7 +18,14 @@
            (http/legal-url "https://example.com/🎙.xml"))))
   (testing "a legal URL comes back unchanged, escapes and all"
     (is (= "https://example.com/a%20b.xml?q=1&r[]=2#frag"
-           (http/legal-url "https://example.com/a%20b.xml?q=1&r[]=2#frag")))))
+           (http/legal-url "https://example.com/a%20b.xml?q=1&r[]=2#frag"))))
+  (testing "a bracket in the path, and a percent sign that starts no escape, which java.net.URI refuses"
+    (doseq [[url legal] [["https://example.com/show[1]/feed.xml?r[]=2" "https://example.com/show%5B1%5D/feed.xml?r[]=2"]
+                         ["https://example.com/100%.mp3" "https://example.com/100%25.mp3"]
+                         ["https://example.com/a?x=100%" "https://example.com/a?x=100%25"]
+                         ["http://[::1]:8080/a b" "http://[::1]:8080/a%20b"]]]
+      (is (= legal (http/legal-url url)))
+      (is (java.net.URI. (http/legal-url url))))))
 
 (defn- gzip
   ^bytes [^bytes body]
@@ -34,8 +41,9 @@
       (is (= xml (http/decode {} latin))))
     (testing "the Content-Type header wins over the declaration"
       (is (not= xml (http/decode {"content-type" ["text/xml; charset=UTF-8"]} latin))))
-    (testing "gzip is undone before decoding"
-      (is (= xml (http/decode {"content-encoding" ["gzip"]} (gzip latin)))))
+    (testing "gzip is undone before decoding, however the header spells it"
+      (is (= xml (http/decode {"content-encoding" ["gzip"]} (gzip latin))))
+      (is (= xml (http/decode {"content-encoding" ["GZIP"]} (gzip latin)))))
     (testing "an unknown charset falls back to UTF-8"
       (is (= "<a>x</a>" (http/decode {"content-type" ["text/xml; charset=nonsense"]} (.getBytes "<a>x</a>" "UTF-8")))))))
 

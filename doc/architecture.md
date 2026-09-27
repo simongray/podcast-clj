@@ -450,11 +450,14 @@ On the JVM, `poll!` is the step that a poller repeats, like `fetch!` for a
 feed. It reads the pings in the blocks after the last block read, a hundred
 blocks to a request. It keeps the pings of the known writers, and returns
 the other pings under `:refused`. It also returns the block to continue
-from, and the writers. If the caller gives the writers back, `poll!` reads
-them only once. With `:up-to :irreversible`, it stops at the last block that
-a fork cannot take back. `call!` tries the public nodes in turn. An
-exception or a status other than 200 is a failure of that node. If no node
-answers, the exception names all of them.
+from, and the writers. If a node leaves blocks out of its answer, the block
+to continue from is the last block before the first gap, so the next step
+reads the missing blocks again. If the caller gives the writers back,
+`poll!` reads them only once. With `:up-to :irreversible`, it stops at the
+last block that a fork cannot take back. `call!` tries the public nodes in
+turn. An exception, a status other than 200, an answer that is not JSON and
+a JSON-RPC error are failures of that node. If no node answers, the
+exception names all of them.
 
 `pinged?` and `affected` compare URLs the way that `podcast:guid` does. For
 example, a ping for `http://…/feed/` matches a subscription stored as

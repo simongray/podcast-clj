@@ -53,3 +53,11 @@
   HTTP exchange. `sanitize` reads a URL the way a browser does.
   `sync/read-document` refuses a state that `player/problem` finds fault
   with, and an envelope asks for at most `encrypted/max-iterations`.
+- Stores, servers and nodes that fail do not give wrong results. A
+  conditional put in the memory and folder stores is one step. A document
+  that a store lost is written again, and a document listed without a
+  version is always fetched. `sync!` refuses backends with the same name.
+  The WebDAV server limits the size of a put and accepts `If-Match: *`.
+  Podping goes to the next node when a node answers with an error, and
+  `poll!` reads again the blocks that a node left out. A directory that
+  refuses a request is a failure, not an answer with no shows.

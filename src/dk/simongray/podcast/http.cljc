@@ -39,10 +39,17 @@
 
 (defn percent-decode
   "The string `s` with its percent-encoding undone, the inverse of `encode`:
-  a plus sign stays a plus sign."
+  a plus sign stays a plus sign, and a string with an escape that does not
+  decode comes back as it is rather than throwing."
   [s]
-  #?(:clj  (java.net.URLDecoder/decode (str/replace (str s) "+" "%2B") "UTF-8")
-     :cljs (js/decodeURIComponent (str s))))
+  #?(:clj  (try
+             (java.net.URLDecoder/decode (str/replace (str s) "+" "%2B") "UTF-8")
+             (catch IllegalArgumentException _
+               (str s)))
+     :cljs (try
+             (js/decodeURIComponent (str s))
+             (catch :default _
+               (str s)))))
 
 (defn query-string
   "The query string for `params`, keys and values URL-encoded and nil
@@ -166,7 +173,8 @@
      ([headers body]
       (decode headers body nil))
      ([headers ^bytes body max-bytes]
-      (let [body (if (= "gzip" (header headers "content-encoding")) (gunzip body max-bytes nil) body)]
+      (let [gzip? (= "gzip" (some-> (header headers "content-encoding") str/trim str/lower-case))
+            body  (if gzip? (gunzip body max-bytes nil) body)]
         (String. body ^Charset (declared-charset headers body))))))
 
 (def ^:no-doc legal-url-characters
@@ -175,18 +183,34 @@
   (set "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%"))
 
 #?(:clj
+   (defn- encode-illegal
+     "The part `s` of a URL with the characters a URI may not contain
+     percent-encoded as UTF-8, and those of the set `also`, and a percent
+     sign that starts no escape."
+     [^String s also]
+     (let [sb     (StringBuilder.)
+           bytes  (.getBytes s StandardCharsets/UTF_8)
+           n      (alength bytes)
+           digit? (fn [i] (and (< i n) (let [b (aget bytes i)] (or (<= 48 b 57) (<= 65 b 70) (<= 97 b 102)))))]
+       (dotimes [i n]
+         (let [b (bit-and (aget bytes i) 0xFF)
+               c (char b)]
+           (cond
+             (and (= \% c) (not (and (digit? (inc i)) (digit? (+ i 2))))) (.append sb "%25")
+             (and (< b 128) (legal-url-characters c) (not (also c)))      (.append sb c)
+             :else                                                         (.append sb (format "%%%02X" b)))))
+       (str sb))))
+
+#?(:clj
    (defn legal-url
      "`url` with every character a URI may not contain, such as a space or a
-     non-ASCII letter, percent-encoded as UTF-8. Percent signs are left as
-     they are, so an already encoded URL comes back unchanged."
+     non-ASCII letter, percent-encoded as UTF-8, and so is a bracket in the
+     path, where java.net.URI takes none, and a percent sign that starts no
+     escape. An escape is left as it is, so an already encoded URL comes
+     back unchanged."
      [^String url]
-     (let [sb (StringBuilder.)]
-       (doseq [b (.getBytes url StandardCharsets/UTF_8)]
-         (let [n (bit-and b 0xFF)]
-           (if (and (< n 128) (legal-url-characters (char n)))
-             (.append sb (char n))
-             (.append sb (format "%%%02X" n)))))
-       (str sb))))
+     (let [[_ head path tail] (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*)?([^?#]*)(.*)" url)]
+       (str (encode-illegal (str head) #{}) (encode-illegal path #{\[ \]}) (encode-illegal tail #{})))))
 
 #?(:clj
    (defn call!

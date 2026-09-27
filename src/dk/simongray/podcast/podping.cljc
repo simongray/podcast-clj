@@ -138,19 +138,24 @@
   #?(:clj  (Long/parseLong (subs block-id 0 8) 16)
      :cljs (js/parseInt (subs block-id 0 8) 16)))
 
+(defn ^:no-doc block-pings
+  "The podpings in `blocks`, as a block_api answer lists them, in order."
+  [blocks]
+  (for [{:strs [block_id timestamp transactions]} blocks
+        :let [block (block-number block_id)]
+        {:strs [operations]} transactions
+        op operations
+        :let [p (ping block timestamp op)]
+        :when p]
+    p))
+
 (defn pings
   "The podpings in the body of a `:blocks` or an `:operations` answer, in
   the order of the chain."
   [body]
   (let [r (result body)]
     (vec (if (map? r)
-           (for [{:strs [block_id timestamp transactions]} (get r "blocks")
-                 :let [block (block-number block_id)]
-                 {:strs [operations]} transactions
-                 op operations
-                 :let [p (ping block timestamp op)]
-                 :when p]
-             p)
+           (block-pings (get r "blocks"))
            (keep (fn [{:strs [block timestamp op]}] (ping block timestamp op)) r)))))
 
 (defn writers
@@ -169,9 +174,11 @@
     (boolean (some #(= g (guid/from-url %)) (:iris ping)))))
 
 (defn affected
-  "The URLs among `urls` that any of `pings` concerns, in the order given."
+  "The URLs among `urls` that any of `pings` concerns, in the order given,
+  each URL's podcast:guid computed once, not again for every ping."
   [pings urls]
-  (filterv (fn [url] (some #(pinged? % url) pings)) urls))
+  (let [pinged (into #{} (comp (mapcat :iris) (map guid/from-url)) pings)]
+    (filterv #(contains? pinged (guid/from-url %)) urls)))
 
 (defn notify-request
   "The call a host makes to podping.cloud to announce that the feed at
@@ -192,11 +199,12 @@
 
   On the JVM, the library's HTTP client tries the `:nodes` in `opts`
   (default `nodes`), or the one `:node`, in turn until one answers, each
-  given `:timeout-seconds` (default 10); an exception or a status other
-  than 200 is that node's failure, and when every node fails, the
-  exception names them all. In ClojureScript, the platform's `fetch` sends
-  it to the node in `opts`, which the public nodes allow from any origin,
-  and a js/Promise of the body comes back."
+  given `:timeout-seconds` (default 10); an exception, a status other than
+  200, or an answer that is not JSON or holds a JSON-RPC error, which
+  proxies send with a 200, is that node's failure, and when every node
+  fails, the exception names them all. In ClojureScript, the platform's
+  `fetch` sends it to the node in `opts`, which the public nodes allow from
+  any origin, and a js/Promise of the body comes back."
   [call params opts]
   {:pre [(map? opts)]}
   #?(:clj
@@ -207,7 +215,8 @@
                           (let [{:keys [status body]} (http/call! (assoc (request call params {:node node})
                                                                          :timeout-seconds timeout))]
                             (if (= 200 status)
-                              {:body body}
+                              (do (result body)
+                                  {:body body})
                               {:failure (str "answered " status)}))
                           (catch Exception e
                             {:failure (async/explain e)})))]
@@ -223,6 +232,27 @@
      (let [{:keys [url headers body]} (request call params opts)]
        (-> (js/fetch url (clj->js {:method "POST" :headers headers :body body}))
            (.then (fn [res] (.text res)))))))
+
+#?(:clj
+   (defn- read-blocks!
+     "The podpings in the blocks `start` to `end` and the last block read,
+     `[pings block]`, a hundred blocks a request, since a hundred answer in a
+     second and a thousand in forty. A node that leaves blocks out of its
+     answer ends the reading before the first one it left out, so that the
+     next step asks for them again, and no ping comes twice."
+     [start end opts]
+     (loop [chunks (partition-all 100 (range start (inc end)))
+            found  []
+            read   (dec start)]
+       (if-let [chunk (first chunks)]
+         (let [blocks  (get (result (call! :blocks {:from (first chunk) :count (count chunk)} opts)) "blocks")
+               numbers (set (map #(block-number (get % "block_id")) blocks))
+               through (last (take-while numbers chunk))
+               found   (into found (filter #(and through (<= (:block %) through))) (block-pings blocks))]
+           (if (= through (last chunk))
+             (recur (rest chunks) found through)
+             [found (or through read)]))
+         [found read]))))
 
 #?(:clj
    (defn poll!
@@ -241,27 +271,26 @@
      longer take back rather than at the head, `:writers` from the last
      step so that the followers are read once, `:verify?` false to keep
      every ping whoever wrote it, and `:nodes`, `:node` and
-     `:timeout-seconds` as for `call!`."
+     `:timeout-seconds` as for `call!`. `:block` is the last block a node
+     answered with, so a block left out of an answer is read in the next
+     step."
      ([from]
       (poll! from {}))
      ([from {:keys [max-blocks verify? up-to] :or {max-blocks 100 verify? true up-to :head} :as opts}]
       {:pre [(map? opts)]}
-      (let [position (head-block (call! :head-block {} opts))
-            head     (if (= :irreversible up-to) (:irreversible position) (:block position))
-            start    (if from (inc from) head)
-            end      (min head (+ start (dec max-blocks)))
-            ;; a hundred blocks answer in a second, a thousand in forty
-            pings    (into [] (mapcat (fn [chunk]
-                                        (pings (call! :blocks {:from (first chunk) :count (count chunk)} opts))))
-                           (partition-all 100 (range start (inc end))))
-            known    (or (:writers opts)
-                         (when verify? (writers (call! :following {} opts))))
+      (let [position      (head-block (call! :head-block {} opts))
+            head          (if (= :irreversible up-to) (:irreversible position) (:block position))
+            start         (if from (inc from) head)
+            end           (min head (+ start (dec max-blocks)))
+            [pings block] (read-blocks! start end opts)
+            known         (or (:writers opts)
+                              (when verify? (writers (call! :following {} opts))))
             {ok true refused false} (if verify?
                                       (group-by #(contains? known (:account %)) pings)
                                       {true pings})]
         {:pings   (vec ok)
          :refused (vec refused)
-         :block   (if (<= start end) end (or from head))
+         :block   (if (<= start end) block (or from head))
          :writers known}))))
 
 #?(:clj

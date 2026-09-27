@@ -313,14 +313,21 @@
      "Send `endpoint` with `params` to `source` with the library's HTTP
      client and read the shows it answers with; `opts` as for `request`,
      plus `:timeout-seconds` to wait for an answer (default 15, since a
-     directory that hangs should cost little)."
+     directory that hangs should cost little). A 404 is no shows, and any
+     other status but a success throws `::failed`, so that a refused key
+     is not taken for an empty answer."
      ([source endpoint params]
       (call! source endpoint params {}))
      ([source endpoint params opts]
       {:pre [(map? opts)]}
-      (let [opts (cond-> opts (not (:auth-date opts)) (assoc :auth-date (quot (System/currentTimeMillis) 1000)))
-            req  (assoc (request source endpoint params opts) :timeout-seconds (:timeout-seconds opts 15))]
-        (response source endpoint (:body (http/call! req)))))))
+      (let [opts                  (cond-> opts (not (:auth-date opts)) (assoc :auth-date (quot (System/currentTimeMillis) 1000)))
+            req                   (assoc (request source endpoint params opts) :timeout-seconds (:timeout-seconds opts 15))
+            {:keys [status body]} (http/call! req)]
+        (cond
+          (<= 200 status 299) (response source endpoint body)
+          (= 404 status)      []
+          :else               (throw (ex-info (str (name source) " answered " status)
+                                              {:type ::failed :source source :status status})))))))
 
 #?(:clj
    (defn- completed!

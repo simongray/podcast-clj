@@ -160,6 +160,15 @@
     (is (string? (:rss/title show)))
     (is (= [] (directory/response :podcastindex :search "{\"status\": \"false\", \"description\": \"no\"}")))))
 
+#?(:clj
+   (deftest statuses
+     (testing "a refused key is a failure, named as one, not an empty answer"
+       (with-redefs [http/call! (fn [_] {:status 401 :body "{\"status\":\"false\",\"description\":\"Authorization header value is not valid\"}"})]
+         (is (= [:podcastindex] (keys (:failed (directory/search! "x" {:sources [:podcastindex] :credentials {:key "k" :secret "s"}})))))))
+     (testing "and a 404 is no shows"
+       (with-redefs [http/call! (fn [_] {:status 404 :body "Not Found"})]
+         (is (= [] (directory/call! :fyyd :lookup {:id 1})))))))
+
 (deftest combined
   (let [apple   (directory/response :apple :lookup apple-lookup)
         fyyd    (directory/response :fyyd :search fyyd-search)

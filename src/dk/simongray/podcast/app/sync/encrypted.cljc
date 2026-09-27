@@ -128,14 +128,21 @@
                (.then #(js/Uint8Array. %))
                (.catch (fn [e] (throw (locked name e)))))))
 
+(defn- base64?
+  [x]
+  (boolean (and (string? x)
+                (seq x)
+                (re-find #"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$" x))))
+
 (defn envelope
   "The envelope in the string `s`, when it is one: `{:encrypted :cipher :kdf
-  :iterations :salt :iv :data}`, its iterations at least one and at most
-  `max-iterations`; nil for anything else, a plain document included."
+  :iterations :salt :iv :data}`, the last three in base64 and its
+  iterations at least one and at most `max-iterations`; nil for anything
+  else, a plain document included."
   [s]
   (when (and (string? s) (str/starts-with? s "{:encrypted"))
     (let [m (try (edn/read-string s) (catch #?(:clj Throwable :cljs :default) _ nil))]
-      (when (and (map? m) (integer? (:encrypted m)) (string? (:salt m)) (string? (:iv m)) (string? (:data m))
+      (when (and (map? m) (integer? (:encrypted m)) (every? base64? ((juxt :salt :iv :data) m))
                  (integer? (:iterations m)) (<= 1 (:iterations m) max-iterations))
         m))))
 
@@ -187,22 +194,28 @@
   "The store `inner` with its documents encrypted at rest under the
   `:passphrase` in `opts`, a string or a function of no arguments returning
   one. `:iterations` (default `default-iterations`) derives the key, once
-  per salt and cached; each store instance seals with a salt of its own,
-  and opens whatever salt a document carries. `:except` names documents
-  left in the clear, such as `dk.simongray.podcast.app.sync.store/opml-name`
-  for a subscription list other apps should read. Listing and deleting are
-  `inner`'s as they are."
+  per salt and iteration count and cached; each store instance seals with
+  a salt of its own, and opens whatever salt a document carries. When the
+  passphrase is a function, a document the cached keys do not open empties
+  the cache and is tried once more, the passphrase asked for again, so that
+  one corrected since is the one used from then on. `:except` names
+  documents left in the clear, such
+  as `dk.simongray.podcast.app.sync.store/opml-name` for a subscription
+  list other apps should read. Listing and deleting are `inner`'s as they
+  are."
   [inner {:keys [passphrase iterations except] :or {iterations default-iterations except #{}} :as opts}]
   {:pre [(map? opts)]}
   (let [salt    (random-bytes 16)
         keys    (atom {})
         pass    (fn [] (if (fn? passphrase) (passphrase) passphrase))
         key-for (fn [salt iterations]
-                  (let [k (->base64 salt)]
+                  (let [k [(->base64 salt) iterations]]
                     (or (get @keys k)
                         (let [key (derive-key (pass) salt iterations)]
                           (swap! keys assoc k key)
-                          key))))]
+                          key))))
+        open    (fn [name doc]
+                  (async/then (open-with key-for name (:body doc)) #(assoc doc :body %)))]
     (cond-> {:name  (:name inner)
              :fetch (fn [name]
                       (async/then ((:fetch inner) name)
@@ -210,7 +223,13 @@
                                     (cond
                                       (nil? doc)    nil
                                       (except name) doc
-                                      :else         (async/then (open-with key-for name (:body doc)) #(assoc doc :body %))))))
+                                      :else         (async/then (async/attempt #(open name doc))
+                                                                (fn [{:keys [value error]}]
+                                                                  (cond
+                                                                    (not error)      value
+                                                                    (fn? passphrase) (do (reset! keys {})
+                                                                                         (open name doc))
+                                                                    :else            (throw error))))))))
              :put   (fn [name body params]
                       (if (except name)
                         ((:put inner) name body params)

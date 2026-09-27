@@ -41,7 +41,7 @@
    {:pre [(map? opts)]}
    (binding [*print-length* nil
              *print-level*  nil]
-     (pr-str (cond-> {:version version :device (:device state) :written-at at :state state}
+     (pr-str (cond-> {:version version :device (:device state) :written-at (time/date at) :state state}
                app (assoc :app app))))))
 
 (defn read-document
@@ -206,11 +206,21 @@
   `player/compact`, which otherwise drops them. A backend that fails in
   its pull is not pushed to and keeps its cursor, one that fails in its
   push keeps the cursor of its pull, and the state is never replaced, only
-  merged into, so a failed step loses nothing."
+  merged into, so a failed step loses nothing.
+
+  Steps run one at a time: a step that overlaps another can write an older
+  state after a newer one. What the listener did during a step is not in
+  its `:state`, so merge that into the state as it is by then, with
+  `player/merge`, rather than put it in its place. The backends need
+  distinct names, which the cursors are kept by; the same name twice
+  throws."
   ([state backends at]
    (sync! state backends at {}))
   ([state backends at {:keys [ctx compact] :as opts}]
    {:pre [(map? opts)]}
+   (when-let [twice (seq (for [[name n] (frequencies (map :name backends)) :when (< 1 n)] name))]
+     (throw (ex-info (str "The backends of one sync need distinct names, and these are not: " (pr-str twice))
+                     {:names twice})))
    (async/then (async/all (map (fn [{:keys [pull name]}] (async/attempt #(pull state (get ctx name) at))) backends))
                (fn [results]
                  (let [so-far (pulled state backends results at compact)

@@ -68,12 +68,13 @@
   after the state's clock when that is at or past `now`, so that a device
   whose clock runs behind still writes later than what it has merged, the
   way a hybrid logical clock does. Every write applies this itself; an app
-  calls it for entries of its own."
+  calls it for entries of its own. The instant is the platform's date
+  whatever `now` is, so that a document prints it as `#inst`."
   [state now]
   (let [clock (:clock state)]
     (if (and clock (>= (inst-ms clock) (inst-ms now)))
       (time/->inst (inc (inst-ms clock)))
-      now)))
+      (time/date now))))
 
 (defn- write-each
   "`state` with every `[path f]` of `writes` applied, the entry at `path`
@@ -120,7 +121,7 @@
          (fn [sub]
            (assoc (or sub {})
                   :url url :title title :removed? false
-                  :added-at (if (subscribed? state feed-guid) (:added-at sub) at)))
+                  :added-at (if (subscribed? state feed-guid) (:added-at sub) (time/date at))))
          at))
 
 (defn unsubscribe
@@ -321,14 +322,14 @@
             (let [e (cond-> (assoc (or e {}) :position position)
                       duration (assoc :duration duration))]
               (if (and (not (:played? e)) (heard-to-the-end? position (:duration e)))
-                (assoc e :played? true :played-at at)
+                (assoc e :played? true :played-at (time/date at))
                 e)))
           at)))
 
 (defn mark-played
   "Mark the episode `id` as played at `at`."
   [state id at]
-  (write state [:episodes id] #(assoc (or % {}) :played? true :played-at at) at))
+  (write state [:episodes id] #(assoc (or % {}) :played? true :played-at (time/date at)) at))
 
 (defn mark-unplayed
   "Mark the episode `id` as not played at `at`, its position back at the

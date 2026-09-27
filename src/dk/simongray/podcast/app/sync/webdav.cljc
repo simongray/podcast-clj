@@ -154,8 +154,9 @@
                          (fail)))))
 
 (defn- host
+  "The host of the URL `root`, without the credentials a URL can carry."
   [root]
-  (second (re-find #"^[a-z]+://([^/]+)" root)))
+  (second (re-find #"(?i)^[a-z][a-z0-9+.-]*://(?:[^/@]*@)?([^/]+)" root)))
 
 (defn- sender
   "What sends a request map for `opts`.
@@ -199,21 +200,25 @@
          call! (fn [call name params]
                  (async/then (send (request call root name (assoc params :credentials credentials)))
                              #(response call %)))
-         put!  (fn [name body params]
+         put!  (fn put! [name body params made?]
                  (async/then (call! :put name (assoc params :body body))
                              (fn [result]
                                (cond
-                                 (:missing-collection? result)
+                                 (and (:missing-collection? result) (not made?))
                                  (async/then (call! :make-collection nil {})
-                                             (fn [_] (call! :put name (assoc params :body body))))
+                                             (fn [_] (put! name body params true)))
+
+                                 (:missing-collection? result)
+                                 (throw (ex-info (str "The collection is not there, and making it did not help: " root)
+                                                 {:type ::failed :call :put :status 409}))
 
                                  (and (not (:conflict? result)) (nil? (:version result)))
                                  (call! :head name {})
 
                                  :else result))))]
-     {:name   (or name (host root) root)
+     {:name   (or name (host root) "WebDAV")
       :fetch  (fn [name] (call! :fetch name {}))
-      :put    (fn [name body params] (put! name body params))
+      :put    (fn [name body params] (put! name body params false))
       :list   (fn [] (call! :list nil {}))
       :delete (fn [name] (call! :delete name {}))})))
 

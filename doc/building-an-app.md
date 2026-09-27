@@ -247,7 +247,7 @@ documents of the other devices. `sync!` does one step: pull, merge and push.
 (def folder (file/backend "/Users/simon/Library/Mobile Documents/com~apple~CloudDocs/Podcasts" {:app "my-app"}))
 
 (def synced (sync/sync! state [cloud folder] now))  ; => {:state … :ctx {…} :report [] :failed {…}}
-(def state (:state synced))
+(def state (player/merge state (:state synced)))  ; keeps what the listener did during the step
 (sync/sync! state [cloud folder] (java.util.Date.) {:ctx (:ctx synced)})  ; reads only what changed
 (sync/next-at {:at now :changed? true :failures 0} (java.util.Date.))     ; when to call sync! again
 ```

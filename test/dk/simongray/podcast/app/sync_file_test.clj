@@ -33,6 +33,25 @@
         (delete "a.edn")
         (is (= [] (list)))))))
 
+(deftest writes-that-race-or-fail
+  (with-temp-dir
+    (fn [dir]
+      (let [{:keys [put fetch]} (file/store dir)]
+        (put "podcast.edn" "0" {})
+        (testing "of two puts on one version, one wins"
+          (is (every? #(= 1 %)
+                      (for [_ (range 50)]
+                        (let [version (:version (fetch "podcast.edn"))
+                              latch   (java.util.concurrent.CountDownLatch. 1)
+                              race    #(future (.await latch) (put "podcast.edn" % {:if-version version}))
+                              puts    [(race "a") (race "b")]]
+                          (.countDown latch)
+                          (count (filter (comp :version deref) puts)))))))
+        (testing "a put that fails leaves no temporary file behind"
+          (.mkdirs (io/file dir "taken.edn"))
+          (is (thrown? Exception (put "taken.edn" "x" {})))
+          (is (= #{"podcast.edn" "taken.edn"} (set (.list ^java.io.File dir)))))))))
+
 (deftest a-folder-checked-and-a-backend-in-one-call
   (with-temp-dir
     (fn [dir]

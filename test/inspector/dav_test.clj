@@ -48,7 +48,7 @@
     (let [{:keys [status headers]} (call :put "/dav/phone.edn" :body "{:version 1 :state {}}")
           etag (get headers "ETag")]
       (is (= 201 status))
-      (is (re-matches #"\"\d+-\d+\"" etag) "the folder store's version, quoted")
+      (is (re-matches #"\"\d{4}-\d{2}-\d{2}T[\d:.]+Z-\d+\"" etag) "the folder store's version, quoted")
       (let [{:keys [status body headers]} (call :get "/dav/phone.edn")]
         (is (= 200 status))
         (is (= "{:version 1 :state {}}" body))

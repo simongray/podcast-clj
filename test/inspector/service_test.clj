@@ -116,14 +116,17 @@
         (is (str/includes? body "rank 1"))))))
 
 (defn- hive-fixture
-  "The recorded answer of a Hive node to the JSON-RPC `body`."
+  "The recorded answer of a Hive node to the JSON-RPC `body`, with the head
+  of the chain where the twenty blocks the page reads start at the two
+  recorded ones."
   [body]
-  (slurp (io/resource
-          (cond
-            (str/includes? body "get_dynamic_global_properties") "podping/head-block.json"
-            (str/includes? body "get_block_range")               "podping/blocks.json"
-            (str/includes? body "get_ops_in_block")              "podping/operations.json"
-            (str/includes? body "get_following")                 "podping/following.json"))))
+  (if (str/includes? body "get_dynamic_global_properties")
+    "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"head_block_number\":110255098,\"last_irreversible_block_num\":110255083}}"
+    (slurp (io/resource
+            (cond
+              (str/includes? body "get_block_range")  "podping/blocks.json"
+              (str/includes? body "get_ops_in_block") "podping/operations.json"
+              (str/includes? body "get_following")    "podping/following.json")))))
 
 (deftest the-podpings
   (with-redefs [http/call! (fn [{:keys [url body]}] {:status 200 :url url :body (hive-fixture body)})]
@@ -131,7 +134,7 @@
       (is (= 200 status))
       (is (str/includes? body "podping.eee"))
       (is (not (str/includes? body "pp_podcast_update")) "the id is not shown, the medium and reason are")
-      (is (str/includes? body "Head block 110254836"))
+      (is (str/includes? body "Head block 110255098"))
       (is (str/includes? body "writers podping follows")))))
 
 (deftest the-player

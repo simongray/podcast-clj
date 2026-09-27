@@ -166,14 +166,23 @@
        (testing "nothing new, and starting at the head"
          (is (= {:pings [] :refused [] :block 110255080} (dissoc (podping/poll! 110255080 {:node "https://api.hive.blog"}) :writers)))
          (is (= 110255080 (:block (podping/poll! nil {:node "https://api.hive.blog"})))))
+       (testing "a block the node leaves out is asked for again, and no ping comes twice"
+         (is (= {:pings [] :refused [] :block 110255077}
+                (dissoc (podping/poll! 110255077 {:node "https://api.hive.blog" :verify? false}) :writers)))))
+     (with-redefs [http/call! (node-answering {"https://api.hive.blog" (chain 110255095)})]
        (testing "stopping at the last irreversible block"
-         (is (= 110255065 (:block (podping/poll! nil {:node "https://api.hive.blog" :up-to :irreversible}))))))))
+         (is (= 110255080 (:block (podping/poll! nil {:node "https://api.hive.blog" :up-to :irreversible}))))))))
 
 #?(:clj
    (deftest falling-back-across-nodes
      (testing "a node that fails is passed over"
        (with-redefs [http/call! (node-answering {"https://api.hive.blog"         502
                                                  "https://api.deathwing.me"      nil
+                                                 "https://api.openhive.network"  (chain 110255080)})]
+         (is (= 110255080 (:block (podping/head-block (podping/call! :head-block {} {})))))))
+     (testing "and so is one that answers 200 with an error, as a proxy does"
+       (with-redefs [http/call! (node-answering {"https://api.hive.blog"         (constantly "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32003,\"message\":\"Unable to acquire database lock\"}}")
+                                                 "https://api.deathwing.me"      (constantly "<html>maintenance</html>")
                                                  "https://api.openhive.network"  (chain 110255080)})]
          (is (= 110255080 (:block (podping/head-block (podping/call! :head-block {} {})))))))
      (testing "when none answers, the failures are named"

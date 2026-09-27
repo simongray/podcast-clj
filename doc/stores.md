@@ -21,6 +21,9 @@ version token.
 - `put` refuses the write when `opts` has an `:if-version` that is not the
   current version of the document. `:if-version nil` means that the document
   must not exist yet.
+- `put` checks the version and writes as one step. Of two puts with the same
+  `:if-version`, one succeeds. The folder store does this within one
+  process.
 - A refused write is the value `{:conflict? true}`, not an exception.
 - On the JVM, each function returns its value and throws an exception on
   failure. In ClojureScript, each function can return a value or a promise.
@@ -56,7 +59,8 @@ A backend is a map of two functions and a name. `sync!` calls the functions.
   while it wrote.
 - `at` is the instant of the step. The functions do not read a clock.
 - The backends of one `sync!` must have different names, because `sync!`
-  keeps the cursors by name.
+  keeps the cursors by name. `sync!` throws when two backends have the same
+  name.
 
 `store/backend` makes a backend from any store. A service with a model of
 its own, such as gpodder, is a backend directly.
@@ -86,7 +90,9 @@ Each device writes only its own document, `<device-id>.edn`. One step of
 `sync!` with this strategy does these actions:
 
 1. List the store, and fetch each document whose version is not the version
-   in the cursor. Only names that end in `.edn` are sync documents.
+   in the cursor. Only names that end in `.edn` are sync documents. A
+   document without a version in the listing is always fetched. The
+   fetches run at the same time.
 2. Read each document. Report each document that does not read.
 3. Merge the states into the local state.
 4. If the merged state is not the state that this device wrote last, put the
@@ -98,7 +104,8 @@ Each device writes only its own document, `<device-id>.edn`. One step of
 
 If the version of the document of this device changed since the last step,
 another installation uses the same device id. The report then contains
-`:sync/shared-device`.
+`:sync/shared-device`. If the document of this device is no longer in the
+store, the next push writes it again.
 
 
 ## The shared strategy
@@ -116,6 +123,10 @@ All devices write one document, `podcast.edn` by default. One step of
 5. Unless step 4 stopped, put `subscriptions.opml` if `:opml?` is true and
    the subscriptions changed.
 
+If the document is no longer in the store, the next push writes it again.
+A document of a newer format stays as it is: this device cannot read all
+of it, so a put would lose data.
+
 
 ## The result of `sync!`
 
@@ -130,6 +141,11 @@ All devices write one document, `podcast.edn` by default. One step of
 - If the pull of a backend fails, `sync!` does not push to that backend, and
   its cursor does not change. If a push fails, the backend keeps the cursor
   of its pull.
+- Run one step at a time. A step that overlaps another step can write an
+  older state after a newer one.
+- `:state` does not contain what the listener did during the step. Merge it
+  into the current state with `player/merge`. Do not put it in the place of
+  the current state.
 - On the JVM, `sync!` returns the map. In ClojureScript, it returns a
   promise of the map.
 - The options of `sync!` are `:ctx`, the cursors of the last step, and
@@ -175,10 +191,14 @@ A sync document is an EDN map:
   the iterations and the salt of the envelope.
 - An envelope asks for at most `max-iterations`, ten times the default. A
   body that asks for more is not an envelope, and the reader reports it as
-  a document that does not read.
+  a document that does not read. The same applies to a body whose salt, IV
+  or data is not base64.
 - A body that is not an envelope passes through unchanged.
 - If the passphrase does not open a document, the call fails with the
   exception type `:dk.simongray.podcast.app.sync.encrypted/locked`.
+- If the passphrase is a function, the store asks it again when a cached
+  key does not open a document, and tries once more. A passphrase that the
+  user corrected is then in use from the next document on.
 
 
 ## The stores of podcast-clj
@@ -186,7 +206,7 @@ A sync document is an EDN map:
 | Store | Namespace | Platform | Version token |
 |---|---|---|---|
 | A map in an atom | `app.sync.store/memory` | both | a count of the writes |
-| A folder | `app.sync.file` | JVM | the modification time and the size |
+| A folder | `app.sync.file` | JVM | the modification time, as exact as the file system keeps it, and the size |
 | A WebDAV collection | `app.sync.webdav` | both | the ETag |
 | Any store, encrypted | `app.sync.encrypted` | both | the version of the wrapped store |
 
@@ -196,10 +216,20 @@ A sync document is an EDN map:
   depth 1, it also lists the documents.
 - If the store has no `:list`, a PROPFIND that lists the collection gets
   405. If the store has no `:delete`, a DELETE gets 405, and OPTIONS does
-       not name DELETE.
+  not name DELETE.
 - A client of such a server removes the same keys from its WebDAV store, for
   example `(dissoc (webdav/store url) :list)`. `backend` then uses one
   shared document.
+- A PUT carries at most 32 MB, or the `:max-bytes` of the handler. A larger
+  body gets 413.
+- `If-Match: *` matches the document when it exists, and gets 412 when it
+  does not.
+- A name with a slash or a control character, and the names `.` and `..`,
+  get 400.
+
+Give the credentials of a WebDAV store in `:credentials`. The store does not
+send a user name or a password that is in the URL, such as
+`https://user:pass@host/`. The name of the store is the host alone.
 
 
 ## Where the stores are, as of September 2026

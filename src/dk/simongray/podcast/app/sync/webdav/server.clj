@@ -8,7 +8,9 @@
   such a server leaves the same keys out of its WebDAV store."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
-            [dk.simongray.podcast.http :as http]))
+            [dk.simongray.podcast.http :as http])
+  (:import [java.io InputStream]
+           [java.nio.charset StandardCharsets]))
 
 (defn- quoted
   [version]
@@ -55,21 +57,36 @@
 
 (defn- precondition
   "What the If-Match or If-None-Match of the request `headers`, by their
-  lower-case names, asks of a put, as the `:if-version` a store takes:
-  absent for none."
-  [headers]
-  (cond
-    (get headers "if-match")              {:if-version (unquoted (get headers "if-match"))}
-    (= "*" (get headers "if-none-match")) {:if-version nil}
-    :else                                 {}))
+  lower-case names, asks of a put of a document whose version is `current`,
+  nil when it is not there, as the `:if-version` a store takes: absent for
+  none. If-Match: * asks for the current version, or for one no document
+  has when there is none."
+  [headers current]
+  (let [if-match (some-> (get headers "if-match") str/trim)]
+    (cond
+      (= "*" if-match)                      {:if-version (or current "*")}
+      if-match                              {:if-version (unquoted if-match)}
+      (= "*" (get headers "if-none-match")) {:if-version nil}
+      :else                                 {})))
 
 (defn- body-text
-  "The text of a Ring request `body`: a string, a stream, or nothing."
-  [body]
+  "The text of a Ring request `body`, a string, a stream or nothing, when it
+  holds at most `max-bytes`; nil when it holds more."
+  [body max-bytes]
   (cond
     (nil? body)    ""
-    (string? body) body
-    :else          (slurp body :encoding "UTF-8")))
+    (string? body) (when (<= (count body) max-bytes) body)
+    :else          (let [bytes (.readNBytes ^InputStream body (int (inc max-bytes)))]
+                     (when (<= (alength bytes) max-bytes)
+                       (String. bytes StandardCharsets/UTF_8)))))
+
+(defn- plain-name?
+  "Whether `name` is a plain file name: no slash, not `.` or `..`, and no
+  control character."
+  [name]
+  (not (or (str/includes? name "/")
+           (#{"." ".."} name)
+           (re-find #"[\x00-\x1f\x7f]" name))))
 
 (defn- version-of
   "The version of the document `name` in `store`, nil when it is not there:
@@ -122,16 +139,19 @@
     (if name (not-found) (not-allowed))))
 
 (defn- put-document
-  "The document `name` written from the request `body` under the
-  precondition of the `headers`: 201 for a new one, 204 for a replaced
-  one, 412 when the precondition failed."
-  [{:keys [put] :as store} name headers body]
+  "The document `name` written from the request `body`, at most `max-bytes`,
+  under the precondition of the `headers`: 201 for a new one, 204 for a
+  replaced one, 412 when the precondition failed, 413 when the body is too
+  large."
+  [{:keys [put] :as store} name headers body max-bytes]
   (if name
-    (let [existed? (some? (version-of store name))
-          result   (put name (body-text body) (precondition headers))]
-      (if (:conflict? result)
-        (plain 412 "Precondition Failed")
-        {:status (if existed? 204 201) :headers {"ETag" (quoted (:version result))} :body ""}))
+    (let [current (version-of store name)]
+      (if-let [text (body-text body max-bytes)]
+        (let [result (put name text (precondition headers current))]
+          (if (:conflict? result)
+            (plain 412 "Precondition Failed")
+            {:status (if current 204 201) :headers {"ETag" (quoted (:version result))} :body ""}))
+        (plain 413 (str "A document holds at most " max-bytes " bytes"))))
     (not-allowed)))
 
 (defn- delete-document
@@ -156,30 +176,39 @@
   collection with its trailing slash, `\"/dav/\"`. Mount it under Pedestal,
   ring-jetty or http-kit for the routes `base` and everything below it;
   whether the router passes a request for the collection with its trailing
-  slash, and a put's body unread, is the router's business."
-  [store base]
-  (let [collection (subs base 0 (dec (count base)))]
-    (fn [{:keys [request-method uri headers body]}]
-      (let [name    (when (and (str/starts-with? uri base) (> (count uri) (count base)))
-                      (http/percent-decode (subs uri (count base))))
-            ;; only a real servlet lower-cases the header names
-            headers (into {} (map (fn [[k v]] [(str/lower-case k) v])) headers)]
-        (try
-          (cond
-            (and (not name) (not (#{base collection} uri)))
-            (not-found)
+  slash, and a put's body unread, is the router's business. `:max-bytes`
+  in `opts` is the most a put may carry, 32 MB unless given, far more than
+  the state of any listener."
+  ([store base]
+   (handler store base {}))
+  ([store base {:keys [max-bytes] :or {max-bytes (* 32 1024 1024)} :as opts}]
+   {:pre [(map? opts)]}
+   (let [collection (subs base 0 (dec (count base)))]
+     (fn [{:keys [request-method uri headers body]}]
+       ;; only a real servlet lower-cases the header names
+       (let [headers (into {} (map (fn [[k v]] [(str/lower-case k) v])) headers)]
+         (try
+           (let [name (when (and (str/starts-with? uri base) (> (count uri) (count base)))
+                        (http/percent-decode (subs uri (count base))))]
+             (cond
+               (and (not name) (not (#{base collection} uri)))
+               (not-found)
 
-            (and name (str/includes? name "/"))
-            (plain 400 "A document's name is a plain file name")
+               (and name (not (plain-name? name)))
+               (plain 400 "A document's name is a plain file name")
 
-            :else
-            (case request-method
-              :options     (options store)
-              :propfind    (propfind store base name (get headers "depth"))
-              (:get :head) (get-document store name (= :head request-method))
-              :put         (put-document store name headers body)
-              :delete      (delete-document store name)
-              :mkcol       (make-collection name)
-              (not-allowed)))
-          (catch clojure.lang.ExceptionInfo e
-            (plain 400 (ex-message e))))))))
+               :else
+               (case request-method
+                 :options     (options store)
+                 :propfind    (propfind store base name (get headers "depth"))
+                 (:get :head) (get-document store name (= :head request-method))
+                 :put         (put-document store name headers body max-bytes)
+                 :delete      (delete-document store name)
+                 :mkcol       (make-collection name)
+                 (not-allowed))))
+           ;; a malformed escape in the path, or a name the store's
+           ;; filesystem cannot take
+           (catch IllegalArgumentException _
+             (plain 400 "A document's name is a plain file name"))
+           (catch clojure.lang.ExceptionInfo e
+             (plain 400 (ex-message e)))))))))

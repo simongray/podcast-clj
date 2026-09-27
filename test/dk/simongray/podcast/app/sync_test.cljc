@@ -335,6 +335,66 @@
            (is (= {:pulled true} (get (:ctx r) "half")))
            (is (= 900 (:position (player/episode (:state r) a)))))))))
 
+#?(:clj
+   (deftest backends-by-name
+     (is (thrown-with-msg? Exception #"distinct names"
+                           (sync/sync! (phone-state) [(store/backend (store/memory)) (store/backend (store/memory))] t2))
+         "two backends of one name would share a cursor")))
+
+#?(:clj
+   (deftest two-puts-on-one-version
+     (let [documents (atom {})
+           {:keys [put]} (store/memory documents)
+           winners   (for [_ (range 200)]
+                       (do (reset! documents {"podcast.edn" {:body "x" :version "1"}})
+                           (let [latch (java.util.concurrent.CountDownLatch. 1)
+                                 race  #(future (.await latch) (put "podcast.edn" % {:if-version "1"}))
+                                 puts  [(race "a") (race "b")]]
+                             (.countDown latch)
+                             (count (filter (comp :version deref) puts)))))]
+       (is (every? #(= 1 %) winners) "one of the two, never both"))))
+
+#?(:clj
+   (deftest documents-a-store-lost-or-cannot-version
+     (testing "a listing without versions still leads to the documents"
+       (let [mem (store/memory)
+             b   (store/backend (update mem :list (fn [list] #(mapv (fn [d] (assoc d :version nil)) (list)))))]
+         (sync/sync! (laptop-state) [b] t2)
+         (is (player/subscribed? (:state (sync/sync! (player/state "tablet") [b] t3)) "feed-b"))))
+     (testing "this device's own document, gone from the store, is written again"
+       (let [documents (atom {})
+             b         (store/backend (store/memory documents))
+             r         (sync/sync! (phone-state) [b] t2)]
+         (reset! documents {})
+         (sync/sync! (:state r) [b] t3 {:ctx (:ctx r)})
+         (is (= ["phone.edn"] (keys @documents)))))
+     (testing "and so is the shared document"
+       (let [documents (atom {})
+             b         (store/backend (dissoc (store/memory documents) :list))
+             r         (sync/sync! (phone-state) [b] t2)]
+         (reset! documents {})
+         (sync/sync! (:state r) [b] t3 {:ctx (:ctx r)})
+         (is (= ["podcast.edn"] (keys @documents)))))
+     (testing "a shared document of a newer format is left as it is"
+       (let [documents (atom {})
+             s         (dissoc (store/memory documents) :list)
+             newer     (pr-str {:version 99 :device "future" :written-at t2 :state {}})
+             _         ((:put s) "podcast.edn" newer {})
+             r         (sync/sync! (phone-state) [(store/backend s)] t2)]
+         (is (= [:sync/newer-format] (map :id (:report r))))
+         (is (= newer (:body (@documents "podcast.edn"))))
+         (sync/sync! (:state r) [(store/backend s)] t3 {:ctx (:ctx r)})
+         (is (= newer (:body (@documents "podcast.edn"))) "the next step too")))))
+
+#?(:clj
+   (deftest instants-of-any-kind
+     (let [now (java.time.Instant/parse "2026-01-01T02:00:00Z")
+           s   (-> (player/state "phone")
+                   (player/subscribe "feed-a" {:url "https://a/rss"} now)
+                   (player/progress a 3590 3600 now))]
+       (is (= s (:state (sync/read-document (sync/document s now))))
+           "a java.time.Instant is kept as a date, which a document prints as #inst"))))
+
 #?(:cljs
    (deftest syncing-with-promises
      (async done

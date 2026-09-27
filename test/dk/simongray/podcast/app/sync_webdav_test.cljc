@@ -24,6 +24,8 @@
   (let [b (webdav/backend "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
                           {:credentials {:username "simon" :password "x"} :opml? true :app "test"})]
     (is (= "cloud.example.org" (:name b)) "named after the host")
+    (is (= "cloud.example.org" (:name (webdav/store "https://simon:secret@cloud.example.org/podcasts/")))
+        "never after the credentials a URL carries")
     (is (fn? (:pull b)))
     (is (fn? (:push b)))
     (is (= "Nextcloud" (:name (webdav/backend "https://cloud.example.org/dav/" {:name "Nextcloud"}))))))
@@ -173,9 +175,26 @@
            (is (= 404 (:status (handler (ring :get "/dav/phone%201.edn")))))))
        (testing "what is refused"
          (is (= 400 (:status (handler (ring :put "/dav/sub/x.edn" :body "x")))) "no paths within the collection")
+         (is (= 400 (:status (handler (ring :put "/dav/%2e%2e" :body "x")))) "nor . or ..")
+         (is (= 400 (:status (handler (ring :put "/dav/x%00.edn" :body "x")))) "nor a control character")
          (is (= 405 (:status (handler (ring :lock "/dav/x.edn")))))
          (is (= 405 (:status (handler (ring :mkcol "/dav/sub")))))
-         (is (= 201 (:status (handler (ring :mkcol "/dav/")))))))))
+         (is (= 201 (:status (handler (ring :mkcol "/dav/"))))))
+       (testing "a percent sign that starts no escape is part of the name"
+         (is (= 404 (:status (handler (ring :get "/dav/100%.edn")))))))
+     (testing "If-Match: *, and the size of a put"
+       (let [handler (server/handler (store/memory) "/dav/" {:max-bytes 8})]
+         (is (= 412 (:status (handler (ring :put "/dav/a.edn" :body "{}" :headers {"If-Match" "*"})))) "no document to match")
+         (is (= 201 (:status (handler (ring :put "/dav/a.edn" :body "{}")))))
+         (is (= 204 (:status (handler (ring :put "/dav/a.edn" :body "{:a 1}" :headers {"If-Match" "*"})))) "any version matches")
+         (is (= 413 (:status (handler (ring :put "/dav/a.edn" :body "{:a 1 :b 2}")))) "more than :max-bytes")
+         (is (= 413 (:status (handler (ring :put "/dav/a.edn" :body (java.io.ByteArrayInputStream. (.getBytes "{:a 1 :b 2}" "UTF-8")))))))))))
+
+#?(:clj
+   (deftest a-collection-that-cannot-be-made
+     (with-redefs [http/call! (fn [{:keys [method]}] {:status (if (= :put method) 409 405) :headers {} :body ""})]
+       (is (thrown-with-msg? Exception #"making it did not help" ((:put (webdav/store root)) "p.edn" "{}" {}))
+           "a put that fails for want of the collection fails, rather than seeming written"))))
 
 #?(:clj
    (deftest serving-a-store-that-cannot-list-or-delete

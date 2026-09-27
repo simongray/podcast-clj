@@ -10,12 +10,28 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [dk.simongray.podcast.app.sync.store :as store])
-  (:import [java.io File]
-           [java.nio.file CopyOption Files StandardCopyOption]))
+  (:import [java.io File FileNotFoundException]
+           [java.nio.file CopyOption Files LinkOption StandardCopyOption]
+           [java.util.concurrent ConcurrentHashMap]
+           [java.util.concurrent.locks ReentrantLock]
+           [java.util.function Function]))
 
 (defn- version
+  "The version of the file `f`: its modification time, as finely as the
+  filesystem keeps it, and its length."
   [^File f]
-  (str (.lastModified f) "-" (.length f)))
+  (str (Files/getLastModifiedTime (.toPath f) (make-array LinkOption 0)) "-" (.length f)))
+
+(defonce ^{:no-doc true
+           :doc    "A lock for each file a store in this process writes, by its
+  canonical path, so that a put checks the version and writes as one step."}
+  locks
+  (ConcurrentHashMap.))
+
+(defn- lock
+  ^ReentrantLock [^File f]
+  (.computeIfAbsent ^ConcurrentHashMap locks (.getCanonicalPath f)
+                    (reify Function (apply [_ _] (ReentrantLock.)))))
 
 (defn- file-named
   "The file for the document `name` in `dir`; a name that is not a plain
@@ -27,13 +43,17 @@
 
 (defn- write-whole!
   "Write `body` to `f` by way of a hidden temporary file in the same
-  directory moved into place, so that no reader sees a partial file."
+  directory moved into place, so that no reader sees a partial file; the
+  temporary file is removed when the write fails."
   [^File dir ^File f ^String body]
   (.mkdirs dir)
   (let [tmp (File/createTempFile ".sync-" ".tmp" dir)]
-    (spit tmp body :encoding "UTF-8")
-    (Files/move (.toPath tmp) (.toPath f)
-                (into-array CopyOption [StandardCopyOption/ATOMIC_MOVE StandardCopyOption/REPLACE_EXISTING]))))
+    (try
+      (spit tmp body :encoding "UTF-8")
+      (Files/move (.toPath tmp) (.toPath f)
+                  (into-array CopyOption [StandardCopyOption/ATOMIC_MOVE StandardCopyOption/REPLACE_EXISTING]))
+      (finally
+        (.delete tmp)))))
 
 (defn store
   "The store over the directory `dir`, a path or a File, created on the
@@ -43,15 +63,26 @@
     {:name   (str dir)
      :fetch  (fn [name]
                (let [f (file-named dir name)]
-                 (when (.isFile f)
-                   {:body (slurp f :encoding "UTF-8") :version (version f)})))
+                 ;; the version before the body: a file replaced in between
+                 ;; then reads as changed next time, not as unchanged
+                 (try
+                   (when (.isFile f)
+                     (let [v (version f)]
+                       {:body (slurp f :encoding "UTF-8") :version v}))
+                   (catch FileNotFoundException _
+                     nil))))
      :put    (fn [name body opts]
-               (let [f       (file-named dir name)
-                     current (when (.isFile f) (version f))]
-                 (if (and (contains? opts :if-version) (not= (:if-version opts) current))
-                   {:conflict? true}
-                   (do (write-whole! dir f (str body))
-                       {:version (version f)}))))
+               (let [f (file-named dir name)
+                     l (lock f)]
+                 (.lock l)
+                 (try
+                   (let [current (when (.isFile f) (version f))]
+                     (if (and (contains? opts :if-version) (not= (:if-version opts) current))
+                       {:conflict? true}
+                       (do (write-whole! dir f (str body))
+                           {:version (version f)})))
+                   (finally
+                     (.unlock l)))))
      :list   (fn []
                (->> (or (.listFiles dir) (make-array File 0))
                     (filter (fn [^File f] (and (.isFile f) (not (str/starts-with? (.getName f) ".")))))
