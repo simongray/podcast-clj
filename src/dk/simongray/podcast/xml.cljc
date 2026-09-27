@@ -1,27 +1,14 @@
 (ns dk.simongray.podcast.xml
   "XML as Hiccup, with namespaces resolved by URI rather than by prefix.
 
-  Parsing has two steps. A thin platform adapter (`parse-raw`) turns XML into
-  *raw* Hiccup with names exactly as written and xmlns declarations left in
-  place as ordinary attributes:
-
-      [\"itunes:author\" {\"xmlns:itunes\" \"http://www.itunes.com/...\"} \"Jane\"]
-
-  The pure `resolve-namespaces` step then walks that tree, keeps track of the
-  declarations in scope and rewrites every name into a keyword whose namespace
-  is the canonical alias of the URI: `:itunes/author`, `:podcast/transcript`.
-  Unprefixed elements are RSS 2.0 core and never get a namespace, whatever
-  default namespace a feed declares. Problems found on the way (undeclared
-  prefixes, unknown URIs, a default namespace) end up in the `:xml/report`
-  metadata of the result, and the URIs of unknown namespaces under
-  `:xml/namespaces` so that `emit` can declare them again.
-
-  `emit` is the inverse: canonical Hiccup back to an XML string, with the
-  declarations for every alias in use written onto the root element.
-
-  The namespace also holds what every layer above needs of XML itself: the
-  Hiccup accessors, kebab-case names, and the decoding of character and
-  entity references, HTML's included."
+  `parse-raw`, the platform adapter, reads XML into raw Hiccup with names
+  as written; `resolve-namespaces` rewrites the names into keywords
+  namespaced by the URI's alias, `:itunes/author`, unprefixed elements
+  staying RSS 2.0, and records what it found under `:xml/report` and the
+  unknown namespaces under `:xml/namespaces` in the metadata; `parse` is
+  both. `emit` writes canonical Hiccup back as XML with the declarations on
+  the root. The Hiccup accessors, kebab-case names and the decoding of
+  character and entity references live here too, for every layer above."
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics])
@@ -153,18 +140,27 @@
   #?(:clj  (String. (Character/toChars n))
      :cljs (js/String.fromCodePoint n)))
 
+(defn- code-point
+  "The code point of the numeric reference `ref`, `#65` or `#x41`; nil when
+  it is not one a string can hold."
+  [ref]
+  (let [n (if (re-find #"^#[xX]" ref)
+            #?(:clj  (try (Long/parseLong (subs ref 2) 16) (catch Exception _ nil))
+               :cljs (js/parseInt (subs ref 2) 16))
+            (parse-long (subs ref 1)))]
+    (when (and n (<= 0 n 0x10FFFF))
+      n)))
+
 (defn decode-entities
   "Replace the character and entity references in `s` with the characters
-  they stand for, HTML entities included; unknown references are kept."
+  they stand for, HTML entities included; unknown references, and numeric
+  ones outside what a string can hold, are kept."
   [s]
   (str/replace s #"&(#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);"
                (fn [[whole ref]]
                  (cond
-                   (re-find #"^#[xX]" ref)
-                   (code-point->str (#?(:clj Long/parseLong :cljs js/parseInt) (subs ref 2) 16))
-
                    (str/starts-with? ref "#")
-                   (code-point->str (parse-long (subs ref 1)))
+                   (if-let [n (code-point ref)] (code-point->str n) whole)
 
                    (xml-entities ref)
                    ({"amp" "&" "lt" "<" "gt" ">" "quot" "\"" "apos" "'"} ref)
@@ -175,7 +171,7 @@
                    :else
                    whole))))
 
-(defn ^:no-doc strip-bom
+(defn- strip-bom
   "Remove a byte order mark that survived decoding from the front of `s`."
   [s]
   (if (str/starts-with? s "﻿")
@@ -183,7 +179,7 @@
     s))
 
 #?(:clj
-   (defn ^:no-doc input-factory
+   (defn- input-factory
      "A StAX factory with namespace processing off, so that undeclared prefixes
      survive and xmlns declarations arrive as plain attributes, and with DTDs
      and external entities disabled."
@@ -336,7 +332,7 @@
      :cljs
      (node->raw (dom-parse (strip-bom xml)))))
 
-(defn ^:no-doc split-qname
+(defn- split-qname
   "Split the raw XML name `s` into `[prefix local]`, `prefix` nil when absent."
   [s]
   (if-let [i (str/index-of s ":")]
@@ -414,15 +410,13 @@
   maps a namespace URI to its alias keyword. Problems are recorded under
   `:xml/report` in the metadata of the result, and the URIs of namespaces
   the lookup did not know under `:xml/namespaces`."
-  ([tree]
-   (resolve-namespaces tree uri->alias))
-  ([tree uri->alias]
-   (let [[tree' problems] (resolve-element uri->alias {} [] tree)
-         problems         (distinct problems)]
-     (with-meta tree' {:xml/report     (vec problems)
-                       :xml/namespaces (into {} (for [{:keys [id prefix uri]} problems
-                                                      :when (= id :xml/unknown-namespace)]
-                                                  [(keyword prefix) uri]))}))))
+  [tree uri->alias]
+  (let [[tree' problems] (resolve-element uri->alias {} [] tree)
+        problems         (distinct problems)]
+    (with-meta tree' {:xml/report     (vec problems)
+                      :xml/namespaces (into {} (for [{:keys [id prefix uri]} problems
+                                                     :when (= id :xml/unknown-namespace)]
+                                                 [(keyword prefix) uri]))})))
 
 (defn parse
   "Parse `xml` into canonical Hiccup; see `parse-raw` and `resolve-namespaces`."
@@ -443,7 +437,7 @@
   [tree]
   (:xml/namespaces (meta tree)))
 
-(def ^:no-doc illegal-characters
+(def illegal-characters
   "The characters XML 1.0 forbids anywhere, as a pattern."
   #"[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]")
 
@@ -494,11 +488,10 @@
           (str/replace "\t" "&#9;"))
       s)))
 
-(defn- append-text!
+(defn- append-text
   "Append the text `s` to the transient vector `acc` of string parts: as
   CDATA when it contains markup but no carriage return, which CDATA cannot
-  carry through a parser, and escaped otherwise. Show notes are the bulk of
-  a feed, and a text that needs no change is appended without a copy."
+  carry through a parser, and escaped otherwise."
   [acc s]
   (let [s (legal s)]
     (if (and (str/includes? s "<")
@@ -507,13 +500,15 @@
       (-> acc (conj! "<![CDATA[") (conj! s) (conj! "]]>"))
       (conj! acc (escape-legal-text s)))))
 
-(defn- keyword-str
+(defn qname
+  "The XML name of the keyword `k`: `itunes:author` for `:itunes/author`,
+  `title` for `:title`."
   [k]
   (if-let [ns (namespace k)]
     (str ns ":" (name k))
     (name k)))
 
-(defn ^:no-doc aliases
+(defn- aliases
   "The set of namespace aliases used by tags and attributes in `tree`."
   [tree]
   (->> (tree-seq vector? elements tree)
@@ -526,7 +521,7 @@
 (defn- attrs-str
   [attrs]
   (apply str (for [[k v] attrs]
-               (str " " (keyword-str k) "=\"" (escape-attr (str v)) "\""))))
+               (str " " (qname k) "=\"" (escape-attr (str v)) "\""))))
 
 (defn- emit-element*
   "Append the serialization of `element`, indented for `depth`, to the
@@ -534,7 +529,7 @@
   end keeps a 30 MB feed from being copied once per level of nesting."
   [acc depth element]
   (let [indent   (apply str (repeat (* 2 depth) " "))
-        name     (keyword-str (tag element))
+        name     (qname (tag element))
         children (children element)
         acc      (-> acc (conj! indent) (conj! "<") (conj! name) (conj! (attrs-str (attrs element))))]
     (cond
@@ -542,13 +537,13 @@
       (conj! acc "/>")
 
       (every? string? children)
-      (-> acc (conj! ">") (append-text! (apply str children)) (conj! "</") (conj! name) (conj! ">"))
+      (-> acc (conj! ">") (append-text (apply str children)) (conj! "</") (conj! name) (conj! ">"))
 
       :else
       (-> (reduce (fn [acc [i child]]
                     (let [acc (if (pos? i) (conj! acc "\n") acc)]
                       (if (string? child)
-                        (-> acc (conj! indent) (conj! "  ") (append-text! child))
+                        (-> acc (conj! indent) (conj! "  ") (append-text child))
                         (emit-element* acc (inc depth) child))))
                   (conj! acc ">\n")
                   (map-indexed vector children))
@@ -580,13 +575,13 @@
   "Append the one-line serialization of `element` to the transient vector
   `acc` of string parts."
   [acc element]
-  (let [name (keyword-str (tag element))
+  (let [name (qname (tag element))
         acc  (-> acc (conj! "<") (conj! name) (conj! (attrs-str (attrs element))))]
     (if (empty? (children element))
       (conj! acc "/>")
       (-> (reduce (fn [acc child]
                     (if (string? child)
-                      (append-text! acc child)
+                      (append-text acc child)
                       (emit-compact* acc child)))
                   (conj! acc ">")
                   (children element))

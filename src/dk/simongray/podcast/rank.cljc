@@ -1,12 +1,8 @@
 (ns dk.simongray.podcast.rank
   "Ranks: strings that sort where an item was put and always leave room for
-  another between any two, so that an ordered list can be kept as entries
-  that merge one by one, each carrying its rank, instead of as one value a
-  merge takes whole. A rank is digits in base 62, `0-9A-Za-z`, read as a
-  fraction with no trailing zero and compared as a string. `between` gives
-  a rank between two, before the first or after the last; at the ends it
-  moves the last digit by one while it can, so that a list appended to a
-  thousand times keeps short ranks.
+  another between any two. A rank is digits in base 62, `0-9A-Za-z`, read as
+  a fraction with no trailing zero and compared as a string; `between` gives
+  a rank between two, before the first or after the last.
 
       (between nil nil)   ;=> \"V\"    the first rank
       (between \"V\" nil)   ;=> \"W\"    after it
@@ -42,8 +38,7 @@
   "A rank between `before` and `after`, either or both nil for the ends of
   the list; `before` must sort before `after`, and two equal ranks leave no
   room. After the last rank or before the first, the last digit moves by
-  one while it can, so that the ranks at the ends grow by a digit only
-  every sixty-one steps."
+  one while it can."
   [before after]
   (when (and before after (not (neg? (compare before after))))
     (throw (ex-info "The ranks are not in order, or are the same" {:before before :after after})))

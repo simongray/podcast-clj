@@ -1,16 +1,14 @@
 (ns dk.simongray.podcast.quirks-test
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.quirks :as quirks]
+            [dk.simongray.podcast.test-support :refer [fixture]]
             [dk.simongray.podcast.xml :as xml]))
 
 (def quirky
-  (delay #?(:clj  (slurp (io/resource "feeds/quirky.xml"))
-            :cljs (rc/inline "feeds/quirky.xml"))))
+  (delay (fixture "feeds/quirky.xml")))
 
 (deftest repairs
   (testing "each repair on its own"
@@ -30,6 +28,24 @@
 
 (deftest entities
   (is (= "it's & … A  x &bogus;" (xml/decode-entities "it&#39;s &amp; &hellip; &#x41; &nbsp;x &bogus;"))))
+
+(deftest numeric-references-a-string-cannot-hold
+  (is (= "&#1114112; &#x110000; &#99999999999999999999; A"
+         (xml/decode-entities "&#1114112; &#x110000; &#99999999999999999999; &#65;"))))
+
+(deftest leaving-rules-out
+  (testing "repair skips the repairs it is told to"
+    (is (= [:repair/bare-ampersands]
+           (map :id (:report (quirks/repair "junk\n<rss><channel><title>A & B</title></channel></rss>"
+                                            {:except #{:repair/leading-junk}}))))))
+  (testing "and normalize the rules, through parse-tree"
+    (let [xml      "<rss xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><itunes:explicit>Yes</itunes:explicit></channel></rss>"
+          explicit (fn [opts]
+                     (let [tree (podcast/parse-tree xml opts)]
+                       [(xml/text (xml/element (xml/element tree :channel) :itunes/explicit))
+                        (set (map :id (podcast/report tree)))]))]
+      (is (= ["true" #{:quirk/explicit-value}] (explicit {})))
+      (is (= ["Yes" #{}] (explicit {:except #{:quirk/explicit-value}}))))))
 
 (deftest namespace-variants
   (is (= :podcast (quirks/uri->alias "HTTP://podcastindex.org/namespace/1.0/")))

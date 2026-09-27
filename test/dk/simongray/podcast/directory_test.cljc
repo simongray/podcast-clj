@@ -1,44 +1,44 @@
 (ns dk.simongray.podcast.directory-test
   "The directories behind one shape: requests, the shows read from recorded
   answers, and several sources combined."
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.resolve :as resolve]))
+            [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.resolve :as resolve]
+            [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def apple-search
-  #?(:clj (slurp (io/resource "directory/apple-search.json")) :cljs (rc/inline "directory/apple-search.json")))
+  (fixture "directory/apple-search.json"))
 
 (def apple-lookup
-  #?(:clj (slurp (io/resource "directory/apple-lookup.json")) :cljs (rc/inline "directory/apple-lookup.json")))
+  (fixture "directory/apple-lookup.json"))
 
 (def apple-charts
-  #?(:clj (slurp (io/resource "directory/apple-charts.json")) :cljs (rc/inline "directory/apple-charts.json")))
+  (fixture "directory/apple-charts.json"))
 
 (def fyyd-search
-  #?(:clj (slurp (io/resource "directory/fyyd-search.json")) :cljs (rc/inline "directory/fyyd-search.json")))
+  (fixture "directory/fyyd-search.json"))
 
 (def fyyd-podcast
-  #?(:clj (slurp (io/resource "directory/fyyd-podcast.json")) :cljs (rc/inline "directory/fyyd-podcast.json")))
+  (fixture "directory/fyyd-podcast.json"))
 
 (def fyyd-hot
-  #?(:clj (slurp (io/resource "directory/fyyd-hot.json")) :cljs (rc/inline "directory/fyyd-hot.json")))
+  (fixture "directory/fyyd-hot.json"))
 
 (def gpodder-search
-  #?(:clj (slurp (io/resource "directory/gpodder-search.json")) :cljs (rc/inline "directory/gpodder-search.json")))
+  (fixture "directory/gpodder-search.json"))
 
 (def gpodder-podcast
-  #?(:clj (slurp (io/resource "directory/gpodder-podcast.json")) :cljs (rc/inline "directory/gpodder-podcast.json")))
+  (fixture "directory/gpodder-podcast.json"))
 
 (def gpodder-toplist
-  #?(:clj (slurp (io/resource "directory/gpodder-toplist.json")) :cljs (rc/inline "directory/gpodder-toplist.json")))
+  (fixture "directory/gpodder-toplist.json"))
 
 (def index-search
-  #?(:clj (slurp (io/resource "index/search-byterm.json")) :cljs (rc/inline "index/search-byterm.json")))
+  (fixture "index/search-byterm.json"))
 
 (def pc20-url "https://feeds.podcastindex.org/pc20.xml")
 
@@ -67,7 +67,7 @@
       (is (str/ends-with? (url :podcastindex :lookup {:id 920666} credentials) "podcasts/byfeedid?id=920666"))
       (is (str/ends-with? (url :podcastindex :lookup {:id "917393e3-1b1e-5cef-ace4-edaa54e1f810"} credentials)
                           "podcasts/byguid?guid=917393e3-1b1e-5cef-ace4-edaa54e1f810")))
-    (is (= {"User-Agent" "dk.simongray/podcast"} (:headers (directory/request :fyyd :search {:q "x"}))))
+    (is (= {"User-Agent" http/user-agent} (:headers (directory/request :fyyd :search {:q "x"}))))
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :podcastindex :search {:q "x"})) "credentials wanted")
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :spotify :search {:q "x"})))
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :episodes {:q "x"})))

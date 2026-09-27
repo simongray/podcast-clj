@@ -7,10 +7,8 @@
   A request is `{:method :url :headers :body}`, GET unless `:method` is
   `:post`, the shape the directories and podping build and any HTTP client
   can send; `query-string` encodes the parameters of one the same way on
-  both platforms. Responses are plain maps so that nothing else in the
-  library touches java.net.http. The `:url` of a response is its final URL
-  after redirects, which is what a stored feed URL should become on a
-  permanent redirect."
+  both platforms. Responses are plain maps; the `:url` of a response is its
+  final URL after redirects."
   (:require [clojure.string :as str])
   #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream]
                    [java.net URI]
@@ -26,11 +24,15 @@
 
 (defn encode
   "Percent-encode `s` for a query string, the same way on both platforms:
-  spaces become %20, not +."
+  spaces become %20, not +, and letters, digits and `-_.!~*'()` stay as they
+  are."
   [s]
   #?(:clj  (-> (java.net.URLEncoder/encode (str s) "UTF-8")
                (str/replace "+" "%20")
-               (str/replace "*" "%2A")
+               (str/replace "%21" "!")
+               (str/replace "%27" "'")
+               (str/replace "%28" "(")
+               (str/replace "%29" ")")
                (str/replace "%7E" "~"))
      :cljs (js/encodeURIComponent (str s))))
 
@@ -76,9 +78,9 @@
                      (.map (.headers response)))
       :body    body}))
 
-(def default-max-bytes
+(def ^:no-doc default-max-bytes
   "How much of a response body `call!` reads before giving up, unless told
-  otherwise: 100 MB, several times the largest feed seen in the wild."
+  otherwise: 100 MB."
   (* 100 1024 1024))
 
 #?(:clj
@@ -107,7 +109,7 @@
        (read-bounded in max-bytes url))))
 
 #?(:clj
-   (defn declared-charset
+   (defn- declared-charset
      "The charset a response declares, in its Content-Type header or, failing
      that, in the XML declaration at the start of `body`; UTF-8 otherwise."
      [headers ^bytes body]
@@ -140,8 +142,7 @@
 #?(:clj
    (defn legal-url
      "`url` with every character a URI may not contain, such as a space or a
-     non-ASCII letter, percent-encoded as UTF-8. Feed URLs in the wild carry
-     them verbatim, and java.net.URI rejects them. Percent signs are left as
+     non-ASCII letter, percent-encoded as UTF-8. Percent signs are left as
      they are, so an already encoded URL comes back unchanged."
      [^String url]
      (let [sb (StringBuilder.)]
@@ -155,15 +156,12 @@
 #?(:clj
    (defn call!
      "Send the request map `{:method :url :headers :body}` and return
-     `{:status :url :headers :body}` with the body decoded to a string. The
-     request is a GET unless `:method` names another, `:post`, `:put`,
-     `:delete` or WebDAV's `:propfind`, sent with the `:body` string as it
-     is when there is one. `:timeout-seconds` (default 30) bounds the wait for
-     the response headers; `:max-bytes` (default `default-max-bytes`, nil for
-     no limit) bounds the body, compressed and inflated, beyond which
-     `::too-large` is thrown instead of reading on. gzip is accepted and
-     undone, and a URL with illegal characters is encoded first (see
-     `legal-url`)."
+     `{:status :url :headers :body}`, the body decoded to a string. A GET
+     unless `:method` names another, sent with the `:body` string when there
+     is one; `:timeout-seconds` (default 30) bounds the wait for the headers,
+     `:max-bytes` (default `default-max-bytes`, nil for no limit) the body,
+     beyond which `::too-large` is thrown. gzip is undone and the URL made
+     legal first (see `legal-url`)."
      [{:keys [method url headers body timeout-seconds max-bytes]
        :or   {timeout-seconds 30 max-bytes default-max-bytes}}]
      (let [builder  (-> (HttpRequest/newBuilder (URI. (legal-url url)))
@@ -192,26 +190,25 @@
      "GET the feed at `url` and return `{:status :url :headers :body}` with the
      body as a decoded string, plus `:etag` and `:last-modified` when present.
      `opts` may carry an `:etag` and `:last-modified` from an earlier response,
-     sent as If-None-Match and If-Modified-Since; a 304 then comes back with no
-     body."
+     sent as If-None-Match and If-Modified-Since, on which a 304 comes back
+     with no body; a `:user-agent` to send instead of `user-agent`; and the
+     `:timeout-seconds` and `:max-bytes` of `call!`."
      ([url]
       (fetch! url {}))
-     ([url {:keys [etag last-modified timeout-seconds max-bytes user-agent]
-            :or   {timeout-seconds 30 max-bytes default-max-bytes
-                   user-agent      dk.simongray.podcast.http/user-agent}}]
-      (let [response (call! {:url             url
-                             :timeout-seconds timeout-seconds
-                             :max-bytes       max-bytes
-                             :headers         (cond-> {"User-Agent" user-agent
-                                                       "Accept"     "application/rss+xml, application/xml, text/xml, */*"}
-                                                etag          (assoc "If-None-Match" etag)
-                                                last-modified (assoc "If-Modified-Since" last-modified))})
-            headers  (:headers response)]
+     ([url {:keys [etag last-modified user-agent]
+            :or   {user-agent dk.simongray.podcast.http/user-agent}
+            :as   opts}]
+      (let [accept   "application/rss+xml, application/xml, text/xml, */*"
+            headers  (cond-> {"User-Agent" user-agent "Accept" accept}
+                       etag          (assoc "If-None-Match" etag)
+                       last-modified (assoc "If-Modified-Since" last-modified))
+            response (call! (assoc opts :url url :headers headers))]
         (assoc response
-               :etag (header headers "etag")
-               :last-modified (header headers "last-modified"))))))
+               :etag          (header (:headers response) "etag")
+               :last-modified (header (:headers response) "last-modified"))))))
 
 #?(:clj
    (comment
-     (select-keys (fetch! "https://feeds.podcastindex.org/pc20.xml") [:status :url :etag :last-modified])
+     (select-keys (fetch! "https://example.org/feed.xml")
+                  [:status :url :etag :last-modified])
      #_.))

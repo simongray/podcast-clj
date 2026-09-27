@@ -9,24 +9,16 @@
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
-            [dk.simongray.podcast.format.transcript :as transcript]))
-
-(def files
-  "The feed files: the .xml files directly in the corpus directory, not the
-  companion files in the directory below it."
-  (delay (->> (.listFiles (io/file "dev-resources/corpus"))
-              (filter #(and (.isFile ^java.io.File %)
-                            (.endsWith (.getName ^java.io.File %) ".xml")))
-              (sort-by #(.getName ^java.io.File %)))))
+            [dk.simongray.podcast.format.transcript :as transcript]
+            [dk.simongray.podcast.test-support :refer [corpus-feeds]]))
 
 (deftest every-corpus-feed
-  (doseq [file @files]
-    (testing (.getName ^java.io.File file)
-      (let [feed (podcast/parse (slurp file))]
-        (is (string? (:rss/title feed)))
-        (is (every? map? (:rss/items feed)))
-        (is (= feed (podcast/parse (podcast/emit feed))) "lossless round trip")
-        (is (vector? (validate/validate feed {:profile :psp-1})))))))
+  (doseq [{:keys [name feed]} @corpus-feeds]
+    (testing name
+      (is (string? (:rss/title feed)))
+      (is (every? map? (:rss/items feed)))
+      (is (= feed (podcast/parse (podcast/emit feed))) "lossless round trip")
+      (is (vector? (validate/validate feed {:profile :psp-1}))))))
 
 (def companions-dir
   (io/file "dev-resources/corpus/companions"))

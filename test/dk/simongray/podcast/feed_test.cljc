@@ -1,16 +1,14 @@
 (ns dk.simongray.podcast.feed-test
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.spec :as spec]
+            [dk.simongray.podcast.test-support :refer [fixture]]
             [dk.simongray.podcast.xml :as xml]))
 
 (def example
-  (delay #?(:clj  (slurp (io/resource "feeds/namespace-example.xml"))
-            :cljs (rc/inline "feeds/namespace-example.xml"))))
+  (delay (fixture "feeds/namespace-example.xml")))
 
 (deftest namespace-example
   (let [f (podcast/parse @example)]
@@ -227,6 +225,14 @@
     (testing "an ISO date with milliseconds in an RFC 2822 field loses only what the field cannot carry"
       (is (= #inst "2024-08-02T19:35:20.000Z" (get-in f [:podcast/trailers 0 :pubdate])))
       (is (= f (podcast/parse (podcast/emit f)))))))
+
+(deftest namespaces-of-your-own
+  (let [f   {:rss/version "2.0" :rss/title "T" :xml/unknown [[:acme/tracking {:id "42"}]]}
+        out (podcast/emit f {:namespaces {:acme "https://acme.example/rss-extensions"}})]
+    (is (re-find #"xmlns:acme=\"https://acme.example/rss-extensions\"" out))
+    (is (re-find #"<acme:tracking id=\"42\"/>" out))
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) (podcast/emit f))
+        "an alias no one declares is refused")))
 
 (deftest a-registry-of-your-own
   (let [tags (into spec/tags [{:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one

@@ -487,7 +487,7 @@
                                    ; boosted by 0 does not match at all
        :k1 1.2 :b 0.75             ; BM25's saturation and length normalization
        :where      pred            ; keep the results this predicate accepts,
-                                   ; given `{:id :stored}`
+                                   ; each `{:id :score :stored}`
        :rank       f}              ; order the results by this function of each
                                    ; instead of by score, ascending
 
@@ -679,7 +679,7 @@
      :oldest    (fn [_ item] (or (published-ms item) ##Inf))
      :shortest  (fn [_ item] (or (resolve/duration item) ##Inf))
      :longest   (fn [_ item] (- (or (resolve/duration item) ##-Inf)))
-     :title     (fn [_ item] (fold (resolve/title item)))
+     :title     (fn [_ item] (if-let [title (resolve/title item)] [0 (fold title)] [1 ""]))
      :recent    (fn [feed item] (- (or (last-heard-ms ctx feed item) ##-Inf)))
      (if (fn? k)
        k

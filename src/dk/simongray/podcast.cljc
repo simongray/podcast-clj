@@ -12,12 +12,11 @@
       feed.validate  the registry-driven validator and its profiles
 
   `parse` runs the strict path first and falls back to repair only when the
-  document is malformed. Everything the lenient path did is in the report.
-  Every function here takes `:registry` in its options, the tag registry to
-  interpret, so that a vocabulary extended with a client's own elements (see
-  `dk.simongray.podcast.spec/registry`) reads and writes like the library's.
-  On the JVM, `fetch!` goes from a URL to a parsed feed in one step, with
-  what a poller needs to come back."
+  document is malformed, and everything the lenient path did is in the
+  report. `parse`, `parse-tree`, `emit` and `fetch!` take `:registry` in
+  their options, the tag registry to interpret, so that a vocabulary
+  extended with a client's own elements (see
+  `dk.simongray.podcast.spec/registry`) reads and writes like the library's."
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.quirks :as quirks]
@@ -53,26 +52,30 @@
       (if (malformed? e) {:error e} (throw e)))))
 
 (defn- repaired
-  "Repair the malformed `xml` and parse it again: strictly when the repairs
-  sufficed, leniently when a lenient parser is available, and otherwise by
-  throwing the strict parser's error. Returns `{:raw tree :report [...]}`."
-  [xml]
-  (let [{repaired :xml report :report} (quirks/repair xml)
-        {:keys [raw error]}            (strict repaired)]
+  "Repair the malformed `xml`, with `opts` as for `quirks/repair`, and parse
+  it again: strictly when the repairs sufficed, leniently when a lenient
+  parser is available, and otherwise by throwing the strict parser's error.
+  Returns `{:raw tree :report [...]}`."
+  [xml opts]
+  (let [{repaired :xml report :report} (quirks/repair xml opts)
+        {:keys [raw error]}            (strict repaired)
+        parse-leniently                (lenient)]
     (cond
-      raw       {:raw raw :report report}
-      (lenient) {:raw    ((lenient) repaired)
-                 :report (conj report {:id :repair/lenient-parser :level :warning})}
-      :else     (throw error))))
+      raw             {:raw raw :report report}
+      parse-leniently {:raw    (parse-leniently repaired)
+                       :report (conj report {:id :repair/lenient-parser :level :warning})}
+      :else           (throw error))))
 
 (defn parse-tree
-  "Parse the RSS `xml` string into canonical Hiccup. With `:quirks?` in
-  `opts` (the default), namespace URI variants are recognized and a document
-  the strict parser rejects is repaired and parsed again, leniently as a
-  last resort when the platform has a lenient parser; `{:quirks? false}` is
-  the strict path alone. `:registry` is the tag registry the quirks read
-  (default `spec/default`). The result carries every diagnostic under
-  `:podcast/report` in its metadata."
+  "Parse the RSS `xml` string into canonical Hiccup, normalized by
+  `dk.simongray.podcast.quirks/normalize`. With `:quirks?` in `opts` (the
+  default), namespace URI variants are recognized and a document the strict
+  parser rejects is repaired and parsed again, leniently as a last resort
+  when the platform has a lenient parser; `{:quirks? false}` is the strict
+  path alone, neither repaired nor normalized. `:registry` is the tag
+  registry the quirks read (default `spec/default`) and `:except` a set of
+  repair and quirk ids to leave out. The result carries every diagnostic
+  under `:podcast/report` in its metadata."
   ([xml]
    (parse-tree xml {}))
   ([xml {:keys [quirks?] :or {quirks? true} :as opts}]
@@ -81,10 +84,10 @@
      (let [tree (xml/parse xml)]
        (vary-meta tree assoc :podcast/report (xml/report tree)))
      (let [{:keys [raw]}        (strict xml)
-           {:keys [raw report]} (if raw {:raw raw :report []} (repaired xml))
+           {:keys [raw report]} (if raw {:raw raw :report []} (repaired xml (select-keys opts [:except])))
            tree                 (-> raw
                                     (xml/resolve-namespaces quirks/uri->alias)
-                                    (quirks/normalize (select-keys opts [:registry])))]
+                                    (quirks/normalize (select-keys opts [:registry :except])))]
        (vary-meta tree assoc :podcast/report
                   (-> []
                       (into report)
@@ -100,6 +103,7 @@
   ([xml]
    (parse xml {}))
   ([xml opts]
+   {:pre [(map? opts)]}
    (let [tree (parse-tree xml opts)
          feed (feed/parse tree (select-keys opts [:registry]))]
      (vary-meta feed assoc :podcast/report
@@ -116,11 +120,13 @@
 
 (defn emit
   "The XML document for `feed`, canonical in every way the library knows how
-  to be; `:registry` in `opts` is the tag registry to write it by (default
-  `spec/default`)."
+  to be. `opts` are those of `dk.simongray.podcast.feed/emit`: `:registry`,
+  the tag registry to write it by, and `:namespaces`, alias to URI for the
+  elements of namespaces the feed was not parsed with."
   ([feed]
    (emit feed {}))
   ([feed opts]
+   {:pre [(map? opts)]}
    (xml/emit (feed/emit feed opts))))
 
 #?(:clj
@@ -129,25 +135,25 @@
 
          {:status 200 :url \"…\"           ; the final URL, after redirects
           :etag \"…\" :last-modified \"…\"  ; to hand back next time
-          :feed {…} :report [...]          ; absent on a 304, and on any status but 200
+          :body \"…\" :feed {…} :report [...]  ; on a 200: the XML, the feed, its report
           :new-feed-url \"…\"}             ; when the feed declares it has moved
 
      `opts` may carry the `:etag` and `:last-modified` of the last fetch,
-     which a server answers with a 304 when nothing changed; the
-     `:timeout-seconds`, `:max-bytes` and `:user-agent` of `http/fetch!`;
-     and the `:quirks?` and `:registry` of `parse`. A network failure, a
-     body over `:max-bytes` and a body that is not XML at all throw, as
-     `http/fetch!` and `parse` do."
+     which a server answers with a 304 when nothing changed, the
+     `:timeout-seconds`, `:max-bytes` and `:user-agent` of `http/fetch!`,
+     and the options of `parse`. It throws as `http/fetch!` and `parse` do."
      ([url]
       (fetch! url {}))
      ([url opts]
+      {:pre [(map? opts)]}
       (let [{:keys [status body] :as response}
             (http/fetch! url (select-keys opts [:etag :last-modified :timeout-seconds :max-bytes :user-agent]))
             result (select-keys response [:status :url :etag :last-modified])]
         (if (and (= 200 status) body)
-          (let [feed (parse body (select-keys opts [:quirks? :registry]))]
-            (cond-> (assoc result :feed feed :report (report feed))
-              (resolve/new-feed-url feed) (assoc :new-feed-url (resolve/new-feed-url feed))))
+          (let [feed  (parse body (select-keys opts [:quirks? :registry :except]))
+                moved (resolve/new-feed-url feed)]
+            (cond-> (assoc result :body body :feed feed :report (report feed))
+              moved (assoc :new-feed-url moved)))
           result)))))
 
 (defn summarize

@@ -2,26 +2,25 @@
   "The podping consumer: the calls to a Hive node, the pings read out of
   blocks, the writers, the URLs a ping concerns, and on the JVM the poll
   with its fallback across nodes."
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [dk.simongray.podcast.http :as http])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.podping :as podping]))
+            [dk.simongray.podcast.podping :as podping]
+            [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def head-block
-  #?(:clj (slurp (io/resource "podping/head-block.json")) :cljs (rc/inline "podping/head-block.json")))
+  (fixture "podping/head-block.json"))
 
 (def blocks
-  #?(:clj (slurp (io/resource "podping/blocks.json")) :cljs (rc/inline "podping/blocks.json")))
+  (fixture "podping/blocks.json"))
 
 (def operations
-  #?(:clj (slurp (io/resource "podping/operations.json")) :cljs (rc/inline "podping/operations.json")))
+  (fixture "podping/operations.json"))
 
 (def following
-  #?(:clj (slurp (io/resource "podping/following.json")) :cljs (rc/inline "podping/following.json")))
+  (fixture "podping/following.json"))
 
 (defn- rpc
   "The JSON-RPC body of a request, as data."

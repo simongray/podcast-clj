@@ -1,13 +1,13 @@
 (ns dk.simongray.podcast.guid
   "Feed identity: the `podcast:guid` UUIDv5 scheme and the SHA-1 it and the
-  Podcast Index API need, on both platforms."
+  directory clients need, on both platforms."
   (:require [clojure.string :as str])
   #?(:clj  (:import [java.security MessageDigest]
                     [java.nio.charset StandardCharsets])
      :cljs (:require [goog.crypt :as crypt]
                      [goog.crypt.Sha1])))
 
-(def podcast-namespace
+(def ^:no-doc podcast-namespace
   "The UUID namespace every `podcast:guid` is derived in."
   "ead4c236-bf58-58c6-a2c6-a6b28d128cb6")
 
@@ -36,8 +36,7 @@
                   bytes)))
 
 (defn sha1-hex
-  "The SHA-1 of the string `s`, as hex; what the Podcast Index API wants in
-  its Authorization header."
+  "The SHA-1 of the string `s`, as lowercase hex."
   [s]
   (hex (sha1 (utf8-bytes s))))
 

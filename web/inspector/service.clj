@@ -1,6 +1,6 @@
 (ns inspector.service
   "The reference web app: a feed inspector on Pedestal that uses nothing but
-  the public API of the library. Start it with `clojure -X:web` or from the
+  the public API of the library. Start it with `clojure -M:web` or from the
   REPL with `(start!)`, then open http://localhost:8300/."
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pprint]
@@ -9,7 +9,7 @@
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.app.sync.file :as file]
-            [dk.simongray.podcast.app.sync.webdav :as webdav]
+            [dk.simongray.podcast.app.sync.webdav.server :as webdav-server]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed :as feed]
@@ -23,8 +23,7 @@
             [io.pedestal.connector :as conn]
             [io.pedestal.http.jetty :as jetty]
             [io.pedestal.http.secure-headers :as secure-headers]
-            [replicant.string :as replicant])
-  (:gen-class))
+            [replicant.string :as replicant]))
 
 (def corpus-dir
   "Where the corpus feeds are, when they have been downloaded."
@@ -337,8 +336,8 @@
      ["/episode.edn" :get episode-edn :route-name :episode-edn]
      ["/queue" :get queue-page :route-name :queue]
      ["/js/*path" :get js-file :route-name :js]
-     ["/dav" :any (webdav/handler sync-store "/dav/") :route-name :dav-collection]
-     ["/dav/*path" :any (webdav/handler sync-store "/dav/") :route-name :dav]
+     ["/dav" :any (webdav-server/handler sync-store "/dav/") :route-name :dav-collection]
+     ["/dav/*path" :any (webdav-server/handler sync-store "/dav/") :route-name :dav]
      ["/corpus/:name" :get corpus-page :route-name :corpus]}))
 
 (defonce ^{:doc "The running connector, nil when stopped."}

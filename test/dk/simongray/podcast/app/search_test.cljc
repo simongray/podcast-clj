@@ -1,16 +1,14 @@
 (ns dk.simongray.podcast.app.search-test
   "Filtering and ordering by criteria as data, and the full-text index."
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.player :as player]
-            [dk.simongray.podcast.app.search :as search]))
+            [dk.simongray.podcast.app.search :as search]
+            [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def example
-  (delay (podcast/parse #?(:clj  (slurp (io/resource "feeds/namespace-example.xml"))
-                           :cljs (rc/inline "feeds/namespace-example.xml")))))
+  (delay (podcast/parse (fixture "feeds/namespace-example.xml"))))
 
 (def t0 #inst "2026-03-01T00:00:00Z")
 (def t1 #inst "2026-03-02T00:00:00Z")

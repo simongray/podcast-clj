@@ -1,33 +1,28 @@
 (ns dk.simongray.podcast.companions-test
-  "Chapters, transcripts, OPML and value blocks."
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  "Chapters, transcripts, OPML, value blocks and query-string encoding."
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.format.transcript :as transcript]
+            [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.test-support :refer [fixture]]
             [dk.simongray.podcast.value :as value]))
 
 (def complex-chapters
-  #?(:clj  (slurp (io/resource "chapters/example-complex.json"))
-     :cljs (rc/inline "chapters/example-complex.json")))
+  (fixture "chapters/example-complex.json"))
 
 (def vtt-text
-  #?(:clj  (slurp (io/resource "transcripts/example.vtt"))
-     :cljs (rc/inline "transcripts/example.vtt")))
+  (fixture "transcripts/example.vtt"))
 
 (def srt-text
-  #?(:clj  (slurp (io/resource "transcripts/example.srt"))
-     :cljs (rc/inline "transcripts/example.srt")))
+  (fixture "transcripts/example.srt"))
 
 (def json-text
-  #?(:clj  (slurp (io/resource "transcripts/example.json"))
-     :cljs (rc/inline "transcripts/example.json")))
+  (fixture "transcripts/example.json"))
 
 (def html-text
-  #?(:clj  (slurp (io/resource "transcripts/example.html"))
-     :cljs (rc/inline "transcripts/example.html")))
+  (fixture "transcripts/example.html"))
 
 (deftest json-chapters
   (let [doc (chapters/parse-json complex-chapters)]
@@ -68,7 +63,13 @@
   (testing "Podlove chapters with a bad start are dropped and reported"
     (let [doc (chapters/from-psc {:chapters [{:start "00:00:00.000" :title "A"} {:start "soon" :title "B"}]})]
       (is (= ["A"] (map :title (:chapters doc))))
-      (is (= [:chapters/bad-timestamps] (map :id (chapters/report doc)))))))
+      (is (= [:chapters/bad-timestamps] (map :id (chapters/report doc))))))
+  (testing "a document that is not an object reads as no chapters and is reported"
+    (let [doc (chapters/parse-json "[{\"startTime\":0,\"title\":\"Intro\"}]")]
+      (is (= [] (:chapters doc)))
+      (is (= [:chapters/not-an-object] (map :id (chapters/report doc))))))
+  (testing "a document without a version is not reported as an old one"
+    (is (= [] (chapters/report (chapters/parse-json "{\"chapters\":[{\"startTime\":0}]}"))))))
 
 (deftest podlove-chapters
   (let [psc {:version "1.2" :chapters [{:start "00:00:00.000" :title "Intro"}
@@ -199,6 +200,17 @@
               {:start 2 :end 2.5 :body "(music)"}]
              (:segments t))))))
 
+(deftest emitting-untimed-segments
+  (let [untimed (transcript/parse "Justin: Hi.\n\nBye." "text/plain")
+        mixed   (update untimed :segments conj {:start 1 :end 2 :body "Timed."})]
+    (testing "segments without a start time are left out of the timed formats"
+      (is (= [] (:segments (transcript/parse (transcript/emit-srt untimed)))))
+      (is (= [] (:segments (transcript/parse (transcript/emit-vtt untimed)))))
+      (is (= [{:start 1 :end 2 :body "Timed."}]
+             (:segments (transcript/parse (transcript/emit-srt mixed)))))
+      (is (= [{:start 1 :end 2 :body "Timed."}]
+             (:segments (transcript/parse (transcript/emit-json mixed))))))))
+
 (deftest opml-round-trip
   (let [list (opml/parse "<opml version=\"2.0\"><head><title>Mine</title></head><body>
                 <outline text=\"Tech\"><outline type=\"rss\" text=\"PC20\" xmlUrl=\"https://feeds.podcastindex.org/pc20.xml\"/></outline>
@@ -226,6 +238,10 @@
   (is (= [["Index" 1] ["Host" 51] ["Co-Host" 39] ["Producer" 9]]
          (map (juxt (comp :name :recipient) :amount) (value/payments (:recipients block) 100))))
   (is (= 100 (transduce (map :amount) + (value/payments (:recipients block) 100))))
+  (testing "a share recipient without a split is paid nothing"
+    (is (= [["A" 3] ["B" 7] ["C" 0]]
+           (map (juxt (comp :name :recipient) :amount)
+                (value/payments [{:name "A" :split 1} {:name "B" :split 2} {:name "C"}] 10)))))
   (is (= 15 (value/sats block)))
   (is (= 100 (value/share-total (:recipients block))))
   (testing "which block applies"
@@ -273,4 +289,9 @@
   (is (= {"action" "stream" "value_msat" 10000 "value_msat_total" 10000}
          (value/boostagram {:action :stream :sats 10})))
   (is (= {"action" "boost"} (value/boostagram {}))))
+
+(deftest query-string-encoding
+  (testing "the same on both platforms: %20 for a space, the marks kept"
+    (is (= "a*b!c'd(e)f~g%20h" (http/encode "a*b!c'd(e)f~g h")))
+    (is (= "q=a%20b&flag" (http/query-string {:q "a b" :flag true :none nil})))))
 

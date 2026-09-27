@@ -18,20 +18,16 @@
        :retired       {device-id {}}}
 
   Every write takes the instant `at` it happens, never reads a clock, and
-  stamps what it changed with the state's `:device` and with `at`, or with
-  the millisecond after the latest instant the state has seen when `at` is
-  not later than that (see `after`), so that `merge` can let the latest
-  entry win and a device whose clock runs behind still wins over what it
-  has already merged. The state is a state-based CRDT of the simplest kind:
-  every stamped entry is a last-writer-wins register, a map of them by id
-  or by field an add-and-remove set with tombstones, the clock a max
-  register, and `merge` is the join. The queue keeps one entry per episode
-  with a rank from `dk.simongray.podcast.rank`, so that what two devices
-  queued while apart both survive. Each device's registry entry carries
-  what it has merged from every other, which lets `compact` drop the
-  tombstones everyone has seen. Nothing here stores anything or touches a
-  media element; the app owns those and calls in.
-  `dk.simongray.podcast.app.sync` carries the state between devices.
+  stamps what it changed with the state's `:device` and with `at` as
+  `after` adjusts it. The state is a state-based CRDT: a stamped entry is a
+  last-writer-wins register, a map of them an add-and-remove set with
+  tombstones, the clock a max register, and `merge` the join; the queue
+  ranks its entries with `dk.simongray.podcast.rank`, so that what two
+  devices queued while apart both survive, and each device's registry
+  entry says what it has merged, which lets `compact` drop the tombstones
+  everyone has seen. doc/sync.md is the design. Nothing here stores
+  anything or touches a media element; the app owns those and calls in,
+  and `dk.simongray.podcast.app.sync` carries the state between devices.
 
   Identities are those of `dk.simongray.podcast.feed`: a feed by its
   `podcast:guid`, an episode by `[feed-guid item-guid]`."
@@ -68,13 +64,11 @@
     :else                           b))
 
 (defn after
-  "The instant a write at `now` is stamped with: `now`, unless the state's
-  clock, the latest instant it has written or merged, is at or past it,
-  when it is the millisecond after the clock. A device whose clock runs
-  behind another's thus still writes later than what it has seen, the way
-  a hybrid logical clock does, and the other device cannot leave it behind.
-  Every write applies this itself; an app calls it to know the stamp
-  beforehand, as for entries of its own."
+  "The instant a write at `now` is stamped with: `now`, or the millisecond
+  after the state's clock when that is at or past `now`, so that a device
+  whose clock runs behind still writes later than what it has merged, the
+  way a hybrid logical clock does. Every write applies this itself; an app
+  calls it for entries of its own."
   [state now]
   (let [clock (:clock state)]
     (if (and clock (>= (inst-ms clock) (inst-ms now)))
@@ -103,7 +97,7 @@
 (def default-settings
   "What a subscription is set to until `configure` says otherwise: whether
   new episodes join the queue and the seconds to skip at the start and the
-  end. A `:rate` set here overrides the listener's preferred one."
+  end."
   {:auto-queue? false :skip-intro 0 :skip-outro 0})
 
 (defn subscribed?
@@ -148,9 +142,10 @@
   (clojure.core/merge default-settings (values (get-in state [:settings feed-guid]))))
 
 (defn configure
-  "Change the `settings` of the subscription `feed-guid` at `at`; the keys
-  are those of `default-settings`. Each setting is an entry of its own, so
-  two devices changing different ones both have their way."
+  "Change the `settings` of the subscription `feed-guid` at `at`: the keys
+  of `default-settings`, and `:rate`, a playback rate for this show over
+  the listener's preferred one. Each setting is an entry of its own, so two
+  devices changing different ones both have their way."
   [state feed-guid settings at]
   (if (get-in state [:subscriptions feed-guid])
     (write-each state (for [[k v] settings] [[:settings feed-guid k] (constantly {:value v})]) at)
@@ -221,10 +216,9 @@
   "Note in the registry of `state` at `at` that this device has merged the
   whole states `others`: under `:seen` in its own entry, the latest instant
   each other device wrote anything now merged here, kept monotone, which is
-  what lets `compact` know what everyone has seen. Only whole states count,
-  as the documents are; a partial one, a service's changes since a cursor,
-  would overstate what was seen. The entry is written only when the
-  knowledge grew, so that syncing alone never rewrites a document."
+  what `compact` judges by. Only whole states count, never a service's
+  changes since a cursor, and the entry is written only when the knowledge
+  grew, so that syncing alone never rewrites a document."
   [state others at]
   (let [me    (:device state)
         known (get-in state [:devices me :seen] {})
@@ -255,15 +249,13 @@
                  judges))))
 
 (defn compact
-  "Drop from `state` at `at` what no device needs any more: the tombstones
-  of unsubscriptions and of queue removals that every live device has
-  merged, by the registry (see `acknowledge`), and that are older than
-  `:keep-for` milliseconds in `opts` (default `default-keep`). The played
-  marks stay, since the listener still sees them. A device that has stopped
-  syncing holds compaction back until it is retired (see `lagging`); a
-  device that starts syncing with a state of its own, or is restored from
-  a backup, may bring back what everyone else has forgotten, which the
-  thirty days are a buffer against."
+  "Drop from `state` at `at` the tombstones of unsubscriptions and of queue
+  removals that every live device has merged, by the registry (see
+  `acknowledge`), and that are older than `:keep-for` milliseconds in
+  `opts` (default `default-keep`), a buffer against a device that starts
+  syncing with a state of its own. The played marks stay, since the
+  listener still sees them, and a device that has stopped syncing holds
+  compaction back until it is retired (see `lagging`)."
   ([state at]
    (compact state at {}))
   ([state at {:keys [keep-for] :or {keep-for default-keep} :as opts}]
@@ -499,10 +491,16 @@
           state
           (:subscriptions list)))
 
+(defn- printed
+  "The entry `e` printed with its keys in order, the same string for the
+  same entry on either platform."
+  [e]
+  (pr-str (into (sorted-map) e)))
+
 (defn- later
   "The later of the stamped entries `a` and `b`; on the same instant the
-  device decides, and failing that the content, so that the choice is the
-  same whichever side asks."
+  device decides, and failing that the content as printed, so that the
+  choice is the same whichever side asks, on whichever platform."
   [a b]
   (let [ms (fn [x] (or (some-> (:updated-at x) inst-ms) 0))]
     (cond
@@ -510,8 +508,8 @@
       (nil? b)               a
       (> (ms a) (ms b))      a
       (< (ms a) (ms b))      b
-      :else                  (if (pos? (compare [(str (:device a)) (hash a)]
-                                                [(str (:device b)) (hash b)]))
+      :else                  (if (pos? (compare [(str (:device a)) (printed a)]
+                                                [(str (:device b)) (printed b)]))
                                a
                                b))))
 
@@ -531,15 +529,12 @@
 
 (defn merge
   "Reconcile the states `a` and `b` of one listener's devices, key by key
-  and by the shape of what is under it. A stamped entry is a last-writer-wins
-  register, so the later wins whole and a removal carried as a tombstone
-  beats an older addition; a map of them, by id or by field, merges entry by
-  entry, an add-and-remove set, and maps of maps the same way down to the
-  entries; an instant is a max register, the later of the two. An app's own
-  entries merge the same way as long as they are stamped, and anything else
-  is taken from `a`. Commutative, associative and idempotent, the join of a
-  state-based CRDT, hence safe to apply in any order and any number of
-  times. The result belongs to `a`'s device."
+  and by the shape of what is under it: a stamped entry is a
+  last-writer-wins register, the later winning whole, a tombstone included;
+  a map of them merges entry by entry, down through maps of maps; an
+  instant is a max register; anything else is taken from `a`, as is the
+  device. Commutative, associative and idempotent, the join of a
+  state-based CRDT, so safe to apply in any order and any number of times."
   [a b]
   (reduce (fn [m k] (assoc m k (join (get a k) (get b k))))
           {:device (:device a)}

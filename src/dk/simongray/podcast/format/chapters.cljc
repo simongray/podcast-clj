@@ -6,7 +6,7 @@
   A chapters document is a map:
 
       {:version \"1.2.0\"
-       :title \"Episode 7\" :author \"…\" :podcast-name \"…\"      ; optional
+       :title \"Episode 7\" :author \"…\" :podcast-name \"…\"  ; optional
        :chapters [{:start-time 94 :title \"Donation Segment\"
                    :img \"https://…\" :url \"https://…\" :toc false
                    :end-time 120 :location {:name \"…\" :geo \"geo:…\"}}]}
@@ -92,7 +92,7 @@
                      (str "keys the format does not define: " (str/join ", " unknown))
                      :keys (vec unknown)))
 
-      (not (str/starts-with? (str v) "1.2"))
+      (and (some? v) (not (str/starts-with? (str v) "1.2")))
       (conj (diagnostic :chapters/old-version :info
                      (str "written against version " (pr-str v) " of the format; "
                           "the specification is at " version)
@@ -107,12 +107,18 @@
       (:location chapter)             (update :location #(rename location-keys %)))))
 
 (defn parse-json
-  "Read the JSON Chapters document `s` into a chapters map."
+  "Read the JSON Chapters document `s` into a chapters map. A document that
+  is not a JSON object reads as no chapters, and the report says so."
   [s]
-  (let [raw (json/read-str s)
-        doc (-> (rename document-keys raw)
-                (update :chapters #(mapv read-chapter %)))]
-    (with-meta doc {:podcast/report (diagnostics doc (get raw "chapters"))})))
+  (let [raw (json/read-str s)]
+    (if (map? raw)
+      (let [doc (-> (rename document-keys raw)
+                    (update :chapters #(mapv read-chapter %)))]
+        (with-meta doc
+          {:podcast/report (diagnostics doc (get raw "chapters"))}))
+      (with-meta {:chapters []}
+        {:podcast/report [(diagnostic :chapters/not-an-object :warning
+                                      "the document is not a JSON object")]}))))
 
 (defn- write-chapter
   [chapter]
@@ -190,9 +196,7 @@
   \"12:34 The topic\" in any of the ways notes write it, with the time first
   or, when no line starts with one, last, as in \"The topic (12:34)\"; two
   such lines make a list when the time comes first, three in rising order
-  when it comes last, so that a stray mention of the clock is not a chapter.
-  The report says the chapters were inferred. Three times as many episodes
-  in the wild list their chapters this way as link a chapters file."
+  when it comes last. The report says the chapters were inferred."
   [s]
   (let [lines    (str/split-lines (html/text (html/hiccup s)))
         leading  (keep #(line-chapter timestamp-first true %) lines)

@@ -6,9 +6,7 @@
   resolve, and a file is written whole and moved into place, so the client
   never sees half of one. The version of a file is its modification time
   and its size, which tells two writes apart as finely as the filesystem
-  keeps time. Where each client keeps its folder on each platform changes
-  with the clients, so the guide lists the current places rather than the
-  library."
+  keeps time."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [dk.simongray.podcast.app.sync.store :as store])
@@ -67,8 +65,7 @@
 (defn backend
   "A backend for `dk.simongray.podcast.app.sync/sync!` over the folder
   `dir`, in one call; `opts` are those of
-  `dk.simongray.podcast.app.sync.store/backend`, `:opml?`, `:app`,
-  `:direction`, `:strategy`, `:document` and `:name`."
+  `dk.simongray.podcast.app.sync.store/backend`."
   ([dir]
    (backend dir {}))
   ([dir opts]

@@ -12,8 +12,7 @@
   'dk.simongray/podcast)
 
 (def version
-  "The version to build; bump it with CHANGELOG.md. The first release will
-  be 1.0, so until then this is a snapshot of it."
+  "The version to build; bump it with CHANGELOG.md."
   "1.0.0-SNAPSHOT")
 
 (def class-dir

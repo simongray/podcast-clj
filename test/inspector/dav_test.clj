@@ -11,10 +11,9 @@
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.test-support :refer [t1 t2 t3 t4 a same? with-temp-dir]]
             [inspector.service :as service]
-            [io.pedestal.connector.test :refer [response-for]])
-  (:import [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]))
+            [io.pedestal.connector.test :refer [response-for]]))
 
 (def ^:dynamic *dir* nil)
 
@@ -22,14 +21,11 @@
 
 (use-fixtures :each
   (fn [f]
-    (let [dir (.toFile (Files/createTempDirectory "inspector-dav" (make-array FileAttribute 0)))]
-      (try
+    (with-temp-dir
+      (fn [dir]
         (binding [*dir*       dir
                   *connector* (service/connector 0 {:sync-dir (io/file dir "sync")})]
-          (f))
-        (finally
-          (doseq [file (reverse (file-seq dir))]
-            (io/delete-file file true)))))))
+          (f))))))
 
 (defn- call
   [method path & {:keys [body headers]}]
@@ -94,17 +90,16 @@
   (with-redefs [http/call! through-the-inspector]
     (let [backend (store/backend (webdav/store "http://inspector/dav/") {:opml? true :app "test"})
           phone   (sync/sync! (-> (player/state "phone")
-                                  (player/identify {:name "Phone"} #inst "2026-01-01T01:00:00Z")
-                                  (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} #inst "2026-01-01T01:00:00Z"))
-                              [backend] #inst "2026-01-01T02:00:00Z")
-          laptop  (sync/sync! (player/progress (player/state "laptop") ["feed-a" "a1"] 60 3600 #inst "2026-01-01T02:00:00Z")
-                              [backend] #inst "2026-01-01T03:00:00Z")
-          phone2  (sync/sync! (:state phone) [backend] #inst "2026-01-01T04:00:00Z" {:ctx (:ctx phone)})]
+                                  (player/identify {:name "Phone"} t1)
+                                  (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1))
+                              [backend] t2)
+          laptop  (sync/sync! (player/progress (player/state "laptop") a 60 3600 t2) [backend] t3)
+          phone2  (sync/sync! (:state phone) [backend] t4 {:ctx (:ctx phone)})]
       (is (nil? (:failed phone)))
       (is (nil? (:failed laptop)))
       (is (= [] (:report phone2)))
       (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"}
              (set (map #(.getName ^java.io.File %) (.listFiles (io/file *dir* "sync"))))))
-      (is (= (dissoc (:state laptop) :device :devices :clock) (dissoc (:state phone2) :device :devices :clock)))
-      (is (= 60 (:position (player/episode (:state phone2) ["feed-a" "a1"]))))
+      (is (same? (:state laptop) (:state phone2)))
+      (is (= 60 (:position (player/episode (:state phone2) a))))
       (is (= "test" (:app (sync/read-document (slurp (io/file *dir* "sync" "laptop.edn")))))))))

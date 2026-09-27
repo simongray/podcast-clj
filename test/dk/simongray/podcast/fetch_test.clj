@@ -53,6 +53,7 @@
       (let [fresh (podcast/fetch! (str base "/feed.xml"))]
         (testing "a fresh fetch parses the feed and hands back the validators"
           (is (= 200 (:status fresh)))
+          (is (str/starts-with? (:body fresh) "<?xml") "the XML comes along, for a cache")
           (is (= "Blåbær" (:rss/title (:feed fresh))))
           (is (= [] (:report fresh)))
           (is (= "\"v1\"" (:etag fresh)))

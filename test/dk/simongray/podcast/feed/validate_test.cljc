@@ -1,15 +1,13 @@
 (ns dk.simongray.podcast.feed.validate-test
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.spec :as spec]
-            [dk.simongray.podcast.feed.validate :as validate]))
+            [dk.simongray.podcast.feed.validate :as validate]
+            [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def example
-  (delay #?(:clj  (slurp (io/resource "feeds/namespace-example.xml"))
-            :cljs (rc/inline "feeds/namespace-example.xml"))))
+  (delay (fixture "feeds/namespace-example.xml")))
 
 (defn- ids
   [diagnostics]
@@ -36,7 +34,22 @@
             :validate/http-url 1 :validate/invalid-value 1}
            (ids v)))
     (is (not (validate/valid? f)))
-    (is (= [:podcast/funding 0 :url] (:path (first (filter (comp #{:validate/missing-attribute} :id) v)))))))
+    (is (= [:podcast/funding 0 :url] (:path (first (filter (comp #{:validate/missing-attribute} :id) v)))))
+    (is (not-any? #(and (contains? % :replaced-by) (nil? (:replaced-by %))) v)
+        "a deprecation names its replacement or says nothing")))
+
+(deftest a-publisher-needs-its-remote-item
+  (let [feed (fn [publisher]
+               {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"
+                :podcast/publisher publisher})]
+    (is (= {:validate/missing-child 1} (ids (validate/validate (feed {})))))
+    (is (= {:validate/invalid-structure 1}
+           (ids (validate/validate (feed {:remote-item {:feed-guid "g" :medium "podcast"}})))))
+    (is (= {} (ids (validate/validate (feed {:remote-item {:feed-guid "g" :medium "publisher"}})))))))
+
+(deftest an-unknown-profile-is-refused
+  (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
+               (validate/validate {:rss/version "2.0"} {:profile :bogus}))))
 
 (deftest rss-basics
   (let [v (validate/validate (podcast/parse "<rss version=\"0.91\"><channel><item><enclosure url=\"https://a\"/></item></channel></rss>"))]

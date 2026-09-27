@@ -5,15 +5,9 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.format.opml :as opml]
+            [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 t4 a]]
             [dk.simongray.podcast.time :as time]))
 
-(def t0 #inst "2026-01-01T00:00:00Z")
-(def t1 #inst "2026-01-01T01:00:00Z")
-(def t2 #inst "2026-01-01T02:00:00Z")
-(def t3 #inst "2026-01-01T03:00:00Z")
-(def t4 #inst "2026-01-01T04:00:00Z")
-
-(def a ["feed-a" "a1"])
 (def b ["feed-a" "a2"])
 (def c ["feed-b" "b1"])
 

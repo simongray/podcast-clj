@@ -3,16 +3,17 @@
   request maps and model maps.
 
   `request` builds `{:method :url :headers}` with the authentication
-  computed, for any HTTP client to send; `response` reads a response body
-  into data shaped like the feed model, so that a feed or an episode from the
-  index carries the same keys as one parsed from RSS, plus what only the
-  index knows under `:index/*`. The key and secret never leave the caller's
-  process. On the JVM, `call!` does both with the library's own HTTP client.
+  computed for the instant given, for any HTTP client to send; `response`
+  reads a response body into data shaped like the feed model, so that a
+  feed or an episode from the index carries the same keys as one parsed
+  from RSS, plus what only the index knows under `:index/*`. The key and
+  secret never leave the caller's process, and nothing here reads a clock
+  but `call!`, `remote-value!` and `remote-item!`, which send with the
+  library's own HTTP client.
 
   The remote items that value time splits point at are resolved with
   `remote-value-requests`, the requests to try in order, or `remote-value`,
-  which sends them with a function you supply (on the JVM, `remote-value!`
-  uses the library's client)."
+  which sends them with a function you supply."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.json :as json]
@@ -22,10 +23,6 @@
 (def base-url
   "The root of the API's URLs; `endpoints` are relative to it."
   "https://api.podcastindex.org/api/1.0/")
-
-(def user-agent
-  "The default User-Agent; the API requires a descriptive one."
-  "dk.simongray/podcast")
 
 (def endpoints
   "API paths by endpoint keyword, as the API's OpenAPI description lists
@@ -70,17 +67,19 @@
    :add/by-itunes-id            "add/byitunesid"
    :lookup                      "lookup"})
 
-(defn ^:no-doc now-seconds
-  "The current Unix time in seconds, as the auth date."
+(defn- now-seconds
+  "The current Unix time in seconds, for the calls that send."
   []
   #?(:clj  (quot (System/currentTimeMillis) 1000)
      :cljs (quot (.now js/Date) 1000)))
 
 (defn auth-headers
   "The headers that authenticate a request with `key` and `secret` at Unix
-  time `seconds`: the date, the key and the SHA-1 of key, secret and date."
+  time `seconds`: the date, the key and the SHA-1 of key, secret and date.
+  The API requires a descriptive User-Agent; `:user-agent` in the
+  credentials replaces the library's."
   [{:keys [key secret user-agent]} seconds]
-  {"User-Agent"    (or user-agent dk.simongray.podcast.directory.podcastindex/user-agent)
+  {"User-Agent"    (or user-agent http/user-agent)
    "X-Auth-Key"    key
    "X-Auth-Date"   (str seconds)
    "Authorization" (guid/sha1-hex (str key secret seconds))})
@@ -88,18 +87,19 @@
 (defn request
   "The request map for `endpoint` (a key of `endpoints`) with query
   `params`, authenticated with `credentials` (`:key`, `:secret`, optional
-  `:user-agent`). `opts` may fix the authentication time with `:auth-date`,
-  Unix seconds; the default is now."
-  ([credentials endpoint params]
-   (request credentials endpoint params {}))
-  ([credentials endpoint params {:keys [auth-date] :as opts}]
-   {:pre [(map? opts)]}
-   (let [path (or (endpoints endpoint)
-                  (throw (ex-info "Unknown Podcast Index endpoint" {:endpoint endpoint})))
-         qs   (http/query-string params)]
-     {:method  :get
-      :url     (str base-url path (when (seq qs) (str "?" qs)))
-      :headers (auth-headers credentials (or auth-date (now-seconds)))})))
+  `:user-agent`) at the `:auth-date` in `opts`, Unix seconds, which the
+  API accepts within a few minutes of its own clock; the caller reads the
+  clock, as `call!` does."
+  [credentials endpoint params {:keys [auth-date] :as opts}]
+  {:pre [(map? opts)]}
+  (when-not auth-date
+    (throw (ex-info "A request is signed at an :auth-date, Unix seconds" {:endpoint endpoint})))
+  (let [path (or (endpoints endpoint)
+                 (throw (ex-info "Unknown Podcast Index endpoint" {:endpoint endpoint})))
+        qs   (http/query-string params)]
+    {:method  :get
+     :url     (str base-url path (when (seq qs) (str "?" qs)))
+     :headers (auth-headers credentials auth-date)}))
 
 (defn- ->number
   [x]
@@ -276,16 +276,14 @@
   "The requests that resolve the value block the `remote-item` of a time
   split points at, to try in order: the item's own block when the remote
   item names one, then the feed's. `opts` are those of `request`."
-  ([credentials remote-item]
-   (remote-value-requests credentials remote-item {}))
-  ([credentials {:keys [feed-guid item-guid]} opts]
-   (cond-> []
-     (and feed-guid item-guid)
-     (conj (request credentials :value/by-episode-guid
-                    {:podcastguid feed-guid :episodeguid item-guid} opts))
+  [credentials {:keys [feed-guid item-guid]} opts]
+  (cond-> []
+    (and feed-guid item-guid)
+    (conj (request credentials :value/by-episode-guid
+                   {:podcastguid feed-guid :episodeguid item-guid} opts))
 
-     feed-guid
-     (conj (request credentials :value/by-podcast-guid {:guid feed-guid} opts)))))
+    feed-guid
+    (conj (request credentials :value/by-podcast-guid {:guid feed-guid} opts))))
 
 (defn- block-in
   "The value block in the response `body`, when it answers with one."
@@ -298,33 +296,33 @@
 
 (defn remote-value
   "The value block the `remote-item` of a time split points at: the requests
-  of `remote-value-requests` sent one by one with `send`, a function from a
-  request map to a response map with the `:body` string, until one answers
-  with a block. Nil when none does. `send` is synchronous, so in
-  ClojureScript use the requests directly instead."
-  [credentials remote-item send]
-  (some #(block-in (:body (send %))) (remote-value-requests credentials remote-item)))
+  of `remote-value-requests`, with `opts` as for `request`, sent one by one
+  with `send`, a function from a request map to a response map with the
+  `:body` string, until one answers with a block. Nil when none does.
+  `send` is synchronous, so in ClojureScript use the requests directly
+  instead."
+  [credentials remote-item send opts]
+  (some #(block-in (:body (send %))) (remote-value-requests credentials remote-item opts)))
 
 (defn remote-item-requests
   "The requests that resolve `remote-item`, a podroll, publisher, list or
   time-split entry with a `:feed-guid` and perhaps an `:item-guid`: the
   episode when it names one, then the feed. `opts` are those of `request`."
-  ([credentials remote-item]
-   (remote-item-requests credentials remote-item {}))
-  ([credentials {:keys [feed-guid item-guid]} opts]
-   (cond-> []
-     (and feed-guid item-guid)
-     (conj (request credentials :episodes/by-guid {:guid item-guid :podcastguid feed-guid} opts))
+  [credentials {:keys [feed-guid item-guid]} opts]
+  (cond-> []
+    (and feed-guid item-guid)
+    (conj (request credentials :episodes/by-guid {:guid item-guid :podcastguid feed-guid} opts))
 
-     feed-guid
-     (conj (request credentials :podcasts/by-guid {:guid feed-guid} opts)))))
+    feed-guid
+    (conj (request credentials :podcasts/by-guid {:guid feed-guid} opts))))
 
 (defn remote-item
   "What `remote-item` points at, as `{:feed ... :episode ...}` in the shape
   of the model, by sending the requests of `remote-item-requests` with
-  `send` (see `remote-value`). Nil when the index knows neither."
-  [credentials remote-item send]
-  (let [answers (for [req  (remote-item-requests credentials remote-item)
+  `send` and `opts` (see `remote-value`). Nil when the index knows
+  neither."
+  [credentials remote-item send opts]
+  (let [answers (for [req  (remote-item-requests credentials remote-item opts)
                       :let [body (:body (send req))]
                       :when (string? body)]
                   (try (response body) (catch #?(:clj Exception :cljs :default) _ nil)))]
@@ -337,34 +335,34 @@
 
 #?(:clj
    (defn call!
-     "Send `endpoint` with `params` for `credentials` with the library's HTTP
-     client and read the answer with `response`."
+     "Send `endpoint` with `params` for `credentials`, signed now, with the
+     library's HTTP client, and read the answer with `response`."
      [credentials endpoint params]
-     (-> (request credentials endpoint params) http/call! :body response)))
+     (-> (request credentials endpoint params {:auth-date (now-seconds)}) http/call! :body response)))
 
 #?(:cljs
    (defn call!
-     "Send `endpoint` with `params` for `credentials` with the platform's
-     `fetch` and read the answer with `response`. Returns a js/Promise of the
-     result, since fetch is asynchronous; in a browser the API's CORS policy
-     decides whether the call is allowed at all."
+     "Send `endpoint` with `params` for `credentials`, signed now, with the
+     platform's `fetch`, and read the answer with `response`. Returns a
+     js/Promise of the result; in a browser the API's CORS policy decides
+     whether the call is allowed at all."
      [credentials endpoint params]
-     (let [{:keys [url headers]} (request credentials endpoint params)]
+     (let [{:keys [url headers]} (request credentials endpoint params {:auth-date (now-seconds)})]
        (-> (js/fetch url (clj->js {:headers headers}))
            (.then (fn [res] (.text res)))
            (.then response)))))
 
 #?(:clj
    (defn remote-value!
-     "`remote-value` with the library's HTTP client."
+     "`remote-value` with the library's HTTP client, signed now."
      [credentials remote-item]
-     (remote-value credentials remote-item http/call!)))
+     (remote-value credentials remote-item http/call! {:auth-date (now-seconds)})))
 
 #?(:clj
    (defn remote-item!
-     "`remote-item` with the library's HTTP client."
+     "`remote-item` with the library's HTTP client, signed now."
      [credentials remote-item]
-     (remote-item credentials remote-item http/call!)))
+     (remote-item credentials remote-item http/call! {:auth-date (now-seconds)})))
 
 (comment
   (request {:key "K" :secret "S"} :search/by-term {:q "podcasting 2.0" :max 5} {:auth-date 1700000000})

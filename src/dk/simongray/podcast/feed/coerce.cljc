@@ -8,13 +8,16 @@
             [dk.simongray.podcast.time.rrule :as rrule]
             [dk.simongray.podcast.time :as time]))
 
+(def coerced-types
+  "The value types whose model values are not strings, so that a string
+  where one is expected means the value did not coerce."
+  #{:integer :decimal :boolean :yes-no :rfc2822 :iso8601 :duration :rrule :geo :osm})
+
 (def types
-  "The value types a registry entry may give an attribute or node text.
-  Types that are strings after all still get a distinct name so that the
-  validator knows what to check."
-  #{:text :html :url :email :mime :language :token :enum
-    :integer :decimal :boolean :yes-no :rfc2822 :iso8601 :duration
-    :rrule :geo :osm})
+  "The value types a registry entry may give an attribute or node text:
+  `coerced-types` and the types that stay strings but tell the validator
+  what to check."
+  (into #{:text :html :url :email :mime :language :enum} coerced-types))
 
 (defn- clean
   [s]
@@ -83,7 +86,6 @@
     :rrule    (or-invalid (rrule/parse s))
     :geo      (or-invalid (read-geo s))
     :osm      (or-invalid (read-osm s))
-    :html     (clean s)
     (clean s)))
 
 (defn invalid?

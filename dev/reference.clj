@@ -27,18 +27,12 @@
    {:title "Atom, Dublin Core, content and syndication" :namespaces #{"atom" "dc" "content" "sy"}
     :about "Modules from the wider RSS world that podcast feeds carry."}])
 
-(defn- xml-name
-  [tag]
-  (if-let [ns (namespace tag)]
-    (str ns ":" (name tag))
-    (name tag)))
-
 (defn- parent-name
   [parent]
   (case parent
     :channel "channel"
     :item    "item (and liveItem)"
-    (str "<" (xml-name parent) ">")))
+    (str "<" (xml/qname parent) ">")))
 
 (defn- type-name
   [{:keys [type values]}]
@@ -70,10 +64,10 @@
   (let [parents (sort-by str (:parent entry))
         text    (spec/content-type entry)]
     (concat
-     [(str "### `<" (xml-name tag) ">`")
+     [(str "### `<" (xml/qname tag) ">`")
       ""]
      (when deprecated
-       [(str "**Deprecated**" (when (keyword? deprecated) (str ", replaced by `<" (xml-name deprecated) ">`")) ".")
+       [(str "**Deprecated**" (when (keyword? deprecated) (str ", replaced by `<" (xml/qname deprecated) ">`")) ".")
         ""])
      (when doc [doc ""])
      [(str "- Key: " (keys-line entry))

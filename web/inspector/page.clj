@@ -11,6 +11,7 @@
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.transcript :as transcript]
+            [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.resolve :as resolve]
             [dk.simongray.podcast.time :as time]
             [dk.simongray.podcast.value :as value]))
@@ -61,14 +62,10 @@
   [x]
   (str/trimr (with-out-str (pprint/pprint x))))
 
-(defn- encode
-  [s]
-  (java.net.URLEncoder/encode (str s) "UTF-8"))
-
 (defn- feed-href
   [route url & [params]]
-  (str route "?url=" (encode url)
-       (apply str (for [[k v] params :when v] (str "&" (name k) "=" (encode v))))))
+  (str route "?url=" (http/encode url)
+       (apply str (for [[k v] params :when v] (str "&" (name k) "=" (http/encode v))))))
 
 (defn home
   "The landing page: a URL form and the corpus, `corpus` being a seq of
@@ -219,7 +216,7 @@
    " "
    [:button {:type "submit"} "Apply"]
    " "
-   [:a {:href (str "/search?url=" (encode url) (when-let [q (:text where)] (str "&q=" (encode q))))}
+   [:a {:href (str "/search?url=" (http/encode url) (when-let [q (:text where)] (str "&q=" (http/encode q))))}
     "full-text search"]])
 
 (defn feed-page
@@ -392,7 +389,7 @@
   [{:keys [url feed item companions]}]
   (let [numbering (resolve/numbering item)
         guid      (feed/item-guid item)
-        into-player (fn [mode] (str "/queue?add=" (encode url) "&guid=" (encode guid) "&mode=" mode))]
+        into-player (fn [mode] (str "/queue?add=" (http/encode url) "&guid=" (http/encode guid) "&mode=" mode))]
     (layout (or (resolve/title item) "(untitled)")
             [:p [:a {:href (feed-href "/feed" url)} "← " (or (resolve/title feed) url)]]
             [:header

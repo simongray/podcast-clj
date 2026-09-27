@@ -5,8 +5,8 @@
 
   A transcript is a map:
 
-      {:format   :vtt                                  ; :srt :json :html :text
-       :segments [{:start 0.0 :end 2.76 :speaker \"Sarah\" :body \"In today's…\"}]}
+      {:format   :vtt                     ; :srt :json :html :text
+       :segments [{:start 0.0 :end 2.76 :speaker \"Sarah\" :body \"…\"}]}
 
   Times are seconds; `:end` and `:speaker` are present when the source had
   them. Speakers are read from `<v>` voice spans, `<cite>` elements and JSON
@@ -119,9 +119,15 @@
     (with-report {:format :srt :segments segments}
       (prefix-diagnostics (:prefixes @stats 0)))))
 
+(defn- timed-segments
+  "The segments of `transcript` that have a start time; what the timed
+  formats write."
+  [transcript]
+  (filter (comp number? :start) (:segments transcript)))
+
 (defn emit-srt
-  "Write `transcript` as SRT, one numbered cue per segment, the speaker as a
-  \"Name: \" prefix."
+  "Write `transcript` as SRT, one numbered cue per segment with a start time,
+  the speaker as a \"Name: \" prefix; segments without one are left out."
   [transcript]
   (str/join "\n\n"
             (map-indexed (fn [i {:keys [start end speaker body]}]
@@ -129,7 +135,7 @@
                                 (time/format-timestamp start ",") " --> "
                                 (time/format-timestamp (or end start) ",") "\n"
                                 (when speaker (str speaker ": ")) body))
-                         (:segments transcript))))
+                         (timed-segments transcript))))
 
 (defn- strip-tags
   [s]
@@ -162,11 +168,13 @@
       (prefix-diagnostics (:prefixes @stats 0)))))
 
 (defn emit-vtt
-  "Write `transcript` as WebVTT, speakers as `<v>` voice spans."
+  "Write `transcript` as WebVTT, speakers as `<v>` voice spans; segments
+  without a start time are left out."
   [transcript]
   (str "WEBVTT\n\n"
        (str/join "\n\n"
-                 (for [{:keys [start end speaker body]} (:segments transcript)]
+                 (for [{:keys [start end speaker body]}
+                       (timed-segments transcript)]
                    (str (time/format-timestamp start) " --> "
                         (time/format-timestamp (or end start)) "\n"
                         (when speaker (str "<v " speaker ">")) body)))
@@ -196,13 +204,14 @@
 
 (defn emit-json
   "Write `transcript` in the JSON transcript format, indented unless `opts`
-  says `{:pretty? false}`."
+  says `{:pretty? false}`; segments without a start time are left out."
   ([transcript]
    (emit-json transcript {}))
   ([transcript {:keys [pretty?] :or {pretty? true}}]
    (json/write-str
     {"version"  (or (:version transcript) "1.0.0")
-     "segments" (for [{:keys [start end speaker body]} (:segments transcript)]
+     "segments" (for [{:keys [start end speaker body]}
+                      (timed-segments transcript)]
                   (cond-> {"startTime" start "body" body}
                     end     (assoc "endTime" end)
                     speaker (assoc "speaker" speaker)))}
@@ -231,18 +240,19 @@
   "Segments from `tokens`: a cite sets the speaker, a time the start, and
   every p yields a segment with both."
   [tokens]
-  (loop [tokens tokens speaker nil start nil acc []]
-    (if-let [[tag text] (first tokens)]
-      (case tag
-        "cite" (recur (rest tokens) (str/replace text #":\s*$" "") start acc)
-        "time" (recur (rest tokens) speaker (time/parse-clock text) acc)
-        "p"    (recur (rest tokens) speaker start
-                      (if (str/blank? text)
-                        acc
-                        (conj acc (cond-> {:body text}
-                                    start   (assoc :start start)
-                                    speaker (assoc :speaker speaker))))))
-      acc)))
+  (:segments
+   (reduce (fn [{:keys [speaker start] :as state} [tag text]]
+             (case tag
+               "cite" (assoc state :speaker (str/replace text #":\s*$" ""))
+               "time" (assoc state :start (time/parse-clock text))
+               "p"    (if (str/blank? text)
+                        state
+                        (update state :segments conj
+                                (cond-> {:body text}
+                                  start   (assoc :start start)
+                                  speaker (assoc :speaker speaker))))))
+           {:segments []}
+           tokens)))
 
 (defn parse-html
   "Read the HTML transcript `s`, a sequence of `<cite>` speakers, `<time>`
@@ -287,7 +297,7 @@
       (re-find timing-pattern s)               :srt
       :else                                    :text)))
 
-(def format-keys
+(def ^:no-doc format-keys
   "The formats as keywords: :srt, :vtt, :json, :html and :text."
   (set (vals formats)))
 

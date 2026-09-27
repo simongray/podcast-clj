@@ -153,14 +153,12 @@
   by the tag registry in `opts` (`:registry`, default `spec/default`). The
   diagnostics made on the way travel as metadata under `:podcast/report`,
   and the foreign namespaces the document used under `:xml/namespaces`;
-  what resolving the namespaces found stays `xml/report` on the tree."
+  what resolving the namespaces found stays under `:xml/report` on the
+  tree."
   ([tree]
    (parse tree {}))
   ([tree {:keys [registry] :or {registry spec/default} :as opts}]
    {:pre [(map? opts)]}
-   ;; RSS 2.0 only, on purpose. Atom, RSS 1.0 and JSON Feed are not podcast
-   ;; formats in practice: the directories require RSS 2.0, and a live sample
-   ;; of 844 indexed feeds (2026-09-25) held no Atom feed at all.
    (when-not (= :rss (xml/tag tree))
      (throw (ex-info "Not an RSS 2.0 document" {:type ::unsupported :root (xml/tag tree)})))
    (let [ctx     {:registry (spec/registry registry) :report (volatile! [])}
@@ -215,13 +213,10 @@
 
 (defn normalize
   "`feed` in the shape the model gives it, by the tag registry in `opts`
-  (`:registry`, default `spec/default`), for the shorthand a producer may
-  write: a bare value where an element with attributes carries only
-  content, `{:rss/guid \"x\"}` for `{:rss/guid {:content \"x\"}}`, and a
-  single value where the model has a vector, `{:podcast/transcripts {…}}`
-  for `[{…}]`. What `parse` returns comes back unchanged. `emit` and
-  `validate` normalize first, so the shorthand is taken everywhere the
-  model is written, while the schemas describe the model alone."
+  (`:registry`, default `spec/default`): the shorthand a producer may
+  write, `{:rss/guid \"x\"}` for `{:rss/guid {:content \"x\"}}` and
+  `{:podcast/transcripts {…}}` for `[{…}]`, expanded. What `parse` returns
+  comes back unchanged; `emit` and `validate` normalize first."
   ([feed]
    (normalize feed {}))
   ([feed {:keys [registry] :or {registry spec/default} :as opts}]
@@ -277,17 +272,18 @@
   "The canonical Hiccup document for `feed` by the tag registry in `opts`
   (`:registry`, default `spec/default`), ready for `xml/emit`, the
   shorthand of `normalize` taken. The foreign namespaces recorded when the
-  feed was parsed are carried over as metadata so that `xml/emit` can
-  declare them."
+  feed was parsed, and `:namespaces` in `opts`, alias to URI for elements
+  of namespaces it was not, go along as metadata for `xml/emit` to
+  declare."
   ([feed]
    (emit feed {}))
-  ([feed {:keys [registry] :or {registry spec/default} :as opts}]
+  ([feed {:keys [registry namespaces] :or {registry spec/default} :as opts}]
    {:pre [(map? opts)]}
    (let [registry (spec/registry registry)
          feed     (normalize feed {:registry registry})]
      (with-meta [:rss {:version (or (:rss/version feed) "2.0")}
                  (into [:channel {}] (emit-children registry :channel (dissoc feed :rss/version)))]
-       {:xml/namespaces (:xml/namespaces (meta feed))}))))
+       {:xml/namespaces (merge (:xml/namespaces (meta feed)) namespaces)}))))
 
 (defn item-guid
   "The identity of `item`: its `<guid>`, or failing that its enclosure URL, as
@@ -334,10 +330,9 @@
        :live-items {:added [...] :removed [...] :changed [...] :unchanged 1}
        :channel-changed? false}
 
-  Live items are compared the same way under `:live-items`, so that a show
-  going on air or ending is a change of its own. Items without an identity
-  (no guid and no enclosure) are not compared. The channel counts as changed
-  when anything but its items, live items and timestamps differs."
+  Items without an identity (no guid and no enclosure) are not compared, and
+  the channel counts as changed when anything but its items, live items and
+  timestamps differs."
   [before after]
   (let [churn [:rss/items :podcast/live-items :rss/last-build-date :rss/pub-date]]
     (assoc (item-changes (:rss/items before) (:rss/items after))

@@ -1,14 +1,9 @@
 (ns dk.simongray.podcast.resolve
   "One answer where the vocabularies give several: the accessors a podcast
-  client needs, with the precedence rules written down once.
-
-  Every function reads plain keys off a feed or an item (`x`) and derives
-  its answer on the spot; nothing is stored. The two-argument forms take the
-  `feed` and an `item` and let the item override or inherit what the channel
-  declares the way the specifications say: people replace, value blocks
-  override, artwork and funding fall back. `properties` gathers every
-  answer into one map, to merge with the raw fields, and `sources` says
-  which fields gave them."
+  client needs, each reading plain keys off a feed or an item (`x`). The
+  two-argument forms take the `feed` and an `item` and let the item override
+  or inherit what the channel declares. `properties` gathers every answer
+  into one map and `sources` says which fields gave them."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.time :as time]
@@ -71,9 +66,9 @@
 
 (defn images
   "Every image `x` offers, newest vocabulary first: maps with `:href`,
-  `:source` (:podcast, :itunes, :googleplay, :rss or :media) and, when
-  declared, `:width`, `:height`, `:aspect-ratio`, `:alt` and `:purpose` (a set
-  of tokens)."
+  `:source` (:podcast, :itunes, :googleplay, :rss or :media), `:purpose` (a
+  set of tokens, empty when none is declared) for a podcast:image, and
+  `:width`, `:height`, `:aspect-ratio` and `:alt` when declared."
   [x]
   (concat
    (for [{:keys [href width height aspect-ratio alt] :as image} (:podcast/images x)
@@ -138,14 +133,20 @@
    (let [flag (explicit? item)]
      (if (some? flag) flag (explicit? feed)))))
 
+(defn- media-contents
+  "The Media RSS contents of `item`, in the item and in its media:group."
+  [item]
+  (concat (:media/contents item) (:contents (:media/group item))))
+
 (defn duration
-  "The duration of `item` in seconds, from iTunes or Media RSS; nil when
-  neither gives a number."
+  "The duration of `item` in seconds, from iTunes or Media RSS, in the item
+  or its media:group; nil when neither gives a number."
   [item]
   (let [d (:itunes/duration item)]
     (if (number? d)
       d
-      (some #(let [d (:duration %)] (when (number? d) d)) (:media/contents item)))))
+      (some #(let [d (:duration %)] (when (number? d) d))
+            (media-contents item)))))
 
 (defn numbering
   "The season and episode of `item`, from the podcast namespace first and
@@ -180,8 +181,7 @@
                  (dissoc :sources :integrity)
                  (assoc :url uri :source :alternate))
        content-type (assoc :transport content-type)))
-   (for [{:keys [url file-size] :as content} (concat (:media/contents item)
-                                                     (:contents (:media/group item)))
+   (for [{:keys [url file-size] :as content} (media-contents item)
          :when url]
      (cond-> (-> content (dissoc :file-size) (assoc :source :media))
        file-size (assoc :length file-size)))))
@@ -200,15 +200,13 @@
   (case source :enclosure 0 :alternate 1 2))
 
 (defn enclosure
-  "The one thing to play for `item`: its enclosure, else the alternate
-  marked default, else the first alternate or media content. With `opts`,
-  the candidate that best fits them, in this order of importance:
+  "The one thing to play for `item`: the candidate of `enclosures` that best
+  fits `opts`, types first, then bitrate, a candidate above `:max-bitrate`
+  ranking last; among equals the enclosure first, then the default
+  alternate, then the rest as `enclosures` lists them.
 
-      {:types       [\"audio/opus\" \"audio/mpeg\"]  ; preferred MIME types, most wanted first
-       :max-bitrate 64000}                          ; bits per second; candidates above it rank last
-
-  Among equals the enclosure comes first, then the default alternate, then
-  the rest as `enclosures` lists them."
+      {:types       [\"audio/opus\" \"audio/mpeg\"] ; most wanted first
+       :max-bitrate 64000}                        ; bits per second"
   ([item]
    (enclosure item nil))
   ([item {:keys [types max-bitrate]}]
@@ -219,7 +217,7 @@
                  (if (or (true? default) (true? is-default)) 0 1)])]
      (first (sort-by rank (enclosures item))))))
 
-(def transcript-preference
+(def ^:no-doc transcript-preference
   "Transcript types in the order a client is best served by them: WebVTT
   (timed, speakers, played by browsers), then SRT, JSON, HTML, plain text."
   ["text/vtt" "application/x-subrip" "application/json" "text/html" "text/plain"])
@@ -254,19 +252,15 @@
       (contains? timed-transcript-types (str/lower-case (str type)))))
 
 (defn transcript
-  "The transcript reference of `item` a client is best served by, chosen
-  by `opts`:
+  "The transcript reference of `item` a client is best served by, given the
+  `feed` (nil for none) and `opts`: language first, timings second, type
+  third. A reference naming no language counts as in the feed's language,
+  or without a feed ranks after the matches and before the mismatches.
+  Something is always returned when the item has transcripts at all.
 
-      {:types     [\"text/vtt\" ...]    ; preferred types, default transcript-preference
-       :languages [\"da\" \"en\"]        ; preferred languages, most wanted first
-       :timed?    true}                ; prefer files with timings: rel=captions,
-                                       ; or a type that carries them
-
-  Language first, timings second, type third; a reference that names no
-  language is taken to be in the feed's language when `feed` is given (nil
-  stands for no feed), and ranks after the matches and before the mismatches
-  otherwise. Something is always returned when the item has transcripts at
-  all."
+      {:types     [\"text/vtt\" ...] ; default transcript-preference
+       :languages [\"da\" \"en\"]    ; most wanted first
+       :timed?    true}              ; prefer rel=captions or a timed type"
   ([item]
    (transcript nil item nil))
   ([feed item]
@@ -348,7 +342,7 @@
   ([x] (first (:podcast/values x)))
   ([feed item] (value/effective feed item)))
 
-(def live-status-order
+(def ^:no-doc live-status-order
   "Live items in the order a listener cares about: on air, then upcoming,
   then over."
   {"live" 0 "pending" 1 "ended" 2})
@@ -366,7 +360,7 @@
 (defn live?
   "Whether the live item `live-item` is on air at `at`: its status says so,
   or `at` falls between its start and end and it has not been declared
-  ended, since feeds are slow to flip the status."
+  ended."
   [{:keys [status start end] :as live-item} at]
   (let [status (some-> status str/lower-case)]
     (or (= "live" status)
@@ -396,9 +390,9 @@
 (defn next-episode
   "When `feed` says its next episode is due after `at`: the first instant
   after `at` that the recurrence rule of podcast:updateFrequency produces,
-  anchored at its dtstart or, failing that, at the latest item's date. Nil
-  when the feed is complete, has no rule, or has one the library does not
-  evaluate (see `rrule/occurrences`)."
+  anchored at its dtstart or, failing that, at the latest item's date, or
+  at `at`. Nil when the feed is complete, has no rule, or has one the
+  library does not evaluate (see `rrule/occurrences`)."
   [feed at]
   (let [{:keys [rrule dtstart]} (:podcast/update-frequency feed)
         latest (some->> (:rss/items feed) (keep :rss/pub-date) (filter inst?) seq (apply max-key inst-ms))]
@@ -436,9 +430,9 @@
   occurrence of its update-frequency rule; else `at` plus its ttl; else `at`
   plus its syndication period divided by its syndication frequency; else the
   latest item's date plus the median gap between its recent items, or `at`
-  plus that gap once that time has passed, since a show that is late is
-  checked at its usual cadence. Nil when the feed is complete, or gives no
-  basis at all: no rule, no ttl, no period and fewer than two dated items."
+  plus that gap once that time has passed. Nil when the feed is complete, or
+  gives no basis at all: no rule, no ttl, no period and fewer than two dated
+  items."
   [feed at]
   (when-not (complete? feed)
     (let [now (inst-ms at)
@@ -617,14 +611,11 @@
   "Every property `resolve` answers, as one map with plain keys and the
   unanswered left out: for `feed` alone the show's, `:title` to
   `:categories`; for `feed` and `item` the episode's, inheriting from the
-  feed as each accessor does. Merge it into the item to have the raw
-  fields and the resolved ones side by side:
+  feed as each accessor does. What needs a time or a platform, `next-check`,
+  `live?` and `blocked?`, is asked on its own.
 
       (merge item (properties feed item))
-      ;; => {:rss/title \"…\" :itunes/title \"…\" :title \"…\" :artwork \"…\" …}
-
-  What needs a time or a platform, `next-check`, `live?` and `blocked?`,
-  is asked on its own."
+      ;; => {:rss/title \"…\" :title \"…\" :artwork \"…\" …}"
   ([feed]
    (answers show-properties #(% feed)))
   ([feed item]
@@ -643,12 +634,11 @@
 
 (defn sources
   "Where the properties of `feed`, or of its `item`, were read from: for
-  each property `properties` answers, the paths into what was given whose
-  value alone gives the same answer, `[:rss/title]` for a show,
-  `[:item :rss/title]` or `[:feed :itunes/explicit]` for an episode, the
-  feed's where the item inherits. Several paths mean several fields agree.
-  A property put together from more than one field, `numbering` say, or
-  answered by a default, `medium` say, names none and is left out."
+  each property `properties` answers, the paths whose value alone gives the
+  same answer, `[:rss/title]` for a show and `[:item :rss/title]` or
+  `[:feed :itunes/explicit]` for an episode. Several paths mean several
+  fields agree; a property put together from more than one field, or
+  answered by a default, is left out."
   ([feed]
    (let [full (properties feed)]
      (into {} (for [[k f] show-properties

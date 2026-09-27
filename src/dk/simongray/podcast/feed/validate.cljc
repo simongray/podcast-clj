@@ -17,37 +17,26 @@
   expands is taken first."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.xml :as xml]))
-
-(def ^:no-doc coerced-types
-  "The value types whose model values are not strings, so that a string
-  where one is expected means the value did not coerce."
-  #{:integer :decimal :boolean :yes-no :rfc2822 :iso8601 :duration :rrule :geo :osm})
 
 (defn- diagnostic
   [id level path message & {:as extra}]
   (merge {:id id :level level :path path :message message} extra))
 
-(defn- tag-name
-  "The XML-style name of the keyword `k`: itunes:duration for
-  :itunes/duration."
-  [k]
-  (if (namespace k)
-    (str (namespace k) ":" (name k))
-    (name k)))
-
 (defn- enum-ok?
   [values v]
-  (contains? (into #{} (map str/lower-case) values) (str/lower-case (str v))))
+  (let [v (str/lower-case (str v))]
+    (boolean (some #(= v (str/lower-case %)) values))))
 
 (defn- typed-diagnostics
   "Diagnostics for the value `v` of `type` at `path`: not coerced, outside the
   enumeration `values`, or an http URL where https is expected."
   [type values v path https?]
   (cond
-    (and (contains? coerced-types type) (string? v))
+    (and (contains? coerce/coerced-types type) (string? v))
     [(diagnostic :validate/invalid-value :error path
               (str "value " (pr-str v) " is not a valid " (name type)))]
 
@@ -116,7 +105,10 @@
 
    :podcast/publisher
    (fn [v path]
-     (when-not (:remote-item v)
+     (if-let [remote (:remote-item v)]
+       (when-not (= "publisher" (some-> (:medium remote) str/lower-case))
+         [(diagnostic :validate/invalid-structure :error (conj path :remote-item)
+                   "the remoteItem of a publisher element needs medium=publisher")])
        [(diagnostic :validate/missing-child :error path
                  "a publisher element needs exactly one remoteItem with medium=publisher")]))
 
@@ -162,11 +154,11 @@
     (cond
       (and map-shaped? (not (map? v)))
       [(diagnostic :validate/wrong-shape :error path
-                   (str (tag-name (:tag entry)) " takes a map of its attributes and children, not " (shape v)))]
+                   (str (xml/qname (:tag entry)) " takes a map of its attributes and children, not " (shape v)))]
 
       (and (not map-shaped?) (coll? v))
       [(diagnostic :validate/wrong-shape :error path
-                   (str (tag-name (:tag entry)) " takes a single value, not " (shape v)))]
+                   (str (xml/qname (:tag entry)) " takes a single value, not " (shape v)))]
 
       map-shaped?
       (concat (attr-diagnostics entry v path)
@@ -182,10 +174,10 @@
 (defn- deprecated-diagnostic
   [entry path]
   (when-let [d (:deprecated entry)]
-    [(diagnostic :validate/deprecated :info path
-              (str (tag-name (:tag entry)) " is deprecated"
-                   (when (keyword? d) (str "; use " (tag-name d))))
-              :replaced-by (when (keyword? d) d))]))
+    [(cond-> (diagnostic :validate/deprecated :info path
+                         (str (xml/qname (:tag entry)) " is deprecated"
+                              (when (keyword? d) (str "; use " (xml/qname d)))))
+       (keyword? d) (assoc :replaced-by d))]))
 
 (defn- children-diagnostics
   "Diagnostics for every entry of `registry` present in the model map `m` of
@@ -250,7 +242,7 @@
   [level id m requirements path]
   (for [req requirements
         :when (map? m)
-        :let [[k pred label] (if (vector? req) req [req nil (tag-name req)])]
+        :let [[k pred label] (if (vector? req) req [req nil (xml/qname req)])]
         :when (not (and (contains? m k) (or (nil? pred) (pred (get m k)))))]
     (diagnostic id level (conj path k) (str label " is " (if (= :error level) "required" "recommended")))))
 
@@ -276,6 +268,8 @@
    (validate feed {}))
   ([feed {:keys [profile registry] :or {registry spec/default} :as opts}]
    {:pre [(map? opts)]}
+   (when (and profile (not (contains? profiles profile)))
+     (throw (ex-info (str "Unknown profile " profile) {:profile profile :profiles (set (keys profiles))})))
    (let [registry (spec/registry registry)
          feed     (feed/normalize feed {:registry registry})]
      (vec (concat (rss-diagnostics feed)

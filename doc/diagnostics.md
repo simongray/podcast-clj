@@ -49,6 +49,7 @@ groups them by kind.
 | `:chapters/old-version` | info | The document was written against an older version of the format. |
 | `:chapters/bad-timestamps` | warning | Podlove chapters whose start is not a timestamp were dropped. |
 | `:chapters/inferred` | info | The chapters were read from timestamps in the show notes rather than from a chapters file. |
+| `:chapters/not-an-object` | warning | The document is not a JSON object, so it holds no chapters. |
 | `:validate/rss-version` | warning | The rss element's version is not 2.0. |
 | `:validate/missing-element` | error | An element RSS 2.0 requires is missing. |
 | `:validate/missing-enclosure` | warning | An item has no enclosure, so there is nothing to play. |

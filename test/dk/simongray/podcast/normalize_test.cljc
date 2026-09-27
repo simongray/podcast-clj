@@ -1,16 +1,14 @@
 (ns dk.simongray.podcast.normalize-test
   "The shorthand a producer may write, expanded to the model's shape."
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed :as feed]
-            [dk.simongray.podcast.feed.validate :as validate]))
+            [dk.simongray.podcast.feed.validate :as validate]
+            [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def example
-  (delay (podcast/parse #?(:clj  (slurp (io/resource "feeds/namespace-example.xml"))
-                           :cljs (rc/inline "feeds/namespace-example.xml")))))
+  (delay (podcast/parse (fixture "feeds/namespace-example.xml"))))
 
 (def shorthand
   "A feed as a producer might write it: bare values and single values."

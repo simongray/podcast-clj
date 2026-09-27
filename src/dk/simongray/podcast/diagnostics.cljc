@@ -104,6 +104,8 @@
     :doc "Podlove chapters whose start is not a timestamp were dropped."}
    {:id :chapters/inferred :level :info
     :doc "The chapters were read from timestamps in the show notes rather than from a chapters file."}
+   {:id :chapters/not-an-object :level :warning
+    :doc "The document is not a JSON object, so it holds no chapters."}
 
    ;; validation
    {:id :validate/rss-version :level :warning

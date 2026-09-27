@@ -1,14 +1,12 @@
 (ns dk.simongray.podcast.resolve-test
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.resolve :as resolve]))
+            [dk.simongray.podcast.resolve :as resolve]
+            [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def example
-  (delay (podcast/parse #?(:clj  (slurp (io/resource "feeds/namespace-example.xml"))
-                           :cljs (rc/inline "feeds/namespace-example.xml")))))
+  (delay (podcast/parse (fixture "feeds/namespace-example.xml"))))
 
 (deftest text
   (is (= "A" (resolve/title {:rss/title "A" :itunes/title "B"})))
@@ -60,6 +58,7 @@
   (is (false? (resolve/explicit? {:itunes/explicit true} {:itunes/explicit false})))
   (is (= 3793 (resolve/duration {:itunes/duration 3793})))
   (is (= 12 (resolve/duration {:itunes/duration "bad" :media/contents [{:duration 12}]})))
+  (is (= 12 (resolve/duration {:media/group {:contents [{:duration 12}]}})))
   (is (nil? (resolve/duration {})))
   (testing "numbering prefers the podcast namespace"
     (is (= {:type "full" :season 1 :season-name "Podcasting 2.0" :episode 3}

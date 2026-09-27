@@ -2,11 +2,12 @@
   "The shape of the generated schemas; the tests that use Malli itself are
   JVM-only and live in schema-malli-test."
   (:require [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.schema :as schema]
             [dk.simongray.podcast.spec :as spec]))
 
 (def schemas
-  (schema/schemas spec/default))
+  (schema/schemas))
 
 (deftest registry-shape
   (testing "every element has a schema, under its tag namespaced rss when bare"
@@ -14,6 +15,8 @@
     (is (= :podcast/transcript (schema/ref-key :podcast/transcript)))
     (is (every? #(contains? schemas (schema/ref-key (:tag %))) spec/tags))
     (is (contains? schemas ::schema/feed)))
+  (testing "every coerced type has a schema, and only those"
+    (is (= coerce/coerced-types (set (keys schema/types)))))
   (testing "a scalar element is its coerced type"
     (is (= :string (get schemas :rss/title)))
     (is (= 'inst? (get schemas :rss/pubDate)))
@@ -40,11 +43,11 @@
 (deftest an-extended-registry
   (let [tags     (conj spec/tags {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one
                                   :attrs {:scheme {}} :content :decimal})
-        extended (schema/schemas tags)]
+        extended (schema/schemas {:registry tags})]
     (is (= [:map [:scheme {:optional true} :string] [:content {:optional true} 'number?]
             [:xml/unknown {:optional true} schema/unknown]]
            (get extended :acme/rating)))
     (is (some #{[:acme/rating {:optional true} [:ref :acme/rating]]} (get extended ::schema/feed)))
-    (is (= [:schema {:registry extended} ::schema/feed] (schema/feed-schema tags)))
-    (is (= [:schema {:registry extended} :acme/rating] (schema/tag tags :acme/rating)))
+    (is (= [:schema {:registry extended} ::schema/feed] (schema/feed-schema {:registry tags})))
+    (is (= [:schema {:registry extended} :acme/rating] (schema/tag :acme/rating {:registry tags})))
     (is (not (contains? schemas :acme/rating)))))

@@ -9,36 +9,8 @@
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.test-support :refer [t2 t3 t4 a phone-state laptop-state #?@(:clj [same?])]]
             [dk.simongray.podcast.time :as time]))
-
-(def t0 #inst "2026-01-01T00:00:00Z")
-(def t1 #inst "2026-01-01T01:00:00Z")
-(def t2 #inst "2026-01-01T02:00:00Z")
-(def t3 #inst "2026-01-01T03:00:00Z")
-(def t4 #inst "2026-01-01T04:00:00Z")
-
-(def a ["feed-a" "a1"])
-
-(defn- phone-state
-  []
-  (-> (player/state "phone")
-      (player/identify {:name "Phone"} t0)
-      (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
-      (player/progress a 100 3600 t1)))
-
-(defn- laptop-state
-  []
-  (-> (player/state "laptop")
-      (player/subscribe "feed-b" {:url "https://b/rss" :title "B"} t1)
-      (player/progress a 900 3600 t2)))
-
-#?(:clj
-   (defn- same?
-     "Whether two states agree on all the listener sees: everything but whose
-     they are, the registry, whose entries reach the other devices a round
-     later, and the clock that follows it."
-     [x y]
-     (= (dissoc x :device :devices :clock) (dissoc y :device :devices :clock))))
 
 (deftest documents
   (let [s   (phone-state)

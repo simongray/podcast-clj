@@ -1,16 +1,10 @@
 (ns dk.simongray.podcast.format.html
   "The HTML that feeds embed in descriptions and show notes, read into
-  Hiccup, and from there rendered as safe Hiccup, plain text, Markdown or
-  HTML again.
-
-  Show notes are simple HTML: paragraphs, breaks, links, emphasis, lists,
-  headings, images, the odd table, often unclosed and sprinkled with
-  entities and pasted word-processor markup. `parse` reads that leniently
-  the way a browser would, without an HTML parser dependency, so that the
-  JVM and JavaScript agree; `sanitize` keeps what a client may render;
-  `hiccup` does both and turns a description that is plain text into
-  paragraphs; `text` and `markdown` render either shape; `emit` writes
-  Hiccup back as HTML."
+  Hiccup and rendered from there: `parse` reads a fragment into a sequence
+  of nodes, `[tag attrs & children]` with keyword tags and attribute keys
+  and strings for text; `sanitize` keeps what a client may render; `hiccup`
+  does both and turns a plain-text description into paragraphs; `text` and
+  `markdown` render either shape; `emit` writes Hiccup back as HTML."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.xml :as xml]))
 
@@ -146,8 +140,8 @@
   keyword tags and keyword attribute keys, and strings with their entities
   decoded. Comments and declarations vanish, unknown tags are kept, unclosed
   elements close where HTML says they do, and stray end tags are ignored.
-  A sequence is a fragment to Replicant, Reagent and Rum alike, so the
-  result goes straight into a parent element: `[:div (parse s)]`."
+  Hiccup renderers take a sequence as a fragment, so the result goes
+  straight into a parent element: `[:div (parse s)]`."
   [s]
   (loop [tokens (re-seq token-pattern (str s))
          stack  [[:root {}]]]
@@ -175,7 +169,7 @@
   "The elements `sanitize` keeps."
   #{:p :br :a :strong :b :em :i :u :s :strike :del :ins :mark :small :sup :sub
     :ul :ol :li :dl :dt :dd :h1 :h2 :h3 :h4 :h5 :h6 :blockquote :q :cite :abbr
-    :code :kbd :pre :hr :img :span :div :figure :figcaption
+    :dfn :code :kbd :pre :hr :img :span :div :figure :figcaption
     :table :thead :tbody :tfoot :tr :td :th :caption})
 
 (def dropped-tags

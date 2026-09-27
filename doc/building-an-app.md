@@ -168,9 +168,8 @@ episode.
 (player/step state [:ended id] now)                  ; => {:state … :effects [[:play next-id]]}
 ```
 
-The inspector's browser player is this in eighty lines of shell around
-views that are pure data; its tests mount it on jsdom and click the
-buttons.
+The inspector's browser player is this: a small shell around views that
+are pure data, with tests that mount it on jsdom and click the buttons.
 
 ## 6. Searching the library
 
@@ -230,13 +229,13 @@ store and reports as data, for the settings screen's test button.
 `encrypted/store` wraps any of them so that the server holds ciphertext:
 AES-GCM under a key derived from a passphrase, each document carrying its
 own salt, a plain document already there still readable, and a wrong
-passphrase failing that backend with the document's name. A
-folder covers the sync clients, WebDAV the self-hosted world and the
-inspector's own folder at `/dav/`, and `webdav/handler` serves a store
-from your own Clojure backend for a browser client. The stores to come,
-Dropbox, Drive, CloudKit, the Git hosts and the gpodder services, are laid
-out in `doc/sync.md`; a store is four functions, so one you need is a
-short namespace to write meanwhile.
+passphrase failing that backend with the document's name. A folder covers
+the sync clients and WebDAV the self-hosted world, and
+`dk.simongray.podcast.app.sync.webdav.server/handler` serves a store from
+your own Clojure backend for a browser client, as the inspector does at
+`/dav/`. A store is four functions, so one over a service the library has
+none for is a short namespace; `doc/sync.md` has the design and what the
+seams admit.
 
 ### Where the stores are, as of September 2026
 
@@ -291,5 +290,5 @@ Storage, since the state is EDN and any store will do; HTTP in the
 browser, where feeds and directories decide what a page may fetch;
 playback, through a media element the effects drive; downloads,
 notifications and payments; and the appearance of all of it. Of syncing,
-the stores over the cloud services and the sync services follow 1.0, as
-`doc/sync.md` lays out; the engine and the folder store are in.
+a store over a service the library has none for, four functions against
+the contract `doc/sync.md` lays out.

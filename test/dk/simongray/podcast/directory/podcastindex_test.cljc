@@ -1,34 +1,29 @@
 (ns dk.simongray.podcast.directory.podcastindex-test
   "The Podcast Index client: requests, responses mapped onto the model, and
   the resolution of the remote items value time splits point at."
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [clojure.test :refer [deftest is testing async]])
             [dk.simongray.podcast.directory.podcastindex :as index]
+            [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.resolve :as resolve]
+            [dk.simongray.podcast.test-support :refer [fixture]]
             [dk.simongray.podcast.value :as value]))
 
 (def podcast-body
-  #?(:clj  (slurp (io/resource "index/podcast-byguid.json"))
-     :cljs (rc/inline "index/podcast-byguid.json")))
+  (fixture "index/podcast-byguid.json"))
 
 (def episode-body
-  #?(:clj  (slurp (io/resource "index/episode-byguid.json"))
-     :cljs (rc/inline "index/episode-byguid.json")))
+  (fixture "index/episode-byguid.json"))
 
 (def value-body
-  #?(:clj  (slurp (io/resource "index/value-byepisodeguid.json"))
-     :cljs (rc/inline "index/value-byepisodeguid.json")))
+  (fixture "index/value-byepisodeguid.json"))
 
 (def search-body
-  #?(:clj  (slurp (io/resource "index/search-byterm.json"))
-     :cljs (rc/inline "index/search-byterm.json")))
+  (fixture "index/search-byterm.json"))
 
 (def false-body
-  #?(:clj  (slurp (io/resource "index/status-false.json"))
-     :cljs (rc/inline "index/status-false.json")))
+  (fixture "index/status-false.json"))
 
 (def credentials
   {:key "K" :secret "S"})
@@ -37,13 +32,16 @@
   (let [r (index/request credentials :search/by-term {:q "podcasting 2.0" :max 5 :fulltext true} {:auth-date 1700000000})]
     (is (= :get (:method r)))
     (is (= "https://api.podcastindex.org/api/1.0/search/byterm?q=podcasting%202.0&max=5&fulltext" (:url r)))
-    (is (= {"User-Agent" "dk.simongray/podcast" "X-Auth-Key" "K" "X-Auth-Date" "1700000000"
+    (is (= {"User-Agent" http/user-agent "X-Auth-Key" "K" "X-Auth-Date" "1700000000"
             "Authorization" "2112f595eb505b9d54dc5eab2336b197daf80af4"}
            (:headers r))))
+  (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
+               (index/request credentials :search/by-term {:q "x"} {}))
+      "a request is signed at a time the caller gives, never one read here")
   (is (= "https://api.podcastindex.org/api/1.0/value/byepisodeguid?podcastguid=a94f&episodeguid=x%231"
          (:url (index/request credentials :value/by-episode-guid {:podcastguid "a94f" :episodeguid "x#1"} {:auth-date 1}))))
   (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
-               (index/request credentials :nope {}))))
+               (index/request credentials :nope {} {:auth-date 1}))))
 
 (deftest a-feed-from-the-index
   (let [{:keys [status description query feed]} (index/response podcast-body)]
@@ -153,21 +151,21 @@
             send (fn [{:keys [url]}]
                    (swap! sent conj url)
                    {:status 200 :body (if (str/includes? url "byepisodeguid") value-body false-body)})]
-        (is (= ["Artist" "Label"] (map :name (:recipients (index/remote-value credentials remote send)))))
+        (is (= ["Artist" "Label"] (map :name (:recipients (index/remote-value credentials remote send {:auth-date 1})))))
         (is (= 1 (count @sent)))))
     (testing "falling back to the feed's block when the item has none"
       (let [sent (atom [])
             send (fn [{:keys [url]}]
                    (swap! sent conj url)
                    {:status 200 :body (if (str/includes? url "byepisodeguid") false-body value-body)})]
-        (is (= ["Artist" "Label"] (map :name (:recipients (index/remote-value credentials remote send)))))
+        (is (= ["Artist" "Label"] (map :name (:recipients (index/remote-value credentials remote send {:auth-date 1})))))
         (is (= 2 (count @sent)))
         (is (str/includes? (second @sent) "bypodcastguid"))))
     (testing "nothing resolvable gives nil, whatever comes back"
-      (is (nil? (index/remote-value credentials remote (constantly {:status 200 :body false-body}))))
-      (is (nil? (index/remote-value credentials remote (constantly {:status 401 :body "<html>Unauthorized</html>"}))))
-      (is (nil? (index/remote-value credentials remote (constantly {:status 500}))))
-      (is (nil? (index/remote-value credentials {} (constantly {:status 200 :body value-body})))))))
+      (is (nil? (index/remote-value credentials remote (constantly {:status 200 :body false-body}) {:auth-date 1})))
+      (is (nil? (index/remote-value credentials remote (constantly {:status 401 :body "<html>Unauthorized</html>"}) {:auth-date 1})))
+      (is (nil? (index/remote-value credentials remote (constantly {:status 500}) {:auth-date 1})))
+      (is (nil? (index/remote-value credentials {} (constantly {:status 200 :body value-body}) {:auth-date 1}))))))
 
 (deftest resolving-remote-items-to-feeds-and-episodes
   (let [remote {:feed-guid "9b024349-ccf0-5f69-a609-6b82873eab3c" :item-guid "PC2084"}]
@@ -177,11 +175,11 @@
     (is (= 1 (count (index/remote-item-requests credentials {:feed-guid "x"} {:auth-date 1}))))
     (let [send (fn [{:keys [url]}]
                  {:status 200 :body (if (str/includes? url "episodes/byguid") episode-body podcast-body)})
-          {:keys [feed episode]} (index/remote-item credentials remote send)]
+          {:keys [feed episode]} (index/remote-item credentials remote send {:auth-date 1})]
       (is (= "Batman University" (:rss/title feed)))
       (is (= "Episode 84 - The Big One" (:rss/title episode))))
-    (is (nil? (index/remote-item credentials remote (constantly {:status 200 :body false-body}))))
-    (is (nil? (index/remote-item credentials {} (constantly {:status 200 :body podcast-body}))))))
+    (is (nil? (index/remote-item credentials remote (constantly {:status 200 :body false-body}) {:auth-date 1})))
+    (is (nil? (index/remote-item credentials {} (constantly {:status 200 :body podcast-body}) {:auth-date 1})))))
 
 #?(:cljs
    (deftest calling-with-fetch

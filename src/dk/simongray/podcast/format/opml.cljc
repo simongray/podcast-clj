@@ -5,11 +5,11 @@
   A subscription list is a map:
 
       {:title         \"My podcasts\"
-       :subscriptions [{:text \"Podcasting 2.0\" :xml-url \"https://…/pc20.xml\"
-                        :html-url \"https://podcastindex.org\" :path [\"Tech\"]}]}
+       :subscriptions [{:text \"A show\" :xml-url \"https://example.org/feed.xml\"
+                        :html-url \"https://example.org\" :path [\"Tech\"]}]}
 
-  Folders in the OPML become the `:path` of the subscriptions inside them,
-  so the list stays flat and easy to merge; `emit` rebuilds the folders."
+  Folders in the OPML become the `:path` of the subscriptions inside them;
+  `emit` rebuilds the folders."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.xml :as xml]))
 
@@ -66,17 +66,20 @@
           (partition-by (comp first :path) subscriptions)))
 
 (defn emit
-  "Write the subscription list `list` as an OPML 2.0 document."
-  [list]
+  "Write the `subscription-list` (see `parse`) as an OPML 2.0 document."
+  [subscription-list]
   (xml/emit
    [:opml {:version "2.0"}
-    [:head {} [:title {} (or (:title list) "Subscriptions")]]
-    (into [:body {}] (folders (:subscriptions list)))]))
+    [:head {} [:title {} (or (:title subscription-list) "Subscriptions")]]
+    (into [:body {}] (folders (:subscriptions subscription-list)))]))
 
 (comment
   (parse "<opml version=\"2.0\"><head><title>Mine</title></head><body>
-            <outline text=\"Tech\"><outline type=\"rss\" text=\"PC20\" xmlUrl=\"https://feeds.podcastindex.org/pc20.xml\"/></outline>
-            <outline type=\"rss\" text=\"ATP\" xmlUrl=\"https://atp.fm/rss\" htmlUrl=\"https://atp.fm\"/>
+          <outline text=\"Tech\">
+            <outline type=\"rss\" text=\"A\" xmlUrl=\"https://example.org/a\"/>
+          </outline>
+          <outline type=\"rss\" text=\"B\" xmlUrl=\"https://example.org/b\"
+                   htmlUrl=\"https://example.org\"/>
           </body></opml>")
   (println (emit *1))
   #_.)

@@ -1,7 +1,6 @@
 (ns dk.simongray.podcast.json
-  "The JSON adapter: strings in, plain data with string keys out, and back.
-  Everything that reads JSON (chapters, transcripts, Podcast Index) goes
-  through here so that the platform choice is made once."
+  "The JSON adapter: strings in, plain data with string keys out, and back,
+  on both platforms."
   #?(:clj (:require [clojure.data.json :as json])))
 
 (defn read-str

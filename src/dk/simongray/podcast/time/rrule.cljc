@@ -1,9 +1,8 @@
 (ns dk.simongray.podcast.time.rrule
   "RFC 5545 recurrence rules, as the rrule of `podcast:updateFrequency`
-  carries them: parsed into a map of their parts, written back in the RFC's
-  order, and evaluated into the instants they produce, from the calendar
-  arithmetic of dk.simongray.podcast.time so that the JVM and JavaScript
-  agree.
+  carries them: parsed into a map of their parts, written back as a rule
+  string, and evaluated into the instants they produce, from the calendar
+  arithmetic of dk.simongray.podcast.time.
 
       (parse \"FREQ=WEEKLY;BYDAY=MO,WE\")
       ;; => {:freq \"WEEKLY\" :byday [\"MO\" \"WE\"]}
@@ -15,15 +14,19 @@
 
 (def ^:no-doc parts
   "The parts of a recurrence rule, as model keys and as written, in the
-  order the RFC lists them."
+  order `format` writes them."
   [[:freq "FREQ"] [:interval "INTERVAL"] [:count "COUNT"] [:until "UNTIL"]
    [:bysecond "BYSECOND"] [:byminute "BYMINUTE"] [:byhour "BYHOUR"] [:byday "BYDAY"]
    [:bymonthday "BYMONTHDAY"] [:byyearday "BYYEARDAY"] [:byweekno "BYWEEKNO"]
    [:bymonth "BYMONTH"] [:bysetpos "BYSETPOS"] [:wkst "WKST"]])
 
-(def freq-values
+(def ^:no-doc freq-values
   "The values RFC 5545 allows for FREQ."
   #{"SECONDLY" "MINUTELY" "HOURLY" "DAILY" "WEEKLY" "MONTHLY" "YEARLY"})
+
+(def ^:no-doc byday-pattern
+  "A BYDAY value: a weekday code, perhaps after a signed ordinal, \"-1FR\"."
+  #"([+-]?\d{1,2})?(SU|MO|TU|WE|TH|FR|SA)")
 
 (defn- part-value
   "The model value of the rule part `k` written as `s`; nil when it does not
@@ -41,7 +44,7 @@
                                             (if hh (parse-long hh) 0) (if mm (parse-long mm) 0)
                                             (if ss (parse-long ss) 0) 0 0)))
       :byday (let [days (mapv str/upper-case (str/split s #","))]
-               (when (every? #(re-matches #"[+-]?\d{0,2}(?:MO|TU|WE|TH|FR|SA|SU)" %) days)
+               (when (every? #(re-matches byday-pattern %) days)
                  days))
       :wkst  (let [d (str/upper-case s)]
                (when (re-matches #"MO|TU|WE|TH|FR|SA|SU" d) d))
@@ -69,8 +72,8 @@
     (when (:freq m) m)))
 
 (defn format
-  "Write the recurrence rule map `m` (see `parse`) as RFC 5545 does, parts
-  in the RFC's order and any other part last."
+  "Write the recurrence rule map `m` (see `parse`) as an RFC 5545 rule
+  string, the parts in the order of `parts` and any other part last."
   [m]
   (let [known (mapv first parts)
         names (into {} parts)
@@ -96,9 +99,9 @@
   "Weekday number, 0 Sunday to 6 Saturday, by RFC 5545 code."
   (zipmap weekday-codes (range)))
 
-(def evaluable-parts
-  "The rule parts `occurrences` evaluates. A rule with any other part yields
-  nil rather than wrong dates."
+(def ^:no-doc evaluable-parts
+  "The rule parts `occurrences` evaluates; a rule with any other part yields
+  nil."
   #{:freq :interval :count :until :byday :bymonthday :bymonth :wkst})
 
 (defn- weekday-of
@@ -116,7 +119,7 @@
   "The BYDAY value `s` as `[ordinal weekday]`: \"MO\" is [nil 1], \"-1FR\"
   is [-1 5]."
   [s]
-  (let [[_ ordinal code] (re-matches #"([+-]?\d{1,2})?(SU|MO|TU|WE|TH|FR|SA)" s)]
+  (let [[_ ordinal code] (re-matches byday-pattern s)]
     [(some-> ordinal parse-long) (weekday-numbers code)]))
 
 (defn- month-days
@@ -146,58 +149,108 @@
             (<= default-day n)        [default-day]
             :else                     []))))
 
+(defn- in-months?
+  "Whether the day `days` after the epoch falls in one of `months`, a set of
+  month numbers; always when `months` is nil."
+  [months days]
+  (or (nil? months) (contains? months (second (time/civil-from-days days)))))
+
+(defn- on-monthdays?
+  "Whether the day `days` after the epoch is one of `monthdays`, a set of
+  BYMONTHDAY values, the negative ones counted from the end of the month;
+  always when `monthdays` is nil."
+  [monthdays days]
+  (or (nil? monthdays)
+      (let [[y m d] (time/civil-from-days days)]
+        (or (contains? monthdays d)
+            (contains? monthdays (- d (inc (days-in-month y m))))))))
+
+(defn- daily-days
+  "The day numbers a DAILY `rule` selects from the day number `day0`, for a
+  century: every INTERVAL days, kept when BYMONTH, BYDAY and BYMONTHDAY
+  allow."
+  [{:keys [interval byday bymonth bymonthday] :or {interval 1}} day0]
+  (let [months    (some-> bymonth set)
+        weekdays  (some->> byday (map (comp second parse-byday)) set)
+        monthdays (some-> bymonthday set)]
+    (->> (iterate #(+ % interval) day0)
+         (take 36525)
+         (filter #(in-months? months %))
+         (filter #(or (nil? weekdays) (contains? weekdays (weekday-of %))))
+         (filter #(on-monthdays? monthdays %)))))
+
+(defn- weekly-days
+  "The day numbers a WEEKLY `rule` selects from the day number `day0`, for a
+  century: the BYDAY weekdays, or `day0`'s, of every INTERVAL weeks, the
+  weeks starting on WKST, kept when BYMONTH allows."
+  [{:keys [interval byday bymonth wkst] :or {interval 1}} day0]
+  (let [week-start (weekday-numbers (or wkst "MO"))
+        offset     #(mod (- % week-start) 7)
+        week0      (- day0 (offset (weekday-of day0)))
+        weekdays   (or (seq (sort (map (comp second parse-byday) byday)))
+                       [(weekday-of day0)])
+        months     (some-> bymonth set)]
+    (->> (iterate #(+ % (* 7 interval)) week0)
+         (take 5218)
+         (mapcat (fn [week] (map #(+ week (offset %)) weekdays)))
+         (filter #(>= % day0))
+         (filter #(in-months? months %)))))
+
+(defn- monthly-days
+  "The day numbers a MONTHLY `rule` selects from the day number `day0`, for
+  a century: the `month-days` of every INTERVAL months, kept when BYMONTH
+  allows."
+  [{:keys [interval bymonth] :or {interval 1} :as rule} day0]
+  (let [[y0 m0 d0] (time/civil-from-days day0)
+        months     (some-> bymonth set)]
+    (->> (iterate inc 0)
+         (take 1200)
+         (map #(let [total (+ (dec m0) (* % interval))]
+                 [(+ y0 (quot total 12)) (inc (mod total 12))]))
+         (filter (fn [[_ m]] (or (nil? months) (contains? months m))))
+         (mapcat (fn [[y m]]
+                   (map #(time/days-from-civil y m %) (month-days rule y m d0))))
+         (filter #(>= % day0)))))
+
+(defn- yearly-days
+  "The day numbers a YEARLY `rule` selects from the day number `day0`, for a
+  century: the `month-days` of the BYMONTH months, or of `day0`'s month, of
+  every INTERVAL years."
+  [{:keys [interval bymonth] :or {interval 1} :as rule} day0]
+  (let [[y0 m0 d0] (time/civil-from-days day0)]
+    (->> (iterate #(+ % interval) y0)
+         (take 100)
+         (mapcat (fn [y]
+                   (for [m (or (seq (sort bymonth)) [m0])
+                         d (month-days rule y m d0)]
+                     (time/days-from-civil y m d))))
+         (filter #(>= % day0)))))
+
 (defn occurrences
   "The instants the recurrence rule `rule` (see `parse`) produces from the
   instant `start`, in order, as a lazy sequence: `start`'s time of day on
   every day the rule selects, for up to a century. DAILY, WEEKLY, MONTHLY
   and YEARLY rules with INTERVAL, COUNT, UNTIL, BYDAY, BYMONTHDAY, BYMONTH
-  and WKST are evaluated; anything else, such as an hourly rule or BYHOUR,
-  yields nil, since a wrong date is worse than none."
-  [{:keys [freq interval until byday bymonth wkst] n :count :as rule} start]
+  and WKST are evaluated; anything else, such as an hourly rule, BYHOUR or
+  a WEEKLY rule with BYMONTHDAY, yields nil."
+  [{:keys [freq until byday bymonth bymonthday] n :count :as rule} start]
   (when (and (map? rule)
              (inst? start)
              (every? evaluable-parts (keys rule))
              (#{"DAILY" "WEEKLY" "MONTHLY" "YEARLY"} freq)
-             (not (and (= "YEARLY" freq) byday (not bymonth))))
+             (not (and (= "YEARLY" freq) byday (not bymonth)))
+             (not (and (= "WEEKLY" freq) bymonthday)))
     (let [[day0 hh mm ss millis] (time/split-ms (inst-ms start))
           time-of-day (+ (* hh 3600000) (* mm 60000) (* ss 1000) millis)
-          [y0 m0 d0]  (time/civil-from-days day0)
-          interval    (or interval 1)
-          months      (some-> bymonth set)
-          in-month?   (fn [days] (or (nil? months) (contains? months (second (time/civil-from-days days)))))
-          days
-          (case freq
-            "DAILY"   (let [weekdays (some->> byday (map (comp second parse-byday)) set)]
-                        (->> (iterate #(+ % interval) day0)
-                             (take 36525)
-                             (filter in-month?)
-                             (filter #(or (nil? weekdays) (contains? weekdays (weekday-of %))))))
-            "WEEKLY"  (let [week-start (weekday-numbers (or wkst "MO"))
-                            offset     #(mod (- % week-start) 7)
-                            week0      (- day0 (offset (weekday-of day0)))
-                            weekdays   (or (seq (sort (map (comp second parse-byday) byday)))
-                                           [(weekday-of day0)])]
-                        (->> (iterate #(+ % (* 7 interval)) week0)
-                             (take 5218)
-                             (mapcat (fn [week] (map #(+ week (offset %)) weekdays)))
-                             (filter #(>= % day0))
-                             (filter in-month?)))
-            "MONTHLY" (->> (iterate inc 0)
-                           (take 1200)
-                           (map #(let [total (+ (dec m0) (* % interval))]
-                                   [(+ y0 (quot total 12)) (inc (mod total 12))]))
-                           (filter (fn [[_ m]] (or (nil? months) (contains? months m))))
-                           (mapcat (fn [[y m]] (map #(time/days-from-civil y m %) (month-days rule y m d0))))
-                           (filter #(>= % day0)))
-            "YEARLY"  (->> (iterate #(+ % interval) y0)
-                           (take 100)
-                           (mapcat (fn [y]
-                                     (for [m (or (seq (sort bymonth)) [m0])
-                                           d (month-days rule y m d0)]
-                                       (time/days-from-civil y m d))))
-                           (filter #(>= % day0))))
-          insts (map #(time/->inst (+ (* % 86400000) time-of-day)) days)
-          insts (if until (take-while #(<= (inst-ms %) (inst-ms until)) insts) insts)]
+          days        (case freq
+                        "DAILY"   (daily-days rule day0)
+                        "WEEKLY"  (weekly-days rule day0)
+                        "MONTHLY" (monthly-days rule day0)
+                        "YEARLY"  (yearly-days rule day0))
+          insts       (map #(time/->inst (+ (* % 86400000) time-of-day)) days)
+          insts       (if until
+                        (take-while #(<= (inst-ms %) (inst-ms until)) insts)
+                        insts)]
       (if n (take n insts) insts))))
 
 (defn next-occurrence

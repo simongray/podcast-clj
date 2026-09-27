@@ -1,5 +1,7 @@
 {:cljdoc.doc/tree [["Readme" {:file "README.md"}]
+                   ["Building an app" {:file "doc/building-an-app.md"}]
                    ["Architecture" {:file "doc/architecture.md"}]
+                   ["Syncing" {:file "doc/sync.md"}]
                    ["Elements" {:file "doc/tags.md"}]
                    ["Diagnostics" {:file "doc/diagnostics.md"}]
                    ["Changelog" {:file "CHANGELOG.md"}]]}

@@ -2,9 +2,7 @@
   "The WebDAV store: the calls as request maps, the answers read, in the
   shape Nextcloud writes them and in another prefix, and two devices kept
   in step through a server standing in for one, on both platforms."
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [dk.simongray.podcast.http :as http])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
@@ -12,20 +10,15 @@
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
-            #?(:cljs [dk.simongray.podcast.http :as http])))
+            #?(:clj [dk.simongray.podcast.app.sync.webdav.server :as server])
+            #?(:cljs [dk.simongray.podcast.http :as http])
+            [dk.simongray.podcast.test-support :refer [t2 t3 a phone-state laptop-state fixture #?@(:clj [same?])]]))
 
 (def root
   "https://cloud.example.org/remote.php/dav/files/simon/podcasts/")
 
 (def nextcloud-propfind
-  #?(:clj  (slurp (io/resource "webdav/nextcloud-propfind.xml"))
-     :cljs (rc/inline "webdav/nextcloud-propfind.xml")))
-
-(def t1 #inst "2026-01-01T01:00:00Z")
-(def t2 #inst "2026-01-01T02:00:00Z")
-(def t3 #inst "2026-01-01T03:00:00Z")
-
-(def a ["feed-a" "a1"])
+  (fixture "webdav/nextcloud-propfind.xml"))
 
 (deftest a-backend-in-one-call
   (let [b (webdav/backend "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
@@ -141,19 +134,6 @@
         :delete   (do (swap! documents dissoc name)
                       {:status 204 :headers {} :body ""})))))
 
-(defn- phone-state
-  []
-  (-> (player/state "phone")
-      (player/identify {:name "Phone"} t1)
-      (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1)
-      (player/progress a 100 3600 t1)))
-
-(defn- laptop-state
-  []
-  (-> (player/state "laptop")
-      (player/subscribe "feed-b" {:url "https://b/rss" :title "B"} t1)
-      (player/progress a 900 3600 t2)))
-
 #?(:clj
    (defn- ring
      "A Ring request for the handler."
@@ -163,7 +143,7 @@
 #?(:clj
    (deftest serving-a-store
      (let [documents (atom {})
-           handler   (webdav/handler (store/memory documents) "/dav/")]
+           handler   (server/handler (store/memory documents) "/dav/")]
        (testing "the collection, with and without its slash"
          (is (= 207 (:status (handler (ring :propfind "/dav/")))))
          (is (= 207 (:status (handler (ring :propfind "/dav")))))
@@ -227,7 +207,7 @@
            (is (nil? (:failed phone)) "the collection was made on the first put")
            (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"} (set (keys (dissoc @documents ::created)))))
            (is (= 900 (:position (player/episode (:state phone2) a))))
-           (is (= (dissoc (:state laptop) :device :devices :clock) (dissoc (:state phone2) :device :devices :clock)))
+           (is (same? (:state laptop) (:state phone2)))
            (is (= "dav.example.org" (:name backend)) "named after the host")
            (is (= {"laptop.edn" "\"1\"" "phone.edn" "\"2\""} (:versions (get (:ctx phone2) "dav.example.org")))
                "the ETags are the versions"))))))

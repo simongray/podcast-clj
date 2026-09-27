@@ -1,11 +1,10 @@
 (ns dk.simongray.podcast.format.html-test
   "Embedded HTML as Hiccup, sanitized, and rendered as text and Markdown."
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            #?(:clj [dk.simongray.podcast :as podcast])
-            [dk.simongray.podcast.format.html :as html]))
+            [dk.simongray.podcast.format.html :as html]
+            #?(:clj [dk.simongray.podcast.test-support :refer [corpus-feeds]])))
 
 (deftest parsing-the-way-a-browser-does
   (testing "elements, attributes and entities"
@@ -47,7 +46,9 @@
             " " "plain" " "
             [:ul {} [:li {} "one"] [:li {} "two"]]
             [:img {:alt "pic"}]]
-           (html/sanitize (html/parse dirty))))))
+           (html/sanitize (html/parse dirty))))
+    (is (= [[:dfn {:title "term"} "x"]]
+           (html/sanitize (html/parse "<dfn title=\"term\" class=\"c\">x</dfn>"))))))
 
 (deftest hiccup-for-a-client
   (testing "markup is parsed and sanitized"
@@ -84,14 +85,12 @@
 #?(:clj
    (deftest descriptions-in-the-corpus-render
      (testing "every description of every corpus feed, when the corpus is there"
-       (doseq [file (->> (.listFiles (io/file "dev-resources/corpus"))
-                         (filter #(and (.isFile ^java.io.File %) (.endsWith (.getName ^java.io.File %) ".xml"))))
-               :let [feed (podcast/parse (slurp file))]
+       (doseq [{:keys [name feed]} @corpus-feeds
                item (take 20 (:rss/items feed))
                k    [:rss/description :content/encoded :itunes/summary]
                :let [s (get item k)]
                :when (and (string? s) (re-find #"\w" s))]
          (let [nodes (html/hiccup s)]
-           (is (seq? nodes) (.getName ^java.io.File file))
-           (is (re-find #"\w" (html/text nodes)) (str (.getName ^java.io.File file) " " k))
+           (is (seq? nodes) name)
+           (is (re-find #"\w" (html/text nodes)) (str name " " k))
            (is (string? (html/markdown nodes))))))))

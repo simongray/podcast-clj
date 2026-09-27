@@ -24,6 +24,7 @@
   `search!` and `trending!` ask several sources at once and `combine` the
   answers into one entry per show."
   (:require [clojure.string :as str]
+            #?(:clj [dk.simongray.podcast.async :as async])
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.json :as json]
@@ -46,13 +47,9 @@
   and `:country` for Apple or `:language` for fyyd and the Podcast Index."
   #{:search :lookup :trending})
 
-(def ^:no-doc user-agent
-  "The User-Agent sent to the directories."
-  "dk.simongray/podcast")
-
 (defn- get-request
   [url]
-  {:method :get :url url :headers {"User-Agent" user-agent}})
+  {:method :get :url url :headers {"User-Agent" http/user-agent}})
 
 (defn- country-code
   "The two lower-case letters of `country`, \"us\" when none is given."
@@ -66,10 +63,10 @@
   [endpoint {:keys [q id limit country]}]
   (case endpoint
     :search   (get-request (str "https://itunes.apple.com/search?"
-                                (http/query-string{:media "podcast" :entity "podcast" :term q :limit limit
+                                (http/query-string {:media "podcast" :entity "podcast" :term q :limit limit
                                                      :country (some-> country name)})))
     :lookup   (get-request (str "https://itunes.apple.com/lookup?"
-                                (http/query-string{:id (if (coll? id) (str/join "," id) id) :entity "podcast"})))
+                                (http/query-string {:id (if (coll? id) (str/join "," id) id) :entity "podcast"})))
     :trending (get-request (str "https://rss.marketingtools.apple.com/api/v2/" (country-code country)
                                 "/podcasts/top/" (long (or limit 25)) "/podcasts.json"))))
 
@@ -77,15 +74,15 @@
   [endpoint {:keys [q id limit language]}]
   (let [base "https://api.fyyd.de/0.2/"]
     (case endpoint
-      :search   (get-request (str base "search/podcast?" (http/query-string{:term q :count limit})))
-      :lookup   (get-request (str base "podcast?" (http/query-string{:podcast_id id})))
-      :trending (get-request (str base "feature/podcast/hot?" (http/query-string{:count limit :language language}))))))
+      :search   (get-request (str base "search/podcast?" (http/query-string {:term q :count limit})))
+      :lookup   (get-request (str base "podcast?" (http/query-string {:podcast_id id})))
+      :trending (get-request (str base "feature/podcast/hot?" (http/query-string {:count limit :language language}))))))
 
 (defn- gpodder-request
   [endpoint {:keys [q id limit]}]
   (case endpoint
-    :search   (get-request (str "https://gpodder.net/search.json?" (http/query-string{:q q})))
-    :lookup   (get-request (str "https://gpodder.net/api/2/data/podcast.json?" (http/query-string{:url id})))
+    :search   (get-request (str "https://gpodder.net/search.json?" (http/query-string {:q q})))
+    :lookup   (get-request (str "https://gpodder.net/api/2/data/podcast.json?" (http/query-string {:url id})))
     :trending (get-request (str "https://gpodder.net/toplist/" (long (or limit 25)) ".json"))))
 
 (defn- podcastindex-request
@@ -102,8 +99,9 @@
 (defn request
   "The request map for `endpoint` at `source` with `params`, see
   `endpoints`: `{:method :get :url :headers}`. `opts` carry the
-  `:credentials` of the Podcast Index, `{:key :secret}`, and may fix its
-  `:auth-date` as `index/request` does."
+  `:credentials` of the Podcast Index, `{:key :secret}`, and the
+  `:auth-date` its requests are signed at, Unix seconds, which `call!`
+  supplies (see `index/request`)."
   ([source endpoint params]
    (request source endpoint params {}))
   ([source endpoint params {:keys [credentials] :as opts}]
@@ -319,7 +317,9 @@
      ([source endpoint params]
       (call! source endpoint params {}))
      ([source endpoint params opts]
-      (let [req (assoc (request source endpoint params opts) :timeout-seconds (:timeout-seconds opts 15))]
+      {:pre [(map? opts)]}
+      (let [opts (cond-> opts (not (:auth-date opts)) (assoc :auth-date (quot (System/currentTimeMillis) 1000)))
+            req  (assoc (request source endpoint params opts) :timeout-seconds (:timeout-seconds opts 15))]
         (response source endpoint (:body (http/call! req)))))))
 
 #?(:clj
@@ -338,16 +338,12 @@
      `combine` what they answer: `{:results [...] :failed {source message}}`,
      a source that fails costing nothing but its absence."
      [sources endpoint params opts]
-     (let [answers (mapv (fn [source]
-                           (future (try [source (completed! source endpoint (call! source endpoint params opts) opts)]
-                                        (catch Exception e [source e]))))
-                         sources)
-           answers (map deref answers)
-           failed  (into {} (for [[source answer] answers
-                                  :when (instance? Throwable answer)]
-                              [source (or (ex-message answer) (str answer))]))
-           results (combine (mapcat (fn [[_ answer]] (when-not (instance? Throwable answer) answer)) answers))]
-       (cond-> {:results results}
+     (let [answers (async/all (map (fn [source]
+                                     (async/attempt #(completed! source endpoint (call! source endpoint params opts) opts)))
+                                   sources))
+           failed  (into {} (for [[source {:keys [error]}] (map vector sources answers) :when error]
+                              [source (async/explain error)]))]
+       (cond-> {:results (combine (mapcat :value answers))}
          (seq failed) (assoc :failed failed)))))
 
 #?(:clj
@@ -366,6 +362,7 @@
      ([q]
       (search! q {}))
      ([q opts]
+      {:pre [(map? opts)]}
       (let [sources (or (:sources opts) (default-sources opts))
             params  (assoc (select-keys opts [:limit :country :language]) :q q)
             answer  (fan-out! sources :search params opts)]
@@ -378,6 +375,7 @@
      ([]
       (trending! {}))
      ([opts]
+      {:pre [(map? opts)]}
       (fan-out! (or (:sources opts) (default-sources opts))
                 :trending
                 (select-keys opts [:limit :country :language])

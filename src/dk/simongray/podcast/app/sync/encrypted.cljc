@@ -1,9 +1,9 @@
 (ns dk.simongray.podcast.app.sync.encrypted
   "Any document store with its documents encrypted at rest, so that a
-  Nextcloud, a Dropbox or the inspector's folder holds a listener's habits
-  as ciphertext and nothing else changes: `store` wraps a store, names and
-  versions pass through, bodies are sealed on the way in and opened on the
-  way out, and `backend` is the one call with the options of both.
+  server or a synced folder holds a listener's habits as ciphertext and
+  nothing else changes: `store` wraps a store, names and versions pass
+  through, bodies are sealed on the way in and opened on the way out, and
+  `backend` is the one call with the options of both.
 
   A body is sealed with AES-256-GCM under a key derived from the passphrase
   by PBKDF2 with HMAC-SHA256, and stored as a small EDN envelope carrying
@@ -22,7 +22,8 @@
   platforms open each other's envelopes."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
-            [dk.simongray.podcast.app.sync.store :as store])
+            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.async :as async])
   #?(:clj (:import [java.nio.charset StandardCharsets]
                    [java.security SecureRandom]
                    [java.util Base64]
@@ -131,20 +132,32 @@
       (when (and (map? m) (integer? (:encrypted m)) (string? (:salt m)) (string? (:iv m)) (string? (:data m)))
         m))))
 
-(defn- seal-body
-  "The envelope string for `body` under `key`, derived from `salt` over
-  `iterations`."
-  [key salt iterations body]
+(defn- seal-with
+  "The envelope string for `body` under the key `key-for` derives for the
+  `salt` bytes over `iterations`, with a fresh IV."
+  [key-for salt iterations body]
   (let [iv (random-bytes 12)]
-    (store/then (seal key iv (utf8 body))
-                (fn [data]
-                  (pr-str {:encrypted  version
-                           :cipher     "AES-256-GCM"
-                           :kdf        "PBKDF2-HMAC-SHA256"
-                           :iterations iterations
-                           :salt       (->base64 salt)
-                           :iv         (->base64 iv)
-                           :data       (->base64 data)})))))
+    (async/then (key-for salt iterations)
+                (fn [key]
+                  (async/then (seal key iv (utf8 body))
+                              (fn [data]
+                                (pr-str {:encrypted  version
+                                         :cipher     "AES-256-GCM"
+                                         :kdf        "PBKDF2-HMAC-SHA256"
+                                         :iterations iterations
+                                         :salt       (->base64 salt)
+                                         :iv         (->base64 iv)
+                                         :data       (->base64 data)})))))))
+
+(defn- open-with
+  "The body in the envelope string `s`, opened with the key `key-for`
+  derives for its salt and iterations, `name` naming the document when it
+  is locked; `s` itself when it is not an envelope."
+  [key-for name s]
+  (if-let [{:keys [iterations salt iv data]} (envelope s)]
+    (async/then (key-for (<-base64 salt) iterations)
+                (fn [key] (async/then (open key (<-base64 iv) (<-base64 data) name) from-utf8)))
+    s))
 
 (defn encrypt
   "The envelope string for `body` under `passphrase`, with a fresh salt and
@@ -154,19 +167,14 @@
    (encrypt passphrase body {}))
   ([passphrase body {:keys [iterations] :or {iterations default-iterations} :as opts}]
    {:pre [(map? opts)]}
-   (let [salt (random-bytes 16)]
-     (store/then (derive-key passphrase salt iterations)
-                 (fn [key] (seal-body key salt iterations body))))))
+   (seal-with #(derive-key passphrase %1 %2) (random-bytes 16) iterations body)))
 
 (defn decrypt
   "The body in the envelope string `s` under `passphrase`, or `s` itself when
   it is not an envelope; a passphrase that does not open it throws
   `::locked`. A promise in ClojureScript, rejected when locked."
   [passphrase s]
-  (if-let [{:keys [iterations salt iv data]} (envelope s)]
-    (store/then (derive-key passphrase (<-base64 salt) iterations)
-                (fn [key] (store/then (open key (<-base64 iv) (<-base64 data) nil) from-utf8)))
-    s))
+  (open-with #(derive-key passphrase %1 %2) nil s))
 
 (defn store
   "The store `inner` with its documents encrypted at rest under the
@@ -182,38 +190,31 @@
   (let [salt    (random-bytes 16)
         keys    (atom {})
         pass    (fn [] (if (fn? passphrase) (passphrase) passphrase))
-        key-for (fn [salt-bytes salt-b64 iters]
-                  (or (get @keys salt-b64)
-                      (let [key (derive-key (pass) salt-bytes iters)]
-                        (swap! keys assoc salt-b64 key)
-                        key)))
-        seal!   (fn [body]
-                  (store/then (key-for salt (->base64 salt) iterations)
-                              (fn [key] (seal-body key salt iterations body))))
-        open!   (fn [name body]
-                  (if-let [{:keys [iterations] :as env} (envelope body)]
-                    (store/then (key-for (<-base64 (:salt env)) (:salt env) iterations)
-                                (fn [key] (store/then (open key (<-base64 (:iv env)) (<-base64 (:data env)) name) from-utf8)))
-                    body))]
+        key-for (fn [salt iterations]
+                  (let [k (->base64 salt)]
+                    (or (get @keys k)
+                        (let [key (derive-key (pass) salt iterations)]
+                          (swap! keys assoc k key)
+                          key))))]
     (cond-> {:name  (:name inner)
              :fetch (fn [name]
-                      (store/then ((:fetch inner) name)
+                      (async/then ((:fetch inner) name)
                                   (fn [doc]
                                     (cond
                                       (nil? doc)    nil
                                       (except name) doc
-                                      :else         (store/then (open! name (:body doc)) #(assoc doc :body %))))))
+                                      :else         (async/then (open-with key-for name (:body doc)) #(assoc doc :body %))))))
              :put   (fn [name body params]
                       (if (except name)
                         ((:put inner) name body params)
-                        (store/then (seal! body) (fn [sealed] ((:put inner) name sealed params)))))}
+                        (async/then (seal-with key-for salt iterations body)
+                                    (fn [sealed] ((:put inner) name sealed params)))))}
       (:list inner)   (assoc :list (:list inner))
       (:delete inner) (assoc :delete (:delete inner)))))
 
 (defn backend
   "A backend for `dk.simongray.podcast.app.sync/sync!` over `inner` with its
-  documents encrypted, in one call: `opts` are those of `store`, the
-  `:passphrase`, `:iterations` and `:except`, and those of
+  documents encrypted, in one call; `opts` are those of `store` and of
   `dk.simongray.podcast.app.sync.store/backend`."
   [inner opts]
   {:pre [(map? opts)]}

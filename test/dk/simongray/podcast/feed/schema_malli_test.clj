@@ -8,6 +8,7 @@
             [clojure.walk :as walk]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed.schema :as schema]
+            [dk.simongray.podcast.test-support :refer [corpus-feeds]]
             [malli.core :as m]
             [malli.error :as me]
             [malli.generator :as mg]))
@@ -23,9 +24,8 @@
   (is (nil? (explain (podcast/parse (slurp (io/resource "feeds/namespace-example.xml"))))))
   (is (nil? (explain (podcast/parse (slurp (io/resource "feeds/quirky.xml"))))))
   (testing "every feed in the corpus, when it is there"
-    (doseq [file (->> (.listFiles (io/file "dev-resources/corpus"))
-                      (filter #(and (.isFile ^java.io.File %) (.endsWith (.getName ^java.io.File %) ".xml"))))]
-      (is (nil? (explain (podcast/parse (slurp file)))) (.getName ^java.io.File file)))))
+    (doseq [{:keys [name feed]} @corpus-feeds]
+      (is (nil? (explain feed)) name))))
 
 (deftest schemas-catch-what-parse-forgave
   (let [feed (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>T</title>

@@ -39,16 +39,11 @@
         (:time-splits block)))
 
 (defn recipients-at
-  "Who is paid `seconds` into playback of media governed by `block`:
-
-      {:recipients [...]            ; the recipients to pay, fees included
-       :remote     {...}}           ; or, for a remote split, what to resolve
-
-  Outside any time split, the block's own recipients. Inside a split that
-  names recipients, the block's fee recipients plus the split's recipients.
-  Inside a split that points at a remote item, the block's fee recipients
-  as `:recipients` and the remote item, its percentage and its start offset
-  under `:remote`, for the caller to look up through the Podcast Index."
+  "Who is paid `seconds` into playback of media governed by `block`, as
+  `{:recipients [...]}`: the block's own recipients, or inside a time split
+  its fee recipients plus the split's. Inside a split that points at a
+  remote item, the fee recipients alone, with `{:remote-item :percentage
+  :start-time :offset}` under `:remote` for the caller to resolve."
   [block seconds]
   (let [recipients (:recipients block)
         fees       (filter fee? recipients)]
@@ -70,13 +65,12 @@
 
 (defn with-remote
   "Fold the `remote` value block a time split pointed at into `at`, the
-  result of `recipients-at` for the `block` at that moment. Fees from both
-  blocks stay off the top; the remaining amount goes to the remote block's
-  recipients for the split's percentage and to the block's own non-fee
-  recipients for the rest, each side divided by its own splits. The splits
-  come back rescaled to whole shares that express exactly that. Without a
-  remote block (it could not be resolved), the block's own recipients apply,
-  as the specification tells apps to fall back."
+  result of `recipients-at` for `block` at that moment: `{:recipients
+  [...]}` with the fees of both blocks, the remote block's non-fee
+  recipients for the split's percentage and the block's own for the rest,
+  their splits rescaled to whole shares that express that. Without a
+  `remote` block the block's own recipients apply; outside a remote split
+  `at` is returned as it is."
   [block at remote]
   (if-let [{:keys [percentage]} (:remote at)]
     (let [local  (remove fee? (:recipients block))
@@ -114,7 +108,8 @@
                                   (long (Math/floor (/ (* remaining (:split r 0)) total)))
                                   0)})
         leftover  (- remaining (transduce (map :amount) + 0 paid))
-        largest   (when (seq paid) (apply max-key (comp :split :recipient) paid))]
+        largest   (when (seq paid)
+                    (apply max-key #(:split (:recipient %) 0) paid))]
     (vec (concat fee-paid
                  (map (fn [p]
                         (if (and (pos? leftover) (identical? p largest))
@@ -137,21 +132,13 @@
 
 (defn boostagram
   "The bLIP-10 record an app attaches to a keysend payment (TLV type
-  7629169), as a map with the record's own keys, ready for
-  `dk.simongray.podcast.json/write-str`, from the `payment` map:
-
-      {:podcast \"…\" :feed-guid \"…\" :feed-url \"…\" :feed-id 920666  ; the show
-       :episode \"…\" :item-guid \"…\" :item-id 16795090                ; the episode
-       :position 754                    ; seconds into it, written as ts and time
-       :action :boost                   ; :boost, :stream or :auto; :boost when absent
-       :sats 1000 :total-sats 5000      ; this recipient's share and the whole payment
-       :name \"Host\"                   ; the recipient's name from the value block
-       :app-name \"…\" :app-version \"…\" :sender-name \"…\" :sender-id \"…\" :message \"…\"
-       :remote-feed-guid \"…\" :remote-item-guid \"…\"}  ; when a time split sent it elsewhere
-
-  Any other key goes in as its snake_case name, so the rarer fields of the
-  specification (uuid, boost_link, reply_address, speed, signature) need no
-  special support. Nil values are left out."
+  7629169) for the `payment` map, as a map with the record's own string keys
+  ready for `dk.simongray.podcast.json/write-str`: `:position` (seconds into
+  the episode) becomes ts and time, `:action` (:boost, :stream or :auto,
+  :boost when absent) action, `:sats` and `:total-sats` value_msat and
+  value_msat_total, `:feed-guid`, `:feed-url`, `:feed-id`, `:item-guid` and
+  `:item-id` the record's names for them, and any other key its snake_case
+  name. Nil values are left out."
   [{:keys [position action sats total-sats] :as payment}]
   (let [derived #{:position :action :sats :total-sats}
         record  (into {} (for [[k v] payment

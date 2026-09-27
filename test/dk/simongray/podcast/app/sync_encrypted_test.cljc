@@ -3,15 +3,14 @@
   passphrase, plain documents passing through, an envelope sealed on the
   other platform opening here, and two devices kept in step through an
   encrypting store."
-  (:require #?(:clj [clojure.java.io :as io])
-            #?(:cljs [shadow.resource :as rc])
-            #?(:cljs [dk.simongray.podcast.test-setup])
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?@(:clj [[dk.simongray.podcast.app.player :as player]
                       [dk.simongray.podcast.app.sync :as sync]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is #?@(:clj [testing]) #?(:cljs async)]]
             [dk.simongray.podcast.app.sync.encrypted :as encrypted]
-            [dk.simongray.podcast.app.sync.store :as store]))
+            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.test-support :refer [fixture #?@(:clj [t0 t1 t2 t3 a])]]))
 
 (def passphrase
   "correct horse battery staple")
@@ -20,23 +19,16 @@
   "{:version 1 :device \"phone\" :state {}}")
 
 (def sealed-by-the-jvm
-  #?(:clj  (slurp (io/resource "encrypted/jvm.edn"))
-     :cljs (rc/inline "encrypted/jvm.edn")))
+  (fixture "encrypted/jvm.edn"))
 
 (def sealed-by-webcrypto
-  #?(:clj  (slurp (io/resource "encrypted/webcrypto.edn"))
-     :cljs (rc/inline "encrypted/webcrypto.edn")))
+  (fixture "encrypted/webcrypto.edn"))
 
 (def in-the-jvm-envelope
   "{:version 1 :device \"phone\" :written-at #inst \"2026-09-26T20:00:00.000-00:00\" :state {:device \"phone\" :subscriptions {} :episodes {} :queue {}}}")
 
 (def in-the-webcrypto-envelope
   "{:version 1 :device \"laptop\" :written-at #inst \"2026-09-26T20:00:00.000-00:00\" :state {:device \"laptop\" :subscriptions {} :episodes {} :queue {}}}")
-
-(def t0 #inst "2026-01-01T00:00:00Z")
-(def t1 #inst "2026-01-01T01:00:00Z")
-(def t2 #inst "2026-01-01T02:00:00Z")
-(def t3 #inst "2026-01-01T03:00:00Z")
 
 (deftest the-envelope
   (doseq [sealed [sealed-by-the-jvm sealed-by-webcrypto]]
@@ -98,12 +90,12 @@
                                           {:passphrase pass :iterations 1000 :opml? true :except #{store/opml-name}}))
            phone     (sync/sync! (player/subscribe (player/state "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
                                  [(backend passphrase)] t1)
-           laptop    (sync/sync! (player/progress (player/state "laptop") ["feed-a" "a1"] 60 3600 t1) [(backend passphrase)] t2)
+           laptop    (sync/sync! (player/progress (player/state "laptop") a 60 3600 t1) [(backend passphrase)] t2)
            phone2    (sync/sync! (:state phone) [(backend passphrase)] t3 {:ctx (:ctx phone)})]
        (is (nil? (:failed phone)))
        (is (nil? (:failed laptop)))
        (is (nil? (:failed phone2)))
-       (is (= 60 (:position (player/episode (:state phone2) ["feed-a" "a1"]))))
+       (is (= 60 (:position (player/episode (:state phone2) a))))
        (is (every? #(str/starts-with? (:body %) "{:encrypted") (vals (dissoc @documents store/opml-name)))
            "every document at rest is ciphertext")
        (is (str/includes? (:body (@documents store/opml-name)) "https://a/rss") "the subscription list stays readable, as asked")

@@ -24,13 +24,9 @@
               it borrows another element's (liveItem takes item's)
     :doc      one line from the specification
 
-  An element with attributes or child entries becomes a map in the model; one
-  with only text becomes the coerced text itself. Attribute names turn into
-  kebab-case keys, node text into :content.
-
-  `tags` is the library's vocabulary. `registry` indexes it, or it plus a
+  `tags` is the library's vocabulary; `registry` indexes it, or it plus a
   client's own entries, into the value every interpreter takes under
-  `:registry` in its options; `default` is `tags` indexed.")
+  `:registry` in its options, and `default` is `tags` indexed.")
 
 (def mediums
   "Values of podcast:medium, without the list variants."
@@ -73,18 +69,10 @@
     "rss" "shoutengine" "simplecast" "slack" "soundcloud" "spotify" "spreaker"
     "tiktok" "transistor" "twitter" "whooshkaa" "youtube" "zencast"})
 
-(def license-slugs
-  "The license identifiers the podcast:license specification lists."
-  #{"ARR" "CC-BY-4.0" "CC-BY-NC-4.0" "CC-BY-NC-ND-4.0" "POD-V4V-1.0"})
-
 (def transcript-types
   "Mime types the transcript specification names, with the variants in use."
   #{"text/plain" "text/html" "text/vtt" "application/json" "application/x-subrip"
     "application/srt" "text/srt"})
-
-(def image-purposes
-  "Generic purpose tokens the podcast:image specification suggests."
-  #{"artwork" "social" "canvas" "banner" "publisher" "circular" "poster"})
 
 (def taxonomy
   "The Podcast Taxonomy Project's groups and the roles in each, lower-cased,
@@ -210,7 +198,7 @@
    {:tag :author :key :rss/author :parent #{:item} :count :one :content :email
     :doc "Email address of the author of the item."}
    {:tag :author :key :rss/author :parent #{:channel} :count :one
-    :doc "Not RSS 2.0, but a fifth of feeds name their author here as well."}
+    :doc "Not in RSS 2.0; read because so many feeds name their author here."}
    {:tag :comments :key :rss/comments :parent #{:item} :count :one :content :url
     :doc "URL of a page for comments relating to the item."}
    {:tag :enclosure :key :rss/enclosure :parent #{:item} :count :one :content :none
@@ -304,21 +292,29 @@
     :doc "Overrides the default ordering of episodes; historical."}
 
    ;; Google Play and Spotify
-   {:tag :googleplay/author :key :googleplay/author :parent #{:channel :item} :count :one}
+   {:tag :googleplay/author :key :googleplay/author :parent #{:channel :item} :count :one
+    :doc "The author of the show or episode, as Google Play showed it."}
    {:tag :googleplay/description :key :googleplay/description :parent #{:channel :item}
-    :count :one :content :html}
+    :count :one :content :html
+    :doc "The description of the show or episode, plain text or HTML."}
    {:tag :googleplay/explicit :key :googleplay/explicit :parent #{:channel :item}
-    :count :one :content :enum :values #{"yes" "no" "clean"}}
+    :count :one :content :enum :values #{"yes" "no" "clean"}
+    :doc "Whether the show or episode has explicit content: yes, no or clean."}
    {:tag :googleplay/image :key :googleplay/image :parent #{:channel :item} :count :one
-    :content :none :attrs {:href req-url}}
+    :content :none :attrs {:href req-url}
+    :doc "The artwork of the show or episode."}
    {:tag :googleplay/block :key :googleplay/block :parent #{:channel :item} :count :one
-    :content :yes-no}
+    :content :yes-no
+    :doc "Yes to keep the show or episode out of Google Play."}
    {:tag :googleplay/email :key :googleplay/email :parent #{:channel} :count :one
-    :content :email}
+    :content :email
+    :doc "The email address Google Play verified the show's ownership with."}
    {:tag :googleplay/category :key :googleplay/categories :parent #{:channel} :count :many
-    :content :none :attrs {:text req}}
+    :content :none :attrs {:text req}
+    :doc "The category of the show, from Google Play's list."}
    {:tag :googleplay/new-feed-url :key :googleplay/new-feed-url :parent #{:channel}
-    :count :one :content :url}
+    :count :one :content :url
+    :doc "The new URL of a feed that has moved."}
    {:tag :spotify/countryOfOrigin :key :spotify/country-of-origin :parent #{:channel}
     :count :one
     :doc "Space-separated ISO 3166 country codes for Spotify's targeting."}
@@ -511,8 +507,8 @@
    ;; podcast namespace, item
    {:tag :podcast/transcript :key :podcast/transcripts :parent #{:item} :count :many
     :content :none
-    :attrs {:url req-url :type {:required true :type :mime} :language {:type :language}
-            :rel {:type :enum :values #{"captions"}}}
+    :attrs {:url req-url :type {:required true :type :enum :values transcript-types}
+            :language {:type :language} :rel {:type :enum :values #{"captions"}}}
     :doc "A transcript or closed-captions file."}
    {:tag :podcast/chapters :key :podcast/chapters :parent #{:item} :count :one
     :content :none :attrs {:url req-url :type {:required true :type :mime}}

@@ -289,7 +289,7 @@ Email address of the author of the item.
 
 ### `<author>`
 
-Not RSS 2.0, but a fifth of feeds name their author here as well.
+Not in RSS 2.0; read because so many feeds name their author here.
 
 - Key: `:rss/author`
 - Parent: channel
@@ -904,7 +904,7 @@ A transcript or closed-captions file.
 |---|---|---|---|
 | `language` | `:language` | language |  |
 | `rel` | `:rel` | enum: `captions` |  |
-| `type` | `:type` | mime | required |
+| `type` | `:type` | enum: `application/json`, `application/srt`, `application/x-subrip`, `text/html`, `text/plain`, `text/srt`, `text/vtt` | required |
 | `url` | `:url` | url | required |
 
 ### `<podcast:chapters>`
@@ -1257,12 +1257,16 @@ Directory-specific namespaces still found in feeds.
 
 ### `<googleplay:author>`
 
+The author of the show or episode, as Google Play showed it.
+
 - Key: `:googleplay/author`
 - Parent: channel, item (and liveItem)
 - Count: one
 - Text: text
 
 ### `<googleplay:description>`
+
+The description of the show or episode, plain text or HTML.
 
 - Key: `:googleplay/description`
 - Parent: channel, item (and liveItem)
@@ -1271,12 +1275,16 @@ Directory-specific namespaces still found in feeds.
 
 ### `<googleplay:explicit>`
 
+Whether the show or episode has explicit content: yes, no or clean.
+
 - Key: `:googleplay/explicit`
 - Parent: channel, item (and liveItem)
 - Count: one
 - Text: enum: `clean`, `no`, `yes`
 
 ### `<googleplay:image>`
+
+The artwork of the show or episode.
 
 - Key: `:googleplay/image`
 - Parent: channel, item (and liveItem)
@@ -1289,6 +1297,8 @@ Directory-specific namespaces still found in feeds.
 
 ### `<googleplay:block>`
 
+Yes to keep the show or episode out of Google Play.
+
 - Key: `:googleplay/block`
 - Parent: channel, item (and liveItem)
 - Count: one
@@ -1296,12 +1306,16 @@ Directory-specific namespaces still found in feeds.
 
 ### `<googleplay:email>`
 
+The email address Google Play verified the show's ownership with.
+
 - Key: `:googleplay/email`
 - Parent: channel
 - Count: one
 - Text: email
 
 ### `<googleplay:category>`
+
+The category of the show, from Google Play's list.
 
 - Key: `:googleplay/categories`
 - Parent: channel
@@ -1313,6 +1327,8 @@ Directory-specific namespaces still found in feeds.
 | `text` | `:text` | text | required |
 
 ### `<googleplay:new-feed-url>`
+
+The new URL of a feed that has moved.
 
 - Key: `:googleplay/new-feed-url`
 - Parent: channel

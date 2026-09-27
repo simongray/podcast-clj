@@ -12,8 +12,10 @@
   (testing "no FREQ, an unknown FREQ or a part that does not read is no rule"
     (is (nil? (rrule/parse "BYDAY=MO")))
     (is (nil? (rrule/parse "FREQ=SOMETIMES")))
-    (is (nil? (rrule/parse "FREQ=WEEKLY;INTERVAL=two"))))
-  (testing "written back in the RFC's order"
+    (is (nil? (rrule/parse "FREQ=WEEKLY;INTERVAL=two")))
+    (is (nil? (rrule/parse "FREQ=WEEKLY;BYDAY=+MO")) "a sign needs an ordinal")
+    (is (= {:freq "MONTHLY" :byday ["+1MO"]} (rrule/parse "FREQ=MONTHLY;BYDAY=+1MO"))))
+  (testing "written back in a fixed order"
     (is (= "FREQ=WEEKLY;INTERVAL=2;UNTIL=20261231T000000Z;BYDAY=MO,WE"
            (rrule/format {:byday ["MO" "WE"] :until #inst "2026-12-31T00:00:00Z" :interval 2 :freq "WEEKLY"})))
     (is (= "FREQ=DAILY;X-FOO=bar" (rrule/format {:freq "DAILY" :x-foo "bar"})))))
@@ -30,7 +32,12 @@
       (is (= [#inst "2026-01-30T18:00:00Z" #inst "2026-02-27T18:00:00Z"] (occ "FREQ=MONTHLY;BYDAY=-1FR" 2)))
       (is (= [#inst "2026-01-15T18:00:00Z" #inst "2026-02-01T18:00:00Z" #inst "2026-02-15T18:00:00Z"]
              (occ "FREQ=MONTHLY;BYMONTHDAY=1,15" 3)))
-      (is (= [#inst "2026-01-31T18:00:00Z" #inst "2026-03-31T18:00:00Z"] (occ "FREQ=MONTHLY;BYMONTHDAY=31" 2))))
+      (is (= [#inst "2026-01-31T18:00:00Z" #inst "2026-03-31T18:00:00Z"] (occ "FREQ=MONTHLY;BYMONTHDAY=31" 2)))
+      (is (= [#inst "2026-01-05T18:00:00Z" #inst "2026-02-02T18:00:00Z"] (occ "FREQ=MONTHLY;BYDAY=+1MO" 2))))
+    (testing "daily, by day of month"
+      (is (= [#inst "2026-01-15T18:00:00Z" #inst "2026-02-01T18:00:00Z" #inst "2026-02-15T18:00:00Z"]
+             (occ "FREQ=DAILY;BYMONTHDAY=1,15" 3)))
+      (is (= [#inst "2026-01-31T18:00:00Z" #inst "2026-02-28T18:00:00Z"] (occ "FREQ=DAILY;BYMONTHDAY=-1" 2))))
     (testing "daily and yearly, count and until"
       (is (= [#inst "2026-01-05T18:00:00Z" #inst "2027-01-05T18:00:00Z"] (occ "FREQ=YEARLY" 2)))
       (is (= [#inst "2026-06-01T18:00:00Z" #inst "2027-06-07T18:00:00Z"] (occ "FREQ=YEARLY;BYMONTH=6;BYDAY=1MO" 2)))
@@ -40,6 +47,7 @@
     (testing "what is not evaluated is nil, not wrong"
       (is (nil? (rrule/occurrences (rrule/parse "FREQ=HOURLY") start)))
       (is (nil? (rrule/occurrences (rrule/parse "FREQ=DAILY;BYHOUR=9") start)))
+      (is (nil? (rrule/occurrences (rrule/parse "FREQ=WEEKLY;BYMONTHDAY=1") start)))
       (is (nil? (rrule/occurrences nil start))))
     (is (= #inst "2026-01-12T18:00:00Z"
            (rrule/next-occurrence (rrule/parse "FREQ=WEEKLY") start #inst "2026-01-05T18:00:00Z")))))

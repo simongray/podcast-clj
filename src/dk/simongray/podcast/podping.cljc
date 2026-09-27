@@ -27,6 +27,7 @@
   A host announces a change through podping.cloud; `notify-request` builds
   that call with the token the host was given."
   (:require [clojure.string :as str]
+            #?(:clj [dk.simongray.podcast.async :as async])
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
@@ -196,7 +197,7 @@
            {:body body}
            {:failure (str "answered " status)}))
        (catch Exception e
-         {:failure (or (ex-message e) (str e))}))))
+         {:failure (async/explain e)}))))
 
 #?(:clj
    (defn call!
@@ -206,6 +207,7 @@
      one answers, each given `:timeout-seconds` (default 10); when none
      does, the exception names them all."
      [call params opts]
+     {:pre [(map? opts)]}
      (let [candidates (if-let [node (:node opts)] [node] (or (:nodes opts) nodes))
            timeout    (:timeout-seconds opts 10)]
        (loop [[node & more] candidates
@@ -223,6 +225,7 @@
      `fetch`, which the public nodes allow from any origin, and return a
      js/Promise of the body, for `head-block`, `pings` or `writers` to read."
      [call params opts]
+     {:pre [(map? opts)]}
      (let [{:keys [url headers body]} (request call params opts)]
        (-> (js/fetch url (clj->js {:method "POST" :headers headers :body body}))
            (.then (fn [res] (.text res)))))))

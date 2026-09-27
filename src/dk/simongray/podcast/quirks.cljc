@@ -2,24 +2,13 @@
   "The wild: named accommodations for feeds that bend the standards, applied
   around the strict path and recorded, never silently.
 
-  There are three kinds:
-
-  - `repair` rewrites XML *text* that a strict parser rejects: junk before
-    the declaration, control characters, HTML entities XML lacks, bare
-    ampersands, prefixes used without a declaration. It runs only when the
-    strict parse has failed.
-  - `uri->alias` recognizes the namespace URI variants feeds bind their
-    prefixes to (`http` for `https`, casing, a trailing slash, an old URI).
-  - `normalize` rewrites a canonical Hiccup *tree* into the form the
-    specifications describe: an `itunes:image` written as text becomes an
-    `href`, `yes`/`no` in `itunes:explicit` becomes `true`/`false` and
-    `true`/`false` in yes/no elements becomes `yes`/`no`, misspelt
-    transcript types are corrected, an `href` where `url` belongs is
-    renamed, an item's attribute-only `image` becomes `itunes:image`, and
-    dates and durations in non-canonical forms are pointed out.
-
-  Every rule has an id, and every application lands in a report, so that a
-  feed's distance from the standards is measurable."
+  `repair` rewrites XML text a strict parser rejects (see `repairs`) and
+  runs only when the strict parse has failed; `uri->alias` recognizes the
+  namespace URI variants feeds bind their prefixes to; `normalize` rewrites
+  a canonical Hiccup tree into the form the specifications describe, by
+  `rules` and the rules a registry implies. Every rule has an id, every
+  application lands in a report, and `:except` leaves the rules it names
+  out."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.spec :as spec]
@@ -83,7 +72,7 @@
 (defn strip-control-characters
   "Remove the control characters XML 1.0 forbids from `s`."
   [s]
-  (str/replace s #"[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]" ""))
+  (str/replace s xml/illegal-characters ""))
 
 (defn replace-html-entities
   "Replace the HTML entities in `s` outside CDATA with numeric references,
@@ -138,15 +127,19 @@
    {:id :repair/bare-ampersands     :f escape-bare-ampersands}])
 
 (defn repair
-  "Apply every repair in `repairs` to the XML text `s`. Returns `{:xml s
-  :report [...]}` with a diagnostic for each repair that changed something."
-  [s]
-  (reduce (fn [{:keys [xml] :as acc} {:keys [id f]}]
-            (let [xml' (f xml)]
-              (cond-> (assoc acc :xml xml')
-                (not= xml xml') (update :report conj {:id id :level :warning}))))
-          {:xml s :report []}
-          repairs))
+  "Apply every repair in `repairs` to the XML text `s`, except those whose
+  ids `:except` in `opts` names. Returns `{:xml s :report [...]}` with a
+  diagnostic for each repair that changed something."
+  ([s]
+   (repair s {}))
+  ([s {:keys [except] :or {except #{}} :as opts}]
+   {:pre [(map? opts)]}
+   (reduce (fn [{:keys [xml] :as acc} {:keys [id f]}]
+             (let [xml' (f xml)]
+               (cond-> (assoc acc :xml xml')
+                 (not= xml xml') (update :report conj {:id id :level :warning}))))
+           {:xml s :report []}
+           (remove (comp except :id) repairs))))
 
 (defn- rewrite
   "A rule that replaces every element tagged `tag` by `(f element)`."
@@ -252,6 +245,14 @@
     parent
     (into parent (mapcat srcset->images (xml/elements parent :podcast/images)))))
 
+(defn- non-canonical-date
+  "`{:value s}` when the text of `element` is a date the library reads but
+  not in the strict RFC 2822 form; nil otherwise."
+  [element]
+  (let [s (str/trim (xml/text element))]
+    (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
+      {:value s})))
+
 (def rules
   "The tree rules that hold whatever the registry, applied to every element
   in document order, children before parents; `registry-rules` adds the
@@ -290,16 +291,8 @@
             (let [s (str/trim (xml/text element))]
               (when (and (time/parse-duration s) (not (re-matches #"\d+" s)))
                 {:value s}))))
-   (check :quirk/date-format :pubDate
-          (fn [element]
-            (let [s (str/trim (xml/text element))]
-              (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
-                {:value s}))))
-   (check :quirk/date-format :lastBuildDate
-          (fn [element]
-            (let [s (str/trim (xml/text element))]
-              (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
-                {:value s}))))])
+   (check :quirk/date-format :pubDate non-canonical-date)
+   (check :quirk/date-format :lastBuildDate non-canonical-date)])
 
 (defn registry-rules
   "The rules the tag `registry` implies: yes and no written as true and
@@ -338,12 +331,15 @@
 (defn normalize
   "Rewrite the canonical Hiccup `tree` by `rules` and by the `registry-rules`
   of the tag registry in `opts` (`:registry`, default `spec/default`),
-  keeping its metadata and adding the diagnostics under `:quirks/report`."
+  except the rules whose ids `:except` names, keeping its metadata and
+  adding the diagnostics under `:quirks/report`."
   ([tree]
    (normalize tree {}))
-  ([tree {:keys [registry] :or {registry spec/default} :as opts}]
+  ([tree {:keys [registry except] :or {registry spec/default except #{}} :as opts}]
    {:pre [(map? opts)]}
-   (let [by-tag (group-by :tag (into rules (registry-rules (spec/registry registry))))
+   (let [by-tag (->> (into rules (registry-rules (spec/registry registry)))
+                     (remove (comp except :id))
+                     (group-by :tag))
          report (volatile! [])
          tree'  (walk by-tag report tree)]
      (with-meta tree' (assoc (meta tree) :quirks/report @report)))))
