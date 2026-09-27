@@ -8,7 +8,11 @@
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.search :as search]
+            [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.file :as file]
+            [dk.simongray.podcast.app.sync.gpodder :as gpodder]
+            [dk.simongray.podcast.app.sync.gpodder.server :as gpodder-server]
+            [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav.server :as webdav-server]
             [dk.simongray.podcast.check :as check]
             [dk.simongray.podcast.directory :as directory]
@@ -416,9 +420,36 @@
   the environment, else dev-resources/sync, which `clean` leaves alone."
   (io/file (or (System/getenv "INSPECTOR_SYNC_DIR") "dev-resources/sync")))
 
+(defn- cached-feeds
+  "The feeds the inspector has fetched and keeps, by URL."
+  []
+  (into {} (for [[[kind url] {:keys [value]}] @cache
+                 :when (and (= :feed kind) (map? value))]
+             [url value])))
+
+(defn gpodder-handler
+  "The gpodder API over the listener's state in `sync-store`, for AntennaPod,
+  Kasts and gPodder: the server is a device of its own, which reads the
+  other devices' documents before it answers and writes its own after a
+  change, and names the shows and episodes of the feeds the inspector has
+  fetched. It lets in any user name and password, since the inspector
+  listens on localhost alone."
+  [sync-store]
+  (let [ctx     (atom nil)
+        backend (store/backend sync-store)]
+    (gpodder-server/handler
+     {:state       (atom (player/state "inspector-gpodder"))
+      :authorized? (constantly true)
+      :identities  #(gpodder/identities (cached-feeds))
+      :step        (fn [state]
+                     (let [step (sync/sync! state [backend] (java.util.Date.) {:ctx @ctx})]
+                       (reset! ctx (:ctx step))
+                       (:state step)))})))
+
 (defn routes
-  "The inspector's routes, in Pedestal's set syntax, the WebDAV ones serving
-  `sync-store` (default the folder store over `sync-dir`)."
+  "The inspector's routes, in Pedestal's set syntax, the WebDAV ones and the
+  gpodder API serving `sync-store` (default the folder store over
+  `sync-dir`)."
   ([]
    (routes (file/store sync-dir)))
   ([sync-store]
@@ -436,7 +467,21 @@
      ["/js/*path" :get js-file :route-name :js]
      ["/dav" :any (webdav-server/handler sync-store "/dav/") :route-name :dav-collection]
      ["/dav/*path" :any (webdav-server/handler sync-store "/dav/") :route-name :dav]
+     ["/api/2/*path" :any (gpodder-handler sync-store) :route-name :gpodder]
      ["/corpus/:name" :get corpus-page :route-name :corpus]}))
+
+(def unread-bodies
+  "An interceptor ahead of Pedestal's own that keeps the body of a request
+  to the gpodder API unread, since the body-params interceptor would parse
+  its JSON before the handler sees it."
+  (interceptor/interceptor
+   {:name  ::unread-bodies
+    :enter (fn [context]
+             (update context :request
+                     (fn [{:keys [path-info uri] :as request}]
+                       (if (str/starts-with? (str (or path-info uri)) "/api/2/")
+                         (-> request (update :headers dissoc "content-type") (dissoc :content-type))
+                         request))))}))
 
 (def single-params
   "An interceptor that keeps the first value of a query parameter given more
@@ -467,7 +512,7 @@
                            {:object-src "'none'" :script-src "'self' 'unsafe-eval'"})})
        ;; ahead of the default interceptors, so that a put's body reaches
        ;; the WebDAV handler unread
-       (update :interceptors #(into [(dav/requests "/dav/")] %))
+       (update :interceptors #(into [(dav/requests "/dav/") unread-bodies] %))
        (conn/with-interceptor single-params)
        (conn/with-routes (routes (file/store sync-dir)))
        (jetty/create-connector nil))))

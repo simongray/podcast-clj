@@ -235,6 +235,47 @@ JVM, the store sends the credentials only to the origin of the collection.
 A redirect to another host does not get them.
 
 
+## The gpodder backend
+
+`app.sync.gpodder/backend` is a backend over the gpodder API, on both
+platforms. It takes these options:
+
+| Option | Meaning | Default |
+|---|---|---|
+| `:credentials` | `{:username :password}`, or a function that returns them | none |
+| `:api` | `:gpodder` for the paths of gpodder.net under `/api/2`, or `:nextcloud` for those of the GPodder Sync app | `:gpodder` |
+| `:device` | The id of the device on the server | the device of the state |
+| `:caption`, `:type` | What the server shows for the device. The type is desktop, laptop, mobile, server, tablet or other. | `"podcast-clj"`, `"other"` |
+| `:identities` | A function of no arguments that gives the ways to name shows and episodes, as `identities` makes them over the feeds of the app | none |
+| `:feed-guid`, `:feed-url`, `:episode-id`, `:episode-url` | Each of those ways by itself | none |
+| `:name` | The name of the backend | the host |
+| `:send` | A function that sends a request map, in place of `http/call!` | `http/call!` |
+
+What crosses, in each direction:
+
+| podcast-clj | gpodder API |
+|---|---|
+| A subscription, and its removal | The feed URL, added or removed. A URL loses the user name and the password that it holds. |
+| The position of an episode | `play`, with `started` and `position` at the position, and `total` at the duration, in whole seconds |
+| A played episode | `play` to the end: `started`, `position` and `total` at the duration |
+| An episode marked as not played | `new` |
+| Nothing | `download` and `delete`, which a pull ignores |
+
+The cursor keeps the time of each list of changes at the server, the device
+that registered, the stamps of the entries at the last push, the URLs that
+the server rewrote, and the actions that name a feed that the app does not
+know yet, the last 500. A pull reports `:sync/unknown-episodes` when such
+actions wait. A push reports `:sync/unnamed-episodes` for the episodes that
+it could not name by a media URL, and `:sync/rejected-url` for a URL that
+the server refused.
+
+`app.sync.gpodder.server/handler` serves the API as a Ring handler, on both
+platforms. It answers the login, the devices, the changes to the
+subscriptions, and the episode actions, under `/api/2`. It takes the atom
+of the server's state, `:authorized?`, a `:step` that syncs the state, and
+the same ways to name shows and episodes as the backend.
+
+
 ## Where the stores are, as of September 2026
 
 The URL of a WebDAV collection and the folder of a sync client are facts
@@ -255,6 +296,15 @@ still works.
 
 If a user name is an email address, percent-encode it in the path:
 `simon%40example.org`.
+
+| gpodder server | The root to give `gpodder/backend` | `:api` | Notes |
+|---|---|---|---|
+| gpodder.net | `https://gpodder.net` | `:gpodder` | Each device has its own subscriptions. Link the devices on the site to share them. |
+| Nextcloud with the GPodder Sync app | `https://HOST` | `:nextcloud` | An app password, as for WebDAV. The app keeps play actions alone. |
+| oPodSync | The URL that it is installed at | `:gpodder` | |
+| PinePods | `https://HOST` | `:gpodder` | |
+| gpodder2go | `https://HOST` | `:gpodder` | It syncs the subscriptions, and not the episode actions. |
+| The inspector | `http://localhost:8300` | `:gpodder` | Any user name and password |
 
 | Sync client | macOS | Windows | Linux |
 |---|---|---|---|

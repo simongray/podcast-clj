@@ -788,7 +788,9 @@ that its version did not change.
 `format.opml`, for the subscription list that it can write. `app.sync.file`,
 `app.sync.webdav` and `app.sync.encrypted` are stores over `app.sync.store`.
 `app.sync.webdav.server` uses the WebDAV store to serve any store over
-WebDAV. Only the namespaces under `app.sync` require `app.sync`.
+WebDAV. `app.sync.gpodder` is a backend over the gpodder API, which keeps a
+model of its own, and `app.sync.gpodder.server` serves that API over a
+state. Only the namespaces under `app.sync` require `app.sync`.
 
 
 ## Platforms
@@ -865,6 +867,12 @@ The inspector serves its folder at `/dav/` through the `inspector.dav`
 interceptor, for two reasons. The router of Pedestal does not match the
 trailing slash of a collection. Also, the body-params interceptor of
 Pedestal reads the body of a put before the handler can read it.
+
+The inspector also serves the gpodder API at `/api/2/`, over the same
+folder, so that AntennaPod and Kasts keep in step with the browser player.
+Its server is a device of its own in the folder, and names the shows and
+episodes of the feeds that the inspector has fetched. An interceptor keeps
+the JSON of these requests from the body-params interceptor.
 
 
 ## Testing
@@ -943,8 +951,7 @@ Pedestal reads the body of a put before the handler can read it.
 
 ## Not built
 
-- A backend for a service with its own model, gpodder first.
-  [Syncing](sync.md#gpodder-for-later) has the design.
+- The Open Podcast API, whose specification for episodes is a draft.
 - Stores over the HTTP APIs of cloud services. Each is a short namespace
   against the store contract.
 - A JSON form of the sync documents, for clients in other languages.

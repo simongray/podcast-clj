@@ -134,3 +134,6 @@ for the validator, and `sync` for the sync between devices.
 | `:sync/shared-device` | warning | This device's own document changed under it, so two installations write with the same device id. |
 | `:sync/retired-device` | warning | This device has been retired from another device; nothing was written for it. |
 | `:sync/conflict` | warning | The shared document changed under every attempt to write it; the step ended without writing. |
+| `:sync/unknown-episodes` | info | Episode actions from a gpodder server name episodes of feeds that the app does not know yet. They wait in the cursor, and the next pull tries them again. |
+| `:sync/unnamed-episodes` | info | Episodes changed, but the app knows no URL of their media, which the gpodder API names an episode by, so the server was not told. |
+| `:sync/rejected-url` | warning | A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it. |

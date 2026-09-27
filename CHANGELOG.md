@@ -163,3 +163,10 @@
   round, and further ahead in a walk through the segments of a file.
   `async/explain` adds the causes of a failure, where the JDK and Node
   tell why a connection failed.
+- `app.sync.gpodder` syncs through the gpodder API, as AntennaPod, Kasts
+  and gPodder do, with gpodder.net, the GPodder Sync app for Nextcloud and
+  other servers: the subscriptions, the positions and the played marks.
+  `identities` names shows and episodes over the app's feeds, and the
+  actions for a feed that the app does not know yet wait for it.
+  `app.sync.gpodder.server` serves the API over a player state, and the
+  inspector serves it at `/api/2/` over its sync folder.

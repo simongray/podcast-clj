@@ -29,6 +29,7 @@ The examples use these aliases:
          '[dk.simongray.podcast.app.sync :as sync]
          '[dk.simongray.podcast.app.sync.encrypted :as encrypted]
          '[dk.simongray.podcast.app.sync.file :as file]
+         '[dk.simongray.podcast.app.sync.gpodder :as gpodder]
          '[dk.simongray.podcast.app.sync.store :as store]
          '[dk.simongray.podcast.app.sync.webdav :as webdav]
          '[dk.simongray.podcast.bytes :as bytes]
@@ -469,6 +470,23 @@ client, mount `dk.simongray.podcast.app.sync.webdav.server/handler`. The
 inspector does this at `/dav/`. To sync through a service that podcast-clj
 has no store for, write a store. [Sync stores and documents](stores.md)
 gives the contract: a map of two to four functions.
+
+To keep in step with AntennaPod, Kasts and other apps of the gpodder API,
+add a gpodder server as a backend. The API names episodes by URL, so give
+the backend a function that looks them up in the parsed feeds of the app:
+
+```clojure
+(def feeds (atom {}))  ; the parsed feeds of the app, by URL
+(def pods (gpodder/backend "https://gpodder.net" {:credentials creds :identities #(gpodder/identities @feeds)}))
+(sync/sync! state [cloud pods] now)  ; the subscriptions and the positions of the other apps, merged
+```
+
+A subscription that another app added can name a feed that this app has not
+fetched yet. Fetch the feed, and the next step applies the actions that wait
+for it. For the GPodder Sync app of a Nextcloud, give `:api :nextcloud`.
+To let such apps sync with your own Clojure server, mount
+`dk.simongray.podcast.app.sync.gpodder.server/handler`. The inspector does
+this at `/api/2/`.
 
 
 ## Pay value for value

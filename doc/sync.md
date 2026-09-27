@@ -406,57 +406,112 @@ that holds files with a version, a revision or an ETag is a store. It needs
 one call per operation, with a bearer token. If the API can refuse a stale
 version, the store uses that as the precondition. If the API can list its
 files, the store can hold one document per device. A service with its own
-model is a backend. gpodder is the first one to write.
+model is a backend, as the gpodder API is.
 
 
-## gpodder, for later
+## The gpodder API
 
-The gpodder API is a backend, not a store, so it is the first test of the
-pull and push interface.
+Most open-source podcast apps sync through the gpodder API: AntennaPod,
+Kasts, gPodder and others. gpodder.net and several self-hosted servers
+speak it. The API is a backend, not a store, because the server keeps a
+model of its own. `app.sync.gpodder` is a client of it, and
+`app.sync.gpodder.server` serves it over a state of podcast-clj.
 
-The API has two feeds of changes, each since a timestamp that the server
-returns:
+The API keeps two things for a listener, each as changes since a time that
+the server gives:
 
-- the subscriptions of a device, as lists of feed URLs added and removed
-- the episode actions: `play` with `started`, `position` and `total`, and
-  also `download`, `delete` and `new`. Each action names a podcast URL, an
-  episode URL, a device, and a timestamp without a time zone, which is UTC.
+- the subscriptions, as lists of feed URLs added and removed
+- the episode actions: `play` with a position and a duration in whole
+  seconds, and also `new`, `download` and `delete`. Each action names a
+  feed URL, the URL of the media of an episode, a device, and a time in
+  UTC.
 
-A device registers with an id (the device id of podcast-clj) and a caption.
-Nothing else crosses: no queue, no settings, no preferences, and no played
-mark other than a play whose position reached the total. The adapter will
-send a played mark in that form. Several hosted and self-hosted servers
-speak this API, and the gain is interoperability with the apps that sync
-through them.
+Nothing else crosses: no queue, no settings and no stars. A played mark
+crosses as a play to the end of the episode, which is how AntennaPod writes
+it. `new` marks an episode as not played. Downloads and deletions stay on
+their device.
 
-`pull` will read both feeds since the cursors, and return a partial state
-with `:partial? true`, so that nothing is acknowledged from it.
-Subscriptions and tombstones get the timestamp of the server as their stamp,
-and play actions become progress. `push` will send `player/changes-since`
-the last push, as subscription changes and play actions. Both will be built
-like the directories, with `request` and `response` over recorded answers.
-The tests will use a stand-in server on both platforms, and `backend` will
-make the backend in one call, like the stores.
+### A pull and a push
 
-The difficulty is identity. gpodder names a podcast by its feed URL, and an
-episode by its enclosure URL. podcast-clj names them by guid, because URLs
-change. Feeds move between hosts, schemes and slashes, and dynamic ad
-insertion gives a different enclosure URL for each request. With URLs as
-keys, one episode has different keys on different devices, and the registers
-never meet.
+A pull reads what changed since its cursors, and gives it as a partial state
+with `:partial? true`, so that `sync!` acknowledges nothing from it. An
+action becomes the episode entry that the same act on this device makes. The
+entry is written by the device that the action names, at the time that it
+names. An action that is not later than the entry changes nothing. For this
+reason, an action that this device sent and reads back does no harm.
 
-`guid/from-url` turns a feed URL into a guid when the feed declares none. A
-declared guid, and the id of each episode, need the parsed feeds of the app.
-For this reason, the backend will take two functions. One gives the episode
-id for a podcast URL and an enclosure URL. The other gives the enclosure URL
-for an episode id. podcast-clj can give both over a collection of feeds,
-through `resolve/enclosure`, so that the common case is one line. When a
-feed regenerates or omits its guids, `feed/item-guid` already falls back to
-the enclosure URL, which has the same limit.
+A change to the subscriptions carries no time. It counts as made when the
+pull before it saw none. So a change on this device since the last pull wins
+over a change from the server, as in AntennaPod. At the first pull, a change
+counts as made at that pull, so the first sync joins the two lists, as other
+clients do.
 
-The reverse direction is a gpodder-compatible server over podcast-clj, so
-that those apps can sync against a Clojure server of the listener. It is the
-same mapping in the other direction, and it belongs to the inspector, later.
+A push sends what the devices of podcast-clj wrote since the last push, and
+never what came from a server. It sends the subscriptions that were added
+and removed, and one action for each episode entry that changed. The first
+push adds subscriptions and removes none. The cursor keeps the stamp of each
+entry at the last push, and a push sends the entries whose stamps differ.
+
+### What the servers do
+
+The servers differ, and the backend works with all of them:
+
+- The GPodder Sync app for Nextcloud has other paths, and keeps only play
+  actions. `:api :nextcloud` selects its paths.
+- gpodder.net keeps one list of subscriptions for each device. To share
+  the list, link the devices on the site, or give the backend the id of the
+  device of the other app.
+- The servers select the episode actions by the time that an action names,
+  not by the time that it arrived. So a server can miss an action that a
+  device sends late. For this reason, a pull asks for a day of actions
+  before its cursor. The merge is idempotent, so an action that comes twice
+  does no harm.
+- gpodder.net gives at most 1000 actions in an answer, so a pull reads them
+  in pages. It takes more than 100 actions of one request in the background,
+  and reports no error of them, so a push sends 100 at most.
+- Some servers want the session of a login, and others want Basic
+  authentication on each request. The backend logs in at each step and
+  sends both.
+
+### Identity
+
+gpodder names a show by its feed URL, and an episode by the URL of its
+media. podcast-clj names them by guid, because URLs change. Feeds move
+between hosts, schemes and slashes, and dynamic ad insertion gives a
+different media URL for each request.
+
+The backend names a show by the subscription in the state that has its URL,
+whatever the scheme, the case and the trailing slashes. Failing that, it
+uses the guid that the feed declares, from the feeds of the app. Failing
+that, it uses the guid that the URL gives (`guid/from-url`). It names an
+episode by the guid of its item. AntennaPod, Kasts and the Nextcloud app
+send this guid with each action, and AntennaPod matches the actions that it
+receives by it. Without a guid, the backend looks up the media URL in the
+feeds of the app. `identities` makes these lookups over the parsed feeds of
+the app. The feeds change, so the backend takes a function that makes them
+again at each step.
+
+An action for a feed that the app does not know yet waits in the cursor, and
+the next pull tries it again. The app then has time to fetch the feed of a
+new subscription.
+
+### The server
+
+The server is a device of podcast-clj. The app gives it a state and a step
+that syncs the state with the other devices of the listener, through any
+backend. The server runs the step before it tells what changed, and after it
+applies what a device sent. It keeps one list of subscriptions for all
+devices, as the Nextcloud app does.
+
+The server notes when each entry arrived, and answers `since` by that time,
+not by the time in an action. So an action that a device sends late still
+reaches the other devices. The server keeps these times, the sessions and
+the registered devices in memory. After a restart, a device reads again what
+it read before, which changes nothing.
+
+The inspector serves the API at `/api/2/` over the folder that it serves at
+`/dav/`. As a result, AntennaPod, the browser player and any other device
+keep one state.
 
 
 ## Other backends
@@ -529,6 +584,13 @@ Pedestal, like the other routes. It is also a real WebDAV server for the
 test of the WebDAV store in `test/inspector/`, where Pedestal is available.
 The library tests stay on the minimum Clojure version. The encrypted tests
 hold an envelope sealed on each platform, and open it on the other platform.
+
+The gpodder client reads recorded answers in the shapes of gpodder.net and
+the Nextcloud app. It also syncs through the gpodder server, on both
+platforms, with another app that the tests play by sending actions to the
+server. A stand-in with the paths and the answers of the Nextcloud app wraps
+the same server. The inspector's gpodder API is tested through Pedestal,
+with a device that syncs over WebDAV through the same folder.
 
 
 ## Decisions

@@ -23,7 +23,7 @@
    "format.id3" 3 "format.mp3" 3 "format.mp4" 3 "format.media" 3 "format.image" 3
    "value" 3 "resolve" 3 "check" 3 "app.player" 3 "app.search" 3
    "app.sync" 3 "app.sync.store" 3 "app.sync.file" 3 "app.sync.webdav" 3 "app.sync.webdav.server" 3
-   "app.sync.encrypted" 3
+   "app.sync.encrypted" 3 "app.sync.gpodder" 3 "app.sync.gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "podping" 3
    "" 4})
 

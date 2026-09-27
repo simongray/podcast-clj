@@ -103,6 +103,8 @@ Each name below is relative to `dk.simongray.podcast`.
 | `app.sync.webdav` | A WebDAV collection as a store. |
 | `app.sync.webdav.server` | JVM. A Ring handler that serves any store over WebDAV. |
 | `app.sync.encrypted` | Any store, with its documents encrypted at rest. The JVM and WebCrypto open the documents of each other. |
+| `app.sync.gpodder` | The gpodder API as a backend: the subscriptions and the episode actions of gpodder.net, the GPodder Sync app for Nextcloud and other servers. `identities` names the shows and episodes of the app's feeds. |
+| `app.sync.gpodder.server` | The gpodder API served over a player state, as a Ring handler, for AntennaPod, Kasts and gPodder. |
 
 ### Primitives
 

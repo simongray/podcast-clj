@@ -1,0 +1,401 @@
+(ns dk.simongray.podcast.app.sync-gpodder-test
+  "The gpodder API: the calls as request maps, the answers read as
+  gpodder.net and the GPodder Sync app for Nextcloud write them, the names
+  of shows and episodes over parsed feeds, the server's rules, and devices
+  of podcast-clj and another app kept in step through the server, on both
+  platforms."
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing #?(:cljs async)]]
+            [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.sync :as sync]
+            [dk.simongray.podcast.app.sync.gpodder :as gpodder]
+            [dk.simongray.podcast.app.sync.gpodder.server :as server]
+            [dk.simongray.podcast.async :as async]
+            [dk.simongray.podcast.guid :as guid]
+            [dk.simongray.podcast.json :as json]
+            [dk.simongray.podcast.test-support :refer [fixture]]))
+
+(def root "https://gpodder.example.org")
+
+(def creds {:username "simon" :password "app pass"})
+
+(deftest requests
+  (let [subs (gpodder/request :subscriptions root {:credentials creds :device "phone" :since 42})]
+    (is (= [:get "https://gpodder.example.org/api/2/subscriptions/simon/phone.json?since=42"] ((juxt :method :url) subs)))
+    (is (= "Basic c2ltb246YXBwIHBhc3M=" (get-in subs [:headers "Authorization"])))
+    (is (str/starts-with? (get-in subs [:headers "User-Agent"]) "podcast-clj")))
+  (is (= "https://gpodder.example.org/api/2/episodes/simon.json?since=0"
+         (:url (gpodder/request :episodes (str root "/") {:credentials creds})))
+      "since 0 when none is given, and one slash after the root")
+  (is (= [:post "https://gpodder.example.org/api/2/auth/simon/login.json"]
+         ((juxt :method :url) (gpodder/request :login root {:credentials creds}))))
+  (let [register (gpodder/request :register root {:credentials creds :device "phone 1" :body {"caption" "Phone"}})]
+    (is (= "https://gpodder.example.org/api/2/devices/simon/phone%201.json" (:url register)))
+    (is (= "{\"caption\":\"Phone\"}" (:body register)))
+    (is (= "application/json" (get-in register [:headers "Content-Type"]))))
+  (is (= "sessionid=abc" (get-in (gpodder/request :episodes root {:credentials creds :session "abc"}) [:headers "Cookie"])))
+  (is (= "Basic bGF0ZXI6eA==" (get-in (gpodder/request :episodes root {:credentials (constantly {:username "later" :password "x"})})
+                                      [:headers "Authorization"]))
+      "credentials may be a function")
+  (testing "the paths of the GPodder Sync app for Nextcloud"
+    (let [nc #(gpodder/request % "https://cloud.example.org" {:api :nextcloud :credentials creds :since 7})]
+      (is (= [:get "https://cloud.example.org/index.php/apps/gpoddersync/subscriptions?since=7"] ((juxt :method :url) (nc :subscriptions))))
+      (is (= [:post "https://cloud.example.org/index.php/apps/gpoddersync/subscription_change/create"] ((juxt :method :url) (nc :update-subscriptions))))
+      (is (= [:get "https://cloud.example.org/index.php/apps/gpoddersync/episode_action?since=7"] ((juxt :method :url) (nc :episodes))))
+      (is (= [:post "https://cloud.example.org/index.php/apps/gpoddersync/episode_action/create"] ((juxt :method :url) (nc :update-episodes))))
+      (is (thrown? #?(:clj Exception :cljs js/Error) (nc :login)) "the app has no login"))))
+
+(def mygpo-actions
+  "Episode actions as gpodder.net writes them: a time without a zone,
+  sometimes with a fraction, a guid that can be null, and positions that
+  are null but for a play."
+  "{\"actions\": [
+     {\"podcast\": \"http://example.com/feed.rss\", \"episode\": \"http://example.com/files/s01e20.mp3\",
+      \"guid\": null, \"action\": \"download\", \"timestamp\": \"2009-12-12T09:00:00\", \"device\": \"gpodder_abcdef123\",
+      \"started\": null, \"position\": null, \"total\": null},
+     {\"podcast\": \"http://example.org/podcast.php\", \"episode\": \"http://ftp.example.org/foo.ogg\",
+      \"guid\": \"foo-1\", \"action\": \"play\", \"timestamp\": \"2009-12-12T09:05:21.125000\", \"device\": \"n900\",
+      \"started\": 15, \"position\": 120, \"total\": 500}],
+    \"timestamp\": 12347}")
+
+(def nextcloud-actions
+  "Episode actions as the GPodder Sync app for Nextcloud writes them: the
+  name in upper case, a zone of +00:00, and no device."
+  "{\"actions\": [{\"podcast\": \"https://a/rss\", \"episode\": \"https://a/1.mp3\", \"guid\": \"a1\", \"action\": \"PLAY\",
+                   \"timestamp\": \"2026-01-01T02:00:00+00:00\", \"started\": 0, \"position\": 3590, \"total\": 3600}],
+    \"timestamp\": 1767232800}")
+
+(deftest responses
+  (let [{:keys [actions timestamp]} (gpodder/response :episodes {:status 200 :body mygpo-actions})]
+    (is (= 12347 timestamp))
+    (is (= [["download" #inst "2009-12-12T09:00:00Z" nil nil] ["play" #inst "2009-12-12T09:05:21.125Z" 120 "foo-1"]]
+           (map (juxt :action :timestamp :position :guid) actions))
+        "a time without a zone is UTC"))
+  (is (= [["play" #inst "2026-01-01T02:00:00Z" nil]]
+         (map (juxt :action :timestamp :device) (:actions (gpodder/response :episodes {:status 200 :body nextcloud-actions}))))
+      "a name in any case")
+  (is (= {:add ["http://example.com/feed.rss"] :remove ["http://example.org/podcast.php"] :timestamp 12347}
+         (gpodder/response :subscriptions {:status 200 :body "{\"add\": [\"http://example.com/feed.rss\"], \"remove\": [\"http://example.org/podcast.php\"], \"timestamp\": 12347}"})))
+  (is (= {:timestamp 1337 :update-urls [["http://feeds2.example.com/feed.rss" "http://feeds.example.com/feed.rss"] ["foo" nil]]}
+         (gpodder/response :update-subscriptions
+                           {:status 200 :body "{\"timestamp\": 1337, \"update_urls\": [[\"http://feeds2.example.com/feed.rss\", \"http://feeds.example.com/feed.rss\"], [\"foo\", null]]}"}))
+      "a URL refused as null")
+  (is (= {:timestamp 1767232800 :update-urls []} (gpodder/response :update-episodes {:status 200 :body "{\"timestamp\": 1767232800}"}))
+      "the Nextcloud app sends no update_urls")
+  (is (nil? (gpodder/response :register {:status 200 :body ""})))
+  (is (= "abc123" (gpodder/response :login {:status 200 :headers {"set-cookie" ["sessionid=abc123; expires=Tue, 28 Sep 2027 10:00:00 GMT; Path=/"]}})))
+  (let [failure (fn [answer] (try (gpodder/response :episodes answer) nil
+                                  (catch #?(:clj Exception :cljs :default) e [(:status (ex-data e)) (ex-message e)])))]
+    (is (= [401 "The server answered 401 to episodes: the credentials were refused"] (failure {:status 401 :body ""})))
+    (is (= 500 (first (failure {:status 500 :body ""}))))
+    (is (= 200 (first (failure {:status 200 :body "<html>a login page</html>"}))) "an answer that is not JSON")))
+
+(def example
+  (delay (podcast/parse (fixture "feeds/namespace-example.xml"))))
+
+(deftest names-over-parsed-feeds
+  (let [{:keys [feed-guid feed-url episode-id episode-url]} (gpodder/identities {"https://example.com/feed.xml" @example})]
+    (is (= "y0ur-gu1d-g035-h3r3" (feed-guid "https://example.com/feed.xml")) "the feed's declared guid")
+    (is (= "y0ur-gu1d-g035-h3r3" (feed-guid "http://EXAMPLE.com/feed.xml/")) "whatever the scheme, case and slashes")
+    (is (nil? (feed-guid "https://elsewhere.example/feed.xml")))
+    (is (= "https://example.com/feed.xml" (feed-url "y0ur-gu1d-g035-h3r3")))
+    (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0002"]
+           (episode-id "https://example.com/feed.xml" "https://example.com/file-02.mp3" nil))
+        "by the URL of its media")
+    (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0001"]
+           (episode-id "https://example.com/feed.xml" "https://cdn.example/other.mp3" "https://example.com/ep0001"))
+        "by its guid")
+    (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/gone.mp3"]
+           (episode-id "https://example.com/feed.xml" "https://example.com/gone.mp3" nil))
+        "an episode the feed leaves out, as podcast-clj names it")
+    (is (nil? (episode-id "https://elsewhere.example/feed.xml" "https://elsewhere.example/1.mp3" nil)))
+    (is (= "https://example.com/file-03.mp3" (episode-url ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"])))
+    (is (nil? (episode-url ["y0ur-gu1d-g035-h3r3" "no-such-item"])))))
+
+(defn- ring-send
+  "A send, as `http/call!` takes a request map, to the Ring `handler`: the
+  answer with its header names in lower case and each value in a vector,
+  as the client's are."
+  [handler]
+  (fn [{:keys [method url headers body]}]
+    (let [[_ path q] (re-matches #"https?://[^/]+([^?]*)(?:\?(.*))?" url)
+          answer     (handler {:request-method method :uri path :query-string q :body body
+                               :headers (into {} (map (fn [[k v]] [(str/lower-case k) v])) headers)})]
+      (update answer :headers #(into {} (map (fn [[k v]] [(str/lower-case k) [v]])) %)))))
+
+(defn- serve
+  "A server over a fresh state for the user simon, with the password `app
+  pass`, whose time is `clock`, an atom of the instant: `[state send]`."
+  [clock]
+  (let [state (atom (player/state "server"))]
+    [state (ring-send (server/handler {:state       state
+                                       :authorized? (fn [user password] (= [user password] ["simon" "app pass"]))
+                                       :now         #(deref clock)}))]))
+
+(defn- ask
+  "What the server behind `send` answers `method` at `path` with the JSON of
+  `body`, as the other app asks with `headers`: `[status data]`."
+  ([send method path]
+   (ask send method path nil {}))
+  ([send method path body]
+   (ask send method path body {}))
+  ([send method path body headers]
+   (let [{:keys [status body]} (send (cond-> {:method method :url (str root path)
+                                              :headers (merge {"Authorization" "Basic c2ltb246YXBwIHBhc3M="} headers)}
+                                       (some? body) (assoc :body (json/write-str body))))]
+     [status (json/parse (str body))])))
+
+(def feed-a "https://a.example/rss")
+
+(def g-a (guid/from-url feed-a))
+
+(deftest the-server
+  (let [clock      (atom #inst "2026-01-01T00:00:00Z")
+        [_ send]   (serve clock)
+        at-seconds #(quot (inst-ms @clock) 1000)]
+    (testing "credentials"
+      (let [{:keys [status headers]} (send {:method :get :url (str root "/api/2/devices/simon.json") :headers {}})]
+        (is (= 401 status))
+        (is (= ["Basic realm=\"podcast-clj\""] (get headers "www-authenticate")) "a challenge, which gPodder waits for"))
+      (is (= 401 (first (ask send :get "/api/2/devices/simon.json" nil {"Authorization" "Basic c2ltb246bm9wZQ=="}))) "a wrong password")
+      (is (= 400 (first (ask send :get "/api/2/devices/other.json"))) "another user's path")
+      (let [login  (send {:method :post :url (str root "/api/2/auth/simon/login.json") :headers {"Authorization" "Basic c2ltb246YXBwIHBhc3M="}})
+            cookie (first (str/split (first (get-in login [:headers "set-cookie"])) #";"))]
+        (is (= 200 (:status login)))
+        (is (= 200 (:status (send {:method :get :url (str root "/api/2/devices/simon.json") :headers {"Cookie" cookie}})))
+            "the session of a login, as AntennaPod keeps it")))
+    (testing "devices"
+      (is (= 200 (first (ask send :post "/api/2/devices/simon/phone.json" {"caption" "My phone" "type" "mobile"}))))
+      (is (= 400 (first (ask send :post "/api/2/devices/simon/phone.json" {"type" "toaster"}))))
+      (is (= [{"id" "phone" "caption" "My phone" "type" "mobile" "subscriptions" 0}] (second (ask send :get "/api/2/devices/simon.json")))))
+    (testing "subscriptions"
+      (is (= [200 {"timestamp" (at-seconds) "update_urls" []}]
+             (ask send :post "/api/2/subscriptions/simon/phone.json" {"add" [feed-a "https://b.example/rss"]})))
+      (is (= 400 (first (ask send :post "/api/2/subscriptions/simon/phone.json" {"add" [feed-a] "remove" [feed-a]}))))
+      (is (= 400 (first (ask send :post "/api/2/subscriptions/simon/phone.json" ["not" "an" "object"]))))
+      (is (= 400 (first (ask send :get "/api/2/subscriptions/simon/phone.json"))) "since is required")
+      (reset! clock #inst "2026-01-01T01:00:00Z")
+      (ask send :post "/api/2/subscriptions/simon/laptop.json" {"remove" ["https://b.example/rss"]})
+      (is (= {"add" [feed-a] "remove" [] "timestamp" (at-seconds)}
+             (second (ask send :get "/api/2/subscriptions/simon/tablet.json?since=0")))
+          "a device that has seen nothing gets the list, and no removal")
+      (is (= {"add" [] "remove" ["https://b.example/rss"] "timestamp" (at-seconds)}
+             (second (ask send :get "/api/2/subscriptions/simon/phone.json?since=1767229200")))
+          "what arrived since, with one list for every device"))
+    (testing "episode actions"
+      (reset! clock #inst "2026-01-01T02:00:00Z")
+      (let [late {"podcast" feed-a "episode" "https://a.example/1.mp3" "guid" "a1" "action" "play"
+                  "timestamp" "2025-12-31T12:00:00" "started" 0 "position" 60 "total" 3600 "device" "phone"}]
+        (is (= 200 (first (ask send :post "/api/2/episodes/simon.json" [late {"podcast" feed-a "action" "play"}]))))
+        (is (= [{"podcast" feed-a "episode" "https://a.example/1.mp3" "guid" "a1" "device" "phone" "action" "play"
+                 "timestamp" "2025-12-31T12:00:00" "started" 60 "position" 60 "total" 3600}]
+               (get (second (ask send :get "/api/2/episodes/simon.json?since=1767232800")) "actions"))
+            "an action sent late reaches a device that asked after the time it names")
+        (is (empty? (get (second (ask send :get "/api/2/episodes/simon.json?since=1767236400")) "actions")))
+        (is (= 1 (count (get (second (ask send :get (str "/api/2/episodes/simon.json?since=0&podcast=" feed-a))) "actions"))))
+        (is (empty? (get (second (ask send :get "/api/2/episodes/simon.json?since=0&device=laptop")) "actions")))
+        (is (= 400 (first (ask send :post "/api/2/episodes/simon.json" {"not" "a list"}))))))
+    (is (= 404 (first (ask send :get "/api/2/lists/simon.json"))))
+    (is (= 405 (first (ask send :delete "/api/2/devices/simon.json"))))))
+
+(defn- run
+  "Run the steps of `f`, a function of no arguments that gives a value or a
+  promise, as a test on either platform."
+  [f]
+  #?(:clj  (f)
+     :cljs (async done
+             (-> (js/Promise.resolve nil)
+                 (.then (fn [_] (f)))
+                 (.catch (fn [e] (is false (str "rejected: " e))))
+                 (.finally done)))))
+
+(def t1 #inst "2026-01-01T01:00:00Z")
+(def t2 #inst "2026-01-01T02:00:00Z")
+(def t3 #inst "2026-01-01T03:00:00Z")
+(def t4 #inst "2026-01-01T04:00:00Z")
+
+(defn- phone
+  "A phone of podcast-clj subscribed to feed A, 100 seconds into its first
+  episode, whose item guid is a1."
+  []
+  (-> (player/state "phone")
+      (player/subscribe g-a {:url feed-a :title "A"} t1)
+      (player/progress [g-a "a1"] 100 3600 t1)))
+
+(def media
+  "The media of each episode of feed A, as the app knows them."
+  {"a1" "https://a.example/1.mp3" "a2" "https://a.example/2.mp3"})
+
+(defn- backend
+  [send & {:as opts}]
+  (gpodder/backend root (merge {:credentials creds :send send
+                                :episode-url (fn [[g item]] (when (= g g-a) (media item)))}
+                               opts)))
+
+(deftest another-app-through-the-server
+  (let [clock    (atom t2)
+        [state send] (serve clock)]
+    (run
+     #(async/then
+       (sync/sync! (phone) [(backend send)] t2)
+       (fn [first-step]
+         (is (nil? (:failed first-step)) (pr-str (:failed first-step)))
+         (is (= #{feed-a} (set (map :url (vals (player/subscriptions @state))))))
+         (is (= 100 (:position (get-in @state [:episodes [g-a "a1"]]))) "the progress, written by the phone")
+         (is (= "phone" (:device (get-in @state [:episodes [g-a "a1"]]))))
+         (reset! clock t3)
+         ;; the other app hears the first episode to its end and subscribes to B
+         (ask send :post "/api/2/subscriptions/simon/antennapod.json" {"add" ["https://b.example/rss"]})
+         (ask send :post "/api/2/episodes/simon.json"
+              [{"podcast" feed-a "episode" "https://a.example/1.mp3" "guid" "a1" "action" "play"
+                "timestamp" "2026-01-01T02:30:00" "started" 3500 "position" 3600 "total" 3600 "device" "antennapod"}])
+         (async/then
+          (sync/sync! (:state first-step) [(backend send)] t3 {:ctx (:ctx first-step)})
+          (fn [{s :state :as second-step}]
+            (is (nil? (:failed second-step)))
+            (is (player/played? s [g-a "a1"]) "played to its end on the other app")
+            (is (= "antennapod" (:device (player/episode s [g-a "a1"]))))
+            (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (player/subscriptions s))))))
+            (is (= 2 (count (player/subscriptions @state))) "and nothing sent back twice")
+            (async/then
+             (sync/sync! s [(backend send)] t4 {:ctx (:ctx second-step)})
+             (fn [third-step]
+               (is (= s (:state third-step)) "a step with nothing new changes nothing"))))))))))
+
+(deftest what-the-phone-sends
+  (let [clock        (atom t2)
+        [state send] (serve clock)
+        s            (-> (phone)
+                         (player/subscribe (guid/from-url "https://private.example/rss")
+                                           {:url "https://simon:secret@private.example/rss" :title "P"} t1)
+                         (player/progress [g-a "not-a-url"] 50 3600 t1)
+                         (player/progress [g-a "a2"] 10 1800 t1)
+                         (player/mark-played [g-a "a2"] t1))]
+    (run
+     #(async/then
+       (sync/sync! s [(backend send)] t2)
+       (fn [{:keys [report failed]}]
+         (is (nil? failed))
+         (is (contains? (set (map :url (vals (player/subscriptions @state)))) "https://private.example/rss")
+             "a URL without the credentials it held")
+         (is (= [[:sync/unnamed-episodes 1]] (map (juxt :id :count) report))
+             "an episode whose media the app does not know")
+         (is (player/played? @state [g-a "a2"]) "a played episode as a play to its end")
+         (let [[_ {actions "actions"}] (ask send :get "/api/2/episodes/simon.json?since=0")]
+           (is (= #{["https://a.example/1.mp3" 100 3600] ["https://a.example/2.mp3" 1800 1800]}
+                  (set (map (fn [{:strs [episode position total]}] [episode position total]) actions))))))))))
+
+(deftest episodes-the-app-does-not-know-yet
+  (let [clock        (atom t2)
+        [_ send]     (serve clock)
+        knows        (atom #{g-a})
+        backend      #(backend send :episode-id (fn [podcast media item]
+                                                   (let [g (guid/from-url podcast)]
+                                                     (when (@knows g) [g (or item media)]))))
+        b-play       {"podcast" "https://b.example/rss" "episode" "https://b.example/1.mp3" "guid" "b1" "action" "play"
+                      "timestamp" "2026-01-01T01:30:00" "started" 0 "position" 700 "total" 3600 "device" "antennapod"}]
+    (ask send :post "/api/2/episodes/simon.json" [b-play])
+    (run
+     #(async/then
+       (sync/sync! (phone) [(backend)] t2)
+       (fn [first-step]
+         (is (= [[:sync/unknown-episodes 1]] (map (juxt :id :count) (:report first-step))))
+         (is (nil? (player/episode (:state first-step) [(guid/from-url "https://b.example/rss") "b1"])))
+         (swap! knows conj (guid/from-url "https://b.example/rss"))
+         (async/then
+          (sync/sync! (:state first-step) [(backend)] t3 {:ctx (:ctx first-step)})
+          (fn [second-step]
+            (is (= 700 (:position (player/episode (:state second-step) [(guid/from-url "https://b.example/rss") "b1"])))
+                "once the app knows the feed, the action that waited")
+            (is (empty? (:report second-step)))
+            (is (nil? (:pending (get (:ctx second-step) "gpodder.example.org")))))))))))
+
+(deftest the-first-sync-joins-two-lists
+  (let [clock        (atom t2)
+        [state send] (serve clock)
+        s            (-> (phone)
+                         (player/subscribe (guid/from-url "https://b.example/rss") {:url "https://b.example/rss" :title "B"} t1)
+                         (player/unsubscribe (guid/from-url "https://b.example/rss") t1))]
+    (ask send :post "/api/2/subscriptions/simon/antennapod.json" {"add" ["https://b.example/rss"]})
+    (run
+     #(async/then
+       (sync/sync! s [(backend send)] t2)
+       (fn [{s :state}]
+         (is (player/subscribed? s (guid/from-url "https://b.example/rss"))
+             "a show the other app has, which this device left long ago")
+         (is (= 2 (count (player/subscriptions @state))) "and still on the server"))))))
+
+(defn- nextcloud
+  "A send in the shape of the GPodder Sync app for Nextcloud, over the server
+  behind `send`: its paths, the name of an action in upper case, a zone of
+  +00:00 and no update_urls."
+  [send]
+  (fn [{:keys [url] :as request}]
+    (let [[_ base path q] (re-matches #"(https?://[^/]+)/index\.php/apps/gpoddersync/([^?]+)(?:\?(.*))?" url)
+          api            (case path
+                           "subscriptions"               "/api/2/subscriptions/simon/nextcloud.json"
+                           "subscription_change/create"  "/api/2/subscriptions/simon/nextcloud.json"
+                           "episode_action"              "/api/2/episodes/simon.json"
+                           "episode_action/create"       "/api/2/episodes/simon.json")
+          answer         (send (assoc request :url (str base api (when q (str "?" q)))))
+          data           (json/parse (str (:body answer)))]
+      (assoc answer :body (json/write-str
+                           (cond-> (dissoc data "update_urls")
+                             (get data "actions")
+                             (update "actions" (fn [actions]
+                                                 (mapv #(-> %
+                                                            (update "action" str/upper-case)
+                                                            (update "timestamp" str "+00:00")
+                                                            (dissoc "device"))
+                                                       actions)))))))))
+
+(deftest through-the-nextcloud-app
+  (let [clock    (atom t2)
+        [state send] (serve clock)
+        b        (backend (nextcloud send) :api :nextcloud :name "cloud")]
+    (ask send :post "/api/2/episodes/simon.json"
+         [{"podcast" feed-a "episode" "https://a.example/1.mp3" "guid" "a1" "action" "play"
+           "timestamp" "2026-01-01T01:30:00" "started" 0 "position" 1800 "total" 3600 "device" "antennapod"}])
+    (run
+     #(async/then
+       (sync/sync! (phone) [b] t2)
+       (fn [{s :state :keys [failed]}]
+         (is (nil? failed) (pr-str failed))
+         (is (= 1800 (:position (player/episode s [g-a "a1"]))) "a PLAY of the other app, later than the phone's")
+         (is (= "cloud" (:device (player/episode s [g-a "a1"])))
+             "an action without a device, written by the backend")
+         (is (= #{feed-a} (set (map :url (vals (player/subscriptions @state)))))))))))
+
+(deftest a-device-the-server-forgot
+  (let [clock    (atom t2)
+        [_ send] (serve clock)
+        forgot   (atom true)
+        calls    (atom [])
+        send'    (fn [{:keys [url] :as request}]
+                   (swap! calls conj (second (re-find #"/api/2/([a-z]+)" url)))
+                   (if (and @forgot (str/includes? url "/subscriptions/"))
+                     (do (reset! forgot false) {:status 404 :headers {} :body ""})
+                     (send request)))]
+    (run
+     #(async/then
+       (sync/sync! (phone) [(backend send' :name "cloud")] t2 {:ctx {"cloud" {:registered "phone" :subscriptions 5}}})
+       (fn [{:keys [failed]}]
+         (is (nil? failed))
+         (is (= ["subscriptions" "devices" "subscriptions"] (take 3 (filter #{"subscriptions" "devices"} @calls)))
+             "registered again and asked once more"))))))
+
+(deftest a-url-the-server-refused
+  (let [clock    (atom t2)
+        [_ send] (serve clock)
+        send'    (fn [{:keys [method url] :as request}]
+                   (let [answer (send request)]
+                     (if (and (= :post method) (str/includes? url "/subscriptions/"))
+                       (assoc answer :body (json/write-str {"timestamp" 1 "update_urls" [[feed-a nil]]}))
+                       answer)))]
+    (run
+     #(async/then
+       (sync/sync! (phone) [(backend send')] t2)
+       (fn [{:keys [report]}]
+         (is (= [[:sync/rejected-url feed-a]] (map (juxt :id :url) report))))))))
