@@ -289,7 +289,44 @@
     (is (= [{:text "A" :xml-url "https://a/rss"} {:text "C" :xml-url "https://c/rss" :html-url "https://c"}]
            (:subscriptions (opml/parse "<opml version=\"2.0\"><body><outline text=\"A\" xmlurl=\"https://a/rss\"/>
                                         <outline text=\"B\" xmlUrl=\"\"/>
-                                        <outline text=\"C\" XMLURL=\"https://c/rss\" HTMLURL=\"https://c\"/></body></opml>"))))))
+                                        <outline text=\"C\" XMLURL=\"https://c/rss\" HTMLURL=\"https://c\"/></body></opml>")))))
+  (testing "categories, the time an outline was created, and the dates and owner of the list"
+    (let [list (opml/parse "<opml version=\"2.0\"><head><title>Mine</title>
+                              <dateCreated>Mon, 05 Jan 2026 10:00:00 GMT</dateCreated>
+                              <dateModified>someday</dateModified><ownerEmail>a@b.c</ownerEmail></head><body>
+                              <outline type=\"rss\" text=\"A\" xmlUrl=\"https://a/rss\" category=\"Daily, /News/Denmark,\"
+                                       created=\"Mon, 05 Jan 2026 10:00:00 GMT\"/>
+                              <outline type=\"rss\" text=\"B\" xmlUrl=\"https://b/rss\" category=\" \" created=\"yesterday\"/>
+                            </body></opml>")]
+      (is (= {:title "Mine" :date-created #inst "2026-01-05T10:00:00Z" :date-modified "someday" :owner-email "a@b.c"}
+             (dissoc list :subscriptions))
+          "a date that does not read stays as written")
+      (is (= [{:type "rss" :text "A" :xml-url "https://a/rss" :category ["Daily" "/News/Denmark"]
+               :created #inst "2026-01-05T10:00:00Z"}
+              {:type "rss" :text "B" :xml-url "https://b/rss" :created "yesterday"}]
+             (:subscriptions list)))
+      (is (= list (opml/parse (opml/emit list))))
+      (is (re-find #"category=\"Daily,/News/Denmark\"" (opml/emit list)))
+      (is (re-find #"category=\"Science_ Tech\"" (opml/emit {:subscriptions [{:text "C" :xml-url "https://c/rss"
+                                                                                :category ["Science, Tech"]}]}))
+          "a comma inside a category, which OPML cannot escape")))
+  (testing "inclusions of other lists, in their folders, by the type include or a link to .opml"
+    (let [list (opml/parse "<opml version=\"2.0\"><head><title>Lists</title></head><body>
+                              <outline text=\"News\">
+                                <outline type=\"rss\" text=\"A\" xmlUrl=\"https://a/rss\"/>
+                                <outline type=\"include\" text=\"Danish news\" url=\"https://lists.example/dk.opml\"/>
+                              </outline>
+                              <outline type=\"rss\" text=\"B\" xmlUrl=\"https://b/rss\"/>
+                              <outline type=\"link\" text=\"Blogroll\" url=\"https://x.example/roll.OPML\"/>
+                              <outline type=\"link\" text=\"A page\" url=\"https://x.example/about\"/>
+                            </body></opml>")]
+      (is (= [{:url "https://lists.example/dk.opml" :text "Danish news" :path ["News"]}
+              {:url "https://x.example/roll.OPML" :text "Blogroll"}]
+             (:includes list))
+          "a link to a page is neither")
+      (is (= ["A" "B"] (map :text (:subscriptions list))))
+      (is (= list (opml/parse (opml/emit list))))
+      (is (= 1 (count (re-seq #"text=\"News\"" (opml/emit list)))) "a folder once, its inclusion after its subscriptions"))))
 
 (def block
   {:type "lightning" :method "keysend" :suggested 1.5E-7
