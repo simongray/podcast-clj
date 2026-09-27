@@ -150,6 +150,7 @@
          (is (str/includes? (:body (handler (ring :propfind "/dav/"))) "<d:collection/>"))
          (is (= 200 (:status (handler (ring :options "/dav/")))))
          (is (= "1" (get-in (handler (ring :options "/dav/")) [:headers "DAV"])))
+         (is (str/includes? (get-in (handler (ring :options "/dav/")) [:headers "Allow"]) "DELETE"))
          (is (= 405 (:status (handler (ring :get "/dav/")))))
          (is (= 404 (:status (handler (ring :get "/elsewhere"))))))
        (testing "a document put, listed, fetched and deleted, the name decoded"
@@ -160,6 +161,8 @@
            (is (= "{:version 1 :state {}}" (:body (handler (ring :get "/dav/phone%201.edn")))))
            (is (= "" (:body (handler (ring :head "/dav/phone%201.edn")))))
            (is (str/includes? (:body (handler (ring :propfind "/dav/"))) "<d:href>/dav/phone%201.edn</d:href>"))
+           (is (not (str/includes? (:body (handler (ring :propfind "/dav/" :headers {"depth" "0"}))) "phone%201.edn"))
+               "at depth zero, the collection alone")
            (is (= [{:name "phone 1.edn" :version "\"1\""}]
                   (webdav/response :list (update (handler (ring :propfind "/dav/")) :headers #(into {} (map (fn [[k v]] [(str/lower-case k) [v]])) %)))))
            (is (= 412 (:status (handler (ring :put "/dav/phone%201.edn" :body "x" :headers {"If-Match" "\"stale\""})))))
@@ -173,6 +176,51 @@
          (is (= 405 (:status (handler (ring :lock "/dav/x.edn")))))
          (is (= 405 (:status (handler (ring :mkcol "/dav/sub")))))
          (is (= 201 (:status (handler (ring :mkcol "/dav/")))))))))
+
+#?(:clj
+   (deftest serving-a-store-that-cannot-list-or-delete
+     (let [documents (atom {})
+           handler   (server/handler (dissoc (store/memory documents) :list :delete) "/dav/")]
+       (testing "a document is put, found and fetched without a listing"
+         (is (= 201 (:status (handler (ring :put "/dav/podcast.edn" :body "{}")))))
+         (is (= 204 (:status (handler (ring :put "/dav/podcast.edn" :body "{}" :headers {"If-Match" "\"1\""})))))
+         (is (= 207 (:status (handler (ring :propfind "/dav/podcast.edn")))))
+         (is (= "{}" (:body (handler (ring :get "/dav/podcast.edn"))))))
+       (testing "the collection alone at depth zero, and no listing"
+         (let [{:keys [status body]} (handler (ring :propfind "/dav/" :headers {"Depth" "0"}))]
+           (is (= 207 status))
+           (is (not (str/includes? body "podcast.edn"))))
+         (is (= 405 (:status (handler (ring :propfind "/dav/" :headers {"Depth" "1"})))))
+         (is (= 405 (:status (handler (ring :propfind "/dav/"))))))
+       (testing "no DELETE, and OPTIONS says so"
+         (is (= 405 (:status (handler (ring :delete "/dav/podcast.edn")))))
+         (is (= ["podcast.edn"] (keys @documents)))
+         (is (not (str/includes? (get-in (handler (ring :options "/dav/")) [:headers "Allow"]) "DELETE")))))))
+
+#?(:clj
+   (defn- through
+     "The library's HTTP client stood in by the Ring `handler`: a request map
+     sent to it, its answer in the client's shape."
+     [handler]
+     (fn [{:keys [method url headers body]}]
+       (-> (handler (ring method (str/replace url #"^https?://[^/]+" "") :headers headers :body body))
+           (update :headers #(into {} (map (fn [[k v]] [(str/lower-case k) [v]])) %))))))
+
+#?(:clj
+   (deftest two-devices-through-a-server-that-cannot-list-or-delete
+     (let [documents (atom {})
+           client    (dissoc (webdav/store "https://dav.example.org/dav/") :list :delete)]
+       (with-redefs [http/call! (through (server/handler (dissoc (store/memory documents) :list :delete) "/dav/"))]
+         (let [{:keys [ok? checks]} (store/check! client)
+               backend (store/backend client)
+               phone   (sync/sync! (phone-state) [backend] t2)
+               laptop  (sync/sync! (laptop-state) [backend] t3)]
+           (is ok? (pr-str checks))
+           (is (nil? (:failed phone)))
+           (is (nil? (:failed laptop)))
+           (is (= #{"podcast.edn" store/probe-name} (set (keys @documents)))
+               "one shared document, and the probe that the store cannot delete")
+           (is (= 900 (:position (player/episode (:state laptop) a)))))))))
 
 #?(:clj
    (deftest checking-a-collection

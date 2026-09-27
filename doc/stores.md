@@ -187,7 +187,16 @@ A sync document is an EDN map:
 | A WebDAV collection | `app.sync.webdav` | both | the ETag |
 | Any store, encrypted | `app.sync.encrypted` | both | the version of the wrapped store |
 
-`app.sync.webdav.server/handler` serves any store over WebDAV, on the JVM.
+`app.sync.webdav.server/handler` serves any store over WebDAV, on the JVM:
+
+- A PROPFIND on the collection at depth 0 gives the collection alone. At
+  depth 1, it also lists the documents.
+- If the store has no `:list`, a PROPFIND that lists the collection gets
+  405. If the store has no `:delete`, a DELETE gets 405, and OPTIONS does
+       not name DELETE.
+- A client of such a server removes the same keys from its WebDAV store, for
+  example `(dissoc (webdav/store url) :list)`. `backend` then uses one
+  shared document.
 
 
 ## Where the stores are, as of September 2026
