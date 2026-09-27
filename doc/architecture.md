@@ -284,7 +284,10 @@ also takes the feed and the item, and applies the inheritance. People on an
 item replace the people of the feed. A value block on an item overrides the
 value block of the feed. Artwork and funding fall back to the channel.
 `transcript` also takes options, because the preferred types, languages and
-timings belong to the app.
+timings belong to the app. The texts of `podcast:txt` do not fall back,
+because most purposes are about the element that holds them. The purpose
+`ai-content` is different: it works like `itunes:explicit`, and
+`ai-content?` falls back as `explicit?` does.
 
 `properties` collects all answers in one map with plain keys.
 `(merge item (properties feed item))` holds the raw fields and the resolved
@@ -532,7 +535,8 @@ an episode, and never past its start or its end.
 
 `step` is a small reducer over the events of a player: `:progress`,
 `:ended`, `:play` and `:skip`. It returns the new state, and the effects for
-the app, such as to play the next episode or to seek. `step` is the only
+the app, such as to seek, to stop where the outro starts, or to play the
+next episode. `step` is the only
 place where behavior is composed, and it is short on purpose.
 
 
@@ -675,7 +679,8 @@ directories, and the Podping page reads the chain.
 The queue page has a small player in ClojureScript, over `app.player`. The
 player state is in localStorage, and Replicant renders it into a bar on
 every page. The audio element reports its position through `step`, and the
-effects of `step` seek the audio element or start the next episode. The
+effects of `step` seek or stop the audio element, or start the next
+episode. The
 folder at `/dav/` is the sync backend that the player shares with any WebDAV
 client. A click on a link fetches the next page and replaces only the
 content below the bar. As a result, playback continues across pages, but the

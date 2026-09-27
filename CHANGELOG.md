@@ -109,3 +109,11 @@
   takes. `html/feed-links` finds the feeds that a web page names. On the
   JVM, a redirect to another host no longer gets the credentials of a
   request.
+- `resolve` reads the podroll, the publisher feed, the remote items of
+  list and publisher feeds, where the comments on an episode are, the
+  soundbites, and the texts of `podcast:txt` by purpose, with
+  `ai-content?`. `publisher` also reads a remote item with the medium
+  publisher in the channel, as some music feeds write it. When the
+  settings of a show skip its outro, `player/step` ends an episode where
+  the outro starts, with the new effect `[:stop id]`, and `outro-start`
+  gives that position.

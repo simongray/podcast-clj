@@ -173,6 +173,87 @@
       (is (= 99 (get-in (resolve/value f {}) [:recipients 0 :split])))
       (is (= 99 (get-in (resolve/value f) [:recipients 0 :split]))))))
 
+(deftest other-feeds
+  (let [f @example]
+    (testing "the shows of the podroll, pointers to nowhere left out"
+      (is (= ["https://feeds.podcastindex.org/pc20.xml" "https://feedurl.example.rss"]
+             (map :feed-url (resolve/podroll f))))
+      (is (= [{:feed-guid "g"}] (resolve/podroll {:podcast/podroll {:remote-items [{:title "Nowhere"} {:feed-guid "g"}]}})))
+      (is (empty? (resolve/podroll {}))))
+    (testing "the entries of a list feed"
+      (let [playlist (podcast/parse (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">"
+                                         "<channel><title>Hits</title><podcast:medium>musicL</podcast:medium>"
+                                         "<podcast:remoteItem feedGuid=\"f1\" itemGuid=\"i1\"/>"
+                                         "<podcast:remoteItem itemGuid=\"i2\"/>"
+                                         "<podcast:remoteItem feedGuid=\"f2\" itemGuid=\"i3\" medium=\"publisher\"/>"
+                                         "</channel></rss>"))]
+        (is (= [{:feed-guid "f1" :item-guid "i1"} {:feed-guid "f2" :item-guid "i3" :medium "publisher"}]
+               (resolve/remote-items playlist)))
+        (is (= 2 (count (:remote-items (resolve/properties playlist)))))
+        (is (nil? (resolve/publisher playlist)) "an entry of a list is not its publisher")))
+    (testing "the publisher feed"
+      (is (= {:feed-guid "000000a0-aaa5-bbbf-b765-6333d449661a" :feed-url "https://publisherexample.xml"
+              :medium "publisher"}
+             (resolve/publisher f)))
+      (is (nil? (resolve/publisher {:podcast/publisher {}})) "a publisher named in text, which the model drops")
+      (is (nil? (resolve/publisher {})))
+      (testing "or a remote item of the channel with the medium publisher, as some feeds write it"
+        (let [album {:podcast/medium "music" :podcast/remote-items [{:feed-guid "artist" :medium "Publisher"}]}]
+          (is (= {:feed-guid "artist" :medium "Publisher"} (resolve/publisher album)))
+          (is (= [[:podcast/remote-items]] (:publisher (resolve/sources album))))
+          (is (= "p" (:feed-guid (resolve/publisher (assoc album :podcast/publisher {:remote-item {:feed-guid "p"}}))))
+              "the element wins")
+          (is (nil? (resolve/publisher (assoc album :podcast/medium "publisher")))
+              "in a publisher feed, a remote item is one of its shows"))))))
+
+(deftest comments-soundbites-and-texts
+  (let [item (first (:rss/items @example))]
+    (testing "where the comments are, in order of priority"
+      (is (= [["activitypub" 1 "@dave"] ["twitter" 2 "@podcastindexorg"]]
+             (map (juxt :protocol :priority :account-id) (resolve/social-interacts item))))
+      (let [mastodon {:protocol "ActivityPub" :uri "https://m/1" :priority 2 :pubDate "old"}
+            bluesky  {:protocol "atproto" :uri "at://b/1"}
+            twitter  {:protocol "twitter" :uri "https://t/1" :priority 1}]
+        (is (= [{:protocol "twitter" :uri "https://t/1" :priority 1}
+                {:protocol "activitypub" :uri "https://m/1" :priority 2}
+                {:protocol "atproto" :uri "at://b/1"}]
+               (resolve/social-interacts {:podcast/social-interacts [bluesky mastodon twitter]}))
+            "those without a priority last, and only the known attributes")
+        (is (empty? (resolve/social-interacts {:podcast/social-interacts [{:protocol "activitypub"}]}))
+            "a thread needs its root post")
+        (testing "and the wish for no public comments, which wins"
+          (is (= [{:protocol "disabled"}]
+                 (resolve/social-interacts {:podcast/social-interacts [mastodon {:protocol "Disabled"}]}))))
+        (testing "an item's own, else the feed's"
+          (is (= ["https://m/1"] (map :uri (resolve/social-interacts {:podcast/social-interacts [mastodon]} {}))))
+          (is (= [{:protocol "disabled"}]
+                 (resolve/social-interacts {:podcast/social-interacts [mastodon]}
+                                           {:podcast/social-interacts [{:protocol "disabled"}]})))
+          (is (= ["at://b/1"]
+                 (map :uri (resolve/social-interacts {:podcast/social-interacts [{:protocol "disabled"}]}
+                                                     {:podcast/social-interacts [bluesky]})))))))
+    (testing "soundbites, those that make no sense left out"
+      (is (= [{:start-time 33.833 :duration 60}] (resolve/soundbites item)))
+      (is (= [{:start-time 1234.5 :duration 42.25 :title "Why the Podcast Namespace Matters"}
+              {:start-time 73 :duration 60}]
+             (resolve/soundbites {:podcast/soundbites [{:start-time 1234.5 :duration 42.25
+                                                        :content "Why the Podcast Namespace Matters"}
+                                                       {:start-time 73 :duration 60 :content " "}
+                                                       {:start-time "abc" :duration 30}
+                                                       {:start-time -1 :duration 30}
+                                                       {:start-time 5 :duration 0}]}))))
+    (testing "texts by purpose, and whether AI made the content"
+      (let [feed {:podcast/txt [{:purpose "applepodcastsverify" :content "05124"}
+                                {:purpose "AI-Content" :content "true"}
+                                {:content "abc"}
+                                {:content " "}]}]
+        (is (= {"applepodcastsverify" ["05124"] "ai-content" ["true"] nil ["abc"]} (resolve/txt feed)))
+        (is (= {} (resolve/txt {})))
+        (is (true? (resolve/ai-content? feed)))
+        (is (true? (resolve/ai-content? feed {})) "an item inherits the answer, as for explicit?")
+        (is (false? (resolve/ai-content? feed {:podcast/txt [{:purpose "ai-content" :content "False"}]})))
+        (is (nil? (resolve/ai-content? {:podcast/txt [{:purpose "ai-content" :content "maybe"}]})))))))
+
 (deftest the-feed-as-a-whole
   (let [f @example]
     (is (= "podcast" (resolve/medium f)))
@@ -315,40 +396,48 @@
   (let [feed {:rss/title       "Show"
               :itunes/explicit true
               :itunes/image    {:href "https://s/art.png"}
-              :podcast/people  [{:content "Host"}]}
-        item {:rss/title       "Ep"
-              :itunes/title    "Ep"
-              :rss/pub-date    #inst "2026-01-01T00:00:00Z"
-              :itunes/duration 60}
+              :podcast/people  [{:content "Host"}]
+              :podcast/txt     [{:purpose "ai-content" :content "true"}]}
+        item {:rss/title          "Ep"
+              :itunes/title       "Ep"
+              :rss/pub-date       #inst "2026-01-01T00:00:00Z"
+              :itunes/duration    60
+              :podcast/soundbites [{:start-time 5 :duration 20}]}
         show (resolve/properties feed)
         ep   (resolve/properties feed item)]
     (testing "every answer in one map, plain keys, nothing unanswered"
       (is (= {:title "Show" :artwork "https://s/art.png" :explicit? true
               :people [{:name "Host" :role "host" :group "cast"}]
               :images [{:href "https://s/art.png" :source :itunes}]
+              :txt {"ai-content" ["true"]} :ai-content? true
               :medium "podcast" :list-feed? false :complete? false :locked? false}
              show))
       (is (= {:title "Ep" :published #inst "2026-01-01T00:00:00Z" :duration 60
               :numbering {:type "full"} :artwork "https://s/art.png" :explicit? true
-              :people [{:name "Host" :role "host" :group "cast"}]}
+              :people [{:name "Host" :role "host" :group "cast"}]
+              :soundbites [{:start-time 5 :duration 20}] :ai-content? true}
              ep)
           "inheriting from the feed as the accessors do")
       (is (= "Ep" (:title (merge item ep))))
       (is (= "Ep" (:rss/title (merge item ep))) "merged beside the raw fields"))
     (testing "and where each answer came from"
-      (is (= {:title    [[:rss/title]]
-              :artwork  [[:itunes/image]]
-              :explicit? [[:itunes/explicit]]
-              :people   [[:podcast/people]]
-              :images   [[:itunes/image]]}
+      (is (= {:title       [[:rss/title]]
+              :artwork     [[:itunes/image]]
+              :explicit?   [[:itunes/explicit]]
+              :people      [[:podcast/people]]
+              :images      [[:itunes/image]]
+              :txt         [[:podcast/txt]]
+              :ai-content? [[:podcast/txt]]}
              (resolve/sources feed))
           "defaults name no source")
-      (is (= {:title     [[:item :itunes/title] [:item :rss/title]]
-              :published [[:item :rss/pub-date]]
-              :duration  [[:item :itunes/duration]]
-              :artwork   [[:feed :itunes/image]]
-              :explicit? [[:feed :itunes/explicit]]
-              :people    [[:feed :podcast/people]]}
+      (is (= {:title       [[:item :itunes/title] [:item :rss/title]]
+              :published   [[:item :rss/pub-date]]
+              :duration    [[:item :itunes/duration]]
+              :soundbites  [[:item :podcast/soundbites]]
+              :artwork     [[:feed :itunes/image]]
+              :explicit?   [[:feed :itunes/explicit]]
+              :ai-content? [[:feed :podcast/txt]]
+              :people      [[:feed :podcast/people]]}
              (resolve/sources feed item))
           "two fields that agree are both named; the feed's where the item inherits"))
     (testing "on a real feed"
@@ -357,4 +446,7 @@
         (is (= "Podcasting 2.0 Namespace Example" (:title (resolve/properties f))))
         (is (every? (complement namespace) (keys (resolve/properties f i))))
         (is (= [[:item :rss/title]] (:title (resolve/sources f i))))
-        (is (nil? (:numbering (resolve/sources f i))) "a composite names no source")))))
+        (is (nil? (:numbering (resolve/sources f i))) "a composite names no source")
+        (is (= {:podroll [[:podcast/podroll]] :publisher [[:podcast/publisher]]}
+               (select-keys (resolve/sources f) [:podroll :publisher])))
+        (is (= ["activitypub" "twitter"] (map :protocol (:social-interacts (resolve/properties f i)))))))))

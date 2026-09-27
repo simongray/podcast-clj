@@ -3,7 +3,8 @@
   dk.simongray.podcast.app.player lives here, kept in localStorage;
   inspector.player.view renders it through Replicant; an
   audio element plays the current episode and reports back through
-  `player/step`, whose effects seek the audio or start the next episode.
+  `player/step`, whose effects seek or stop the audio, or start the next
+  episode.
   The server only supplies episode data, at /episode.edn.
 
   The player sits in a bar on every page. Clicking a link fetches the next
@@ -114,12 +115,14 @@
 
 (defn- perform!
   "Carry out the `effects` `player/step` returned: seek the audio element
-  to where a skip landed, or start the next episode once it is rendered."
+  to where a skip landed, stop it where the outro of the show starts, or
+  start the next episode once it is rendered."
   [effects]
   (doseq [[kind _ arg] effects]
     (case kind
       :seek (when-let [el (audio-element)]
               (set! (.-currentTime el) arg))
+      :stop (some-> (audio-element) .pause)
       :play (js/setTimeout #(some-> (audio-element) .play (.catch (fn [_] nil))) 50)
       nil)))
 

@@ -142,6 +142,30 @@
    (let [flag (explicit? item)]
      (if (some? flag) flag (explicit? feed)))))
 
+(defn txt
+  "The free-form texts of `x` by purpose, from podcast:txt: `{purpose
+  [text ...]}`, each purpose lower-cased and the texts that name none under
+  nil, such as `{\"applepodcastsverify\" [\"05124\"] nil [\"abc\"]}`. An item
+  does not inherit the texts of its feed, except through `ai-content?`."
+  [x]
+  (let [texts (filter #(let [s (:content %)] (and (string? s) (not (str/blank? s))))
+                      (:podcast/txt x))]
+    (update-vals (group-by #(some-> (:purpose %) str/lower-case) texts)
+                 #(mapv :content %))))
+
+(defn ai-content?
+  "Whether AI-generated content went into `x`, as its podcast:txt with the
+  purpose ai-content says; nil when unstated. With `feed` and `item`, the
+  item's answer or, when it has none, the feed's, as for `explicit?`."
+  ([x]
+   (case (some-> (first (get (txt x) "ai-content")) str/lower-case)
+     "true"  true
+     "false" false
+     nil))
+  ([feed item]
+   (let [flag (ai-content? item)]
+     (if (some? flag) flag (ai-content? feed)))))
+
 (defn- media-contents
   "The Media RSS contents of `item`, in the item and in its media:group."
   [item]
@@ -301,6 +325,20 @@
   [item]
   (chapters/from-text (description item)))
 
+(defn soundbites
+  "The soundbites of `item`, the parts its creator picked to preview or
+  share it: maps with `:start-time` and `:duration` in seconds and `:title`
+  when it has one, in the order of the feed. The specification leaves the
+  title of one without to the app, such as the title of the item. A
+  soundbite without a start of zero seconds or more, or without a duration
+  above zero, is left out."
+  [item]
+  (for [{:keys [start-time duration content]} (:podcast/soundbites item)
+        :when (and (number? start-time) (<= 0 start-time)
+                   (number? duration) (pos? duration))]
+    (cond-> {:start-time start-time :duration duration}
+      (and (string? content) (not (str/blank? content))) (assoc :title content))))
+
 (defn people
   "The people credited on `x`, roles and groups lower-cased with the
   specification's defaults filled in: `{:name :role :group :img :href}`.
@@ -340,6 +378,27 @@
   "The chat of `x`; with `feed` and `item`, the item's or the feed's."
   ([x] (:podcast/chat x))
   ([feed item] (inherited :podcast/chat feed item)))
+
+(defn social-interacts
+  "Where the public comments on `x` are: the root posts of the threads that
+  its podcast:socialInteract elements name, as maps with `:protocol`
+  lower-cased, `:uri`, and `:account-id`, `:account-url` and `:priority`
+  when declared, the lowest priority number first and those without one
+  last. When one of them has the protocol \"disabled\", the podcaster wants
+  no public comments shown, and the answer is `[{:protocol \"disabled\"}]`.
+  With `feed` and `item`, the item's or, when it gives none, the feed's."
+  ([x]
+   (let [interacts (for [{:keys [protocol uri] :as interact} (:podcast/social-interacts x)
+                         :let  [protocol (some-> protocol str/lower-case)]
+                         :when (or (= "disabled" protocol) (and protocol uri))]
+                     (-> (select-keys interact [:uri :account-id :account-url :priority])
+                         (assoc :protocol protocol)))]
+     (if (some #(= "disabled" (:protocol %)) interacts)
+       [{:protocol "disabled"}]
+       (sort-by #(let [p (:priority %)] (if (number? p) p ##Inf)) interacts))))
+  ([feed item]
+   (let [own (social-interacts item)]
+     (if (seq own) own (social-interacts feed)))))
 
 (defn locations
   "The locations of `x`; with `feed` and `item`, the item's or the feed's."
@@ -387,7 +446,7 @@
 
 (defn list-feed?
   "Whether `feed` is a list of remote items rather than of its own: a
-  medium ending in L, or mixed."
+  medium ending in L, or mixed. `remote-items` gives the list."
   [feed]
   (let [m (medium feed)]
     (or (= m "mixed") (str/ends-with? m "l"))))
@@ -525,6 +584,44 @@
                              (:atom/links feed)))]
     (or (href "next") (href "prev-archive"))))
 
+(defn podroll
+  "The shows `feed` recommends, from its podcast:podroll: remote items with
+  `:feed-guid`, and `:feed-url` and `:title` when declared, in the order of
+  the feed. One that names neither a guid nor a URL is left out. Where the
+  two differ, what the guid leads to wins, since the guid outlives a URL;
+  `directory.podcastindex/remote-item` looks it up."
+  [feed]
+  (filter #(or (:feed-guid %) (:feed-url %))
+          (:remote-items (:podcast/podroll feed))))
+
+(defn remote-items
+  "The remote items of the channel of `feed`, in the order of the feed: the
+  entries of a list feed, most often items of other feeds, or the shows of
+  a publisher feed. Maps with `:feed-guid`, and `:feed-url`, `:item-guid`,
+  `:title` and `:medium` when declared; one that names neither a guid nor
+  a URL is left out."
+  [feed]
+  (filter #(or (:feed-guid %) (:feed-url %))
+          (:podcast/remote-items feed)))
+
+(defn publisher
+  "The publisher feed of `feed`: the remote item of its podcast:publisher,
+  with `:feed-guid`, and `:feed-url` and `:title` when declared. Failing
+  that, in a feed that is neither a list nor a publisher feed, a remote
+  item of its channel with the medium publisher, as some feeds write it
+  without the element. Nil when neither names a guid or a URL. The
+  specification asks an app to trust the link only when the `remote-items`
+  of the publisher feed list `feed`."
+  [feed]
+  (let [item (:remote-item (:podcast/publisher feed))]
+    (cond
+      (or (:feed-guid item) (:feed-url item))
+      item
+
+      (not (or (list-feed? feed) (= "publisher" (medium feed))))
+      (some #(when (= "publisher" (some-> (:medium %) str/lower-case)) %)
+            (remote-items feed)))))
+
 (defn- category-paths
   "The paths of `categories` and of their subcategories, each below `prefix`."
   [prefix categories]
@@ -616,10 +713,12 @@
   "The accessors of a show by property, for `properties` and `sources`."
   {:title title :description description :author author :link link
    :published published :images images :artwork artwork :explicit? explicit?
-   :people people :funding funding :license license :chat chat
+   :txt txt :ai-content? ai-content? :people people :funding funding
+   :license license :chat chat :social-interacts social-interacts
    :locations locations :value value :live-items live-items :medium medium
    :list-feed? list-feed? :complete? complete? :locked? locked?
-   :new-feed-url new-feed-url :self-url self-url :categories categories})
+   :new-feed-url new-feed-url :self-url self-url :podroll podroll
+   :remote-items remote-items :publisher publisher :categories categories})
 
 (def ^:no-doc episode-properties
   "The accessors of an episode by property, each of the feed and the item,
@@ -628,11 +727,13 @@
                        :link link :published published :images images
                        :duration duration :numbering numbering
                        :enclosures enclosures :enclosure enclosure
-                       :chapters-url chapters-url :embedded-chapters embedded-chapters}
+                       :chapters-url chapters-url :embedded-chapters embedded-chapters
+                       :soundbites soundbites :txt txt}
                       of-item)
-         {:artwork artwork :explicit? explicit? :transcript transcript
-          :people people :funding funding :license license :chat chat
-          :locations locations :value value}))
+         {:artwork artwork :explicit? explicit? :ai-content? ai-content?
+          :transcript transcript :people people :funding funding :license license
+          :chat chat :social-interacts social-interacts :locations locations
+          :value value}))
 
 (defn- answer
   "The value of an accessor as a property: a sequence as a vector, nothing
@@ -721,4 +822,6 @@
      (map #(select-keys (numbering %) [:season :episode]) (:rss/items f))
      (people f (first (:rss/items f)))
      (categories f)
+     (podroll f)
+     (social-interacts f (first (:rss/items f)))
      #_.))

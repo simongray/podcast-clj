@@ -335,3 +335,39 @@
         (is (= [] effects))))
     (is (= [c a b] (player/queue (:state (player/step s [:play c] t1)))))
     (is (= {:state s :effects []} (player/step s [:volume 3] t1)) "unknown events change nothing")))
+
+(deftest skipping-the-outro
+  (let [s (-> (player/state "phone")
+              (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+              (player/configure "feed-a" {:skip-outro 60} t0)
+              (player/enqueue a t0)
+              (player/enqueue b t0)
+              (player/progress a 3500 3600 t0))]
+    (is (= 3540 (player/outro-start s "feed-a" a)))
+    (is (nil? (player/outro-start s "feed-a" b)) "not before the duration is known")
+    (testing "a report in the outro ends the episode there"
+      (let [{:keys [state effects]} (player/step s [:progress a 3545 3600] t1)]
+        (is (= [[:stop a] [:played a] [:play b]] effects))
+        (is (player/played? state a))
+        (is (= [b] (player/queue state)))
+        (is (= [] (:effects (player/step state [:progress a 3550 3600] t2))) "once: a late report changes nothing")))
+    (testing "so does a skip into it, which then needs no seek"
+      (is (= [[:stop a] [:played a] [:play b]] (:effects (player/step s [:skip a 45] t1))))
+      (is (= [[:seek a 3530]] (:effects (player/step s [:skip a :forward] t1)))))
+    (testing "an episode that counts as played already, and one heard again"
+      (let [short (player/configure s "feed-a" {:skip-outro 20} t0)
+            {:keys [state effects]} (player/step short [:progress a 3575 3600] t1)]
+        (is (= [[:played a]] effects) "within the threshold of the end, but not yet in the outro")
+        (is (= [[:stop a] [:play b]] (:effects (player/step state [:progress a 3585 3600] t2)))))
+      (let [again (-> s (player/mark-played a t1) (player/progress a 20 t2))]
+        (is (= [[:stop a] [:play b]] (:effects (player/step again [:progress a 3541 3600] t3))))))
+    (testing "an episode that is not current only stops"
+      (let [s (-> s
+                  (player/subscribe "feed-b" {:url "https://b/rss" :title "B"} t0)
+                  (player/configure "feed-b" {:skip-outro 60} t0))
+            {:keys [state effects]} (player/step s [:progress c 3545 3600] t1)]
+        (is (= [[:stop c] [:played c]] effects))
+        (is (= [a b] (player/queue state)))))
+    (testing "no outro, or one as long as the episode, ends nothing early"
+      (is (= [[:played a]] (:effects (player/step (player/configure s "feed-a" {:skip-outro 0} t1) [:progress a 3590 3600] t2))))
+      (is (= [[:played b]] (:effects (player/step (player/progress s b 10 50 t1) [:progress b 45 50] t2)))))))

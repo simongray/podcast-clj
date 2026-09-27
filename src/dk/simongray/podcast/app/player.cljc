@@ -366,6 +366,16 @@
       position
       (:skip-intro (settings state feed-guid)))))
 
+(defn outro-start
+  "Where the outro of the episode `id` of `feed-guid` starts: the feed's
+  skip-outro seconds before the end. Nil when the duration is not known,
+  the feed skips no outro, or the outro would be the whole episode."
+  [state feed-guid id]
+  (let [duration (:duration (episode state id))
+        outro    (:skip-outro (settings state feed-guid))]
+    (when (and (number? duration) (number? outro) (< 0 outro duration))
+      (- duration outro))))
+
 (defn history
   "The episode ids `state` knows about, most recently played or touched
   first: an episode heard again comes first again."
@@ -651,6 +661,25 @@
                     [k w]))))
         state))
 
+(declare step)
+
+(defn- moved
+  "What `step` gives when the position of the episode `id` moved at `at`,
+  from where `state` has it to where `state'` has it: `state'`, with the
+  `effects` and then [:played id] when the episode now counts as played.
+  When the position moved into the outro, [:stop id] takes the place of
+  the `effects`, and the episode ends as `step` ends it, its effects last."
+  [state state' id effects at]
+  (let [was       (played? state id)
+        start     (outro-start state' (first id) id)
+        in-outro? #(let [p (:position (episode % id))]
+                     (and start (number? p) (>= p start)))]
+    (if (and (in-outro? state') (not (in-outro? state)))
+      (update (step state' [:ended id] at) :effects
+              #(into (cond-> [[:stop id]] (not was) (conj [:played id])) %))
+      {:state   state'
+       :effects (cond-> effects (and (not was) (played? state' id)) (conj [:played id]))})))
+
 (defn step
   "Advance `state` by the player `event` at `at`, returning `{:state ...
   :effects [...]}`, the effects being what the UI should do next:
@@ -663,22 +692,21 @@
       [:play id]                        makes it current at the front of the queue
       [:skip id amount]                 moves `amount` seconds, or the preferred amount
                                         for :forward or :back; effect [:seek id position],
-                                        and [:played id] when it now counts as played"
+                                        and [:played id] when it now counts as played
+
+  A progress or a skip that moves the position from before `outro-start`
+  to it or past it ends the episode as [:ended id] does, with the effect
+  [:stop id] first and [:played id] when it now counts as played, and no
+  seek. The feed whose settings give the outro is the first part of `id`."
   [state [kind id & args] at]
   (case kind
     :skip     (let [[amount] args
                     {:keys [skip-forward skip-back]} (preferences state)
                     seconds (case amount :forward skip-forward :back (- skip-back) amount)
-                    was     (played? state id)
                     state'  (skip state id seconds at)]
-                {:state   state'
-                 :effects (cond-> [[:seek id (:position (episode state' id))]]
-                            (and (not was) (played? state' id)) (conj [:played id]))})
-    :progress (let [[position duration] args
-                    was    (played? state id)
-                    state' (progress state id position duration at)]
-                {:state   state'
-                 :effects (if (and (not was) (played? state' id)) [[:played id]] [])})
+                (moved state state' id [[:seek id (:position (episode state' id))]] at))
+    :progress (let [[position duration] args]
+                (moved state (progress state id position duration at) id [] at))
     :ended    (let [state'   (mark-played state id at)
                     current? (= id (current state'))
                     state'   (if current? (advance state' at) state')

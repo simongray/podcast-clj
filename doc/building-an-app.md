@@ -31,6 +31,7 @@ The examples use these aliases:
          '[dk.simongray.podcast.app.sync.store :as store]
          '[dk.simongray.podcast.app.sync.webdav :as webdav]
          '[dk.simongray.podcast.directory :as directory]
+         '[dk.simongray.podcast.directory.podcastindex :as podcastindex]
          '[dk.simongray.podcast.feed :as feed]
          '[dk.simongray.podcast.format.chapters :as chapters]
          '[dk.simongray.podcast.format.html :as html]
@@ -84,7 +85,7 @@ subscription to the player state:
   (-> (player/state device-id)
       (player/identify {:name "Phone"} now)
       (player/subscribe guid {:url url :title (resolve/title show)} now)
-      (player/configure guid {:auto-queue? true :skip-intro 20} now)))
+      (player/configure guid {:auto-queue? true :skip-intro 20 :skip-outro 45} now)))
 
 (def feeds {guid {:url url :feed show :etag (:etag r) :last-modified (:last-modified r)}})
 ```
@@ -216,6 +217,29 @@ its type:
   (transcript/at (transcript/parse (fetch-body url) type) 754))
 ```
 
+A show can recommend other shows in its podroll, and name the feed of its
+publisher. `resolve/podroll` and `resolve/publisher` give these as remote
+items. `podcastindex/remote-item!` finds the feed of a remote item in the
+Podcast Index, by its feed guid. The publisher feed lists the shows of the
+publisher as remote items too, and a list feed lists episodes or songs of
+other feeds in the same way. `resolve/remote-items` gives them. Show the
+other shows of a publisher only if its feed lists this show, as the
+specification asks. `resolve/social-interacts` tells where the comments on
+an episode are, or that the podcaster wants no public comments.
+
+```clojure
+(resolve/podroll show)  ; => ({:feed-guid "917393e3-…" :feed-url "https://…" :title "…"} …)
+(podcastindex/remote-item! {:key "…" :secret "…"} (first (resolve/podroll show)))  ; => {:feed {…}}
+
+(def label (:feed (podcast/fetch! (:feed-url (resolve/publisher show)))))
+(resolve/remote-items label)  ; => ({:feed-guid "…" :feed-url "https://…" :medium "podcast"} …)
+(some #(= guid (:feed-guid %)) (resolve/remote-items label))  ; true when the publisher confirms the show
+
+(resolve/social-interacts show item)  ; => ({:protocol "activitypub" :uri "https://…" :priority 1} …)
+(resolve/soundbites item)             ; => ({:start-time 73 :duration 60 :title "…"} …), parts for a preview
+(resolve/ai-content? show item)       ; => true, false, or nil when the feed does not tell
+```
+
 
 ## Play episodes
 
@@ -237,6 +261,13 @@ media, or play the next episode.
 ```
 
 `[:play next-id]` comes only when another episode is in the queue.
+
+The settings of the show above have `:skip-outro`, so `step` ends each of
+its episodes 45 seconds before the end. A `:progress` or a `:skip` that
+moves the position into the outro gives `[:stop id]`, then `[:played id]`
+if the episode was not played before, and then the effects of
+`[:ended id]`. `player/outro-start` gives the position where the outro
+starts.
 
 The browser player of the inspector is a working example, in
 `web/inspector/player.cljs` and `web/inspector/player/view.cljs`.
