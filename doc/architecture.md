@@ -527,10 +527,11 @@ The map holds:
   played mark, which `progress` sets within `played-threshold` seconds of
   the end
 - the queue, one entry for each episode, with a rank from `rank` that gives
-  the order
+  the order, and the playlists, ranked in the same way
 - the inbox and the stars, one entry for each episode, and the saved
   filters, one entry for each name, each with a tombstone for each removal
 - the bookmarks, one entry for each whole second of an episode
+- the counts of listening, one for each show, month and device
 - the preferences of the listener, such as the skip amounts and the playback
   rate, one entry for each field
 - the device registry, with an entry for each device of the listener
@@ -545,19 +546,31 @@ subscription into the queue or the inbox, as the settings say, unless the
 state knows them already. `refresh-list` does the same for a followed OPML
 list: the shows that join it become subscriptions, unless the state knows
 them. It never unsubscribes, because a show that leaves a list can still
-be one that the listener likes. `to-opml` and `from-opml` connect to
-`format.opml`. They keep the feed guid, the folder and the tags of each
-show, and the time the listener subscribed. `from-opml` uses the feed
-title before the text of an outline, which some apps fill with a
-description, and it takes a folder around the whole list for a wrapper,
-as some apps write one. `skip` moves within an episode, and never past its
-start or its end.
+be one that the listener likes.
+
+A playlist is a list of episodes beside the one queue, so that `step`
+stays about the queue. The podcast namespace has a standard for such a
+list, the list feed of the medium podcastL, so `to-list-feed` and
+`from-list-feed` connect a playlist to one.
+
+`to-opml` and `from-opml` connect to `format.opml`. They keep the feed
+guid, the folder and the tags of each show, and the time the listener
+subscribed. `from-opml` uses the feed title before the text of an outline,
+which some apps fill with a description, and it takes a folder around the
+whole list for a wrapper, as some apps write one. `skip` moves within an
+episode, and never past its start or its end.
 
 `step` is a small reducer over the events of a player: `:progress`,
 `:ended`, `:play` and `:skip`. It returns the new state, and the effects for
 the app, such as to seek, to stop where the outro starts, or to play the
 next episode. `step` is the only place where behavior is composed, and it is
-short on purpose.
+short on purpose. At each `:progress`, it adds the seconds heard to a count
+for the show and the month. Each device has a count of its own, which only
+it writes and which only grows, so the counts of two devices that count at
+the same time add up, and none is lost. No standard counts listening, and
+a log of each play, as the gpodder API keeps, grows without end. A count by
+month keeps the document small; an app that wants the days keeps them on
+the device.
 
 
 ## Search

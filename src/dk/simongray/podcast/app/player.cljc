@@ -15,10 +15,12 @@
        :lists         {url {:title :folder :removed?}}  ; OPML lists the listener follows
        :episodes      {[feed-guid item-guid] {:position :duration :played? :played-at}}
        :queue         {[feed-guid item-guid] {:rank \"V\" :removed? false}}
+       :playlists     {name {[feed-guid item-guid] {:rank \"V\" :removed? false}}}
        :inbox         {[feed-guid item-guid] {:removed? false}}
        :stars         {[feed-guid item-guid] {:removed? false}}
        :bookmarks     {[feed-guid item-guid] {754 {:title :removed?}}}
        :filters       {name {:criteria {:where {:status :unplayed}} :removed?}}
+       :listened      {feed-guid {\"2026-09\" {device-id {:seconds 5400.0}}}}
        :preferences   {:skip-forward {:value 30} ...}
        :devices       {device-id {:name :platform ... :seen {device-id #inst \"…\"}}}
        :retired       {device-id {}}}
@@ -354,9 +356,10 @@
   merged, by the registry (see `acknowledge`), and that are older than
   `:keep-for` milliseconds in `opts` (default `default-keep`), a buffer
   against a device that starts syncing with a state of its own: those of
-  unsubscriptions, of lists no longer followed, of removals from the queue
-  and the inbox, and of the tags, stars, bookmarks and saved filters taken
-  away. The played marks stay, since the listener still sees them, and a
+  unsubscriptions, of lists no longer followed, of removals from the
+  queue, the playlists and the inbox, and of the tags, stars, bookmarks
+  and saved filters taken away. The played marks and the counts of
+  listening stay, since the listener still sees them, and a
   device that has stopped syncing holds compaction back until it is
   retired (see `lagging`)."
   ([state at]
@@ -376,7 +379,7 @@
                             m))]
      (reduce (fn [s k] (if (map? (get s k)) (update s k sweep) s))
              state
-             [:subscriptions :tags :lists :queue :inbox :stars :bookmarks :filters]))))
+             [:subscriptions :tags :lists :queue :playlists :inbox :stars :bookmarks :filters]))))
 
 (defn lagging
   "The live devices other than this one that, by their registry entries,
@@ -467,6 +470,35 @@
         target   (+ (if (finite? position) position 0) seconds)
         target   (max 0 (if (and (finite? duration) (pos? duration)) (min target duration) target))]
     (progress state id target at)))
+
+(defn- heard
+  "`state` with the seconds that the listener heard of the episode `id`,
+  reported at `position` at `at`, added to this device's count for the
+  show and the month of `at` in UTC: how far the position moved since the
+  episode was last written, at most three times the time that passed,
+  since a move further than playback at three times the speed is a seek."
+  [state id position at]
+  (let [{p0 :position t0 :updated-at} (episode state id)
+        seconds (when (and (number? position) (number? p0) (inst? t0))
+                  (let [moved (- position p0)
+                        spent (/ (- (inst-ms at) (inst-ms t0)) 1000.0)]
+                    (when (and (pos? moved) (pos? spent))
+                      (min moved (* 3 spent)))))]
+    (if seconds
+      (write state [:listened (first id) (subs (time/format-iso8601 at) 0 7) (:device state)]
+             #(assoc (or % {}) :seconds (+ (or (:seconds %) 0) seconds))
+             at)
+      state)))
+
+(defn listened
+  "The seconds of each show that the listener heard, by feed guid and month
+  in UTC, as `{feed-guid {\"2026-09\" 5400.0}}`: the counts of all devices
+  added up. Each device keeps a count of its own, which only grows, so
+  that no count is lost when two devices count at once; `step` counts at
+  each `:progress`."
+  [state]
+  (update-vals (:listened state)
+               (fn [months] (update-vals months #(reduce + 0 (keep :seconds (vals %)))))))
 
 (defn resume-position
   "Where to start playing the episode `id` of `feed-guid`: where the
@@ -578,17 +610,18 @@
         (sort-by :position)
         vec)))
 
-(defn- queue-order
-  "The live entries of the queue of `state`, `[id entry]`, in order: by
-  rank, then by stamp and device where two devices ranked at once."
-  [state]
+(defn- ranked
+  "The live entries of `entries`, a map of ranked entries such as the
+  queue, as `[id entry]` in order: by rank, then by stamp and device where
+  two devices ranked at once."
+  [entries]
   (sort-by (fn [[_ {:keys [rank updated-at device]}]] [rank (inst-ms updated-at) (str device)])
-           (remove (comp :removed? val) (:queue state))))
+           (remove (comp :removed? val) entries)))
 
 (defn queue
   "The episode ids queued in `state`, the current one first."
   [state]
-  (mapv key (queue-order state)))
+  (mapv key (ranked (:queue state))))
 
 (defn current
   "The episode id at the front of the queue, nil when it is empty."
@@ -621,18 +654,34 @@
     state))
 
 (defn- rank-between
-  "A rank for a place in the queue of `state`: after the queued episode
-  `before` and before the queued `after`, either nil at an end of the
-  queue. Where several entries share a rank, the place is after all of
-  them."
-  [state before after]
-  (let [a (some->> before (get (:queue state)) :rank)
+  "A rank for a place among the ranked `entries`: after the live entry
+  `before` and before the live `after`, either nil at an end. Where
+  several entries share a rank, the place is after all of them."
+  [entries before after]
+  (let [a (some->> before (get entries) :rank)
         b (when after
-            (->> (drop-while #(not= after (key %)) (queue-order state))
+            (->> (drop-while #(not= after (key %)) (ranked entries))
                  (map (comp :rank val))
                  (filter #(or (nil? a) (pos? (compare % a))))
                  first))]
     (rank/between a b)))
+
+(defn- last-rank
+  "The greatest rank among the live `entries`, nil when there is none, found
+  in one pass, so that appending many entries in a row sorts nothing."
+  [entries]
+  (reduce-kv (fn [r _ {:keys [rank removed?]}] (if (and (not removed?) (pos? (compare rank r))) rank r))
+             nil
+             entries))
+
+(defn- rank-at
+  "The rank that moves the entry `id` to position `index` among the ranked
+  `entries`; an index that is not whole counts as the whole number below
+  it, and NaN as 0, on both platforms."
+  [entries id index]
+  (let [others (vec (remove #{id} (map key (ranked entries))))
+        index  (long (max 0 (min (if (== index index) index 0) (count others))))]
+    (rank-between entries (get others (dec index)) (get others index))))
 
 (defn- place
   "`state` with the episode `id` queued at `rank` at `at`, and out of the
@@ -640,21 +689,13 @@
   [state id rank at]
   (write-each state (into [[[:queue id] (constantly {:rank rank :removed? false})]] (out-of-inbox state id)) at))
 
-(defn- last-rank
-  "The greatest rank in the queue of `state`, nil when it is empty, found in
-  one pass, so that queuing many episodes in a row sorts nothing."
-  [state]
-  (reduce-kv (fn [r _ {:keys [rank removed?]}] (if (and (not removed?) (pos? (compare rank r))) rank r))
-             nil
-             (:queue state)))
-
 (defn enqueue
   "Put the episode `id` at the end of the queue at `at`, unless it is queued
   already."
   [state id at]
   (if (queued? state id)
     state
-    (place state id (rank/between (last-rank state) nil) at)))
+    (place state id (rank/between (last-rank (:queue state)) nil) at)))
 
 (defn play-next
   "Put the episode `id` right after the current episode at `at`, moving it
@@ -663,7 +704,7 @@
   (if (= id (current state))
     state
     (let [[first-id second-id] (remove #{id} (queue state))]
-      (place state id (rank-between state first-id second-id) at))))
+      (place state id (rank-between (:queue state) first-id second-id) at))))
 
 (defn dequeue
   "Take the episode `id` out of the queue at `at`, leaving a tombstone, so
@@ -680,9 +721,7 @@
   [state id index at]
   (if-not (queued? state id)
     state
-    (let [others (vec (remove #{id} (queue state)))
-          index  (long (max 0 (min (if (== index index) index 0) (count others))))]
-      (place state id (rank-between state (get others (dec index)) (get others index)) at))))
+    (place state id (rank-at (:queue state) id index) at)))
 
 (defn advance
   "Drop the current episode from the queue at `at`, so that the next one is
@@ -691,6 +730,101 @@
   (if-let [id (current state)]
     (dequeue state id at)
     state))
+
+(defn playlist
+  "The episode ids in the playlist `name` of `state`, in order. A playlist
+  is a list the listener keeps beside the queue, ranked as the queue is;
+  the app plays it by queueing its episodes."
+  [state name]
+  (mapv key (ranked (get-in state [:playlists name]))))
+
+(defn playlists
+  "The playlists of `state` by name, as `{name [episode-id ...]}`; a
+  playlist without episodes is none."
+  [state]
+  (into {} (keep (fn [[name entries]] (when-some [ids (not-empty (mapv key (ranked entries)))] [name ids])))
+        (:playlists state)))
+
+(defn add-to-playlist
+  "Put the episode `id` at the end of the playlist `name` at `at`, unless it
+  is in it already."
+  [state name id at]
+  (let [entries (get-in state [:playlists name])
+        e       (get entries id)]
+    (if (and e (not (:removed? e)))
+      state
+      (write state [:playlists name id] (constantly {:rank (rank/between (last-rank entries) nil) :removed? false}) at))))
+
+(defn remove-from-playlist
+  "Take the episode `id` out of the playlist `name` at `at`, leaving a
+  tombstone."
+  [state name id at]
+  (let [e (get-in state [:playlists name id])]
+    (if (and e (not (:removed? e)))
+      (write state [:playlists name id] #(assoc % :removed? true) at)
+      state)))
+
+(defn move-in-playlist
+  "Move the episode `id` to position `index` of the playlist `name` at
+  `at`, as `move` moves one in the queue."
+  [state name id index at]
+  (let [entries (get-in state [:playlists name])
+        e       (get entries id)]
+    (if (and e (not (:removed? e)))
+      (write state [:playlists name id] (constantly {:rank (rank-at entries id index) :removed? false}) at)
+      state)))
+
+(defn rename-playlist
+  "Move the episodes of the playlist `from` to the playlist `to` at `at`,
+  in their order, or take them out of it when `to` is nil, which deletes
+  the playlist."
+  [state from to at]
+  (if-let [entries (seq (ranked (get-in state [:playlists from])))]
+    (write-each state (for [[id {:keys [rank]}] entries
+                            w (cond-> [[[:playlists from id] #(assoc % :removed? true)]]
+                                to (conj [[:playlists to id] (constantly {:rank rank :removed? false})]))]
+                        w)
+                at)
+    state))
+
+(defn to-list-feed
+  "The playlist `name` of `state` as a list feed of the podcast namespace,
+  for `dk.simongray.podcast/emit`, which Podcasting 2.0 apps that play
+  list feeds can play: a channel of the medium podcastL whose remote items
+  point to the episodes in order, with the URL of each feed the listener
+  subscribes to. `opts` give what RSS 2.0 and the namespace ask of a feed
+  and the playlist does not know: the `:url` the feed is published at,
+  from which its podcast:guid derives, the `:link` of a page about the
+  list, the URL when not given, a `:description`, the name when not given,
+  and another `:medium`, such as mixed. Without a link or a URL, the
+  channel lacks the link that RSS 2.0 requires."
+  ([state name]
+   (to-list-feed state name {}))
+  ([state name {:keys [url link description medium] :or {medium "podcastL"} :as opts}]
+   {:pre [(map? opts)]}
+   (let [subs (subscriptions state)]
+     (cond-> {:rss/version          "2.0"
+              :rss/title            name
+              :rss/description      (or description name)
+              :podcast/medium       medium
+              :podcast/remote-items (vec (for [[feed-guid item-guid] (playlist state name)
+                                               :let [feed-url (get-in subs [feed-guid :url])]]
+                                           (cond-> {:feed-guid feed-guid :item-guid item-guid}
+                                             feed-url (assoc :feed-url feed-url))))}
+       (or link url) (assoc :rss/link (or link url))
+       url           (assoc :podcast/guid (guid/from-url url))))))
+
+(defn from-list-feed
+  "Add the episodes that the list feed `feed` points to at `at`, each remote
+  item with a feed guid and an item guid, to the end of the playlist
+  `name`, in the order of the feed."
+  [state name feed at]
+  (reduce (fn [state {:keys [feed-guid item-guid]}]
+            (if (and feed-guid item-guid)
+              (add-to-playlist state name [feed-guid item-guid] at)
+              state))
+          state
+          (:podcast/remote-items feed)))
 
 (defn new-episodes
   "The ids of the items that the parse `after` of the feed at `url` has and
@@ -909,8 +1043,8 @@
 
 (def ^:no-doc collections
   "The keys of a state that hold maps of entries."
-  [:subscriptions :settings :tags :lists :episodes :queue :inbox :stars :bookmarks :filters
-   :preferences :devices :retired])
+  [:subscriptions :settings :tags :lists :episodes :queue :playlists :inbox :stars :bookmarks
+   :filters :listened :preferences :devices :retired])
 
 (defn- stamp-problem
   "The first stamped entry in `v`, at `path`, whose stamp is not an instant,
@@ -923,15 +1057,30 @@
     (map? v)     (some (fn [[k x]] (stamp-problem (conj path k) x)) v)
     :else        nil))
 
+(defn- ranked-problem
+  "What in the ranked `entries` of `where`, such as the queue, `ranked`
+  would throw on, described: an entry without a stamp, or a rank that is
+  not a rank; nil when there is none."
+  [where entries]
+  (some (fn [[id {:keys [rank] :as e}]]
+          (cond
+            (not (and (map? e) (stamped? e)))
+            (str "the entry of " (pr-str id) " in " where " is not stamped")
+
+            (and (some? rank) (not (rank/rank? rank)))
+            (str "the rank of " (pr-str id) " in " where " is " (pr-str rank) ", not a rank")))
+        entries))
+
 (defn problem
   "What in `state`, as another device wrote it, breaks what `merge` and the
   operations here rely on, described; nil when nothing does. Merged in,
   such a value would reach every device, and there the first operation to
   meet it would throw: a clock or a stamp that is not an instant, a
-  collection or an entry that is not a map, a rank in the queue that is
-  not a rank, a device's record of what it has seen that is not a map of
-  instants, a bookmark that is not at a number of seconds, or a tag that
-  is not a string."
+  collection or an entry that is not a map, an entry of the queue or of a
+  playlist without a stamp or with a rank that is not a rank, a device's
+  record of what it has seen that is not a map of instants, a bookmark
+  that is not at a number of seconds, a tag that is not a string, or a
+  count of listening that is not a number of seconds."
   [state]
   (or (when-not (map? state)
         "the state is not a map")
@@ -948,10 +1097,9 @@
                   (str k " is not a map"))))
             collections)
       (stamp-problem [] state)
-      (some (fn [[id {:keys [rank]}]]
-              (when (and (some? rank) (not (rank/rank? rank)))
-                (str "the rank of " (pr-str id) " in the queue is " (pr-str rank) ", not a rank")))
-            (:queue state))
+      (ranked-problem "the queue" (:queue state))
+      (some (fn [[name entries]] (ranked-problem (str "the playlist " (pr-str name)) entries))
+            (:playlists state))
       (some (fn [[id {:keys [seen]}]]
               (when (and (some? seen) (not (and (map? seen) (every? inst? (vals seen)))))
                 (str "what device " (pr-str id) " has seen is not a map of instants")))
@@ -963,7 +1111,14 @@
       (some (fn [[feed-guid ts]]
               (when-not (every? string? (keys ts))
                 (str "a tag of " (pr-str feed-guid) " is not a string")))
-            (:tags state))))
+            (:tags state))
+      (some (fn [[feed-guid months]]
+              (when-not (every? (fn [counts]
+                                  (and (map? counts)
+                                       (every? #(and (map? %) (number? (:seconds % 0))) (vals counts))))
+                                (vals months))
+                (str "the listening of " (pr-str feed-guid) " is not counted in seconds")))
+            (:listened state))))
 
 (defn- changed-part
   "The part of `v` that is not in `was`, the same place in an earlier
@@ -1014,7 +1169,8 @@
   "Advance `state` by the player `event` at `at`, returning `{:state ...
   :effects [...]}`, the effects being what the UI should do next:
 
-      [:progress id position duration]  records the position; effect
+      [:progress id position duration]  records the position, and the seconds heard
+                                        since the last report for `listened`; effect
                                         [:played id] when it now counts as played
       [:ended id]                       marks it played and, when it was current,
                                         drops it from the queue; effect [:play next]
@@ -1036,14 +1192,14 @@
                     state'  (skip state id seconds at)]
                 (moved state state' id [[:seek id (:position (episode state' id))]] at))
     :progress (let [[position duration] args]
-                (moved state (progress state id position duration at) id [] at))
+                (moved state (-> state (heard id position at) (progress id position duration at)) id [] at))
     :ended    (let [state'   (mark-played state id at)
                     current? (= id (current state'))
                     state'   (if current? (advance state' at) state')
                     next     (when current? (current state'))]
                 {:state   state'
                  :effects (if next [[:play next]] [])})
-    :play     {:state   (place state id (rank-between state nil (first (remove #{id} (queue state)))) at)
+    :play     {:state   (place state id (rank-between (:queue state) nil (first (remove #{id} (queue state)))) at)
                :effects []}
     {:state state :effects []}))
 

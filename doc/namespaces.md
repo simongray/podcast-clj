@@ -89,7 +89,7 @@ Each name below is relative to `dk.simongray.podcast`.
 
 | Namespace | Contents |
 |---|---|
-| `app.player` | The player state as a CRDT: queue, inbox, progress, stars, bookmarks, subscriptions with their settings, folders and tags, followed OPML lists, saved filters and devices. `merge`, `compact` and `step`. |
+| `app.player` | The player state as a CRDT: queue, playlists, inbox, progress, stars, bookmarks, subscriptions with their settings, folders and tags, followed OPML lists, saved filters, counts of listening and devices. `merge`, `compact` and `step`. Playlists as list feeds. |
 | `app.search` | Filters and orders of episodes as data, and a full-text index over subscriptions, ranked by BM25. |
 | `app.sync` | The sync between devices: sync documents, `reconcile`, `sync!` over any backends, and `next-at`. |
 | `app.sync.store` | The store contract, `memory`, `backend` over any store, and `check!` to test a store. |

@@ -276,6 +276,25 @@ One imprecision remains. A move between two entries with the same rank lands
 after both. This needs two devices that rank the same place at the same
 time, and then a third change between them.
 
+Each playlist is a set of ranked entries in the same way, under its name.
+
+### Counts of listening
+
+The seconds that the listener hears are counted for each show, month and
+device. Each count belongs to one device, which alone writes it, and it
+only grows. For this reason, the later of two stamps is also the higher
+count, and a merge by stamp keeps it, as for any other entry. The sum over
+the devices is the total. A count for all devices together would lose the
+seconds of one device when two devices count at the same time.
+
+A count of one month for each show keeps the document small: a listener of
+twenty shows on two devices adds about 500 entries a year. A count for
+each day would add thirty times as many.
+
+A device restored from a backup can write a count lower than the count
+that the other devices hold, with a later stamp. Retire the id of the
+device before the restore, as for compaction.
+
 ### Settings field by field
 
 The preferences, and the settings of a subscription, have one entry for each
@@ -293,10 +312,9 @@ and the show is never in two folders.
 The inbox, the stars, the bookmarks, the saved filters, the tags of a show
 and the followed OPML lists are sets, one entry for each episode, second,
 name, tag or URL, with a tombstone for each removal, as the subscriptions
-are. A star that one
-device removes stays removed when an older star comes from another device.
-Two tags that two devices give a show at the same time both stay, unlike
-two folders.
+are. A star that one device removes stays removed when an older star comes
+from another device. Two tags that two devices give a show at the same
+time both stay, unlike two folders.
 
 Each device refreshes its feeds, so two devices can find the same new
 episode. `refresh` adds an episode to the queue or the inbox only if the
@@ -333,13 +351,14 @@ device that joins later can bring back what it forgot.
 
 `player/compact` drops the tombstones that pass this test and are older
 than 30 days: those of unsubscriptions, of lists no longer followed, of
-removals from the queue and the inbox, and of the tags, stars, bookmarks
-and saved filters that the listener took away. The 30 days are a buffer for a device that joins with
-a state of its own. The played marks stay, because the listener still sees
-them. `sync!` compacts at each step, unless its options tell it not to.
-The app merges the result of a step into its current state, and the merge
-keeps what either state holds, the removed tombstones too. For this reason,
-the app compacts after the merge as well.
+removals from the queue, the playlists and the inbox, and of the tags,
+stars, bookmarks and saved filters that the listener took away. The 30
+days are a buffer for a device that joins with a state of its own. The
+played marks and the counts of listening stay, because the listener still
+sees them. `sync!` compacts at each step, unless its options tell it not
+to. The app merges the result of a step into its current state, and the
+merge keeps what either state holds, the removed tombstones too. For this
+reason, the app compacts after the merge as well.
 
 A device that stops syncing blocks compaction until the listener retires it,
 and `player/lagging` names such devices for the user interface. A device

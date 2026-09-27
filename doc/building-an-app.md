@@ -337,6 +337,12 @@ episodes. Each change syncs to the other devices, as the queue does.
   when the listener queues it, plays it or dismisses it.
 - The listener can star an episode, and bookmark a position in it.
 - A saved filter keeps the criteria of `search/episodes` under a name.
+- A playlist is a list of episodes beside the queue, in the order the
+  listener gives. Play it by queueing its episodes. `player/to-list-feed`
+  writes it as a list feed of the podcast namespace, which Podcasting 2.0
+  apps can play, and `player/from-list-feed` reads one.
+- `player/step` counts the seconds that the listener hears of each show,
+  month by month, for statistics and a review of the year.
 
 ```clojure
 (def state (-> state
@@ -352,6 +358,11 @@ episodes. Each change syncs to the other devices, as the queue does.
 (player/dismiss state id now)
 (player/starred state)       ; => [id …], the latest starred first
 (player/bookmarks state id)  ; => [{:id id :position 754 :title "The interview starts" …}]
+(player/listened state)      ; => {guid {"2026-09" 5400.0 …} …}, seconds by show and month
+
+(def state (player/add-to-playlist state "Road trip" id now))
+(reduce #(player/enqueue %1 %2 now) state (player/playlist state "Road trip"))  ; play it
+(podcast/emit (player/to-list-feed state "Road trip" {:url "https://example.org/road-trip.xml"}))
 
 (let [urls (into {} (for [[_ {:keys [url feed]}] feeds] [feed url]))]  ; for feeds without a podcast:guid
   (search/episodes (keys urls) (assoc (get (player/filters state) "Starred") :player state :url #(urls %))))

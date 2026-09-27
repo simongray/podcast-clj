@@ -1,10 +1,13 @@
 (ns dk.simongray.podcast.app.player-test
-  "The player state: subscriptions, progress, the queue and the inbox,
-  stars, bookmarks, folders, tags, followed lists and saved filters,
-  refreshes, OPML, merging and the reducer."
+  "The player state: subscriptions, progress, the queue, the playlists and
+  the inbox, stars, bookmarks, folders, tags, followed lists, saved filters
+  and the counts of listening, refreshes, OPML and list feeds, merging and
+  the reducer."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 t4 a]]
@@ -305,6 +308,52 @@
         (is (re-find #"<outline text=\"Picks\">\s*<outline type=\"rss\"[^>]*/>\s*<outline type=\"include\" text=\"Picks\" url=\"https://lists.example/picks.opml\"/>" xml))
         (is (= {url {:title "Picks" :folder "Picks"}}
                (player/lists (player/from-opml (player/state "laptop") (opml/parse xml) t2))))))))
+
+(deftest playlists-beside-the-queue
+  (let [s (-> (player/state "phone")
+              (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+              (player/add-to-playlist "Drive" a t0)
+              (player/add-to-playlist "Drive" b t0)
+              (player/add-to-playlist "Drive" c t0)
+              (player/move-in-playlist "Drive" c 0 t1))]
+    (is (= [c a b] (player/playlist s "Drive")))
+    (is (= s (player/add-to-playlist s "Drive" a t2)) "an episode is in a playlist once")
+    (is (= [c b] (player/playlist (player/remove-from-playlist s "Drive" a t2) "Drive")))
+    (is (= {"Road trip" [c a b]} (player/playlists (player/rename-playlist s "Drive" "Road trip" t2))) "in the same order")
+    (is (= {} (player/playlists (player/rename-playlist s "Drive" nil t2))) "nil deletes it")
+    (is (= [] (player/queue s)) "the queue is its own")
+    (testing "as a list feed of the podcast namespace, and back"
+      (let [feed (player/to-list-feed s "Drive" {:url "https://me.example/drive.xml"})]
+        (is (= {:rss/version "2.0" :rss/title "Drive" :rss/description "Drive" :rss/link "https://me.example/drive.xml"
+                :podcast/guid (guid/from-url "https://me.example/drive.xml") :podcast/medium "podcastL"
+                :podcast/remote-items [{:feed-guid "feed-b" :item-guid "b1"}
+                                       {:feed-guid "feed-a" :item-guid "a1" :feed-url "https://a/rss"}
+                                       {:feed-guid "feed-a" :item-guid "a2" :feed-url "https://a/rss"}]}
+               feed)
+            "with the URL of each feed the listener subscribes to")
+        (is (= [] (validate/validate feed)))
+        (is (= [c a b] (player/playlist (player/from-list-feed (player/state "laptop") "Shared"
+                                                               (podcast/parse (podcast/emit feed)) t2)
+                                        "Shared")))))))
+
+(deftest counting-listening
+  (let [g  "feed-a"
+        id [g "e1"]
+        s0 (player/subscribe (player/state "phone") g {:url "https://a/rss" :title "A"} t0)
+        at #(time/->inst (+ (inst-ms #inst "2026-09-30T23:59:50Z") (* 1000 %)))
+        s1 (:state (player/step s0 [:progress id 100 3600] (at 0)))
+        s2 (:state (player/step s1 [:progress id 110 3600] (at 10)))]
+    (is (= {} (player/listened s1)) "a first report has nothing to count from")
+    (is (= {g {"2026-10" 10}} (player/listened s2)) "the month of the report, in UTC")
+    (is (< 14.9 (get-in (player/listened (:state (player/step s2 [:progress id 700 3600] (at 15)))) [g "2026-10"]) 25.1)
+        "a seek counts no more than playback at three times the speed")
+    (is (= (player/listened s2) (player/listened (:state (player/step s2 [:progress id 50 3600] (at 15)))))
+        "nor does a move back")
+    (testing "two devices counting at once lose nothing"
+      (let [laptop (:state (player/step (player/merge (player/state "laptop") s1) [:progress id 130 3600] (at 30)))]
+        (is (= {g {"2026-10" 40}} (player/listened (player/merge s2 laptop))))))
+    (is (= "the listening of \"feed-a\" is not counted in seconds"
+           (player/problem (assoc-in s2 [:listened g "2026-10" "x"] {:seconds "many" :updated-at t1 :device "x"}))))))
 
 (deftest saved-filters
   (let [s (-> (player/state "phone")

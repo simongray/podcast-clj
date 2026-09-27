@@ -129,3 +129,7 @@
 - A listener can follow an OPML list that someone keeps on the web.
   `refresh-list` subscribes to the shows that join it, and OPML carries
   the followed lists as inclusions.
+- Playlists beside the queue, which `to-list-feed` and `from-list-feed`
+  connect to list feeds of the podcast namespace. `step` counts the
+  seconds heard of each show by month, one count for each device, and
+  `listened` adds them up.
