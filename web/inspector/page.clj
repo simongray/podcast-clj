@@ -54,7 +54,7 @@
     [:div#player-bar]
     (into [:main#content
            [:nav [:a {:href "/"} "Inspector"] [:a {:href "/queue"} "Queue"] [:a {:href "/podping"} "Podping"]
-            [:span.muted "dk.simongray/podcast reference implementation"]]]
+            [:span.muted "podcast-clj reference implementation"]]]
           body)
     [:script {:src "/js/player.js"}]]])
 

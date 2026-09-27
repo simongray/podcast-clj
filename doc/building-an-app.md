@@ -1,19 +1,25 @@
-# Building a podcast app on the library
+# How to build a podcast app
 
-This is the path from finding a show to playing it, with the function to
-call at each step. Everything here is plain data and pure functions; the
-app owns the parts that differ between apps, listed at the end. The
-bundled inspector, under `web/`, walks the same path and is the worked
-example.
+This guide shows the functions that a podcast app calls, in the order that a
+listener meets them. It assumes that you know Clojure and the basics of
+podcast feeds. The inspector in `web/` does the same steps, and you can read
+its code as a working example.
 
-An app's state is three values: the player state of
-`dk.simongray.podcast.app.player`, one map with the subscriptions, the queue
-and the progress per episode; the parsed feeds, kept by feed guid along
-with the URL each was fetched from and the validators of the last fetch;
-and, when the app searches, an index from `dk.simongray.podcast.app.search`.
-Syncing adds a fourth, the cursors `sync!` hands back. All of them are
-values that print as EDN, so storing them is the app's choice of where,
-not how.
+
+## Before you start
+
+An app keeps these values between runs:
+
+- the player state of `app.player`: the subscriptions, the queue, and the
+  progress in each episode
+- the parsed feeds, by feed guid, each with its URL and the validators of
+  the last fetch
+- the search index of `app.search`, if the app searches
+- the sync cursors that `sync!` returns, if the app syncs
+
+All of these values are EDN. The app decides where to store them.
+
+The examples use these aliases:
 
 ```clojure
 (require '[dk.simongray.podcast :as podcast]
@@ -34,40 +40,44 @@ not how.
          '[dk.simongray.podcast.resolve :as resolve]
          '[dk.simongray.podcast.value :as value])
 
-(def now (java.util.Date.))          ; every write to the player state takes the time
+(def now (java.util.Date.))  ; each write to the player state takes the time
 ```
 
-## 1. Finding a show
+The examples run on the JVM. In ClojureScript, the functions that send
+requests return promises, and some functions exist only on the JVM. See
+[Namespaces](namespaces.md).
 
-The directories answer behind one shape. On the JVM, `search!` asks Apple
-Podcasts, fyyd and gpodder.net at once, and the Podcast Index too when
-given credentials, and combines the answers into one entry per show.
+
+## Find a show
+
+On the JVM, `directory/search!` searches Apple Podcasts, fyyd and
+gpodder.net at the same time. With Podcast Index credentials, it also
+searches the Podcast Index. It combines the results into one entry per show.
 
 ```clojure
 (def found (:results (directory/search! "podcasting 2.0" {:limit 5})))
 (map (juxt resolve/title resolve/author :directory/sources) found)
 ;; => (["Podcasting 2.0" "Podcast Index LLC" {:apple "1584274529" :fyyd 61003 :gpodder "https://…"}] …)
 
-(def url (resolve/self-url (first found)))   ; the feed to subscribe to
+(def url (resolve/self-url (first found)))  ; the URL of the feed
 ```
 
-In a browser, `directory/request` gives the request map and
-`directory/response` reads the answer; whether a directory allows the call
-from a page is its CORS policy, not the library's.
+In a browser, build the request with `directory/request`, send it, and read
+the answer with `directory/response`. The CORS policy of each directory
+decides if a web page can send the request.
 
-## 2. Subscribing
 
-Fetch the feed, keep what the next poll needs, and tell the player state.
-The feed's identity is its `podcast:guid`, or the one the specification
-derives from the URL when it declares none; `feed/feed-guid` answers either
-way, and every id in the player state is built on it.
+## Subscribe to a show
+
+Fetch the feed, keep the validators for the next fetch, and add the
+subscription to the player state:
 
 ```clojure
-(def r (podcast/fetch! url))                         ; {:status 200 :feed … :etag … :last-modified … :url …}
+(def r (podcast/fetch! url))  ; {:status 200 :feed … :etag … :last-modified … :url …}
 (def show (:feed r))
 (def guid (feed/feed-guid show url))
 
-(def device-id (str (random-uuid)))                  ; once per installation, kept by the app
+(def device-id (str (random-uuid)))  ; make it once per installation, and keep it
 
 (def state
   (-> (player/state device-id)
@@ -75,49 +85,60 @@ way, and every id in the player state is built on it.
       (player/subscribe guid {:url url :title (resolve/title show)} now)
       (player/configure guid {:auto-queue? true :skip-intro 20} now)))
 
-(def library {guid {:url url :feed show :etag (:etag r) :last-modified (:last-modified r)}})
+(def feeds {guid {:url url :feed show :etag (:etag r) :last-modified (:last-modified r)}})
 ```
 
-`(:url r)` is the final URL after redirects, which is what a permanent
-redirect asks you to store. In a browser the fetch is yours, since feeds
-seldom allow cross-origin reads; `podcast/parse` takes the XML string.
+`feed/feed-guid` gives the identity of the feed: its `podcast:guid`, or the
+guid that the specification derives from the URL. All ids in the player
+state use this guid. `(:url r)` is the final URL after redirects.
 
-## 3. Keeping up
+In a browser, `fetch!` does not exist, and few feed servers accept requests
+from other origins. Get the XML through your own server, and give the string
+to `podcast/parse`.
 
-`resolve/next-check` says when to look again, from the feed's own
-update-frequency rule, its ttl, its syndication period or the cadence of
-its recent episodes. A conditional fetch costs nothing when nothing
-changed, and `player/refresh` folds the new episodes into the queue for
-subscriptions that ask for it.
+
+## Keep the feeds current
+
+`resolve/next-check` tells when to fetch a feed again. It uses the
+update-frequency rule of the feed, its `ttl`, its syndication period, or the
+interval between its recent episodes. Send the validators of the last fetch
+with the next fetch. If the feed did not change, the server answers 304 and
+the result has no `:feed`.
 
 ```clojure
-(resolve/next-check show now)                        ; => #inst "…", or nil for a complete feed
+(resolve/next-check show now)  ; => #inst "…", or nil for a complete feed
 
-(let [{:keys [etag last-modified]} (library guid)
+(let [{:keys [etag last-modified]} (feeds guid)
       r2 (podcast/fetch! url {:etag etag :last-modified last-modified})]
-  (when-let [fresh (:feed r2)]                       ; absent on a 304
+  (when-let [fresh (:feed r2)]  ; absent on a 304
     (let [{:keys [state added]} (player/refresh state show fresh url now)]
-      (podcast/report fresh)                         ; what had to be repaired or forgiven
-      (:new-feed-url r2)                             ; when present, move the subscription
-      added)))                                       ; the ids of the new episodes, oldest first
+      (podcast/report fresh)   ; what podcast-clj had to repair or normalize
+      (:new-feed-url r2)       ; if present, change the URL of the subscription
+      added)))                 ; the ids of the new episodes, oldest first
 ```
 
-Podping tells you which feeds changed, so that you fetch those and leave
-the schedule for the rest. A poller keeps the block it reached and the
-writers it has judged, and asks every few seconds for the blocks since.
+If the subscription has `:auto-queue?` set, `player/refresh` adds the new
+episodes of the feed to the end of the queue, oldest first.
+
+Podping tells which feeds changed. Fetch these feeds at once, and keep the
+schedule for the other feeds. Keep the last block that you read and the list
+of writers. Every few seconds, ask for the blocks after that block:
 
 ```clojure
-(def step (podping/poll! nil))                                        ; the head of the chain
-(def step (podping/poll! (:block step) {:writers (:writers step)}))   ; the pings since
-(podping/affected (:pings step) (map :url (vals (player/subscriptions state))))
-;; => ("https://feeds.podcastindex.org/pc20.xml")                    ; fetch these now
+(def polled (podping/poll! nil))                                         ; start at the head of the chain
+(def polled (podping/poll! (:block polled) {:writers (:writers polled)}))  ; the pings since then
+(podping/affected (:pings polled) (map :url (vals (player/subscriptions state))))
+;; => ("https://feeds.podcastindex.org/pc20.xml")                         ; fetch these now
 ```
 
-## 4. Showing a show and an episode
 
-`resolve` gives one answer per property where the vocabularies overlap,
-and `properties` gives them all at once; `search/episodes` selects and
-orders the items by criteria as data, the listener's progress included.
+## Build the show and episode pages
+
+`resolve/properties` gives one value for each property of a show or of an
+episode. Where several vocabularies have the same property, a rule in the
+docstring of the accessor selects the value. `search/episodes` selects and
+sorts the items by criteria that are data. The criteria can use the progress
+of the listener.
 
 ```clojure
 (resolve/properties show)
@@ -130,165 +151,162 @@ orders the items by criteria as data, the listener's progress included.
 (resolve/properties show item)
 ;; => {:title "…" :published #inst "…" :duration 3600 :numbering {:type "full" :season 2 :episode 3}
 ;;     :enclosure {:url "…" :type "audio/mpeg"} :transcript {:url "…" :type "text/vtt"} :people [...] …}
-(merge item (resolve/properties show item))         ; the raw fields and the resolved ones side by side
+(merge item (resolve/properties show item))  ; the raw fields and the resolved values together
 
-[:div.notes (html/hiccup (resolve/description item))]  ; the show notes, sanitized, as Hiccup for your renderer
+[:div.notes (html/hiccup (resolve/description item))]  ; the show notes, sanitized, as Hiccup
 ```
 
-Chapters come from a linked file, from Podlove chapters embedded in the
-feed, or from the timestamps in the notes; transcripts from the reference
-that suits the listener, fetched by you and parsed by format.
+An episode can have chapters in three places: a linked chapters file,
+Podlove chapters in the feed, or timestamps in the show notes. Try them in
+this order. In these examples, `fetch-body` is your own HTTP function.
 
 ```clojure
 (def doc (or (some-> (resolve/chapters-url item) fetch-body chapters/parse-json)
              (resolve/embedded-chapters item)
              (resolve/inferred-chapters item)))
-(chapters/at doc 754)                                ; the chapter playing at 12:34
+(chapters/at doc 754)  ; the chapter at 12:34
+```
 
+`resolve/transcript` selects the transcript that suits the listener: by
+language first, then by timings, then by type. Fetch it, and parse it with
+its type:
+
+```clojure
 (let [{:keys [url type]} (resolve/transcript show item {:languages ["da" "en"]})]
   (transcript/at (transcript/parse (fetch-body url) type) 754))
 ```
 
-## 5. Playing
 
-The player state holds the queue and the progress; the media element is
-yours. Every event from it goes through `player/step`, which returns the
-new state and the effects to perform: seek the element, or start the next
-episode.
+## Play episodes
+
+The player state holds the queue and the progress. The app holds the media
+element. Send each event of the media element to `player/step`. `step`
+returns the new state and the effects that the app must do: seek in the
+media, or play the next episode.
 
 ```clojure
 (def id (player/episode-id show url item))
 (def state (player/enqueue state id now))
 
-(player/resume-position state guid id)               ; where to start: where it was left, or past the intro
+(player/resume-position state guid id)  ; where the listener stopped, or after the intro
 (resolve/enclosure item {:types ["audio/opus" "audio/mpeg"] :max-bitrate 64000})
 
-(player/step state [:progress id 1234 3600] now)     ; from the element's timeupdate, every few seconds
-(player/step state [:skip id :forward] now)          ; => {:state … :effects [[:seek id 1264]]}
-(player/step state [:ended id] now)                  ; => {:state … :effects [[:play next-id]]}
+(def playing (:state (player/step state [:progress id 1234 3600] now)))  ; on each timeupdate event
+(player/step playing [:skip id :forward] now)  ; => {:state … :effects [[:seek id 1264]]}
+(player/step playing [:ended id] now)          ; => {:state … :effects [[:play next-id]]}
 ```
 
-The inspector's browser player is this: a small shell around views that
-are pure data, with tests that mount it on jsdom and click the buttons.
+`[:play next-id]` comes only when another episode is in the queue.
 
-## 6. Searching the library
+The browser player of the inspector is a working example, in
+`web/inspector/player.cljs` and `web/inspector/player/view.cljs`.
 
-The index is a value built from the feeds; rebuild it or `add` and
-`remove` documents as feeds refresh. Index a transcript when the app has
-fetched it, and index fewer fields in a browser short of memory.
+
+## Search the episodes
+
+The search index is a value that you build from the feeds. When a feed
+changes, build the index again, or use `search/add` and `search/remove`. To
+make a transcript searchable, give it to `search/item-document`. In a
+browser with little memory, index fewer fields.
 
 ```clojure
-(def idx (search/index (for [[_ {:keys [url feed]}] library
+(def idx (search/index (for [[_ {:keys [url feed]}] feeds
                              item (:rss/items feed)]
                          (search/item-document feed item {:url url}))))
 
-(search/query idx "value for va" {:limit 10})        ; every word, the last as a prefix, best first
+(search/query idx "value for va" {:limit 10})  ; all words, the last one as a prefix, best first
 ;; => [{:id [feed-guid item-guid] :score 7.1 :stored {:title "…" :show "…" :published #inst "…"}} …]
 (search/snippet (html/text (resolve/description item)) "value for va")
 ```
 
-## 7. Keeping devices in step
 
-Every device writes its whole state as one document and reads the others',
-and `player/merge` reconciles them, the later entry winning everywhere, so
-a folder that a sync client mirrors is a complete backend, and so is any
-store of named documents, a map of four functions. `sync!` is one step:
-pull, merge, push, with a cursor per backend to hand back next time.
-Nothing is scheduled; call it on start, on going to the background and
-after a burst of changes. The state is never replaced, only merged into,
-and each step compacts away the tombstones every other device has seen
-and that are a month old, so the documents stay small; a device that has
-stopped syncing holds that back until you retire it.
+## Sync the devices of a listener
+
+Each device writes its whole state as one document to a store, and reads the
+documents of the other devices. `sync!` does one step: pull, merge and push.
+[Syncing](sync.md) explains why this is safe.
+
+1. Find the place for the documents: a WebDAV collection, or a folder that a
+   sync client mirrors. [Sync stores and documents](stores.md) gives the
+   URLs and paths of some providers.
+2. Test the store with `store/check!`, for example from a button in the
+   settings screen.
+3. Make a backend for each place. `webdav/backend` and `file/backend` make
+   the store and the backend in one call.
+4. Call `sync!` when the app starts, when it goes to the background, and
+   after a series of changes. Keep the `:ctx` of the result for the next
+   call.
+5. Ask `sync/next-at` when to call `sync!` again, and set a timer.
 
 ```clojure
-(def creds {:username "simon" :password "app-password"})         ; an app password, see the table below
+(def creds {:username "simon" :password "app-password"})
 (def cloud-root "https://cloud.example.org/remote.php/dav/files/simon/podcasts/")
-(store/check! (webdav/store cloud-root {:credentials creds}))        ; => {:ok? true :checks [{:id :store/reachable …} …]}
+(store/check! (webdav/store cloud-root {:credentials creds}))  ; => {:ok? true :checks [{:id :store/reachable …} …]}
 
 (def cloud  (webdav/backend cloud-root {:credentials creds :opml? true :app "my-app"}))
 (def folder (file/backend "/Users/simon/Library/Mobile Documents/com~apple~CloudDocs/Podcasts" {:app "my-app"}))
-(def sealed (encrypted/backend (webdav/store cloud-root {:credentials creds})        ; the same collection, the documents
-                               {:passphrase (fn [] (from-the-keychain)) :opml? true  ; ciphertext to the server
-                                :except #{store/opml-name}}))                         ; the subscription list left readable
 
-(def step (sync/sync! state [cloud folder] now))                        ; => {:state … :ctx {…} :report [] :failed {…}}
-(def state (:state step))
-(sync/sync! state [cloud folder] (java.util.Date.) {:ctx (:ctx step)})  ; the next step reads only what changed
-(sync/next-at {:at now :changed? true :failures 0} (java.util.Date.))   ; when to call again, for your timer
+(def synced (sync/sync! state [cloud folder] now))  ; => {:state … :ctx {…} :report [] :failed {…}}
+(def state (:state synced))
+(sync/sync! state [cloud folder] (java.util.Date.) {:ctx (:ctx synced)})  ; reads only what changed
+(sync/next-at {:at now :changed? true :failures 0} (java.util.Date.))     ; when to call sync! again
+```
 
-(player/devices state)                               ; the listener's devices, as they described themselves
-(player/retire state lost-phone-id now)              ; a lost device: its document goes, and it writes no more
-(player/lagging state)                               ; => {old-tablet-id #inst "…"}: a device that holds compaction back
-(opml/emit (player/to-opml state))                   ; the subscriptions as OPML, for any other app
+To keep the documents encrypted on the server, use `encrypted/backend`
+around the store. The server then holds only ciphertext. With `:except`, the
+subscription list stays readable for other apps.
+
+```clojure
+(def sealed (encrypted/backend (webdav/store cloud-root {:credentials creds})
+                               {:passphrase (fn [] (from-the-keychain))
+                                :opml?      true
+                                :except     #{store/opml-name}}))
+```
+
+Each step also removes the tombstones that all other devices merged, if they
+are older than 30 days. A device that stopped syncing blocks this removal.
+`player/lagging` shows such devices, and `player/retire` removes a device
+from the sync.
+
+```clojure
+(player/devices state)                   ; the devices of the listener, as they described themselves
+(player/lagging state)                   ; => {old-tablet-id #inst "…"}: a device that blocks compaction
+(player/retire state lost-phone-id now)  ; the next syncs delete its document
+
+(opml/emit (player/to-opml state))       ; the subscriptions as OPML, for other apps
 (player/from-opml state (opml/parse opml-text) now)
 ```
 
-Every store namespace has the same two: `store` over a place, and
-`backend` in one call with the options of both. `store/check!` tries any
-store and reports as data, for the settings screen's test button.
-`encrypted/store` wraps any of them so that the server holds ciphertext:
-AES-GCM under a key derived from a passphrase, each document carrying its
-own salt, a plain document already there still readable, and a wrong
-passphrase failing that backend with the document's name. A folder covers
-the sync clients and WebDAV the self-hosted world, and
-`dk.simongray.podcast.app.sync.webdav.server/handler` serves a store from
-your own Clojure backend for a browser client, as the inspector does at
-`/dav/`. A store is four functions, so one over a service the library has
-none for is a short namespace; `doc/sync.md` has the design and what the
-seams admit.
+To serve a store from your own Clojure server, for example to a browser
+client, mount `dk.simongray.podcast.app.sync.webdav.server/handler`. The
+inspector does this at `/dav/`. To sync through a service that podcast-clj
+has no store for, write a store. [Sync stores and documents](stores.md)
+gives the contract: a map of two to four functions.
 
-### Where the stores are, as of September 2026
 
-Where a server keeps its collections and where a sync client keeps its
-folder are facts about those products, and they change with them, so the
-library holds none of them. This is a snapshot to start from, not a
-promise; the `check!` above says whether a line still holds.
+## Pay value for value
 
-| WebDAV server | The collection's URL | The credentials |
-|---|---|---|
-| Nextcloud | `https://HOST/remote.php/dav/files/USER/FOLDER/` | An app password: Settings, Security, Devices & sessions |
-| ownCloud | `https://HOST/remote.php/dav/files/USER/FOLDER/` | An app password: Settings, Security |
-| Seafile | `https://HOST/seafdav/LIBRARY/FOLDER/` | The WebDAV password set under Settings |
-| Synology DiskStation | `https://HOST:5006/SHARED-FOLDER/FOLDER/` | The account's password, with the WebDAV Server package on |
-| Fastmail | `https://myfiles.fastmail.com/FOLDER/` | An app password for Files (WebDAV); the user is the email address |
-| Hetzner Storage Box | `https://BOX.your-storagebox.de/FOLDER/` | The box's password, with WebDAV enabled in the Robot |
-| Box | `https://dav.box.com/dav/FOLDER/` | The account's password, or an app password with two-step verification on |
-| The inspector | `http://localhost:8300/dav/` | None |
-
-A username that is an email address is percent-encoded in the path, as
-`simon%40example.org`.
-
-| Sync client | macOS | Windows | Linux |
-|---|---|---|---|
-| iCloud Drive | `~/Library/Mobile Documents/com~apple~CloudDocs/` | `%USERPROFILE%\iCloudDrive\` | |
-| Dropbox | `~/Dropbox/` | `%USERPROFILE%\Dropbox\` | `~/Dropbox/` |
-| Google Drive | `~/Library/CloudStorage/GoogleDrive-EMAIL/My Drive/` | A drive letter, `G:\My Drive\` by default | |
-| OneDrive | `~/Library/CloudStorage/OneDrive-Personal/` | `%USERPROFILE%\OneDrive\` | |
-| Seafile | `~/Seafile/` | `%USERPROFILE%\Seafile\` | `~/Seafile/` |
-| Nextcloud | `~/Nextcloud/` | `%USERPROFILE%\Nextcloud\` | `~/Nextcloud/` |
-| Syncthing | Wherever the folder was set up | | |
-
-iCloud Drive with "Optimize Mac Storage" evicts files it has not seen used
-and leaves a hidden `.name.icloud` placeholder, which the folder store
-rightly ignores until the file is downloaded again.
-
-## 8. Value for value
-
-The value block that applies to an episode, who is paid at a given
-moment, and the record a payment carries; the payment itself is the
-app's.
+`resolve/value` gives the value block of an episode. `value/recipients-at`
+gives the recipients at a position in the episode, and `value/payments`
+divides an amount between them. `value/boostagram` writes the record that
+goes with a payment. The app makes the payment itself.
 
 ```clojure
 (def block (resolve/value show item))
-(value/payments (:recipients (value/recipients-at block 754)) 1000)   ; 1000 sats split at 12:34
-(value/boostagram {:sats 1000 :position 754 :message "Great episode" :feed-guid guid :item-guid (feed/item-guid item)})
+(value/payments (:recipients (value/recipients-at block 754)) 1000)  ; 1000 sats, divided at 12:34
+(value/boostagram {:sats 1000 :position 754 :message "Great episode"
+                   :feed-guid guid :item-guid (feed/item-guid item)})
 ```
 
-## What stays yours
 
-Storage, since the state is EDN and any store will do; HTTP in the
-browser, where feeds and directories decide what a page may fetch;
-playback, through a media element the effects drive; downloads,
-notifications and payments; and the appearance of all of it. Of syncing,
-a store over a service the library has none for, four functions against
-the contract `doc/sync.md` lays out.
+## What the app does itself
+
+podcast-clj does not do these tasks. The app does them:
+
+- Store the values that [Before you start](#before-you-start) lists.
+- Fetch feeds and query directories in a browser, where each server decides
+  what a web page can fetch.
+- Play the media, through a media element that the effects of `player/step`
+  control.
+- Download episodes, show notifications and make payments.
+- Draw the user interface.

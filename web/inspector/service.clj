@@ -160,7 +160,7 @@
   (let [key    (System/getenv "PODCASTINDEX_API_KEY")
         secret (System/getenv "PODCASTINDEX_API_SECRET")]
     (when (and (seq key) (seq secret))
-      {:key key :secret secret :user-agent "dk.simongray/podcast inspector"})))
+      {:key key :secret secret :user-agent "podcast-clj inspector"})))
 
 (defn- remote-values
   "The value blocks the remote items of the time splits of `block` point

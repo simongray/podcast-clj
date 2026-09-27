@@ -1,11 +1,18 @@
-# Diagnostics the library reports
+# Diagnostics
 
-Generated from `dk.simongray.podcast.diagnostics` by `dev/reference.clj`; do not edit
-by hand. Every diagnostic is a map with `:id`, `:level` and `:message`, the message
-below unless the code has a more specific one, and a `:path` into the data where
-one applies. `report` reads them off a parsed feed,
-transcript or chapters document, `validate` returns them for a feed, and `summarize`
-groups them by kind.
+Generated from `dk.simongray.podcast.diagnostics` by `dev/reference.clj`. Do not edit
+this file by hand.
+
+A diagnostic is a map with an `:id`, a `:level` and a `:message`. The message is the
+meaning below, unless the code gives a more specific message. Other keys give details,
+such as a `:path` into the data or the `:tag` of an element. `report` reads the
+diagnostics of a parsed feed, transcript or chapters document. `validate` returns the
+diagnostics of a feed. `summarize` groups diagnostics by kind.
+
+The namespace of an id tells which layer found the problem: `repair` for the repairs of
+malformed XML, `xml` for namespace resolution, `quirk` for the normalizations of the tree,
+`feed` for the model, `transcript` and `chapters` for the companion formats, `validate`
+for the validator, and `sync` for the sync between devices.
 
 | Id | Level | Meaning |
 |---|---|---|

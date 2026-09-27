@@ -13,19 +13,21 @@
   "The sections of the reference, in order: title, the tag namespaces they
   cover and a line about the source."
   [{:title "RSS 2.0" :namespaces #{nil}
-    :about "The core elements, as specified at https://www.rssboard.org/rss-specification."}
+    :about "The core elements, as https://www.rssboard.org/rss-specification defines them."}
    {:title "iTunes" :namespaces #{"itunes"}
-    :about "Apple's namespace, https://podcasters.apple.com/support/823-podcast-requirements."}
+    :about "The namespace of Apple, as https://podcasters.apple.com/support/823-podcast-requirements describes it."}
    {:title "Podcast namespace (Podcasting 2.0)" :namespaces #{"podcast"}
-    :about "The `podcast` namespace, https://github.com/Podcastindex-org/podcast-namespace; every formalized tag."}
+    :about "All formalized tags of the `podcast` namespace, as https://github.com/Podcastindex-org/podcast-namespace defines them."}
    {:title "Podlove Simple Chapters" :namespaces #{"psc"}
-    :about "Chapters embedded in the feed, https://podlove.org/simple-chapters/."}
+    :about "Chapters in the feed, as https://podlove.org/simple-chapters/ defines them."}
    {:title "Media RSS" :namespaces #{"media"}
-    :about "Yahoo's Media RSS module, as far as podcast hosts use it."}
+    :about "The Media RSS module of Yahoo, as far as podcast hosts use it."}
    {:title "Google Play and Spotify" :namespaces #{"googleplay" "spotify"}
-    :about "Directory-specific namespaces still found in feeds."}
+    :about "The namespaces of two directories, which some feeds still contain."}
+   {:title "RawVoice" :namespaces #{"rawvoice"}
+    :about "The namespace of Blubrry, as far as its feeds use it."}
    {:title "Atom, Dublin Core, content and syndication" :namespaces #{"atom" "dc" "content" "sy"}
-    :about "Modules from the wider RSS world that podcast feeds carry."}])
+    :about "Modules from the wider RSS world that podcast feeds contain."}])
 
 (defn- parent-name
   [parent]
@@ -92,40 +94,58 @@
 
 (def value-types
   "How each value type of the registry is read and written."
-  [["text" "the element text, trimmed"]
-   ["html" "text that may contain HTML, kept as written"]
-   ["url, email, mime, language, token" "strings; the validator checks their shape"]
-   ["enum" "a string; the validator checks it against the listed values, ignoring case"]
-   ["integer" "a long; written back as digits"]
-   ["decimal" "a number, a long when whole; written back without an exponent"]
-   ["boolean" "`true`/`false` in the XML, a boolean in the model"]
-   ["yes-no" "`yes`/`no` in the XML, a boolean in the model"]
-   ["rfc2822" "an RFC 2822 date, read leniently, an `#inst` in the model; written as GMT"]
-   ["iso8601" "an ISO 8601 date or date-time, an `#inst` in the model; written in UTC"]
-   ["duration" "seconds as a number, read from plain seconds or clock notation; written as plain seconds"]
-   ["rrule" "an RFC 5545 recurrence rule, a map of its parts in the model; written with the parts in the RFC's order"]
-   ["geo" "a geo URI, a map of `:lat`, `:lon` and perhaps `:altitude` and `:uncertainty` in the model"]
-   ["osm" "an OpenStreetMap reference such as R113314#4, a map of `:type`, `:id` and perhaps `:revision`"]])
+  [["text" "the text of the element, trimmed"]
+   ["html" "text that can contain HTML, kept as written"]
+   ["url, email, mime, language" "a string, which the validator checks for its form"]
+   ["enum" "a string, which the validator compares with the listed values, ignoring case"]
+   ["integer" "a long, written back as digits"]
+   ["decimal" "a number, a long if it is whole, written back without an exponent"]
+   ["boolean" "`true` or `false` in the XML, a boolean in the model"]
+   ["yes-no" "`yes` or `no` in the XML, a boolean in the model"]
+   ["rfc2822" "an RFC 2822 date, read leniently, an `#inst` in the model, written in GMT"]
+   ["iso8601" "an ISO 8601 date or date-time, an `#inst` in the model, written in UTC"]
+   ["duration" "seconds as a number, read from seconds or from clock notation, written as seconds"]
+   ["rrule" "an RFC 5545 recurrence rule, a map of its parts in the model, written with the parts in the order of the RFC"]
+   ["geo" "a geo URI, in the model a map of `:lat`, `:lon`, and optionally `:altitude` and `:uncertainty`"]
+   ["osm" "an OpenStreetMap reference such as R113314#4, in the model a map of `:type`, `:id`, and optionally `:revision`"]])
 
 (defn markdown
   "The whole reference as Markdown."
   []
   (str/join "\n"
             (concat
-             ["# Elements the library understands"
+             ["# The feed model"
               ""
-              "Generated from the tag registry in `dk.simongray.podcast.spec` by `dev/reference.clj`;"
-              "do not edit by hand. Every element listed here is read into the feed model, written"
-              "back by `emit`, and checked by `validate`. Elements not listed are kept as Hiccup under"
-              "`:xml/unknown` and survive a round trip unchanged."
+              "Generated from the tag registry in `dk.simongray.podcast.spec` by `dev/reference.clj`."
+              "Do not edit this file by hand."
               ""
-              "Keys are namespaced by vocabulary and kebab-cased; an element with attributes or children"
-              "becomes a map with its attributes under the keys shown, its text under `:content` and its"
-              "children under their own keys; a repeatable element becomes a vector under a plural key."
+              "A feed is a map: the channel, with its items in a vector under `:rss/items` and its live"
+              "items under `:podcast/live-items`. The model follows these rules:"
+              ""
+              "- A key has the namespace of its vocabulary and a kebab-case name: `:rss/pub-date`,"
+              "  `:itunes/episode-type`, `:podcast/alternate-enclosures`."
+              "- An element with only text becomes a value of its type. The value types are below."
+              "- An element with attributes or children becomes a map. Its attributes are under the keys"
+              "  that this page gives, its text is under `:content`, and each child is under its own key."
+              "- A repeatable element becomes a vector under a plural key."
+              "- A value that does not read as its type stays a string, and the report contains"
+              "  `:feed/invalid-value`."
+              "- An element that this page does not list stays as Hiccup under `:xml/unknown`, and `emit`"
+              "  writes it back unchanged. An attribute that this page does not list stays in the map of"
+              "  its element, as a string."
+              "- Markup in an element of type html stays as a string of markup. Markup in another text"
+              "  element becomes the text of its descendants. In both cases, the report contains"
+              "  `:feed/markup-in-text`."
+              ""
+              "`parse` reads each element on this page into the model, `emit` writes it back, and"
+              "`validate` checks it. `emit` and `validate` also accept a shorthand: a bare value for an"
+              "element that has only text, such as `{:rss/guid \"x\"}`, and a single value for a vector."
+              "`feed/normalize` expands the shorthand. `feed/feed-guid` and `feed/item-guid` give the"
+              "identity of a feed and of an item."
               ""
               "## Value types"
               ""
-              "| Type | Reading and writing |"
+              "| Type | How podcast-clj reads and writes it |"
               "|---|---|"]
              (for [[t how] value-types] (str "| " t " | " how " |"))
              [""]
@@ -136,14 +156,21 @@
   []
   (str/join "\n"
             (concat
-             ["# Diagnostics the library reports"
+             ["# Diagnostics"
               ""
-              "Generated from `dk.simongray.podcast.diagnostics` by `dev/reference.clj`; do not edit"
-              "by hand. Every diagnostic is a map with `:id`, `:level` and `:message`, the message"
-              "below unless the code has a more specific one, and a `:path` into the data where"
-              "one applies. `report` reads them off a parsed feed,"
-              "transcript or chapters document, `validate` returns them for a feed, and `summarize`"
-              "groups them by kind."
+              "Generated from `dk.simongray.podcast.diagnostics` by `dev/reference.clj`. Do not edit"
+              "this file by hand."
+              ""
+              "A diagnostic is a map with an `:id`, a `:level` and a `:message`. The message is the"
+              "meaning below, unless the code gives a more specific message. Other keys give details,"
+              "such as a `:path` into the data or the `:tag` of an element. `report` reads the"
+              "diagnostics of a parsed feed, transcript or chapters document. `validate` returns the"
+              "diagnostics of a feed. `summarize` groups diagnostics by kind."
+              ""
+              "The namespace of an id tells which layer found the problem: `repair` for the repairs of"
+              "malformed XML, `xml` for namespace resolution, `quirk` for the normalizations of the tree,"
+              "`feed` for the model, `transcript` and `chapters` for the companion formats, `validate`"
+              "for the validator, and `sync` for the sync between devices."
               ""
               "| Id | Level | Meaning |"
               "|---|---|---|"]

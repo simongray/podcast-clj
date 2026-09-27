@@ -1,718 +1,714 @@
 # Architecture
 
-This document records the design of the `dk.simongray/podcast` library: what it
-is for, how it is layered, the conventions every namespace follows, and the
-reasoning behind the choices that were not obvious. The companion survey in
-`podcasting-2.0-clojure-survey.md` covers the ecosystem; this document covers
-the code. `sync.md` is the design of the sync engine and `building-an-app.md`
-the path through the library from finding a show to playing it.
+This page explains the design of podcast-clj and the reasons for it.
+[Namespaces](namespaces.md) gives the conventions of the API, and [The feed
+model](tags.md) gives the rules of the model. [Syncing](sync.md) explains
+the design of the sync between devices. The
+[survey](podcasting-2.0-clojure-survey.md) from September 2026 describes the
+ecosystem that podcast-clj was written for.
+
 
 ## Goals
 
-1. **Library first.** Pure functions over plain Clojure data. No framework, no
-   global state, no opinion about storage, playback or UI. Anything a client
-   might do differently (fetch, cache, render) lives outside the core or behind
-   a small adapter.
-2. **Podcasting 2.0 and the legacy stack, equally.** RSS 2.0, the iTunes
-   namespace, the `podcast` namespace (all formalized tags), and the companion
-   formats (JSON chapters, transcripts in four formats, OPML, `podcast:guid`).
-   The other namespaces that real feeds carry (`atom`, `content`, `dc`,
-   `media`, `psc`, `googleplay`, `spotify`) are read as far as they matter to a
-   podcast client and preserved otherwise.
-3. **Standards by the book, quirks by the bucket.** Each standard is
-   implemented as specified. Every accommodation for the wild is a named
-   *quirk*: individually switchable, applied before or after the strict step,
-   and recorded in a report. A consumer can see exactly how far a feed departs
-   from the standards, and the strict path never gets muddied by leniency.
-4. **Cross-platform core.** Everything but the platform adapters, the XML
-   parsers, the HTTP client, the folder store and the WebDAV server, is
-   `.cljc` and free of platform APIs. Instants are `#inst`, JSON goes through
-   a two-line adapter, hashing through one namespace, and deferred values
-   through `async`, a future on the JVM and a promise in JavaScript.
-5. **Lossless.** What the library does not understand it keeps, as Hiccup,
-   so that parse followed by emit loses nothing a feed author wrote.
-6. **Testable against reality.** The reference web app and a corpus of real
-   feeds are how the library earns trust; the fixture set is a conformance
-   suite the ecosystem otherwise lacks.
+1. **A library, not a framework.** podcast-clj is pure functions over plain
+   Clojure data, with no global state. It does not decide how an app stores
+   data, plays media or draws its user interface.
+2. **All of the feed stack.** podcast-clj reads RSS 2.0, the iTunes
+   namespace, all formalized tags of the `podcast` namespace, and the
+   companion formats. It reads the other namespaces of real feeds (`atom`,
+   `content`, `dc`, `sy`, `media`, `psc`, `rawvoice`, `googleplay`,
+   `spotify`) as far as a podcast app needs them, and it keeps the rest.
+3. **Standards first, quirks apart.** podcast-clj implements each standard
+   as specified. Each accommodation for feeds that break a standard is a
+   named quirk. A quirk can be switched off, and each use of a quirk goes
+   into a report. An app can see how far a feed is from the standards, and
+   the strict path stays strict.
+4. **One code base for all platforms.** Most code is `.cljc` and free of
+   platform APIs. The platform APIs are in small adapters, for XML, JSON,
+   SHA-1, deferred values, encryption and HTTP. Only the lenient XML parser,
+   the folder store and the WebDAV server are for the JVM alone.
+5. **No silent loss of content.** podcast-clj keeps what it does not
+   understand, as Hiccup, so `emit` writes back the elements that `parse`
+   read. When a rule drops something, such as the repeat of an element that
+   the specification allows once, the report tells so. Only comments and
+   processing instructions go without a report.
+6. **Tests against real feeds.** The inspector and a corpus of real feeds
+   test podcast-clj against reality. The fixtures are a conformance suite,
+   which the ecosystem does not have otherwise.
+
 
 ## Layers
 
 ```
-                 ┌────────────────────────────────────────────────┐
-  reference app  │ web/  inspector.*   (Pedestal)                 │  uses only the public API
-                 └────────────────────────────────────────────────┘
-                 ┌──────────────┬──────────────┬──────────────────┐
-  companions     │ chapters     │ transcript   │ opml   value     │  formats, and the accessors
-                 │ resolve  (one answer per property, by rule)    │  a client reads through
-                 │ player (state)  search (criteria, index)  sync │  what an app keeps, finds and keeps in step
-                 │ directory  podping                             │  the directories and the notifications
-                 ├──────────────┴──────────────┴──────────────────┤
-  feed           │ feed  (parse / emit interpreters)  validate    │  registry-driven
-                 ├────────────────────────────────────────────────┤
-  vocabulary     │ spec  (tag registry, enumerations)   quirks    │  data, and named repairs
-                 ├────────────────────────────────────────────────┤
-  primitives     │ xml  time  rrule  guid  json  rank  async  http│  the only reader conditionals
-                 └────────────────────────────────────────────────┘
-  jvm only       │ xml.jsoup  sync.file  sync.webdav.server  the ! functions of http, directory and podping
+  4  front door   dk.simongray.podcast
+  3  companions   format.*  value  resolve  directory  directory.podcastindex  podping  app.*
+  2  feed model   feed  feed.coerce  feed.validate  feed.schema
+  1  vocabulary   spec  quirks
+  0  primitives   xml  xml.jsoup  time  time.rrule  guid  json  http  rank  async  diagnostics
 ```
 
-Dependencies point downward only. `spec` knows nothing about parsing; `feed`
-knows nothing about HTTP; the companions depend on `xml`, `time` and `json`
-but not on `feed` or `quirks`, since what they need of XML itself, the
-Hiccup accessors, kebab-case names and entity decoding, lives in `xml`. The
-inspector is a separate source path (`web/`, alias `:web`) in its own
-namespaces, `inspector.*`, outside the library's tree like the dev tooling's
-`corpus` and `reference`, so the library jar never carries Pedestal and the
-namespace tree says what is library and what is example.
+A namespace requires only namespaces in its own layer or in a lower layer.
+`spec` knows nothing about parsing, and `feed` knows nothing about HTTP. The
+companion formats need only the primitives and each other, not `feed` or
+`quirks`. What they need of XML, such as the Hiccup accessors and the
+decoding of entities, is in `xml`. `architecture_test.clj` reads the `ns`
+forms and makes sure that these rules hold and that there are no cycles.
 
-The namespaces follow the layers where one is genuinely part of another,
-and stay flat where nothing is: `xml.jsoup` under `xml` and `time.rrule`
-under `time`; `feed.coerce`, `feed.validate` and `feed.schema` under `feed`
-as the three interpreters of the registry over the model, with `spec` and
-`quirks` above them as the vocabulary; the companion formats `chapters`,
-`transcript`, `opml` and `html` under `format`; `player`, `search` and
-`sync`, what an app keeps, finds and keeps in step, under `app`, with the
-stores under `sync` and the WebDAV server under its store; and the Podcast
-Index client under `directory`, since the index is one of the directories
-`directory` puts behind one shape. `resolve`, `value`, `guid`, `json`,
-`http`, `rank`, `async` and `diagnostics` belong to no group and stay at
-the top. A test reads the `ns` forms and holds the layering to this.
+`xml.jsoup`, `app.sync.file` and `app.sync.webdav.server` run only on the
+JVM, and so do some of the functions whose names end in `!`.
 
-## Conventions
+The inspector is outside the library, in the source path `web/`, with its
+own namespaces, `inspector.*`. The tools for the corpus and for the
+generated reference are in `dev/`. As a result, the jar of podcast-clj does
+not contain Pedestal, and the namespace tree shows what is library and what
+is example.
 
-Learn one part of the library and the rest behaves the same way.
+The names follow the design where one part belongs to another:
 
-1. **`parse` reads leniently and never throws on content.** A value that
-   will not coerce stays a string, a missing timing stays absent, a feed
-   with a bare ampersand is repaired first, an SRT wrapped in HTML still
-   comes back as segments. `parse` throws only when the input is not the
-   format at all. Every format has a `parse` and, where writing makes sense,
-   an `emit` that writes the canonical form; `sniff` guesses a format from
-   its text.
-2. **The report is where leniency is confessed.** Data comes back clean,
-   and what had to be repaired, normalized or forgiven rides as metadata
-   under `:podcast/report`, read with the `report` function next to each
-   `parse`. Every diagnostic is a map with `:id`, `:level` (`:info`,
-   `:warning` or `:error`) and `:message`, plus `:path` into the data where
-   that applies; `diagnostics.md` lists every id. A diagnostic is either
-   something a host can fix or something an app can act on; nothing else
-   goes in a report. `summarize` groups a report or a validation by kind
-   with counts, so that a recommendation repeated for every item is one row.
-3. **`resolve` gives one answer per property, by a stated rule.** Where the
-   vocabularies overlap, each accessor's docstring says which source wins.
-   One-argument forms take a feed or an item; two-argument forms take the
-   feed and an item and apply the inheritance the specifications describe.
-4. **Optional behaviour is an options map.** What an operation needs is a
-   positional argument; what it may be told is a map, never a positional
-   flag: `(parse xml {:quirks? false})`, `(validate/validate feed {:profile
-   :psp-1})`, `(chapters/emit-json doc {:pretty? true})`,
-   `(resolve/transcript feed item {:languages ["da"]})`. Every options map
-   is checked to be one.
-5. **Nothing reads a clock or does IO but the functions named with a `!`.**
-   Every write to the player state takes the instant it happens, a request
-   to a directory is a map any client can send and the Podcast Index
-   request takes the time it is signed at; `fetch!`, `call!`, `poll!` and
-   `sync!` are where the network and the clock are.
-6. **Requests as maps, answers as data.** The directories, the Podcast
-   Index, Podping and the WebDAV store all build `{:method :url :headers
-   :body}` and read `{:status :headers :body}`, so that a browser sends
-   them with fetch and the tests run on recorded answers.
+- `xml.jsoup` is under `xml`, and `time.rrule` is under `time`.
+- `feed.coerce`, `feed.validate` and `feed.schema` are under `feed`.
+  `feed.validate` and `feed.schema` interpret the tag registry for the
+  model, and `feed.coerce` holds the value types that the registry uses.
+- The companion formats are under `format`.
+- `app` holds what an app keeps (`app.player`), finds (`app.search`) and
+  syncs (`app.sync`). The stores are under `app.sync`.
+- The Podcast Index client is under `directory`, because the Podcast Index
+  is one of the directories.
+- `resolve`, `value`, `guid`, `json`, `http`, `rank`, `async` and
+  `diagnostics` belong to no group.
 
-Keys are namespaced by vocabulary and kebab-cased: `:rss/pub-date`,
-`:itunes/episode-type`, `:podcast/alternate-enclosures`. Attributes become
-kebab-case keys in their element's map, the element's own text is
-`:content`, repeatable elements are vectors under a plural key, and anything
-the registry does not know is kept as Hiccup under `:xml/unknown`.
-`tags.md` lists every element with its key, parents, count, types and
-attributes; it is generated from the registry.
 
-## The XML layer: Hiccup with namespaces resolved by URI
+## Why the API is regular
 
-`dk.simongray.podcast.xml` turns XML into Hiccup and back:
+The [conventions](namespaces.md#conventions) of the API have these reasons:
+
+- **Lenient parsing, with a report.** Real feeds break the standards in many
+  small ways, and an app must show them anyway. The report makes each
+  accommodation visible, so the leniency hides nothing. A diagnostic is a
+  problem that a host can correct, or information that an app can act on.
+  The ordinary work of a parser, such as collapsing whitespace in HTML, is
+  not a diagnostic.
+- **Options maps.** A map can get new keys without a change for its callers.
+  A positional flag cannot.
+- **Time as an argument.** A function that does not read the clock gives the
+  same result for the same arguments. This keeps the tests simple, and it
+  lets the player state stamp its writes like a hybrid logical clock (see
+  [Syncing](sync.md)).
+- **Requests as maps.** A browser can send a request map with `fetch`, and
+  the tests can run on recorded answers. The JVM client in `http` is one way
+  to send the requests, not the only way.
+
+
+## XML as Hiccup
+
+`xml` reads XML into Hiccup and writes Hiccup back as XML:
 
 ```clojure
 [:podcast/transcript {:url "https://…/ep1.vtt" :type "text/vtt"}]
 [:title {} "Episode 3"]
 ```
 
-Every element is `[tag attrs & children]` with the attribute map always
-present. Tags and attributes are keywords. The keyword *namespace* is the
-canonical alias of the element's namespace URI (`:itunes/author`,
-`:podcast/guid`, `:atom/link`); unprefixed RSS 2.0 elements have no namespace
-(`:title`, `:pubDate`). Names keep their XML casing at this level.
+Each element is `[tag attrs & children]`, and the attribute map is always
+there. Tags and attribute names are keywords. The namespace of a keyword is
+the canonical alias of the namespace URI of the element: `:itunes/author`,
+`:podcast/guid`, `:atom/link`. RSS 2.0 elements have no namespace: `:title`,
+`:pubDate`. At this level, names keep their case from the XML.
 
-Two design points matter here:
+podcast-clj resolves namespaces by URI, in pure code. The platform adapter
+(StAX on the JVM, `DOMParser` in JavaScript) does not resolve namespaces. It
+gives raw Hiccup, with the names as written and the `xmlns` declarations as
+ordinary attributes. Then a pure function walks the tree, maps each URI to
+its alias, and rewrites the names. This design has three advantages:
 
-- **Resolution is by URI, in pure code.** The platform adapter (StAX on the
-  JVM, `DOMParser` in the browser) is deliberately *not* namespace-aware; it
-  yields raw Hiccup with names exactly as written and `xmlns` declarations as
-  ordinary attributes. A pure function then walks the tree, tracks
-  declarations in scope, maps each URI to its alias and rewrites the names.
-  This gives identical results on every platform, makes namespace handling
-  testable without a parser, and lets the quirks layer sit in between
-  (undeclared prefixes, misspelled URIs, a default namespace on `<rss>`).
-- **Unprefixed means RSS.** RSS 2.0 elements have no namespace. Several large
-  hosts declare `xmlns="http://www.w3.org/2005/Atom"` on `<rss>`, which a
-  namespace-aware parser would take to mean that `<title>` is an Atom
-  element. We ignore the default namespace for element names and report it.
+- The result is the same on each platform.
+- The tests of namespace handling need no parser.
+- The resolution can accept the errors of real feeds. Examples are a variant
+  of a namespace URI, an undeclared prefix, and a default namespace on
+  `<rss>`.
 
-Comments and processing instructions are dropped; adjacent text and CDATA are
-coalesced; whitespace-only text nodes are removed. `emit` writes the
-declarations for every alias used in the tree onto the root element, the
-library's, the foreign ones a parsed feed carried and the ones a client
-passes as `:namespaces`, escapes text or wraps it in CDATA when it contains
-markup, and indents.
+An element without a prefix is always RSS 2.0. Several large hosts declare
+`xmlns="http://www.w3.org/2005/Atom"` on `<rss>`. A namespace-aware parser
+then reads `<title>` as an Atom element. podcast-clj ignores the default
+namespace for element names, and reports it.
 
-## The vocabulary: a tag registry as data
+The parser drops comments and processing instructions, joins adjacent text
+and CDATA, and removes text nodes that contain only whitespace. `emit`
+declares each namespace that the tree uses on the root element. These are
+the namespaces of podcast-clj, the foreign namespaces of a parsed feed, and
+those in the `:namespaces` option. `emit` escapes text, or wraps text that
+contains markup in CDATA, and it indents.
 
-`dk.simongray.podcast.spec` describes every tag the library understands as a
-map. One entry looks like this:
+
+## The tag registry
+
+`spec` describes each element that podcast-clj understands as a map:
 
 ```clojure
 {:tag     :podcast/transcript          ; the XML name
  :key     :podcast/transcripts         ; the key in the feed model
- :parent  #{:item}                     ; :channel, :item, :live-item or a tag
+ :parent  #{:item}                     ; :channel, :item or the tag of the parent
  :count   :many                        ; :one or :many
  :attrs   {:url      {:required true :type :url}
            :type     {:required true :type :enum :values transcript-types}
            :language {:type :language}
            :rel      {:type :enum :values #{"captions"}}}
- :content :none                        ; type of the node text, or :none
+ :content :none                        ; the type of the text, or :none
  :doc     "A transcript or closed-captions file."}
 ```
 
 Three interpreters read the registry:
 
-- `feed/parse` maps Hiccup to the model. For a child element it looks up the
-  entry by tag and parent, coerces attributes and content by type, recurses
-  into declared children, and stores the result under `:key`, in a vector when
-  `:count` is `:many`. Elements with no entry are kept under `:xml/unknown`.
-- `feed/emit` does the reverse in registry order, formatting coerced values
-  back into their canonical string forms and appending `:xml/unknown` verbatim.
-- `validate/validate` checks required attributes, enumerations, cardinality,
-  parents and deprecation, and a *profile* named in its options (PSP-1,
-  Apple) that adds required-element rules on top.
+- `feed/parse` maps Hiccup to the model. For each child element, it finds
+  the entry by tag and parent, coerces the attributes and the text by type,
+  and reads the declared children. It stores the result under `:key`, in a
+  vector if `:count` is `:many`. It keeps elements without an entry under
+  `:xml/unknown`.
+- `feed/emit` does the opposite, in the order of the registry. It writes
+  each coerced value back in its canonical form, and appends `:xml/unknown`
+  unchanged.
+- `validate/validate` finds what breaks the specifications. Examples are
+  missing required elements and attributes, values that do not read as their
+  type or are outside an enumeration, unknown elements and deprecated
+  elements. A profile (PSP-1 or Apple) adds rules for required and
+  recommended elements.
 
-The registry is a value. `spec/tags` is the library's vocabulary as a vector
-of entries; `spec/registry` indexes a vector, that one or one extended with a
-client's own entries, into the map the interpreters read, and `spec/default`
-is the library's vocabulary indexed. Every interpreter takes `:registry` in
-its options: `podcast/parse` and `podcast/emit`, `feed/parse` and `feed/emit`,
-`validate/validate`, `quirks/normalize`, and `schema/schemas` with its
-companions. So a host's proprietary elements, or a new tag before the library
-ships it, are read, written, validated and given schemas the same way as the
-standard ones, without a fork, and the library's own registry can stay
-strict about what it admits.
+The registry is a value. `spec/tags` is the vocabulary of podcast-clj as a
+vector of entries. `spec/registry` indexes such a vector into the map that
+the interpreters read, and `spec/default` is `spec/tags` indexed. Each
+interpreter takes `:registry` in its options. As a result, the interpreters
+treat the elements that a host defines like the standard elements. They
+read, write and validate them, and give them schemas. This also works for a
+new tag that podcast-clj does not know yet, without a fork. The registry of
+podcast-clj itself can then stay strict about what it admits.
 
-Spec churn becomes a data change. `podcast:images` is one entry marked
-`:deprecated :podcast/image`; a new attribute is one line. Two more things
-are generated from the registry so that they cannot drift from the code:
-`doc/tags.md`, the reference of every element, written by `dev/reference.clj`;
-and `dk.simongray.podcast.feed.schema`, Malli schemas of the model as plain data
-(Malli is not a dependency), with one schema per element in a registry and
-`schema/feed` and `schema/item` for the maps `parse` returns. The schemas
-describe what `emit` accepts: the model with every value coerced and every
-required attribute present. Every corpus feed happens to satisfy them, and a
-generative test builds feeds from them, emits them and parses them back; but
-`parse` is lenient by design and may return a map that fails them, a value
-kept as a string or a required attribute left blank, and `validate` is what
-says why. The schemas are for authoring, the validator for judging.
+A change to a specification becomes a change to data. The deprecated
+`podcast:images` is one entry, marked `:deprecated :podcast/image`. A new
+attribute is one line.
 
-What stays outside the registry is a decision, not an oversight. Elements in
-the podcast namespace that the specification does not define, such as the
-`podcast:hiveAccname` and `podcast:liveValue` of Hive-based hosts, Blubrry's
-undocumented RawVoice extensions, and every host's proprietary namespace are
-kept as Hiccup under `:xml/unknown` and reported by the validator. The
-specification is the boundary; a non-standard element earns a quirk only when
-it stands for a standard one, as an item's attribute-only `image` does, or
-the nested `podcast:category` that Wavlake writes on its music feeds in place
-of `itunes:category`, which it mirrors in every way. The one element the
-registry reads against the specification is a channel-level `<author>`, which
-RSS 2.0 does not define and a fifth of feeds carry anyway.
+Two artifacts come from the registry, so they cannot drift from the code:
 
-RSS 2.0 is the only container: `feed/parse` refuses an Atom or RSS 1.0 root.
-The directories require RSS 2.0, and a live sample of 844 indexed feeds on
-2026-09-25 held no Atom feed at all.
+- [The feed model](tags.md), the reference of all elements, which
+  `dev/reference.clj` writes.
+- The Malli schemas of the model in `feed.schema`, as plain data. Malli is
+  not a dependency.
+
+The schemas describe what `emit` accepts: the model with all values coerced
+and all required attributes present. All corpus feeds match them. A
+generative test builds feeds from the schemas, emits them and parses them
+back. But `parse` is lenient, so it can return a map that does not match.
+For example, a value can stay a string, or a required attribute can be
+missing. `validate` tells why. The schemas are for the writing of feeds, and
+the validator is for the judging of feeds.
+
+Some elements stay outside the registry on purpose:
+
+- elements in the `podcast` namespace that the specification does not
+  define, such as the `podcast:hiveAccname` and `podcast:liveValue` of
+  Hive-based hosts
+- the proprietary namespaces of hosts
+
+podcast-clj keeps these elements as Hiccup under `:xml/unknown`, and the
+validator reports them. The specification is the boundary. A non-standard
+element gets a quirk only when it stands for a standard element. For
+example, an item's `image` element with only attributes becomes an
+`itunes:image`. The nested `podcast:category` of Wavlake music feeds becomes
+`itunes:category`, because it copies the shape of `itunes:category`.
+
+The registry reads one element against the specification: a channel-level
+`<author>`. RSS 2.0 does not define it, but a fifth of all feeds contain it.
+
+RSS 2.0 is the only container. `feed/parse` refuses an Atom or RSS 1.0 root.
+The directories require RSS 2.0, and in a live sample of 844 indexed feeds
+on 2026-09-25, no feed was Atom.
+
 
 ## The feed model
 
-The model is plain maps with namespaced, kebab-case keys, one namespace per
-vocabulary: `:rss/title`, `:rss/pub-date`, `:itunes/episode-type`,
-`:podcast/guid`, `:content/encoded`, `:atom/links`. Rules:
+The model is plain maps with namespaced keys, one namespace for each
+vocabulary. The namespaces keep the vocabularies apart: `:rss/title` and
+`:itunes/title` can both be present, and each keeps what the feed said. The
+model is true to the feed. An app that wants one title uses `resolve` (see
+the next section).
 
-- **Scalar elements become scalars.** `<title>` is a string, `<pubDate>` an
-  `#inst`, `<itunes:duration>` a number of seconds, `<itunes:explicit>` a
-  boolean, `<podcast:locked>` a boolean.
-- **Elements with attributes or children become maps.** Attribute names are
-  unqualified kebab-case keys (`:start-time`, `:feed-guid`,
-  `:is-perma-link`); the node text, when the tag has one, is `:content`;
-  declared children are nested under their own keys (`:recipients`,
-  `:sources`, `:remote-items`).
-- **Structured attribute values are maps.** The `rrule` of
-  `podcast:updateFrequency` is the RFC 5545 rule as a map of its parts, the
-  `geo` of `podcast:location` is `{:lat :lon}` and its `osm` `{:type :id}`;
-  each writes back canonically.
-- **Repeatable elements are vectors** under a plural key
-  (`:podcast/transcripts`, `:podcast/people`, `:itunes/categories`,
-  `:rss/items`, `:podcast/live-items`).
-- **Coercion never throws.** A value that cannot be coerced stays a string and
-  the report gets a diagnostic.
-- **Markup where text belongs is kept.** A description embedded as XHTML
-  rather than wrapped in CDATA becomes its markup as a string; other text
-  elements with elements inside them become the text of all their
-  descendants. Both are reported as `:feed/markup-in-text`.
-- **Nothing is dropped.** Unknown elements are Hiccup under `:xml/unknown`;
-  unknown attributes stay in the element's map as strings.
-- **Shorthand is normalized, not modelled.** A producer may write a bare
-  value where an element with attributes carries only content,
-  `{:rss/guid "x"}`, or a single value where the model has a vector.
-  `feed/normalize` expands both by the registry, and `emit` and `validate`
-  call it first, so the shorthand is taken everywhere the model is written
-  while `parse`, the accessors and the schemas know one shape. The
-  alternative, schemas with `:or` for every such element, would have made
-  the model two-shaped for the sake of the writer.
-- **Validation never throws on content.** A value of a shape its element
-  does not take, a string where a map belongs or a map where a scalar does,
-  is `:validate/wrong-shape`, a diagnostic like the rest; a profile the
-  validator does not know is a programming error and throws.
+Unknown elements stay as Hiccup, and unknown attributes stay as strings. As
+a result, `emit` can write back all that `parse` read.
 
-Identity is a function over the model, not a field: `feed/feed-guid` returns
-`:podcast/guid` or the UUIDv5 computed from the feed URL; `feed/item-guid`
-returns the item's `<guid>`, falling back to the enclosure URL. `feed/diff`
-builds on it: given two parses of the same feed it reports the items added,
-removed and changed, the same for live items on their own, so that a show
-going on air is a change, and whether the channel changed in anything but
-its items and timestamps.
+A producer can write a shorthand. It can give a bare value for an element
+with only text, such as `{:rss/guid "x"}`, or a single value for a vector.
+`feed/normalize` expands the shorthand by the registry, and `emit` and
+`validate` call it first. A producer can use the shorthand, while `parse`,
+the accessors and the schemas know only one shape. The alternative was
+schemas with `:or` for each such element. The model then has two shapes,
+only to help the producer.
+
+Identity is a function, not a field. `feed/feed-guid` gives the
+`podcast:guid` of a feed, or else the UUIDv5 of its URL. `feed/item-guid`
+gives the `<guid>` of an item, or else its enclosure URL. `feed/diff` uses
+this identity to compare two parses of one feed. It gives the added, removed
+and changed items, and the same for live items, so a show that goes live is
+a change. It also tells if the channel changed in more than its items and
+timestamps.
+
+Validation does not throw on content. A value with a shape that its element
+does not take is `:validate/wrong-shape`, a diagnostic like the others. A
+profile that the validator does not know is a programming error, and it
+throws.
+
 
 ## Resolving the vocabularies
 
-The model keeps every vocabulary apart, which is right for fidelity and wrong
-for a client that just wants *the* title. `dk.simongray.podcast.resolve` is
-where the overlaps are settled, once, in pure functions over the model:
-`title`, `description`, `author`, `link`, `published`, `artwork` and `images`,
-`explicit?`, `duration`, `numbering`, `enclosure` and `enclosures`,
-`transcript`, `chapters-url` and `embedded-chapters`, `people`, `funding`,
-`license`, `chat`, `locations`, `value`, the live items in listening order
-(`live-items`, `live?`), and for the feed as a whole `medium`, `list-feed?`,
-`complete?`, `next-episode` (from the recurrence rule of
-`podcast:updateFrequency`, evaluated by `rrule/occurrences`), `locked?`,
-`new-feed-url`, `self-url` and `categories`; `blocked?` for what the block
-tags of three vocabularies say to one platform; and for presenting a show
-`episodes`, the items in listening order (newest first, or for a serial show
-by season and number with trailers and bonuses placed by Apple's rules),
-`seasons` to group them, and `next-check`, when a poller should look again:
-the update-frequency rule, the ttl, the syndication period, or the cadence
-of the recent items. Each docstring states its precedence. The two-argument
-forms take the feed and an item and apply the inheritance the specifications
-describe: people on an item replace the feed's entirely, a value block on an
-item overrides, artwork and funding fall back to the channel. `transcript`
-takes options as well, since a client's preferences (types, languages, a need
-for timings) are its own; given the feed, a reference that names no language
-is taken to be in the feed's. Nothing here is stored or cached; it is all
-derived on each call, and the reference app renders its item rows through it
-so that the corpus exercises it.
+The model keeps each vocabulary apart. This is correct for a round trip, but
+an app usually wants one title, one image and one duration. `resolve`
+settles the overlaps once, in pure functions over the model. The docstring
+of each accessor gives its rule of precedence. `resolve` stores nothing and
+caches nothing.
 
-`properties` gathers every answer into one map with plain keys, the show's
-or, given the item as well, the episode's with the inheritance applied, so
-that `(merge item (properties feed item))` holds the raw fields and the
-resolved ones side by side for an app that needs both. `sources` says where
-each answer came from, as paths into what was given, `[:item :rss/title]`
-or `[:feed :itunes/explicit]`. It needs no table of precedences: for each
-property it calls the accessor on one field at a time and keeps the fields
-whose value alone gives the same answer, so it can never disagree with the
-accessor's own rule. A property answered by a default, or put together
-from several fields, names none.
+Where the specifications let an item inherit from its channel, the accessor
+also takes the feed and the item, and applies the inheritance. People on an
+item replace the people of the feed. A value block on an item overrides the
+value block of the feed. Artwork and funding fall back to the channel.
+`transcript` also takes options, because the preferred types, languages and
+timings belong to the app.
 
-## Quirks
+`properties` collects all answers in one map with plain keys.
+`(merge item (properties feed item))` holds the raw fields and the resolved
+values together, for an app that needs both.
 
-`dk.simongray.podcast.quirks` is a catalogue of small, named functions in two
-groups, applied around the strict path:
+`sources` tells where each answer came from, as paths into the input:
+`[:item :rss/title]` or `[:feed :itunes/explicit]`. It needs no table of
+precedences. For each property, it calls the accessor on one field at a
+time, and keeps the fields that alone give the same answer. As a result,
+`sources` cannot disagree with the rule of an accessor. A property that
+comes from a default, or from several fields together, has no source.
 
-1. **String repairs**, before parsing: strip a byte-order mark or leading
-   junk before `<?xml`, replace HTML entities that XML does not define
-   (`&nbsp;`, `&copy;`), drop control characters, declare well-known prefixes
-   that a feed uses without an `xmlns`.
-2. **Tree and value normalizations**, after parsing and before mapping:
-   namespace URI variants (`http` for `https`, casing, trailing slash, the old
-   GitHub URI for the podcast namespace), `yes`/`no`/`clean` for
-   `<itunes:explicit>`, clock formats for `<itunes:duration>`, an
-   `<itunes:image>` with a `url` attribute or a text node instead of `href`,
-   date strings that bend RFC 2822, and so on.
-3. **A lenient parser as the last resort.** When a document is malformed
-   even after the repairs, and `org.jsoup/jsoup` is on the classpath,
-   `dk.simongray.podcast.xml.jsoup/parse-raw` reads it with jsoup's XML
-   mode, which rejects nothing: unquoted attributes, stray angle brackets and
-   unclosed or mismatched tags all yield a best-effort tree. It produces the
-   same raw Hiccup as the strict adapter, so everything downstream is shared.
-   jsoup is optional and discovered with `requiring-resolve`; without it the
-   strict parser's error is thrown.
 
-Every quirk has an id, a severity and a one-line description. `parse` applies
-them all, `{:quirks? false}` is the strict path alone, and `:except` leaves
-out the repairs and rules it names; the yes/no rule is derived from the
-registry in use, so a client's own yes/no elements get it too. Each
-application is recorded in the report attached to the result, so a feed's
-distance from the standards is measurable and the reference app can display
+## Quirks and reports
+
+`quirks` holds small, named functions in two groups:
+
+1. **Repairs** of the XML text, for a new parse after the strict parse
+   failed. They do these things:
+   - remove a byte order mark, or other bytes before `<?xml`
+   - replace the HTML entities that XML does not define, such as `&nbsp;`
+   - remove control characters
+   - escape bare ampersands
+   - declare known prefixes that a feed uses without an `xmlns`
+2. **Normalizations** of the tree, after parsing and before the mapping to
+   the model. They accept these deviations, and more:
+   - namespace URI variants: `http` for `https`, another case, a trailing
+     slash, or the old GitHub URI of the `podcast` namespace
+   - `yes`, `no` and `clean` in `<itunes:explicit>`
+   - clock notation in `<itunes:duration>`
+   - an `<itunes:image>` with `url` or text instead of `href`
+   - dates that bend RFC 2822
+
+[Diagnostics](diagnostics.md) lists all repairs and quirks, under `repair`
+and `quirk`.
+
+When a document is still malformed after the repairs, and `org.jsoup/jsoup`
+is on the classpath, `xml.jsoup` reads it with the XML mode of jsoup. This
+mode accepts any input: unquoted attributes, stray angle brackets, and
+unclosed or mismatched tags all give a best-effort tree. The result is the
+same raw Hiccup as that of the strict parser, so all later steps are shared.
+jsoup is optional, and `parse` finds it with `requiring-resolve`. Without
+jsoup, `parse` throws the error of the strict parser.
+
+Each quirk has an id, a level and a one-line description. `parse` applies
+all quirks. `{:quirks? false}` gives the strict path alone, and `:except`
+leaves out the repairs and quirks that it names. The yes/no rule comes from
+the registry in use, so an app's own yes/no elements get it too.
+
+The report is a vector of diagnostics in the metadata of the result, under
+`:podcast/report`. Each layer reports only what it did. The front door joins
+the reports in order: namespace resolution and the quirks on the tree first,
+then the mapping to the model. Metadata does not survive printing, transit
+or `into {}`. An app that stores a parsed feed must store the report next to
 it.
 
-## Reports
+Transcripts and chapters documents have a report under the same key, which
+`transcript/report` and `chapters/report` read. Validation diagnostics have
+the same shape, so the inspector shows them in the same kind of table.
 
-Parsing returns the feed map; the report travels as metadata under
-`:podcast/report` and is read with `podcast/report`. The report is a vector of
-diagnostics, each a map with `:id`, `:level` (`:info`, `:warning`, `:error`),
-`:message` and, where it applies, `:path` into the model. Quirk applications,
-coercion failures and unknown namespaces all land here. Each layer records
-only what it did, namespace resolution and the quirks on the tree, the model
-mapping on the feed, and the front door concatenates them in that order.
-Metadata does not survive printing, transit or `into {}`, so a client that
-persists a parse persists the report beside it. Validation diagnostics have
-the same shape so the reference app can show one list. Every id the library
-raises is catalogued with its level and meaning in
-`dk.simongray.podcast.diagnostics`, from which `doc/diagnostics.md` is
-generated; a test keeps the catalogue and the source in step, since
-consumers match on the ids.
+`diagnostics` lists every id with its level and meaning, and
+`dev/reference.clj` writes this list to [Diagnostics](diagnostics.md). Apps
+match on the ids, so the ids are part of the API. A test makes sure that the
+list and the source agree.
 
-The same convention holds for everything else the library parses. A
-transcript or a chapters document carries its own report under the same
-metadata key, read with `transcript/report` or `chapters/report`: times
-written as strings, speakers taken from `Name:` prefixes, an SRT wrapped in
-HTML, a declared type the file contradicts, chapters out of order or without
-a start. A diagnostic is something a host can fix or an app can act on; the
-ordinary processing of a format, such as collapsing HTML whitespace, is not
-reported.
 
 ## Companion formats
 
-- **Chapters** (`chapters`): JSON Chapters 1.2 parse and emit, and the Podlove
-  Simple Chapters (`psc:`) elements that several hosts still embed,
-  normalized to the same chapter shape. `from-text` reads the third source,
-  the timestamp lists in show notes, which far more episodes carry than link
-  a chapters file, so an app gets chapters for them too, reported as
-  inferred.
-- **Transcripts** (`transcript`): SRT, WebVTT (with `<v>` speaker spans), JSON
-  segments, the constrained HTML form and plain text, all read into one
-  segment model; VTT, SRT and JSON emitted from it. The wild taught it a few
-  things: caption files name the speaker with a `Name:` or `[Name]:` prefix
-  only where the speaker changes, so the name carries over the cues that
-  follow; some hosts write JSON times as strings; HTML carries layout
-  whitespace and sometimes an entire SRT wrapped in `<p>` elements; and
-  word-level JSON needs `turns` to read as prose.
-- **OPML** (`opml`): subscription lists in and out, folders flattened to a
-  path.
-- **Embedded HTML** (`html`): the show notes in descriptions, read into
-  Hiccup by a small lenient parser of the HTML browsers would build, since
-  most descriptions in the wild carry markup and all of it comes from a
-  vocabulary of some thirty elements: paragraphs, breaks, links, emphasis,
-  lists, headings, images, the odd table, unclosed paragraphs and list
-  items, pasted word-processor tags. No HTML parser dependency, so the JVM
-  and JavaScript agree. `sanitize` keeps the elements, attributes and URL
-  schemes a client may render and drops scripts and their kin; `hiccup`
-  parses and sanitizes, or turns a plain-text description into paragraphs;
-  `text` and `markdown` render the same Hiccup; `emit` writes it back as
-  HTML. Hiccup is the centre because a Clojure client hands it straight to
-  its renderer.
-- **Value** (`value`): the effective value block for an item (item overrides
-  channel), share and fee arithmetic, and the recipients active at a
-  playback position given `valueTimeSplit`s. Pure arithmetic; no payments,
-  but `boostagram` writes the bLIP-10 record an app attaches to the keysend
-  payment it makes.
-- **Podcast Index** (`directory.podcastindex`): a request builder that
-  produces `{:method :url :headers}` with the SHA-1 auth header computed for
-  the instant the caller gives, so any HTTP client can send it, and a
-  response reader that maps the index's feed, episode and value objects
-  onto the model, so that a feed from the index has the same keys as one
-  parsed from RSS and the accessors in `resolve` work on both; what only the
-  index knows is under `:index/*`, the original under `:index/raw`. The
-  endpoint table follows the API's OpenAPI description. Remote items in
-  value time splits are resolved by asking for the item's own block first
-  and the feed's second; `remote-value` takes the sending function as an
-  argument, so it is tested with stubs and works with any client, and
-  `value/with-remote` folds the answer into the recipients of the moment.
-  `remote-item-requests` and `remote-item` resolve any remote item, of a
-  podroll, publisher, list or time split, to the feed and episode the index
-  holds. On the JVM, `call!`, `remote-value!` and `remote-item!` use the
-  library's own HTTP client and sign with the clock; in ClojureScript
-  `call!` uses `fetch` and returns a promise. The key and secret never leave
-  the caller's process.
+- **Chapters** (`format.chapters`) reads and writes JSON Chapters 1.2. It
+  also reads Podlove Simple Chapters (`psc:`), which several hosts still put
+  in their feeds, into the same shape. `from-text` reads a third source:
+  lists of timestamps in show notes. More episodes have such a list than
+  link a chapters file, so an app gets chapters for these episodes too. The
+  report marks such chapters as inferred.
+- **Transcripts** (`format.transcript`) reads SRT, WebVTT (with `<v>`
+  speaker spans), JSON segments, the HTML form and plain text into one
+  segment model. It writes VTT, SRT and JSON. Real files taught it some
+  facts. Caption files name the speaker with a `Name:` or `[Name]:` prefix
+  only when the speaker changes. podcast-clj carries the name over to the
+  cues that follow. Some hosts write JSON times as strings. HTML transcripts
+  contain layout whitespace, and some contain a whole SRT file in `<p>`
+  elements. `turns` joins the words of a word-level JSON transcript into
+  prose.
+- **OPML** (`format.opml`) reads and writes subscription lists. Folders
+  become a path.
+- **HTML** (`format.html`) reads the show notes in descriptions into Hiccup.
+  Most descriptions contain markup. It comes from a vocabulary of some
+  thirty elements, such as paragraphs, breaks, links, emphasis, lists,
+  headings and images. Some descriptions also contain tables, unclosed
+  paragraphs and list items, or tags from word processors. A small lenient
+  parser reads them the way that a browser does. It has no dependency, so
+  the JVM and JavaScript give the same result. `sanitize` keeps the
+  elements, attributes and URL schemes that an app can render safely, and
+  removes scripts and similar elements. Hiccup is the center, because a
+  Clojure app gives Hiccup directly to its renderer.
+- **Value** (`value`) finds the value block that applies to an item, and
+  divides amounts into shares and fees. With time splits, it finds the
+  recipients at a position in the episode. It is arithmetic only, and it
+  makes no payments. `boostagram` writes the bLIP-10 record that an app
+  attaches to the keysend payment that it makes.
 
-## The player state
 
-A podcast app's own logic is mostly the same in every app: a play queue,
-where the listener left each episode and which ones count as played,
-subscriptions and their settings, and keeping several devices in step.
-`dk.simongray.podcast.app.player` holds that as one state map and pure
-operations over it, so that a client writes its UI and nothing else. The
-rules of the library hold: no storage, no clock, no media element. Every
-operation takes the instant it happens and stamps what it changed with the
-state's device id and that instant, or the millisecond after the latest
-instant the state has seen when the given one is not later, a hybrid
-logical clock in one line; the app persists the map however it likes and
-calls in when the player emits events.
+## The directories and the Podcast Index
 
-The state is one map: subscriptions by feed guid, with removals kept as
-tombstones and their settings, such as `:auto-queue?` and `:skip-intro`,
-one entry per field; episodes by `[feed-guid item-guid]`, with position,
-duration and the played mark that `progress` sets within
-`played-threshold` seconds of the end; the queue as one entry per episode
-carrying a rank from `rank`, the order derived from the ranks; the
-listener's `preferences`, the skip amounts and the playback rate, one entry
-per field; and the registry of the listener's devices. `merge` reconciles
-two devices entry by entry, the later winning, which is commutative,
-associative and idempotent (a generative test says so), so that any backend
-that can store and fetch a document can sync, which `app.sync` does, below.
-`refresh` feeds a fresh parse through `feed/diff` and queues the new
-episodes of feeds set to auto-queue; `to-opml` and `from-opml` bridge to
-the `opml` namespace with the feed guid carried in each outline, and `skip`
-moves within an episode without leaving it. `step` is a small reducer over
-the player's events, `:progress`, `:ended`, `:play` and `:skip`, returning
-the new state and the effects the UI should act on, such as playing the
-next episode or seeking to the skipped-to position; it is deliberately the
-only place where behaviour is composed, and it is short. The CRDT the state
-amounts to, and what syncing asked of it, is in `sync.md`.
+`directory` puts the podcast directories behind one shape: Apple Podcasts,
+fyyd and gpodder.net, which need no credentials, and the Podcast Index,
+which does. Three endpoints cover what an app asks a directory: `:search` by
+words, `:lookup` by the id of the source, and `:trending` for the chart.
+Each source answers them as far as it can. The chart of Apple names no feed,
+so a lookup by id follows.
 
-## Platform adapters
+A request is a map, so `directory` is `.cljc`. A browser builds the same
+URLs, and it can send them if the CORS policy of the directory allows it. A
+response becomes shows with the keys of a parsed feed: `:rss/title`,
+`:itunes/author`, `:itunes/image`. The feed URL is the `atom:link` with
+`rel="self"`, which `resolve/self-url` reads. `:podcast/guid` comes from the
+source, or from the feed URL by the rule of the specification. This guid
+makes the results from different sources comparable. What only a directory
+knows is under `:directory/*`. This is the source, the id of the show there,
+its page, counts, a chart rank and the raw record.
 
-| Concern | JVM | JS |
-|---|---|---|
-| XML in | `javax.xml.stream`, namespace-aware off, DTD off | `js/DOMParser`: the browser's, or one the host installs |
-| XML in, leniently | jsoup's XML mode, when the optional jsoup is present | none yet |
-| JSON | `clojure.data.json` | `js/JSON` |
-| SHA-1 (guid, index auth) | `java.security.MessageDigest` | `goog.crypt.Sha1` |
-| Instants | `java.util.Date` via millis | `js/Date` via millis |
-| Deferred values (`async`) | futures | promises |
-| HTTP | `java.net.http` (`http` namespace) | left to the client |
-| Encryption (`sync.encrypted`) | `javax.crypto` | WebCrypto |
+`combine` makes one entry per show from the answers of several sources. It
+fills the record of the first source from the later ones, and
+`:directory/sources` names each source with its id. In this way, a chart
+entry gets the URL of its feed. On the JVM, `search!` and `trending!` ask
+all sources at the same time. A source that fails becomes an entry under
+`:failed`, not an exception.
 
-The date parser, the duration parser and the UUIDv5 computation are written
-once in `.cljc` from arithmetic and regular expressions rather than from
-`java.time` or `js-joda`, so they behave identically everywhere.
+Podchaser, Listen Notes and Taddy are not included. Each needs an account,
+and the four sources above already cover discovery for an app without one.
 
-On the JVM the front door adds `fetch!`, the one step a poller repeats: the
-conditional headers go out, a parsed feed or a 304 comes back with the
-validators for next time and the XML itself, the URL is the final one after
-redirects, and the feed's own new-feed-url is surfaced when it declares one.
+`directory.podcastindex` builds requests with the SHA-1 authentication
+header for an instant that the caller gives, so any HTTP client can send
+them. It maps the feed, episode and value objects of the index onto the
+model. As a result, a feed from the index has the same keys as a feed parsed
+from RSS, and `resolve` works on both. What only the index knows is under
+`:index/*`, and the original is under `:index/raw`. The table of endpoints
+follows the OpenAPI description of the API.
 
-The JS adapter uses only the standard DOM API (`parseFromString`,
-`getElementsByTagName`, `item`, `nodeName`, `nodeValue`), so any DOMParser
-will do. A browser reports a malformed document with a `parsererror`
-element; other implementations may throw or return a document without a
-root, and all three become the same `::malformed` exception. Under Node the
-test setup installs `@xmldom/xmldom` as `js/DOMParser`, configured to throw
-on every error the way a browser would report one. Two differences between
-the platforms shaped the code: a DOMParser is namespace-aware and rejects an
-undeclared prefix that the JVM's parser lets through, which is what the
-undeclared-prefix repair is for; and ClojureScript's `str/replace-first`
-does not accept a function replacement the way Clojure's does, so the
-repairs avoid it.
+A value time split can point to a remote item. `remote-value` asks for the
+value block of the item first, and then for that of its feed. It takes the
+function that sends the requests as an argument, so the tests use stubs and
+any client works. `value/with-remote` adds the answer to the recipients of
+the moment. `remote-item` resolves any remote item, of a podroll, a
+publisher, a list or a time split, to the feed and the episode in the index.
+The key and the secret never leave the process of the caller.
 
-## Finding episodes
-
-`dk.simongray.podcast.app.search` is where an app's lists come from, in two
-independent halves.
-
-**Criteria and orders as data.** `where` turns a map such as `{:season 2
-:type "full" :status :unplayed}` into a predicate of a feed and an item,
-and `order` turns a keyword such as `:newest` into a sort key; `episodes`
-applies both to one feed, or to a collection of feeds for the inbox across
-subscriptions. Every criterion reads the model through `resolve`, so it
-means exactly what the accessor means: `:explicit?` inherits from the
-channel, `:chapters?` counts a linked file, embedded Podlove chapters and
-the timestamps in the notes alike. Criteria that depend on the listener,
-`:status` and the `:recent` order, take the player state, and identify
-episodes as the player does, by `[feed-guid item-guid]`. Because the
-criteria are data, a UI can build them from a form, and the inspector's
-filter form is exactly that. An unknown criterion or order throws: it is
-a programming error, not content to forgive.
-
-**An index that is a value.** `index` and `add` build a map, `query`
-searches it, `remove` takes a document out; nothing is mutated and
-nothing runs in the background. Documents are `{:id :fields :stored}`,
-built from the model by `item-document` and `feed-document` or by hand,
-so that an app can index whatever it has, a fetched transcript included.
-Text is analyzed by one rule on both platforms, words lower-cased with
-diacritics folded, and a field or a query given as a vector of strings
-skips analysis, which is how a client brings its own stemming or
-segmentation without the library carrying a language model. The postings
-keep positions, so a quoted phrase is verified rather than approximated,
-and the terms are kept in a sorted set beside the postings, so the last
-word of a query expands to every term it is a prefix of, which is what
-search as you type needs. Ranking is BM25 per field, summed with
-`boosts`, the plain and well-understood scheme, and what a consumer might
-want otherwise is an option of `query`: the field weights, a weight of
-zero leaving a field out, BM25's `k1` and `b`, the shortest word to
-complete, and a `:rank` function that orders the results by something
-other than the score, ties by recency say. `snippet` marks the matches in
-a text the caller supplies, since the index does not keep the text.
-Lucene would have been the JVM answer and no answer in the browser; the
-index here is a few hundred lines, runs everywhere the model does, and
-prints as EDN.
-
-The cost is that of an inverted index held as persistent maps: measured on
-36,000 items with their show notes, five seconds to index and roughly 10 KB
-of heap an episode, a query answering in tens of milliseconds at worst. A
-listener's library of a few thousand episodes is therefore tens of
-megabytes and well under a second to build; the notes are nine tenths of
-the terms, so an app short of memory, in a browser say, indexes fewer
-fields, titles and people alone costing a tenth, and adds transcripts only
-for the episodes it has downloaded.
-
-## The directories
-
-`dk.simongray.podcast.directory` puts the podcast directories behind one
-shape, the way `directory.podcastindex` does for the Podcast Index: Apple
-Podcasts, fyyd and gpodder.net, which need no credentials, and the Podcast
-Index, which does. Three endpoints cover what a client asks a directory for,
-`:search` by words, `:lookup` by the source's id and `:trending` for the
-chart, and every source answers them as far as it can; Apple's chart names
-no feed, so a lookup by its id follows. A request is a map any HTTP client
-can send, so the namespace is `.cljc` and a browser client builds the same
-URLs, its CORS policy permitting. A response reads into shows keyed like a
-parsed feed, `:rss/title`, `:itunes/author`, `:itunes/image`, with the
-feed's URL as the `atom:link rel=self` that `resolve/self-url` reads and
-`:podcast/guid` derived from that URL by the specification's rule when the
-source declares none, which is what makes results from different sources
-comparable at all. What only a directory knows sits under `:directory/*`:
-the source, the show's id there, its page, an episode or subscriber count,
-a chart rank, and the raw record. `combine` folds the answers of several
-sources into one entry per show, the first source's record filled in from
-the later ones, `:directory/sources` naming each with its id, so that a
-chart entry meets its feed. On the JVM `search!` and `trending!` ask every
-source at once, and a source that fails is a line under `:failed` rather
-than an exception. The inspector's front page searches the directories and
-inspects the feed it finds.
-
-Podchaser, Listen Notes and Taddy are left out: each needs an account,
-and the four here already cover discovery for a client that has none.
 
 ## Podping
 
-`dk.simongray.podcast.podping` is the consumer of Podping, the notification
-that a feed changed: hosts announce through podping.cloud, which writes a
-custom_json operation to the Hive blockchain, and anyone reads the chain.
-The namespace follows the shape of the directories. `request` builds the
-JSON-RPC calls a consumer makes, for the chain's position, a run of blocks
-with their operations, one block's operations and the writer list, as
-request maps with a POST body, so that a browser client sends them too:
-the public nodes allow any origin, and `call!` in ClojureScript is one
-`fetch`. `pings` reads the podpings out of the blocks answered, in either
-shape a node writes an operation, the first versions' `urls` and
-`feed_update` included, and takes the medium and reason from the payload
-or else from the id; a block's number is the first eight hex digits of its
-id. Anyone can write a custom_json, so `writers` reads which accounts may:
-the ones the `podping` account follows on the chain, which is how the
-project publishes its writers.
+Podping tells that a feed changed. A host announces the change through
+podping.cloud, which writes a `custom_json` operation to the Hive
+blockchain. Anyone can read the chain.
 
-On the JVM `poll!` is the poller's one step, like `fetch!` for a feed: the
-pings in the blocks after the last one read, a hundred blocks to one
-request, verified against the writers read once and handed back, with the
-block to continue from and the pings refused kept apart rather than
-dropped. It can stop at the last irreversible block for a consumer that
-would rather not see a fork's pings. `call!` tries the public nodes in
-turn, treating a status other than 200 or a body that is not JSON as that
-node's failure, and names them all when none answers. `pinged?` and
-`affected` compare URLs as `podcast:guid` compares them, so a host that
-pings `http://…/feed/` reaches a subscription stored as `https://…/feed`.
-`notify-request` is the host's side, one GET to podping.cloud with the
-token it was issued.
+`podping` has the same shape as the directories. `request` builds the
+JSON-RPC calls of a consumer as request maps. The calls ask for the head of
+the chain, a range of blocks, the operations of one block, and the accounts
+that write podpings. The public nodes allow any origin, so a browser can
+send the requests too. `pings` reads the podpings from the blocks, in both
+forms that a node writes an operation, including the `urls` and
+`feed_update` of the first versions. It takes the medium and the reason from
+the payload, or else from the id.
 
-The inspector's Podping page reads the last twenty blocks live, which is
-how the consumer is exercised against the real chain; the tests run on
-recorded answers, with a stand-in node that fails on cue.
+Anyone can write a `custom_json`, so `writers` reads which accounts can
+write podpings: the accounts that the `podping` account follows on the
+chain. This is how the Podping project publishes its writers.
+
+On the JVM, `poll!` is the step that a poller repeats, like `fetch!` for a
+feed. It reads the pings in the blocks after the last block read, a hundred
+blocks to a request. It keeps the pings of the known writers, and returns
+the other pings under `:refused`. It also returns the block to continue
+from, and the writers. If the caller gives the writers back, `poll!` reads
+them only once. With `:up-to :irreversible`, it stops at the last block that
+a fork cannot take back. `call!` tries the public nodes in turn. An
+exception or a status other than 200 is a failure of that node. If no node
+answers, the exception names all of them.
+
+`pinged?` and `affected` compare URLs the way that `podcast:guid` does. For
+example, a ping for `http://…/feed/` matches a subscription stored as
+`https://…/feed`. `notify-request` is for the host: one GET to podping.cloud
+with the token of the host.
+
+The Podping page of the inspector reads the last twenty blocks live. The
+tests run on recorded answers, with a node that fails when the test tells it
+to.
+
+
+## The player state
+
+Most of the logic of a podcast app is the same in every app. Each app has a
+play queue, a position in each episode, played marks, subscriptions with
+settings, and a sync between devices. `app.player` holds all of this as one
+map, with pure functions over it. An app then writes only its user
+interface.
+
+The rules of podcast-clj apply: no storage, no clock and no media element.
+Each function takes the instant of its change. It stamps what it changed
+with the device id of the state and with that instant. If the instant is not
+later than the latest instant in the state, it uses the next millisecond: a
+hybrid logical clock in one rule. The app stores the map as it likes, and
+calls in when the player sends events.
+
+The map holds:
+
+- the subscriptions by feed guid, with a tombstone for each removal
+- the settings of each subscription, such as `:auto-queue?` and
+  `:skip-intro`, one entry for each field
+- the episodes by `[feed-guid item-guid]`, with position, duration and the
+  played mark, which `progress` sets within `played-threshold` seconds of
+  the end
+- the queue, one entry for each episode, with a rank from `rank` that gives
+  the order
+- the preferences of the listener, such as the skip amounts and the playback
+  rate, one entry for each field
+- the device registry, with an entry for each device of the listener
+
+`merge` reconciles two states entry by entry, and the later entry wins. The
+merge is commutative, associative and idempotent, and a generative test
+tests the three properties. As a result, any backend that can store and
+fetch a document can sync the state. `app.sync` does this.
+
+`refresh` gives a new parse to `feed/diff`, and queues the new episodes of
+the subscriptions with `:auto-queue?`. `to-opml` and `from-opml` connect to
+`format.opml`, and keep the feed guid in each outline. `skip` moves within
+an episode, and never past its start or its end.
+
+`step` is a small reducer over the events of a player: `:progress`,
+`:ended`, `:play` and `:skip`. It returns the new state, and the effects for
+the app, such as to play the next episode or to seek. `step` is the only
+place where behavior is composed, and it is short on purpose.
+
+
+## Search
+
+`app.search` gives an app its lists of episodes, in two independent parts.
+
+**Criteria and orders as data.** `where` makes a predicate of a feed and an
+item from a map such as `{:season 2 :type "full" :status :unplayed}`.
+`order` makes a sort key from a keyword such as `:newest`. `episodes`
+applies both to one feed, or to a collection of feeds for an inbox of all
+subscriptions. Each criterion reads the model through `resolve`, so it means
+what the accessor means. For example, `:explicit?` inherits from the
+channel, and `:chapters?` counts a chapters file, Podlove chapters and
+timestamps in the notes. The criteria that depend on the listener, `:status`
+and the `:recent` order, take the player state. Because the criteria are
+data, a user interface can build them from a form, and the filter form of
+the inspector does this. An unknown criterion or order throws, because it is
+a programming error, not content to forgive.
+
+**An index that is a value.** `index` and `add` build a map, `query`
+searches it, and `remove` takes a document out. Nothing changes in place,
+and nothing runs in the background. A document is `{:id :fields :stored}`.
+`item-document` and `feed-document` build documents from the model, and an
+app can build other documents, for example for a transcript that it fetched.
+
+One rule analyzes text on both platforms: it lower-cases the words and folds
+diacritics. A field or a query given as a vector of strings is not analyzed.
+In this way, an app can bring its own stemming or segmentation, and
+podcast-clj needs no language model. The postings keep positions, so a
+quoted phrase is verified, not approximated. A sorted set of the terms is
+next to the postings, so the last word of a query matches each term that
+starts with it. Search as you type needs this.
+
+The ranking is BM25 per field, summed with `boosts`. This scheme is simple
+and well understood. `query` takes options for other needs:
+
+- the weights of the fields, where a weight of zero leaves a field out
+- the `k1` and `b` of BM25
+- the shortest word to complete
+- a `:rank` function that orders the results by something other than the
+  score
+
+`snippet` marks the matches in a text that the caller gives, because the
+index does not keep the text.
+
+Lucene was the JVM alternative, but it does not run in a browser. The index
+of podcast-clj is a few hundred lines, runs wherever the model runs, and
+prints as EDN.
+
+The cost is that of an inverted index in persistent maps. On 36,000 items
+with their show notes, indexing took five seconds and about 10 KB of heap
+for each episode. A query took tens of milliseconds at most. A library of a
+few thousand episodes needs tens of megabytes, and less than a second to
+build. The show notes are nine tenths of the terms. An app with little
+memory, for example in a browser, can index fewer fields: titles and people
+alone cost a tenth. It can also index transcripts only for the episodes that
+it downloaded.
+
 
 ## Syncing
 
-`dk.simongray.podcast.app.sync` keeps one listener's devices in step, on the
-design in `sync.md`, whose reasoning is not repeated here. The merge being a
-join, a backend only has to hold documents: every device writes its whole
-state in an envelope, as `<device-id>.edn`, and reads the others' and
-merges them, so that no two writers ever meet and a folder any sync client
-mirrors is a complete backend. A store is a map of four functions over
-named documents with version tokens, its credentials closed over in its
-constructor, and `store/backend` turns any store into a backend by one of
-two strategies, a document per device or one shared document put on
-condition of its version. `sync!` is one step over any number of backends,
-pull, merge, push, with a cursor per backend, and on every step it
-acknowledges in the registry what the whole documents told and compacts
-the tombstones every device has seen.
+`app.sync` keeps the devices of one listener in step, and [Syncing](sync.md)
+explains its design. The merge of the player state is a join, so a backend
+only has to hold documents. With the default strategy, each device writes
+its whole state as `<device-id>.edn`, and reads and merges the documents of
+the other devices. Two devices never write the same document, so a folder
+that a sync client mirrors is a complete backend. A store that cannot list
+holds one shared document instead, which each device puts on the condition
+that its version did not change.
 
-The layering: `app.sync` stands on `app.player` and `async`;
-`app.sync.store` on both and on `format.opml`, for the subscription list it
-mirrors; `app.sync.file`, `app.sync.webdav` and `app.sync.encrypted` are
-stores over `app.sync.store`, and `app.sync.webdav.server` stands on the
-WebDAV store to serve any store over the same protocol, which the inspector
-does at `/dav/` through the `inspector.dav` interceptor, since Pedestal's
-router does not match a collection's trailing slash and its body-params
-interceptor would read a put's body first. `store/check!` tries any store
-through the contract and reports for a settings screen, and `sync/next-at`
-says when to sync next, so that an app's timer has a policy while the
-library still schedules nothing.
+`app.sync` requires `app.player` and `async`. `app.sync.store` also requires
+`format.opml`, for the subscription list that it can write. `app.sync.file`,
+`app.sync.webdav` and `app.sync.encrypted` are stores over `app.sync.store`.
+`app.sync.webdav.server` uses the WebDAV store to serve any store over
+WebDAV. Only the namespaces under `app.sync` require `app.sync`.
 
-## The reference web app
 
-`web/inspector/` is a small Pedestal service that renders HTML with
-Replicant's string renderer. It fetches a feed URL (or one of the corpus
-feeds), parses it, and shows the channel, the items, every recognized tag,
-the unknown elements, the report, the validation diagnostics against a chosen
-profile and the round-tripped XML, with the resolved properties and their
-sources beside the raw fields; its front page searches the directories, its
-Podping page reads the chain, and its queue page carries a small real player
-in ClojureScript over `app.player`: the state lives in localStorage,
-Replicant renders it into a bar on every page, an audio element reports its
-position through `step`, whose effects seek it or start the next episode,
-and the folder at `/dav/` is the sync backend the player and any WebDAV
-client share. Clicking a link fetches the next page and swaps only the
-content under the bar, so playback survives moving between pages without
-the inspector becoming a single-page application. It is the first client of
-the library and exists to test it; it touches nothing but the public API.
+## Platforms
+
+| Concern | JVM | JavaScript |
+|---|---|---|
+| XML in | `javax.xml.stream`, not namespace-aware, no DTDs | the `js/DOMParser` of the browser, or one that the host installs |
+| Lenient XML in | the XML mode of jsoup, if jsoup is present | none |
+| JSON | `clojure.data.json` | `js/JSON` |
+| SHA-1 (guid, Podcast Index) | `java.security.MessageDigest` | `goog.crypt.Sha1` |
+| Instants | `java.util.Date` | `js/Date` |
+| Deferred values (`async`) | futures | promises |
+| HTTP | `java.net.http`, in `http` | `fetch`, in the functions that send requests |
+| Encryption (`app.sync.encrypted`) | `javax.crypto` | WebCrypto |
+
+The parsers of dates and durations and the UUIDv5 computation are written
+once, in `.cljc`, from arithmetic and regular expressions. They do not use
+`java.time` or `js-joda`, so they give the same result everywhere.
+
+The JavaScript adapter uses only the standard DOM API (`parseFromString`,
+`getElementsByTagName`, `item`, `nodeName`, `nodeValue`), so any DOMParser
+works. A browser reports a malformed document with a `parsererror` element.
+Other implementations throw, or return a document without a root.
+podcast-clj turns all three into the same
+`:dk.simongray.podcast.xml/malformed` exception. In Node, the test setup
+installs `@xmldom/xmldom` as `js/DOMParser`, and configures it to throw on
+each error that a browser reports.
+
+Two differences between the platforms shaped the code. First, a DOMParser is
+namespace-aware, and it refuses an undeclared prefix that the JVM parser
+accepts. The repair that declares prefixes is for this case. Second,
+`str/replace-first` in ClojureScript does not take a replacement function
+the way that Clojure does, so the repairs do not use it.
+
+On the JVM, the front door adds `fetch!`, the step that a poller repeats. It
+sends the conditional headers, and returns a parsed feed or a 304, with the
+validators for the next fetch and the XML itself. The URL in the result is
+the final URL after redirects. If the feed declares a new URL,
+`:new-feed-url` gives it.
+
+
+## The inspector
+
+The inspector in `web/inspector/` is a small Pedestal service that renders
+HTML with the string renderer of Replicant. It is the first client of
+podcast-clj, and it exists to test the library. It uses only the public API.
+
+Give it a feed URL, or select a corpus feed. It shows the channel, the
+items, each known tag, the unknown elements, the report, the validation
+against a profile, and the XML written back. Next to the raw fields, it
+shows the resolved properties and their sources. The front page searches the
+directories, and the Podping page reads the chain.
+
+The queue page has a small player in ClojureScript, over `app.player`. The
+player state is in localStorage, and Replicant renders it into a bar on
+every page. The audio element reports its position through `step`, and the
+effects of `step` seek the audio element or start the next episode. The
+folder at `/dav/` is the sync backend that the player shares with any WebDAV
+client. A click on a link fetches the next page and replaces only the
+content below the bar. As a result, playback continues across pages, but the
+inspector is not a single-page app.
+
+The inspector serves its folder at `/dav/` through the `inspector.dav`
+interceptor, for two reasons. The router of Pedestal does not match the
+trailing slash of a collection. Also, the body-params interceptor of
+Pedestal reads the body of a put before the handler can read it.
+
 
 ## Testing
 
-- Unit tests per namespace with `clojure.test`, written as `.cljc` and run on
-  the JVM, under Node and in a browser (shadow-cljs `:node-test` and
-  `:browser-test` builds); the spec repository's `example.xml` and companion
-  examples are fixtures (CC0), inlined into the JS builds at compile time.
-- Hand-written fixture feeds, one quirk each, with the expected report.
-- A corpus of real feeds from some thirty hosts in `dev-resources/corpus/`,
-  outside git, recreated by `dev/corpus.clj`. A corpus test parses every feed,
-  asserts no exceptions, round-trips it, and validates it.
-- A second corpus, in `dev-resources/corpus/companions/`, of the chapter and
-  transcript files those feeds link to: a stratified sample of two per host
-  and type, with a manifest. `corpus/sweep-companions` parses them all and
-  tabulates segments, speakers and the format sniffed against the one
-  declared; the quirks it exposed each have a synthetic fixture in the tests.
-- A third corpus, in `dev-resources/corpus/sweep/`, of a few hundred feeds
-  sampled through the Podcast Index by `corpus/sweep-populations`: a random
-  slice of the recently updated feeds, of the newly added ones, of the feeds
-  with value blocks and of every non-podcast medium. `corpus/sweep-report`
-  parses them all and aggregates parse errors, report and validation
-  diagnostics by the number of feeds they touch, unknown elements by tag,
-  values that would not coerce, and round-trip changes; the sweeps are how
-  registry gaps, quirks and emitter bugs are found, each fixed with a test.
-- Generative tests: the merge's three properties, the ranks, the
-  convergence of several devices syncing in random orders through either
-  strategy, and the Malli schemas generating feeds that emit and parse back.
-- The inspector's routes are tested through Pedestal's interceptor chain
-  with the network stubbed, so that the reference app cannot break silently;
-  its WebDAV folder doubles as a real server for the WebDAV store's test.
-- The inspector's browser player is two namespaces: pure views that turn the
-  page state into Hiccup with event handlers as data, tested by equality
-  under Node and in the browser build, and a shell that performs the
-  events, tested on jsdom under Node, where it is mounted, given an episode
-  through a stubbed fetch, and clicked. Node-only tests are named
-  `-node-test`, which the browser build leaves out.
-- `architecture_test.clj` reads every `ns` form under `src/`, places each
-  namespace in the layer this document gives it, and fails when a require
-  points up a layer, when the graph has a cycle, when the registry requires
-  anything, or when a companion format reaches above the primitives.
-- CI runs two jobs: everything on the current Java and Clojure with the
-  Node suite and the linter, and the library's own tests on Java 11 with
-  Clojure 1.11, the floor `deps.edn` declares and the pom states. The
-  aliases override to the current Clojure; the `:test-floor` alias does not.
+- Most unit tests are `.cljc` files for `clojure.test`. They run on the JVM,
+  in Node and in a browser, through the `:node-test` and `:browser-test`
+  builds of shadow-cljs. The `example.xml` feed and the companion examples
+  of the `podcast` namespace repository are fixtures (CC0). The JavaScript
+  builds put them into the code at compile time.
+- Hand-written fixtures test the quirks, with the expected report. Small
+  inline feeds test one quirk each. `quirky.xml` combines many quirks, and
+  `broken.xml` is malformed in several ways.
+- A corpus of real feeds from some thirty hosts is in
+  `dev-resources/corpus/`, outside Git. `dev/corpus.clj` downloads it again.
+  The corpus test parses each feed, makes sure that nothing throws, and does
+  a round trip and a validation.
+- A second corpus, in `dev-resources/corpus/companions/`, holds the chapters
+  and transcript files that those feeds link to: two per host and type, with
+  a manifest. `corpus/sweep-companions` parses all of them. It counts
+  segments and speakers, and compares the detected format with the declared
+  one. Each quirk that it found has a synthetic fixture in the tests.
+- A third corpus, in `dev-resources/corpus/sweep/`, holds a few hundred
+  feeds that `corpus/sweep-populations` samples through the Podcast Index.
+  The sample has recently updated feeds, new feeds, feeds with value blocks,
+  and feeds of each medium other than podcast. `corpus/sweep-report` parses
+  them all. It counts parse errors, diagnostics, unknown elements, values
+  that do not coerce, and changes in a round trip, by the number of feeds.
+  These sweeps found gaps in the registry, quirks and emitter bugs. Each
+  correction came with a test.
+- Generative tests cover these properties:
+  - the three properties of the merge
+  - the order of the ranks
+  - the convergence of several devices that sync in random order, through
+    both strategies
+  - the round trip of the feeds that the Malli schemas generate
+- The routes of the inspector are tested through the interceptor chain of
+  Pedestal, with the network stubbed. The WebDAV folder of the inspector is
+  also a real server for the test of the WebDAV store.
+- The browser player of the inspector has two namespaces. The pure views
+  turn the page state into Hiccup, with event handlers as data. Their tests
+  compare Hiccup, in Node and in the browser build. The shell does the
+  events. Its test runs on jsdom in Node: it mounts the player, loads an
+  episode through a stubbed fetch, and clicks the buttons. The names of
+  tests that need Node end in `-node-test`, and the browser build leaves
+  them out.
+- `architecture_test.clj` reads each `ns` form under `src/` and places each
+  namespace in its layer. It fails in these cases:
+  - a namespace has no layer
+  - a require points to a higher layer
+  - the graph of requires has a cycle
+  - the registry requires anything
+  - a companion format requires more than the primitives and the other
+    formats
+  - `xml` requires more than `diagnostics`
+- CI runs two jobs. The first job runs all JVM tests, the Node tests and the
+  linter, on current versions of Java and Clojure. The second job runs the
+  library tests on Java 11 with Clojure 1.11. `deps.edn` and the pom declare
+  Clojure 1.11 as the minimum, and `java.net.http` needs Java 11. The other
+  aliases override Clojure to the current version, but `:test-floor` does
+  not.
+
 
 ## Not built
 
-A backend over a service with its own model, gpodder's first, designed in
-`sync.md`; stores over the cloud services' HTTP APIs, each a short
-namespace against the store contract; a JSON form of the sync documents for
-clients in other languages; a lenient XML parser for JavaScript; a folder
-store for Node; and the deploy itself.
+- A backend for a service with its own model, gpodder first.
+  [Syncing](sync.md#gpodder-for-later) has the design.
+- Stores over the HTTP APIs of cloud services. Each is a short namespace
+  against the store contract.
+- A JSON form of the sync documents, for clients in other languages.
+- A lenient XML parser for JavaScript.
+- A folder store for Node.
+- The release to Clojars.

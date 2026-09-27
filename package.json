@@ -1,8 +1,8 @@
 {
-  "name": "podcasting",
+  "name": "podcast-clj",
   "version": "0.0.1",
   "private": true,
-  "description": "Node and browser test tooling for dk.simongray/podcast; the library itself has no npm dependencies.",
+  "description": "Node and browser test tools for podcast-clj. The library itself has no npm dependencies.",
   "devDependencies": {
     "@xmldom/xmldom": "^0.9.8",
     "jsdom": "^29.1.1",

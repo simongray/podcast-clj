@@ -20,7 +20,7 @@
 
 (def user-agent
   "The User-Agent sent with every request unless the caller sets one."
-  "dk.simongray/podcast (+https://github.com/simongray)")
+  "podcast-clj (+https://github.com/simongray/podcast-clj)")
 
 (defn encode
   "Percent-encode `s` for a query string, the same way on both platforms:
