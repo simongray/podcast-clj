@@ -117,3 +117,15 @@
   settings of a show skip its outro, `player/step` ends an episode where
   the outro starts, with the new effect `[:stop id]`, and `outro-start`
   gives that position.
+- The player state holds an inbox, stars, bookmarks, folders, tags and
+  saved filters, and `search` selects by stars and by the inbox. `refresh`
+  no longer brings back an episode that the listener played or took out
+  on another device.
+- OPML carries the folders, the tags as the categories of an outline, and
+  the time the listener subscribed as the time an outline was created.
+  `format.opml` reads and writes these, and the dates and owner of a list.
+  `from-opml` takes the feed title before the text of an outline, and a
+  folder around the whole list, as some apps write, is no folder.
+- A listener can follow an OPML list that someone keeps on the web.
+  `refresh-list` subscribes to the shows that join it, and OPML carries
+  the followed lists as inclusions.

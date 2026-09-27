@@ -1,10 +1,12 @@
 (ns dk.simongray.podcast.app.player-test
-  "The player state: subscriptions, progress, the queue, refreshes, OPML,
-  merging and the reducer."
+  "The player state: subscriptions, progress, the queue and the inbox,
+  stars, bookmarks, folders, tags, followed lists and saved filters,
+  refreshes, OPML, merging and the reducer."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.format.opml :as opml]
+            [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 t4 a]]
             [dk.simongray.podcast.time :as time]))
 
@@ -17,7 +19,7 @@
               (player/configure "feed-a" {:auto-queue? true :skip-intro 20} t1))]
     (is (player/subscribed? s "feed-a"))
     (is (not (player/subscribed? s "feed-b")))
-    (is (= {:auto-queue? true :skip-intro 20 :skip-outro 0} (player/settings s "feed-a")))
+    (is (= (assoc player/default-settings :auto-queue? true :skip-intro 20) (player/settings s "feed-a")))
     (is (= player/default-settings (player/settings s "feed-b")))
     (testing "unsubscribing leaves a tombstone, resubscribing keeps the settings"
       (let [gone (player/unsubscribe s "feed-a" t2)
@@ -135,7 +137,7 @@
         merged (player/merge phone laptop)]
     (is (= {:skip-forward 45 :skip-back 15 :rate 1.5} (player/preferences merged))
         "preferences changed on different devices both survive")
-    (is (= {:auto-queue? true :skip-intro 20 :skip-outro 0} (player/settings merged "feed-a"))
+    (is (= (assoc player/default-settings :auto-queue? true :skip-intro 20) (player/settings merged "feed-a"))
         "and so do a subscription's settings")
     (is (= 60 (:skip-forward (player/preferences (player/merge phone (player/prefer laptop {:skip-forward 60} t3)))))
         "the same field on both: the later wins")
@@ -159,7 +161,178 @@
         (is (= [] (player/queue state)))))
     (testing "with auto-queue they join the queue, oldest first"
       (let [{:keys [state]} (player/refresh (player/configure s "feed-a" {:auto-queue? true} t0) before after "https://a/rss" t1)]
-        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (player/queue state)))))))
+        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (player/queue state)))
+        (is (= [] (player/inbox state)))))
+    (testing "else, when the settings ask for it, the inbox, the newest first"
+      (let [{:keys [state]} (player/refresh (player/configure s "feed-a" {:inbox? true} t0) before after "https://a/rss" t1)]
+        (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (player/inbox state)))
+        (is (= [] (player/queue state)))))
+    (testing "an episode another device has handled stays as the listener left it"
+      (let [phone  (-> (player/configure s "feed-a" {:auto-queue? true} t0)
+                       (player/refresh before after "https://a/rss" t1)
+                       :state
+                       (player/mark-played ["feed-a" "a3"] t2)
+                       (player/dequeue ["feed-a" "a3"] t2)
+                       (player/dequeue ["feed-a" "a4"] t2))
+            laptop (-> (player/merge (player/state "laptop") phone)
+                       (player/refresh before after "https://a/rss" t3)
+                       :state)]
+        (is (= [] (player/queue laptop)) "neither the one played nor the one taken out comes back")
+        (let [inbox  (-> (player/configure s "feed-a" {:inbox? true} t0)
+                         (player/refresh before after "https://a/rss" t1)
+                         :state
+                         (player/dismiss ["feed-a" "a4"] t2))
+              laptop (:state (player/refresh (player/merge (player/state "laptop") inbox) before after "https://a/rss" t3))]
+          (is (= [["feed-a" "a3"]] (player/inbox laptop)) "nor the one dismissed from the inbox"))))))
+
+(deftest the-inbox
+  (let [c2 ["feed-b" "b2"]
+        s  (-> (player/state "phone")
+               (player/write [:inbox a] (constantly {:removed? false}) t0)
+               (player/write [:inbox b] (constantly {:removed? false}) t0)
+               (player/write [:inbox c] (constantly {:removed? false}) t0)
+               (player/write [:inbox c2] (constantly {:removed? false}) t0))]
+    (is (= [c2 c b a] (player/inbox s)) "the latest to arrive first")
+    (testing "an episode leaves the inbox when it is dismissed, queued or played"
+      (let [s' (-> s (player/dismiss a t1) (player/enqueue b t1) (player/mark-played c t1) (player/progress c2 3590 3600 t1))]
+        (is (= [] (player/inbox s')))
+        (is (every? #(:removed? (get-in s' [:inbox %])) [a b c c2]) "each with a tombstone, which compaction can drop")))
+    (is (= [c2 c a] (player/inbox (player/play-next s b t1))))
+    (testing "and an episode played on a device that never had it in the inbox is not there either"
+      (let [laptop (player/mark-played (player/state "laptop") a t1)]
+        (is (not (player/in-inbox? (player/merge s laptop) a)))))
+    (is (= s (player/dismiss s ["feed-x" "none"] t1)) "dismissing what is not there changes nothing")))
+
+(deftest stars-and-bookmarks
+  (let [s (-> (player/state "phone") (player/star a t0) (player/star b t1))]
+    (is (= [b a] (player/starred s)) "the latest starred first")
+    (is (player/starred? s a))
+    (is (= s (player/star s a t2)) "starring again changes nothing, so the order stays")
+    (is (= [b] (player/starred (player/unstar s a t2))))
+    (is (:removed? (get-in (player/unstar s a t2) [:stars a])) "a tombstone")
+    (is (not (player/starred? (player/merge (player/unstar s a t2) (player/star (player/state "laptop") a t1)) a))
+        "the later removal outlives the older star from another device"))
+  (let [s (-> (player/state "phone")
+              (player/bookmark a 754.8 "The good bit" t0)
+              (player/bookmark a 30 nil t1)
+              (player/bookmark b 5 "Other" t2))]
+    (is (= [{:id a :position 30 :title nil :updated-at t1} {:id a :position 754 :title "The good bit" :updated-at t0}]
+           (player/bookmarks s a))
+        "an episode's bookmarks by position, in whole seconds")
+    (is (= [b a a] (map :id (player/bookmarks s))) "all of them, the latest written first")
+    (is (= "Renamed" (:title (second (player/bookmarks (player/bookmark s a 754 "Renamed" t3) a))))
+        "the same second is the same bookmark")
+    (is (= [30] (map :position (player/bookmarks (player/unbookmark s a 754.2 t3) a))))
+    (doseq [bad [-1 ##NaN ##Inf "12"]]
+      (is (= s (player/bookmark s a bad "x" t3)) (str "no bookmark at " (pr-str bad))))))
+
+(deftest folders-of-shows
+  (let [s (-> (player/state "phone")
+              (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+              (player/subscribe "feed-b" {:url "https://b/rss" :title "B"} t0)
+              (player/subscribe "feed-c" {:url "https://c/rss" :title "C"} t0)
+              (player/configure "feed-c" {:folder "News"} t0)
+              (player/configure "feed-a" {:folder "News"} t0))]
+    (is (= {"News" ["feed-a" "feed-c"] nil ["feed-b"]} (player/folders s)) "titles in order, the rest under nil")
+    (is (= {"Nyheder" ["feed-a" "feed-c"] nil ["feed-b"]} (player/folders (player/rename-folder s "News" "Nyheder" t1))))
+    (is (= {nil ["feed-a" "feed-b" "feed-c"]} (player/folders (player/rename-folder s "News" nil t1))) "nil empties the folder")
+    (is (= s (player/rename-folder s "Sport" "Fodbold" t1)) "a folder without shows changes nothing")
+    (testing "in OPML, as the folders it has, and back, with the tags and the time of subscribing"
+      (let [s    (-> s (player/tag "feed-a" "Daily" t1) (player/tag "feed-a" "Danish" t1))
+            list (player/to-opml s)
+            back (player/from-opml (player/state "laptop") (opml/parse (opml/emit list)) t2)]
+        (is (= [["feed-a" ["News"]] ["feed-c" ["News"]] ["feed-b" nil]] (map (juxt :guid :path) (:subscriptions list)))
+            "the folders by name first, then the shows in none")
+        (is (= ["Daily" "Danish"] (:category (first (:subscriptions list)))))
+        (is (= (player/folders s) (player/folders back)))
+        (is (= (player/tagged s) (player/tagged back)))
+        (is (= t0 (get-in back [:subscriptions "feed-a" :added-at])) "subscribed when the other device subscribed")))
+    (is (= {"Danish" ["x"]}
+           (player/folders (player/from-opml (player/state "x") {:subscriptions [{:text "X" :xml-url "https://x/rss" :guid "x"
+                                                                                   :path ["News" "Danish"]}]}
+                                             t0)))
+        "the innermost of nested folders")))
+
+(deftest tags-of-shows
+  (let [s (-> (player/state "phone")
+              (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+              (player/subscribe "feed-b" {:url "https://b/rss" :title "B"} t0)
+              (player/tag "feed-b" "Tech" t0)
+              (player/tag "feed-a" "Tech" t0)
+              (player/tag "feed-a" "Daily" t0))]
+    (is (= #{"Daily" "Tech"} (player/tags s "feed-a")))
+    (is (= {"Tech" ["feed-a" "feed-b"] "Daily" ["feed-a"]} (player/tagged s)) "titles in order")
+    (is (= s (player/tag s "feed-x" "Tech" t1)) "no tag for a show the state does not know")
+    (is (= #{"Daily"} (player/tags (player/untag s "feed-a" "Tech" t1) "feed-a")))
+    (is (= {"Technology" ["feed-a" "feed-b"] "Daily" ["feed-a"]} (player/tagged (player/rename-tag s "Tech" "Technology" t1))))
+    (is (= {"Daily" ["feed-a"]} (player/tagged (player/rename-tag s "Tech" nil t1))) "nil takes the tag off")
+    (is (= #{"Daily" "Tech" "Mine" "Yours"}
+           (player/tags (player/merge (player/tag s "feed-a" "Mine" t1)
+                                      (player/tag (player/merge (player/state "laptop") s) "feed-a" "Yours" t1))
+                        "feed-a"))
+        "tags two devices add at once both stay, unlike a folder")
+    (is (= "a tag of \"feed-a\" is not a string"
+           (player/problem (assoc-in s [:tags "feed-a" :tech] {:removed? false :updated-at t1 :device "x"}))))))
+
+(deftest following-lists
+  (let [url  "https://lists.example/picks.opml"
+        g    #(guid/from-url %)
+        v1   {:subscriptions [{:text "PC20" :xml-url "https://pc20/rss"} {:text "Mine" :xml-url "https://mine/rss"}]}
+        v2   {:subscriptions [{:text "PC20" :xml-url "https://pc20/rss"}
+                              {:text "A description" :title "New" :xml-url "https://new/rss"}]}
+        s    (-> (player/state "phone")
+                 (player/subscribe (g "https://mine/rss") {:url "https://mine/rss" :title "Mine"} t0)
+                 (player/follow-list url {:title "Picks" :folder "Picks"} t0))
+        r1   (player/refresh-list s url nil v1 t1)]
+    (is (= {url {:title "Picks" :folder "Picks"}} (player/lists s)))
+    (testing "a first parse subscribes to the shows the state does not know, into the list's folder"
+      (is (= [(g "https://pc20/rss")] (:added r1)))
+      (is (= {"Picks" [(g "https://pc20/rss")] nil [(g "https://mine/rss")]} (player/folders (:state r1)))
+          "the listener's own show stays where it was"))
+    (testing "later parses add the shows that join, and report the ones that leave"
+      (let [unsubscribed (player/unsubscribe (:state r1) (g "https://pc20/rss") t2)
+            {:keys [state added left]} (player/refresh-list unsubscribed url v1 v2 t3)]
+        (is (= [(g "https://new/rss")] added))
+        (is (= "New" (get-in state [:subscriptions (g "https://new/rss") :title])) "the feed's title, not the text")
+        (is (= [(g "https://mine/rss")] left) "a show that left stays, for the app to decide")
+        (is (player/subscribed? state (g "https://mine/rss")))
+        (is (not (player/subscribed? state (g "https://pc20/rss"))) "a show the listener left stays left")))
+    (is (= {:state s :added [] :left []} (player/refresh-list s "https://other/list.opml" nil v1 t1))
+        "a list the listener does not follow changes nothing")
+    (is (= {} (player/lists (player/unfollow-list s url t1))))
+    (testing "in OPML, as an inclusion in the list's folder, and followed again from it"
+      (let [xml (opml/emit (player/to-opml (:state r1)))]
+        (is (re-find #"<outline text=\"Picks\">\s*<outline type=\"rss\"[^>]*/>\s*<outline type=\"include\" text=\"Picks\" url=\"https://lists.example/picks.opml\"/>" xml))
+        (is (= {url {:title "Picks" :folder "Picks"}}
+               (player/lists (player/from-opml (player/state "laptop") (opml/parse xml) t2))))))))
+
+(deftest saved-filters
+  (let [s (-> (player/state "phone")
+              (player/save-filter "Unplayed" {:where {:status :unplayed} :order :newest :player {:big :state} :url "u"} t0)
+              (player/save-filter "Starred" {:where {:starred? true}} t0))]
+    (is (= {"Unplayed" {:where {:status :unplayed} :order :newest} "Starred" {:where {:starred? true}}} (player/filters s))
+        "without the player and the url, which belong to the device")
+    (is (= {:where {:status :played}} (get (player/filters (player/save-filter s "Unplayed" {:where {:status :played}} t1)) "Unplayed"))
+        "saved again under the same name, replaced")
+    (is (= ["Starred"] (keys (player/filters (player/remove-filter s "Unplayed" t1)))))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (player/save-filter s "Odd" {:order (fn [_ _] 0)} t1))
+        "a function cannot be printed as EDN, and so cannot sync")))
+
+(deftest compacting-what-the-listener-took-away
+  (let [far    (time/->inst (+ (inst-ms t3) (* 31 24 60 60 1000)))
+        phone  (-> (player/state "phone")
+                   (player/star a t0) (player/unstar a t1)
+                   (player/bookmark a 30 "Kept" t0) (player/bookmark a 60 "Gone" t0) (player/unbookmark a 60 t1)
+                   (player/bookmark b 90 "Gone" t0) (player/unbookmark b 90 t1)
+                   (player/write [:inbox b] (constantly {:removed? false}) t0) (player/dismiss b t1)
+                   (player/save-filter "F" {} t0) (player/remove-filter "F" t1))
+        laptop (player/acknowledge (player/merge (player/state "laptop") phone) [phone] t2)
+        phone  (player/acknowledge (player/merge phone laptop) [laptop] t2)
+        after  (player/compact phone far)]
+    (is (= {:stars {} :inbox {} :filters {} :bookmarks {a {30 (get-in phone [:bookmarks a 30])}}}
+           (select-keys after [:stars :inbox :filters :bookmarks]))
+        "the tombstones go, and an episode left with no bookmark goes with them")
+    (is (= (player/bookmarks phone) (player/bookmarks after)))))
 
 (deftest opml-round-trip
   (let [s    (-> (player/state "phone")
@@ -168,7 +341,8 @@
                  (player/unsubscribe "feed-b" t1))
         list (player/to-opml s)
         xml  (opml/emit list)]
-    (is (= [{:text "Podcasting 2.0" :xml-url "https://feeds.podcastindex.org/pc20.xml" :guid "917393e3-1b1e-5cef-ace4-edaa54e1f810"}]
+    (is (= [{:text "Podcasting 2.0" :title "Podcasting 2.0" :xml-url "https://feeds.podcastindex.org/pc20.xml"
+             :guid "917393e3-1b1e-5cef-ace4-edaa54e1f810" :created t0}]
            (:subscriptions list)))
     (is (= (update-vals (player/subscriptions s) #(select-keys % [:url :title]))
            (update-vals (player/subscriptions (player/from-opml (player/state "laptop") (opml/parse xml) t2))
@@ -176,7 +350,18 @@
         "the guid carried in the OPML identifies the feed on the other device")
     (testing "an outline without a guid gets the one its URL derives"
       (is (player/subscribed? (player/from-opml (player/state "x") {:subscriptions [{:text "PN" :xml-url "https://podnews.net/rss"}]} t0)
-                              "9b024349-ccf0-5f69-a609-6b82873eab3c")))))
+                              "9b024349-ccf0-5f69-a609-6b82873eab3c")))
+    (testing "the feed's title before the text, which some apps fill with the description"
+      (is (= "Podnews" (get-in (player/from-opml (player/state "x")
+                                                 {:subscriptions [{:text "Daily news about podcasting" :title "Podnews"
+                                                                   :xml-url "https://podnews.net/rss"}]}
+                                                 t0)
+                               [:subscriptions "9b024349-ccf0-5f69-a609-6b82873eab3c" :title]))))
+    (testing "a folder around the whole list is a wrapper, not a folder"
+      (let [wrapped (opml/parse "<opml version=\"1.0\"><head><title>Feeds</title></head><body><outline text=\"feeds\">
+                                   <outline type=\"rss\" text=\"A\" xmlUrl=\"https://a/rss\"/>
+                                   <outline type=\"rss\" text=\"B\" xmlUrl=\"https://b/rss\"/></outline></body></opml>")]
+        (is (= [nil] (keys (player/folders (player/from-opml (player/state "x") wrapped t0)))))))))
 
 (deftest merging-two-devices
   (let [phone  (-> (player/state "phone")

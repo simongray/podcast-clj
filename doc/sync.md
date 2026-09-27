@@ -202,8 +202,9 @@ A stamped entry is a last-writer-wins register. A map of stamped entries is
 an add-remove set with tombstones. The clock is a max register. The state is
 their product, and `merge` is its join. When two entries have the same
 instant, the device id decides, and then the printed entry. Each platform
-makes the same choice. An app can add its own bookmarks or playlists to the
-state, and they sync with no change to podcast-clj, if the app stamps them.
+makes the same choice. An app can add entries of its own, such as
+playlists, to the state, and they sync with no change to podcast-clj, if
+the app stamps them.
 
 ### Device identity
 
@@ -283,6 +284,27 @@ both survive. The settings of a subscription are apart from the
 subscription, so they survive an unsubscription and come back with the feed.
 The accessors hide this layout.
 
+The folder of a show is one of these settings. For this reason, when two
+devices move a show to two folders at the same time, the later move wins,
+and the show is never in two folders.
+
+### Sets of marks
+
+The inbox, the stars, the bookmarks, the saved filters, the tags of a show
+and the followed OPML lists are sets, one entry for each episode, second,
+name, tag or URL, with a tombstone for each removal, as the subscriptions
+are. A star that one
+device removes stays removed when an older star comes from another device.
+Two tags that two devices give a show at the same time both stay, unlike
+two folders.
+
+Each device refreshes its feeds, so two devices can find the same new
+episode. `refresh` adds an episode to the queue or the inbox only if the
+state does not know it yet. Otherwise, a device that finds the episode late
+brings back an episode that the listener played or took out on another
+device. `refresh-list` follows the same rule for the shows of a followed
+list.
+
 ### Provenance and compaction
 
 Each entry carries the device that wrote it, and compaction depends on this.
@@ -309,13 +331,15 @@ after `t` contains the entry, or the entry that replaced it. At least one
 other device must exist. A device alone gains nothing when it forgets, and a
 device that joins later can bring back what it forgot.
 
-`player/compact` drops the tombstones of unsubscriptions and of queue
-removals that pass this test and are older than 30 days. The 30 days are a
-buffer for a device that joins with a state of its own. The played marks
-stay, because the listener still sees them. `sync!` compacts at each step,
-unless its options tell it not to. The app merges the result of a step into
-its current state, and the merge keeps what either state holds, the removed
-tombstones too. For this reason, the app compacts after the merge as well.
+`player/compact` drops the tombstones that pass this test and are older
+than 30 days: those of unsubscriptions, of lists no longer followed, of
+removals from the queue and the inbox, and of the tags, stars, bookmarks
+and saved filters that the listener took away. The 30 days are a buffer for a device that joins with
+a state of its own. The played marks stay, because the listener still sees
+them. `sync!` compacts at each step, unless its options tell it not to.
+The app merges the result of a step into its current state, and the merge
+keeps what either state holds, the removed tombstones too. For this reason,
+the app compacts after the merge as well.
 
 A device that stops syncing blocks compaction until the listener retires it,
 and `player/lagging` names such devices for the user interface. A device

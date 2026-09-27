@@ -610,10 +610,15 @@
   [{:keys [url]} feed]
   (if (fn? url) (url feed) url))
 
+(defn- episode-id
+  "The id of `item` of `feed` in the player state, by the context `ctx`."
+  [ctx feed item]
+  (player/episode-id feed (url-of ctx feed) item))
+
 (defn- entry
   "What the player state in `ctx` knows about `item` of `feed`."
   [ctx feed item]
-  (player/episode (:player ctx) (player/episode-id feed (url-of ctx feed) item)))
+  (player/episode (:player ctx) (episode-id ctx feed item)))
 
 (defn- status
   "Whether the episode with the player `entry` is `:unplayed`,
@@ -656,7 +661,11 @@
                     (fn [feed item]
                       (boolean (some #(str/includes? (fold (:name %)) q) (resolve/people feed item))))))
    :text        (fn [v _] (let [q (words v)] (fn [_ item] (mentions? q item))))
-   :status      (fn [v ctx] (fn [feed item] (in? v (status (entry ctx feed item)))))})
+   :status      (fn [v ctx] (fn [feed item] (in? v (status (entry ctx feed item)))))
+   :starred?    (fn [v ctx]
+                  (fn [feed item] (= (boolean v) (player/starred? (:player ctx) (episode-id ctx feed item)))))
+   :inbox?      (fn [v ctx]
+                  (fn [feed item] (= (boolean v) (player/in-inbox? (:player ctx) (episode-id ctx feed item)))))})
 
 (defn where
   "The predicate of a feed and one of its items for `criteria`, a map
@@ -672,12 +681,14 @@
        :person      \"Adam\"                 ; someone credited, matched folded
        :text        \"value for\"            ; every word in the title or notes, the
                                            ; last as a prefix
-       :status      :unplayed}              ; :unplayed, :in-progress or :played, or a set
+       :status      :unplayed               ; :unplayed, :in-progress or :played, or a set
+       :starred?    true                    ; starred; false for not starred
+       :inbox?      true}                   ; in the inbox; false for not
 
-  `:status` needs the player state under `:player` in `ctx`, and `:url`,
-  a string or a function of the feed, for feeds that declare no
-  podcast:guid, since episodes are identified as the player identifies
-  them. An empty map accepts every item."
+  `:status`, `:starred?` and `:inbox?` need the player state under
+  `:player` in `ctx`, and `:url`, a string or a function of the feed, for
+  feeds that declare no podcast:guid, since episodes are identified as the
+  player identifies them. An empty map accepts every item."
   ([criteria]
    (where criteria {}))
   ([criteria ctx]
@@ -685,8 +696,8 @@
      (when (seq unknown)
        (throw (ex-info (str "Criteria the library does not know: " (str/join ", " unknown))
                        {:criteria (vec unknown)})))
-     (when (and (contains? criteria :status) (not (:player ctx)))
-       (throw (ex-info ":status needs the player state under :player" {:criteria criteria})))
+     (when-let [k (and (not (:player ctx)) (some #{:status :starred? :inbox?} (keys criteria)))]
+       (throw (ex-info (str k " needs the player state under :player") {:criteria criteria})))
      (let [tests (mapv (fn [[k v]] ((criterion k) v ctx)) criteria)]
        (fn [feed item]
          (every? #(% feed item) tests))))))

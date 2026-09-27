@@ -88,7 +88,17 @@
          (titles {:where {:status #{:played :in-progress} :season 1} :player listened})))
   (is (thrown? #?(:clj Exception :cljs js/Error) (search/where {:colour "red"})))
   (is (thrown? #?(:clj Exception :cljs js/Error) (search/where {:status :played}))
-      ":status without a player is a mistake, not an empty list"))
+      ":status without a player is a mistake, not an empty list")
+  (testing "the stars and the inbox of the player, and a saved filter"
+    (let [marked (-> listened
+                     (player/star ["feed-guid" "b"] t1)
+                     (player/write [:inbox ["feed-guid" "t"]] (constantly {:removed? false}) t1)
+                     (player/save-filter "Starred" {:where {:starred? true}} t1))]
+      (is (= ["Bonus"] (titles {:where {:starred? true} :player marked})))
+      (is (= ["Trailer"] (titles {:where {:inbox? true} :player marked})))
+      (is (= ["Bonus"] (titles (assoc (get (player/filters marked) "Starred") :player marked))))
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:inbox\? needs the player state"
+                            (search/where {:inbox? true}))))))
 
 (deftest orders
   (is (= ["Bonus" "Season two, episode one" "Season one, episode two" "Season one, episode one: Café" "Trailer"]

@@ -33,21 +33,47 @@
     (gen/tuple (gen/return :advance) instants)
     (gen/tuple (gen/return :prefer) (gen/elements [15 30 45]) instants)
     (gen/tuple (gen/return :configure) feed-guids (gen/elements [0 10 20]) instants)
-    (gen/tuple (gen/return :identify) (gen/elements ["Mine" "Yours"]) instants)]))
+    (gen/tuple (gen/return :identify) (gen/elements ["Mine" "Yours"]) instants)
+    (gen/tuple (gen/return :star) episode-ids instants)
+    (gen/tuple (gen/return :unstar) episode-ids instants)
+    (gen/tuple (gen/return :bookmark) episode-ids (gen/elements [30 754]) instants)
+    (gen/tuple (gen/return :unbookmark) episode-ids (gen/elements [30 754]) instants)
+    (gen/tuple (gen/return :arrive) episode-ids instants)
+    (gen/tuple (gen/return :dismiss) episode-ids instants)
+    (gen/tuple (gen/return :folder) feed-guids (gen/elements [nil "News"]) instants)
+    (gen/tuple (gen/return :tag) feed-guids (gen/elements ["Tech" "Daily"]) instants)
+    (gen/tuple (gen/return :untag) feed-guids (gen/elements ["Tech" "Daily"]) instants)
+    (gen/tuple (gen/return :follow-list) (gen/elements ["https://l/1.opml" "https://l/2.opml"]) (gen/elements [nil "Picks"]) instants)
+    (gen/tuple (gen/return :unfollow-list) (gen/elements ["https://l/1.opml" "https://l/2.opml"]) instants)
+    (gen/tuple (gen/return :save-filter) (gen/elements ["A" "B"]) instants)
+    (gen/tuple (gen/return :remove-filter) (gen/elements ["A" "B"]) instants)]))
 
 (defn- apply-operation
   [state [kind x y z]]
   (case kind
-    :subscribe   (player/subscribe state x {:url (str "https://" x "/rss") :title x} y)
-    :unsubscribe (player/unsubscribe state x y)
-    :progress    (player/progress state x y 3600 z)
-    :enqueue     (player/enqueue state x y)
-    :play-next   (player/play-next state x y)
-    :dequeue     (player/dequeue state x y)
-    :advance     (player/advance state x)
-    :prefer      (player/prefer state {:skip-forward x} y)
-    :configure   (player/configure state x {:skip-intro y} z)
-    :identify    (player/identify state {:name x} y)))
+    :subscribe     (player/subscribe state x {:url (str "https://" x "/rss") :title x} y)
+    :unsubscribe   (player/unsubscribe state x y)
+    :progress      (player/progress state x y 3600 z)
+    :enqueue       (player/enqueue state x y)
+    :play-next     (player/play-next state x y)
+    :dequeue       (player/dequeue state x y)
+    :advance       (player/advance state x)
+    :prefer        (player/prefer state {:skip-forward x} y)
+    :configure     (player/configure state x {:skip-intro y} z)
+    :identify      (player/identify state {:name x} y)
+    :star          (player/star state x y)
+    :unstar        (player/unstar state x y)
+    :bookmark      (player/bookmark state x y "A bookmark" z)
+    :unbookmark    (player/unbookmark state x y z)
+    :arrive        (player/write state [:inbox x] (constantly {:removed? false}) y)
+    :dismiss       (player/dismiss state x y)
+    :folder        (player/configure state x {:folder y} z)
+    :tag           (player/tag state x y z)
+    :untag         (player/untag state x y z)
+    :follow-list   (player/follow-list state x {:title x :folder y} z)
+    :unfollow-list (player/unfollow-list state x y)
+    :save-filter   (player/save-filter state x {:where {:starred? true}} y)
+    :remove-filter (player/remove-filter state x y)))
 
 (def schedule
   "What happens next: a device syncs, or applies an operation."
@@ -84,18 +110,27 @@
     (map (comp #(dissoc % :device) :state) @world)))
 
 (defn- seen-by-the-listener
-  "What a state shows: the live subscriptions and their settings, the queue
-  in order, the episodes and the preferences."
+  "What a state shows: the live subscriptions, their settings, folders and
+  tags, the followed lists, the queue in order, the inbox, the episodes,
+  the stars, the bookmarks, the saved filters and the preferences."
   [state]
   {:subscriptions (player/subscriptions state)
+   :lists         (player/lists state)
    :settings      (:settings state)
+   :folders       (player/folders state)
+   :tagged        (player/tagged state)
    :queue         (player/queue state)
+   :inbox         (player/inbox state)
    :episodes      (:episodes state)
+   :starred       (player/starred state)
+   :bookmarks     (player/bookmarks state)
+   :filters       (player/filters state)
    :preferences   (player/preferences state)})
 
 (defn- tombstones
   [state]
-  (count (filter :removed? (concat (vals (:subscriptions state)) (vals (:queue state))))))
+  (count (filter :removed? (concat (mapcat (comp vals state) [:subscriptions :lists :queue :inbox :stars :filters])
+                                   (mapcat vals (mapcat (comp vals state) [:bookmarks :tags]))))))
 
 (defspec devices-converge-through-a-folder-of-documents 100
   (prop/for-all [steps schedule]

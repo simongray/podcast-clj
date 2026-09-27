@@ -382,7 +382,14 @@ list and the source agree.
   timings before the markup. `turns` joins the words of a word-level JSON
   transcript into prose.
 - **OPML** (`format.opml`) reads and writes subscription lists. Folders
-  become a path.
+  become a path. The categories of an outline become a vector, and the
+  time it was created and the dates of the list become instants, in the
+  formats that OPML 2.0 defines. An outline that includes another list
+  becomes an inclusion. `app.player` keeps the tags of a show in the
+  categories, the time the listener subscribed in the time of creation,
+  and the lists the listener follows in inclusions. In this way the
+  listener's own data goes into the parts of OPML 2.0 that carry it,
+  and other apps read the rest as they always did.
 - **HTML** (`format.html`) reads the show notes in descriptions into Hiccup.
   Most descriptions contain markup. It comes from a vocabulary of some
   thirty elements, such as paragraphs, breaks, links, emphasis, lists,
@@ -512,13 +519,18 @@ calls in when the player sends events.
 The map holds:
 
 - the subscriptions by feed guid, with a tombstone for each removal
-- the settings of each subscription, such as `:auto-queue?` and
-  `:skip-intro`, one entry for each field
+- the settings of each subscription, such as `:auto-queue?`, `:skip-intro`
+  and the `:folder`, one entry for each field
+- the tags of each subscription, one entry for each tag
+- the OPML lists that the listener follows, one entry for each URL
 - the episodes by `[feed-guid item-guid]`, with position, duration and the
   played mark, which `progress` sets within `played-threshold` seconds of
   the end
 - the queue, one entry for each episode, with a rank from `rank` that gives
   the order
+- the inbox and the stars, one entry for each episode, and the saved
+  filters, one entry for each name, each with a tombstone for each removal
+- the bookmarks, one entry for each whole second of an episode
 - the preferences of the listener, such as the skip amounts and the playback
   rate, one entry for each field
 - the device registry, with an entry for each device of the listener
@@ -528,16 +540,24 @@ merge is commutative, associative and idempotent, and a generative test
 tests the three properties. As a result, any backend that can store and
 fetch a document can sync the state. `app.sync` does this.
 
-`refresh` gives a new parse to `feed/diff`, and queues the new episodes of
-the subscriptions with `:auto-queue?`. `to-opml` and `from-opml` connect to
-`format.opml`, and keep the feed guid in each outline. `skip` moves within
-an episode, and never past its start or its end.
+`refresh` gives a new parse to `feed/diff`. It puts the new episodes of a
+subscription into the queue or the inbox, as the settings say, unless the
+state knows them already. `refresh-list` does the same for a followed OPML
+list: the shows that join it become subscriptions, unless the state knows
+them. It never unsubscribes, because a show that leaves a list can still
+be one that the listener likes. `to-opml` and `from-opml` connect to
+`format.opml`. They keep the feed guid, the folder and the tags of each
+show, and the time the listener subscribed. `from-opml` uses the feed
+title before the text of an outline, which some apps fill with a
+description, and it takes a folder around the whole list for a wrapper,
+as some apps write one. `skip` moves within an episode, and never past its
+start or its end.
 
 `step` is a small reducer over the events of a player: `:progress`,
 `:ended`, `:play` and `:skip`. It returns the new state, and the effects for
 the app, such as to seek, to stop where the outro starts, or to play the
-next episode. `step` is the only
-place where behavior is composed, and it is short on purpose.
+next episode. `step` is the only place where behavior is composed, and it is
+short on purpose.
 
 
 ## Search

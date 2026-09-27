@@ -14,6 +14,7 @@ An app keeps these values between runs:
   progress in each episode
 - the parsed feeds, by feed guid, each with its URL and the validators of
   the last fetch
+- the parsed OPML lists that the listener follows, by URL, in the same way
 - the search index of `app.search`, if the app searches
 - the sync cursors that `sync!` returns, if the app syncs
 
@@ -157,9 +158,12 @@ A permanent redirect, 301 or 308, moves a feed for good, and
 the URL of the subscription.
 
 If the subscription has `:auto-queue?` set, `player/refresh` adds the new
-episodes of the feed to the end of the queue, oldest first. On the first
-fetch there is no earlier parse, and no episode is new: the episodes in the
-feed are its back catalogue.
+episodes of the feed to the end of the queue, oldest first. If it has
+`:inbox?` set instead, they go to the inbox. On the first fetch there is no
+earlier parse, and no episode is new: the episodes in the feed are its back
+catalogue. Another device can find a new episode first. If the listener
+played that episode or took it out of the queue or the inbox, `refresh`
+does not bring it back.
 
 Podping tells which feeds changed. Fetch these feeds at once, and keep the
 schedule for the other feeds. Keep the last block that you read and the list
@@ -171,6 +175,33 @@ of writers. Every few seconds, ask for the blocks after that block:
 (podping/affected (:pings polled) (map :url (vals (player/subscriptions state))))
 ;; => ("https://feeds.podcastindex.org/pc20.xml")                         ; fetch these now
 ```
+
+
+## Follow lists of shows
+
+Someone can keep a list of shows as an OPML file on the web, such as the
+shows of a network or the picks of a critic. A listener can follow such a
+list. The app then fetches the list from time to time, as it fetches the
+feeds, and the new shows in the list become subscriptions.
+
+```clojure
+(def list-url "https://example.org/picks.opml")
+(def state (player/follow-list state list-url {:title "Picks" :folder "Picks"} now))  ; syncs like the rest
+
+(let [{:keys [etag parse]} (lists list-url)  ; your own store of the last fetch of each list
+      r (http/fetch! list-url {:etag etag})]
+  (when (= 200 (:status r))
+    (let [{:keys [state added left]} (player/refresh-list state list-url parse (opml/parse (:body r)) now)]
+      added    ; the shows that joined the list, now subscriptions in its folder
+      left)))  ; the shows that left the list: they stay subscriptions, so ask the listener
+```
+
+`refresh-list` subscribes to a show that joins the list, unless the
+listener subscribed to it or left it before. A show that leaves the list
+stays a subscription, because the listener can like it. `player/to-opml`
+writes the lists that the listener follows as inclusions, the way that
+OPML 2.0 includes one list in another, and `player/from-opml` follows them
+again.
 
 
 ## Build the show and episode pages
@@ -289,6 +320,48 @@ browser with little memory, index fewer fields.
 ;; => [{:id [feed-guid item-guid] :score 7.1 :stored {:title "…" :show "…" :published #inst "…"}} …]
 (search/snippet (html/text (resolve/description item)) "value for va")
 ```
+
+
+## Organize the shows and episodes
+
+The player state also holds how the listener organizes the shows and the
+episodes. Each change syncs to the other devices, as the queue does.
+
+- A folder is a setting of a subscription. `player/folders` groups the
+  shows by folder, and `player/to-opml` writes the folders into the OPML.
+- Tags are the listener's own categories. A show is in one folder at
+  most, but it can have many tags. `player/to-opml` writes them as the
+  categories of the outline, a part of OPML that most apps do not read.
+- The inbox holds the new episodes of a show whose settings have
+  `:inbox?`. `player/refresh` puts them there. An episode leaves the inbox
+  when the listener queues it, plays it or dismisses it.
+- The listener can star an episode, and bookmark a position in it.
+- A saved filter keeps the criteria of `search/episodes` under a name.
+
+```clojure
+(def state (-> state
+               (player/configure guid {:folder "News" :auto-queue? false :inbox? true} now)
+               (player/tag guid "Daily" now)
+               (player/star id now)
+               (player/bookmark id 754 "The interview starts" now)
+               (player/save-filter "Starred" {:where {:starred? true :status :unplayed} :order :newest} now)))
+
+(player/folders state)       ; => {"News" [guid …] nil […]}, nil for the shows in no folder
+(player/tagged state)        ; => {"Daily" [guid …] …}
+(player/inbox state)         ; => [[feed-guid item-guid] …], the latest to arrive first
+(player/dismiss state id now)
+(player/starred state)       ; => [id …], the latest starred first
+(player/bookmarks state id)  ; => [{:id id :position 754 :title "The interview starts" …}]
+
+(let [urls (into {} (for [[_ {:keys [url feed]}] feeds] [feed url]))]  ; for feeds without a podcast:guid
+  (search/episodes (keys urls) (assoc (get (player/filters state) "Starred") :player state :url #(urls %))))
+```
+
+`player/from-opml` reads the folders, the tags and the dates of
+subscribing back. It also reads the OPML of other apps. Some apps put a
+description in the text of an outline, so it uses the title of the feed
+first. Some apps put the whole list in one folder, so a folder that holds
+every show does not become a folder.
 
 
 ## Sync the devices of a listener
