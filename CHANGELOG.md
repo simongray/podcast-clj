@@ -170,3 +170,16 @@
   actions for a feed that the app does not know yet wait for it.
   `app.sync.gpodder.server` serves the API over a player state, and the
   inspector serves it at `/api/2/` over its sync folder.
+- `comments` reads the comments on an episode from the thread that
+  `podcast:socialInteract` names. `comments.activitypub` reads threads over
+  ActivityPub, and `comments.atproto` reads AT Protocol threads from an
+  AppView that the app names. Both give comments and authors of one shape. It follows a conversation or the replies of
+  each post, and takes each post only from its own server. When a server
+  refuses unsigned requests or a browser blocks its answers, `fetch!` reads
+  the thread through the Mastodon API of the server. `async/iteration`
+  reads the pages of a collection. The inspector shows the comments on an
+  episode.
+- podcast-clj compares the origins of URLs as the URL standard does, on
+  both platforms. On the JVM, `http/call!` fetches hosts with letters
+  outside ASCII. `json/read-str` refuses JSON nested deeper than the stack reaches.
+  On the JVM, it also refuses a run of more than a thousand digits.

@@ -83,13 +83,17 @@ Each name below is relative to `dk.simongray.podcast`.
 | `format.image` | The header of a PNG, JPEG, GIF or WebP image: its type, its size in pixels, its color model and whether it can be transparent, and the coding process and EXIF orientation of a JPEG. The type of an AVIF, HEIC, HEIF, SVG, BMP, TIFF or ICO image. `read!` fetches only the bytes it needs. |
 | `value` | Value for value: splits, fees, time splits and remote blocks. `boostagram` writes the record of a payment. |
 
-### Directories and notifications
+### Directories, notifications and comments
 
 | Namespace | Contents |
 |---|---|
 | `directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results. JVM: `call!`, `search!` and `trending!`. |
 | `directory.podcastindex` | The Podcast Index API: authenticated requests, responses mapped onto the model, and remote items resolved. JVM: `remote-value!` and `remote-item!`. |
 | `podping` | Podping: calls to the Hive chain as request maps, pings read from blocks, and writers verified. JVM: `poll!`. `notify-request` is for a host. |
+| `comments` | The comments on an episode, from the thread that `podcast:socialInteract` names, over ActivityPub or the AT Protocol, in one shape. `thread` picks the thread of an episode. `fetch!` reads it, and a second `fetch!` reads on from where the first stopped. `tree` gives the comments in the shape to show. `requests`, `next-page` and `with-exchanges` are the pure steps of `fetch!`. |
+| `comments.activitypub` | The threads of ActivityPub: a conversation, or the replies of each post, with each post from its own server. It reads through the Mastodon API when a server keeps the root post from the reader. |
+| `comments.atproto` | The threads of the AT Protocol, from an AppView, with the labels of the protocol. `at-uri` gives the parts of an at URI. |
+| `comments.common` | What the two readers share: the values in JSON answers, the problem with an answer, and the HTML of a post made safe to show. |
 
 ### Apps
 
@@ -118,5 +122,5 @@ Each name below is relative to `dk.simongray.podcast`.
 | `json` | JSON strings to data and back, on both platforms. |
 | `http` | Requests as maps, credentials as a header, URLs made absolute, and when a server says to ask again. `call!` sends a request with byte ranges and limits of size and time: on the JVM with redirects that keep the credentials to their origin, and in ClojureScript with fetch. `probe!` learns the facts of a file from two bytes of it, and `fetcher` fetches a file by byte ranges. JVM: `fetch!`, which fetches a feed with conditional requests, and `digest!`, which streams a body through a digest. |
 | `bytes` | Bytes on both platforms, read as numbers and text, and a view of the parts of a file that have arrived, which says what a reader still needs. `read!` fetches it for the reader until it is done. |
-| `async` | Deferred values: futures on the JVM, and promises in JavaScript. |
+| `async` | Deferred values: futures on the JVM, and promises in JavaScript. `iteration` reads an API that answers in pages, as `clojure.core/iteration` does, on both platforms. |
 | `rank` | Ranks that always leave room for another rank between two ranks. |

@@ -41,7 +41,7 @@ ecosystem that podcast-clj was written for.
 
 ```
   4  front door   dk.simongray.podcast
-  3  companions   format.*  value  resolve  check  directory  directory.podcastindex  podping  app.*
+  3  companions   format.*  value  resolve  check  directory  directory.podcastindex  podping  comments  comments.*  app.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
   1  vocabulary   spec  quirks
   0  primitives   xml  xml.jsoup  time  time.rrule  guid  json  http  bytes  rank  async  diagnostics
@@ -74,6 +74,8 @@ The names follow the design where one part belongs to another:
   syncs (`app.sync`). The stores are under `app.sync`.
 - The Podcast Index client is under `directory`, because the Podcast Index
   is one of the directories.
+- The readers of ActivityPub and of the AT Protocol are under `comments`,
+  with what they share in `comments.common`.
 - `resolve`, `check`, `value`, `guid`, `json`, `http`, `bytes`, `rank`,
   `async` and `diagnostics` belong to no group.
 
@@ -546,6 +548,16 @@ more often than it must:
   a media file whole only to check its integrity. At most four files are
   under way at a time, and a lane takes the next file as soon as its last
   is done.
+- `comments/fetch!` reads a thread of comments in rounds of four requests,
+  and it reads the posts nearest the root post first. It asks for no more
+  posts when it has 100, and it starts no round after 300 requests. It
+  starts no request after one minute, and the time that is left limits
+  each request. It reads five pages of a collection in a round, and each
+  page only once. A second fetch continues an incomplete thread. A server
+  that did not answer in time, or that answered 429, gets no more requests
+  in the same fetch. An answer is 5 MB at most, and a thread holds 10,000
+  comments at most. The options of `fetch!` set each of these numbers,
+  except the 10,000 comments.
 - Every body that the client keeps has a limit of size (`:max-bytes`, 100
   MB by default), and every exchange a limit of time (`:timeout-seconds`),
   on both platforms.
@@ -641,6 +653,105 @@ with the token of the host.
 The Podping page of the inspector reads the last twenty blocks live. The
 tests run on recorded answers, with a node that fails when the test tells it
 to.
+
+
+## Comments
+
+`podcast:socialInteract` names the root post of a thread of comments about
+an episode or a show. Most often, the root post is the podcaster's post
+about the episode. The podcaster also chooses the protocol of the thread,
+and the specification lists eight protocols. `comments` reads the two that
+feeds use most. These are ActivityPub, which Mastodon, PeerTube and the
+podcast host Castopod speak, and the AT Protocol of Bluesky. The protocol
+`disabled` tells apps that the podcaster wants no public comments.
+`resolve/social-interacts` then gives only the `disabled` interact.
+
+A thread is data, like the player state. Each interact that
+`resolve/social-interacts` gives, `{:protocol :uri}`, is an unread thread.
+For an episode, `thread` picks the first interact by priority that
+podcast-clj can read. `fetch!` adds the id of the root post, the comments
+by id, and their authors by id. Each comment names the post that it
+replies to. `tree` makes the tree from these names.
+
+`comments` is the front door. It sends each call to the reader of the
+protocol of the thread: `comments.activitypub` or `comments.atproto`. The
+readers share the functions of `comments.common`. They cannot use
+functions of `comments`, because `comments` requires them, and a cycle of
+requires does not load. The keys that record the reading are in the
+namespace `comments`. The readers write them through an `:as-alias`, which
+loads nothing.
+
+The content of a comment is HTML that `format.html` sanitized, so a page
+can show it as it is. Its links are absolute, and they carry
+`rel="nofollow ugc"`, because the app does not vouch for them. podcast-clj
+replaces each image in the content with its alt text. An image that loads
+with the page tells its server who reads the thread.
+
+The data also records how far the reading went. It holds when `fetch!`
+read each post, the next page of each collection, and the pages that it
+read. A second `fetch!` reads on from where the first stopped. `requests`
+gives the requests that a thread needs next. `with-exchanges` reads the
+answers into the thread. Both are pure, and `fetch!` only sends the
+requests and receives the answers.
+
+On ActivityPub, each post is a JSON document at its own URL. A root post
+can start a conversation and name a collection of all its posts. This
+collection is the `context` of FEP-f228, which Mastodon serves from
+version 4.5, or the `comments` of a PeerTube video. `fetch!` then reads
+that collection. Other root posts name only their direct replies, in their
+`replies` collection. For these, `fetch!` reads the replies of each post
+down the tree. A conversation reaches posts that this walk misses. Misskey
+lists no replies, so the walk cannot reach a reply to a Misskey post.
+
+A collection comes in pages, and each page names the next page.
+`next-page` gives the request for the next page, and `async/iteration`
+reads the pages with it. `async/iteration` is `clojure.core/iteration` on
+the JVM, and the same iteration over promises in ClojureScript. The
+reading stops at a page that it read before.
+
+A server speaks only for its own posts and authors, as FEP-fe34 asks. A
+page of replies holds the posts of its own server whole. It names the
+posts of other servers only by their URLs, and `fetch!` fetches each of
+these posts from its own server. `fetch!` does not use a document whose id
+or author is on another server, and the report tells so. The collection of
+the replies to a post must be on the server of the post. A post replies to
+the post that its own `inReplyTo` names, whatever collection lists it. The
+handle of an author is its user name at the domain of its id, as in
+`@ann@example.social`. `fetch!` does not take a `webfinger` that names
+another domain, because only a WebFinger lookup there can prove it.
+
+A post is for everyone when its recipients include the Public collection,
+or when it names no recipients. `fetch!` leaves out all other posts.
+
+The servers of a thread choose the URLs that `fetch!` fetches. An app on a
+server therefore gives `fetch!` a `:send` that refuses the URLs of its own
+network.
+
+Some servers answer only signed requests. Mastodon sends no CORS headers
+with its posts, so a page on another site cannot read them. For such a
+root post, `fetch!` reads the thread through the Mastodon API of its
+server. Many servers answer this API, and it sends CORS headers. The API
+speaks only for its own server. So `fetch!` takes only the statuses and
+the accounts of that server from the API. It fetches the posts of other
+servers from those servers. An app that signs its requests can give
+`fetch!` a `:send` that signs them.
+
+On the AT Protocol, the posts are in the repositories of their authors.
+Only an AppView knows the replies to a post. An AppView answers
+`app.bsky.feed.getPostThread` without an account, with ten levels of
+replies. `fetch!` asks again for each branch that the answer cut.
+podcast-clj names no AppView, because the choice belongs to the app.
+
+The labels that the AT Protocol defines apply. `fetch!` leaves out a reply
+whose author asks apps to show it only to signed-in users. It also leaves
+out a reply that a moderation service hid. A reply with a warning is
+`:sensitive?`. On Bluesky, the author of the root post can hide replies.
+A hidden reply is `:hidden?`, and `tree` shows it only when its options
+ask for hidden replies.
+
+The comments page of the inspector shows the thread of an episode. The
+tests run on recorded answers of Mastodon, Misskey, PeerTube, the Mastodon
+API and a Bluesky AppView.
 
 
 ## The player state
@@ -851,7 +962,9 @@ Give it a feed URL, or select a corpus feed. It shows the channel, the
 items, each known tag, the unknown elements, the report, the validation
 against a profile, and the XML written back. Next to the raw fields, it
 shows the resolved properties and their sources. The front page searches the
-directories, and the Podping page reads the chain.
+directories, and the Podping page reads the chain. The comments page of an
+episode reads its thread. It reads AT Protocol threads from the public
+AppView of Bluesky.
 
 The queue page has a small player in ClojureScript, over `app.player`. The
 player state is in localStorage, and Replicant renders it into a bar on

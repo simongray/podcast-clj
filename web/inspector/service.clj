@@ -15,6 +15,7 @@
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav.server :as webdav-server]
             [dk.simongray.podcast.check :as check]
+            [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed :as feed]
@@ -292,6 +293,50 @@
           (-> (html (page/error-page "No such item in the feed" (:url loaded) (str "No item with guid " guid)))
               (assoc :status 404)))))))
 
+(def appview
+  "The AppView that the comments page reads AT Protocol threads from. It is
+  the public AppView of Bluesky, which answers without an account.
+  podcast-clj names no AppView, because each app chooses its own."
+  "https://public.api.bsky.app")
+
+(defn- thread-of
+  "The thread of comments below `interact`.
+
+  Each visit reads for ten seconds at most, so that the page comes soon.
+  The inspector keeps a thread for `cache-seconds`. While the thread is
+  incomplete, the next visit reads on."
+  [interact]
+  (let [now      (System/currentTimeMillis)
+        fresh?   #(< (- now (:at %)) (* 1000 cache-seconds))
+        read-on? #(some #{:comments/incomplete} (map :id (:report (:value %))))]
+    (:value (cached [:comments interact]
+                    #(and (fresh? %) (not (read-on? %)))
+                    (fn [old]
+                      (let [old (when (and old (fresh? old)) old)]
+                        {:at    (or (:at old) now)
+                         :value (comments/fetch! (or (:value old) interact) {:appview appview :max-seconds 10})}))))))
+
+(defn comments-page
+  "The comments page of the item that the `guid` parameter names, in the
+  feed that the `url` parameter names, for `request`.
+
+  It shows the thread that `comments/thread` picks. With the `hidden`
+  parameter, it also shows the replies that the author of the root post
+  hid."
+  [request]
+  (with-feed request
+    (fn [{:keys [url feed]}]
+      (let [{:keys [guid hidden]} (:query-params request)
+            item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
+        (if item
+          (html (page/comments-page {:url       url
+                                     :item      item
+                                     :interacts (resolve/social-interacts feed item)
+                                     :hidden?   (= "1" hidden)
+                                     :thread    (some-> (comments/thread feed item {:appview appview}) thread-of)}))
+          (-> (html (page/error-page "No such item in the feed" url (str "No item with guid " guid)))
+              (assoc :status 404)))))))
+
 (defonce ^{:doc "The corpus feeds parsed and indexed for the search page, nil
   until the first search makes them."}
   corpus-search
@@ -459,6 +504,7 @@
      ["/feed.xml" :get feed-xml :route-name :feed-xml]
      ["/check" :get check-page :route-name :check]
      ["/item" :get item-page :route-name :item]
+     ["/comments" :get comments-page :route-name :comments]
      ["/search" :get search-page :route-name :search]
      ["/directory" :get directory-page :route-name :directory]
      ["/podping" :get podping-page :route-name :podping]

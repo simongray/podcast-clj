@@ -137,3 +137,12 @@ for the validator, and `sync` for the sync between devices.
 | `:sync/unknown-episodes` | info | Episode actions from a gpodder server name episodes of feeds that the app does not know yet. They wait in the cursor, and the next pull tries them again. |
 | `:sync/unnamed-episodes` | info | Episodes changed, but the app knows no URL of their media, which the gpodder API names an episode by, so the server was not told. |
 | `:sync/rejected-url` | warning | A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it. |
+| `:comments/unsupported` | info | podcast-clj does not read comments over the protocol of the thread. |
+| `:comments/no-appview` | warning | podcast-clj did not read an AT Protocol thread, because the options named no AppView. |
+| `:comments/malformed` | warning | The URI of the root post, or a document that a server sent, is not in a form that podcast-clj reads. Such a document is a post, a collection of replies, an author or a thread. |
+| `:comments/unreachable` | warning | podcast-clj did not get a post, a collection of replies or an author. The request failed, or the server answered with an error. |
+| `:comments/refused` | warning | A server refused an unsigned request, as a server in secure mode does. |
+| `:comments/untrusted` | warning | A server sent a post or an author from another server. podcast-clj did not use it, because a server speaks only for its own posts and authors. |
+| `:comments/through-api` | info | ActivityPub did not give the root post. podcast-clj read the thread through the Mastodon API of the root post's server instead. The API can give fewer replies. |
+| `:comments/withheld` | info | podcast-clj left out some replies. They are not public, their authors ask apps to show them only to signed-in users, or a moderation service hid them. |
+| `:comments/incomplete` | info | The fetch reached a limit before it read the whole thread. To read more of the thread, fetch it again. |

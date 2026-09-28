@@ -10,8 +10,9 @@
   `chapters` for the companion formats, `id3`, `mp3`, `mp4` and `file` for
   the media files and images, `validate` for the validator, whose
   diagnostics are about the feed rather than about reading it, `check` for
-  the checks over the network of what the feed links to, and `sync` for a
-  step of keeping devices in step.")
+  the checks over the network of what the feed links to, `sync` for a step
+  of keeping devices in step, and `comments` for the reading of a thread of
+  comments.")
 
 (def catalogue
   "The diagnostics, in the order they tend to arise."
@@ -278,19 +279,41 @@
    {:id :sync/unnamed-episodes :level :info
     :doc "Episodes changed, but the app knows no URL of their media, which the gpodder API names an episode by, so the server was not told."}
    {:id :sync/rejected-url :level :warning
-    :doc "A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it."}])
+    :doc "A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it."}
+
+   ;; comments: reading the thread that a podcast:socialInteract names
+   {:id :comments/unsupported :level :info
+    :doc "podcast-clj does not read comments over the protocol of the thread."}
+   {:id :comments/no-appview :level :warning
+    :doc "podcast-clj did not read an AT Protocol thread, because the options named no AppView."}
+   {:id :comments/malformed :level :warning
+    :doc "The URI of the root post, or a document that a server sent, is not in a form that podcast-clj reads. Such a document is a post, a collection of replies, an author or a thread."}
+   {:id :comments/unreachable :level :warning
+    :doc "podcast-clj did not get a post, a collection of replies or an author. The request failed, or the server answered with an error."}
+   {:id :comments/refused :level :warning
+    :doc "A server refused an unsigned request, as a server in secure mode does."}
+   {:id :comments/untrusted :level :warning
+    :doc "A server sent a post or an author from another server. podcast-clj did not use it, because a server speaks only for its own posts and authors."}
+   {:id :comments/through-api :level :info
+    :doc "ActivityPub did not give the root post. podcast-clj read the thread through the Mastodon API of the root post's server instead. The API can give fewer replies."}
+   {:id :comments/withheld :level :info
+    :doc "podcast-clj left out some replies. They are not public, their authors ask apps to show them only to signed-in users, or a moderation service hid them."}
+   {:id :comments/incomplete :level :info
+    :doc "The fetch reached a limit before it read the whole thread. To read more of the thread, fetch it again."}])
 
 (def by-id
   "The catalogue by id."
   (into {} (map (juxt :id identity)) catalogue))
 
 (defn describe
-  "The `diagnostic` with a `:message`: its own when it has one, else what
-  the catalogue says its id means. The parser records only the id, the
-  level and the specifics of a diagnostic, so every `report` function runs
-  its diagnostics through here. An id the catalogue does not know is left
-  as it is."
+  "The `diagnostic` with a `:message` and a `:level`: its own when it has
+  them, else what the catalogue says of its id.
+
+  The parser records only the id, the level and the specifics of a
+  diagnostic, so every `report` function runs its diagnostics through
+  here. An id the catalogue does not know is left as it is."
   [diagnostic]
-  (if-let [doc (and (not (:message diagnostic)) (:doc (by-id (:id diagnostic))))]
-    (assoc diagnostic :message doc)
-    diagnostic))
+  (let [{:keys [doc level]} (by-id (:id diagnostic))]
+    (cond-> diagnostic
+      (and doc (not (:message diagnostic)))  (assoc :message doc)
+      (and level (not (:level diagnostic))) (assoc :level level))))

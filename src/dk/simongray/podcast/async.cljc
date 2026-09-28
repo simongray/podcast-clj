@@ -1,8 +1,9 @@
 (ns dk.simongray.podcast.async
   "Deferred values on both platforms, so that the sync and its stores are
   written once: a deferred value is a future on the JVM and a promise in
-  ClojureScript, and `then`, `all` and `attempt` take a value or a deferred
-  one alike."
+  ClojureScript, and `then`, `all`, `attempt` and `iteration` take a value
+  or a deferred one alike."
+  (:refer-clojure :exclude [iteration])
   (:require [clojure.string :as str]))
 
 (defn then
@@ -32,6 +33,30 @@
                (.then (fn [_] (f)))
                (.then (fn [v] {:value v}))
                (.catch (fn [e] {:error e})))))
+
+(defn iteration
+  "The values that `clojure.core/iteration` gives for `step!` and the
+  options `:somef`, `:vf`, `:kf` and `:initk`, as a vector of at most
+  `:limit` values. On the JVM the vector, in ClojureScript a promise of it.
+
+  `step!` gives a value or a deferred one. So both platforms read an API
+  that answers in pages as the example of `clojure.core/iteration` does:
+
+      (iteration get-page! :initk \"a\" :vf :items :kf :next-page :limit 10)"
+  [step! & {:keys [somef vf kf initk limit] :or {somef some? vf identity kf identity limit ##Inf}}]
+  #?(:clj  (into []
+                 (take limit)
+                 (clojure.core/iteration #(let [x (step! %)] (if (future? x) @x x))
+                                         :somef somef :vf vf :kf kf :initk initk))
+     :cljs (letfn [(more [values ret]
+                     (if (or (not (somef ret)) (>= (count values) limit))
+                       values
+                       (let [values (conj values (vf ret))
+                             k      (when (< (count values) limit) (kf ret))]
+                         (if (some? k)
+                           (.then (js/Promise.resolve (step! k)) #(more values %))
+                           values))))]
+             (.then (js/Promise.resolve (step! initk)) #(more [] %)))))
 
 (defn explain
   "The message of the failure `e`, an exception or whatever else was

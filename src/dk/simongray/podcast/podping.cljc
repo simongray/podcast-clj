@@ -68,14 +68,17 @@
   "The result in the JSON-RPC `body`: a body that is not JSON, or a node
   that answers with an error, throws."
   [body]
-  (let [raw (try (json/read-str body)
-                 (catch #?(:clj Exception :cljs :default) e
-                   (throw (ex-info "The node did not answer with JSON"
-                                   {:type ::malformed :body (subs (str body) 0 (min 200 (count (str body))))}
-                                   e))))]
-    (if-let [error (get raw "error")]
-      (throw (ex-info (str "The node answered with an error: " (get error "message"))
-                      {:type ::error :error error}))
+  (let [raw (json/parse body)]
+    (cond
+      (not (map? raw))
+      (throw (ex-info "The node did not answer with JSON"
+                      {:type ::malformed :body (subs (str body) 0 (min 200 (count (str body))))}))
+
+      (get raw "error")
+      (throw (ex-info (str "The node answered with an error: " (get-in raw ["error" "message"]))
+                      {:type ::error :error (get raw "error")}))
+
+      :else
       (get raw "result"))))
 
 (defn head-block
@@ -106,11 +109,6 @@
     [(str/replace (str (get op "type")) #"_operation$" "") (get op "value")]
     op))
 
-(defn- payload
-  "The JSON a custom_json carries, nil when it is not JSON."
-  [s]
-  (try (json/read-str s) (catch #?(:clj Exception :cljs :default) _ nil)))
-
 (defn- ping
   "The podping in the operation `op` of `block` at `timestamp`, nil when it
   holds none: a custom_json with a podping id and iris (urls in the first
@@ -118,7 +116,7 @@
   [block timestamp op]
   (let [[kind {:strs [id json required_posting_auths]}] (operation op)]
     (when (and (= "custom_json" kind) (podping-id? id))
-      (let [body (payload json)
+      (let [body (json/parse json)
             [_ medium reason] (re-matches #"pp_([A-Za-z]+)_([A-Za-z]+)" id)
             iris (->> (or (get body "iris") (get body "urls") (some-> (get body "url") vector))
                       (filter #(and (string? %) (not (str/blank? %)))))]

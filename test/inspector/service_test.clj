@@ -5,7 +5,9 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.check :as check]
+            [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.json :as json]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))
 
@@ -95,6 +97,38 @@
         (is (= 1 (count @runs)) "another profile judges the same check again, and sends no request"))
       (get* "/check" "url" "https://example.com/check.xml" "items" "999" "integrity" "1")
       (is (= [50 true] ((juxt :items :integrity?) (last @runs))) "at most 50 items"))))
+
+(deftest the-comments-page
+  (reset! service/cache {})
+  (let [root    "https://podcastindex.social/@dave/117294750060235480"
+        answers (json/read-str (slurp (io/resource "comments/mastodon.json")))
+        send    (fn [{:keys [url]}]
+                  (if-let [doc (get answers url)]
+                    {:status 200 :url url :body (json/write-str doc)}
+                    {:status 404 :url url}))
+        read    comments/fetch!]
+    (with-redefs [http/fetch!    (fn [url & _]
+                                   {:status 200 :url url
+                                    :body   (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">"
+                                                 "<channel><title>T</title>"
+                                                 "<item><title>Talked</title><guid>t</guid>"
+                                                 "<podcast:socialInteract protocol=\"activitypub\" uri=\"" root "\"/></item>"
+                                                 "<item><title>Quiet</title><guid>q</guid>"
+                                                 "<podcast:socialInteract protocol=\"disabled\"/></item>"
+                                                 "<item><title>Silent</title><guid>s</guid></item>"
+                                                 "</channel></rss>")})
+                  comments/fetch! (fn [interact opts] (read interact (assoc opts :send send)))]
+      (testing "the thread of an episode as a tree, and a link to it from the item page"
+        (let [{:keys [status body]} (get* "/comments" "url" "https://example.com/talk.xml" "guid" "t")]
+          (is (= 200 status))
+          (is (str/includes? body "Quantum Panhandler"))
+          (is (str/includes? body "@cbrooklyn112@mk.spook.social"))
+          (is (not (re-find #"href=\"[^\"]*script:" body))))
+        (is (str/includes? (:body (get* "/item" "url" "https://example.com/talk.xml" "guid" "t")) "/comments?url=")))
+      (testing "an episode whose podcaster wants no comments shown, one with no thread, and no episode"
+        (is (str/includes? (:body (get* "/comments" "url" "https://example.com/talk.xml" "guid" "q")) "wants no public comments"))
+        (is (str/includes? (:body (get* "/comments" "url" "https://example.com/talk.xml" "guid" "s")) "names no thread"))
+        (is (= 404 (:status (get* "/comments" "url" "https://example.com/talk.xml" "guid" "nope"))))))))
 
 (deftest quotes-and-parameters
   (with-redefs [http/fetch! (fn [url & _]

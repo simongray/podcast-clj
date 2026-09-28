@@ -78,6 +78,13 @@
                                        #js {:ignoreBOM true})
                       (.subarray b start end)))))
 
+(defn encode
+  "The text `s` as the bytes of its UTF-8, which `decode` reads back with
+  :utf8."
+  [s]
+  #?(:clj  (.getBytes ^String s StandardCharsets/UTF_8)
+     :cljs (.encode (js/TextEncoder.) s)))
+
 (defn utf8?
   "Whether the bytes `b` from `start` to `end` are UTF-8 with at least one
   character outside ASCII: text that a writer meant as UTF-8 when it says

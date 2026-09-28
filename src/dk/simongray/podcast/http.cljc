@@ -18,7 +18,7 @@
             [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.time :as time])
   #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream IOException]
-                   [java.net URI]
+                   [java.net IDN URI]
                    [java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$Builder
                                   HttpRequest$BodyPublishers HttpResponse HttpResponse$BodyHandlers
                                   HttpTimeoutException]
@@ -320,15 +320,26 @@
        (str sb))))
 
 #?(:clj
+   (defn- ascii-host
+     "The scheme and the authority `head` of a URL, with its host in the
+     ASCII form of IDNA, so that java.net.URI reads the host."
+     [head]
+     (let [[_ before host after] (re-matches #"(?s)(.*?://(?:[^@]*@)?)([^:\[\]]*)(.*)" head)]
+       (if (and host (re-find #"[^\x00-\x7F]" host))
+         (str before (try (IDN/toASCII host IDN/ALLOW_UNASSIGNED) (catch Exception _ host)) after)
+         head))))
+
+#?(:clj
    (defn legal-url
      "`url` with every character a URI may not contain, such as a space or a
      non-ASCII letter, percent-encoded as UTF-8, and so is a bracket in the
      path, where java.net.URI takes none, and a percent sign that starts no
      escape. An escape is left as it is, so an already encoded URL comes
-     back unchanged."
+     back unchanged. A host with letters outside ASCII gets the ASCII form
+     of IDNA."
      [^String url]
      (let [[_ head path tail] (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*)?([^?#]*)(.*)" url)]
-       (str (encode-illegal (str head) #{}) (encode-illegal path #{\[ \]}) (encode-illegal tail #{})))))
+       (str (encode-illegal (ascii-host (str head)) #{}) (encode-illegal path #{\[ \]}) (encode-illegal tail #{})))))
 
 (defn absolute-url
   "`url` made absolute against `base`, the URL of the document it is in, as
@@ -375,24 +386,56 @@
                         (HttpRequest$BodyPublishers/noBody))))
            (.build)))))
 
-#?(:clj
-   (defn- origin
-     "The scheme, host and port of `uri`, the port of the scheme when it
-     names none."
-     [^URI uri]
-     (let [scheme (some-> (.getScheme uri) str/lower-case)]
-       [scheme
-        (some-> (.getHost uri) str/lower-case)
-        (if (neg? (.getPort uri)) (get {"http" 80 "https" 443} scheme) (.getPort uri))])))
+(defn ^:no-doc origin
+  "The scheme, host and port of the http or https URL `url`, as the URL
+  standard and browsers read them. Nil for another URL, and for a URL
+  without a host.
 
-#?(:clj
-   (defn ^:no-doc same-origin?
-     "Whether the URLs `a` and `b` have the same scheme, host and port."
-     [a b]
-     (try
-       (= (origin (URI. (legal-url a))) (origin (URI. (legal-url b))))
-       (catch Exception _
-         false))))
+  The host is in lower case, and a name with letters outside ASCII is in
+  the ASCII form of IDNA. When the URL names no port, the port is the one
+  of the scheme."
+  [url]
+  #?(:clj  (when-let [[_ scheme authority] (re-find #"^[\x00-\x20]*([hH][tT][tT][pP][sS]?):[/\\]*([^/\\?#]*)"
+                                                   (str/replace (str url) #"[\t\n\r]" ""))]
+             (let [scheme        (str/lower-case scheme)
+                   ;; the user name and the password end at the last @
+                   [_ host port] (re-matches #"(\[[0-9a-fA-F:.]*\]|[^:\[\]]*)(?::([0-9]*))?"
+                                             (subs authority (inc (or (str/last-index-of authority "@") -1))))
+                   host          (when (seq host)
+                                   (try
+                                     (str/lower-case (IDN/toASCII (percent-decode host) IDN/ALLOW_UNASSIGNED))
+                                     (catch Exception _
+                                       nil)))]
+               (when (and (seq host) (not (re-find #"[\x00-\x20\x7F\"#%/<>?@\\^`{|}]" host)))
+                 [scheme host (if (seq port) (parse-long port) (get {"http" 80 "https" 443} scheme))])))
+     :cljs (try
+             (let [u      (js/URL. url)
+                   scheme (str/replace (.-protocol u) #":$" "")]
+               (when (and (#{"http" "https"} scheme) (seq (.-hostname u)))
+                 [scheme (.-hostname u) (if (seq (.-port u)) (parse-long (.-port u)) (get {"http" 80 "https" 443} scheme))]))
+             (catch :default _
+               nil))))
+
+(defn ^:no-doc host
+  "The host of the http or https URL `url`, as `origin` reads it."
+  [url]
+  (second (origin url)))
+
+(defn ^:no-doc timeout?
+  "Whether the exception `e` from `call!`, or one of its causes, tells that
+  the exchange took longer than its time allowed."
+  [e]
+  (boolean (some #(or (= ::timeout (:type (ex-data %)))
+                      #?(:clj  (instance? HttpTimeoutException %)
+                         :cljs (= "TimeoutError" (.-name %))))
+                 (take-while some? (iterate #?(:clj ex-cause :cljs #(.-cause %)) e)))))
+
+(defn ^:no-doc same-origin?
+  "Whether the URLs `a` and `b` have the same scheme, host and port, as
+  `origin` reads them. False when a URL has no host."
+  [a b]
+  (let [o (origin a)]
+    (and (some? o) (= o (origin b)))))
 
 #?(:clj
    (defn- redirect-target
@@ -434,7 +477,7 @@
                (recur target
                       (if (and get? (not= :head method)) :get method)
                       (cond->> headers
-                        (not= (origin uri) (origin target))
+                        (not (same-origin? (str uri) (str target)))
                         (into {} (remove (fn [[k _]] (#{"authorization" "cookie" "proxy-authorization"}
                                                      (str/lower-case (str k)))))))
                       (when-not get? body)

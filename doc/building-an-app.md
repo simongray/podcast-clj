@@ -34,6 +34,8 @@ The examples use these aliases:
          '[dk.simongray.podcast.app.sync.webdav :as webdav]
          '[dk.simongray.podcast.bytes :as bytes]
          '[dk.simongray.podcast.check :as check]
+         '[dk.simongray.podcast.comments :as comments]
+         '[dk.simongray.podcast.comments.atproto :as atproto]
          '[dk.simongray.podcast.directory :as directory]
          '[dk.simongray.podcast.directory.podcastindex :as podcastindex]
          '[dk.simongray.podcast.feed :as feed]
@@ -287,7 +289,9 @@ publisher as remote items too, and a list feed lists episodes or songs of
 other feeds in the same way. `resolve/remote-items` gives them. Show the
 other shows of a publisher only if its feed lists this show, as the
 specification asks. `resolve/social-interacts` tells where the comments on
-an episode are, or that the podcaster wants no public comments.
+an episode are, or that the podcaster wants no public comments. [Show the
+comments on an episode](#show-the-comments-on-an-episode) tells how to read
+them.
 
 ```clojure
 (resolve/podroll show)  ; => ({:feed-guid "917393e3-…" :feed-url "https://…" :title "…"} …)
@@ -301,6 +305,55 @@ an episode are, or that the podcaster wants no public comments.
 (resolve/soundbites item)             ; => ({:start-time 73 :duration 60 :title "…"} …), parts for a preview
 (resolve/ai-content? show item)       ; => true, false, or nil when the feed does not tell
 ```
+
+
+## Show the comments on an episode
+
+A podcast feed can name a thread of comments about an episode, with
+`podcast:socialInteract`. The thread is on ActivityPub, as on Mastodon, or
+on the AT Protocol, as on Bluesky. For an episode, `comments/thread` picks
+the first thread, by priority, that podcast-clj can read. Fetch the
+thread, and show its tree. For a thread on the AT Protocol, also give the
+URL of an AppView. The AppView gives the replies to a post.
+
+```clojure
+(def opts {:appview "https://public.api.bsky.app"})
+
+(def thread (some-> (comments/thread show item opts) (comments/fetch! opts)))
+(comments/tree thread)  ; => {:content "<p>…</p>" :author {:name "…" :handle "@…"} :replies [{…} …]}
+(:report thread)        ; => [{:id :comments/withheld :count 1 :level :info …}]
+```
+
+If there is no thread, show no comments. `comments/thread` gives nil when
+the podcaster wants no public comments.
+
+The content of a comment is sanitized HTML with absolute links. Render it
+with `html/hiccup`. If a comment has a `:summary` or is `:sensitive?`, show
+it behind a warning. An attachment gives its `:aspect-ratio` for the
+layout. The `:poll` of a comment gives the choices of a poll. On Bluesky,
+the author of the root post can hide replies. `tree` leaves out the hidden
+replies. To show them, give `tree` the options `{:hidden? true}`.
+
+The servers of a thread choose the URLs that `fetch!` fetches. If your app
+runs on a server, give `fetch!` a `:send` that refuses the URLs of your
+own network. For all other URLs, let the `:send` call `http/call!`.
+
+Keep the thread with the episode. `fetch!` reads a thread as far as its
+limits allow, and the report tells when it stopped early. By default, it
+reads for one minute at most. To show comments sooner, give it
+`:max-seconds 5`. Show what it read, then fetch the kept thread again to
+read more. To see new comments, fetch a new thread from `comments/thread`.
+
+The AT Protocol gives no web page for a post. Link such a post to a web app
+of your choice. Build the link from the DID of the author and the record
+key of the post. `atproto/at-uri` gives both.
+
+AppViews that answer without an account, as of September 2026:
+
+| AppView | URL |
+|---|---|
+| Bluesky | `https://public.api.bsky.app` |
+| Blacksky | `https://api.blacksky.community` |
 
 
 ## Play episodes

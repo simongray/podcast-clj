@@ -1,0 +1,191 @@
+{
+ "https://podcastindex.social/api/v1/statuses/117294750060235480": {
+  "id": "117294750060235480",
+  "uri": "https://podcastindex.social/users/dave/statuses/117294750060235480",
+  "url": "https://podcastindex.social/@dave/117294750060235480",
+  "created_at": "2026-09-18T23:57:29.308Z",
+  "edited_at": null,
+  "in_reply_to_id": null,
+  "sensitive": false,
+  "spoiler_text": "",
+  "language": "en",
+  "content": "<p>Rebooting the podcast rig did not bring back all the windows and workspaces to their full, upright position.  I forgot &quot;make no mistakes&quot;.</p>",
+  "media_attachments": [],
+  "poll": null,
+  "account": {
+   "id": "269",
+   "username": "dave",
+   "acct": "dave",
+   "display_name": "Dave",
+   "uri": "https://podcastindex.social/users/dave",
+   "url": "https://podcastindex.social/@dave",
+   "avatar": "https://cdn.masto.host/podcastindexsocial/accounts/avatars/000/000/269/original/4870b11c3ae92a44.jpg"
+  }
+ },
+ "https://podcastindex.social/api/v1/statuses/117294750060235480/context": {
+  "ancestors": [],
+  "descendants": [
+   {
+    "id": "117294809646597627",
+    "uri": "https://mk.spook.social/notes/arb76m33iw",
+    "url": "https://mk.spook.social/notes/arb76m33iw",
+    "created_at": "2026-09-19T00:12:37.839Z",
+    "edited_at": null,
+    "in_reply_to_id": "117294750060235480",
+    "sensitive": false,
+    "spoiler_text": "",
+    "language": null,
+    "content": "<p><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\" rel=\"nofollow noopener\" target=\"_blank\">@dave@podcastindex.social</a> Foot Terminal</p>",
+    "media_attachments": [],
+    "poll": null,
+    "account": {
+     "id": "110969161753300372",
+     "username": "cbrooklyn112",
+     "acct": "cbrooklyn112@mk.spook.social",
+     "display_name": "Quantum Panhandler",
+     "uri": "https://mk.spook.social/users/9iyva7z1zi",
+     "url": "https://mk.spook.social/@cbrooklyn112",
+     "avatar": "https://cdn.masto.host/podcastindexsocial/cache/accounts/avatars/110/969/161/753/300/372/original/47724bb366e30237.webp"
+    }
+   },
+   {
+    "id": "117295015990180655",
+    "uri": "https://podcastindex.social/users/dave/statuses/117295015990180655",
+    "url": "https://podcastindex.social/@dave/117295015990180655",
+    "created_at": "2026-09-19T01:05:07.077Z",
+    "edited_at": null,
+    "in_reply_to_id": "117294809646597627",
+    "sensitive": false,
+    "spoiler_text": "",
+    "language": "en",
+    "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://mk.spook.social/@cbrooklyn112\" class=\"u-url mention\">@<span>cbrooklyn112</span></a></span> Foot gun</p>",
+    "media_attachments": [],
+    "poll": null,
+    "account": {
+     "id": "269",
+     "username": "dave",
+     "acct": "dave",
+     "display_name": "Dave",
+     "uri": "https://podcastindex.social/users/dave",
+     "url": "https://podcastindex.social/@dave",
+     "avatar": "https://cdn.masto.host/podcastindexsocial/accounts/avatars/000/000/269/original/4870b11c3ae92a44.jpg"
+    }
+   },
+   {
+    "id": "117294849863787127",
+    "uri": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127",
+    "url": "https://podcastindex.social/@alecksgates/117294849863787127",
+    "created_at": "2026-09-19T00:22:52.190Z",
+    "edited_at": null,
+    "in_reply_to_id": "117294750060235480",
+    "sensitive": false,
+    "spoiler_text": "",
+    "language": "en",
+    "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> high quality agentic Linux distribution.</p><p>Praise DHH.</p>",
+    "media_attachments": [],
+    "poll": null,
+    "account": {
+     "id": "114826635631854081",
+     "username": "alecksgates",
+     "acct": "alecksgates",
+     "display_name": "Sir Alecks Gates",
+     "uri": "https://podcastindex.social/users/alecksgates",
+     "url": "https://podcastindex.social/@alecksgates",
+     "avatar": "https://cdn.masto.host/podcastindexsocial/accounts/avatars/114/826/635/631/854/081/original/f18a17affb07a69d.png"
+    }
+   },
+   {
+    "id": "117295013953944060",
+    "uri": "https://podcastindex.social/users/dave/statuses/117295013953944060",
+    "url": "https://podcastindex.social/@dave/117295013953944060",
+    "created_at": "2026-09-19T01:04:36.008Z",
+    "edited_at": null,
+    "in_reply_to_id": "117294849863787127",
+    "sensitive": false,
+    "spoiler_text": "",
+    "language": "en",
+    "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@alecksgates\" class=\"u-url mention\">@<span>alecksgates</span></a></span> Lol</p>",
+    "media_attachments": [],
+    "poll": null,
+    "account": {
+     "id": "269",
+     "username": "dave",
+     "acct": "dave",
+     "display_name": "Dave",
+     "uri": "https://podcastindex.social/users/dave",
+     "url": "https://podcastindex.social/@dave",
+     "avatar": "https://cdn.masto.host/podcastindexsocial/accounts/avatars/000/000/269/original/4870b11c3ae92a44.jpg"
+    }
+   },
+   {
+    "id": "117297989453672773",
+    "uri": "https://podcastindex.social/users/adam/statuses/117297989453672773",
+    "url": "https://podcastindex.social/@adam/117297989453672773",
+    "created_at": "2026-09-19T13:41:18.527Z",
+    "edited_at": null,
+    "in_reply_to_id": "117294750060235480",
+    "sensitive": false,
+    "spoiler_text": "",
+    "language": "en",
+    "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> hahahaha! Sorry Brother!</p>",
+    "media_attachments": [],
+    "poll": null,
+    "account": {
+     "id": "1",
+     "username": "adam",
+     "acct": "adam",
+     "display_name": "Adam Curry :pci: :pc2blue:",
+     "uri": "https://podcastindex.social/users/adam",
+     "url": "https://podcastindex.social/@adam",
+     "avatar": "https://cdn.masto.host/podcastindexsocial/accounts/avatars/000/000/001/original/432eaf9ef000c39a.jpeg"
+    }
+   },
+   {
+    "id": "117298407166916831",
+    "uri": "https://podcastindex.social/users/dave/statuses/117298407166916831",
+    "url": "https://podcastindex.social/@dave/117298407166916831",
+    "created_at": "2026-09-19T15:27:32.327Z",
+    "edited_at": null,
+    "in_reply_to_id": "117297989453672773",
+    "sensitive": false,
+    "spoiler_text": "",
+    "language": "en",
+    "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@adam\" class=\"u-url mention\">@<span>adam</span></a></span> I got it mostly working now.  Took 3 or 4 goes with Qwen/Pi but it&#39;s 95% there.</p>",
+    "media_attachments": [],
+    "poll": null,
+    "account": {
+     "id": "269",
+     "username": "dave",
+     "acct": "dave",
+     "display_name": "Dave",
+     "uri": "https://podcastindex.social/users/dave",
+     "url": "https://podcastindex.social/@dave",
+     "avatar": "https://cdn.masto.host/podcastindexsocial/accounts/avatars/000/000/269/original/4870b11c3ae92a44.jpg"
+    }
+   },
+   {
+    "id": "117298098381509237",
+    "uri": "https://masto.es/users/DavidMarzalC/statuses/117298098358250174",
+    "url": "https://masto.es/@DavidMarzalC/117298098358250174",
+    "created_at": "2026-09-19T14:09:00.000Z",
+    "edited_at": null,
+    "in_reply_to_id": "117294750060235480",
+    "sensitive": false,
+    "spoiler_text": "",
+    "language": "en",
+    "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\" rel=\"nofollow noopener\" target=\"_blank\">@<span>dave</span></a></span> KDE Plasma let's you control what open where 😜</p>",
+    "media_attachments": [],
+    "poll": null,
+    "account": {
+     "id": "113475480994077267",
+     "username": "DavidMarzalC",
+     "acct": "DavidMarzalC@masto.es",
+     "display_name": "David Marzal",
+     "uri": "https://masto.es/users/DavidMarzalC",
+     "url": "https://masto.es/@DavidMarzalC",
+     "avatar": "https://cdn.masto.host/podcastindexsocial/cache/accounts/avatars/113/475/480/994/077/267/original/076ff7be0bb1db54.jpg"
+    }
+   }
+  ]
+ }
+}

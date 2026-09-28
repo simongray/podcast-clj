@@ -6,7 +6,7 @@
   platforms."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing #?(:cljs async)]]
+            [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync :as sync]
@@ -15,7 +15,7 @@
             [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.test-support :refer [fixture]]))
+            [dk.simongray.podcast.test-support :refer [fixture run]]))
 
 (def root "https://gpodder.example.org")
 
@@ -199,17 +199,6 @@
         (is (= 400 (first (ask send :post "/api/2/episodes/simon.json" {"not" "a list"}))))))
     (is (= 404 (first (ask send :get "/api/2/lists/simon.json"))))
     (is (= 405 (first (ask send :delete "/api/2/devices/simon.json"))))))
-
-(defn- run
-  "Run the steps of `f`, a function of no arguments that gives a value or a
-  promise, as a test on either platform."
-  [f]
-  #?(:clj  (f)
-     :cljs (async done
-             (-> (js/Promise.resolve nil)
-                 (.then (fn [_] (f)))
-                 (.catch (fn [e] (is false (str "rejected: " e))))
-                 (.finally done)))))
 
 (def t1 #inst "2026-01-01T01:00:00Z")
 (def t2 #inst "2026-01-01T02:00:00Z")

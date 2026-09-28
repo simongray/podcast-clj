@@ -1,0 +1,608 @@
+{
+ "https://podcastindex.social/@dave/117294750060235480": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/dave/statuses/117294750060235480",
+  "type": "Note",
+  "summary": null,
+  "inReplyTo": null,
+  "published": "2026-09-18T23:57:29Z",
+  "url": "https://podcastindex.social/@dave/117294750060235480",
+  "attributedTo": "https://podcastindex.social/users/dave",
+  "to": [
+   "https://www.w3.org/ns/activitystreams#Public"
+  ],
+  "cc": [
+   "https://podcastindex.social/users/dave/followers"
+  ],
+  "sensitive": false,
+  "context": "https://podcastindex.social/contexts/269-117294750060235480",
+  "content": "<p>Rebooting the podcast rig did not bring back all the windows and workspaces to their full, upright position.  I forgot &quot;make no mistakes&quot;.</p>",
+  "contentMap": {
+   "en": "<p>Rebooting the podcast rig did not bring back all the windows and workspaces to their full, upright position.  I forgot &quot;make no mistakes&quot;.</p>"
+  },
+  "attachment": [],
+  "tag": [],
+  "replies": {
+   "id": "https://podcastindex.social/users/dave/statuses/117294750060235480/replies",
+   "type": "Collection",
+   "first": {
+    "type": "CollectionPage",
+    "next": "https://podcastindex.social/users/dave/statuses/117294750060235480/replies?only_other_accounts=true&page=true",
+    "partOf": "https://podcastindex.social/users/dave/statuses/117294750060235480/replies",
+    "items": []
+   }
+  }
+ },
+ "https://podcastindex.social/contexts/269-117294750060235480": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/contexts/269-117294750060235480",
+  "type": "Collection",
+  "attributedTo": "https://podcastindex.social/users/dave",
+  "first": {
+   "type": "CollectionPage",
+   "partOf": "https://podcastindex.social/contexts/269-117294750060235480",
+   "items": [
+    "https://podcastindex.social/users/dave/statuses/117294750060235480",
+    "https://mk.spook.social/notes/arb76m33iw",
+    "https://podcastindex.social/users/alecksgates/statuses/117294849863787127",
+    "https://podcastindex.social/users/dave/statuses/117295013953944060",
+    "https://podcastindex.social/users/dave/statuses/117295015990180655",
+    "https://podcastindex.social/users/adam/statuses/117297989453672773",
+    "https://masto.es/users/DavidMarzalC/statuses/117298098358250174",
+    "https://podcastindex.social/users/dave/statuses/117298407166916831"
+   ]
+  }
+ },
+ "https://podcastindex.social/users/dave/statuses/117294750060235480/replies?only_other_accounts=true&page=true": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/dave/statuses/117294750060235480/replies?only_other_accounts=true&page=true",
+  "type": "CollectionPage",
+  "partOf": "https://podcastindex.social/users/dave/statuses/117294750060235480/replies",
+  "items": [
+   "https://mk.spook.social/notes/arb76m33iw",
+   {
+    "id": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127",
+    "type": "Note",
+    "summary": null,
+    "inReplyTo": "https://podcastindex.social/users/dave/statuses/117294750060235480",
+    "published": "2026-09-19T00:22:52Z",
+    "url": "https://podcastindex.social/@alecksgates/117294849863787127",
+    "attributedTo": "https://podcastindex.social/users/alecksgates",
+    "to": [
+     "https://www.w3.org/ns/activitystreams#Public"
+    ],
+    "cc": [
+     "https://podcastindex.social/users/alecksgates/followers",
+     "https://podcastindex.social/users/dave"
+    ],
+    "sensitive": false,
+    "context": "https://podcastindex.social/contexts/269-117294750060235480",
+    "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> high quality agentic Linux distribution.</p><p>Praise DHH.</p>",
+    "contentMap": {
+     "en": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> high quality agentic Linux distribution.</p><p>Praise DHH.</p>"
+    },
+    "attachment": [],
+    "tag": [
+     {
+      "type": "Mention",
+      "href": "https://podcastindex.social/users/dave",
+      "name": "@dave"
+     }
+    ],
+    "replies": {
+     "id": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127/replies",
+     "type": "Collection",
+     "first": {
+      "type": "CollectionPage",
+      "next": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127/replies?only_other_accounts=true&page=true",
+      "partOf": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127/replies",
+      "items": []
+     }
+    }
+   },
+   {
+    "id": "https://podcastindex.social/users/adam/statuses/117297989453672773",
+    "type": "Note",
+    "summary": null,
+    "inReplyTo": "https://podcastindex.social/users/dave/statuses/117294750060235480",
+    "published": "2026-09-19T13:41:18Z",
+    "url": "https://podcastindex.social/@adam/117297989453672773",
+    "attributedTo": "https://podcastindex.social/users/adam",
+    "to": [
+     "https://www.w3.org/ns/activitystreams#Public"
+    ],
+    "cc": [
+     "https://podcastindex.social/users/adam/followers",
+     "https://podcastindex.social/users/dave"
+    ],
+    "sensitive": false,
+    "context": "https://podcastindex.social/contexts/269-117294750060235480",
+    "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> hahahaha! Sorry Brother!</p>",
+    "contentMap": {
+     "en": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> hahahaha! Sorry Brother!</p>"
+    },
+    "attachment": [],
+    "tag": [
+     {
+      "type": "Mention",
+      "href": "https://podcastindex.social/users/dave",
+      "name": "@dave"
+     }
+    ],
+    "replies": {
+     "id": "https://podcastindex.social/users/adam/statuses/117297989453672773/replies",
+     "type": "Collection",
+     "first": {
+      "type": "CollectionPage",
+      "next": "https://podcastindex.social/users/adam/statuses/117297989453672773/replies?only_other_accounts=true&page=true",
+      "partOf": "https://podcastindex.social/users/adam/statuses/117297989453672773/replies",
+      "items": []
+     }
+    }
+   },
+   "https://masto.es/users/DavidMarzalC/statuses/117298098358250174"
+  ]
+ },
+ "https://podcastindex.social/users/adam/statuses/117297989453672773/replies?only_other_accounts=true&page=true": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/adam/statuses/117297989453672773/replies?only_other_accounts=true&page=true",
+  "type": "CollectionPage",
+  "partOf": "https://podcastindex.social/users/adam/statuses/117297989453672773/replies",
+  "items": [
+   {
+    "id": "https://podcastindex.social/users/dave/statuses/117298407166916831",
+    "type": "Note",
+    "summary": null,
+    "inReplyTo": "https://podcastindex.social/users/adam/statuses/117297989453672773",
+    "published": "2026-09-19T15:27:32Z",
+    "url": "https://podcastindex.social/@dave/117298407166916831",
+    "attributedTo": "https://podcastindex.social/users/dave",
+    "to": [
+     "https://www.w3.org/ns/activitystreams#Public"
+    ],
+    "cc": [
+     "https://podcastindex.social/users/dave/followers",
+     "https://podcastindex.social/users/adam"
+    ],
+    "sensitive": false,
+    "context": "https://podcastindex.social/contexts/269-117294750060235480",
+    "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@adam\" class=\"u-url mention\">@<span>adam</span></a></span> I got it mostly working now.  Took 3 or 4 goes with Qwen/Pi but it&#39;s 95% there.</p>",
+    "contentMap": {
+     "en": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@adam\" class=\"u-url mention\">@<span>adam</span></a></span> I got it mostly working now.  Took 3 or 4 goes with Qwen/Pi but it&#39;s 95% there.</p>"
+    },
+    "attachment": [],
+    "tag": [
+     {
+      "type": "Mention",
+      "href": "https://podcastindex.social/users/adam",
+      "name": "@adam"
+     }
+    ],
+    "replies": {
+     "id": "https://podcastindex.social/users/dave/statuses/117298407166916831/replies",
+     "type": "Collection",
+     "first": {
+      "type": "CollectionPage",
+      "next": "https://podcastindex.social/users/dave/statuses/117298407166916831/replies?only_other_accounts=true&page=true",
+      "partOf": "https://podcastindex.social/users/dave/statuses/117298407166916831/replies",
+      "items": []
+     }
+    }
+   }
+  ]
+ },
+ "https://podcastindex.social/users/alecksgates/statuses/117294849863787127/replies?only_other_accounts=true&page=true": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127/replies?only_other_accounts=true&page=true",
+  "type": "CollectionPage",
+  "partOf": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127/replies",
+  "items": [
+   {
+    "id": "https://podcastindex.social/users/dave/statuses/117295013953944060",
+    "type": "Note",
+    "summary": null,
+    "inReplyTo": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127",
+    "published": "2026-09-19T01:04:36Z",
+    "url": "https://podcastindex.social/@dave/117295013953944060",
+    "attributedTo": "https://podcastindex.social/users/dave",
+    "to": [
+     "https://www.w3.org/ns/activitystreams#Public"
+    ],
+    "cc": [
+     "https://podcastindex.social/users/dave/followers",
+     "https://podcastindex.social/users/alecksgates"
+    ],
+    "sensitive": false,
+    "context": "https://podcastindex.social/contexts/269-117294750060235480",
+    "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@alecksgates\" class=\"u-url mention\">@<span>alecksgates</span></a></span> Lol</p>",
+    "contentMap": {
+     "en": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@alecksgates\" class=\"u-url mention\">@<span>alecksgates</span></a></span> Lol</p>"
+    },
+    "attachment": [],
+    "tag": [
+     {
+      "type": "Mention",
+      "href": "https://podcastindex.social/users/alecksgates",
+      "name": "@alecksgates"
+     }
+    ],
+    "replies": {
+     "id": "https://podcastindex.social/users/dave/statuses/117295013953944060/replies",
+     "type": "Collection",
+     "first": {
+      "type": "CollectionPage",
+      "next": "https://podcastindex.social/users/dave/statuses/117295013953944060/replies?only_other_accounts=true&page=true",
+      "partOf": "https://podcastindex.social/users/dave/statuses/117295013953944060/replies",
+      "items": []
+     }
+    }
+   }
+  ]
+ },
+ "https://mk.spook.social/notes/arb76m33iw": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://mk.spook.social/notes/arb76m33iw",
+  "type": "Note",
+  "attributedTo": "https://mk.spook.social/users/9iyva7z1zi",
+  "content": "<p><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@dave@podcastindex.social</a> Foot Terminal</p>",
+  "published": "2026-09-19T00:12:37.839Z",
+  "to": [
+   "https://www.w3.org/ns/activitystreams#Public"
+  ],
+  "cc": [
+   "https://mk.spook.social/users/9iyva7z1zi/followers",
+   "https://podcastindex.social/users/dave"
+  ],
+  "inReplyTo": "https://podcastindex.social/users/dave/statuses/117294750060235480",
+  "attachment": [],
+  "sensitive": false,
+  "tag": [
+   {
+    "type": "Mention",
+    "href": "https://podcastindex.social/users/dave",
+    "name": "@dave@podcastindex.social"
+   }
+  ]
+ },
+ "https://masto.es/users/DavidMarzalC/statuses/117298098358250174": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://masto.es/users/DavidMarzalC/statuses/117298098358250174",
+  "type": "Note",
+  "summary": null,
+  "inReplyTo": "https://podcastindex.social/users/dave/statuses/117294750060235480",
+  "published": "2026-09-19T14:09:00Z",
+  "url": "https://masto.es/@DavidMarzalC/117298098358250174",
+  "attributedTo": "https://masto.es/users/DavidMarzalC",
+  "to": [
+   "https://masto.es/users/DavidMarzalC/followers"
+  ],
+  "cc": [
+   "https://www.w3.org/ns/activitystreams#Public",
+   "https://podcastindex.social/users/dave"
+  ],
+  "sensitive": false,
+  "context": "https://podcastindex.social/contexts/269-117294750060235480",
+  "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> KDE Plasma let&#39;s you control what open where 😜</p>",
+  "contentMap": {
+   "en": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> KDE Plasma let&#39;s you control what open where 😜</p>"
+  },
+  "attachment": [],
+  "tag": [
+   {
+    "type": "Mention",
+    "href": "https://podcastindex.social/users/dave",
+    "name": "@dave@podcastindex.social"
+   }
+  ],
+  "replies": {
+   "id": "https://masto.es/users/DavidMarzalC/statuses/117298098358250174/replies",
+   "type": "Collection",
+   "first": {
+    "type": "CollectionPage",
+    "next": "https://masto.es/users/DavidMarzalC/statuses/117298098358250174/replies?only_other_accounts=true&page=true",
+    "partOf": "https://masto.es/users/DavidMarzalC/statuses/117298098358250174/replies",
+    "items": []
+   }
+  }
+ },
+ "https://masto.es/users/DavidMarzalC/statuses/117298098358250174/replies?only_other_accounts=true&page=true": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://masto.es/users/DavidMarzalC/statuses/117298098358250174/replies?only_other_accounts=true&page=true",
+  "type": "CollectionPage",
+  "partOf": "https://masto.es/users/DavidMarzalC/statuses/117298098358250174/replies",
+  "items": []
+ },
+ "https://podcastindex.social/users/dave/statuses/117295015990180655": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/dave/statuses/117295015990180655",
+  "type": "Note",
+  "summary": null,
+  "inReplyTo": "https://mk.spook.social/notes/arb76m33iw",
+  "published": "2026-09-19T01:05:07Z",
+  "url": "https://podcastindex.social/@dave/117295015990180655",
+  "attributedTo": "https://podcastindex.social/users/dave",
+  "sensitive": false,
+  "to": [
+   "https://www.w3.org/ns/activitystreams#Public"
+  ],
+  "cc": [
+   "https://podcastindex.social/users/dave/followers"
+  ],
+  "context": "https://podcastindex.social/contexts/269-117294750060235480",
+  "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://mk.spook.social/@cbrooklyn112\" class=\"u-url mention\">@<span>cbrooklyn112</span></a></span> Foot gun</p>",
+  "contentMap": {
+   "en": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://mk.spook.social/@cbrooklyn112\" class=\"u-url mention\">@<span>cbrooklyn112</span></a></span> Foot gun</p>"
+  },
+  "attachment": [],
+  "tag": [],
+  "replies": {
+   "id": "https://podcastindex.social/users/dave/statuses/117295015990180655/replies",
+   "type": "Collection",
+   "first": {
+    "type": "CollectionPage",
+    "next": "https://podcastindex.social/users/dave/statuses/117295015990180655/replies?only_other_accounts=true&page=true",
+    "partOf": "https://podcastindex.social/users/dave/statuses/117295015990180655/replies",
+    "items": []
+   }
+  }
+ },
+ "https://mk.spook.social/users/9iyva7z1zi": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Person",
+  "id": "https://mk.spook.social/users/9iyva7z1zi",
+  "url": "https://mk.spook.social/@cbrooklyn112",
+  "preferredUsername": "cbrooklyn112",
+  "name": "Quantum Panhandler",
+  "icon": {
+   "type": "Image",
+   "url": "https://mk.spook.social/files/d48a362b-1d14-415c-95ba-dacdb9145a07",
+   "sensitive": false,
+   "name": null
+  }
+ },
+ "https://podcastindex.social/users/dave": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/dave",
+  "type": "Person",
+  "preferredUsername": "dave",
+  "name": "Dave",
+  "url": "https://podcastindex.social/@dave",
+  "published": "2022-11-18T00:00:00Z",
+  "tag": [],
+  "icon": {
+   "type": "Image",
+   "mediaType": "image/png",
+   "url": "https://files.podcastindex.social/avatars/dave.png"
+  }
+ },
+ "https://podcastindex.social/users/adam": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/adam",
+  "type": "Person",
+  "preferredUsername": "adam",
+  "name": "Adam Curry",
+  "url": "https://podcastindex.social/@adam",
+  "published": "2022-11-18T00:00:00Z",
+  "tag": [],
+  "icon": {
+   "type": "Image",
+   "mediaType": "image/png",
+   "url": "https://files.podcastindex.social/avatars/adam.png"
+  }
+ },
+ "https://podcastindex.social/users/alecksgates": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/alecksgates",
+  "type": "Person",
+  "preferredUsername": "alecksgates",
+  "name": "Sir Alecks Gates",
+  "url": "https://podcastindex.social/@alecksgates",
+  "published": "2022-11-18T00:00:00Z",
+  "tag": [],
+  "icon": {
+   "type": "Image",
+   "mediaType": "image/png",
+   "url": "https://files.podcastindex.social/avatars/alecksgates.png"
+  }
+ },
+ "https://masto.es/users/DavidMarzalC": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://masto.es/users/DavidMarzalC",
+  "type": "Person",
+  "preferredUsername": "DavidMarzalC",
+  "name": "David Marzal",
+  "url": "https://masto.es/@DavidMarzalC",
+  "published": "2022-11-18T00:00:00Z",
+  "tag": [],
+  "icon": {
+   "type": "Image",
+   "mediaType": "image/png",
+   "url": "https://files.masto.es/avatars/DavidMarzalC.png"
+  }
+ },
+ "https://podcastindex.social/users/alecksgates/statuses/117294849863787127": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127",
+  "type": "Note",
+  "summary": null,
+  "inReplyTo": "https://podcastindex.social/users/dave/statuses/117294750060235480",
+  "published": "2026-09-19T00:22:52Z",
+  "url": "https://podcastindex.social/@alecksgates/117294849863787127",
+  "attributedTo": "https://podcastindex.social/users/alecksgates",
+  "to": [
+   "https://www.w3.org/ns/activitystreams#Public"
+  ],
+  "cc": [
+   "https://podcastindex.social/users/alecksgates/followers",
+   "https://podcastindex.social/users/dave"
+  ],
+  "sensitive": false,
+  "context": "https://podcastindex.social/contexts/269-117294750060235480",
+  "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> high quality agentic Linux distribution.</p><p>Praise DHH.</p>",
+  "contentMap": {
+   "en": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> high quality agentic Linux distribution.</p><p>Praise DHH.</p>"
+  },
+  "attachment": [],
+  "tag": [
+   {
+    "type": "Mention",
+    "href": "https://podcastindex.social/users/dave",
+    "name": "@dave"
+   }
+  ],
+  "replies": {
+   "id": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127/replies",
+   "type": "Collection",
+   "first": {
+    "type": "CollectionPage",
+    "next": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127/replies?only_other_accounts=true&page=true",
+    "partOf": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127/replies",
+    "items": []
+   }
+  }
+ },
+ "https://podcastindex.social/users/adam/statuses/117297989453672773": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/adam/statuses/117297989453672773",
+  "type": "Note",
+  "summary": null,
+  "inReplyTo": "https://podcastindex.social/users/dave/statuses/117294750060235480",
+  "published": "2026-09-19T13:41:18Z",
+  "url": "https://podcastindex.social/@adam/117297989453672773",
+  "attributedTo": "https://podcastindex.social/users/adam",
+  "to": [
+   "https://www.w3.org/ns/activitystreams#Public"
+  ],
+  "cc": [
+   "https://podcastindex.social/users/adam/followers",
+   "https://podcastindex.social/users/dave"
+  ],
+  "sensitive": false,
+  "context": "https://podcastindex.social/contexts/269-117294750060235480",
+  "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> hahahaha! Sorry Brother!</p>",
+  "contentMap": {
+   "en": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@dave\" class=\"u-url mention\">@<span>dave</span></a></span> hahahaha! Sorry Brother!</p>"
+  },
+  "attachment": [],
+  "tag": [
+   {
+    "type": "Mention",
+    "href": "https://podcastindex.social/users/dave",
+    "name": "@dave"
+   }
+  ],
+  "replies": {
+   "id": "https://podcastindex.social/users/adam/statuses/117297989453672773/replies",
+   "type": "Collection",
+   "first": {
+    "type": "CollectionPage",
+    "next": "https://podcastindex.social/users/adam/statuses/117297989453672773/replies?only_other_accounts=true&page=true",
+    "partOf": "https://podcastindex.social/users/adam/statuses/117297989453672773/replies",
+    "items": []
+   }
+  }
+ },
+ "https://podcastindex.social/users/dave/statuses/117298407166916831": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/dave/statuses/117298407166916831",
+  "type": "Note",
+  "summary": null,
+  "inReplyTo": "https://podcastindex.social/users/adam/statuses/117297989453672773",
+  "published": "2026-09-19T15:27:32Z",
+  "url": "https://podcastindex.social/@dave/117298407166916831",
+  "attributedTo": "https://podcastindex.social/users/dave",
+  "to": [
+   "https://www.w3.org/ns/activitystreams#Public"
+  ],
+  "cc": [
+   "https://podcastindex.social/users/dave/followers",
+   "https://podcastindex.social/users/adam"
+  ],
+  "sensitive": false,
+  "context": "https://podcastindex.social/contexts/269-117294750060235480",
+  "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@adam\" class=\"u-url mention\">@<span>adam</span></a></span> I got it mostly working now.  Took 3 or 4 goes with Qwen/Pi but it&#39;s 95% there.</p>",
+  "contentMap": {
+   "en": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@adam\" class=\"u-url mention\">@<span>adam</span></a></span> I got it mostly working now.  Took 3 or 4 goes with Qwen/Pi but it&#39;s 95% there.</p>"
+  },
+  "attachment": [],
+  "tag": [
+   {
+    "type": "Mention",
+    "href": "https://podcastindex.social/users/adam",
+    "name": "@adam"
+   }
+  ],
+  "replies": {
+   "id": "https://podcastindex.social/users/dave/statuses/117298407166916831/replies",
+   "type": "Collection",
+   "first": {
+    "type": "CollectionPage",
+    "next": "https://podcastindex.social/users/dave/statuses/117298407166916831/replies?only_other_accounts=true&page=true",
+    "partOf": "https://podcastindex.social/users/dave/statuses/117298407166916831/replies",
+    "items": []
+   }
+  }
+ },
+ "https://podcastindex.social/users/dave/statuses/117295013953944060": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/dave/statuses/117295013953944060",
+  "type": "Note",
+  "summary": null,
+  "inReplyTo": "https://podcastindex.social/users/alecksgates/statuses/117294849863787127",
+  "published": "2026-09-19T01:04:36Z",
+  "url": "https://podcastindex.social/@dave/117295013953944060",
+  "attributedTo": "https://podcastindex.social/users/dave",
+  "to": [
+   "https://www.w3.org/ns/activitystreams#Public"
+  ],
+  "cc": [
+   "https://podcastindex.social/users/dave/followers",
+   "https://podcastindex.social/users/alecksgates"
+  ],
+  "sensitive": false,
+  "context": "https://podcastindex.social/contexts/269-117294750060235480",
+  "content": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@alecksgates\" class=\"u-url mention\">@<span>alecksgates</span></a></span> Lol</p>",
+  "contentMap": {
+   "en": "<p><span class=\"h-card\" translate=\"no\"><a href=\"https://podcastindex.social/@alecksgates\" class=\"u-url mention\">@<span>alecksgates</span></a></span> Lol</p>"
+  },
+  "attachment": [],
+  "tag": [
+   {
+    "type": "Mention",
+    "href": "https://podcastindex.social/users/alecksgates",
+    "name": "@alecksgates"
+   }
+  ],
+  "replies": {
+   "id": "https://podcastindex.social/users/dave/statuses/117295013953944060/replies",
+   "type": "Collection",
+   "first": {
+    "type": "CollectionPage",
+    "next": "https://podcastindex.social/users/dave/statuses/117295013953944060/replies?only_other_accounts=true&page=true",
+    "partOf": "https://podcastindex.social/users/dave/statuses/117295013953944060/replies",
+    "items": []
+   }
+  }
+ },
+ "https://podcastindex.social/users/dave/statuses/117298407166916831/replies?only_other_accounts=true&page=true": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/dave/statuses/117298407166916831/replies?only_other_accounts=true&page=true",
+  "type": "CollectionPage",
+  "partOf": "https://podcastindex.social/users/dave/statuses/117298407166916831/replies",
+  "items": []
+ },
+ "https://podcastindex.social/users/dave/statuses/117295013953944060/replies?only_other_accounts=true&page=true": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/dave/statuses/117295013953944060/replies?only_other_accounts=true&page=true",
+  "type": "CollectionPage",
+  "partOf": "https://podcastindex.social/users/dave/statuses/117295013953944060/replies",
+  "items": []
+ },
+ "https://podcastindex.social/users/dave/statuses/117295015990180655/replies?only_other_accounts=true&page=true": {
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://podcastindex.social/users/dave/statuses/117295015990180655/replies?only_other_accounts=true&page=true",
+  "type": "CollectionPage",
+  "partOf": "https://podcastindex.social/users/dave/statuses/117295015990180655/replies",
+  "items": []
+ }
+}

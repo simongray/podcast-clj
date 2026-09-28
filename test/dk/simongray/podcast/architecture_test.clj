@@ -25,6 +25,7 @@
    "app.sync" 3 "app.sync.store" 3 "app.sync.file" 3 "app.sync.webdav" 3 "app.sync.webdav.server" 3
    "app.sync.encrypted" 3 "app.sync.gpodder" 3 "app.sync.gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "podping" 3
+   "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3
    "" 4})
 
 (defn- short-name
@@ -35,7 +36,7 @@
 
 (defn- requires
   "The library namespaces the ns form in `file` requires, on either
-  platform."
+  platform. An `:as-alias` loads nothing, so it requires nothing."
   [file]
   (let [source (slurp file)]
     (into (sorted-set)
@@ -45,7 +46,9 @@
                 :when (and (seq? clause) (= :require (first clause)))
                 spec (rest clause)
                 :let [ns (if (sequential? spec) (first spec) spec)]
-                :when (and (symbol? ns) (str/starts-with? (str ns) prefix))]
+                :when (and (symbol? ns)
+                           (str/starts-with? (str ns) prefix)
+                           (not (and (sequential? spec) (some #{:as-alias} spec))))]
             (short-name ns)))))
 
 (def graph

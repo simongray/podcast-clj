@@ -5,6 +5,8 @@
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.search :as search]
+            [dk.simongray.podcast.comments :as comments]
+            [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.validate :as validate]
@@ -34,6 +36,9 @@
    .results li{margin:.6rem 0} .snippet{color:#444;max-width:80ch} mark{background:#fff3a0}
    ul.compact{margin:0;padding-left:1.2rem}
    .notes{max-width:70ch} .notes img{max-width:100%;height:auto}
+   ol.comments{list-style:none;padding-left:1rem;border-left:2px solid #eee} .comment{margin:.8rem 0}
+   .avatar{width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:.4rem}
+   img.attachment{max-width:240px;max-height:240px;margin:.3rem .3rem 0 0}
    #player-bar:empty{display:none}
    #player-bar{position:sticky;top:0;z-index:1;background:#fff;border-bottom:1px solid #ddd;padding:.5rem 1.5rem}
    #player-bar .bar{max-width:1100px;margin:0 auto;display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
@@ -511,7 +516,9 @@
                 [:div.muted (str/join " · " (map #(str (:role %) ": " (:name %)) people))])
               [:div
                [:a.badge {:href (into-player "last")} "Add to queue"]
-               [:a.badge {:href (into-player "next")} "Play next"]]]]
+               [:a.badge {:href (into-player "next")} "Play next"]
+               (when (seq (resolve/social-interacts feed item))
+                 [:a.badge {:href (feed-href "/comments" url {:guid guid})} "Comments"])]]]
             [:h2 "Description"]
             [:div.notes (html/hiccup (resolve/description item))]
             [:h2 "Media"]
@@ -642,6 +649,75 @@
           [:div#app
            [:p.muted "Loading the player… If nothing appears, compile it first: "
             [:code "clojure -M:cljs compile player"]]]))
+
+(defn- web-link
+  "The web page of the comment `c`. For a post of the AT Protocol, it is the
+  page in Bluesky's web app. The inspector chose this app among the apps
+  that show such posts."
+  [{:keys [url id]}]
+  (or (link url)
+      (let [{:keys [authority collection rkey]} (atproto/at-uri id)]
+        (when (and (= "app.bsky.feed.post" collection) rkey)
+          (str "https://bsky.app/profile/" authority "/post/" rkey)))))
+
+(defn- comment-item
+  "The comment `c` of a thread's tree, and the replies below it."
+  [{:keys [author published title content summary sensitive? labels attachments deleted? error hidden? replies] :as c}]
+  (let [body (list (when title [:strong title])
+                   [:div.notes (html/hiccup content)]
+                   (for [{:keys [kind url preview alt]} attachments]
+                     (if (= :image kind)
+                       [:a {:href (link url)} [:img.attachment {:src (link (or preview url)) :alt (str alt)}]]
+                       [:a.badge {:href (link url)} (name kind)])))]
+    [:li.comment
+     [:div.muted
+      (when-let [avatar (link (:avatar author))]
+        [:img.avatar {:src avatar :alt ""}])
+      [:strong (or (:name author) (:handle author) (:id author))] " " (:handle author)
+      " · " [:a {:href (web-link c)} (if published (inst-str published) "open")]
+      (when hidden? " · hidden by the author of the root post")]
+     (cond
+       deleted?                  [:p.muted "This post was deleted."]
+       (and error (not content)) [:p.muted "The inspector did not get this post."]
+       (or summary sensitive?)   [:details [:summary (or summary (str "Sensitive: " (str/join ", " labels)))] body]
+       :else                     body)
+     (when (seq replies)
+       [:ol.comments (map comment-item replies)])]))
+
+(defn comments-page
+  "The page of the comments on `item` of the feed at `url`, from the
+  `interacts` of the item and the `thread` that `comments/fetch!` read.
+
+  It shows the thread as a tree, with its report, or tells why there is no
+  thread. With `hidden?`, the tree holds the replies that the author of the
+  root post hid."
+  [{:keys [url item interacts thread hidden?]}]
+  (let [title (or (resolve/title item) "(untitled)")
+        guid  (feed/item-guid item)]
+    (layout (str "Comments: " title)
+            [:p [:a {:href (feed-href "/item" url {:guid guid})} "← " title]]
+            [:h1 "Comments"]
+            (cond
+              (= "disabled" (:protocol (first interacts)))
+              [:p.muted "The podcaster wants no public comments shown with this episode."]
+
+              (empty? interacts)
+              [:p.muted "The feed names no thread of comments for this episode."]
+
+              (nil? thread)
+              [:p.muted (str "podcast-clj reads no comments over " (str/join ", " (distinct (map :protocol interacts))) ".")]
+
+              :else
+              (list [:p.muted "The thread of " [:code (:uri thread)] " over " (:protocol thread)
+                     (when (:via thread) ", read through the Mastodon API")
+                     ", " (count (filter :read-at (vals (:comments thread)))) " posts. "
+                     [:a {:href (feed-href "/comments" url {:guid guid :hidden (when-not hidden? "1")})}
+                      (if hidden? "Leave out the hidden replies" "Show the hidden replies")]]
+                    (if-let [tree (comments/tree thread {:hidden? hidden?})]
+                      [:ol.comments (comment-item tree)]
+                      [:p.muted "The inspector did not get the root post."])
+                    [:h2 "Report"]
+                    (diagnostics-table (:report thread)))))))
 
 (defn error-page
   "The page shown when what `heading` names failed: `subject` is what it was

@@ -1,10 +1,12 @@
 (ns dk.simongray.podcast.test-support
-  "What the tests share: fixtures inlined from the classpath, the instants
-  and the two devices the sync tests put through a store, the bytes of
-  files built by hand, and on the JVM a temporary directory, a server of a
-  file on localhost and the feeds of the corpus."
+  "What the tests share: fixtures inlined from the classpath, a test of
+  steps that give promises in ClojureScript, the instants and the two
+  devices the sync tests put through a store, the bytes of files built by
+  hand, and on the JVM a temporary directory, a server of a file on
+  localhost and the feeds of the corpus."
   #?(:cljs (:require-macros [dk.simongray.podcast.test-support]))
   (:require #?(:clj [clojure.java.io :as io])
+            #?(:cljs [clojure.test :refer [is async]])
             #?(:clj [dk.simongray.podcast :as podcast])
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.bytes :as bytes])
@@ -21,6 +23,17 @@
      the test compiles, on both platforms."
      [path]
      (slurp (io/resource path))))
+
+(defn run
+  "Run the steps of `f`, a function of no arguments that gives a value or a
+  promise, as a test on either platform."
+  [f]
+  #?(:clj  (f)
+     :cljs (async done
+             (-> (js/Promise.resolve nil)
+                 (.then (fn [_] (f)))
+                 (.catch (fn [e] (is false (str "rejected: " e))))
+                 (.finally done)))))
 
 (def t0
   "The instant the sync tests start from; `t1` to `t4` follow an hour apart."
