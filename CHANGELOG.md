@@ -179,6 +179,21 @@
   the thread through the Mastodon API of the server. `async/iteration`
   reads the pages of a collection. The inspector shows the comments on an
   episode.
+- `value/parse-boostagram` reads the bLIP-10 record of a payment that a
+  node received, and forgives what real apps write. A payment is one map
+  for each way to pay, with its amounts in millisatoshis.
+  `value.lnaddress` asks a Lightning address for an invoice with
+  LNURL-pay, and checks its amount, or for a node with the keysend lookup.
+  `value.metadata` writes and reads the RSS Payment Metadata of a payment
+  to a Lightning address. `value/as-received` puts what a sender claims
+  next to what the node received.
+- `http/call-public!` sends nothing to the network of the app: no request
+  to a host whose address is loopback, private, link-local, shared,
+  multicast or reserved. On the JVM, it resolves the name and checks every
+  redirect. It is the default of `comments/fetch!`,
+  `value.lnaddress/invoice!` and `node!`, and `value.metadata/fetch!`,
+  since strangers choose their URLs. `http/call!` takes `:allow?`, and
+  `podcast/fetch!` passes it on.
 - podcast-clj compares the origins of URLs as the URL standard does, on
   both platforms. On the JVM, `http/call!` fetches hosts with letters
   outside ASCII. `json/read-str` refuses JSON nested deeper than the stack reaches.

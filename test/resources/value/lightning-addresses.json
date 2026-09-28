@@ -1,0 +1,74 @@
+{
+  "https://getalby.com/.well-known/lnurlp/hello": {
+    "status": 200,
+    "body": "{\"status\":\"OK\",\"tag\":\"payRequest\",\"commentAllowed\":255,\"callback\":\"https://getalby.com/lnurlp/hello/callback\",\"metadata\":\"[[\\\"text/identifier\\\",\\\"hello@getalby.com\\\"],[\\\"text/plain\\\",\\\"Sats for Alby\\\"]]\",\"minSendable\":1000,\"maxSendable\":10000000000,\"payerData\":{\"name\":{\"mandatory\":false},\"email\":{\"mandatory\":false},\"pubkey\":{\"mandatory\":false}},\"nostrPubkey\":\"79f00d3f5a19ec806189fcab03c1be4ff81d18ee4f653c88fac41fe03570f432\",\"allowsNostr\":true}"
+  },
+  "https://getalby.com/.well-known/keysend/hello": {
+    "status": 200,
+    "body": "{\"status\":\"OK\",\"tag\":\"keysend\",\"pubkey\":\"036cba6deb6f2006099ee24c5990227f4119ae9658591d56980149ae8acc8ddc7d\",\"customData\":[{\"customKey\":\"696969\",\"customValue\":\"22\"}]}"
+  },
+  "https://getalby.com/.well-known/lnurlp/zz-nobody": {
+    "status": 404,
+    "body": "<!doctype html><html><head><title>Not Found</title></head><body>…</body></html>"
+  },
+  "https://getalby.com/.well-known/keysend/zz-nobody": {
+    "status": 404,
+    "body": "<!doctype html><html><head><title>Not Found</title></head><body>…</body></html>"
+  },
+  "https://fountain.fm/.well-known/lnurlp/fountain": {
+    "status": 200,
+    "body": "{\"status\":\"OK\",\"tag\":\"payRequest\",\"callback\":\"https://api.fountain.fm/v1/lnurlp/fountain/pay\",\"minSendable\":1000,\"maxSendable\":500000000,\"commentAllowed\":500,\"metadata\":\"[[\\\"text/plain\\\",\\\"Pay @fountain on Fountain\\\"]]\"}"
+  },
+  "https://fountain.fm/.well-known/keysend/fountain": {
+    "status": 200,
+    "body": "{\"status\":\"OK\",\"tag\":\"keysend\",\"pubkey\":\"03b6f613e88bd874177c28c6ad83b3baba43c4c656f56be1f8df84669556054b79\",\"customData\":[{\"customKey\":\"906608\",\"customValue\":\"01YKnttU2V1QKFwiQqJYYS\"}]}"
+  },
+  "https://fountain.fm/.well-known/lnurlp/zz-nobody": {
+    "status": 200,
+    "body": "{\"status\":\"ERROR\",\"reason\":\"invalid username\"}"
+  },
+  "https://walletofsatoshi.com/.well-known/lnurlp/walletofsatoshi": {
+    "status": 200,
+    "body": "{\"callback\":\"https://livingroomofsatoshi.com/api/v1/lnurl/payreq/e22243ec-40de-4777-a817-324037f8ff12\",\"maxSendable\":100000000000,\"minSendable\":1000,\"metadata\":\"[[\\\"text/plain\\\",\\\"Pay to Wallet of Satoshi user: walletofsatoshi\\\"],[\\\"text/identifier\\\",\\\"walletofsatoshi@walletofsatoshi.com\\\"]]\",\"commentAllowed\":255,\"tag\":\"payRequest\",\"allowsNostr\":true,\"nostrPubkey\":\"be1d89794bf92de5dd64c1e60f6a2c70c140abac9932418fee30c5c637fe9479\"}"
+  },
+  "https://walletofsatoshi.com/.well-known/keysend/walletofsatoshi": {
+    "status": 404,
+    "body": "<!doctype html><html><head><title>Not Found</title></head><body>…</body></html>"
+  },
+  "https://walletofsatoshi.com/.well-known/lnurlp/zz-nobody": {
+    "status": 200,
+    "body": "{\"status\":\"ERROR\",\"reason\":\"Unable to find valid user wallet.\"}"
+  },
+  "https://strike.me/.well-known/lnurlp/strike": {
+    "status": 200,
+    "body": "{\"tag\":\"payRequest\",\"status\":\"OK\",\"allowsNostr\":true,\"nostrPubkey\":\"8b7cd4981e30ed2dd6b5ef1f816763453b282b3e44f41ef2a3da77ff5ef8d141\",\"callback\":\"https://strike.me/api/lnurlp/strike/\",\"minSendable\":1000,\"maxSendable\":16000000000,\"metadata\":\"[[\\\"text/plain\\\",\\\"Pay strike\\\"],[\\\"text/identifier\\\",\\\"strike@strike.me\\\"]]\",\"commentAllowed\":200}"
+  },
+  "https://strike.me/.well-known/keysend/strike": {
+    "status": 404,
+    "body": "<!doctype html><html><head><title>Not Found</title></head><body>…</body></html>"
+  },
+  "https://primal.net/.well-known/lnurlp/primal": {
+    "status": 200,
+    "body": "{\"status\":\"OK\",\"tag\":\"payRequest\",\"callback\":\"https://primal.net/lnurlp/primal/callback\",\"metadata\":\"[[\\\"text/plain\\\",\\\"sats for primal@primal.net\\\"]]\",\"minSendable\":1000,\"maxSendable\":11000000000,\"nostrPubkey\":\"f81611363554b64306467234d7396ec88455707633f54738f6c4683535098cd3\",\"allowsNostr\":true,\"commentAllowed\":200}"
+  },
+  "https://primal.net/.well-known/keysend/primal": {
+    "status": 200,
+    "body": "<!doctype html><html><head><title>Not Found</title></head><body>…</body></html>"
+  },
+  "https://primal.net/.well-known/lnurlp/zz-nobody": {
+    "status": 404,
+    "body": "name not found"
+  },
+  "https://coinos.io/.well-known/lnurlp/coinos": {
+    "status": 200,
+    "body": "{\"tag\":\"payRequest\",\"callback\":\"https://names.coinos.io/lnurlp/coinos/cb?domain=coinos.io\",\"minSendable\":1000,\"maxSendable\":500000000,\"metadata\":\"[[\\\"text/plain\\\",\\\"Paying coinos@coinos.io\\\"],[\\\"text/identifier\\\",\\\"coinos@coinos.io\\\"]]\",\"commentAllowed\":200,\"allowsNostr\":true,\"nostrPubkey\":\"e0c0ab7eb126bd4bd7168219c3dd195eb5ad92b7d7807ed2dda57f69c7c5d20d\"}"
+  },
+  "https://coinos.io/.well-known/keysend/coinos": {
+    "status": 404,
+    "body": "Not Found"
+  },
+  "https://coinos.io/.well-known/lnurlp/zz-nobody": {
+    "status": 500,
+    "body": "User zz-nonexistent-podcastclj-7f3a not found"
+  }
+}

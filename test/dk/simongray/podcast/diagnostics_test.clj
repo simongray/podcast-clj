@@ -16,13 +16,16 @@
 
 (def not-diagnostics
   "Keywords in the diagnostic namespaces that name something else."
-  #{:xml/unknown :xml/namespaces :xml/report :xml/malformed})
+  #{:xml/unknown :xml/namespaces :xml/report :xml/malformed
+    ;; the endpoints of the Podcast Index
+    :value/by-feed-id :value/by-feed-url :value/by-podcast-guid :value/by-episode-guid
+    :value/batch-by-episode-guid})
 
 (defn- ids-in-source
   "The diagnostic ids that the source names. A keyword of an alias, such as
   `::comments/for`, is none."
   []
-  (->> (re-seq #"(?<!:):(?:fetch|repair|quirk|xml|feed|transcript|chapters|id3|mp3|mp4|file|validate|check|sync|comments)/[a-z0-9-]+" source)
+  (->> (re-seq #"(?<!:):(?:fetch|repair|quirk|xml|feed|transcript|chapters|id3|mp3|mp4|file|validate|check|sync|comments|value)/[a-z0-9-]+" source)
        (map #(keyword (subs % 1)))
        (remove not-diagnostics)
        set))

@@ -321,7 +321,7 @@
        :max-pages       5            ; of a collection in a round
        :timeout-seconds 30           ; for each request
        :max-bytes       5242880      ; of each answer
-       :send            f            ; in place of http/call!
+       :send            f            ; in place of http/call-public!
        :now             f}           ; the time, the clock by default
 
   The requests go out in rounds. The root post comes first, then the posts
@@ -330,8 +330,9 @@
   time, or that answered 429 Too Many Requests, gets no more requests. The
   time that is left limits each request. `fetch!` throws nothing.
 
-  The servers of a thread choose the URLs that `fetch!` fetches. So an app
-  on a server gives a `:send` that refuses the URLs of its own network. A
+  The servers of a thread choose the URLs that `fetch!` fetches. So it
+  sends with `http/call-public!`, which sends nothing to the network of the
+  app. An app that must reach its own network gives `http/call!`. A
   `:send` keeps to the `:timeout-seconds` of each request. A `:send` that
   signs its requests can also read the servers that answer only signed
   requests."
@@ -339,7 +340,7 @@
    (fetch! thread {}))
   ([thread opts]
    (let [{:keys [concurrency max-requests max-pages max-seconds now] :as opts}
-         (merge default-limits {:send http/call! :now #?(:clj #(java.util.Date.) :cljs #(js/Date.))} opts)
+         (merge default-limits {:send http/call-public! :now #?(:clj #(java.util.Date.) :cljs #(js/Date.))} opts)
          opts  (cond-> opts max-seconds (assoc ::deadline (+ (inst-ms (now)) (* 1000 max-seconds))))
          batch (fn [thread sent]
                  (when (or (not max-seconds) (< (inst-ms (now)) (::deadline opts)))

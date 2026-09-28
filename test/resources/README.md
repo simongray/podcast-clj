@@ -19,5 +19,11 @@ recordings lack. These are the authors of the Mastodon thread, and all but
 one comment of the PeerTube video. In the Bluesky thread, a label and a
 deleted post are made by hand.
 
+`value/blip-0010.json` holds the records of the examples in the bLIP-10
+document of the podcast namespace, by app and action.
+`value/lightning-addresses.json` holds the answers that six services gave
+about their own Lightning addresses on 2026-09-28, by URL. Their pages of
+errors are cut short.
+
 The corpus of real feeds is outside Git, in `dev-resources/corpus/`. See
 `dev/corpus.clj`.

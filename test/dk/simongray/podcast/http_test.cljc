@@ -384,3 +384,45 @@
          (let [{:keys [bytes start total]} ((http/fetcher url {}) 2000 2100)]
            (is (= [0 2000 1000] [(alength ^bytes bytes) start total])
                "a 416 gives no bytes and the size of the file"))))))
+
+(deftest hosts-on-the-public-internet
+  (is (not-any? http/public? ["http://127.0.0.1/" "http://10.1.2.3/" "http://172.16.0.1/" "http://192.168.1.1/"
+                              "http://169.254.169.254/latest/meta-data" "http://100.64.0.1/" "http://0.0.0.0/"
+                              "http://224.0.0.1/" "http://[::1]/" "http://[fd00::1]/" "http://[fe80::1]/"
+                              "http://[::ffff:127.0.0.1]/" "http://[64:ff9b::7f00:1]/" "http://[2002:a00:1::1]/"
+                              "http://localhost:8080/" "not a url"])
+      "loopback, private, link-local, shared, multicast and local addresses, and IPv6 that holds them")
+  (is (every? http/public? ["http://8.8.8.8/" "https://[2606:4700:4700::1111]/"])))
+
+#?(:cljs
+   (deftest names-in-a-browser
+     (is (not-any? http/public? ["http://localhost/" "https://printer.local/" "https://wiki.internal/"]))
+     (is (http/public? "https://podcastindex.org/") "a name that JavaScript does not look up")))
+
+#?(:clj
+   (deftest refusing-hosts
+     (let [seen (atom [])
+           kind #(try (%) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))]
+       (with-servers seen
+         (fn [[_ other] path ^HttpExchange exchange]
+           (if (= "/away" path)
+             (redirect exchange 302 (str other "/feed"))
+             (do (.sendResponseHeaders exchange 200 2)
+                 (with-open [out (.getResponseBody exchange)]
+                   (.write out (.getBytes "ok"))))))
+         (fn [[base _]]
+           (testing "a redirect that `:allow?` does not take is not followed"
+             (is (= ::http/refused (kind #(http/call! {:url (str base "/away") :allow? (fn [url] (.startsWith ^String url base))}))))
+             (is (= 1 (count @seen)) "the first request alone"))
+           (testing "`call-public!` sends nothing to the network of the app"
+             (reset! seen [])
+             (is (= ::http/refused (kind #(http/call-public! {:url (str base "/feed")}))))
+             (is (empty? @seen))))))))
+
+#?(:cljs
+   (deftest refusing-hosts-in-a-browser
+     (async done
+       (-> (http/call-public! {:url "http://127.0.0.1:1/feed"})
+           (.then (fn [_] (is false "sent")))
+           (.catch (fn [e] (is (= ::http/refused (:type (ex-data e))))))
+           (.finally done)))))

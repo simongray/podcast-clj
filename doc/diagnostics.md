@@ -146,3 +146,25 @@ for the validator, and `sync` for the sync between devices.
 | `:comments/through-api` | info | ActivityPub did not give the root post. podcast-clj read the thread through the Mastodon API of the root post's server instead. The API can give fewer replies. |
 | `:comments/withheld` | info | podcast-clj left out some replies. They are not public, their authors ask apps to show them only to signed-in users, or a moderation service hid them. |
 | `:comments/incomplete` | info | The fetch reached a limit before it read the whole thread. To read more of the thread, fetch it again. |
+| `:value/not-an-object` | warning | The record is not a JSON object, so it describes no payment. |
+| `:value/text-for-number` | info | Numbers came as text, as some apps write them, and were read as numbers. |
+| `:value/rounded` | info | Amounts in millisatoshis came with a fraction, and were rounded. |
+| `:value/field-alias` | info | Fields came under other names, as some apps write them, and were read under their own names. |
+| `:value/unreadable` | warning | Some fields do not hold a value of their type. They were left out. |
+| `:value/guid-as-item-id` | info | The itemID holds the guid of the episode, as Breez writes it, and was read as that guid. |
+| `:value/action-alias` | info | The action came as streaming, as Podverse writes it, and was read as stream. |
+| `:value/unknown-action` | warning | The action is not boost, stream or auto, so the payment has no action. |
+| `:value/unknown-keys` | info | The record has fields that its format does not define. They keep their names. |
+| `:value/no-podcast` | warning | The record names no podcast: no guid, feed id, feed URL or title of a podcast. |
+| `:value/claimed-amount` | warning | The sender claims another amount than the node received. The payment keeps the amount of the node. |
+| `:value/claimed-recipient` | warning | The sender claims that the payment went to another recipient than the one that received it. |
+| `:value/no-metadata` | warning | The comment names no URL of metadata, or the URL answered without the header x-rss-payment. |
+| `:value/not-an-address` | warning | The text is not a Lightning address, user@domain. |
+| `:value/unreachable` | warning | The request failed: the server did not answer. |
+| `:value/lnurl-error` | warning | The service of a Lightning address answered with an error, and told why. |
+| `:value/malformed` | warning | The service of a Lightning address answered with something that LNURL-pay does not define. |
+| `:value/amount-out-of-range` | warning | The Lightning address does not take this amount. |
+| `:value/wrong-amount` | error | The invoice asks for another amount than the one requested. Do not pay it. |
+| `:value/unknown-success-action` | error | The answer holds a success action that LUD-09 does not define, or a URL on another host. Do not pay the invoice. |
+| `:value/no-keysend` | info | The domain of the Lightning address names no node for keysend. Pay it with LNURL-pay. |
+| `:value/insecure` | error | The answer came over plain http, where anyone on the way can change it. Do not pay with it. |

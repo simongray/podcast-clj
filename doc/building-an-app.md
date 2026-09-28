@@ -47,7 +47,9 @@ The examples use these aliases:
          '[dk.simongray.podcast.http :as http]
          '[dk.simongray.podcast.podping :as podping]
          '[dk.simongray.podcast.resolve :as resolve]
-         '[dk.simongray.podcast.value :as value])
+         '[dk.simongray.podcast.value :as value]
+         '[dk.simongray.podcast.value.lnaddress :as lnaddress]
+         '[dk.simongray.podcast.value.metadata :as metadata])
 
 (def now (java.util.Date.))  ; each write to the player state takes the time
 ```
@@ -334,9 +336,11 @@ layout. The `:poll` of a comment gives the choices of a poll. On Bluesky,
 the author of the root post can hide replies. `tree` leaves out the hidden
 replies. To show them, give `tree` the options `{:hidden? true}`.
 
-The servers of a thread choose the URLs that `fetch!` fetches. If your app
-runs on a server, give `fetch!` a `:send` that refuses the URLs of your
-own network. For all other URLs, let the `:send` call `http/call!`.
+The servers of a thread choose the URLs that `fetch!` fetches. So `fetch!`
+sends nothing to the network of your app, as
+[Requests that strangers choose](architecture.md#requests-that-strangers-choose)
+tells. If your app must reach its own network, give `fetch!` the `:send`
+`http/call!`.
 
 Keep the thread with the episode. `fetch!` reads a thread as far as its
 limits allow, and the report tells when it stopped early. By default, it
@@ -546,15 +550,82 @@ this at `/api/2/`.
 
 `resolve/value` gives the value block of an episode. `value/recipients-at`
 gives the recipients at a position in the episode, and `value/payments`
-divides an amount between them. `value/boostagram` writes the record that
-goes with a payment. The app makes the payment itself.
+divides an amount between them. The wallet of the app makes each payment.
+podcast-clj writes what goes with a payment, in one map for each way to
+pay.
 
 ```clojure
 (def block (resolve/value show item))
 (value/payments (:recipients (value/recipients-at block 754)) 1000)  ; 1000 sats, divided at 12:34
-(value/boostagram {:sats 1000 :position 754 :message "Great episode"
-                   :feed-guid guid :item-guid (feed/item-guid item)})
+
+(def payment {:action :boost :sats 1000 :position 754 :message "Great episode"
+              :feed-guid guid :item-guid (feed/item-guid item) :app-name "My app"})
 ```
+
+Pay a recipient of type `node` with keysend. Give the wallet the custom
+records of `value/records`: the bLIP-10 record, and the custom key and
+value of the recipient.
+
+```clojure
+(value/records (assoc payment :sats 50) recipient)  ; => {7629169 "{\"action\":\"boost\",…}", 696969 "22"}
+```
+
+Pay a recipient of type `lnaddress` with an invoice. `lnaddress/invoice!`
+asks the domain of the address for the invoice, and checks its amount.
+Put the metadata of the payment in the comment. Serve the header of
+`metadata/header` at a URL of your app, and name that URL in the comment.
+
+```clojure
+(lnaddress/invoice! "ann@getalby.com" 50000
+                    {:comment #(metadata/payment-comment payment "https://app.example/payments/1" (:comment-length %))})
+;; => {:invoice "lnbc500n1…" :msat 50000 :network :bitcoin}
+
+{"x-rss-payment" (metadata/header payment)}  ; the header of the page at that URL
+```
+
+If the domain names a node for keysend, you can pay the address with
+keysend instead. `lnaddress/node!` gives the node as the keys of a
+recipient of type `node`. Keep the node for a while, as the podcast
+namespace asks.
+
+```clojure
+(merge recipient (lnaddress/node! (:address recipient)))  ; => {:type "node" :address "03…" :custom-key "696969" …}
+```
+
+If an answer holds `:error`, do not pay. An invoice for another amount is
+an error of level `:error`, and so is an answer that came over plain http.
+The feeds choose the domains that `invoice!` and `node!` ask, so they send
+nothing to the network of your app. The page of the metadata is public,
+so the name of the sender and the message are public too.
+
+
+## Read the payments that a show receives
+
+A host reads what the listeners sent with their payments. The node of the
+host gives the custom records of a keysend payment. Read the record
+7629169 with `value/parse-boostagram`. A payment to a Lightning address
+has a comment instead, which the node gives as the memo of the invoice.
+If the comment starts with `rss::payment::`, `metadata/parse-comment`
+gives the URL of its metadata, and `metadata/fetch!` reads it.
+
+```clojure
+(value/parse-boostagram (get custom-records 7629169))  ; the text or the bytes of the record
+(some-> (metadata/parse-comment memo) :url metadata/fetch!)
+```
+
+The sender writes the record and the metadata, so each is a claim. Put it
+next to what the node received with `value/as-received`. It keeps the
+amount of the node, and its report names each claim that differs. Remove
+duplicates by `:id`, because a sender can name the metadata of another
+payment.
+
+```clojure
+(value/as-received payment {:msat 25000 :address "ann@getalby.com"})
+```
+
+The senders choose the URLs of the metadata, so `fetch!` sends nothing to
+the network of your host. Show the texts of a payment as text, as Hiccup
+does. They are what the sender wrote, and HTML in them must not run.
 
 
 ## Check the files that a feed links to

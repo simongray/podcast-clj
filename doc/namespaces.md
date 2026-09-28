@@ -81,7 +81,9 @@ Each name below is relative to `dk.simongray.podcast`.
 | `format.mp3` | The MPEG audio frames of an MP3 file, and its duration. |
 | `format.mp4` | The boxes of an MP4 or M4A file: its duration, its QuickTime or Nero chapters, and its artwork. |
 | `format.image` | The header of a PNG, JPEG, GIF or WebP image: its type, its size in pixels, its color model and whether it can be transparent, and the coding process and EXIF orientation of a JPEG. The type of an AVIF, HEIC, HEIF, SVG, BMP, TIFF or ICO image. `read!` fetches only the bytes it needs. |
-| `value` | Value for value: splits, fees, time splits and remote blocks. `boostagram` writes the record of a payment. |
+| `value` | Value for value: splits, fees, time splits and remote blocks. A payment in one shape: `boostagram` writes the bLIP-10 record of a payment, and `parse-boostagram` reads a record that a node received. `records` gives the custom records of a keysend payment. `as-received` puts a record next to what the node received. |
+| `value.lnaddress` | Lightning addresses: the requests of LNURL-pay and of the keysend lookup, and the readers of their answers. `invoice` checks the amount of an invoice. `invoice!` and `node!` send the requests. |
+| `value.metadata` | The RSS Payment Metadata: the comment of a payment to a Lightning address, and the header `x-rss-payment` of the URL that the comment names. `fetch!` gets the header. |
 
 ### Directories, notifications and comments
 
@@ -120,7 +122,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `time.rrule` | RFC 5545 recurrence rules: parse, write and evaluate. |
 | `guid` | The `podcast:guid` UUIDv5, and SHA-1. |
 | `json` | JSON strings to data and back, on both platforms. |
-| `http` | Requests as maps, credentials as a header, URLs made absolute, and when a server says to ask again. `call!` sends a request with byte ranges and limits of size and time: on the JVM with redirects that keep the credentials to their origin, and in ClojureScript with fetch. `probe!` learns the facts of a file from two bytes of it, and `fetcher` fetches a file by byte ranges. JVM: `fetch!`, which fetches a feed with conditional requests, and `digest!`, which streams a body through a digest. |
+| `http` | Requests as maps, credentials as a header, URLs made absolute, and when a server says to ask again. `call!` sends a request with byte ranges and limits of size and time: on the JVM with redirects that keep the credentials to their origin, and in ClojureScript with fetch. `probe!` learns the facts of a file from two bytes of it, and `fetcher` fetches a file by byte ranges. JVM: `fetch!`, which fetches a feed with conditional requests, and `digest!`, which streams a body through a digest. `public?` tells whether a host is on the public internet, and `call-public!` sends only to such hosts. |
 | `bytes` | Bytes on both platforms, read as numbers and text, and a view of the parts of a file that have arrived, which says what a reader still needs. `read!` fetches it for the reader until it is done. |
 | `async` | Deferred values: futures on the JVM, and promises in JavaScript. `iteration` reads an API that answers in pages, as `clojure.core/iteration` does, on both platforms. |
 | `rank` | Ranks that always leave room for another rank between two ranks. |

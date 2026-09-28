@@ -18,7 +18,7 @@
             [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.time :as time])
   #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream IOException]
-                   [java.net IDN URI]
+                   [java.net IDN InetAddress URI]
                    [java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$Builder
                                   HttpRequest$BodyPublishers HttpResponse HttpResponse$BodyHandlers
                                   HttpTimeoutException]
@@ -146,7 +146,7 @@
                 (.connectTimeout (Duration/ofSeconds 15))
                 (.build)))))
 
-(defn- header
+(defn ^:no-doc header
   "The first value of `header-name` in the response headers map `headers`,
   whose values are strings or vectors of them."
   [headers header-name]
@@ -437,6 +437,109 @@
   (let [o (origin a)]
     (and (some? o) (= o (origin b)))))
 
+(defn ^:no-doc public-ipv4?
+  "Whether the IPv4 address of the four numbers `a`, `b`, `c` and `d` is on
+  the public internet: not in this network, private, shared, loopback,
+  link-local, multicast or reserved, nor kept for protocols, tests and
+  documentation, as the IANA registry of special addresses lists them."
+  [[a b c _]]
+  (not (or (= 0 a)
+           (= 10 a)
+           (and (= 100 a) (<= 64 b 127))
+           (= 127 a)
+           (and (= 169 a) (= 254 b))
+           (and (= 172 a) (<= 16 b 31))
+           (and (= 192 a) (= 0 b) (contains? #{0 2} c))
+           (and (= 192 a) (= 168 b))
+           (and (= 198 a) (contains? #{18 19} b))
+           (and (= 198 a) (= 51 b) (= 100 c))
+           (and (= 203 a) (= 0 b) (= 113 c))
+           (<= 224 a))))
+
+(defn ^:no-doc public-ipv6?
+  "Whether the IPv6 address of the sixteen numbers `b` is on the public
+  internet: not unspecified, loopback, unique local, link-local, site-local
+  or multicast, nor kept for documentation, discard or Teredo, and not an
+  address that holds an IPv4 address that is not public."
+  [b]
+  (let [word     #(+ (* 256 (nth b %)) (nth b (inc %)))
+        ipv4-at  #(public-ipv4? (subvec b % (+ % 4)))
+        zeros?   #(every? zero? (subvec b 0 %))]
+    (cond
+      (zeros? 15)                                               false
+      (zeros? 12)                                               (ipv4-at 12)
+      (and (zeros? 10) (= 0xffff (word 10)))                    (ipv4-at 12)
+      (and (= 0x64 (word 0)) (= 0xff9b (word 2)))               (ipv4-at 12)
+      (= 0x2002 (word 0))                                       (ipv4-at 2)
+      (and (= 0x2001 (word 0)) (= 0 (word 2)))                  false
+      (and (= 0x2001 (word 0)) (= 0xdb8 (word 2)))              false
+      (and (= 0x100 (word 0)) (= 0 (word 2) (word 4) (word 6))) false
+      (= 0xfc (bit-and 0xfe (nth b 0)))                         false
+      (and (= 0xfe (nth b 0)) (<= 0x80 (nth b 1)))              false
+      (= 0xff (nth b 0))                                        false
+      :else                                                     true)))
+
+#?(:clj
+   (defn- public-address?
+     "Whether the IP address `a` is on the public internet, as the JDK tells
+     of its kinds, and as `public-ipv4?` and `public-ipv6?` tell."
+     [^InetAddress a]
+     (let [b (mapv #(bit-and % 0xff) (.getAddress a))]
+       (and (not (or (.isAnyLocalAddress a) (.isLoopbackAddress a) (.isLinkLocalAddress a)
+                     (.isSiteLocalAddress a) (.isMulticastAddress a)))
+            (if (= 4 (count b)) (public-ipv4? b) (public-ipv6? b))))))
+
+#?(:cljs
+   (defn- ip-literal
+     "The numbers of the IP address that the host `h` writes, four for IPv4
+     and sixteen for IPv6 in brackets, as the URL standard writes them; nil
+     for a name."
+     [h]
+     (if-let [[_ & parts] (re-matches #"(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})" h)]
+       (let [ns (mapv parse-long parts)]
+         (when (every? #(<= 0 % 255) ns) ns))
+       (when-let [[_ inner] (re-matches #"\[([0-9a-fA-F:.]+)\]" h)]
+         (let [[head tail] (str/split inner #"::" 2)
+               groups      (fn [s] (if (str/blank? s) [] (str/split s #":")))
+               words       (fn [gs] (mapcat (fn [g]
+                                              (if (str/includes? g ".")
+                                                (let [[a b c d] (mapv parse-long (str/split g #"\."))]
+                                                  [(+ (* 256 a) b) (+ (* 256 c) d)])
+                                                [(js/parseInt g 16)]))
+                                            gs))
+               front       (words (groups head))
+               back        (words (groups tail))
+               all         (if (some? tail)
+                             (concat front (repeat (- 8 (count front) (count back)) 0) back)
+                             front)]
+           (when (and (= 8 (count all)) (every? #(and (number? %) (<= 0 % 0xffff)) all))
+             (vec (mapcat (fn [w] [(quot w 256) (rem w 256)]) all))))))))
+
+(defn public?
+  "Whether the host of the http or https URL `url` is on the public
+  internet, and not on the network of the app or of its device.
+
+  On the JVM, every address that the name of the host resolves to must be
+  public, as `public-ipv4?` and `public-ipv6?` tell. A name that does not
+  resolve is not public. The JVM keeps what it resolved for 30 seconds by
+  default, so the request goes to the address that this checked. In
+  ClojureScript, which cannot resolve a name in a browser, the host must
+  not be an address that is not public, and not localhost or a name under
+  .localhost, .local or .internal."
+  [url]
+  #?(:clj  (try
+             ;; the host as the client of the JDK reads it, which sends the request
+             (let [h (some-> url str legal-url URI. .getHost)]
+               (boolean (and h (every? public-address? (InetAddress/getAllByName h)))))
+             (catch Exception _
+               false))
+     :cljs (let [h (some-> (host url) str/lower-case)]
+             (boolean (and h
+                           (not (or (= "localhost" h) (re-find #"\.(localhost|local|internal)$" h)))
+                           (if-let [b (ip-literal h)]
+                             (if (= 4 (count b)) (public-ipv4? b) (public-ipv6? b))
+                             true))))))
+
 #?(:clj
    (defn- redirect-target
      "Where the redirect `response` to `uri` leads; nil when it names no
@@ -458,13 +561,17 @@
      redirects, five at most, until the instant `deadline` in epoch
      milliseconds. A 303, or a 301 or 302 to a POST, turns into a GET, as
      browsers and the JDK do. Credentials stay behind when a redirect leaves
-     the origin, because the JDK would send them on. Returns the last
-     response, and the redirects before it as `[status url headers]`."
-     [url method headers body deadline]
+     the origin, because the JDK would send them on. `allow?` must take the
+     URL of the request and of each redirect, or `::refused` is thrown.
+     Returns the last response, and the redirects before it as `[status url
+     headers]`."
+     [url method headers body deadline allow?]
      (loop [uri (URI. (legal-url url)) method method headers headers body body chain []]
        (let [left (- deadline (System/currentTimeMillis))]
          (when-not (pos? left)
            (throw (HttpTimeoutException. (str "request timed out: " uri))))
+         (when-not (allow? (str uri))
+           (throw (ex-info (str "The request to " uri " is not allowed") {:type ::refused :url (str uri)})))
          (let [response (.send ^HttpClient @client (java-request uri method headers body left)
                                (HttpResponse$BodyHandlers/ofInputStream))
                status   (.statusCode response)
@@ -479,7 +586,7 @@
                       (cond->> headers
                         (not (same-origin? (str uri) (str target)))
                         (into {} (remove (fn [[k _]] (#{"authorization" "cookie" "proxy-authorization"}
-                                                     (str/lower-case (str k)))))))
+                                                      (str/lower-case (str k)))))))
                       (when-not get? body)
                       (conj chain [status (str uri) (headers-of response)])))))))))
 
@@ -536,15 +643,18 @@
      offsets are those of the file; a server that sends them answers 206,
      and `:content-range` is then what `content-range` reads. A server that
      does not answers 200 with the whole file. Either way no more is read
-     than up to the end of the range, when it has one."
-     [{:keys [method url headers body timeout-seconds max-bytes as range]
-       :or   {timeout-seconds 30 max-bytes default-max-bytes}}]
+     than up to the end of the range, when it has one.
+
+     `:allow?` is a predicate that must take the URL of the request and of
+     each redirect, as `public?` does, or `::refused` is thrown."
+     [{:keys [method url headers body timeout-seconds max-bytes as range allow?]
+       :or   {timeout-seconds 30 max-bytes default-max-bytes allow? (constantly true)}}]
      (let [method           (some-> method name str/lower-case keyword)
            deadline         (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
            headers          (cond-> (merge {"User-Agent" user-agent} headers)
                               range (assoc "Range" (str "bytes=" (first range) "-" (second range))
                                            "Accept-Encoding" "identity"))
-           [response chain] (send-following! url method headers body deadline)
+           [response chain] (send-following! url method headers body deadline allow?)
            status           (.statusCode ^HttpResponse response)
            found            (headers-of response)
            received         (content-range (header found "content-range"))
@@ -624,33 +734,50 @@
      page read an answer from another site only as far as the CORS headers
      of the answer allow, and hides the headers that the answer does not
      expose, Content-Range and ETag among them: `:filtered?` marks such an
-     answer."
-     [{:keys [method url headers body as range timeout-seconds max-bytes]
-       :or   {timeout-seconds 30 max-bytes default-max-bytes}}]
+     answer.
+
+     `:allow?` is a predicate that must take the URL of the request, as
+     `public?` does, or the promise is rejected with `::refused`. fetch
+     follows the redirects, so they are not checked."
+     [{:keys [method url headers body as range timeout-seconds max-bytes allow?]
+       :or   {timeout-seconds 30 max-bytes default-max-bytes allow? (constantly true)}}]
      (let [method (some-> method name str/lower-case keyword)]
-       (-> (js/fetch url (clj->js (cond-> {:method  (str/upper-case (name (or method :get)))
-                                           :headers (cond-> (or headers {})
-                                                      range (assoc "Range" (str "bytes=" (first range) "-" (second range))))
-                                           :signal  (js/AbortSignal.timeout (* 1000 timeout-seconds))}
-                                    (some? body) (assoc :body body))))
-           (.then (fn [res]
-                    (let [status   (.-status res)
-                          received (content-range (.get (.-headers res) "content-range"))
-                          response (cond-> {:status  status
-                                            :url     (.-url res)
-                                            :headers (into {} (map (fn [[k v]] [k [v]]))
-                                                           (es6-iterator-seq (.entries (.-headers res))))}
-                                     received                (assoc :content-range received)
-                                     (= "cors" (.-type res)) (assoc :filtered? true))
-                          ;; fetch undoes gzip itself, so a prefix is one of the file
-                          n        (prefix-length status (:start received) false range max-bytes)]
-                      (if (or (= :head method) (nil? (.-body res)))
-                        response
-                        (.then (read-body res (or n max-bytes) (nil? n) url)
-                               (fn [b]
-                                 (cond-> response
-                                   (pos? (.-length b))
-                                   (assoc :body (if (= :bytes as) b (.decode (js/TextDecoder.) b))))))))))))))
+       (if-not (allow? url)
+         (js/Promise.reject (ex-info (str "The request to " url " is not allowed") {:type ::refused :url url}))
+         (-> (js/fetch url (clj->js (cond-> {:method  (str/upper-case (name (or method :get)))
+                                             :headers (cond-> (or headers {})
+                                                        range (assoc "Range" (str "bytes=" (first range) "-" (second range))))
+                                             :signal  (js/AbortSignal.timeout (* 1000 timeout-seconds))}
+                                      (some? body) (assoc :body body))))
+             (.then (fn [res]
+                      (let [status   (.-status res)
+                            received (content-range (.get (.-headers res) "content-range"))
+                            response (cond-> {:status  status
+                                              :url     (.-url res)
+                                              :headers (into {} (map (fn [[k v]] [k [v]]))
+                                                             (es6-iterator-seq (.entries (.-headers res))))}
+                                       received                (assoc :content-range received)
+                                       (= "cors" (.-type res)) (assoc :filtered? true))
+                            ;; fetch undoes gzip itself, so a prefix is one of the file
+                            n        (prefix-length status (:start received) false range max-bytes)]
+                        (if (or (= :head method) (nil? (.-body res)))
+                          response
+                          (.then (read-body res (or n max-bytes) (nil? n) url)
+                                 (fn [b]
+                                   (cond-> response
+                                     (pos? (.-length b))
+                                     (assoc :body (if (= :bytes as) b (.decode (js/TextDecoder.) b)))))))))))))))
+
+(defn call-public!
+  "`call!` for the request map `request` to a host on the public internet,
+  as `public?` tells, and on the JVM for each of its redirects too.
+
+  It sends no request to the network of the app or of its device, and
+  throws `::refused`, or in ClojureScript rejects with it. The functions
+  that fetch URLs that strangers choose send with it by default. An app
+  that must reach its own network gives them `call!`."
+  [request]
+  (call! (assoc request :allow? public?)))
 
 #?(:clj
    (defn fetch!
@@ -690,14 +817,14 @@
      the MessageDigest `algorithms`, such as SHA-384, keeping none of the
      body, which can be a large media file: `{:status :url :digests
      {algorithm bytes}}`, the digests for a 200 alone. `opts` may carry
-     `:headers` and `:timeout-seconds` (default 600), which bounds the
-     whole exchange as for `call!`."
+     `:headers`, `:timeout-seconds` (default 600), which bounds the whole
+     exchange as for `call!`, and the `:allow?` of `call!`."
      ([url algorithms]
       (digest! url algorithms {}))
-     ([url algorithms {:keys [headers timeout-seconds] :or {timeout-seconds 600}}]
+     ([url algorithms {:keys [headers timeout-seconds allow?] :or {timeout-seconds 600 allow? (constantly true)}}]
       (let [deadline      (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
             [response _]  (send-following! url :get (merge {"User-Agent" user-agent "Accept-Encoding" "identity"} headers)
-                                           nil deadline)
+                                           nil deadline allow?)
             status        (.statusCode ^HttpResponse response)
             digests       (into {} (for [a algorithms] [a (MessageDigest/getInstance a)]))]
         (with-open [^InputStream in (.body ^HttpResponse response)]

@@ -41,7 +41,7 @@ ecosystem that podcast-clj was written for.
 
 ```
   4  front door   dk.simongray.podcast
-  3  companions   format.*  value  resolve  check  directory  directory.podcastindex  podping  comments  comments.*  app.*
+  3  companions   format.*  value  value.*  resolve  check  directory  directory.podcastindex  podping  comments  comments.*  app.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
   1  vocabulary   spec  quirks
   0  primitives   xml  xml.jsoup  time  time.rrule  guid  json  http  bytes  rank  async  diagnostics
@@ -76,8 +76,10 @@ The names follow the design where one part belongs to another:
   is one of the directories.
 - The readers of ActivityPub and of the AT Protocol are under `comments`,
   with what they share in `comments.common`.
-- `resolve`, `check`, `value`, `guid`, `json`, `http`, `bytes`, `rank`,
-  `async` and `diagnostics` belong to no group.
+- The payment of Lightning addresses and the RSS Payment Metadata are under
+  `value`, which holds the payment that they send.
+- `resolve`, `check`, `guid`, `json`, `http`, `bytes`, `rank`, `async` and
+  `diagnostics` belong to no group.
 
 
 ## Why the API is regular
@@ -442,9 +444,9 @@ list and the source agree.
   color profile, takes a few more requests.
 - **Value** (`value`) finds the value block that applies to an item, and
   divides amounts into shares and fees. With time splits, it finds the
-  recipients at a position in the episode. It is arithmetic only, and it
-  makes no payments. `boostagram` writes the bLIP-10 record that an app
-  attaches to the keysend payment that it makes.
+  recipients at a position in the episode. It makes no payments. It writes
+  and reads what goes with a payment, as [Value for value](#value-for-value)
+  tells.
 
 
 ## Checks over the network
@@ -558,6 +560,11 @@ more often than it must:
   in the same fetch. An answer is 5 MB at most, and a thread holds 10,000
   comments at most. The options of `fetch!` set each of these numbers,
   except the 10,000 comments.
+- `value.lnaddress/invoice!` sends two requests for an invoice, and
+  `node!` sends one. An answer is 256 KB at most, since the terms of an
+  address can hold an image. The podcast namespace asks apps to keep the
+  node of an address for a while. `value.metadata/fetch!` reads two bytes
+  of the page of the metadata.
 - Every body that the client keeps has a limit of size (`:max-bytes`, 100
   MB by default), and every exchange a limit of time (`:timeout-seconds`),
   on both platforms.
@@ -565,6 +572,42 @@ more often than it must:
 A check of five corpus feeds, ten items each, sends 490 requests and moves
 4.5 MB in about 20 seconds. The first version fetched every feed,
 transcript and chapters file whole: 48.9 MB in 79 seconds.
+
+
+## Requests that strangers choose
+
+Some requests go to URLs that strangers choose. The servers of a thread of
+comments name its posts and their authors. A feed names the domain of a
+Lightning address, and that domain names its callback. Anyone who pays a
+Lightning address names the URL of the metadata of the payment. Such a
+request can make an app on a server ask its own network. That network
+holds routers, other services, and the metadata of a cloud server.
+
+So the functions that fetch these URLs send with `http/call-public!`:
+`comments/fetch!`, `value.lnaddress/invoice!` and `node!`, and
+`value.metadata/fetch!`. It sends nothing to a host whose address is
+loopback, private, link-local, shared, multicast or reserved, as the IANA
+registry of special addresses lists them. It also refuses an IPv6 address
+that holds such an IPv4 address.
+
+On the JVM, `http/public?` resolves the name of the host and checks every
+address that the name resolves to. `http/call!` checks the URL of each
+redirect in the same way, with its option `:allow?`. The JVM keeps what it
+resolved for 30 seconds by default, so the request goes to the address
+that was checked. A name that answers with another address later cannot
+move the request, unless the app turns this cache off.
+
+In ClojureScript, a browser cannot resolve a name, and fetch follows
+redirects without telling. So `public?` refuses only the addresses and the
+local names that a URL writes, such as localhost and .local. A request
+from a browser comes from the device of its user, not from a server. A
+server in Node that fetches URLs that strangers choose gives these
+functions a `:send` of its own.
+
+An app that must reach its own network gives `http/call!` as `:send`. A
+server that fetches feeds or files for strangers gives `http/call-public!`
+to `check/feed!`, `format.media/read!` and `format.image/read!`, and
+`{:allow? http/public?}` to `podcast/fetch!`.
 
 
 ## The directories and the Podcast Index
@@ -723,9 +766,9 @@ another domain, because only a WebFinger lookup there can prove it.
 A post is for everyone when its recipients include the Public collection,
 or when it names no recipients. `fetch!` leaves out all other posts.
 
-The servers of a thread choose the URLs that `fetch!` fetches. An app on a
-server therefore gives `fetch!` a `:send` that refuses the URLs of its own
-network.
+The servers of a thread choose the URLs that `fetch!` fetches. So it sends
+nothing to the network of the app, as
+[Requests that strangers choose](#requests-that-strangers-choose) tells.
 
 Some servers answer only signed requests. Mastodon sends no CORS headers
 with its posts, so a page on another site cannot read them. For such a
@@ -752,6 +795,74 @@ ask for hidden replies.
 The comments page of the inspector shows the thread of an episode. The
 tests run on recorded answers of Mastodon, Misskey, PeerTube, the Mastodon
 API and a Bluesky AppView.
+
+
+## Value for value
+
+A listener can pay a show while they listen, and send a message with the
+payment. The `podcast:value` block of a feed names the recipients and
+their splits. podcast-clj divides an amount between them, and it makes no
+payment. The wallet of the app pays. podcast-clj writes and reads what
+goes with a payment, and asks Lightning addresses for invoices.
+
+A payment is one map for each way to send it. Its amounts are in
+millisatoshis, as the formats count them. Most of its other keys are the
+names of the RSS Payment Metadata in kebab case, and the fields of bLIP-10
+map onto them. So a host reads a keysend payment and a payment to a
+Lightning address in the same shape.
+
+A keysend payment to a node carries the bLIP-10 record under the custom
+record 7629169. `value/boostagram` writes the record, and
+`value/parse-boostagram` reads it. Apps write the record in several ways.
+Podverse writes `streaming` for stream, Fountain writes numbers as text,
+Breez writes the guid of the episode as its itemID, and Alby Hub writes
+`feedId`. The reader takes each of these, and the report tells what it
+forgave. `value/records` gives all the custom records of a payment, with
+the custom key and value of the recipient.
+
+Many wallets cannot send keysend payments. So a recipient can be a
+Lightning address, `user@domain`, as LUD-16 defines it.
+`value.lnaddress` builds the requests as maps. LNURL-pay gives an invoice
+for an amount. `invoice` checks that the invoice asks for the amount that
+was requested, as LUD-06 requires. It reads the amount from the part of
+the invoice before its data, and the wallet checks the signature when it
+pays. The domain can also name a node for keysend, as the podcast
+namespace defines it. `node` reads that node into a recipient of type
+node.
+
+A payment to a Lightning address carries only a short comment. The RSS
+Payment Metadata of the podcast namespace puts the action, a URL and the
+start of the message in the comment. The URL answers with the whole
+payment in the header `x-rss-payment`. `value.metadata` writes and reads
+the comment and the header. `fetch!` asks for two bytes of the page,
+since the header holds the metadata. Helipad asks with HEAD, but BoostBox
+answers HEAD with 405, so HEAD does not reach all servers.
+
+The services of Lightning addresses answer errors in many ways. Fountain
+answers JSON with status 200, Alby a web page with status 404, and Coinos
+text with status 500. Primal answers the keysend lookup with its web app.
+So the readers decide on the JSON of an answer, not on its status, as
+LUD-01 asks. The callback can be on another host than the address. The
+callback of Coinos has a query already, so `invoice-request` adds the
+amount and the comment to that query.
+
+A record or metadata is what the sender claims. Anyone can send a payment
+of one satoshi with the URL of the metadata of a large payment. So
+`value/as-received` takes the amount from the node, and reports a claim
+that differs from what the node received.
+
+The feeds choose the domains that `invoice!` and `node!` ask, and the
+senders choose the URLs of metadata that a host reads. So these functions
+send nothing to the network of the app either. A Lightning address must
+name a domain, not an address or a local name. An answer that came over
+plain http is an error, since anyone on the way can change its invoice or
+its node. A feed chooses the custom key of a recipient. That key cannot
+take the place of the bLIP-10 record, of the preimage of keysend, or of
+the types below 65536. The Lightning protocol keeps those types for itself.
+
+The tests run on the records of the bLIP-10 document and on the examples
+of BOLT 11. They also run on the answers that six services gave about their
+own addresses.
 
 
 ## The player state

@@ -11,8 +11,8 @@
   the media files and images, `validate` for the validator, whose
   diagnostics are about the feed rather than about reading it, `check` for
   the checks over the network of what the feed links to, `sync` for a step
-  of keeping devices in step, and `comments` for the reading of a thread of
-  comments.")
+  of keeping devices in step, `comments` for the reading of a thread of
+  comments, and `value` for the records of payments.")
 
 (def catalogue
   "The diagnostics, in the order they tend to arise."
@@ -299,7 +299,55 @@
    {:id :comments/withheld :level :info
     :doc "podcast-clj left out some replies. They are not public, their authors ask apps to show them only to signed-in users, or a moderation service hid them."}
    {:id :comments/incomplete :level :info
-    :doc "The fetch reached a limit before it read the whole thread. To read more of the thread, fetch it again."}])
+    :doc "The fetch reached a limit before it read the whole thread. To read more of the thread, fetch it again."}
+
+   ;; value: reading the record of a payment
+   {:id :value/not-an-object :level :warning
+    :doc "The record is not a JSON object, so it describes no payment."}
+   {:id :value/text-for-number :level :info
+    :doc "Numbers came as text, as some apps write them, and were read as numbers."}
+   {:id :value/rounded :level :info
+    :doc "Amounts in millisatoshis came with a fraction, and were rounded."}
+   {:id :value/field-alias :level :info
+    :doc "Fields came under other names, as some apps write them, and were read under their own names."}
+   {:id :value/unreadable :level :warning
+    :doc "Some fields do not hold a value of their type. They were left out."}
+   {:id :value/guid-as-item-id :level :info
+    :doc "The itemID holds the guid of the episode, as Breez writes it, and was read as that guid."}
+   {:id :value/action-alias :level :info
+    :doc "The action came as streaming, as Podverse writes it, and was read as stream."}
+   {:id :value/unknown-action :level :warning
+    :doc "The action is not boost, stream or auto, so the payment has no action."}
+   {:id :value/unknown-keys :level :info
+    :doc "The record has fields that its format does not define. They keep their names."}
+   {:id :value/no-podcast :level :warning
+    :doc "The record names no podcast: no guid, feed id, feed URL or title of a podcast."}
+   {:id :value/claimed-amount :level :warning
+    :doc "The sender claims another amount than the node received. The payment keeps the amount of the node."}
+   {:id :value/claimed-recipient :level :warning
+    :doc "The sender claims that the payment went to another recipient than the one that received it."}
+   {:id :value/no-metadata :level :warning
+    :doc "The comment names no URL of metadata, or the URL answered without the header x-rss-payment."}
+
+   ;; value: paying a Lightning address
+   {:id :value/not-an-address :level :warning
+    :doc "The text is not a Lightning address, user@domain."}
+   {:id :value/unreachable :level :warning
+    :doc "The request failed: the server did not answer."}
+   {:id :value/lnurl-error :level :warning
+    :doc "The service of a Lightning address answered with an error, and told why."}
+   {:id :value/malformed :level :warning
+    :doc "The service of a Lightning address answered with something that LNURL-pay does not define."}
+   {:id :value/amount-out-of-range :level :warning
+    :doc "The Lightning address does not take this amount."}
+   {:id :value/wrong-amount :level :error
+    :doc "The invoice asks for another amount than the one requested. Do not pay it."}
+   {:id :value/unknown-success-action :level :error
+    :doc "The answer holds a success action that LUD-09 does not define, or a URL on another host. Do not pay the invoice."}
+   {:id :value/no-keysend :level :info
+    :doc "The domain of the Lightning address names no node for keysend. Pay it with LNURL-pay."}
+   {:id :value/insecure :level :error
+    :doc "The answer came over plain http, where anyone on the way can change it. Do not pay with it."}])
 
 (def by-id
   "The catalogue by id."

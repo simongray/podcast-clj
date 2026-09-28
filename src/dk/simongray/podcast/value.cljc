@@ -1,15 +1,38 @@
 (ns dk.simongray.podcast.value
-  "Value for value: the arithmetic of `podcast:value` blocks. Which block
-  applies to an item, who is paid at a given moment of playback once
-  `valueTimeSplit`s are taken into account, and how an amount divides into
-  shares and fees. No payments are made here; that is a client's business.
+  "Value for value: the arithmetic of `podcast:value` blocks, and the record
+  of a payment. Which block applies to an item, who is paid at a given
+  moment of playback once `valueTimeSplit`s are taken into account, and how
+  an amount divides into shares and fees. No payments are made here; that
+  is a client's business.
 
   Value blocks and recipients are the maps `dk.simongray.podcast.feed`
   produces: `{:type \"lightning\" :method \"keysend\" :suggested 0.00000005
   :recipients [{:type \"node\" :address \"…\" :split 99 :fee false}]
-  :time-splits [...]}`. `boostagram` writes the record an app attaches to
-  the payment it then makes."
-  (:require [clojure.string :as str]
+  :time-splits [...]}`.
+
+  A payment is a map of what an app sends with a payment to one recipient.
+  It has one shape for the bLIP-10 record of a keysend payment and for the
+  RSS Payment Metadata of `value.metadata`:
+
+      {:action         :boost    ; :boost, :stream or :auto
+       :msat           25000     ; to this recipient
+       :total-msat     100000    ; of the whole payment, before the splits
+       :message        \"Great episode!\"
+       :position       754       ; seconds into the episode
+       :feed-guid      \"…\"  :feed-title \"…\"
+       :item-guid      \"…\"  :item-title \"…\"
+       :app-name       \"…\"  :sender-name \"…\"
+       :recipient-name \"…\"}
+
+  `boostagram` writes the bLIP-10 record of a keysend payment, and
+  `parse-boostagram` reads a record that a node received. The texts of a
+  payment are as its sender wrote them. Hiccup escapes them, but an app
+  that writes HTML as text must escape them itself."
+  (:require [clojure.set :as set]
+            [clojure.string :as str]
+            [dk.simongray.podcast.bytes :as bytes]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.time :as time]))
 
 (defn effective
@@ -142,31 +165,308 @@
       (long (Math/round (* btc 100000000.0))))))
 
 (def ^:no-doc boostagram-keys
-  "The TLV record's name for each key of a payment map that is not simply
+  "The name in a bLIP-10 record of each key of a payment that is not simply
   its snake_case."
-  {:feed-guid "guid" :feed-url "url" :feed-id "feedID" :item-guid "episode_guid" :item-id "itemID"})
+  {:feed-guid      "guid"
+   :feed-url       "url"
+   :feed-id        "feedID"
+   :feed-title     "podcast"
+   :item-guid      "episode_guid"
+   :item-id        "itemID"
+   :item-title     "episode"
+   :recipient-name "name"
+   :id             "uuid"
+   :group          "boost_uuid"})
+
+(defn ^:no-doc json-value
+  "`v` as a value that JSON holds: a keyword as its name, an instant as ISO
+  8601 text, and anything else as it is."
+  [v]
+  (cond
+    (keyword? v) (name v)
+    (inst? v)    (time/format-iso8601 v)
+    :else        v))
+
+(defn ^:no-doc json-record
+  "The JSON object of `payment` in the names of a format: each key by its
+  name in `names`, or else by its snake_case, and a string key as it is.
+  The keys of `derived`, which the format writes its own way, and nil
+  values are left out."
+  [payment names derived]
+  (into {} (for [[k v] payment
+                 :when (and (some? v) (not (contains? derived k)))]
+             [(if (string? k) k (get names k (str/replace (name k) "-" "_")))
+              (json-value v)])))
+
+(defn ^:no-doc cut
+  "The start of the text `s`, at most `n` characters long as JavaScript
+  counts them, in UTF-16, and not cut inside a pair of surrogates."
+  [s n]
+  (if (<= (count s) n)
+    s
+    (let [high? #(<= 0xD800 #?(:clj (int (.charAt ^String s %)) :cljs (.charCodeAt s %)) 0xDBFF)]
+      (subs s 0 (if (and (pos? n) (high? (dec n))) (dec n) n)))))
+
+(defn ^:no-doc amounts
+  "The amounts of `payment` in millisatoshis, `[amount total]`: its `:msat`,
+  or else its `:sats`, and its `:total-msat`, or else its `:total-sats`, or
+  else the amount itself. Nil when it has no amount."
+  [{:keys [msat total-msat sats total-sats]}]
+  (let [amount (cond (number? msat) (long msat) (number? sats) (* 1000 (long sats)))
+        total  (cond (number? total-msat) (long total-msat) (number? total-sats) (* 1000 (long total-sats)) :else amount)]
+    (when amount
+      [amount total])))
 
 (defn boostagram
-  "The bLIP-10 record an app attaches to a keysend payment (TLV type
-  7629169) for the `payment` map, as a map with the record's own string keys
-  ready for `dk.simongray.podcast.json/write-str`: `:position` (seconds into
-  the episode) becomes ts and time, `:action` (:boost, :stream or :auto,
-  :boost when absent) action, `:sats` and `:total-sats` value_msat and
-  value_msat_total, `:feed-guid`, `:feed-url`, `:feed-id`, `:item-guid` and
-  `:item-id` the record's names for them, and any other key its snake_case
-  name. Nil values are left out."
-  [{:keys [position action sats total-sats] :as payment}]
-  (let [derived #{:position :action :sats :total-sats}
-        record  (into {} (for [[k v] payment
-                               :when (some? v)
-                               :when (not (derived k))]
-                           [(get boostagram-keys k (str/replace (name k) "-" "_")) v]))
-        clock   (time/format-timestamp position)]
+  "The bLIP-10 record of `payment`, which an app attaches to a keysend
+  payment as the custom record 7629169. It is a map with the string keys
+  of the record, for `dk.simongray.podcast.json/write-str`.
+
+  `:position`, seconds into the episode, becomes ts and time. `:action`
+  becomes action, boost when it is absent. `:msat` and `:total-msat` become
+  value_msat and value_msat_total, and `:sats` and `:total-sats` count in
+  sats in their place. `:speed` becomes text, as bLIP-10 writes it. The
+  other keys of a payment get the names of the record, any other key its
+  snake_case, and a string key stays as it is. Nil values are left out."
+  [{:keys [position action speed] :as payment}]
+  (let [record         (json-record payment boostagram-keys #{:position :action :speed :msat :total-msat :sats :total-sats})
+        clock          (time/format-timestamp position)
+        [amount total] (amounts payment)]
     (cond-> (assoc record "action" (name (or action :boost)))
-      clock          (assoc "ts" (max 0 (long (Math/floor position)))
-                            "time" (subs clock 0 (- (count clock) 4)))
-      (number? sats) (assoc "value_msat" (* 1000 (long sats))
-                            "value_msat_total" (* 1000 (long (or total-sats sats)))))))
+      clock         (assoc "ts" (max 0 (long (Math/floor position)))
+                           "time" (subs clock 0 (- (count clock) 4)))
+      (some? speed) (assoc "speed" (str speed))
+      amount        (assoc "value_msat" amount "value_msat_total" total))))
+
+(defn records
+  "The custom records of a keysend payment of `payment` to `recipient`, as
+  a map from the type of each record to its text.
+
+  They are the bLIP-10 record under 7629169, with the name of the
+  recipient, and the custom key and value of the recipient. A node that
+  holds many wallets finds the wallet by these. The feed chooses the custom
+  key, so a key below 65536, which the Lightning protocol keeps for itself,
+  is left out, and so is the type of the bLIP-10 record or of the preimage
+  of keysend, 5482373484."
+  [payment {recipient-name :name :keys [custom-key custom-value]}]
+  (let [k (some-> custom-key str str/trim parse-long)]
+    (cond-> {7629169 (json/write-str (boostagram (merge {:recipient-name recipient-name} payment)))}
+      (and k (<= 65536 k) (not (contains? #{7629169 5482373484} k)) (some? custom-value))
+      (assoc k (str custom-value)))))
+
+(def ^:no-doc boostagram-fields
+  "The type of each field that bLIP-10 defines: :text, :int, :number, :msat
+  for an amount, or :decimal for a number that the record writes as text."
+  {"podcast"            :text
+   "guid"               :text
+   "feedID"             :int
+   "url"                :text
+   "episode"            :text
+   "itemID"             :int
+   "episode_guid"       :text
+   "ts"                 :number
+   "time"               :text
+   "action"             :text
+   "app_name"           :text
+   "app_version"        :text
+   "boost_link"         :text
+   "message"            :text
+   "name"               :text
+   "sender_name"        :text
+   "sender_id"          :text
+   "signature"          :text
+   "speed"              :decimal
+   "boost_uuid"         :text
+   "uuid"               :text
+   "value_msat"         :msat
+   "value_msat_total"   :msat
+   "reply_address"      :text
+   "reply_custom_key"   :int
+   "reply_custom_value" :text
+   "remote_feed_guid"   :text
+   "remote_item_guid"   :text})
+
+(defn ^:no-doc typed
+  "The JSON value `v` of a field of `type`, :text, :int, :msat, :number or
+  :decimal, as `[value how]`. `how` is :as-text for a number that came as
+  text where the format writes a number, :rounded for an amount in
+  millisatoshis with a fraction, and :unreadable for a value that is not
+  of the type. Nil and blank text are no value."
+  [type v]
+  (let [n     (cond
+                (number? v)                                        v
+                (and (string? v) (re-matches #"\s*-?\d+\s*" v))     (parse-long (str/trim v))
+                (and (string? v) (re-matches #"\s*-?\d*\.\d+\s*" v)) (parse-double (str/trim v)))
+        text? (and (string? v) (not= :decimal type))]
+    (cond
+      (or (nil? v) (and (string? v) (str/blank? v))) [nil]
+      (= :text type)                                  (if-some [s (json/text v)] [s] [nil :unreadable])
+      (or (nil? n) (and (#{:int :msat} type) (>= (Math/abs (double n)) 9e15))) [nil :unreadable]
+      (== n (Math/floor n))                            [(if (#{:int :msat} type) (long n) n) (when text? :as-text)]
+      (= :msat type)                                   [(Math/round (double n)) :rounded]
+      (= :int type)                                    [nil :unreadable]
+      :else                                            [n (when text? :as-text)])))
+
+(defn ^:no-doc json-object
+  "The JSON object that `x` holds: a map as it is, or the object in JSON
+  text or in the UTF-8 bytes of it, as a node gives a custom record. Nil
+  for anything else."
+  [x]
+  (let [o (cond
+            (map? x)                                    x
+            (string? x)                                 (json/parse x)
+            #?(:clj (bytes? x) :cljs (instance? js/Uint8Array x))
+            (json/parse (bytes/decode x 0 (bytes/length x) :utf8)))]
+    (when (map? o)
+      o)))
+
+(defn ^:no-doc read-fields
+  "The fields of the JSON object `raw` that `types` names, each as `[value
+  how]`, as `typed` reads it."
+  [raw types]
+  (into {} (for [[k v] raw
+                 :let  [type (get types k)]
+                 :when type]
+             [k (typed type v)])))
+
+(defn ^:no-doc other-fields
+  "The fields of the JSON object `raw` that `types` does not name, but those
+  with no value."
+  [raw types]
+  (into {} (remove (fn [[k v]] (or (contains? types k) (nil? v)))) raw))
+
+(defn ^:no-doc payment-of
+  "The payment of the `read` fields, each under the key that `names` gives
+  it, or else under its kebab-case, but the fields of `own`, which a format
+  reads its own way."
+  [read names own]
+  (into {} (for [[k [x]] read
+                 :when (and (some? x) (not (contains? own k)))]
+             [(get names k (keyword (str/replace k "_" "-"))) x])))
+
+(defn ^:no-doc field-diagnostics
+  "The diagnostics of the `read` fields and the `other` ones: numbers
+  written as text, values not of their type but in the fields of
+  `forgiven`, and fields that the format does not define."
+  [read other forgiven]
+  (let [of      #(vec (sort (for [[k [_ how]] read :when (and (= % how) (not (contains? forgiven k)))] k)))
+        as-text (of :as-text)
+        rounded (of :rounded)
+        unread  (of :unreadable)]
+    (cond-> []
+      (seq as-text) (conj {:id :value/text-for-number :keys as-text})
+      (seq rounded) (conj {:id :value/rounded :keys rounded})
+      (seq unread)  (conj {:id :value/unreadable :keys unread})
+      (seq other)   (conj {:id :value/unknown-keys :keys (vec (sort (keys other)))}))))
+
+(def ^:no-doc boostagram-aliases
+  "The other names that apps give fields of a bLIP-10 record, and the name
+  of each: the camelCase of Alby Hub, the names of RSS Payment Metadata
+  that BoostMeBitch writes, and names for the position."
+  {"feedId"         "feedID"
+   "itemId"         "itemID"
+   "feed_guid"      "guid"
+   "feed_title"     "podcast"
+   "item_guid"      "episode_guid"
+   "item_title"     "episode"
+   "recipient_name" "name"
+   "group"          "boost_uuid"
+   "position"       "ts"
+   "time_seconds"   "ts"})
+
+(defn ^:no-doc unaliased
+  "The JSON object `raw` with each field of another name in `aliases` under
+  its own name, where `raw` has none, as `[object aliases-taken]`."
+  [raw aliases]
+  (reduce-kv (fn [[o taken :as acc] alias field]
+               (if (and (contains? o alias) (not (contains? o field)))
+                 [(-> o (dissoc alias) (assoc field (get o alias))) (conj taken alias)]
+                 acc))
+             [raw []]
+             aliases))
+
+(defn ^:no-doc read-action
+  "The action that the text `s` names, `[action diagnostic]`: :boost,
+  :stream or :auto, and :stream for the streaming that Podverse writes,
+  with a diagnostic. Any other action is no action, since the text comes
+  from a stranger, and the diagnostic holds it."
+  [s]
+  (when-let [s (some-> s str/trim str/lower-case not-empty)]
+    (case s
+      ("boost" "stream" "auto") [(keyword s)]
+      "streaming"               [:stream {:id :value/action-alias :action s}]
+      [nil {:id :value/unknown-action :action s}])))
+
+(defn parse-boostagram
+  "The payment that the bLIP-10 `record` describes, as `boostagram` takes
+  it. The record is JSON text, or the UTF-8 bytes of that text, as a node
+  gives the custom record 7629169. It can also be the JSON object as a map
+  with string keys.
+
+  The fields that bLIP-10 defines become the keys of a payment, and the
+  other fields keep their names. The report tells what the reader forgave.
+  Real apps write numbers as text, amounts with a fraction, and fields
+  under other names. They write the guid of the episode as the itemID, and
+  the action under another name. A record that is not a JSON object reads
+  as no payment.
+
+  The record is what the sender claims. `as-received` puts it next to what
+  the node received."
+  [record]
+  (if-let [given (json-object record)]
+    (let [[raw aliases] (unaliased given boostagram-aliases)
+          read          (read-fields raw boostagram-fields)
+          value         #(first (get read %))
+          other         (other-fields raw boostagram-fields)
+          [action said] (read-action (value "action"))
+          position      (or (value "ts") (some-> (value "time") time/parse-clock))
+          ;; Breez writes the guid of the episode as its itemID
+          item-guid     (let [id (get raw "itemID")]
+                          (when (and (string? id) (= :unreadable (second (get read "itemID"))))
+                            (str/trim id)))
+          names         (assoc (set/map-invert boostagram-keys)
+                               "value_msat" :msat
+                               "value_msat_total" :total-msat)
+          payment       (cond-> (payment-of read names #{"ts" "time" "action"})
+                          action    (assoc :action action)
+                          position  (assoc :position position)
+                          (and item-guid (nil? (value "episode_guid")))
+                          (assoc :item-guid item-guid))]
+      (with-meta (merge payment other)
+        {:podcast/report (mapv diagnostics/describe
+                               (cond-> (field-diagnostics read other (if item-guid #{"itemID"} #{}))
+                                 (seq aliases) (conj {:id :value/field-alias :keys (vec (sort aliases))})
+                                 item-guid     (conj {:id :value/guid-as-item-id})
+                                 said          (conj said)
+                                 (not-any? value ["guid" "podcast" "feedID" "url"])
+                                 (conj {:id :value/no-podcast})))}))
+    (with-meta {} {:podcast/report [(diagnostics/describe {:id :value/not-an-object})]})))
+
+(defn report
+  "The diagnostics recorded while reading `payment`."
+  [payment]
+  (:podcast/report (meta payment)))
+
+(defn as-received
+  "`payment`, as its sender claims it, with the amount that the node of the
+  recipient received: the `:msat` of `received`.
+
+  The report tells where a claim differs from what the node knows: another
+  amount, or another recipient than the `:address` of `received`. Anyone
+  can send a record, or name metadata, with a payment of one satoshi, so
+  what the node received is the fact."
+  [payment {:keys [msat address]}]
+  (let [claimed (:msat payment)
+        to      (:recipient-address payment)]
+    (vary-meta (cond-> payment (some? msat) (assoc :msat msat))
+               update :podcast/report (fnil into [])
+               (map diagnostics/describe
+                    (cond-> []
+                      (and (some? msat) (some? claimed) (not= msat claimed))
+                      (conj {:id :value/claimed-amount :msat msat :claimed claimed})
+
+                      (and address to (not= (str/lower-case (str address)) (str/lower-case (str to))))
+                      (conj {:id :value/claimed-recipient :address address :claimed to}))))))
 
 (comment
   (def block {:type "lightning" :method "keysend" :suggested 0.00000015

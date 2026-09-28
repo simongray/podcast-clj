@@ -151,7 +151,7 @@
      could not be read."
      [url opts]
      (try
-       (let [{:keys [status body]} (http/fetch! url (select-keys opts [:credentials :timeout-seconds :max-bytes :user-agent]))]
+       (let [{:keys [status body]} (http/fetch! url (select-keys opts [:credentials :timeout-seconds :max-bytes :user-agent :allow?]))]
          (if (and (= 200 status) body)
            {:url url :feed (parse body (select-keys opts [:quirks? :registry :except]))}
            {:url url :failure (str "HTTP " status)}))
@@ -190,11 +190,12 @@
 
      `opts` may carry the `:etag` and `:last-modified` of the last fetch,
      which a server answers with a 304 when nothing changed; the
-     `:credentials` of a private feed, `:timeout-seconds`, `:max-bytes` and
-     `:user-agent` of `http/fetch!`; and the options of `parse`. A user name
-     and a password in `url` are the credentials when `opts` give none, and
-     no URL in the result holds them. It throws as `http/fetch!` and `parse`
-     do.
+     `:credentials` of a private feed, `:timeout-seconds`, `:max-bytes`,
+     `:user-agent` and `:allow?` of `http/fetch!`; and the options of
+     `parse`. A user name and a password in `url` are the credentials when
+     `opts` give none, and no URL in the result holds them. It throws as
+     `http/fetch!` and `parse` do. A server that fetches feeds for strangers
+     gives `{:allow? http/public?}`, which sends nothing to its own network.
 
      A feed can come in pages, each naming the next (see
      `resolve/next-page`). `:max-pages` above 1 fetches that many pages at
@@ -209,7 +210,7 @@
       (let [[url in-url] (http/split-credentials url)
             opts         (cond-> opts (and in-url (not (:credentials opts))) (assoc :credentials in-url))
             {:keys [status body] :as response}
-            (http/fetch! url (select-keys opts [:etag :last-modified :credentials :timeout-seconds :max-bytes :user-agent]))
+            (http/fetch! url (select-keys opts [:etag :last-modified :credentials :timeout-seconds :max-bytes :user-agent :allow?]))
             result (select-keys response [:status :url :permanent-url :etag :last-modified :not-before])]
         (if (and (= 200 status) body)
           (let [first-page (parse body (select-keys opts [:quirks? :registry :except]))
