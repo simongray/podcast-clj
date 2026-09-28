@@ -1,0 +1,314 @@
+{
+  "https://op3.dev/api/1/shows/917393e3-1b1e-5cef-ace4-edaa54e1f810": {
+    "status": 200,
+    "body": {
+      "showUuid": "fb3d03641442410e881acb0562ef27c6",
+      "title": "Podcasting 2.0",
+      "podcastGuid": "917393e3-1b1e-5cef-ace4-edaa54e1f810",
+      "statsPageUrl": "https://op3.dev/show/fb3d03641442410e881acb0562ef27c6"
+    }
+  },
+  "https://op3.dev/api/1/shows/fb3d03641442410e881acb0562ef27c6?episodes=include": {
+    "status": 200,
+    "body": {
+      "showUuid": "fb3d03641442410e881acb0562ef27c6",
+      "title": "Podcasting 2.0",
+      "podcastGuid": "917393e3-1b1e-5cef-ace4-edaa54e1f810",
+      "statsPageUrl": "https://op3.dev/show/fb3d03641442410e881acb0562ef27c6",
+      "episodes": [
+        {
+          "id": "a51e3bce850d63ea2b65f391f410a08dfd12802c7574b7b0e7ae66551ea93dc0",
+          "title": "Episode 272: \"Is this Y'all?\"",
+          "pubdate": "2026-09-25T19:15:48.000Z",
+          "itemGuid": "PC20-272"
+        },
+        {
+          "id": "bec9363cd23a9bcfd054fe930f23b2f5b94aa45d9e28d144584c9b29a29d5817",
+          "title": "Episode 271: Foot Terminal",
+          "pubdate": "2026-09-18T19:26:22.000Z",
+          "itemGuid": "PC20-271"
+        },
+        {
+          "id": "3843029e71b6a25eddd2ab10769d8117228b9d112867d4d44062a33c10b631d6",
+          "title": "Episode 270: YOLO Guy",
+          "pubdate": "2026-09-11T19:19:25.000Z",
+          "itemGuid": "PC20-270"
+        }
+      ]
+    }
+  },
+  "https://op3.dev/api/1/shows/aHR0cHM6Ly9mZWVkcy5wb2RjYXN0aW5kZXgub3JnL3BjMjAueG1s": {
+    "status": 200,
+    "body": {
+      "showUuid": "fb3d03641442410e881acb0562ef27c6",
+      "title": "Podcasting 2.0",
+      "podcastGuid": "917393e3-1b1e-5cef-ace4-edaa54e1f810",
+      "statsPageUrl": "https://op3.dev/show/fb3d03641442410e881acb0562ef27c6"
+    }
+  },
+  "https://op3.dev/api/1/shows/6d93d41e-194b-4bd8-9e35-4d52b0c14793": {
+    "status": 404,
+    "body": {
+      "message": "not found"
+    }
+  },
+  "https://op3.dev/api/1/downloads/show/fb3d03641442410e881acb0562ef27c6?format=json&start=2026-09-26&end=2026-09-27&limit=3": {
+    "status": 200,
+    "body": {
+      "rows": [
+        {
+          "time": "2026-09-26T00:00:25.792Z",
+          "url": "https://op3.dev/e/mp3s.nashownotes.com/PC20-272-2026-09-25-Final.mp3",
+          "audienceId": "f8fef50c5c50c5b7c500bb22e51b5e29947c84cc5e45979bce75ae39f825e6f1",
+          "showUuid": "fb3d03641442410e881acb0562ef27c6",
+          "episodeId": "a51e3bce850d63ea2b65f391f410a08dfd12802c7574b7b0e7ae66551ea93dc0",
+          "hashedIpAddress": "805eeab9c72578f0230246dadabf6c4e318de1da",
+          "agentType": "app",
+          "agentName": "Overcast",
+          "deviceType": "mobile",
+          "deviceName": "Apple iPhone",
+          "countryCode": "US",
+          "continentCode": "NA",
+          "regionCode": "NJ",
+          "regionName": "New Jersey",
+          "timezone": "America/New_York",
+          "metroCode": "504"
+        },
+        {
+          "time": "2026-09-26T00:01:23.496Z",
+          "url": "https://op3.dev/e/mp3s.nashownotes.com/PC20-272-2026-09-25-Final.mp3",
+          "audienceId": "4d5c4eb14a151f3dd4fdcf7ecf4e279f3c48210c137ab43b08c4b6d9282e26b1",
+          "showUuid": "fb3d03641442410e881acb0562ef27c6",
+          "episodeId": "a51e3bce850d63ea2b65f391f410a08dfd12802c7574b7b0e7ae66551ea93dc0",
+          "hashedIpAddress": "fbb6104cef305e0f9a5a936589b87f886eeb8589",
+          "agentType": "app",
+          "agentName": "Pocket Casts",
+          "deviceType": "mobile",
+          "deviceName": "Other Mobile Device",
+          "countryCode": "SA",
+          "continentCode": "AS",
+          "regionCode": "01",
+          "regionName": "Riyadh Region",
+          "timezone": "Asia/Riyadh"
+        },
+        {
+          "time": "2026-09-26T00:02:02.070Z",
+          "url": "https://op3.dev/e/mp3s.nashownotes.com/PC20-272-2026-09-25-Final.mp3",
+          "audienceId": "6e2239db66666322f92ad012d498e8ecadbe66f7eb5d63138e5342bfc7779ddf",
+          "showUuid": "fb3d03641442410e881acb0562ef27c6",
+          "episodeId": "a51e3bce850d63ea2b65f391f410a08dfd12802c7574b7b0e7ae66551ea93dc0",
+          "hashedIpAddress": "87a19de5fd5712e103a15c501d4135ff3dc1c232",
+          "agentType": "app",
+          "agentName": "Godcaster",
+          "deviceType": "mobile",
+          "deviceName": "Android Phone",
+          "countryCode": "CA",
+          "continentCode": "NA",
+          "regionCode": "BC",
+          "regionName": "British Columbia",
+          "timezone": "America/Vancouver"
+        }
+      ],
+      "count": 3,
+      "queryTime": 380,
+      "continuationToken": "DHcEEyZ5U3eGd4tsvCJpAhbtvg1k8jRuqiG4nUpxK2Fu5zGt"
+    }
+  },
+  "https://op3.dev/api/1/downloads/show/fb3d03641442410e881acb0562ef27c6?format=json&start=2026-09-26&end=2026-09-27&limit=3&continuationToken=DHcEEyZ5U3eGd4tsvCJpAhbtvg1k8jRuqiG4nUpxK2Fu5zGt": {
+    "status": 200,
+    "body": {
+      "rows": [
+        {
+          "time": "2026-09-26T00:02:22.851Z",
+          "url": "https://op3.dev/e/mp3s.nashownotes.com/PC20-272-2026-09-25-Final.mp3",
+          "audienceId": "fe445a0866e42dac6c73f5ba79dd138b13cb0bbdab97e27ab8840b07668ed558",
+          "showUuid": "fb3d03641442410e881acb0562ef27c6",
+          "episodeId": "a51e3bce850d63ea2b65f391f410a08dfd12802c7574b7b0e7ae66551ea93dc0",
+          "hashedIpAddress": "53e4ec344a8a8be63231035ffea94e15582e83ef",
+          "agentType": "library",
+          "agentName": "stagefright",
+          "deviceType": "mobile",
+          "deviceName": "Android Phone",
+          "countryCode": "US",
+          "continentCode": "NA",
+          "regionCode": "NC",
+          "regionName": "North Carolina",
+          "timezone": "America/New_York",
+          "metroCode": "517"
+        },
+        {
+          "time": "2026-09-26T00:02:23.995Z",
+          "url": "https://op3.dev/e/mp3s.nashownotes.com/PC20-272-2026-09-25-Final.mp3",
+          "audienceId": "0fe8cfaf729568718d29ee08a2d8fb0bf55585530b0edd81c8143ca1625d3b89",
+          "showUuid": "fb3d03641442410e881acb0562ef27c6",
+          "episodeId": "a51e3bce850d63ea2b65f391f410a08dfd12802c7574b7b0e7ae66551ea93dc0",
+          "hashedIpAddress": "53e4ec344a8a8be63231035ffea94e15582e83ef",
+          "agentType": "app",
+          "agentName": "Podcast Addict",
+          "deviceType": "mobile",
+          "deviceName": "Android Phone",
+          "countryCode": "US",
+          "continentCode": "NA",
+          "regionCode": "NC",
+          "regionName": "North Carolina",
+          "timezone": "America/New_York",
+          "metroCode": "517"
+        }
+      ],
+      "count": 2,
+      "queryTime": 203
+    }
+  },
+  "https://op3.dev/api/1/downloads/show/fb3d03641442410e881acb0562ef27c6?format=json&limit=20001": {
+    "status": 400,
+    "body": {
+      "message": "Bad limit: 20001"
+    }
+  },
+  "https://op3.dev/api/1/queries/show-download-counts?showUuid=fb3d03641442410e881acb0562ef27c6&showUuid=a18389b8a52d4112a782b32f40f73df6": {
+    "status": 200,
+    "body": {
+      "asof": "2026-09-27",
+      "showDownloadCounts": {
+        "a18389b8a52d4112a782b32f40f73df6": {
+          "days": "111111111111111111111111111111",
+          "monthlyDownloads": 41024,
+          "weeklyDownloads": [
+            16186,
+            8691,
+            6988,
+            6776
+          ],
+          "weeklyAvgDownloads": 9660,
+          "numWeeks": 4
+        },
+        "fb3d03641442410e881acb0562ef27c6": {
+          "days": "111111111111111111111111111111",
+          "monthlyDownloads": 7250,
+          "weeklyDownloads": [
+            580,
+            1746,
+            2164,
+            2007
+          ],
+          "weeklyAvgDownloads": 1624,
+          "numWeeks": 4
+        }
+      },
+      "queryTime": 173
+    }
+  },
+  "https://op3.dev/api/1/queries/episode-download-counts?showUuid=fb3d03641442410e881acb0562ef27c6&limit=3": {
+    "status": 200,
+    "body": {
+      "showUuid": "fb3d03641442410e881acb0562ef27c6",
+      "showTitle": "Podcasting 2.0",
+      "minDownloadHour": "2026-09-11T19",
+      "maxDownloadHour": "2026-09-27T23",
+      "episodes": [
+        {
+          "itemGuid": "PC20-272",
+          "title": "Episode 272: \"Is this Y'all?\"",
+          "pubdate": "2026-09-25T19:15:48.000Z",
+          "downloads1": 998,
+          "downloadsAll": 1168
+        },
+        {
+          "itemGuid": "PC20-271",
+          "title": "Episode 271: Foot Terminal",
+          "pubdate": "2026-09-18T19:26:22.000Z",
+          "downloads1": 1018,
+          "downloads3": 1295,
+          "downloads7": 1555,
+          "downloadsAll": 1611
+        },
+        {
+          "itemGuid": "PC20-270",
+          "title": "Episode 270: YOLO Guy",
+          "pubdate": "2026-09-11T19:19:25.000Z",
+          "downloads1": 1035,
+          "downloads3": 1306,
+          "downloads7": 1526,
+          "downloadsAll": 1740
+        }
+      ],
+      "queryTime": 210
+    }
+  },
+  "https://op3.dev/api/1/queries/top-apps-for-show?podcastGuid=917393e3-1b1e-5cef-ace4-edaa54e1f810": {
+    "status": 200,
+    "body": {
+      "showUuid": "fb3d03641442410e881acb0562ef27c6",
+      "appDownloads": {
+        "Overcast": 2640,
+        "Podcast Addict": 2073,
+        "Apple Podcasts": 1767,
+        "Pocket Casts": 1355,
+        "Podcast Guru": 1271,
+        "Fountain": 903,
+        "Castamatic": 878,
+        "AntennaPod": 664,
+        "Unknown Apple App": 653,
+        "Podverse": 558,
+        "PodLink": 184,
+        "gPodder": 145,
+        "Downcast": 130,
+        "Godcaster": 115,
+        "TrueFans": 112,
+        "Podcast Republic": 107,
+        "iCatcher": 91,
+        "Damus": 68,
+        "Playapod": 58,
+        "Twitter": 47,
+        "CastBox": 35,
+        "Player FM": 33,
+        "iTunes": 28,
+        "Chromecast device": 22,
+        "Podchaser": 22,
+        "Kasts": 21,
+        "Castro": 19,
+        "MusicBee": 19,
+        "Podbean": 18,
+        "Anytime Podcast Player": 13,
+        "Castria": 13,
+        "Apple HomePod": 12,
+        "Podtail": 12,
+        "Podhome": 10,
+        "CurioCaster": 10,
+        "The Podcast App": 8,
+        "Rhythmbox": 8,
+        "BeyondPod": 8,
+        "Swinsian": 8,
+        "Podfriend": 7,
+        "PodGrabber": 7,
+        "Inoreader": 5,
+        "Alexa-enabled device": 4,
+        "Earshot": 4,
+        "Up Next": 3,
+        "Apple iMessage": 3,
+        "Instagram": 2,
+        "LinkedIn": 2,
+        "Brink": 2,
+        "Facebook": 1,
+        "mpv": 1,
+        "MobileSMS": 1,
+        "Google Podcasts": 1,
+        "FocusPodcast": 1,
+        "WhatsApp": 1,
+        "Nos": 1,
+        "YouTube Music": 1,
+        "KAIOS podcast app": 1,
+        "Queue": 1,
+        "The Podcast App (Magnolia Apps)": 1,
+        "Apple Mail": 1
+      },
+      "queryTime": 281
+    }
+  },
+  "unauthorized": {
+    "status": 401,
+    "body": {
+      "error": "unauthorized"
+    }
+  }
+}

@@ -41,7 +41,7 @@ ecosystem that podcast-clj was written for.
 
 ```
   4  front door   dk.simongray.podcast
-  3  companions   format.*  value  value.*  resolve  check  directory  directory.podcastindex  podping  comments  comments.*  app.*
+  3  companions   format.*  value  value.*  resolve  check  directory  directory.podcastindex  podping  comments  comments.*  analytics  analytics.*  app.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
   1  vocabulary   spec  quirks
   0  primitives   xml  xml.jsoup  time  time.rrule  guid  json  http  bytes  rank  async  diagnostics
@@ -78,6 +78,8 @@ The names follow the design where one part belongs to another:
   with what they share in `comments.common`.
 - The payment of Lightning addresses and the RSS Payment Metadata are under
   `value`, which holds the payment that they send.
+- The client of OP3 is under `analytics`, which counts downloads as OP3
+  does.
 - `resolve`, `check`, `guid`, `json`, `http`, `bytes`, `rank`, `async` and
   `diagnostics` belong to no group.
 
@@ -565,6 +567,9 @@ more often than it must:
   address can hold an image. The podcast namespace asks apps to keep the
   node of an address for a while. `value.metadata/fetch!` reads two bytes
   of the page of the metadata.
+- `analytics.op3/downloads!` reads at most five pages of 20,000 downloads.
+  When there are more, it gives the token of the next page, so that the
+  next call reads on from there.
 - Every body that the client keeps has a limit of size (`:max-bytes`, 100
   MB by default), and every exchange a limit of time (`:timeout-seconds`),
   on both platforms.
@@ -863,6 +868,98 @@ the types below 65536. The Lightning protocol keeps those types for itself.
 The tests run on the records of the bLIP-10 document and on the examples
 of BOLT 11. They also run on the answers that six services gave about their
 own addresses.
+
+
+## Analytics
+
+A host counts the downloads of its episodes. A download is not a listen,
+since many apps download new episodes by themselves. But advertisers pay
+by downloads, so the industry counts them. Version 2.2 of the Podcast
+Measurement Technical Guidelines of the IAB Tech Lab defines a download.
+`analytics` applies these rules to the requests that a host logs.
+`analytics.op3` reads the downloads that OP3 counts for a show.
+
+A request is a map of one line of the log of a server. The guidelines
+count in five steps, and `downloads` does the first three:
+
+1. Filters leave out the requests that cannot be part of a download. These
+   are HEAD requests, answers other than 200 and 206, and requests for two
+   bytes. The requests of bots go too, and those of Apple Podcasts on a
+   watch, which repeat the downloads of the phone. `drop-reason` names the
+   filter that leaves out a request.
+2. A download needs enough of the file to play for one minute, and the
+   header of the file. `threshold` gives these bytes from the size of the
+   file, the size of its header and its duration.
+3. The requests of one listener for one file in 24 hours make one
+   download. A listener is an IP address and a user agent. Of an IPv6
+   address, the first 64 bits count, since one device uses many addresses
+   of its network.
+4. The downloads become the metrics: the downloads of each episode, show
+   and day, and the listeners. `frequencies` and `group-by` do this step.
+5. The host audits its counts twice a year.
+
+The guidelines leave some choices to the host, which it states in a
+document of its method. podcast-clj makes these choices:
+
+- A window is a calendar day in UTC, as OP3, Castopod and oDL count. With
+  `:rolling`, a window is the 24 hours from the first request. The
+  guidelines call this more accurate, since a download over midnight
+  counts once.
+- The requests of a listener add up by the bytes that they hold, and each
+  byte counts once. The guidelines do not say whether to add up the ranges
+  or to join them. A player that asks again for the same bytes does not
+  reach the minute that way.
+- A request with no status passes the filters, since a prefix service sees
+  no answers. A request with no method does not, since HEAD requests move
+  no content.
+- The file of a request is its URL without the query, since apps add
+  parameters of their own. For a file with no threshold, every listener
+  whose requests pass the filters counts, as oDL and OP3 count.
+
+The rules need data from outside podcast-clj. The Open Podcast Analytics
+Working Group keeps an open list of the user agents of apps, bots,
+libraries and browsers, with the MIT license. `user-agents` reads the files
+of the list. `identify` names the agent of a request by the list, with the
+keys that OP3 gives it. The list changes often, so podcast-clj holds no
+copy, and a host keeps a copy of one commit. The guidelines also ask a host
+to leave out data centers, VPNs and known bots. Their lists are outside
+too, and some cost money. A host gives them to `downloads` as `:exclude?`.
+The guidelines ask a host to leave out the addresses with too many
+downloads, and give no number. So the host removes such addresses from the
+result by its own rule.
+
+OP3 is a free and open service that counts downloads through a prefix. A
+host puts `https://op3.dev/e/` in front of the URL of each enclosure. OP3
+then counts each request, and redirects it to the file. `op3/prefix` writes
+the prefix, with the podcast guid of the show when the feed has one. OP3
+answers some URLs with an error. These are URLs with a user name or with no
+path, and hosts that are IPv6 addresses or names without a dot. Such an
+episode does not play, so `prefix` leaves its URL as it is. `with-prefix`
+puts the prefix on the enclosures and on the sources of the alternate
+enclosures, since OP3 finds the episodes of a show by both.
+
+OP3 counts by its own rules, which differ from those of the IAB in a few
+places. It counts a request for two bytes when no larger request follows,
+since Apple's player sends its later requests to the host, past the
+prefix. Its listener is a hash of the address, the user agent and the
+referrer. It checks no bytes, since a prefix service does not see the
+file. So the counts of OP3 and of `downloads` for one show differ a little.
+
+The API of OP3 gives the downloads of a show one by one, with the app and
+the device of each. It also gives the counts of the show and of its
+episodes, and the apps of its listeners. `analytics.op3` builds the calls
+as maps, and `downloads!` reads the pages of downloads with
+`async/iteration`. A download of OP3 has the keys of a download of
+`downloads` where OP3 tells the same fact. So an app counts both with the
+same code. Each call needs the token of an API key. OP3 makes a key only
+for a person who passes a check for humans, so podcast-clj cannot make
+one. The token goes in a header and not in the URL, since logs keep URLs.
+
+The tests run on the worked examples of the guidelines, version 2.2 and the
+draft of version 2.3. They also run on entries of the list of user agents,
+and on the answers that OP3 gave about the show Podcasting 2.0. A check of
+the whole list in September 2026 found that each example of an agent or a
+referrer names its own entry.
 
 
 ## The player state

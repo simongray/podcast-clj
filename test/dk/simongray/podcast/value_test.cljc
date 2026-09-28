@@ -249,29 +249,31 @@
     (is (= "https://getalby.com/verify/x" (:verify (answer {"verify" "https://getalby.com/verify/x"}))))))
 
 (deftest paying-an-address
-  (let [log (atom [])]
-    (run #(async/then
-           (lnaddress/invoice! "hello@getalby.com" 25000 {:send (serving {"pr" invoice-25} log) :comment "Great show"})
-           (fn [invoice]
-             (is (= invoice-25 (:invoice invoice)))
-             (is (= ["https://getalby.com/.well-known/lnurlp/hello"
-                     "https://getalby.com/lnurlp/hello/callback?amount=25000&comment=Great%20show"]
-                    @log))))))
-  (let [log (atom [])]
-    (run #(async/then
-           (lnaddress/invoice! "hello@getalby.com" 500 {:send (serving {"pr" invoice-25} log)})
-           (fn [{:keys [error]}]
-             (is (= [:value/amount-out-of-range 1000] ((juxt :id :min-msat) error)))
-             (is (= 1 (count @log)) "no invoice is asked for")))))
-  (run #(async/then
+  (run (fn []
+         (let [log (atom [])]
+           (async/then
+            (lnaddress/invoice! "hello@getalby.com" 25000 {:send (serving {"pr" invoice-25} log) :comment "Great show"})
+            (fn [invoice]
+              (is (= invoice-25 (:invoice invoice)))
+              (is (= ["https://getalby.com/.well-known/lnurlp/hello"
+                      "https://getalby.com/lnurlp/hello/callback?amount=25000&comment=Great%20show"]
+                     @log))))))
+       (fn []
+         (let [log (atom [])]
+           (async/then
+            (lnaddress/invoice! "hello@getalby.com" 500 {:send (serving {"pr" invoice-25} log)})
+            (fn [{:keys [error]}]
+              (is (= [:value/amount-out-of-range 1000] ((juxt :id :min-msat) error)))
+              (is (= 1 (count @log)) "no invoice is asked for")))))
+       #(async/then
          (lnaddress/invoice! "hello@getalby.com" 25000 {:send (fn [_] (throw (ex-info "Connection refused" {})))})
          (fn [{:keys [error]}]
-           (is (= [:value/unreachable "Connection refused"] ((juxt :id :reason) error))))))
-  (run #(async/then
+           (is (= [:value/unreachable "Connection refused"] ((juxt :id :reason) error)))))
+       #(async/then
          (lnaddress/invoice! "not an address" 25000 {:send (fn [_] (throw (ex-info "sent" {})))})
          (fn [{:keys [error]}]
-           (is (= :value/not-an-address (:id error))))))
-  (run #(async/then
+           (is (= :value/not-an-address (:id error)))))
+       #(async/then
          (lnaddress/node! "fountain@fountain.fm" {:send recorded})
          (fn [node]
            (is (= ["03b6f613e88bd874177c28c6ad83b3baba43c4c656f56be1f8df84669556054b79" "906608"]
@@ -334,16 +336,16 @@
            (metadata/fetch! url {:send (send (metadata/header payment))})
            (fn [found]
              (is (= payment found))
-             (is (= [0 1] (:range (first @asked))) "two bytes of the page"))))
-    (run #(async/then
+             (is (= [0 1] (:range (first @asked))) "two bytes of the page")))
+         #(async/then
            (metadata/fetch! url {:send (send nil)})
            (fn [{:keys [error]}]
-             (is (= [:value/no-metadata 200] ((juxt :id :status) error))))))
-    (run #(async/then
+             (is (= [:value/no-metadata 200] ((juxt :id :status) error)))))
+         #(async/then
            (metadata/fetch! nil {:send (send nil)})
            (fn [{:keys [error]}]
-             (is (= :value/no-metadata (:id error))))))
-    (run #(async/then
+             (is (= :value/no-metadata (:id error)))))
+         #(async/then
            (metadata/fetch! url {:send (fn [_] (throw (ex-info "Connection refused" {})))})
            (fn [{:keys [error]}]
              (is (= :value/unreachable (:id error))))))))

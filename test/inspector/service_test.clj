@@ -42,9 +42,12 @@
 
 (deftest the-pages
   (with-redefs [http/fetch! (fn [url & _]
-                              (if (str/includes? url "missing")
-                                {:status 404 :url url}
-                                {:status 200 :url url :body example}))]
+                              (cond
+                                (str/includes? url "missing") {:status 404 :url url}
+                                (str/includes? url "op3")     {:status 200 :url url
+                                                               :body   (str/replace example "url=\"https://example.com/file-"
+                                                                                    "url=\"https://op3.dev/e/example.com/file-")}
+                                :else                         {:status 200 :url url :body example}))]
     (testing "home"
       (let [{:keys [status body]} (get* "/")]
         (is (= 200 status))
@@ -63,6 +66,10 @@
         (is (= 200 status))
         (is (str/includes? body "ep0003"))
         (is (str/includes? body "item :rss/title") "the resolved properties with their sources")))
+    (testing "a feed whose enclosures go through OP3 links to its downloads there"
+      (is (str/includes? (:body (get* "/feed" "url" "https://example.com/op3.xml"))
+                         "href=\"https://op3.dev/show/y0ur-gu1d-g035-h3r3\""))
+      (is (not (str/includes? (:body (get* "/feed" "url" "https://example.com/one.xml")) "downloads at OP3"))))
     (testing "no URL goes home; a feed that cannot be fetched is an error page"
       (is (= 302 (:status (get* "/feed"))))
       (let [{:keys [status body]} (get* "/feed" "url" "https://example.com/missing.xml")]

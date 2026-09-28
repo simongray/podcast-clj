@@ -70,7 +70,7 @@
                     (encode (name k))
                     (str (encode (name k)) "=" (encode v))))))
 
-(defn- base64
+(defn ^:no-doc base64
   "The UTF-8 bytes of `s` in base64."
   [s]
   #?(:clj  (.encodeToString (java.util.Base64/getEncoder) (.getBytes ^String s "UTF-8"))
@@ -295,6 +295,24 @@
   (when-let [[_ start end total] (some->> s (re-matches #"(?i)\s*bytes\s+(\d{1,15})-(\d{1,15})/(\d{1,15}|\*)\s*"))]
     {:start (parse-long start) :end (parse-long end) :total (when (not= "*" total) (parse-long total))}))
 
+(defn byte-ranges
+  "The byte ranges that the Range header value `s` asks for, such as
+  `bytes=0-1023, 5000-`, as RFC 9110 reads them: `[start end]` with the end
+  included or nil for the rest of the file, and `[nil n]` for the last `n`
+  bytes. Nil when `s` does not read, since a server then ignores it."
+  [s]
+  (when-let [[_ specs] (some->> s (re-matches #"(?i)\s*bytes\s*=\s*(.*)"))]
+    (let [ranges (for [spec (map str/trim (str/split specs #","))
+                       :when (seq spec)]
+                   (when-let [[_ start end] (re-matches #"(\d{0,15})\s*-\s*(\d{0,15})" spec)]
+                     (cond
+                       (and (seq start) (seq end)) (let [a (parse-long start) b (parse-long end)]
+                                                     (when (<= a b) [a b]))
+                       (seq start)                 [(parse-long start) nil]
+                       (seq end)                   [nil (parse-long end)])))]
+      (when (and (seq ranges) (every? some? ranges))
+        (vec ranges)))))
+
 (def ^:no-doc legal-url-characters
   "The ASCII characters a URI may contain as they are: RFC 3986's unreserved
   and reserved sets, plus the percent sign of an escape."
@@ -489,31 +507,44 @@
                      (.isSiteLocalAddress a) (.isMulticastAddress a)))
             (if (= 4 (count b)) (public-ipv4? b) (public-ipv6? b))))))
 
-#?(:cljs
-   (defn- ip-literal
-     "The numbers of the IP address that the host `h` writes, four for IPv4
-     and sixteen for IPv6 in brackets, as the URL standard writes them; nil
-     for a name."
-     [h]
-     (if-let [[_ & parts] (re-matches #"(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})" h)]
-       (let [ns (mapv parse-long parts)]
-         (when (every? #(<= 0 % 255) ns) ns))
-       (when-let [[_ inner] (re-matches #"\[([0-9a-fA-F:.]+)\]" h)]
-         (let [[head tail] (str/split inner #"::" 2)
-               groups      (fn [s] (if (str/blank? s) [] (str/split s #":")))
-               words       (fn [gs] (mapcat (fn [g]
-                                              (if (str/includes? g ".")
-                                                (let [[a b c d] (mapv parse-long (str/split g #"\."))]
-                                                  [(+ (* 256 a) b) (+ (* 256 c) d)])
-                                                [(js/parseInt g 16)]))
-                                            gs))
-               front       (words (groups head))
-               back        (words (groups tail))
-               all         (if (some? tail)
-                             (concat front (repeat (- 8 (count front) (count back)) 0) back)
-                             front)]
-           (when (and (= 8 (count all)) (every? #(and (number? %) (<= 0 % 0xffff)) all))
-             (vec (mapcat (fn [w] [(quot w 256) (rem w 256)]) all))))))))
+(defn ^:no-doc ip-address
+  "The bytes of the IP address that the text `s` writes, as numbers: four
+  for IPv4, and sixteen for IPv6, with or without the brackets that a URL
+  puts around it. Nil for anything else, such as a name or a hash."
+  [s]
+  (when (string? s)
+    (if-let [[_ & parts] (re-matches #"(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})" s)]
+      (let [ns (mapv parse-long parts)]
+        (when (every? #(<= 0 % 255) ns) ns))
+      (when-let [[_ bracketed bare] (re-matches #"\[([0-9a-fA-F:.]+)\]|([0-9a-fA-F.]*:[0-9a-fA-F:.]*)" s)]
+        (let [[head tail] (str/split (or bracketed bare) #"::" 2)
+              ;; the words of the groups of `part`, the last of which can
+              ;; be an IPv4 address when `part` ends the address
+              words       (fn [part end?]
+                            (let [gs (if (= "" part) [] (str/split part #":" -1))]
+                              (reduce (fn [acc [i g]]
+                                        (cond
+                                          (re-matches #"[0-9a-fA-F]{1,4}" g)
+                                          (conj acc #?(:clj (Long/parseLong g 16) :cljs (js/parseInt g 16)))
+
+                                          (and end? (= i (dec (count gs))) (str/includes? g "."))
+                                          (if-let [[a b c d] (ip-address g)]
+                                            (conj acc (+ (* 256 a) b) (+ (* 256 c) d))
+                                            (reduced nil))
+
+                                          :else
+                                          (reduced nil)))
+                                      []
+                                      (map-indexed vector gs))))
+              front       (words head (nil? tail))
+              back        (when tail (words tail true))
+              n           (+ (count front) (count back))
+              all         (cond
+                            (or (nil? front) (and tail (nil? back))) nil
+                            tail                                     (when (< n 8) (concat front (repeat (- 8 n) 0) back))
+                            :else                                    (when (= n 8) front))]
+          (when all
+            (vec (mapcat (fn [w] [(quot w 256) (rem w 256)]) all))))))))
 
 (defn public?
   "Whether the host of the http or https URL `url` is on the public
@@ -536,7 +567,7 @@
      :cljs (let [h (some-> (host url) str/lower-case)]
              (boolean (and h
                            (not (or (= "localhost" h) (re-find #"\.(localhost|local|internal)$" h)))
-                           (if-let [b (ip-literal h)]
+                           (if-let [b (ip-address h)]
                              (if (= 4 (count b)) (public-ipv4? b) (public-ipv6? b))
                              true))))))
 

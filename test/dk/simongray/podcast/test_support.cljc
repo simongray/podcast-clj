@@ -25,13 +25,15 @@
      (slurp (io/resource path))))
 
 (defn run
-  "Run the steps of `f`, a function of no arguments that gives a value or a
-  promise, as a test on either platform."
-  [f]
-  #?(:clj  (f)
+  "Run the steps `fs` one after another as a test on either platform. Each
+  step is a function of no arguments that gives a value or a promise.
+
+  In ClojureScript, a deftest runs only the async test that it returns. So
+  a deftest calls `run` once, as its last form, with all its steps."
+  [& fs]
+  #?(:clj  (doseq [f fs] (f))
      :cljs (async done
-             (-> (js/Promise.resolve nil)
-                 (.then (fn [_] (f)))
+             (-> (reduce (fn [p f] (.then p (fn [_] (f)))) (js/Promise.resolve nil) fs)
                  (.catch (fn [e] (is false (str "rejected: " e))))
                  (.finally done)))))
 

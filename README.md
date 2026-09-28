@@ -11,7 +11,8 @@ MP3 and M4A files themselves, for their chapters, duration and artwork. It
 checks over the network whether these files reach a listener as the feed
 says. For apps, it searches the podcast directories and the Podcast Index,
 and reads Podping notifications. It reads the comments on an episode,
-keeps the player state, and syncs this state between devices.
+keeps the player state, and syncs this state between devices. For hosts,
+it counts downloads by the rules of the IAB, and reads the counts of OP3.
 
 podcast-clj reads a feed by the standards first. If a feed breaks a
 standard, a separate layer of named quirks repairs it and reports each

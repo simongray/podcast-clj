@@ -4,6 +4,7 @@
   (:require [clojure.pprint :as pprint]
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.atproto :as atproto]
@@ -270,6 +271,8 @@
              [:a {:href (feed-href "/feed.edn" url)} "model as EDN"] " · "
              [:a {:href (feed-href "/feed.xml" url)} "round-tripped XML"] " · "
              [:a {:href (feed-href "/check" url {:profile (some-> profile name)})} "check the files over the network"] " · "
+             (when (some #(op3/prefixed? (get-in % [:rss/enclosure :url])) (:rss/items feed))
+               (list [:a {:href (str op3/origin "/show/" (feed/feed-guid feed url))} "downloads at OP3"] " · "))
              "profile: "
              (for [p [nil :psp-1 :apple]]
                (list (if (= p profile)

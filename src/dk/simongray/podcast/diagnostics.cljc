@@ -12,7 +12,8 @@
   diagnostics are about the feed rather than about reading it, `check` for
   the checks over the network of what the feed links to, `sync` for a step
   of keeping devices in step, `comments` for the reading of a thread of
-  comments, and `value` for the records of payments.")
+  comments, `value` for the records of payments, and `analytics` for the
+  list of user agents.")
 
 (def catalogue
   "The diagnostics, in the order they tend to arise."
@@ -347,7 +348,11 @@
    {:id :value/no-keysend :level :info
     :doc "The domain of the Lightning address names no node for keysend. Pay it with LNURL-pay."}
    {:id :value/insecure :level :error
-    :doc "The answer came over plain http, where anyone on the way can change it. Do not pay with it."}])
+    :doc "The answer came over plain http, where anyone on the way can change it. Do not pay with it."}
+
+   ;; analytics: reading the list of user agents
+   {:id :analytics/unreadable-pattern :level :warning
+    :doc "A pattern of the list of user agents does not compile on this platform, so its entry was left out."}])
 
 (def by-id
   "The catalogue by id."

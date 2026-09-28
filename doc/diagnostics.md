@@ -9,10 +9,21 @@ such as a `:path` into the data or the `:tag` of an element. `report` reads the
 diagnostics of a parsed feed, transcript or chapters document. `validate` returns the
 diagnostics of a feed. `summarize` groups diagnostics by kind.
 
-The namespace of an id tells which layer found the problem: `repair` for the repairs of
-malformed XML, `xml` for namespace resolution, `quirk` for the normalizations of the tree,
-`feed` for the model, `transcript` and `chapters` for the companion formats, `validate`
-for the validator, and `sync` for the sync between devices.
+The namespace of an id tells which part of podcast-clj found the problem:
+
+- `fetch`: the fetch of a feed
+- `repair`: the repairs of malformed XML
+- `xml`: namespace resolution
+- `quirk`: the normalizations of the tree
+- `feed`: the model
+- `transcript` and `chapters`: the companion formats
+- `id3`, `mp3`, `mp4` and `file`: the media files and the images
+- `validate`: the validator
+- `check`: the checks over the network
+- `sync`: the sync between devices
+- `comments`: the threads of comments
+- `value`: the records of payments and the Lightning addresses
+- `analytics`: the list of user agents
 
 | Id | Level | Meaning |
 |---|---|---|
@@ -168,3 +179,4 @@ for the validator, and `sync` for the sync between devices.
 | `:value/unknown-success-action` | error | The answer holds a success action that LUD-09 does not define, or a URL on another host. Do not pay the invoice. |
 | `:value/no-keysend` | info | The domain of the Lightning address names no node for keysend. Pay it with LNURL-pay. |
 | `:value/insecure` | error | The answer came over plain http, where anyone on the way can change it. Do not pay with it. |
+| `:analytics/unreadable-pattern` | warning | A pattern of the list of user agents does not compile on this platform, so its entry was left out. |

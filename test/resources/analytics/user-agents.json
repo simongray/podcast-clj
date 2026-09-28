@@ -1,0 +1,180 @@
+{
+  "comments": [
+    "Entries of the open list of user agents of the Open Podcast Analytics Working Group, from src/ of",
+    "https://github.com/opawg/user-agents-v2 at commit 0deded587e90108332ed43d89e6444ecb71e5aff (2026-09-08),",
+    "in the order of their files, with at most three examples each.",
+    "Copyright (c) 2022 Open Podcast Analytics Working Group. MIT License: https://github.com/opawg/user-agents-v2/blob/master/LICENSE"
+  ],
+  "bots": {
+    "entries": [
+      {
+        "name": "Apple Podcasts (Watch)",
+        "pattern": "^atc/|\\(null\\) watchOS/",
+        "examples": [
+          "atc/1.0",
+          "atc/1.0 watchOS/6.2 model/Watch3,3 hwp/t8004 build/17T529 (6; dt:155)",
+          "atc/1.0 watchOS/6.2.8 model/Watch2,3 hwp/t8002 build/17U63 (6; dt:133)"
+        ]
+      },
+      {
+        "name": "Apple Podcasts automated checks",
+        "pattern": "(iTMS|itunesstored|itms)"
+      },
+      {
+        "name": "Googlebot",
+        "pattern": "Googlebot/|Googlebot-Video/|Googlebot-Image/|^Feed[fF]etcher-Google|google-xrawler|^Googlebot-News|^Google-Safety$|^GoogleOther-Video/\\d",
+        "examples": [
+          "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.96 Mobile Safari/537.36 (compatible; Googlebot/2.1; http://www.google.com/bot.html)",
+          "Googlebot-Image/1.0",
+          "Feedfetcher-Google; (+http://www.google.com/feedfetcher.html; 1 subscribers; feed-id=4653447469100830145)"
+        ]
+      }
+    ]
+  },
+  "apps": {
+    "entries": [
+      {
+        "name": "AntennaPod",
+        "pattern": "(^AntennaPod/|^de\\.danoeh\\.antennapod/|antenna/.*CFNetwork)",
+        "examples": [
+          "de.danoeh.antennapod/1.7.3b (Linux;Android 8.0.0) ExoPlayerLib/2.9.3",
+          "antenna/19 CFNetwork/711.1.16 Darwin/14.0.0"
+        ]
+      },
+      {
+        "name": "Apple Podcasts",
+        "pattern": "^Podcasts/.*|^Balados/|^Podcasti/|^Podcastit/|^Podcasturi/|^Podcasty/|^Podcast’ler/|^Podcast%E2%80%99ler/|^Podkaster/|^Podcaster/.*\\(.*\\)|^Podcastok/|^Подкасти/|^Подкасты/|^פודקאסטים/|^البودكاست/|^पॉडकास्ट/|^พ็อดคาสท์/|^播客/|^팟캐스트/|ポッドキャスト/|^%D8%A7%D9%84%D8%A8%D9%88%D8%AF%D9%83%D8%A7%D8%B3%D8%AA/|^%D0%9F%D0%BE%D0%B4%D0%BA%D0%B0%D1%81%D1%82%D1%8B/|^%D0%9F%D0%BE%D0%B4%D0%BA%D0%B0%D1%81%D1%82%D0%B8/|^Podcastok/|^%D7%A4%D7%95%D7%93%D7%A7%D7%90%D7%A1%D7%98%D7%99%D7%9D/|^%ED%8C%9F%EC%BA%90%EC%8A%A4%ED%8A%B8/|^%D8%A7%D9%95%D8%B3%D9%85%D8%B9%D9%84%D9%8A/|^Podcaster/\\d|^%E6%92%AD%E5%AE%A2/|^%E3%83%9D%E3%83%83%E3%83%89%E3%82%AD%E3%83%A3%E3%82%B9%E3%83%88/|^Podcast/|^%E0%B8%9E%E0%B9%87%E0%B8%AD%E0%B8%94%E0%B8%84%E0%B8%B2%E0%B8%AA%E0%B8%97%E0%B9%8C/\\d|%D0%9F%D0%BE%D0%B4%D0%BA%D0%B0%D1%81%D1%82%D1%82%D0%B0%D1%80/\\d|^%E0%A4%AA%E0%A5%89%E0%A4%A1%E0%A4%95%E0%A4%BE%E0%A4%B8%E0%A5%8D%E0%A4%9F/\\d",
+        "examples": [
+          "Podcasts/1410.53 CFNetwork/1111 Darwin/19.0.0 (x86_64)",
+          "Podcaster/1410.53 CFNetwork/1111 Darwin/19.0.0 (x86_64)",
+          "البودكاست/1530.3 CFNetwork/1209 Darwin/20.2.0"
+        ]
+      },
+      {
+        "name": "Overcast",
+        "pattern": "^Overcast/|^Overcast.*Apple Watch|^Overcast Player |^Watch/\\d+ CFNetwork/",
+        "examples": [
+          "Overcast/3.0 (+http://overcast.fm/; iOS podcast app)",
+          "Overcast (+http://overcast.fm/; Apple Watch podcast app)",
+          "Overcast/792 CFNetwork/1098.7 Darwin/19.0.0"
+        ]
+      },
+      {
+        "name": "Pocket Casts",
+        "pattern": "^Pocket Casts|^Pocket%20Casts|^PocketCasts/|^Shifty Jelly Pocket Casts| PocketCasts/\\d",
+        "examples": [
+          "Pocket Casts",
+          "Shifty Jelly Pocket Casts, iOS v4.2",
+          "Pocket%20Casts/7.96.0.4 CFNetwork/3826.600.41 Darwin/24.6.0"
+        ]
+      }
+    ]
+  },
+  "libraries": {
+    "entries": [
+      {
+        "name": "AppleCoreMedia",
+        "pattern": "^AppleCoreMedia(/|$)",
+        "examples": [
+          "AppleCoreMedia/1.0.0.16G114 (iPod touch; U; CPU OS 12_4_2 like Mac OS X; en_us)",
+          "AppleCoreMedia/1.0.0.19A583 (Macintosh; U; Intel Mac OS X 10_15; en_us)",
+          "AppleCoreMedia/1.0.0.15G77 (iPhone; U; CPU OS 11_4_1 like Mac OS X; en_us)"
+        ]
+      },
+      {
+        "name": "Go Http Client",
+        "pattern": "^Go-http-client",
+        "category": "bot",
+        "examples": [
+          "Go-http-client/2.0"
+        ]
+      },
+      {
+        "name": "okhttp",
+        "pattern": "okhttp",
+        "category": "bot",
+        "examples": [
+          "okhttp/3.11.0"
+        ]
+      }
+    ]
+  },
+  "browsers": {
+    "entries": [
+      {
+        "name": "Chrome",
+        "pattern": "^.*Android.*Chrome/|CrOS.*Chrome/|Linux.*Chrome/|Mac OS X.*Chrome/|Windows.*Chrome/|iPad.*CriOS/|iPhone.*CriOS/|^Chrome/\\d.*CFNetwork|X11.*Chrome/",
+        "examples": [
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.120 Safari/537.36",
+          "Chrome/103.0.5060.63 CFNetwork/1390 Darwin/22.0.0"
+        ]
+      },
+      {
+        "name": "Safari",
+        "pattern": "(Macintosh|Windows|iPhone|iPad|X11|BB10|SMART-TV|Linux).*AppleWebKit.*Safari/|^MobileSafari/|^Safari/",
+        "examples": [
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15",
+          "MobileSafari/604.1 CFNetwork/1107.1 Darwin/19.0.0",
+          "Safari/18614.4.6.1.6 CFNetwork/1404.0.5 Darwin/22.3.0"
+        ]
+      }
+    ]
+  },
+  "devices": {
+    "entries": [
+      {
+        "name": "Apple iPad",
+        "pattern": "ipad|iPad|IPAD",
+        "category": "mobile"
+      },
+      {
+        "name": "Apple iPhone",
+        "pattern": "iphone|iOS|iPhone|CFNetwork| ios |phone;ios",
+        "category": "mobile",
+        "examples": [
+          "Fountain/0.5.3 ios https://www.fountain.fm",
+          "Anytime/1.1 b64 (phone;ios Version 15.6.1 (Build 19G82)) https://github.com/amugofjava/anytime_podcast_player"
+        ]
+      },
+      {
+        "name": "Apple Watch",
+        "pattern": "watch|Watch OS|^Watch/\\d+ CFNetwork/",
+        "category": "watch",
+        "examples": [
+          "Watch/1140 CFNetwork/3860.200.71 Darwin/25.1.0"
+        ]
+      },
+      {
+        "name": "Android Phone",
+        "pattern": "ServeStream|Android|android|HTC|ExoPlayer|^AntennaPod/|^GSA/.*\\.arm(64)?$|^sp-agent|^PRDownloader$|^(Turtlecast|TURTLECAST)/|\\((SM-A15|SM-A55|moto g|RMO-NX3)",
+        "category": "mobile",
+        "examples": [
+          "GSA/13.39.12.26.arm64",
+          "GSA/13.39.12.26.arm",
+          "sp-agent"
+        ]
+      }
+    ]
+  },
+  "referrers": {
+    "entries": [
+      {
+        "name": "Apple Podcasts",
+        "pattern": "^https://(embed\\.)?podcasts\\.apple\\.com",
+        "category": "app",
+        "examples": [
+          "https://podcasts.apple.com/us/podcast/xya/id12341",
+          "https://embed.podcasts.apple.com/"
+        ]
+      },
+      {
+        "name": "Chartable",
+        "pattern": "://link\\.chtbl\\.com/",
+        "examples": [
+          "https://link.chtbl.com/"
+        ]
+      }
+    ]
+  }
+}

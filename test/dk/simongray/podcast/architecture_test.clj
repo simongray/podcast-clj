@@ -26,6 +26,7 @@
    "app.sync.encrypted" 3 "app.sync.gpodder" 3 "app.sync.gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "podping" 3
    "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3
+   "analytics" 3 "analytics.op3" 3
    "" 4})
 
 (defn- short-name

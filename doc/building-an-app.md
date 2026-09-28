@@ -24,6 +24,8 @@ The examples use these aliases:
 
 ```clojure
 (require '[dk.simongray.podcast :as podcast]
+         '[dk.simongray.podcast.analytics :as analytics]
+         '[dk.simongray.podcast.analytics.op3 :as op3]
          '[dk.simongray.podcast.app.player :as player]
          '[dk.simongray.podcast.app.search :as search]
          '[dk.simongray.podcast.app.sync :as sync]
@@ -665,6 +667,85 @@ the size of an episode before the app downloads it:
 ```
 
 
+## Count the downloads of a show
+
+A host counts the downloads of its episodes from the logs of its server.
+Turn each line of a log into a request map, with the fields that the log
+has:
+
+```clojure
+{:time       #inst "2026-09-26T08:15:02Z"
+ :ip         "203.0.113.5"
+ :user-agent "Overcast/3.0 (+http://overcast.fm/; iOS podcast app)"
+ :method     :get
+ :url        "https://cdn.example.com/episode-54.mp3"
+ :status     206
+ :range      "bytes=0-"   ; the Range header of the request
+ :bytes      1048576}     ; the bytes that the server sent
+```
+
+Get a copy of the open list of user agents from
+<https://github.com/opawg/user-agents-v2>, and read its files with
+`analytics/user-agents`. Give `downloads` the bytes that each file needs:
+the header and one minute of the content, which `analytics/threshold`
+calculates. Then count the downloads, the listeners and the apps:
+
+```clojure
+(def agents
+  (analytics/user-agents (into {} (for [file [:bots :apps :libraries :browsers :devices :referrers]]
+                                    [file (slurp (str "user-agents-v2/src/" (name file) ".json"))]))))
+
+(def thresholds
+  {"https://cdn.example.com/episode-54.mp3" (analytics/threshold {:size 43200000 :header 1253 :duration 2700})})
+
+(def result (analytics/downloads requests {:user-agents agents :threshold thresholds :exclude? data-center?}))
+
+(:dropped result)                                       ; the requests that do not count, by reason
+(frequencies (map :url (:downloads result)))            ; the downloads of each file
+(count (distinct (map :listener (:downloads result))))  ; the listeners
+(frequencies (map :agent-name (:downloads result)))     ; the apps
+```
+
+`data-center?` is a predicate of a request. Build it from your lists of the
+addresses of data centers, VPNs and known bots, as the guidelines of the
+IAB ask. The guidelines also ask a host to leave out the addresses with too
+many downloads. Remove them from the downloads by a rule that you state. A
+window is a calendar day in UTC. For the 24 hours from the first request of
+a listener, give `:window :rolling`.
+
+
+## Measure the downloads with OP3
+
+OP3 counts the downloads of a show when its feed puts the prefix of OP3 in
+front of each enclosure. `op3/with-prefix` puts the prefix on the
+enclosures of a feed:
+
+```clojure
+(podcast/emit (op3/with-prefix feed))
+;; … <enclosure url="https://op3.dev/e,pg=917393e3-…/cdn.example.com/episode-54.mp3" …/> …
+```
+
+The API of OP3 needs the token of an API key. Get a key at
+<https://op3.dev/api/keys>. Then ask for the show, its counts and its
+downloads:
+
+```clojure
+(def show (op3/call! token :show {:show (:podcast/guid feed) :episodes? true}))
+(:stats-page-url show)  ; the public page of the statistics of the show
+
+(op3/call! token :episode-download-counts {:show (:show-uuid show)})
+;; => {:episodes [{:item-guid "PC20-272" :downloads1 998 :downloads-all 1168 …} …] …}
+
+(def month (op3/downloads! token {:show (:show-uuid show) :start "2026-09" :end "2026-10"}))
+(frequencies (map :agent-name (:downloads month)))
+```
+
+A download of OP3 has the keys of a download of `analytics/downloads` where
+OP3 tells the same fact, so the same code counts both. When the answer has
+a `:continuation-token`, OP3 has more downloads. Give the token to
+`downloads!` in the parameters to read on.
+
+
 ## What the app does itself
 
 podcast-clj does not do these tasks. The app does them:
@@ -676,3 +757,5 @@ podcast-clj does not do these tasks. The app does them:
   control.
 - Download episodes, show notifications and make payments.
 - Draw the user interface.
+- For a host, keep the logs of the server and the lists that the count of
+  downloads uses: user agents, data centers and bots.

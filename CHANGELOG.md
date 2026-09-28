@@ -194,6 +194,16 @@
   `value.lnaddress/invoice!` and `node!`, and `value.metadata/fetch!`,
   since strangers choose their URLs. `http/call!` takes `:allow?`, and
   `podcast/fetch!` passes it on.
+- `analytics/downloads` counts the downloads of episodes from the requests
+  that a host logs, by the rules of the IAB Tech Lab, version 2.2. It
+  leaves out HEAD requests, requests for two bytes, bots and Apple Podcasts
+  on a watch. It counts a listener once for each file in a day, or in 24
+  hours from the first request. The requests must hold a minute of the
+  file. `user-agents` reads the open list of user agents of the OPAWG, and
+  `identify` names the app and the device of a request by it.
+- `analytics.op3` puts the prefix of OP3 on the enclosures of a feed, and
+  reads the downloads and counts of a show from the API of OP3. A download
+  of OP3 has the keys of a download of `analytics/downloads`.
 - podcast-clj compares the origins of URLs as the URL standard does, on
   both platforms. On the JVM, `http/call!` fetches hosts with letters
   outside ASCII. `json/read-str` refuses JSON nested deeper than the stack reaches.

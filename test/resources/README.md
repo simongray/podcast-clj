@@ -25,5 +25,16 @@ document of the podcast namespace, by app and action.
 about their own Lightning addresses on 2026-09-28, by URL. Their pages of
 errors are cut short.
 
+`analytics/user-agents.json` holds entries of the open list of user agents
+of the Open Podcast Analytics Working Group. They come from commit 0deded5
+of https://github.com/opawg/user-agents-v2, of 2026-09-08. They keep the
+order of their files, with at most three examples each. The list is
+Copyright (c) 2022 Open Podcast Analytics Working Group, under the MIT
+license. `analytics/op3.json` holds the answers that the API of OP3 gave
+about the show Podcasting 2.0 on 2026-09-28, by URL. The hashes of the
+addresses of the listeners and their audience ids are replaced with made-up
+ones. The list of episodes is cut to three, and the second page of the
+downloads to two rows, the last.
+
 The corpus of real feeds is outside Git, in `dev-resources/corpus/`. See
 `dev/corpus.clj`.
