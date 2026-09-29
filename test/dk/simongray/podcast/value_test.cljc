@@ -16,7 +16,7 @@
             [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.test-support :refer [fixture run]]
+            [dk.simongray.podcast.test-support :refer [fixture invoice run]]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]))
@@ -236,6 +236,34 @@
     (is (= [{:network :bitcoin :msat 999999999999999} nil]
            (map lnaddress/invoice-amount ["lnbc9999999999999990p1pvjluez" "lnbc9999999999999999n1pvjluez"]))
         "an amount of sixteen digits is an amount, or no invoice, and never an invoice of any amount"))
+  (testing "the payment hash of an invoice, from the examples of BOLT 11"
+    (let [donation (str "lnbc1pvjluezsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygspp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypq"
+                        "dpl2pkx2ctnv5sxxmmwwd5kgetjypeh2ursdae8g6twvus8g6rfwvs8qun0dfjkxaq9qrsgq357wnc5r2ueh7ck6q93dj32dlqnls087fxdwk8qakdya"
+                        "fkq3yap9us6v52vjjsrvywa6rt52cm9r9zqt8r2t7mlcwspyetp5h2tztugp9lfyql")
+          coffee   (str "lnbc2500u1pvjluezsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygspp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypq"
+                        "dq5xysxxatsyp3k7enxv4jsxqzpu9qrsgquk0rl77nj30yxdy8j9vdx85fkpmdla2087ne0xh8nhedh8w27kyke0lp53ut353s06fv3qfegext0eh0ymjpf39tuven09"
+                        "sam30g4vgpfna3rh")
+          hash     "0001020304050607080900010203040506070809000102030405060708090102"]
+      (is (= [hash hash hash] (map lnaddress/payment-hash [donation coffee (str/upper-case coffee)])))
+      (is (nil? (lnaddress/payment-hash (str/replace-first coffee "zyg3" "zyg4"))) "a character that the checksum does not take")
+      (is (nil? (lnaddress/payment-hash (str donation "q"))))
+      (doseq [x [nil 5 "" "an invoice" "lnbc250n1pvjluez" "lnbc1pvjluezsp5zyg3" invoice-25]]
+        (is (nil? (lnaddress/payment-hash x)) (pr-str x)))))
+  (testing "the proof of a payment"
+    (let [preimage (apply str (repeat 64 "7"))
+          paid     (invoice preimage)]
+      (is (= {:network :bitcoin :msat 50000} (lnaddress/invoice-amount paid)))
+      (is (= (bytes/hex (bytes/sha256 (bytes/from-hex preimage))) (lnaddress/payment-hash paid)))
+      (is (true? (lnaddress/proves? preimage paid)))
+      (is (true? (lnaddress/proves? (str/upper-case preimage) (str/upper-case paid))))
+      (doseq [[x reason] {(apply str (repeat 64 "8")) "another preimage"
+                          (subs preimage 2)           "a preimage of 31 bytes"
+                          ""                          "no preimage"
+                          nil                         "no preimage"
+                          "0123"                      "a short text"}]
+        (is (false? (lnaddress/proves? x paid)) reason))
+      (is (false? (lnaddress/proves? preimage "lnbc500n1x")) "a text that is no invoice")
+      (is (false? (lnaddress/proves? preimage (invoice (apply str (repeat 64 "8"))))) "another invoice")))
   (let [coinos (terms-of "coinos@coinos.io")]
     (is (= "https://names.coinos.io/lnurlp/coinos/cb?domain=coinos.io&amount=25000&comment=Tak%20%F0%9F%8E%99%EF%B8%8F"
            (:url (lnaddress/invoice-request coinos 25000 "Tak 🎙️")))

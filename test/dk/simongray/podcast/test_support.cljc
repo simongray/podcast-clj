@@ -6,18 +6,21 @@
   localhost and the feeds of the corpus."
   #?(:cljs (:require-macros [dk.simongray.podcast.test-support]))
   (:require #?(:clj [clojure.java.io :as io])
+            #?(:clj [clojure.string :as str])
             #?(:cljs [clojure.test :refer [is async]])
             #?(:clj [dk.simongray.podcast :as podcast])
             [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.bech32 :as bech32]
             [dk.simongray.podcast.bytes :as bytes]
-            [dk.simongray.podcast.nostr :as nostr]
-            [dk.simongray.podcast.secp256k1 :as secp256k1])
+            #?(:clj [dk.simongray.podcast.json :as json])
+            [dk.simongray.podcast.nostr :as nostr])
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
-                   [java.io File]
-                   [java.net InetSocketAddress]
+                   [java.io File InputStream OutputStream]
+                   [java.net InetAddress InetSocketAddress ServerSocket Socket]
                    [java.nio.file Files]
                    [java.nio.file.attribute FileAttribute]
-                   [java.util Arrays])))
+                   [java.security MessageDigest]
+                   [java.util Arrays Base64])))
 
 #?(:clj
    (defmacro fixture
@@ -118,13 +121,21 @@
   the secret key `secret` wrote at `at`, a time in seconds. It has the id
   and the signature of its content."
   [secret {:keys [kind content tags at] :or {kind 1 content "" tags []}}]
-  (let [event {"pubkey"     (secp256k1/public-key secret)
-               "created_at" at
-               "kind"       kind
-               "tags"       (vec tags)
-               "content"    content}
-        id    (nostr/event-id event)]
-    (assoc event "id" id "sig" (secp256k1/sign secret id (bytes/hex (bytes/of (repeat 32 7)))))))
+  (nostr/signed {"created_at" at "kind" kind "tags" (vec tags) "content" content}
+                secret
+                (bytes/hex (bytes/of (repeat 32 7)))))
+
+(defn invoice
+  "A BOLT 11 invoice for 50 sats whose payment hash is the SHA-256 of
+  `preimage`, hexadecimal text of 32 bytes. Its data are the time, the
+  payment hash, and a signature of zeros, so no wallet pays it."
+  [preimage]
+  (let [hash  (bytes/sha256 (bytes/from-hex preimage))
+        bits  (concat (for [i (range 32), j [7 6 5 4 3 2 1 0]]
+                        (bit-and 1 (bit-shift-right (bytes/at hash i) j)))
+                      [0 0 0 0])
+        words (map #(reduce (fn [acc bit] (+ (* 2 acc) bit)) 0 %) (partition 5 bits))]
+    (bech32/of-words "lnbc500n" (concat [1 12 18 31 28 25 2] [1 1 20] words (repeat 104 0)))))
 
 (defn view
   "A view of all of the bytes `xs`."
@@ -236,6 +247,93 @@
      (with-server {"/episode" {:body b :ranges? ranges?}}
                   (when log #(swap! log conj (:range %)))
                   #(f (str % "/episode")))))
+
+#?(:clj
+   (defn- frame
+     "The frame of a WebSocket for the text `s`, as a server sends it."
+     ^bytes [^String s]
+     (let [payload (.getBytes s "UTF-8")
+           n       (alength payload)
+           header  (cond
+                     (< n 126)   [0x81 n]
+                     (< n 65536) [0x81 126 (quot n 256) (mod n 256)]
+                     :else       (into [0x81 127] (map #(mod (quot n (long (Math/pow 256 %))) 256) (range 7 -1 -1))))]
+       (byte-array (concat (map unchecked-byte header) payload)))))
+
+#?(:clj
+   (defn- read-frame
+     "The next frame of the client on `in`, as `[opcode text]`. Nil at the
+     end of the stream."
+     [^InputStream in]
+     (let [b0 (.read in)
+           b1 (.read in)]
+       (when-not (or (neg? b0) (neg? b1))
+         (let [short (bit-and b1 0x7f)
+               n     (case short
+                       126 (+ (* 256 (.read in)) (.read in))
+                       127 (reduce (fn [acc _] (+ (* 256 acc) (.read in))) 0 (range 8))
+                       short)
+               mask  (vec (repeatedly 4 #(.read in)))
+               data  (.readNBytes in (int n))]
+           [(bit-and b0 0x0f)
+            (String. (byte-array (map-indexed (fn [i b] (unchecked-byte (bit-xor (bit-and b 0xff) (mask (mod i 4))))) data))
+                     "UTF-8")])))))
+
+#?(:clj
+   (defn- handshake
+     "Reads the request of a client on `in`, and answers on `out` as a
+     server of WebSockets answers, by RFC 6455."
+     [^InputStream in ^OutputStream out]
+     (let [request (loop [text ""]
+                     (if (str/ends-with? text "\r\n\r\n")
+                       text
+                       (recur (str text (char (.read in))))))
+           key     (second (re-find #"(?i)sec-websocket-key: *(\S+)" request))
+           accept  (.encodeToString (Base64/getEncoder)
+                                    (.digest (MessageDigest/getInstance "SHA-1")
+                                             (.getBytes (str key "258EAFA5-E914-47DA-95CA-C5AB0DC85B11") "UTF-8")))]
+       (.write out (.getBytes (str "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                                   "Sec-WebSocket-Accept: " accept "\r\n\r\n")
+                              "UTF-8"))
+       (.flush out))))
+
+#?(:clj
+   (defn with-relay
+     "Call `f` with the URL of a relay of Nostr on localhost. The relay
+     answers each REQ with the messages that `(answer filters)` gives, and
+     each EVENT with those that `(answer event)` gives. `log`, an atom,
+     gets each message of the client."
+     [answer log f]
+     (let [server (ServerSocket. 0 5 (InetAddress/getByName "127.0.0.1"))
+           serve  (fn [^Socket socket]
+                    (let [in  (.getInputStream socket)
+                          out (.getOutputStream socket)]
+                      (handshake in out)
+                      (loop []
+                        (when-let [[opcode text] (read-frame in)]
+                          (when (= 1 opcode)
+                            (swap! log conj (json/read-str text))
+                            (let [[kind x & filters] (json/read-str text)]
+                              (doseq [message (case kind
+                                                "REQ"   (answer (vec filters))
+                                                "EVENT" (answer x)
+                                                [])]
+                                (.write out (frame message)))
+                              (.flush out))
+                            (recur))))))
+           served (future
+                    (while (not (.isClosed server))
+                      ;; a client that has enough leaves while the relay still sends
+                      (try
+                        (with-open [socket (.accept server)]
+                          (serve socket))
+                        (catch Exception _
+                          nil))))]
+       (try
+         (f (str "ws://127.0.0.1:" (.getLocalPort server)))
+         (finally
+           (.close server)
+           (future-cancel served))))))
 
 #?(:clj
    (def corpus-feeds

@@ -1108,14 +1108,33 @@ to a relay too, because a name of NIP-19 can name any relay.
 they answered. The relays are a choice of the app, so `:relays` replaces
 them.
 
+An app also writes events, for its requests to a wallet. `signed` gives
+an event the public key of its author, its id and its signature. `call!`
+gives a relay such an event as `:event`. The subscription for the answer
+is there before the event goes out, and the exchange ends at the first
+event that comes. The relay tells whether it took the event, and the
+response has that as `:accepted?` or `:refused`.
+
+A request to a wallet is secret, so its content is encrypted. `nip44` has
+the encrypted payloads of NIP-44, in version 2. The two sides share a key,
+which each side gets from its own secret key and the public key of the
+other side. `secp256k1/shared-x` gives the start of that key. ChaCha20
+encrypts the text, and an HMAC tells when somebody changed the payload.
+The Web Crypto API has no ChaCha20, so `chacha20` has the cipher of RFC
+8439 for both platforms. It passes the examples of the RFC, and on the JVM
+the tests compare it with the cipher of the JDK. `nip44` passes the test
+vectors that the authors of NIP-44 publish.
+
 
 ## Value for value
 
 A listener can pay a show while they listen, and send a message with the
 payment. The `podcast:value` block of a feed names the recipients and
-their splits. podcast-clj divides an amount between them, and it makes no
-payment. The wallet of the app pays. podcast-clj writes and reads what
-goes with a payment, and asks Lightning addresses for invoices.
+their splits. podcast-clj divides an amount between them, and a wallet
+pays. It is the wallet of the app, or the wallet of the listener, which
+podcast-clj asks through Nostr Wallet Connect or WebLN. podcast-clj
+writes and reads what goes with a payment, and asks Lightning addresses
+for invoices.
 
 A payment is one map for each way to send it. Its amounts are in
 millisatoshis, as the formats count them. Most of its other keys are the
@@ -1178,6 +1197,94 @@ the types below 65536. The Lightning protocol keeps those types for itself.
 The tests run on the records of the bLIP-10 document and on the examples
 of BOLT 11. They also run on the answers that six services gave about their
 own addresses.
+
+### The wallet of the listener
+
+A listener can pay from the own wallet. Nostr Wallet Connect, which NIP-47
+defines, takes the commands of an app to a wallet over a relay of Nostr.
+The wallet makes a connection URI with a secret key for the app, and the
+listener gives the URI to the app. `value.nwc` reads the URI, writes the
+commands as data, and reads the answers. `ask!` sends a command and
+waits for the answer. The relay sees the kind of each event and the two
+public keys. It does not see the command, because NIP-44 encrypts it.
+
+NIP-47 has the commands of invoices. The command of keysend is in the
+extension NWC-04, in the repository nostr-wallet-connect/nwc. A wallet
+names the commands that it takes in its info event. So `ask!` reads that
+event first, and sends no command that the wallet does not take.
+
+podcast-clj writes the encryption of NIP-44 only. NIP-47 keeps the
+encryption of NIP-04 for old wallets. NIP-04 has no check of a change,
+and its own text tells not to use it for secrets. A wallet that reads
+only NIP-04 gives `:value/wallet-unsupported`.
+
+A payment must not go out twice. `ask!` gives a command to one relay.
+The event of the command goes out when the relay has the subscription
+for the answer. So a relay that refuses the subscription gets no event.
+The next relay gets the event only when it did not leave the app, or when
+the relay refused it. Each request expires after the time that the app
+waits for the answer. When no answer comes in that time, the result is
+`:value/wallet-silent`, of level `:error`. The wallet can still pay until
+the request expires. So the app waits for that instant, and then asks the
+wallet whether it paid.
+
+In a browser, a wallet can give the page a WebLN provider. `value.webln`
+calls the provider, in ClojureScript only. WebLN counts a keysend payment
+in whole sats. So `keysend-args` takes the whole sats of an amount, and
+the bLIP-10 record tells the amount that goes out. The custom records of
+WebLN are text, and those of Nostr Wallet Connect are hexadecimal. Both
+come from `value/records`.
+
+The connection URI is a secret of the listener, and podcast-clj keeps it
+in no place. An app keeps it as it keeps a password. A URI can also come
+from a stranger, and it names the relays. So `ask!` sends nothing to the
+network of the app, unless the app allows it with `:allow?`.
+
+A map that is printed shows each of its values, and a log prints maps. So
+`parse` hides the secret key of a connection with `secret/hide`. `pr`,
+`str` and the pretty printer write a hidden text as `#<secret>`, on both
+platforms, and the reader does not read that text. `nwc/uri` gives the
+text with the secret, for the store of the app. `secret` keeps a text
+from a print by accident. A debugger and the console of a browser show
+the fields of an object, so they show the text.
+
+The preimage of a payment is its proof. The recipient gives it to the
+wallet when the payment arrives, and its SHA-256 is the payment hash of
+the invoice. `lnaddress/payment-hash` reads the hash from an invoice, as
+BOLT 11 defines it, and `lnaddress/proves?` checks a preimage. `ask!` and
+`webln/pay-invoice!` put the result in their answer as `:proven?`. A
+false `:proven?` is no error. The wallet tells that it paid, so a second
+payment can be one too many.
+
+The table tells what each party can do to a payment, and what stops it.
+
+| Who | What they can do | What stops it, or what is left |
+|---|---|---|
+| A relay | Read the kind, the two public keys, the time and the size of each event | Nothing. NIP-44 adds padding, so the size tells little. |
+| A relay | Read or change a command or an answer | NIP-44 encrypts the content, and the signature of the event covers it. |
+| A relay | Answer in the place of the wallet, or give an old answer again | `answer` takes only the signed event of the wallet, encrypted for this connection. `ask!` takes only the answer to its own request. |
+| A relay | Hold back the answer, so that the listener pays again | `:value/wallet-silent` tells that the request went out, and until when the wallet can pay. |
+| A relay, or who reads a relay | Give the wallet the same request again | The request expires. A wallet knows an event by its id, and podcast-clj trusts the wallet to do one event once. |
+| A relay | Refuse the subscription, and take the event | The event goes out after the relay tells that it has the subscription. |
+| A feed | Name the recipients and their shares | Nothing. The app shows them to the listener before the payment. |
+| A feed | Put a custom record in the place of the record of the payment | `value/records` leaves out the types that the Lightning protocol keeps. |
+| A feed | Make a command too large, with a long title | `:value/command-too-large`, and no request goes out. |
+| The service of a Lightning address | Give an invoice for a higher amount | `lnaddress/invoice` checks the amount: `:value/wrong-amount`. |
+| Who writes a connection URI | Name a relay on the network of the app | `:allow?` is `nostr/public?`. |
+| Who writes a connection URI | Name a Lightning address of their own as `:lud16` | The app asks the listener before it uses the address. |
+| A wallet | Tell that it paid, without a payment | A result without a preimage is no payment. For an invoice, `ask!` checks the preimage against the payment hash of the invoice, and the answer has `:proven?`. A keysend payment has no such proof. |
+| Who reads the logs of the app | Find the secret of a connection | podcast-clj puts the secret in no event, no diagnostic and no exception. A connection hides its secret, so a connection that is printed shows `#<secret>`. |
+| Who reads the store of the app | Find the URI of a connection | Nothing in podcast-clj. The app keeps the text of `nwc/uri` where it keeps passwords. |
+| Who measures the time of the app | Learn bits of the secret from many signatures | `sign` and `shared-x` do not take constant time. An app signs only when the listener pays. |
+
+The numbers of `secp256k1` are those of the platform, and their
+arithmetic does not take constant time. So an app does not sign for a
+stranger who asks again and again and measures the time.
+
+The tests have a wallet service that is made of the functions of
+podcast-clj. On the JVM, a command also goes to that wallet over a relay
+on localhost. No test and no page of the inspector went to a wallet with
+money.
 
 
 ## Analytics
@@ -1545,7 +1652,12 @@ shows the resolved properties and their sources. The front page searches the
 directories, and the Podping page reads the chain. The comments page of an
 episode reads its thread. It reads AT Protocol threads from the public
 AppView of Bluesky. The thread page reads the comments below any post, by
-the address of the post.
+the address of the post. The wallet page takes a connection URI of Nostr
+Wallet Connect. It shows what the wallet takes and what it holds, and it
+pays a boost for an episode, a share for each recipient. It gets the URI
+as the post of a form, uses it for that request, and keeps it nowhere.
+A form that pays has a token, and a token pays once. So a browser that
+sends the form again pays nothing.
 
 The queue page has a small player in ClojureScript, over `app.player`. The
 player state is in localStorage, and Replicant renders it into a bar on
@@ -1655,8 +1767,11 @@ the JSON of these requests from the body-params interceptor.
 - A lenient XML parser for JavaScript.
 - A folder store for Node.
 - The release to Clojars.
+- The encryption of NIP-04 for wallets that have no NIP-44, because
+  NIP-04 is deprecated and has no check of a change.
+- The extensions of Nostr Wallet Connect other than keysend: the
+  notifications, the hold invoices, the history of payments, and the
+  offers of BOLT 12.
 
-[Podcast features outside podcast-clj](feature-gaps.md) tells about each
-of the features below, and which part of it fits a library:
-
-- Payments through the wallet of the listener, with WebLN and NWC.
+[Podcast features outside podcast-clj](feature-gaps.md) tells about the
+features that fit no library.

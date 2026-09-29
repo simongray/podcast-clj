@@ -24,6 +24,8 @@
   page."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.async :as async]
+            [dk.simongray.podcast.bech32 :as bech32]
+            [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
@@ -187,6 +189,12 @@
                   (http/query-string {"amount" msat "comment" (sent-comment terms comment)}))
     :headers {"Accept" "application/json"}}))
 
+(def ^:no-doc max-invoice-length
+  "The most characters of an invoice that podcast-clj reads: the most
+  digits that one QR code holds. BOLT 11 gives no limit, so the limit is a
+  choice."
+  7089)
+
 (def ^:no-doc networks
   "The network of each prefix of a BOLT 11 invoice."
   {"bc" :bitcoin "tb" :testnet "tbs" :signet "bcrt" :regtest "sb" :simnet})
@@ -207,7 +215,7 @@
   signature: the wallet checks the invoice when it pays."
   [invoice]
   (when (and (string? invoice)
-             (<= (count invoice) 7089)
+             (<= (count invoice) max-invoice-length)
              (or (= invoice (str/lower-case invoice)) (= invoice (str/upper-case invoice))))
     (when-let [[_ prefix digits unit] (re-matches #"ln(bcrt|bc|tbs|tb|sb)(?:([1-9][0-9]{0,15})([munp]?))?1[02-9ac-hj-np-z]{6,}"
                                                   (str/lower-case invoice))]
@@ -221,6 +229,62 @@
           :else         (let [n (parse-long digits)]
                           (when (and n (<= n (quot 9007199254740991 (multipliers unit))))
                             {:network network :msat (* n (multipliers unit))})))))))
+
+(defn- tagged-fields
+  "The tagged fields in the data `words` of an invoice, numbers of five
+  bits, as `[type data]` in their order. Nil for data that are not those
+  of an invoice.
+
+  The section Data Part of BOLT 11 defines the data: a time of 7 numbers,
+  the tagged fields, and a signature of 104 numbers. A field is a type,
+  a length of two numbers and its data."
+  [words]
+  (let [end (- (count words) 104)]
+    (loop [i 7 out []]
+      (cond
+        (= i end)       out
+        (< end (+ i 3)) nil
+        :else
+        (let [n    (long (+ (* 32 (nth words (+ i 1))) (nth words (+ i 2))))
+              next (+ i 3 n)]
+          (when (<= next end)
+            (recur next (conj out [(nth words i) (subvec words (+ i 3) next)]))))))))
+
+(defn- whole-bytes
+  "The whole bytes in the numbers of five bits `words`, the highest bit
+  first, in hexadecimal."
+  [words]
+  (let [bits (for [w words, i [4 3 2 1 0]] (bit-and 1 (bit-shift-right w i)))]
+    (bytes/hex (bytes/of (map #(reduce (fn [acc bit] (+ (* 2 acc) bit)) 0 %) (partition 8 bits))))))
+
+(defn payment-hash
+  "The payment hash of the BOLT 11 `invoice`, as hexadecimal text of 32
+  bytes. Nil for a text that is no invoice with one payment hash.
+
+  The hash is the tagged field p, with 52 numbers of five bits, as the
+  section Tagged Fields of BOLT 11 defines it. The reader checks the
+  checksum of the invoice. It reads no signature, because the wallet
+  checks the invoice when it pays."
+  [invoice]
+  (when (invoice-amount invoice)
+    (when-let [fields (some-> (bech32/words invoice {:max-length max-invoice-length}) :words tagged-fields)]
+      (let [hashes (filter #(= 1 (first %)) fields)]
+        (when (and (= 1 (count hashes)) (= 52 (count (second (first hashes)))))
+          (whole-bytes (second (first hashes))))))))
+
+(defn proves?
+  "Whether `preimage` is the proof that somebody paid the BOLT 11
+  `invoice`. It is when its SHA-256 is the payment hash of the invoice.
+
+  A wallet gets the preimage from the recipient when the payment arrives,
+  and no one can guess it. `preimage` is hexadecimal text of 32 bytes.
+  False for another text, and for an invoice without a payment hash that
+  `payment-hash` reads."
+  [preimage invoice]
+  (boolean (and (string? preimage)
+                (re-matches #"[0-9a-fA-F]{64}" preimage)
+                (when-let [hash (payment-hash invoice)]
+                  (= hash (bytes/hex (bytes/sha256 (bytes/from-hex preimage))))))))
 
 (defn- success-action
   "The success action `a` of an answer to a request to `callback`, as

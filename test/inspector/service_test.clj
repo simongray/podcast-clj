@@ -8,6 +8,11 @@
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
+            [dk.simongray.podcast.nip44 :as nip44]
+            [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.secp256k1 :as secp256k1]
+            [dk.simongray.podcast.test-support :refer [secret-key with-relay]]
+            [dk.simongray.podcast.value.nwc :as nwc]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))
 
@@ -343,3 +348,105 @@
         (when (= 404 status)
           (is (str/includes? body "compile player"))))
       (is (= 404 (:status (get* "/js/../deps.edn")))))))
+
+(def wallet-secret (secret-key 9))
+(def app-secret (secret-key 7))
+
+(defn- wallet-answer
+  "What a relay with a wallet of play money answers to `x`, the filters of
+  a request or an event. `seen` gets each command. The wallet pays each
+  keysend payment, and no invoice."
+  [seen x]
+  (let [eose (json/write-str ["EOSE" nostr/subscription])
+        hex  (apply str (repeat 64 "7"))]
+    (cond
+      (and (vector? x) (= [13194] (get (first x) "kinds")))
+      [(json/write-str ["EVENT" nostr/subscription
+                        (nostr/signed {"kind" 13194 "created_at" 1790000000 "tags" [["encryption" "nip44_v2"]]
+                                       "content" "pay_keysend get_balance"}
+                                      wallet-secret hex)])
+       eose]
+
+      (vector? x)
+      [eose]
+
+      :else
+      (let [shared  (nip44/conversation-key wallet-secret (get x "pubkey"))
+            command (json/read-str (nip44/decrypt (get x "content") shared))
+            body    {"result_type" (get command "method")
+                     "result"      (case (get command "method")
+                                     "get_balance" {"balance" 21000000}
+                                     "pay_keysend" {"preimage" "0123456789abcdef" "fees_paid" 1000})}]
+        (swap! seen conj command)
+        [(json/write-str ["OK" (get x "id") true ""])
+         (json/write-str ["EVENT" nostr/subscription
+                          (nostr/signed {"kind" 23195 "created_at" 1790000001
+                                         "tags" [["p" (get x "pubkey")] ["e" (get x "id")]]
+                                         "content" (nip44/encrypt (json/write-str body) shared hex)}
+                                        wallet-secret hex)])]))))
+
+(defn- post*
+  "POST the form `params` to `path`, as a browser sends a form."
+  [path params]
+  (response-for @connector :post path
+                :headers {"content-type" "application/x-www-form-urlencoded"}
+                :body (str/join "&" (for [[k v] params]
+                                      (str k "=" (java.net.URLEncoder/encode (str v) "UTF-8"))))))
+
+(deftest the-wallet-page
+  (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})]
+    (let [episode ["url" "https://example.com/one.xml" "guid" "https://example.com/ep0003"]]
+      (testing "the form, and the form of a boost for an episode"
+        (let [{:keys [status body]} (get* "/wallet")]
+          (is (= 200 status))
+          (is (str/includes? body "type=\"password\""))
+          (is (not (str/includes? body "name=\"sats\""))))
+        (let [body (:body (apply get* "/wallet" episode))]
+          (is (str/includes? body "name=\"sats\""))
+          (is (str/includes? body "podcaster") "the recipients of the value block"))
+        (is (str/includes? (:body (apply get* "/item" episode)) "/wallet?url=") "an episode with a value block links to its boost"))
+      (testing "a text that is no connection"
+        (let [{:keys [status body]} (post* "/wallet" {"uri" "nostr+walletconnect://abc?secret=s3cr3t"})]
+          (is (= 200 status))
+          (is (str/includes? body "is no connection URI"))
+          (is (not (str/includes? body "s3cr3t")))))
+      (let [seen (atom [])]
+        (with-relay #(wallet-answer seen %) (atom [])
+          (fn [relay]
+            (let [uri (nwc/uri {:wallet (secp256k1/public-key wallet-secret) :relays [relay] :secret app-secret})]
+              (testing "what the wallet takes and what it holds"
+                (let [{:keys [status body]} (post* "/wallet" {"uri" uri})]
+                  (is (= 200 status))
+                  (is (str/includes? body "pay_keysend, get_balance"))
+                  (is (str/includes? body "21000 sats"))
+                  (is (str/includes? body "Not asked") "the wallet does not take get_info, so the inspector does not ask")
+                  (is (str/includes? body (secp256k1/public-key app-secret)))
+                  (is (not (str/includes? body app-secret)) "the page has no part of the secret")
+                  (is (= ["get_balance"] (map #(get % "method") @seen)))))
+              (testing "a boost for an episode"
+                (reset! seen [])
+                (let [form  (into {"uri" uri "sats" "1000" "message" "Thanks"} (map vec (partition 2 episode)))
+                      token #(second (re-find #"name=\"token\" value=\"([0-9a-f]{32})\"" %))
+                      first (:body (apply get* "/wallet" episode))
+                      body  (:body (post* "/wallet" (assoc form "token" (token first))))
+                      paid  (filter #(= "pay_keysend" (get % "method")) @seen)]
+                  (testing "a form pays once"
+                    (let [sent (count @seen)]
+                      (doseq [again [(assoc form "token" (token first)) form (assoc form "token" "abc")]]
+                        (is (str/includes? (:body (post* "/wallet" again)) "The inspector paid nothing")))
+                      (is (= [] (filter #(= "pay_keysend" (get % "method")) (drop sent @seen))))
+                      (is (not= (token first) (token body)) "the page of the answer has a form with a token of its own")))
+                  (is (str/includes? body "A boost of 1000 sats"))
+                  (is (= 3 (count (re-seq #"Paid, with a fee of 1 sat<" body))))
+                  (is (not (str/includes? body app-secret)))
+                  (is (= [490000 10000 500000] (map #(get-in % ["params" "amount"]) paid))
+                      "the splits 49, 1 and 50 of the value block of the episode")
+                  (is (= ["036557ea56b3b86f08be31bcd2557cae8021b0e3a9413f0c0e52625c6696972e57"
+                          "036557ea56b3b86f08be31bcd2557cae8021b0e3a9413f0c0e52625c6696972e57"
+                          "02e12fea95f576a680ec1938b7ed98ef0855eadeced493566877d404e404bfbf52"]
+                         (map #(get-in % ["params" "pubkey"]) paid)))
+                  (is (some #{"get_balance"} (map #(get % "method") (drop 3 @seen))) "the balance after the payments")))
+              (testing "no amount, no payment"
+                (reset! seen [])
+                (post* "/wallet" (into {"uri" uri "sats" ""} (map vec (partition 2 episode))))
+                (is (= ["get_balance"] (map #(get % "method") @seen)))))))))))

@@ -41,7 +41,8 @@
 (defn- with-relay
   "A promise of what `f` gives for the URL of a relay on localhost. The
   relay answers each REQ with the messages that `(answer filters)` gives,
-  and `log` gets each message of the client."
+  and each EVENT with those that `(answer event)` gives. `log` gets each
+  message of the client."
   [answer log f]
   (js/Promise.
    (fn [resolve reject]
@@ -61,11 +62,13 @@
                      (fn [chunk]
                        (doseq [[opcode text] (frames chunk)]
                          (case opcode
-                           1 (let [[kind _ & filters :as message] (json/read-str text)]
+                           1 (let [[kind x & filters :as message] (json/read-str text)]
                                (swap! log conj message)
-                               (when (= "REQ" kind)
-                                 (doseq [m (answer (vec filters))]
-                                   (.write socket (frame m)))))
+                               (doseq [m (case kind
+                                           "REQ"   (answer (vec filters))
+                                           "EVENT" (answer x)
+                                           [])]
+                                 (.write socket (frame m))))
                            8 (.end socket)
                            nil)))))))
        (.listen server 0 "127.0.0.1"
@@ -114,5 +117,58 @@
                    (-> (nostr/call! {:url "ws://127.0.0.1:1" :filters [{}] :timeout-seconds 2})
                        (.then #(is false (str "an answer of a relay that is not there: " (pr-str %)))
                               #(is (= ::nostr/failed (:type (ex-data %))))))))
+          (.catch #(is false (str "rejected: " %)))
+          (.finally done)))))
+
+(deftest an-event-for-a-relay
+  (async done
+    (let [log     (atom [])
+          ann     (secret-key 1)
+          bob     (secret-key 2)
+          ok      (fn [event accepted? reason] (json/write-str ["OK" (get event "id") accepted? reason]))
+          eose    (json/write-str ["EOSE" nostr/subscription])
+          reply   (fn [event] (signed bob {:kind 23195 :at 1790000001 :tags [["e" (get event "id")]] :content "done"}))
+          closed  (json/write-str ["CLOSED" nostr/subscription "auth-required: tell who you are"])
+          answer  (fn [x]
+                    (cond
+                      (and (vector? x) (= ["closed"] (get (first x) "#t"))) [closed]
+                      (and (vector? x) (= ["mute"] (get (first x) "#t")))   []
+                      (vector? x)                                           [eose]
+                      (= "refuse" (get x "content"))                        [(ok x false "blocked: not on the list")]
+                      (= "silent" (get x "content"))                        [(ok x true "")]
+                      :else [(ok x true "") (json/write-str ["EVENT" nostr/subscription (reply x)])]))
+          request (fn [url content]
+                    (let [event (signed ann {:kind 23194 :at 1790000000 :content content})]
+                      {:url             url
+                       :event           event
+                       :filters         [{"kinds" [23195] "#e" [(get event "id")] "#t" [content]}]
+                       :timeout-seconds 2}))
+          events  (fn [] (filter #(= "EVENT" (first %)) @log))]
+      (-> (with-relay answer log
+            (fn [url]
+              (let [{:keys [event filters] :as asked} (request url "pay")]
+                (-> (nostr/call! asked)
+                    (.then (fn [response]
+                             (is (= {:url url :complete? true :sent? true :accepted? true :events [(reply event)]} response))
+                             (is (= [(into ["REQ" nostr/subscription] filters) ["EVENT" event]] (take 2 @log))
+                                 "the relay has the subscription before the event goes out")
+                             (nostr/call! (request url "refuse"))))
+                    (.then (fn [response]
+                             (is (= {:url url :complete? true :sent? true :events [] :refused "blocked: not on the list"} response))
+                             (nostr/call! (assoc (request url "silent") :timeout-seconds 1))))
+                    (.then (fn [response]
+                             (is (= {:url url :complete? true :sent? true :accepted? true :events [] :timeout? true} response))
+                             (reset! log [])
+                             (nostr/call! (request url "closed"))))
+                    (.then (fn [response]
+                             (is (= {:url url :events [] :closed "auth-required: tell who you are"} response))
+                             (is (empty? (events)) "a relay that refuses the subscription gets no event")
+                             (nostr/call! (assoc (request url "mute") :timeout-seconds 1))))
+                    (.then (fn [response]
+                             (is (= {:url url :events [] :timeout? true} response))
+                             (is (empty? (events)) "a relay that does not tell that it has the subscription gets no event")
+                             (nostr/call! (dissoc (request url "silent") :filters))))
+                    (.then (fn [response]
+                             (is (= {:url url :sent? true :accepted? true :events []} response))))))))
           (.catch #(is false (str "rejected: " %)))
           (.finally done)))))

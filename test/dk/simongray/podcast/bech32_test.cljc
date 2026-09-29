@@ -67,3 +67,20 @@
       (is (nil? (bech32/decode text {:max-length (dec (count text))})))))
   (doseq [x [nil 5 "" "1" :npub []]]
     (is (nil? (bech32/decode x)) (pr-str x))))
+
+(deftest data-that-are-no-whole-bytes
+  (testing "the numbers of five bits of a text, without its checksum"
+    (is (= {:prefix "a" :words []} (bech32/words "A12UEL5L")))
+    (is (= {:prefix "abcdef" :words (vec (range 32))}
+           (bech32/words "abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw")))
+    (is (= "abcdef1qpzry9x8gf2tvdw0s3jn54khce6mua7lmqqqxw" (bech32/of-words "ABCDEF" (range 32)))))
+  (testing "numbers that make no whole bytes have a text, and the text has no bytes"
+    (let [text (bech32/of-words "test" [31 0 31])]
+      (is (= {:prefix "test" :words [31 0 31]} (bech32/words text)))
+      (is (nil? (bech32/decode text)))))
+  (doseq [n [0 1 7 8 52 111 400]]
+    (let [words (mapv #(mod (* 11 %) 32) (range n))
+          text  (bech32/of-words "lnbc" words)]
+      (is (= {:prefix "lnbc" :words words} (bech32/words text {:max-length 1000})) (str n " numbers"))))
+  (doseq [x [nil 5 "" "1" "a12uel5m" "A12uEL5L"]]
+    (is (nil? (bech32/words x)) (pr-str x))))

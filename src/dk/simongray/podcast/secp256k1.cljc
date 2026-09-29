@@ -3,12 +3,13 @@
   on both platforms. Nostr signs each event with such a signature.
 
   `verify` checks a signature, `sign` makes one, and `public-key` gives
-  the public key of a secret key. Each key, message and signature is
-  hexadecimal text, which is how Nostr writes them.
+  the public key of a secret key. `shared-x` gives what two owners of keys
+  share, which is the start of an encrypted exchange. Each key, message
+  and signature is hexadecimal text, which is how Nostr writes them.
 
   `verify` reads no secret key, so the time that it takes tells nothing
-  that is secret. The time that `sign` and `public-key` take depends on
-  the secret key.
+  that is secret. The time that `sign`, `public-key` and `shared-x` take
+  depends on the secret key.
 
   The numbers are BigInteger on the JVM and BigInt in JavaScript. A point
   of the curve is `[x y z]` in Jacobian coordinates, and nil is the point
@@ -371,6 +372,32 @@
   [secret-key]
   (when-let [d (secret secret-key)]
     (hex32 (first (multiplied d)))))
+
+(defn public-key?
+  "Whether `x` is a public key of BIP-340: hexadecimal text of 32 bytes
+  that is the x coordinate of a point of the curve."
+  [x]
+  (boolean (and (string? x)
+                (re-matches #"[0-9a-fA-F]{64}" x)
+                (lifted (big (str/lower-case x))))))
+
+(defn shared-x
+  "The x coordinate of the point that the owner of `secret-key` shares
+  with the owner of `public-key`, as hexadecimal text of 32 bytes. Nil
+  for a text that is no key, and for a public key that is no point of the
+  curve.
+
+  The point is the secret number times the point of the public key, which
+  is the key agreement of Diffie and Hellman on the curve. The two owners
+  get the same point, each from the own secret key and the public key of
+  the other. NIP-44 uses the x coordinate as it is, without a hash.
+
+  The time that `shared-x` takes depends on the secret key."
+  [secret-key public-key]
+  (when-let [d (secret secret-key)]
+    (when (public-key? public-key)
+      (let [point (lifted (big (str/lower-case public-key)))]
+        (some-> (affine (summed [(by-point d point)])) first hex32)))))
 
 (defn sign
   "The signature of the message `message` with the secret key

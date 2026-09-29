@@ -8,8 +8,9 @@
 
   `decode` reads a text and `encode` writes one. The data are bytes, and
   the section Segwit address format of BIP-173 tells how eight bits go
-  into characters of five bits. Bech32m, the checksum of BIP-350, is not
-  here."
+  into characters of five bits. `words` and `of-words` read and write the
+  data as numbers of five bits, for data that are no whole bytes. Bech32m,
+  the checksum of BIP-350, is not here."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.bytes :as bytes]))
 
@@ -68,14 +69,18 @@
           pad?                             out
           (and (< bits from) (zero? acc))  out)))))
 
-(defn decode
-  "The prefix and the data of the Bech32 text `s`, as `{:prefix :bytes}`.
-  Nil for a text that is not Bech32, or that has a wrong checksum.
+(defn words
+  "The prefix and the data of the Bech32 text `s`, as `{:prefix :words}`.
+  The data are numbers of five bits, one for each character, without the
+  checksum. Nil for a text that is not Bech32, or that has a wrong
+  checksum.
 
   The prefix is in lower case. `opts` can give `:max-length`, the most
-  characters of the text, in the place of `max-length`."
+  characters of the text, in the place of `max-length`. The data of a
+  BOLT 11 invoice are no whole bytes, so a reader of invoices takes the
+  numbers."
   ([s]
-   (decode s {}))
+   (words s {}))
   ([s opts]
    {:pre [(map? opts)]}
    (when (and (string? s)
@@ -90,18 +95,37 @@
                   (<= 6 (count data))
                   (every? some? data)
                   (= 1 (polymod (concat (expanded prefix) data))))
-         (when-let [octets (regrouped (drop-last 6 data) 5 8 false)]
-           {:prefix prefix :bytes (bytes/of octets)}))))))
+         {:prefix prefix :words (vec (drop-last 6 data))})))))
+
+(defn of-words
+  "The Bech32 text of the prefix `prefix` and the numbers of five bits
+  `words`, in lower case, with its checksum."
+  [prefix words]
+  (let [prefix (str/lower-case prefix)
+        sum    (bit-xor 1 (polymod (concat (expanded prefix) words [0 0 0 0 0 0])))
+        check  (map #(bit-and (bit-shift-right sum (* 5 (- 5 %))) 31) (range 6))]
+    (str prefix "1" (apply str (map #(nth charset %) (concat words check))))))
+
+(defn decode
+  "The prefix and the data of the Bech32 text `s`, as `{:prefix :bytes}`.
+  Nil for a text that is not Bech32, that has a wrong checksum, or whose
+  data are no whole bytes.
+
+  The prefix is in lower case. `opts` can give `:max-length`, the most
+  characters of the text, in the place of `max-length`."
+  ([s]
+   (decode s {}))
+  ([s opts]
+   {:pre [(map? opts)]}
+   (when-let [{:keys [prefix words]} (words s opts)]
+     (when-let [octets (regrouped words 5 8 false)]
+       {:prefix prefix :bytes (bytes/of octets)}))))
 
 (defn encode
   "The Bech32 text of the prefix `prefix` and the bytes `b`, in lower
   case."
   [prefix b]
-  (let [prefix (str/lower-case prefix)
-        data   (regrouped (map #(bytes/at b %) (range (bytes/length b))) 8 5 true)
-        sum    (bit-xor 1 (polymod (concat (expanded prefix) data [0 0 0 0 0 0])))
-        check  (map #(bit-and (bit-shift-right sum (* 5 (- 5 %))) 31) (range 6))]
-    (str prefix "1" (apply str (map #(nth charset %) (concat data check))))))
+  (of-words prefix (regrouped (map #(bytes/at b %) (range (bytes/length b))) 8 5 true)))
 
 (comment
   ;; the example of NIP-19: a public key of Nostr

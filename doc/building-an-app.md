@@ -976,6 +976,84 @@ The feeds choose the domains that `invoice!` and `node!` ask, so they send
 nothing to the network of your app. The page of the metadata is public,
 so the name of the sender and the message are public too.
 
+### Pay from the wallet of the listener
+
+A listener with a wallet of their own gives your app a connection URI of
+Nostr Wallet Connect. The wallet makes the URI, often with a budget.
+`nwc/parse` reads it. The URI holds a secret key, and who has it can spend
+from the wallet. Keep it as you keep a password, and show it to nobody.
+
+```clojure
+(def connection (nwc/parse "nostr+walletconnect://b889…?relay=wss%3A%2F%2Frelay.example&secret=…"))
+connection                         ; => {:wallet "b889…" :relays ["wss://relay.example"] :secret #<secret>}
+(nwc/uri connection)               ; the text with the secret, for the store of your app
+(def info (nwc/info! connection))  ; => {:methods ["pay_invoice" "pay_keysend" …] :encryption ["nip44_v2"]}
+```
+
+Ask for the info once, and give it to each `ask!` as `:info`. Pay a node
+with `pay-keysend`, and the invoice of a Lightning address with
+`pay-invoice`.
+
+```clojure
+(def command (nwc/pay-keysend (assoc payment :sats 50) recipient))
+(value/report command)                       ; => [], or :value/custom-record
+(nwc/ask! connection command {:info info})   ; => {:method "pay_keysend" :preimage "…" :fees-msat 1000}
+
+(nwc/ask! connection (nwc/pay-invoice (:invoice invoice)) {:info info})
+;; => {:method "pay_invoice" :preimage "…" :proven? true :fees-msat 1000}
+(nwc/ask! connection (nwc/get-balance) {:info info})   ; => {:method "get_balance" :msat 21000000}
+```
+
+The answer to `pay-invoice` has `:proven?`. It is true when the preimage
+is the proof of the invoice. When it is false, the wallet tells that it
+paid, and it gave no proof. Do not pay again then. Tell the listener, who
+knows the wallet. A keysend payment has no such proof.
+
+An answer with `:error` tells what went wrong, and each error says
+whether a payment went out:
+
+| Error | Did the request go out? | What to do |
+|---|---|---|
+| `:value/wallet-unsupported` | No | Pay in another way. The wallet does not take the command. |
+| `:value/command-too-large` | No | Cut the message of the listener. A feed can also have a title that is too long. |
+| `:value/wallet-unreachable` | No | Ask again later. No relay took the request. |
+| `:value/wallet-refused` | Yes | Show the `:reason`. The wallet did not pay, and `:code` tells why. |
+| `:value/wallet-silent` | Yes | Wait until `:expires-at`. Then ask with `nwc/lookup-invoice`. |
+| `:value/wallet-unreadable` | Yes | Ask the wallet before you pay again. |
+
+Do not send a payment again after `:value/wallet-silent`. The wallet can
+still pay until the request expires, which is after `:timeout-seconds`.
+Wait some time more, because the clocks of your app and the wallet
+differ.
+
+Keep the money of the listener safe:
+
+- Store the text of `nwc/uri` where your app stores passwords. A
+  connection hides its secret, so a connection in a log shows `#<secret>`.
+  The text of `nwc/uri` and the text of `secret/reveal` show the secret.
+- Show the recipients and the amounts before the payment. The feed
+  chooses them.
+- Show the texts of an answer as text. The wallet wrote its name and the
+  reason of an error, and HTML in them must not run.
+- Ask the listener before you use the `:lud16` of a connection. It is a
+  claim of who wrote the URI.
+- Tell the listener to give the connection a budget in the wallet. The
+  budget is the most that a lost secret costs.
+
+In a browser, a wallet can give the page a WebLN provider, as the
+extension Alby does. `value.webln` calls it, in ClojureScript. The wallet
+asks the listener before each payment.
+
+```clojure
+(webln/pay-keysend! (assoc payment :sats 50) recipient)  ; a promise of {:preimage "…" :sats 50}
+(webln/pay-invoice! (:invoice invoice))                  ; a promise of {:preimage "…" :proven? true}
+```
+
+WebLN counts a keysend payment in whole sats, so a payment of 50,500
+millisatoshis sends 50 sats. A page without a provider gets
+`:value/no-provider`. When the listener says no, the error is
+`:value/wallet-refused`.
+
 
 ## Read the payments that a show receives
 

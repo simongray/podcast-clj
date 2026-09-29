@@ -43,5 +43,14 @@ Fountain wrote, as `wss://relay.primal.net` gave it on 2026-09-29. The
 other events of the tests of Nostr are signed by the tests, with the
 secret keys 1, 2 and 3.
 
+`nostr/nip44-vectors.json` holds a part of the test vectors of NIP-44,
+from the file `nip44.vectors.json` of https://github.com/paulmillr/nip44,
+as it was on 2026-09-29. NIP-44 names that file, with its SHA-256. The
+part has 11 of the 35 conversation keys, 5 of the 33 message keys, 5 of
+the 10 payloads, and all the other vectors but the lengths of texts that
+have no payload. The three vectors under `extended_length` are from the
+text of NIP-44 itself. The repository names no license for the file of
+vectors.
+
 The corpus of real feeds is outside Git, in `dev-resources/corpus/`. See
 `dev/corpus.clj`.

@@ -411,7 +411,7 @@ record. It does not pay. These features are the steps around the payment.
 | Feature | Who has it | Verdict | Size | Status |
 |---|---|---|---|---|
 | Lightning addresses: LNURL-pay and the keysend lookup | Fountain, Castamatic, Breez, the library lightning-tools | In part | Medium | Built: `value.lnaddress` |
-| Payment through the wallet of the listener: NWC, WebLN | Fountain, Castamatic, Podverse on the web | In part | Medium | Not built |
+| Payment through the wallet of the listener: NWC, WebLN | Fountain, Castamatic, Podverse on the web | In part | Medium | Built: `value.nwc`, `value.webln` |
 | RSS Payment Metadata | Fountain, Castamatic, Helipad, BoostBox | Target | Small | Built: `value.metadata` |
 | Received boostagrams | Helipad, BoostBox | In part | Small | Built: `value/parse-boostagram` |
 | Card payments and other payment types | Fountain, and two open proposals | Out | | |

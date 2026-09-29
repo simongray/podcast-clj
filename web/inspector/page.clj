@@ -34,7 +34,8 @@
    pre{background:#f4f4f4;padding:.6rem;overflow:auto;max-height:24rem;white-space:pre-wrap}
    .error{color:#b00020} .warning{color:#a15c00} .info{color:#555}
    .muted{color:#777} .badge{display:inline-block;padding:0 .4rem;border-radius:4px;background:#e8e8e8;margin-right:.3rem;font-size:12px}
-   nav a{margin-right:1rem} form input[type=url],form input[type=search]{width:60%;padding:.4rem} form button{padding:.4rem .8rem}
+   nav a{margin-right:1rem} form input[type=url],form input[type=search],form input[type=password]{width:60%;padding:.4rem} form button{padding:.4rem .8rem}
+   form input[type=number]{width:8rem;padding:.4rem} form input[name=message]{width:40%;padding:.4rem}
    form.selection input[type=search]{width:30%} form.selection input,form.selection select{padding:.3rem}
    .results li{margin:.6rem 0} .snippet{color:#444;max-width:80ch} mark{background:#fff3a0}
    ul.compact{margin:0;padding-left:1.2rem}
@@ -104,6 +105,7 @@
            [:input {:type "text" :name "uri" :placeholder "or read the comments below a post" :required true}]
            " "
            [:button {:type "submit"} "Read"]]
+          [:p [:a {:href "/wallet"} "Connect a wallet"] [:span.muted " with Nostr Wallet Connect"]]
           (when (seq corpus)
             (list [:h2 "Corpus"]
                   [:p.muted "Real feeds from the hosting platforms the library is tested against."]
@@ -539,7 +541,9 @@
                [:a.badge {:href (into-player "now")} "Play now"]
                [:a.badge {:href (into-player "last")} "Add to queue"]
                [:a.badge {:href (into-player "next")} "Play next"]
-               [:a.badge {:href (feed-href "/comments" url {:guid guid})} "Comments"]]]]
+               [:a.badge {:href (feed-href "/comments" url {:guid guid})} "Comments"]
+               (when (resolve/value feed item)
+                 [:a.badge {:href (feed-href "/wallet" url {:guid guid})} "Boost"])]]]
             [:h2 "Description"]
             [:div.notes (html/hiccup (resolve/description item))]
             [:h2 "Media"]
@@ -811,6 +815,116 @@
 
             (not (str/blank? (str address)))
             [:p.error "The inspector does not know this address as the address of a post."])))
+
+(defn- sats-str
+  "The amount of `msat` millisatoshis in sats, as text."
+  [msat]
+  (let [sats (quot msat 1000)]
+    (str sats (if (= 1 sats) " sat" " sats"))))
+
+(defn- answer-cell
+  "What the wallet answered to a command, for a cell of a table: the
+  problem of `answer`, or what `told` gives for it."
+  [answer told]
+  (cond
+    (nil? answer)   [:span.muted "Not asked"]
+    (:error answer) (let [{:keys [level message code reason]} (:error answer)]
+                      [:span {:class (name (or level :warning))}
+                       (str/join " " (remove nil? [code reason]))
+                       (when (or code reason) [:br])
+                       [:span.muted message]])
+    :else           (told answer)))
+
+(defn- wallet-facts
+  "What the wallet told of itself and of the connection."
+  [{:keys [connection app info wallet balance]}]
+  (list
+   [:h2 "The connection"]
+   [:table
+    [:tbody
+     (for [[k v] [["The public key of the wallet service" (:wallet connection)]
+                  ["The public key of the inspector" app]
+                  ["The relays" (str/join ", " (:relays connection))]
+                  ["The Lightning address of the listener" (:lud16 connection)]]
+           :when v]
+       [:tr [:th k] [:td [:code v]]])]]
+   [:h2 "The wallet"]
+   [:table
+    [:tbody
+     [:tr [:th "The commands that it takes"]
+      [:td (answer-cell info #(str/join ", " (:methods %)))]]
+     [:tr [:th "The encryption that it reads"]
+      [:td (answer-cell info #(str/join ", " (:encryption %)))]]
+     [:tr [:th "Its name and its network"]
+      [:td (answer-cell wallet #(str/join " · " (remove nil? [(:alias %) (:network %)])))]]
+     [:tr [:th "Its balance, after the payments of this page"]
+      [:td (answer-cell balance #(sats-str (:msat % 0)))]]]]))
+
+(defn- boost-results
+  "The payments of a `boost`, one row for each recipient."
+  [{:keys [sats payments]}]
+  (list
+   [:h2 (str "A boost of " sats " sats")]
+   [:table
+    [:thead [:tr [:th "Recipient"] [:th "Type"] [:th "Sats"] [:th "The answer of the wallet"]]]
+    [:tbody
+     (for [{:keys [recipient sats answer]} payments]
+       [:tr
+        [:td (or (:name recipient) (:address recipient))]
+        [:td (:type recipient) (when (:fee recipient) " (fee)")]
+        [:td sats]
+        [:td (answer-cell answer
+                          (fn [{:keys [preimage fees-msat proven?]}]
+                            (list "Paid"
+                                  (when fees-msat (str ", with a fee of " (sats-str fees-msat)))
+                                  (when (true? proven?)
+                                    ", and the preimage is the proof of the invoice")
+                                  (when (false? proven?)
+                                    [:span.warning ". The wallet tells so, and its preimage is no proof of the invoice. Do not pay again."])
+                                  (when preimage (list [:br] [:span.muted "preimage " [:code (shorten preimage 24)]])))))]])]]))
+
+(defn wallet-page
+  "The page of the wallet of the listener, with a form for the connection
+  URI of Nostr Wallet Connect. With an `episode`, `{:url :feed :item}`,
+  the form pays a boost for it. The other keys are what the wallet
+  answered: the `connection` without its secret, the public key `app` of
+  the inspector, the `info`, the `wallet`, the `balance` and the `boost`.
+  `problem` tells why the inspector did not ask, or did not pay. `token`
+  is the token of the form, which a post that pays needs."
+  [{:keys [episode problem connection boost token] :as answers}]
+  (let [{:keys [url feed item]} episode
+        block (when episode (resolve/value feed item))]
+    (layout "Wallet"
+            [:h1 "The wallet of the listener"]
+            [:p "Give the connection URI of Nostr Wallet Connect that your wallet made for this app. "
+             "The inspector asks the wallet what it takes and what it holds."]
+            [:p.muted "The URI holds a secret key, and who has it can spend from the wallet. "
+             "The inspector uses the URI for this one request, and keeps it nowhere. "
+             "Give the connection a small budget in the wallet."]
+            (when episode
+              (list [:h2 "A boost for " [:a {:href (feed-href "/item" url {:guid (feed/item-guid item)})}
+                                         (or (resolve/title item) "(untitled)")]]
+                    (if block
+                      (payments-table (:recipients block))
+                      [:p.muted "The episode has no value block, so it has no recipients."])))
+            [:form {:method "post" :action "/wallet"}
+             [:p [:input {:type "password" :name "uri" :placeholder "nostr+walletconnect://…" :required true :autocomplete "off"}]]
+             [:input {:type "hidden" :name "token" :value token}]
+             (when block
+               (list [:input {:type "hidden" :name "url" :value url}]
+                     [:input {:type "hidden" :name "guid" :value (feed/item-guid item)}]
+                     [:p [:input {:type "number" :name "sats" :min 1 :placeholder "sats"}]
+                      " "
+                      [:input {:type "text" :name "message" :placeholder "a message for the show" :maxlength 500}]]
+                     [:p.muted "Without an amount, the inspector asks the wallet and pays nothing. "
+                      "With an amount, the wallet pays each recipient its share. This is real money."]))
+             [:button {:type "submit"} (if block "Ask the wallet, and pay the amount" "Ask the wallet")]]
+            (when problem
+              [:p.error problem])
+            (when connection
+              (wallet-facts answers))
+            (when boost
+              (boost-results boost)))))
 
 (defn error-page
   "The page shown when what `heading` names failed: `subject` is what it was

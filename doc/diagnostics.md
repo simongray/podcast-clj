@@ -23,7 +23,7 @@ The namespace of an id tells which part of podcast-clj found the problem:
 - `sync`: the sync between devices
 - `podping`: a poll of the Hive chain
 - `comments`: the threads of comments
-- `value`: the records of payments and the Lightning addresses
+- `value`: the records of payments, the Lightning addresses and the wallets
 - `analytics`: the list of user agents, and the downloads of OP3
 
 A function that sends requests gives a failure as a diagnostic too, under the
@@ -196,5 +196,15 @@ A function that sends requests gives a failure as a diagnostic too, under the
 | `:value/unknown-success-action` | error | The answer holds a success action that LUD-09 does not define, or a URL on another host. Do not pay the invoice. |
 | `:value/no-keysend` | info | The domain of the Lightning address names no node for keysend. Pay it with LNURL-pay. |
 | `:value/insecure` | error | The answer came over plain http, where anyone on the way can change it. Do not pay with it. |
+| `:value/no-wallet-info` | info | No relay of the connection has the info event of the wallet. The app does not know which commands the wallet takes. The wallet tells so when it gets a command that it does not take. |
+| `:value/wallet-unsupported` | warning | The wallet does not take the command. Its `:methods` do not name the `:method` of the command, or its `:encryption` has no NIP-44 version 2, which is the encryption that podcast-clj writes. No request went out. |
+| `:value/command-too-large` | warning | The command has more bytes than a request to a wallet holds, which is 65,535 bytes. The record of a payment has the titles of the show and the episode, and the message of the listener. No request went out. |
+| `:value/wallet-unreachable` | warning | No relay of the connection took the request. Each relay gave no connection, refused the subscription, or refused the event, and `:relays` tells why. The request reached no wallet, so the app can ask again. |
+| `:value/wallet-silent` | error | The wallet gave no answer in time. The request went out, so the wallet can do the command until the instant `:expires-at`. Do not send a payment again before that instant. After it, ask the wallet whether it paid. |
+| `:value/wallet-refused` | warning | The wallet answered with an error, and did not do the command. `:code` is the code of NIP-47, such as INSUFFICIENT_BALANCE, QUOTA_EXCEEDED or PAYMENT_FAILED, and `:reason` is the text of the wallet. A WebLN provider gives a text and no code, also when the user said no. |
+| `:value/wallet-unreadable` | error | The answer is not one that podcast-clj reads, and `:reason` tells why. It is not the signed event of the wallet, it is not encrypted for this connection, or it answers another request. The wallet can have done the command, so ask it before you pay again. |
+| `:value/no-provider` | info | The page has no WebLN provider. A browser extension or a wallet app gives a page its provider. |
+| `:value/below-one-sat` | warning | WebLN counts a keysend payment in whole sats, and the amount of the payment is below 1 sat. Nothing went out. |
+| `:value/not-a-node` | warning | The recipient is no node with a public key, or the payment has no amount, so keysend does not pay it. Nothing went out. Pay a Lightning address with an invoice. |
 | `:analytics/unreadable-pattern` | warning | A pattern of the list of user agents does not compile on this platform, so its entry was left out. |
 | `:analytics/unreachable` | warning | OP3 gave no page of downloads: the request failed, or OP3 answered with an error. The result has the downloads of the pages before that page, and its continuation token names that page. |

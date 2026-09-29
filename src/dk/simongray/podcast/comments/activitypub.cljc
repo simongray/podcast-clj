@@ -264,7 +264,7 @@
   ;; text starts that no piece has yet
   (loop [found (re-seq #":[A-Za-z0-9_+-]+:" s) at 0 from 0 out []]
     (if-let [[match & more] (seq found)]
-      (let [i     (str/index-of s match at)
+      (let [i     (long (str/index-of s match at))
             end   (+ i (count match))
             emoji (get emojis (subs match 1 (dec (count match))))]
         (if emoji

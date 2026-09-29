@@ -14,6 +14,7 @@
             [dk.simongray.podcast.app.sync.gpodder.server :as gpodder-server]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav.server :as webdav-server]
+            [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.check :as check]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
@@ -26,6 +27,9 @@
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.podping :as podping]
             [dk.simongray.podcast.resolve :as resolve]
+            [dk.simongray.podcast.value :as value]
+            [dk.simongray.podcast.value.lnaddress :as lnaddress]
+            [dk.simongray.podcast.value.nwc :as nwc]
             [inspector.dav :as dav]
             [inspector.page :as page]
             [io.pedestal.connector :as conn]
@@ -374,6 +378,131 @@
                              :hidden? (= "1" hidden)
                              :thread  (some-> (interact-of uri) thread-of)}))))
 
+(def wallet-opts
+  "The options of the requests to a wallet. The inspector asks each relay
+  that a connection names, also a relay on the own network, and waits
+  half a minute for the wallet."
+  {:allow? (constantly true) :timeout-seconds 30})
+
+(def app-name
+  "The name of the inspector in the record of a payment."
+  "podcast-clj inspector")
+
+(defn- asked
+  "What the wallet of `connection` answers to `command`. Nil when the
+  `info` of the wallet does not name the method of the command."
+  [connection info command]
+  (when (or (:error info) (some #{(:method command)} (:methods info)))
+    (nwc/ask! connection command (assoc wallet-opts :info (when-not (:error info) info)))))
+
+(defn- paid
+  "What the wallet of `connection` answers to `payment` for `recipient`:
+  a keysend payment for a node, and the payment of an invoice for a
+  Lightning address."
+  [connection info payment {:keys [type address] :as recipient}]
+  (let [opts    (assoc wallet-opts :info (when-not (:error info) info))
+        keysend (when (= "node" type) (nwc/pay-keysend payment recipient))
+        invoice (when (= "lnaddress" type)
+                  (lnaddress/invoice! address (* 1000 (:sats payment)) {:comment (:message payment)}))]
+    (cond
+      (seq (value/report keysend)) {:error (first (value/report keysend))}
+      keysend                      (nwc/ask! connection keysend opts)
+      (:error invoice)             invoice
+      invoice                      (nwc/ask! connection (nwc/pay-invoice (:invoice invoice)) opts)
+      :else                        {:error {:level :warning :message "The inspector pays a node and a Lightning address only."}})))
+
+(defn- boosted
+  "The payments of a boost of `sats` with `message` for `item` of `feed`
+  at `url`, from the wallet of `connection`: the share of each recipient
+  of the value block, with the answer of the wallet."
+  [connection info {:keys [feed item url]} sats message]
+  (let [payment {:action     :boost
+                 :total-sats sats
+                 :message    (not-empty message)
+                 :app-name   app-name
+                 :feed-url   url
+                 :feed-guid  (feed/feed-guid feed url)
+                 :feed-title (resolve/title feed)
+                 :item-guid  (feed/item-guid item)
+                 :item-title (resolve/title item)}]
+    (vec (for [{:keys [recipient amount]} (value/payments (:recipients (resolve/value feed item)) sats)]
+           {:recipient recipient
+            :sats      amount
+            :answer    (when (pos? amount)
+                         (paid connection info (assoc payment :sats amount) recipient))}))))
+
+(defn- episode-of
+  "The episode that the parameters `url` and `guid` name, as `{:url :feed
+  :item}`. Nil when they name none."
+  [url guid]
+  (when-not (or (str/blank? url) (str/blank? guid))
+    (let [{:keys [feed]} (load-feed url)]
+      (when-let [item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
+        {:url url :feed feed :item item}))))
+
+(defonce ^{:doc "The tokens of the wallet forms that the inspector gave, and
+  that no post used. A post that pays needs such a token, so that a form
+  pays once, also when the browser sends it again."}
+  wallet-tokens
+  (atom #{}))
+
+(defn- new-token!
+  "A token for a wallet form. The inspector keeps 500 tokens at most."
+  []
+  (let [token (bytes/hex (bytes/random! 16))]
+    (swap! wallet-tokens #(conj (if (< (count %) 500) % #{}) token))
+    token))
+
+(defn- used-token!
+  "Whether `token` is a token that no post used. It is used after this."
+  [token]
+  (contains? (first (swap-vals! wallet-tokens disj token)) token))
+
+(defn wallet-page
+  "The page of the wallet, for `request`. With the parameters `url` and
+  `guid`, its form pays a boost for that episode."
+  [request]
+  (let [{:keys [url guid]} (:query-params request)]
+    (try
+      (html (page/wallet-page {:episode (episode-of url guid) :token (new-token!)}))
+      (catch Throwable e
+        (failure "Could not inspect the feed" url e)))))
+
+(defn wallet-asked
+  "The page of the wallet with what the wallet answers, for `request`,
+  the post of the form. The form has the connection URI of Nostr Wallet
+  Connect as `uri`. With `url`, `guid` and `sats`, the wallet pays a boost
+  for the episode.
+
+  The URI holds a secret key. The inspector uses it for this request,
+  keeps it nowhere, and gives the page no part of it. A post that pays
+  needs the token of its form, and a token pays once."
+  [request]
+  (let [{:keys [uri url guid sats message token]} (:form-params request)
+        connection (nwc/parse uri)
+        sats       (some-> sats str/trim parse-long)
+        pays?      (boolean (and connection sats (pos? sats)))
+        fresh?     (and pays? (used-token! token))]
+    (try
+      (let [episode (episode-of url guid)
+            info    (some-> connection (nwc/info! wallet-opts))
+            boost   (when (and fresh? episode)
+                      {:sats sats :payments (boosted connection info episode sats message)})]
+        (html (page/wallet-page
+               (cond-> {:episode episode :token (new-token!)}
+                 (nil? connection) (assoc :problem "The text is no connection URI of Nostr Wallet Connect.")
+                 (and pays? (not fresh?))
+                 (assoc :problem (str "The inspector paid nothing. This form was sent before, or it is old. "
+                                      "Give the amount again in the form of this page."))
+                 boost             (assoc :boost boost)
+                 connection        (assoc :connection (dissoc connection :secret)
+                                          :app        (nwc/public-key connection)
+                                          :info       info
+                                          :wallet     (asked connection info (nwc/get-info))
+                                          :balance    (asked connection info (nwc/get-balance)))))))
+      (catch Throwable e
+        (failure "Could not ask the wallet" nil e)))))
+
 (defonce ^{:doc "The corpus feeds parsed and indexed for the search page, nil
   until the first search makes them."}
   corpus-search
@@ -545,6 +674,8 @@
      ["/item" :get item-page :route-name :item]
      ["/comments" :get comments-page :route-name :comments]
      ["/thread" :get thread-page :route-name :thread]
+     ["/wallet" :get wallet-page :route-name :wallet]
+     ["/wallet" :post wallet-asked :route-name :wallet-asked]
      ["/search" :get search-page :route-name :search]
      ["/directory" :get directory-page :route-name :directory]
      ["/podping" :get podping-page :route-name :podping]

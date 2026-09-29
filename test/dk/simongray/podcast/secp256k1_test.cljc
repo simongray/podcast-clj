@@ -59,6 +59,21 @@
           (is (secp256k1/verify public message sig) secret)
           (is (not (secp256k1/verify public (str message "00") sig)) secret))))))
 
+(deftest the-point-of-a-public-key
+  (is (secp256k1/public-key? (secp256k1/public-key (secret-key 3))))
+  (is (secp256k1/public-key? (str/upper-case (secp256k1/public-key (secret-key 3)))))
+  (doseq [x [nil 5 "" "03" (apply str (repeat 64 "f")) (apply str (repeat 64 "g"))
+             "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"]]
+    (is (not (secp256k1/public-key? x)) (pr-str x)))
+  (testing "what two owners share"
+    (let [ann (secret-key 3)
+          bob (secret-key 4)]
+      (is (= (secp256k1/shared-x ann (secp256k1/public-key bob))
+             (secp256k1/shared-x bob (secp256k1/public-key ann))))
+      (is (re-matches #"[0-9a-f]{64}" (secp256k1/shared-x ann (secp256k1/public-key bob))))
+      (is (nil? (secp256k1/shared-x ann (apply str (repeat 64 "f")))) "a key that is no point of the curve")
+      (is (nil? (secp256k1/shared-x "no key" (secp256k1/public-key bob)))))))
+
 (deftest what-is-no-key-and-no-signature
   (let [zero  (apply str (repeat 64 "0"))
         order "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"]

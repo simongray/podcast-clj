@@ -260,6 +260,36 @@ An app that shows comments chooses its relays. Give them as `:relays`:
 ```
 
 
+## The wallets of the listeners
+
+`value.nwc` follows NIP-47, and `value.webln` follows the guide of WebLN.
+podcast-clj read them on 29 September 2026. No test went to a wallet with
+money, so the table tells what the specifications say, and not what a
+wallet answered.
+
+| Specification | Where | What podcast-clj has of it |
+|---|---|---|
+| NIP-47, Nostr Wallet Connect | `github.com/nostr-protocol/nips`, the file `47.md` | The connection URI, the info event, the requests and the responses, and the commands `pay_invoice`, `make_invoice`, `lookup_invoice`, `get_balance` and `get_info` |
+| NWC-04, Keysend Payments | `github.com/nostr-wallet-connect/nwc`, the file `04.md` | The command `pay_keysend`, with the custom records in hexadecimal |
+| NWC-06, Metadata Conventions | The same repository, the file `06.md` | Nothing of its own. `pay-invoice` takes `:metadata` as the app gives it. |
+| NIP-44, Encrypted Payloads | `github.com/nostr-protocol/nips`, the file `44.md` | Version 2, with the payloads of 65,536 bytes and more |
+| WebLN | `webln.guide` | `enable`, `getInfo`, `sendPayment` and `keysend` |
+
+On that day, NIP-47 was a core of five commands, and the other commands
+were extensions in the repository nostr-wallet-connect/nwc. An older
+NIP-47 had `pay_keysend` in its own text.
+
+The options replace what podcast-clj chose:
+
+| Choice | Default | Option |
+|---|---|---|
+| The time that `ask!` waits, and after which a request expires | 60 seconds, `nwc/default-limits` | `:timeout-seconds` |
+| The relays that a request can go to | The public internet, `nostr/public?` | `:allow?` |
+| What sends a request to a relay | `nostr/call!` | `:send` |
+| The most bytes of an encrypted text | 65,535, `nip44/default-limits` | `:max-bytes` |
+| The WebLN provider | That of the page, `webln/provider` | `:provider` |
+
+
 ## The rules of the apps for downloads
 
 No standard defines the rules by which an app downloads episodes and

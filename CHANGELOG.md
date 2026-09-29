@@ -47,6 +47,18 @@
   the architecture keeps each require pointing down the layers. The
   inspector is a reference web app, with a browser player that syncs through
   its own WebDAV folder.
+- Payments from the wallet of the listener. `value.nwc` is Nostr Wallet
+  Connect, NIP-47: the connection URI, the commands as data, `info!` and
+  `ask!`. It pays invoices and keysend payments with the records of
+  `value/records`. `value.webln` calls the WebLN provider of a web page.
+  `nip44` has the encrypted payloads of NIP-44, and `chacha20` the cipher
+  of RFC 8439. `nostr/signed` writes an event, and `nostr/call!` gives it
+  to a relay. The inspector has a page for a wallet.
+- A payment goes out once. A request to a wallet leaves the app only when
+  the relay has the subscription for the answer, and it expires. An answer
+  tells whether the request went out. `lnaddress/proves?` checks the
+  preimage of a payment against its invoice. `secret` hides a text from
+  the printer, and a connection to a wallet hides its secret key.
 - Hostile input takes linear time and bounded stack. No regular expression
   backtracks quadratically. Elements nest at most `xml/max-depth` levels in
   XML and `html/max-depth` in HTML. `:timeout-seconds` bounds the whole

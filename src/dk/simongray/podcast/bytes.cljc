@@ -18,10 +18,14 @@
   diagnostics of a reading."
   (:require [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            #?(:cljs [goog.crypt.Hmac])
             #?(:cljs [goog.crypt.Sha256]))
-  #?(:clj (:import [java.nio.charset StandardCharsets]
-                   [java.security MessageDigest]
-                   [java.util Arrays Base64])))
+  #?(:clj (:import [java.io ByteArrayOutputStream]
+                   [java.nio.charset StandardCharsets]
+                   [java.security MessageDigest SecureRandom]
+                   [java.util Arrays Base64]
+                   [javax.crypto Mac]
+                   [javax.crypto.spec SecretKeySpec])))
 
 (defn length
   "The number of bytes in `b`."
@@ -81,12 +85,63 @@
              (.update h b)
              (js/Uint8Array.from (.digest h)))))
 
+(defn join
+  "The bytes of each of `bs`, one after another, as new bytes."
+  [bs]
+  #?(:clj  (let [out (ByteArrayOutputStream.)]
+             (doseq [^bytes b bs]
+               (.write out b 0 (alength b)))
+             (.toByteArray out))
+     :cljs (let [out (js/Uint8Array. (reduce + (map #(.-length %) bs)))]
+             (reduce (fn [at b] (.set out b at) (+ at (.-length b))) 0 bs)
+             out)))
+
+(defn same?
+  "Whether the bytes `a` and `b` are the same. The time that the answer
+  takes does not tell where they differ."
+  [a b]
+  #?(:clj  (MessageDigest/isEqual ^bytes a ^bytes b)
+     :cljs (and (= (.-length a) (.-length b))
+                (zero? (reduce bit-or 0 (map #(bit-xor (aget a %) (aget b %)) (range (.-length a))))))))
+
+(defn hmac-sha256
+  "The HMAC of the bytes `message` with the bytes `key`, by SHA-256, as 32
+  bytes. RFC 2104 defines the HMAC."
+  [key message]
+  #?(:clj  (.doFinal (doto (Mac/getInstance "HmacSHA256")
+                       (.init (SecretKeySpec. ^bytes key "HmacSHA256")))
+                     ^bytes message)
+     :cljs (js/Uint8Array.from (.getHmac (goog.crypt.Hmac. (goog.crypt.Sha256.) (js/Array.from key) 64)
+                                         (js/Array.from message)))))
+
+(defn random!
+  "`n` bytes that nobody can guess, from the generator of the platform for
+  keys."
+  [n]
+  #?(:clj  (let [b (byte-array n)]
+             (.nextBytes (SecureRandom.) b)
+             b)
+     :cljs (.getRandomValues js/crypto (js/Uint8Array. n))))
+
 (defn base64
   "The bytes `b` in base64, as RFC 4648 defines it and data URLs and SRI use
   it."
   [b]
   #?(:clj  (.encodeToString (Base64/getEncoder) ^bytes b)
      :cljs (js/btoa (binary-string b))))
+
+(defn from-base64
+  "The bytes that the base64 text `s` names, with its padding, as RFC 4648
+  defines it. Nil for a text that is not base64."
+  [s]
+  (when (and (string? s)
+             (zero? (mod (count s) 4))
+             (re-matches #"[A-Za-z0-9+/]*={0,2}" s))
+    (try
+      #?(:clj  (.decode (Base64/getDecoder) ^String s)
+         :cljs (js/Uint8Array.from (js/atob s) #(.charCodeAt % 0)))
+      (catch #?(:clj IllegalArgumentException :cljs :default) _
+        nil))))
 
 (defn data-url
   "The bytes `b` of the MIME type `type` as a data URL, which a browser shows

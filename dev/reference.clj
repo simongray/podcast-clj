@@ -184,7 +184,7 @@
               "- `sync`: the sync between devices"
               "- `podping`: a poll of the Hive chain"
               "- `comments`: the threads of comments"
-              "- `value`: the records of payments and the Lightning addresses"
+              "- `value`: the records of payments, the Lightning addresses and the wallets"
               "- `analytics`: the list of user agents, and the downloads of OP3"
               ""
               "A function that sends requests gives a failure as a diagnostic too, under the"

@@ -10,11 +10,7 @@
             [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.secp256k1 :as secp256k1]
-            [dk.simongray.podcast.test-support :refer [fixture run secret-key signed]])
-  #?(:clj (:import [java.io InputStream OutputStream]
-                   [java.net InetAddress ServerSocket Socket]
-                   [java.security MessageDigest]
-                   [java.util Base64])))
+            [dk.simongray.podcast.test-support :refer [fixture run secret-key signed #?(:clj with-relay)]]))
 
 (def fountain-note
   "A note about an episode, as the app Fountain wrote it."
@@ -251,7 +247,43 @@
         (is (= 2 (count (:events answer)))))
       (let [answer (read (map event (range 5)) (assoc limits :max-bytes (* 2 (count (event 1)))))]
         (is (= {:done? true :truncated :max-bytes} (select-keys answer [:done? :truncated :complete?])))
-        (is (= 2 (count (:events answer))))))))
+        (is (= 2 (count (:events answer))))))
+    (testing "an exchange that gives the relay an event, and waits for the answer to it"
+      (let [limits (assoc limits :published "abc" :until :event)
+            eose   (str "[\"EOSE\",\"" nostr/subscription "\"]")
+            keys   [:done? :complete? :accepted? :refused]]
+        (is (= {:complete? true :accepted? true}
+               (select-keys (read [eose "[\"OK\",\"abc\",true,\"\"]"] limits) keys))
+            "the end of the stored events is not the end of the exchange")
+        (is (= {:done? true :complete? true :accepted? true}
+               (select-keys (read [eose "[\"OK\",\"abc\",true,\"\"]" (event 1) (event 2)] limits) keys)))
+        (is (= ["1"] (map #(get % "content") (:events (read [(event 1) (event 2)] limits))))
+            "the first event ends the exchange")
+        (is (= {:done? true :refused "blocked: no"}
+               (select-keys (read ["[\"OK\",\"abc\",false,\"blocked: no\"]" (event 1)] limits) keys)))
+        (is (= {} (select-keys (read ["[\"OK\",\"other\",false,\"blocked: no\"]"] limits) keys))
+            "the answer to another event")))
+    (testing "an exchange that gives the relay an event, and no more"
+      (let [limits (assoc limits :published "abc" :until :ok)]
+        (is (= {:done? true :accepted? true}
+               (select-keys (read ["[\"OK\",\"abc\",true,\"\"]"] limits) [:done? :accepted? :refused])))
+        (is (= {:done? true :refused "invalid: no"}
+               (select-keys (read ["[\"OK\",\"abc\",false,\"invalid: no\"]"] limits) [:done? :accepted? :refused])))))))
+
+(deftest an-event-that-the-app-writes
+  (let [aux   (apply str (repeat 64 "5"))
+        event (nostr/signed {"kind" 1 "created_at" 1790000000 "tags" [["t" "podcast"]] "content" "Hi"} ann aux)]
+    (is (nostr/verified? event))
+    (is (= (secp256k1/public-key ann) (get event "pubkey")))
+    (is (= {"kind" 1 "created_at" 1790000000 "tags" [["t" "podcast"]] "content" "Hi"}
+           (select-keys event ["kind" "created_at" "tags" "content"])))
+    (is (= event (nostr/signed (assoc event "pubkey" "another" "id" "another" "sig" "another") ann aux))
+        "the key, the id and the signature are those of the owner")
+    (is (nostr/verified? (nostr/signed {"kind" 23194 "created_at" 5} bob aux)) "without tags and without content")
+    (is (= [] (get (nostr/signed {"kind" 23194 "created_at" 5} bob aux) "tags")))
+    (is (not= (get event "sig") (get (nostr/signed event ann (apply str (repeat 64 "6"))) "sig")))
+    (is (nil? (nostr/signed {"kind" 1 "created_at" 5} "no key" aux)))
+    (is (= ["EVENT" event] (json/read-str (nostr/event-message event))))))
 
 (deftest the-url-of-a-relay
   (doseq [[s url] {"wss://relay.example"              "wss://relay.example"
@@ -293,90 +325,6 @@
          (check {:url nil :filters [{}]})
          (check {:url "wss://127.0.0.1:1" :filters [{}] :allow? nostr/public?})
          (check {:url "wss://relay.example" :filters [{}] :allow? (constantly false)}))))
-
-#?(:clj
-   (defn- frame
-     "The frame of a WebSocket for the text `s`, as a server sends it."
-     ^bytes [^String s]
-     (let [payload (.getBytes s "UTF-8")
-           n       (alength payload)
-           header  (cond
-                     (< n 126)   [0x81 n]
-                     (< n 65536) [0x81 126 (quot n 256) (mod n 256)]
-                     :else       (into [0x81 127] (map #(mod (quot n (long (Math/pow 256 %))) 256) (range 7 -1 -1))))]
-       (byte-array (concat (map unchecked-byte header) payload)))))
-
-#?(:clj
-   (defn- read-frame
-     "The next frame of the client on `in`, as `[opcode text]`. Nil at the
-     end of the stream."
-     [^InputStream in]
-     (let [b0 (.read in)
-           b1 (.read in)]
-       (when-not (or (neg? b0) (neg? b1))
-         (let [short (bit-and b1 0x7f)
-               n     (case short
-                       126 (+ (* 256 (.read in)) (.read in))
-                       127 (reduce (fn [acc _] (+ (* 256 acc) (.read in))) 0 (range 8))
-                       short)
-               mask  (vec (repeatedly 4 #(.read in)))
-               data  (.readNBytes in (int n))]
-           [(bit-and b0 0x0f)
-            (String. (byte-array (map-indexed (fn [i b] (unchecked-byte (bit-xor (bit-and b 0xff) (mask (mod i 4))))) data))
-                     "UTF-8")])))))
-
-#?(:clj
-   (defn- handshake
-     "Reads the request of a client on `in`, and answers on `out` as a
-     server of WebSockets answers, by RFC 6455."
-     [^InputStream in ^OutputStream out]
-     (let [request (loop [text ""]
-                     (if (str/ends-with? text "\r\n\r\n")
-                       text
-                       (recur (str text (char (.read in))))))
-           key     (second (re-find #"(?i)sec-websocket-key: *(\S+)" request))
-           accept  (.encodeToString (Base64/getEncoder)
-                                    (.digest (MessageDigest/getInstance "SHA-1")
-                                             (.getBytes (str key "258EAFA5-E914-47DA-95CA-C5AB0DC85B11") "UTF-8")))]
-       (.write out (.getBytes (str "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-                                   "Sec-WebSocket-Accept: " accept "\r\n\r\n")
-                              "UTF-8"))
-       (.flush out))))
-
-#?(:clj
-   (defn- with-relay
-     "Call `f` with the URL of a relay on localhost. The relay answers each
-     REQ with the messages that `(answer filters)` gives, and `log` gets
-     each message of the client."
-     [answer log f]
-     (let [server (ServerSocket. 0 5 (InetAddress/getByName "127.0.0.1"))
-           serve  (fn [^Socket socket]
-                    (let [in  (.getInputStream socket)
-                          out (.getOutputStream socket)]
-                      (handshake in out)
-                      (loop []
-                        (when-let [[opcode text] (read-frame in)]
-                          (when (= 1 opcode)
-                            (swap! log conj (json/read-str text))
-                            (let [[kind _ & filters] (json/read-str text)]
-                              (when (= "REQ" kind)
-                                (doseq [message (answer (vec filters))]
-                                  (.write out (frame message)))
-                                (.flush out)))
-                            (recur))))))
-           served (future
-                    (while (not (.isClosed server))
-                      ;; a client that has enough leaves while the relay still sends
-                      (try
-                        (with-open [socket (.accept server)]
-                          (serve socket))
-                        (catch Exception _
-                          nil))))]
-       (try
-         (f (str "ws://127.0.0.1:" (.getLocalPort server)))
-         (finally
-           (.close server)
-           (future-cancel served))))))
 
 #?(:clj
    (deftest an-exchange-with-a-relay
@@ -421,3 +369,55 @@
                   (nostr/call! {:url "ws://127.0.0.1:1" :filters [{}] :timeout-seconds 2})
                   (catch Exception e
                     (:type (ex-data e))))))))))
+
+#?(:clj
+   (deftest an-event-for-a-relay
+     (let [log     (atom [])
+           ok      (fn [event accepted? reason] (json/write-str ["OK" (get event "id") accepted? reason]))
+           eose    (json/write-str ["EOSE" nostr/subscription])
+           reply   (fn [event] (signed bob {:kind 23195 :at 1790000001 :tags [["e" (get event "id")]] :content "done"}))
+           closed  (json/write-str ["CLOSED" nostr/subscription "auth-required: tell who you are"])
+           answer  (fn [x]
+                     (cond
+                       (and (vector? x) (= ["closed"] (get (first x) "#t"))) [closed]
+                       (and (vector? x) (= ["mute"] (get (first x) "#t")))   []
+                       (vector? x)                                           [eose]
+                       (= "refuse" (get x "content"))                        [(ok x false "blocked: not on the list")]
+                       (= "silent" (get x "content"))                        [(ok x true "")]
+                       :else [(ok x true "") (json/write-str ["EVENT" nostr/subscription (reply x)])]))
+           request (fn [url content]
+                     (let [event (signed ann {:kind 23194 :at 1790000000 :content content})]
+                       {:url             url
+                        :event           event
+                        :filters         [{"kinds" [23195] "#e" [(get event "id")] "#t" [content]}]
+                        :timeout-seconds 2}))
+           events  (fn [] (filter #(= "EVENT" (first %)) @log))]
+       (with-relay answer log
+         (fn [url]
+           (testing "the answer to the event, which comes after the end of the stored events"
+             (let [{:keys [event filters] :as asked} (request url "pay")
+                   response (nostr/call! asked)]
+               (is (= {:url url :complete? true :sent? true :accepted? true :events [(reply event)]} response))
+               (is (= [(into ["REQ" nostr/subscription] filters) ["EVENT" event]] (take 2 @log))
+                   "the relay has the subscription before the event goes out")))
+           (testing "a relay that refuses the event"
+             (is (= {:url url :complete? true :sent? true :events [] :refused "blocked: not on the list"}
+                    (nostr/call! (request url "refuse")))))
+           (testing "a relay that takes the event, and then has no answer"
+             (is (= {:url url :complete? true :sent? true :accepted? true :events [] :timeout? true}
+                    (nostr/call! (assoc (request url "silent") :timeout-seconds 1)))))
+           (testing "a relay that refuses the subscription gets no event"
+             (reset! log [])
+             (is (= {:url url :events [] :closed "auth-required: tell who you are"}
+                    (nostr/call! (request url "closed"))))
+             (is (empty? (events))))
+           (testing "a relay that does not tell that it has the subscription gets no event"
+             (reset! log [])
+             (is (= {:url url :events [] :timeout? true}
+                    (nostr/call! (assoc (request url "mute") :timeout-seconds 1))))
+             (is (empty? (events))))
+           (testing "an event without filters: it goes out at once, and the exchange ends when the relay takes it"
+             (is (= {:url url :sent? true :accepted? true :events []}
+                    (nostr/call! (dissoc (request url "silent") :filters))))
+             (is (= {:url url :sent? true :events [] :refused "blocked: not on the list"}
+                    (nostr/call! (dissoc (request url "refuse") :filters))))))))))
