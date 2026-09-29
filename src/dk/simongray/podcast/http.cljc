@@ -896,14 +896,15 @@
   end of the file, gives no bytes and the size of the file, so a reader
   learns that the file is shorter than it says. In a browser it knows the
   total only when the server exposes Content-Range. An app wraps it to log
-  or keep what it fetches. `opts` may give the `:headers` and the
-  `:timeout-seconds` of the requests, and `:send`, a function that sends a
-  request map as `call!` does and in its place."
-  [url {:keys [headers timeout-seconds send] :or {send call!}}]
+  or keep what it fetches. `opts` can give the `:headers`, the
+  `:timeout-seconds` and the `:max-bytes` of the requests, and `:send`, a
+  function that sends a request map as `call!` does and in its place."
+  [url {:keys [headers timeout-seconds max-bytes send] :or {send call!}}]
   (fn [start end]
     (async/then
      (send (cond-> {:url url :headers headers :as :bytes :range [start (dec end)]}
-             timeout-seconds (assoc :timeout-seconds timeout-seconds)))
+             timeout-seconds (assoc :timeout-seconds timeout-seconds)
+             max-bytes       (assoc :max-bytes max-bytes)))
      (fn [{:keys [status body content-range] :as response}]
        (let [none #?(:clj (byte-array 0) :cljs (js/Uint8Array. 0))
              body (or body none)]

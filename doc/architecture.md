@@ -547,12 +547,17 @@ more often than it must:
   one or two requests and a few hundred kilobytes. Ranges near each other
   come in one request, and a round sends at most 16 requests, one after
   another. A walk through the segments of a file reads further ahead each
-  round, up to 1 MB. After 8 rounds the reader gives up.
+  round, up to 1 MB. After 8 rounds the reader gives up. The sizes in a file
+  are numbers that its writer chose, so a file can ask for more than it
+  holds. One reading fetches 32 MB at most (`:max-bytes`), and it fetches
+  nothing of ranges that do not fit in what is left.
 - `http/probe!` learns the facts of a file from a HEAD request and two
   bytes of it.
 - A server that ignores a byte range sends the whole file, and some send
   more than the range. The client reads the bytes that it asked for, and
-  then closes the connection.
+  then closes the connection. From such a server, the bytes at an offset
+  cost all the bytes before them. So a reading fails when it needs bytes
+  after the first 32 MB of a file.
 - A check probes each file. It reads what a file holds only when it is
   asked to, and then fetches the transcripts and chapters whole. It fetches
   a media file whole only to check its integrity. At most four files are
@@ -616,9 +621,15 @@ server in Node that fetches URLs that strangers choose gives these
 functions a `:send` of its own.
 
 An app that must reach its own network gives `http/call!` as `:send`. A
-server that fetches feeds or files for strangers gives `http/call-public!`
-to `check/feed!`, `format.media/read!` and `format.image/read!`, and
-`{:allow? http/public?}` to `podcast/fetch!`.
+server that fetches feeds or files for strangers gives
+`{:allow? http/public?}` to `podcast/fetch!`, `check/feed!` and
+`format.media/verify!`. It gives `http/call-public!` as the `:send` of
+`format.media/read!` and `format.image/read!`.
+
+`check/feed!` puts its `:allow?` on each request that it sends. On the JVM,
+the check of an integrity streams the file with `http/digest!`, which does
+not go through `:send`. So the `:send` of a check is no guard for that
+request, and `:allow?` is.
 
 
 ## The directories and the Podcast Index
@@ -1158,7 +1169,10 @@ the final URL after redirects. If the feed declares a new URL,
 `:permanent-url` does. `:not-before` gives the time that the server asks a
 client to wait, from `Retry-After` or `Cache-Control`. With `:max-pages`,
 `fetch!` follows the pages of a paged feed with `clojure.core/iteration`,
-and joins them.
+and joins them. The feed names its pages. So a later page gets the
+credentials of a private feed only at the origin of the URL that the app
+gave. A redirect can move the first page to another origin, and no page
+there gets them.
 
 The HTTP client of `http` follows redirects itself, not through the client
 of the JDK. The JDK sends the `Authorization` header on to another host

@@ -296,6 +296,19 @@
                  (is (some #(and (= "/t.vtt" (:path %)) (= "GET" (:method %)) (nil? (:range %))) @requests)
                      "the transcript whole")))
              (reset! requests [])
+             (testing "the URLs that the app allows, which the fetch of a whole file asks about too"
+               (let [asked  (atom 0)
+                     ;; the two requests of the probe, and not the one after them
+                     allow? (fn [url] (or (not (str/ends-with? url "/v.mp4")) (<= (swap! asked inc) 2)))
+                     result (check {:integrity? true :allow? allow?})
+                     facts  (:facts (first (filter #(= (str base "/v.mp4") (:url %)) (:files result))))]
+                 (is (= 3 @asked))
+                 (is (= 206 (get-in facts [:get :status])) "the probe, which the app allowed")
+                 (is (str/includes? (str (get-in facts [:integrity :error])) "is not allowed"))
+                 (is (contains? (found result "/v.mp4") :check/unverified))
+                 (is (= 1 (count (filter #(and (= "/v.mp4" (:path %)) (= "GET" (:method %))) @requests)))
+                     "and no request for the whole file")))
+             (reset! requests [])
              (testing "a private feed, whose credentials go to it alone"
                (let [result (check/feed! {:rss/items []} {:url (str (str/replace base "http://" "http://user:pw@") "/feed.xml")})]
                  (is (= [(str base "/feed.xml")] (map :url (:files result))) "the URL without them")

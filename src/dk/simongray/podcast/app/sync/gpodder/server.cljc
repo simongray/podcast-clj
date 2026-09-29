@@ -118,16 +118,17 @@
   "`state` with the episode actions of the `json` body applied, those later
   than what it holds, and the `book` with the URLs each named its episode by.
 
-  An action without a time counts as made at `at`, and an episode that
-  `names` do not know is named as podcast-clj names one it knows nothing
-  more of."
+  An action without a time counts as made at `at`, when it arrived, and so
+  does an action that names a later time. An episode that `names` do not
+  know is named as podcast-clj names one it knows nothing more of."
   [{:keys [state book names json at seconds]}]
   (if-not (and (sequential? json) (every? map? json))
     {:status 400 :body "The body is not a list of episode actions"}
-    (let [actions (->> json
+    (let [arrived (fn [t] (if (and t (< (inst-ms t) (inst-ms at))) t at))
+          actions (->> json
                        (keep gpodder/read-action)
                        (filter #(and (gpodder/web-url? (:podcast %)) (gpodder/web-url? (:episode %))))
-                       (map #(update % :timestamp (fn [t] (or t at))))
+                       (map #(update % :timestamp arrived))
                        (sort-by (comp inst-ms :timestamp)))
           id-of   (fn [{:keys [podcast episode guid]}]
                     (or ((:episode-id names) podcast episode guid)

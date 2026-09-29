@@ -18,7 +18,7 @@
             [dk.simongray.podcast.format.mp3 :as mp3]
             [dk.simongray.podcast.format.mp4 :as mp4]
             #?(:clj [dk.simongray.podcast.http :as http])
-            [dk.simongray.podcast.test-support :refer [ascii be code fetch-from view
+            [dk.simongray.podcast.test-support :refer [ascii be code fetch-from run view
                                                        #?(:clj with-file-server)]]))
 
 (defn- syncsafe
@@ -515,23 +515,72 @@
           tables (into [] (mapcat level) (range 40))]
       (is (= :mp3 (:format (media/read (view (id3-tag tables)))))))))
 
+(defn- chapter-track-file
+  "An M4A file with a chapter track of `n` samples, whose sample table is
+  the box `stbl`."
+  [stbl n]
+  (let [text (box "trak"
+                  (box "tkhd" [0 0 0 7] (be 4 0) (be 4 0) (be 4 2) (repeat 60 0))
+                  (box "mdia"
+                       (box "mdhd" [0 0 0 0] (be 4 0) (be 4 0) (be 4 1000) (be 4 n) [0 0 0 0])
+                       (box "hdlr" [0 0 0 0] (be 4 0) (ascii "text") (repeat 12 0) [0])
+                       (box "minf" stbl)))]
+    (concat (box "ftyp" (ascii "M4A ") (be 4 0))
+            (box "moov" (mvhd 1000 n) (trak 1 1000 n "soun" (box "tref" (box "chap" (be 4 2)))) text))))
+
 (deftest a-hurtful-chapter-track
-  (let [n     50000
-        stbl  (box "stbl"
-                   (box "stts" [0 0 0 0] (be 4 1) (be 4 n) (be 4 1))
-                   (box "stsz" [0 0 0 0] (be 4 2) (be 4 n))
-                   (box "stsc" [0 0 0 0] (be 4 n) (into [] (mapcat #(concat (be 4 (inc %)) (be 4 1) (be 4 1))) (range n)))
-                   (box "stco" [0 0 0 0] (be 4 n) (into [] (mapcat (fn [_] (be 4 8))) (range n))))
-        text  (box "trak"
-                   (box "tkhd" [0 0 0 7] (be 4 0) (be 4 0) (be 4 2) (repeat 60 0))
-                   (box "mdia"
-                        (box "mdhd" [0 0 0 0] (be 4 0) (be 4 0) (be 4 1000) (be 4 n) [0 0 0 0])
-                        (box "hdlr" [0 0 0 0] (be 4 0) (ascii "text") (repeat 12 0) [0])
-                        (box "minf" stbl)))
-        xs    (concat (box "ftyp" (ascii "M4A ") (be 4 0))
-                      (box "moov" (mvhd 1000 n) (trak 1 1000 n "soun" (box "tref" (box "chap" (be 4 2)))) text))]
-    (is (= mp4/max-samples (count (:chapters (mp4/read (view xs)))))
+  (let [n    50000
+        stbl (box "stbl"
+                  (box "stts" [0 0 0 0] (be 4 1) (be 4 n) (be 4 1))
+                  (box "stsz" [0 0 0 0] (be 4 2) (be 4 n))
+                  (box "stsc" [0 0 0 0] (be 4 n) (into [] (mapcat #(concat (be 4 (inc %)) (be 4 1) (be 4 1))) (range n)))
+                  (box "stco" [0 0 0 0] (be 4 n) (into [] (mapcat (fn [_] (be 4 8))) (range n))))]
+    (is (= mp4/max-samples (count (:chapters (mp4/read (view (chapter-track-file stbl n))))))
         "50000 chunks in as many runs, read in one pass, and no more chapters than the most")))
+
+(defn- hollow
+  "A fetch of a file of `total` bytes that holds the bytes `b` at its start
+  and nothing that a reader can use after them, as `bytes/read!` takes it,
+  noting each range in `log`."
+  [b total log]
+  (let [n (bytes/length b)]
+    (fn [start end]
+      (swap! log conj [start end])
+      {:bytes (bytes/copy b (min start n) (min end n)) :start start :total total})))
+
+(deftest sizes-that-lie
+  (let [mb      (* 1024 1024)
+        n       16
+        samples (chapter-track-file
+                 (box "stbl"
+                      (box "stts" [0 0 0 0] (be 4 1) (be 4 n) (be 4 1000))
+                      (box "stsz" [0 0 0 0] (be 4 (* 90 mb)) (be 4 n))
+                      (box "stsc" [0 0 0 0] (be 4 1) (be 4 1) (be 4 1) (be 4 1))
+                      (box "stco" [0 0 0 0] (be 4 n) (mapcat #(be 4 (* (inc %) 100 mb)) (range n))))
+                 n)
+        tag     (concat (ascii "ID3") [3 0 0] (syncsafe (* 200 mb)) (repeat 100 0))
+        reading (fn [xs opts]
+                  (let [log (atom [])]
+                    (async/then (media/read! "https://example.org/a" (assoc opts :fetch (hollow (bytes/of xs) (* 3000 mb) log)))
+                                (fn [r]
+                                  {:report   (map :id (:report r))
+                                   :requests (count @log)
+                                   :asked    (reduce + (map (fn [[start end]] (- end start)) @log))}))))]
+    (run
+     #(async/then (reading samples {})
+                  (fn [{:keys [report asked]}]
+                    (is (= [:file/incomplete] report))
+                    (is (< asked (* 2 mb)) "of text samples that say they hold 90 MB each, the text alone")))
+     #(async/then (reading tag {})
+                  (fn [{:keys [report requests asked]}]
+                    (is (= [:file/incomplete] report))
+                    (is (= [1 true] [requests (< asked mb)]) "a tag of 200 MB is more than a reading fetches")))
+     #(async/then (reading tag {:max-bytes (* 300 mb)})
+                  (fn [{:keys [requests asked]}]
+                    (is (= [2 true] [requests (< (* 200 mb) asked)]) "unless the app lets it")))
+     #(async/then (reading tag {:max-bytes 10})
+                  (fn [{:keys [report requests]}]
+                    (is (= [[:file/incomplete] 0] [report requests]) "and with no room, no request"))))))
 
 #?(:clj
    (def mangled
@@ -551,6 +600,13 @@
      (prop/for-all [xs (gen/one-of [(gen/vector (gen/choose 0 255) 0 600) mangled])]
        (let [r (media/read (view xs))]
          (and (map? r) (or (:format r) (seq (:report r))))))))
+
+(deftest a-file-that-the-app-does-not-allow
+  (run #(async/then (async/attempt (fn [] (media/verify! "https://example.org/a.mp3" {:type "sri" :value "sha384-AAAA"}
+                                                         {:allow? (constantly false)})))
+                    (fn [{:keys [error]}]
+                      (is (= :dk.simongray.podcast.http/refused (:type (ex-data error)))
+                          "no request is sent for it, on either platform")))))
 
 (deftest subresource-integrity
   (is (= {:algorithm "sha384" :digests #{"abc="}} (media/sri "sha256-xyz= sha384-abc=")) "the strongest wins")

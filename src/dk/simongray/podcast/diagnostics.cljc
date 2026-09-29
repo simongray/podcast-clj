@@ -277,6 +277,8 @@
     :doc "The shared document changed under every attempt to write it; the step ended without writing."}
    {:id :sync/unknown-episodes :level :info
     :doc "Episode actions from a gpodder server name episodes of feeds that the app does not know yet. They wait in the cursor, and the next pull tries them again."}
+   {:id :sync/future-actions :level :warning
+    :doc "Episode actions from a gpodder server name a time more than a minute after the pull, as a device with a fast clock writes them. They changed nothing."}
    {:id :sync/unnamed-episodes :level :info
     :doc "Episodes changed, but the app knows no URL of their media, which the gpodder API names an episode by, so the server was not told."}
    {:id :sync/rejected-url :level :warning

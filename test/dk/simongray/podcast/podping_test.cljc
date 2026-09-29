@@ -58,6 +58,18 @@
       (is (= "podping.eee" (:account (first pings))))
       (is (every? #(= ["podcast" "update" "1.1"] ((juxt :medium :reason :version) %)) pings))
       (is (every? #(str/starts-with? (first (:iris %)) "https://") pings))))
+  (testing "a block with a long run of digits in a text, which any account can write"
+    (let [text      (json/write-str {"memo" (apply str (repeat 5000 "7"))})
+          ping      (json/write-str {"version" "1.1" "medium" "podcast" "reason" "update"
+                                     "iris" ["https://example.com/feed.xml"]})
+          operation (fn [id text]
+                      {"type"  "custom_json_operation"
+                       "value" {"id" id "required_posting_auths" ["podping.eee"] "json" text}})
+          block     {"block_id"     "0692a5a7aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                     "timestamp"    "2026-09-26T16:57:21"
+                     "transactions" [{"operations" [(operation "any-app" text) (operation "podping" ping)]}]}]
+      (is (= [["https://example.com/feed.xml"]]
+             (map :iris (podping/pings (json/write-str {"jsonrpc" "2.0" "id" 1 "result" {"blocks" [block]}})))))))
   (testing "the pings in one block's operations, the other operations passed over"
     (let [pings (podping/pings operations)]
       (is (= 2 (count pings)))

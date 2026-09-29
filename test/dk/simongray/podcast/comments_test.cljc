@@ -357,7 +357,9 @@
                 (fn [thread]
                   (is (= :mastodon-api (:via thread)))
                   (is (= ["Ann"] (shape (comments/tree thread))))
-                  (is (= [page api (str api "/context")] @log))))))))))
+                  (is (= page (first @log)))
+                  (is (= #{api (str api "/context")} (set (rest @log)))
+                      "the status and its context, in one round")))))))))
 
 (deftest the-limits-and-reading-on
   (let [log (atom [])]

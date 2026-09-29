@@ -108,7 +108,8 @@
   `:not-before` when the server asks a client to wait, which `next-check`
   takes. `html/feed-links` finds the feeds that a web page names. On the
   JVM, a redirect to another host no longer gets the credentials of a
-  request.
+  request. A later page of a feed gets them only at the origin of the URL
+  that the app gave.
 - `resolve` reads the podroll, the publisher feed, the remote items of
   list and publisher feeds, where the comments on an episode are, the
   soundbites, and the texts of `podcast:txt` by purpose, with
@@ -152,7 +153,9 @@
 - The readers of media files and images take hostile files in linear time
   and bounded stack: ID3 chapter frames nested deep, tables of contents
   that list each other, and MP4 sample tables of any size. Random and
-  mangled files give a report, not an exception.
+  mangled files give a report, not an exception. A file can name sizes
+  that it does not have. One reading fetches 32 MB of a file at most, or
+  the `:max-bytes` of its options.
 - `http/probe!` learns the facts of a file from a HEAD request and two
   bytes of it. `http/call!` also runs in ClojureScript, with fetch and
   limits of time and size, and on the JVM it gives the redirects it
@@ -167,7 +170,10 @@
   and gPodder do, with gpodder.net, the GPodder Sync app for Nextcloud and
   other servers: the subscriptions, the positions and the played marks.
   `identities` names shows and episodes over the app's feeds, and the
-  actions for a feed that the app does not know yet wait for it.
+  actions for a feed that the app does not know yet wait for it. An action
+  that names a time after the pull changes nothing, and the report names
+  its device. The server counts an action as made when it arrived, at the
+  latest.
   `app.sync.gpodder.server` serves the API over a player state, and the
   inspector serves it at `/api/2/` over its sync folder.
 - `comments` reads the comments on an episode from the thread that
@@ -193,7 +199,7 @@
   redirect. It is the default of `comments/fetch!`,
   `value.lnaddress/invoice!` and `node!`, and `value.metadata/fetch!`,
   since strangers choose their URLs. `http/call!` takes `:allow?`, and
-  `podcast/fetch!` passes it on.
+  `podcast/fetch!`, `check/feed!` and `format.media/verify!` pass it on.
 - `analytics/downloads` counts the downloads of episodes from the requests
   that a host logs, by the rules of the IAB Tech Lab, version 2.2. It
   leaves out HEAD requests, requests for two bytes, bots and Apple Podcasts
@@ -207,7 +213,7 @@
 - podcast-clj compares the origins of URLs as the URL standard does, on
   both platforms. On the JVM, `http/call!` fetches hosts with letters
   outside ASCII. `json/read-str` refuses JSON nested deeper than the stack reaches.
-  On the JVM, it also refuses a run of more than a thousand digits.
+  On the JVM, it also refuses a number of more than a thousand digits.
 - What podcast-clj knows about one service is a default that an app
   replaces with an option: the URLs of each directory, the root of the
   Podcast Index API, the Podping service for hosts, the instance of OP3

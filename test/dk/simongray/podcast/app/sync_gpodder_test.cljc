@@ -311,6 +311,59 @@
             (is (empty? (:report second-step)))
             (is (nil? (:pending (get (:ctx second-step) "gpodder.example.org")))))))))))
 
+(deftest times-after-the-pull
+  (let [play    (fn [device time position]
+                  {"podcast" feed-a "episode" "https://a.example/1.mp3" "guid" "a1" "action" "play"
+                   "timestamp" time "position" position "total" 3600 "device" device})
+        ;; a server whose clock is years ahead, with the actions of a tablet
+        ;; that writes milliseconds for seconds and of a watch that is ten
+        ;; minutes fast
+        answers {:subscriptions {"add" ["https://b.example/rss"] "remove" [] "timestamp" 1790000005}
+                 :episodes      {"actions"   [(play "tablet" 1790000005000 500)
+                                              (play "watch" "2026-01-01T02:10:00" 600)
+                                              (play "watch" "2026-01-01T02:00:30" 700)]
+                                 "timestamp" 1790000005}
+                 :update        {"timestamp" 1790000005 "update_urls" []}}
+        send    (fn [{:keys [method url]}]
+                  {:status  200
+                   :headers {}
+                   :body    (json/write-str (answers (cond
+                                                       (= :post method)                      :update
+                                                       (str/includes? url "/subscriptions/") :subscriptions
+                                                       :else                                 :episodes)))})
+        b       (backend send)
+        g-b     (guid/from-url "https://b.example/rss")
+        heard   #((juxt :position :updated-at :device) (player/episode % [g-a "a1"]))
+        soon?   #(<= (inst-ms (:clock %1)) (+ (inst-ms %2) sync/skew-tolerance))]
+    (run
+     #(async/then
+       (sync/sync! (phone) [b] t2)
+       (fn [{s :state :keys [report ctx]}]
+         (is (= [700 #inst "2026-01-01T02:00:30Z" "watch"] (heard s))
+             "an action within a minute of the pull counts")
+         (is (= #{[:sync/future-actions "tablet" 1] [:sync/future-actions "watch" 1]}
+                (set (map (juxt :id :device :count) report)))
+             "the others change nothing, and the report names their devices")
+         (is (= t2 (:updated-at (get-in s [:subscriptions g-b])))
+             "a change to the subscriptions counts as made at the pull")
+         (is (soon? s t2) "so the clock of the state stays with the clock of the device")
+         (async/then
+          (sync/sync! s [b] t3 {:ctx ctx})
+          (fn [{s :state :keys [report]}]
+            (is (= [600 #inst "2026-01-01T02:10:00Z" "watch"] (heard s)) "an action whose time has come")
+            (is (= [[:sync/future-actions "tablet"]] (map (juxt :id :device) report)))
+            (is (soon? s t3)))))))))
+
+(deftest an-action-that-arrives-before-its-time
+  (let [clock        (atom t2)
+        [state send] (serve clock)]
+    (ask send :post "/api/2/episodes/simon.json"
+         [{"podcast" feed-a "episode" "https://a.example/1.mp3" "guid" "a1" "action" "play"
+           "timestamp" 1790000005000 "position" 500 "total" 3600 "device" "tablet"}])
+    (is (= [500 t2 "tablet"] ((juxt :position :updated-at :device) (player/episode @state [g-a "a1"])))
+        "it counts as made when it arrived")
+    (is (= t2 (:clock @state)))))
+
 (deftest the-first-sync-joins-two-lists
   (let [clock        (atom t2)
         [state send] (serve clock)

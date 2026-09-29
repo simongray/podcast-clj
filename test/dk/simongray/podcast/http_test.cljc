@@ -3,8 +3,9 @@
   encoding, body decoding, and fetching from servers on localhost."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
+            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.http :as http]
-            #?(:clj [dk.simongray.podcast.test-support :refer [with-file-server]]))
+            [dk.simongray.podcast.test-support :refer [run #?(:clj with-file-server)]])
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
                    [java.io ByteArrayOutputStream]
                    [java.net InetSocketAddress]
@@ -376,6 +377,25 @@
            (let [{:keys [status body content-range]} (http/call! {:url (str base "/a.mp3") :as :bytes :range [0 1]})]
              (is (= [206 {:start 0 :end 999 :total 1000}] [status content-range]))
              (is (= [0 1] (map #(bit-and % 0xFF) body)) "a 206 of the whole file, of which the range is read")))))))
+
+(deftest the-requests-of-a-fetcher
+  (let [sent  (atom nil)
+        send  (fn [request]
+                (reset! sent request)
+                {:status 206 :url (:url request) :headers {} :content-range {:start 5 :end 14 :total 1000}})
+        fetch (http/fetcher "https://example.org/a.mp3"
+                            {:send send :headers {"X-App" "a"} :timeout-seconds 5 :max-bytes 1000})]
+    (run #(async/then (fetch 5 15)
+                      (fn [{:keys [start total]}]
+                        (is (= [5 1000] [start total]))
+                        (is (= {:url     "https://example.org/a.mp3"
+                                :headers {"X-App" "a"}
+                                :as      :bytes
+                                :range   [5 14]
+                                :timeout-seconds 5
+                                :max-bytes       1000}
+                               @sent)
+                            "the limits of time and size, which each request carries"))))))
 
 #?(:clj
    (deftest fetching-past-the-end

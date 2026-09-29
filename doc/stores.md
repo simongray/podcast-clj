@@ -267,9 +267,11 @@ The cursor keeps the time of each list of changes at the server, the device
 that registered, the stamps of the entries at the last push, the URLs that
 the server rewrote, and the actions that name a feed that the app does not
 know yet, the last `:max-pending`. A pull reports `:sync/unknown-episodes` when such
-actions wait. A push reports `:sync/unnamed-episodes` for the episodes that
-it could not name by a media URL, and `:sync/rejected-url` for a URL that
-the server refused.
+actions wait. It reports `:sync/future-actions` for the actions of a device
+that name a time more than a minute after the pull, which change nothing.
+A push reports `:sync/unnamed-episodes` for the episodes that it could not
+name by a media URL, and `:sync/rejected-url` for a URL that the server
+refused.
 
 `app.sync.gpodder.server/handler` serves the API as a Ring handler, on both
 platforms. It answers the login, the devices, the changes to the

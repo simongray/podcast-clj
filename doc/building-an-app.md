@@ -120,8 +120,9 @@ A listener can give the address of the website of a show, not of its feed.
 
 A private feed can need a user name and a password, or a token. Give them
 to `fetch!` as `:credentials`, such as `{:username "…" :password "…"}`.
-`fetch!` does not send them on when a redirect leads to another host. A
-private feed with a token in its URL needs no credentials.
+`fetch!` does not send them on when a redirect leads to another domain.
+The later pages of a feed get them only at the domain of the address that
+you gave. A private feed with a token in its URL needs no credentials.
 
 An address can also hold the user name and the password, as in
 `https://user:pass@host/feed.xml`. `fetch!` then sends them as the
@@ -166,6 +167,10 @@ hour ahead, because a host can publish an episode before the time that its
 A permanent redirect, 301 or 308, moves a feed for good, and
 `:permanent-url` gives the new URL. A temporary redirect does not change
 the URL of the subscription.
+
+A private feed can move to another domain. When the app changes the URL of
+the subscription, the credentials go to the new domain at each fetch from
+then on. Ask the listener before you change the URL of a private feed.
 
 If the subscription has `:auto-queue?` set, `player/refresh` adds the new
 episodes of the feed to the end of the queue, oldest first. If it has

@@ -253,8 +253,12 @@
   most often the first 64 KB alone: on the JVM the result, in
   ClojureScript a promise of it. `opts` may give `:fetch`, a function as
   `http/fetcher` makes, and the `:headers`, `:timeout-seconds` and `:send`
-  of `http/fetcher`."
+  of `http/fetcher`.
+
+  The reading fetches the `:max-bytes` of `opts` at most, by default those
+  of `bytes/default-limits`."
   ([url]
    (read! url {}))
   ([url {:keys [fetch] :as opts}]
-   (bytes/read! (or fetch (http/fetcher url opts)) read)))
+   (let [opts (merge bytes/default-limits opts)]
+     (bytes/read! (or fetch (http/fetcher url opts)) read opts))))

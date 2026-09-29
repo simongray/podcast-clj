@@ -11,6 +11,7 @@
   the answer, so that the tests run on recorded answers."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
@@ -343,6 +344,22 @@
       (merge act {"podcast" podcast "episode" media "guid" (second id) "device" device
                   "timestamp" (subs (time/format-iso8601 (:updated-at e)) 0 19)}))))
 
+(defn- ahead?
+  "Whether the episode action `a` names a time that is more than
+  `sync/skew-tolerance` after the instant `at`."
+  [a at]
+  (< sync/skew-tolerance (- (inst-ms (:timestamp a)) (inst-ms at))))
+
+(defn- ahead-report
+  "A diagnostic for each device whose episode `actions` name a time after
+  the pull at `at`. `author` stands for the device of an action that names
+  no device."
+  [actions author at]
+  (for [[device named] (group-by #(or (:device %) author) actions)
+        :let [latest (apply max (map (comp inst-ms :timestamp) named))]]
+    (diagnostics/describe {:id :sync/future-actions :level :warning :device device
+                           :count (count named) :seconds (quot (- latest (inst-ms at)) 1000)})))
+
 (defn- pulled
   "What a pull of `state` gives when the server told the subscription
   changes `subs` and the `episodes` actions since the cursor `ctx`.
@@ -350,7 +367,11 @@
   They are applied to `state` as their devices did them, and the result is
   what changed, a partial state; the actions whose episodes the app does not
   know yet wait in the cursor, the last `:max-pending`. `opts` give the ways
-  to name and the backend's `:name`, which writes what names no device."
+  to name and the backend's `:name`, which writes what names no device.
+
+  An action that is `ahead?` of `at` changes nothing, and the report names
+  its device. A change to the subscriptions counts as made at `at` at the
+  latest, whatever time the server tells."
   [state ctx subs episodes {:keys [name max-pending] :as opts} at]
   (let [names   (namer opts state)
         local   #(get (:urls ctx) % %)
@@ -358,28 +379,30 @@
         ;; the API tells no time of a change to the subscriptions: one counts
         ;; as made when the pull before saw none, and at the first pull as
         ;; made then, so that the first sync joins two lists
-        since   (time/->inst (* 1000 (or (:subscriptions ctx) told)))
+        since   (time/->inst (min (inst-ms at) (* 1000 (or (:subscriptions ctx) told))))
         id-of   (fn [{:keys [podcast episode guid]}] ((:episode-id names) (local podcast) (local episode) guid))
         changed (apply-subscriptions state {:add (map local (:add subs)) :remove (map local (:remove subs))}
                                      names name since)
+        actions (->> (concat (:pending ctx) (:actions episodes))
+                     (filter (every-pred :podcast :episode :timestamp))
+                     (sort-by (comp inst-ms :timestamp)))
         [s unnamed] (reduce (fn [[s unnamed] a]
                               (if-let [id (id-of a)]
                                 [(apply-action s id a name) unnamed]
                                 [s (conj unnamed a)]))
                             [changed []]
-                            (->> (concat (:pending ctx) (:actions episodes))
-                                 (filter (every-pred :podcast :episode :timestamp))
-                                 (sort-by (comp inst-ms :timestamp))))
+                            (remove #(ahead? % at) actions))
         pending (vec (take-last max-pending unnamed))
-        waiting (count (:pending ctx))]
+        more    (- (count pending) (count (:pending ctx)))]
     {:states   [(player/changes-since s state)]
      :partial? true
      :ctx      (cond-> (-> ctx
                            (dissoc :pending)
                            (assoc :subscriptions told :episodes (or (:timestamp episodes) (:episodes ctx))))
                  (seq pending) (assoc :pending pending))
-     :report   (when (> (count pending) waiting)
-                 [(diagnostics/describe {:id :sync/unknown-episodes :level :info :count (- (count pending) waiting)})])}))
+     :report   (cond-> (vec (ahead-report (filter #(ahead? % at) actions) name at))
+                 (pos? more)
+                 (conj (diagnostics/describe {:id :sync/unknown-episodes :level :info :count more})))}))
 
 (defn- caller
   "A function of a call and its parameters that sends it to the server at

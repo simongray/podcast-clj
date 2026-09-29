@@ -160,3 +160,25 @@
                       [:other nil]]
                      @seen)
                   "the pages of the same origin get them, and a page elsewhere does not"))))))))
+
+(deftest credentials-after-a-redirect
+  (let [seen (atom [])
+        note (fn [where ^HttpExchange exchange]
+               (swap! seen conj [where (.getFirst (.getRequestHeaders exchange) "Authorization")]))]
+    (with-routes
+      (fn [path ^HttpExchange exchange]
+        (note [:host path] exchange)
+        (respond exchange 200 (page-xml (when (= "/feed.xml" path) "/page2.xml") [2]) {}))
+      (fn [host]
+        (with-routes
+          (fn [path ^HttpExchange exchange]
+            (note [:private path] exchange)
+            (respond exchange 302 "" {"Location" (str host "/feed.xml")}))
+          (fn [private]
+            (let [r (podcast/fetch! (str private "/feed.xml") {:credentials {:username "u" :password "p"} :max-pages 5})]
+              (is (= (str host "/feed.xml") (:url r)))
+              (is (= [[[:private "/feed.xml"] "Basic dTpw"]
+                      [[:host "/feed.xml"] nil]
+                      [[:host "/page2.xml"] nil]]
+                     @seen)
+                  "the feed is at another origin, where no page gets them"))))))))

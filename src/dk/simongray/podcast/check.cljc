@@ -181,12 +181,13 @@
    (fn [{:keys [head get] :as facts}]
      (let [target (or (:url get) (:url head) url)
            stated (http/media-type (:type declared))
-           came?  (contains? #{200 206} (:status get))]
+           came?  (contains? #{200 206} (:status get))
+           limits (select-keys opts [:timeout-seconds :allow?])]
        (async/then
         (async/all [(when (and read? came? (or (nil? stated) (contains? formats stated)))
                       (async/attempt #(media/read! target (assoc (select-keys opts [:timeout-seconds]) :send send))))
                     (when (and integrity? came? (:integrity declared))
-                      (async/attempt #(media/verify! target (:integrity declared))))])
+                      (async/attempt #(media/verify! target (:integrity declared) limits)))])
         (fn [[read verified]]
           (cond-> facts
             read     (assoc :media (-> (attempted read)
@@ -644,6 +645,7 @@
        :integrity?  false       ; fetch each file that has a podcast:integrity whole
        :concurrency 4           ; how many files to check at a time
        :timeout-seconds 30      ; how long each request may take
+       :allow?      f           ; which URLs a request can go to, as for http/call!
        :send        f}          ; how to send the requests, in place of http/call!
 
   The credentials go with the requests for the feed alone, and so do a
@@ -652,17 +654,22 @@
   as `http/probe!` does, and the header of each image. It reads a media
   file by byte ranges, and only as far as its duration, but it fetches the
   whole of a file whose integrity it checks, with `http/digest!` on the
-  JVM. The byte ranges of media files and images come by `http/fetcher`."
+  JVM. The byte ranges of media files and images come by `http/fetcher`.
+
+  Each request carries the `:timeout-seconds` and the `:allow?`, also the
+  request of `http/digest!`, which does not go through `:send`. A server
+  that checks feeds for strangers gives `http/public?` as `:allow?`."
   ([feed]
    (feed! feed {}))
-  ([feed {:keys [url credentials profile concurrency send timeout-seconds]
+  ([feed {:keys [url credentials profile concurrency send]
           :or   {concurrency 4 send http/call!}
           :as   opts}]
    (let [[url in-url] (http/split-credentials url)
          opts         (cond-> (assoc opts :url url)
                         (or credentials in-url) (assoc ::authorization (http/authorization (or credentials in-url))))
          found        (files feed opts)
-         send         (if timeout-seconds #(send (assoc % :timeout-seconds timeout-seconds)) send)]
+         limits       (select-keys opts [:timeout-seconds :allow?])
+         send         (if (seq limits) #(send (merge % limits)) send)]
      (async/then (in-lanes send found opts (max 1 concurrency))
                  (fn [facts]
                    (let [checked (mapv #(assoc %1 :facts %2) found facts)]

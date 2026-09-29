@@ -162,15 +162,17 @@
    (defn- later-pages
      "The pages after `feed`, the page at `url`, as `page!` reads them: each
      the page that the one before names as the next (see
-     `resolve/next-page`), `n` at most, a page read before ending them. The
-     `:credentials` in `opts` go only to the pages at the origin of `url`,
-     since the feed names the pages."
-     [url feed n opts]
+     `resolve/next-page`), `n` at most, a page read before ending them.
+
+     The feed names the pages, so the `:credentials` in `opts` go only to
+     the pages at the origin of `asked`, the URL that the app gave them
+     for. After a redirect, `url` can be at another origin."
+     [asked url feed n opts]
      (let [next-of  (fn [url feed seen]
                       (when-let [next (some->> (resolve/next-page feed) (http/absolute-url url))]
                         (when-not (seen next)
                           {:url next :seen (conj seen next)})))
-           opts-for (fn [page-url] (cond-> opts (not (http/same-origin? url page-url)) (dissoc :credentials)))]
+           opts-for (fn [page-url] (cond-> opts (not (http/same-origin? asked page-url)) (dissoc :credentials)))]
        (into []
              (take n)
              (iteration (fn [k] (when k (assoc (page! (:url k) (opts-for (:url k))) :seen (:seen k))))
@@ -214,7 +216,7 @@
             result (select-keys response [:status :url :permanent-url :etag :last-modified :not-before])]
         (if (and (= 200 status) body)
           (let [first-page (parse body (select-keys opts [:quirks? :registry :except]))
-                pages      (when (> max-pages 1) (later-pages (:url response) first-page (dec max-pages) opts))
+                pages      (when (> max-pages 1) (later-pages url (:url response) first-page (dec max-pages) opts))
                 failed     (first (remove :feed pages))
                 feed       (cond-> (if (seq pages)
                                      (feed/join-pages (cons first-page (keep :feed pages)))

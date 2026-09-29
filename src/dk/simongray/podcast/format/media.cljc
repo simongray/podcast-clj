@@ -81,12 +81,18 @@
   `opts` may give `:fetch`, a function as `http/fetcher` makes, for an app
   that fetches its own way; the `:headers` and `:timeout-seconds` of
   `http/fetcher`, and its `:send`; and the `:except` of `read`. A file
-  whose ranges do not come gives a report of `:file/incomplete`."
+  whose ranges do not come gives a report of `:file/incomplete`.
+
+  The reading fetches the `:max-bytes` of `opts` at most, by default those
+  of `bytes/default-limits`. A file that asks for more gives the same
+  report. A server that ignores ranges sends a file from its start, so
+  the reading throws `::http/too-large` when it needs bytes after those."
   ([url]
    (read! url {}))
   ([url {:keys [fetch] :as opts}]
-   (let [read-opts (select-keys opts [:except])]
-     (bytes/read! (or fetch (http/fetcher url opts)) #(read % read-opts)))))
+   (let [read-opts (select-keys opts [:except])
+         opts      (merge bytes/default-limits opts)]
+     (bytes/read! (or fetch (http/fetcher url opts)) #(read % read-opts) opts))))
 
 (def ^:no-doc sri-algorithms
   "The hash algorithms of Subresource Integrity, weakest first, with their
@@ -122,8 +128,9 @@
   signature, which needs the publisher's key, or for a value with no hash
   that Subresource Integrity knows. On the JVM the file streams through the
   digest; in ClojureScript it comes whole, up to the `:max-bytes` of
-  `http/call!`, and the result is a promise. `opts` may give the `:headers`
-  and `:timeout-seconds` (default 600) of the request."
+  `http/call!`, and the result is a promise. `opts` can give the
+  `:headers`, the `:timeout-seconds` (default 600) and the `:allow?` of the
+  request, as `http/call!` takes them."
   ([url integrity]
    (verify! url integrity {}))
   ([url {:keys [type value]} opts]
@@ -140,7 +147,7 @@
                     (verdict metadata (bytes/base64 (get digests algorithm)))
                     {:valid? nil :reason (str "The file answered " status ".")}))
           :cljs (-> (http/call! (merge {:url url :as :bytes :timeout-seconds 600}
-                                       (select-keys opts [:headers :timeout-seconds :max-bytes])))
+                                       (select-keys opts [:headers :timeout-seconds :max-bytes :allow?])))
                     (.then (fn [{:keys [status body]}]
                              (if (= 200 status)
                                (-> (.digest (.-subtle js/crypto) (names (:algorithm metadata)) (or body (js/Uint8Array. 0)))

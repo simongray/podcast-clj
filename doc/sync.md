@@ -440,11 +440,24 @@ entry is written by the device that the action names, at the time that it
 names. An action that is not later than the entry changes nothing. For this
 reason, an action that this device sent and reads back does no harm.
 
+An action can name a time in the future. The clock of its device is fast, or
+an app writes milliseconds where the API has seconds. Such a time must not
+become a stamp. The clock of the state follows the stamps, and the clock of
+each device follows the clock of the state. So an action that names a time
+more than a minute after the pull changes nothing, and
+`:sync/future-actions` names its device in the report. A later pull reads
+the action again, and the action counts when its time is there.
+
+The backend does not write such an action at the time of the pull. A later
+pull reads the action again. It then writes the action at its own time,
+over what the listener did since.
+
 A change to the subscriptions carries no time. It counts as made when the
 pull before it saw none. So a change on this device since the last pull wins
 over a change from the server, as in AntennaPod. At the first pull, a change
 counts as made at that pull, so the first sync joins the two lists, as other
-clients do.
+clients do. No change counts as made after the pull that read it, whatever
+time the server tells.
 
 A push sends what the devices of podcast-clj wrote since the last push, and
 never what came from a server. It sends the subscriptions that were added
@@ -509,9 +522,13 @@ devices, as the Nextcloud app does.
 
 The server notes when each entry arrived, and answers `since` by that time,
 not by the time in an action. So an action that a device sends late still
-reaches the other devices. The server keeps these times, the sessions and
-the registered devices in memory. After a restart, a device reads again what
-it read before, which changes nothing.
+reaches the other devices. An action that names a time after it arrived
+counts as made when it arrived. An app sends an action once, so the server
+cannot wait for that time as a pull does.
+
+The server keeps these times, the sessions and the registered devices in
+memory. After a restart, a device reads again what it read before, which
+changes nothing.
 
 The inspector serves the API at `/api/2/` over the folder that it serves at
 `/dav/`. As a result, AntennaPod, the browser player and any other device

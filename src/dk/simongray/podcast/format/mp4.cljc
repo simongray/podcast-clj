@@ -183,7 +183,10 @@
     (let [[scale _] (:timing chapter-track)
           samples   (when (and scale (pos? scale) (:stbl chapter-track))
                       (samples view (:stbl chapter-track)))]
-      (bytes/need-all view (map (fn [{:keys [offset size]}] [offset (+ offset size)]) samples))
+      ;; a sample can say that it is larger than its text, which two bytes
+      ;; count: no more of it is needed
+      (bytes/need-all view (for [{:keys [offset size]} samples]
+                             [offset (+ offset (min size 65537))]))
       (seq (for [s samples]
              (let [title (sample-text view s)]
                (cond-> {:start-time (/ (:start s) (double scale))

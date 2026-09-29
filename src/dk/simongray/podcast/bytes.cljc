@@ -301,6 +301,14 @@
   reading needs beyond them come in the rounds after."
   16)
 
+(def default-limits
+  "The limits of `read!` that its options do not set.
+
+  `:max-bytes` is the most that one reading fetches of a file: 32 MB, and
+  nil for no limit. The sizes in a file are numbers that its writer chose,
+  so a file can ask a reader for more than it holds."
+  {:max-bytes (* 32 1024 1024)})
+
 (defn- spans
   "The `ranges` that a reading needs, `[[start end] ...]`, in order, and
   those less than `chunk-size` apart joined, so that ranges near each
@@ -323,10 +331,28 @@
           []
           ranges))
 
+(defn- size
+  "The number of bytes in the `ranges`."
+  [ranges]
+  (reduce + (map (fn [[start end]] (- end start)) ranges)))
+
+(defn- widened
+  "The `ranges` with the end of each moved to `(wide range)`, as far as the
+  bytes that this adds fit in `spare`."
+  [ranges wide spare]
+  (first (reduce (fn [[acc spare] [start end :as range]]
+                   (let [more (min spare (max 0 (- (wide range) end)))]
+                     [(conj acc [start (+ end more)]) (- spare more)]))
+                 [[] spare]
+                 ranges)))
+
 (defn read!
-  "What the reader `read` gives of the file whose bytes `fetch` gets.
+  "What the reader `read` gives of the file whose bytes `fetch` gets, within
+  the limits of `opts`: on the JVM the result, in ClojureScript a promise
+  of it.
+
   `read` is a function of a view that gives its result, or `{:need
-  [[start end] ...]}` as `reading` gives it; `fetch` is a function of a
+  [[start end] ...]}` as `reading` gives it. `fetch` is a function of a
   start and an end, end excluded, that gives `{:bytes :start :total}` or a
   deferred one, as `dk.simongray.podcast.http/fetcher` makes.
 
@@ -335,35 +361,43 @@
   other in one request. A single range comes with 64 KB more, where a
   reading most often goes next, and with twice as much more as the last
   time, up to 1 MB, when it is shorter than that and starts where the last
-  ended, as a walk through the segments of a file asks. On the JVM the
-  result, in ClojureScript a promise of it; ranges that have not come
-  after 8 rounds give a report of `:file/incomplete`."
-  [fetch read]
-  (letfn [(step [v round previous [until ahead]]
-            (let [{:keys [need] :as result} (read v)]
-              (cond
-                (nil? need)
-                result
+  ended, as a walk through the segments of a file asks.
 
-                (or (>= round max-rounds) (= need previous))
-                {:report [(diagnostics/describe {:id :file/incomplete :level :warning :ranges need})]}
+  The result is a report of `:file/incomplete` when ranges did not come
+  after 8 rounds. It is the same when a reading needs more bytes than the
+  `:max-bytes` of `opts` leave, see `default-limits`. Those bytes are not
+  fetched."
+  ([fetch read]
+   (read! fetch read {}))
+  ([fetch read opts]
+   (letfn [(step [v round previous [until ahead] room]
+             (let [{:keys [need] :as result} (read v)
+                   batch (vec (take max-requests (spans need)))]
+               (cond
+                 (nil? need)
+                 result
 
-                :else
-                (let [batch       (vec (take max-requests (spans need)))
-                      [start end] (first batch)
-                      ahead       (if (and until (< (- start until) chunk-size) (< (- end start) chunk-size))
-                                    (min (* 2 ahead) (* 16 chunk-size))
-                                    chunk-size)
-                      ranges      (if (next batch)
-                                    (mapv (fn [[s e]] [s (max e (+ s chunk-size))]) batch)
-                                    [[start (+ end ahead)]])]
-                  (async/then (fetch-all fetch ranges)
-                              (fn [parts]
-                                (step (reduce (fn [v {b :bytes :keys [start total]}]
-                                                (cond-> v b (add start b total)))
-                                              v parts)
-                                      (inc round)
-                                      need
-                                      (when-not (next batch) [(second (first ranges)) ahead]))))))))]
-    #?(:clj  (step (view) 0 nil nil)
-       :cljs (js/Promise.resolve (step (view) 0 nil nil)))))
+                 (or (>= round max-rounds) (= need previous) (< room (size batch)))
+                 {:report [(diagnostics/describe {:id :file/incomplete :level :warning :ranges need})]}
+
+                 :else
+                 (let [[start end] (first batch)
+                       ahead       (if (and until (< (- start until) chunk-size) (< (- end start) chunk-size))
+                                     (min (* 2 ahead) (* 16 chunk-size))
+                                     chunk-size)
+                       wide        (if (next batch)
+                                     (fn [[s e]] (max e (+ s chunk-size)))
+                                     (fn [[_ e]] (+ e ahead)))
+                       ranges      (widened batch wide (- room (size batch)))]
+                   (async/then (fetch-all fetch ranges)
+                               (fn [parts]
+                                 (step (reduce (fn [v {b :bytes :keys [start total]}]
+                                                 (cond-> v b (add start b total)))
+                                               v parts)
+                                       (inc round)
+                                       need
+                                       (when-not (next batch) [(second (first ranges)) ahead])
+                                       (- room (reduce + (map length (keep :bytes parts)))))))))))]
+     (let [room (or (:max-bytes (merge default-limits opts)) ##Inf)]
+       #?(:clj  (step (view) 0 nil nil room)
+          :cljs (js/Promise.resolve (step (view) 0 nil nil room)))))))
