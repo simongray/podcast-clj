@@ -148,6 +148,7 @@ The namespace of an id tells which part of podcast-clj found the problem:
 | `:sync/conflict` | warning | The shared document changed under every attempt to write it; the step ended without writing. |
 | `:sync/unknown-episodes` | info | Episode actions from a gpodder server name episodes of feeds that the app does not know yet. They wait in the cursor, and the next pull tries them again. |
 | `:sync/future-actions` | warning | Episode actions from a gpodder server name a time more than a minute after the pull, as a device with a fast clock writes them. They changed nothing. |
+| `:sync/malformed-actions` | warning | Episode actions from a gpodder server name no feed, no media file or no time that reads. They were left out. |
 | `:sync/unnamed-episodes` | info | Episodes changed, but the app knows no URL of their media, which the gpodder API names an episode by, so the server was not told. |
 | `:sync/rejected-url` | warning | A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it. |
 | `:comments/unsupported` | info | podcast-clj does not read comments over the protocol of the thread. |

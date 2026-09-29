@@ -436,9 +436,17 @@ their device.
 A pull reads what changed since its cursors, and gives it as a partial state
 with `:partial? true`, so that `sync!` acknowledges nothing from it. An
 action becomes the episode entry that the same act on this device makes. The
-entry is written by the device that the action names, at the time that it
-names. An action that is not later than the entry changes nothing. For this
-reason, an action that this device sent and reads back does no harm.
+entry is written at the time that the action names. Its writer is `gpodder:`
+and the id of the device on the server, such as `gpodder:antennapod`. An
+action that is not later than the entry changes nothing. For this reason, an
+action that this device sent and reads back does no harm.
+
+No device of podcast-clj has a name that starts with `gpodder:`. This is
+necessary, because a device on the server can have the id of a device of
+podcast-clj. With that id as the writer, a push sends the entry back. The
+registry also takes the entry for something that the device wrote. But the
+server tells only a part of what a device wrote, so `compact` then drops
+tombstones too soon.
 
 An action can name a time in the future. The clock of its device is fast, or
 an app writes milliseconds where the API has seconds. Such a time must not
@@ -459,11 +467,20 @@ counts as made at that pull, so the first sync joins the two lists, as other
 clients do. No change counts as made after the pull that read it, whatever
 time the server tells.
 
+A server tells the URL of a show, and no title. When the state does not
+know the show, the backend stamps its entry at the start of time. So the
+entry of a device that knows the show wins over the entry from the server.
+That entry has the title and the time of the subscription.
+
 A push sends what the devices of podcast-clj wrote since the last push, and
 never what came from a server. It sends the subscriptions that were added
 and removed, and one action for each episode entry that changed. The first
 push adds subscriptions and removes none. The cursor keeps the stamp of each
 entry at the last push, and a push sends the entries whose stamps differ.
+A push cannot name an episode when the app does not know the URL of its
+media. Such an episode gets no stamp in the cursor, so the next push tries
+it again. The backend does not take the guid of an item for that URL, even
+when the guid is a URL.
 
 ### What the servers do
 
@@ -506,11 +523,17 @@ send this guid with each action, and AntennaPod matches the actions that it
 receives by it. Without a guid, the backend looks up the media URL in the
 feeds of the app. `identities` makes these lookups over the parsed feeds of
 the app. The feeds change, so the backend takes a function that makes them
-again at each step.
+again at each step. `identities` indexes the items of a feed only when a
+lookup names the feed.
+
+A state can hold two subscriptions with one URL, under the guid of the URL
+and under the guid that the feed declares. The live one names the show
+before a removed one, and then the one that changed last.
 
 An action for a feed that the app does not know yet waits in the cursor, and
 the next pull tries it again. The app then has time to fetch the feed of a
-new subscription.
+new subscription. A server tells an action again in the day before the
+cursor, and the action waits only once.
 
 ### The server
 
@@ -524,11 +547,19 @@ The server notes when each entry arrived, and answers `since` by that time,
 not by the time in an action. So an action that a device sends late still
 reaches the other devices. An action that names a time after it arrived
 counts as made when it arrived. An app sends an action once, so the server
-cannot wait for that time as a pull does.
+cannot wait for that time as a pull does. An action with a time that does
+not read tells nothing of when it was made, so the server leaves it out.
+
+A state can hold one URL under two guids, of which one is removed. The
+server tells such a URL as added, and not as removed.
 
 The server keeps these times, the sessions and the registered devices in
 memory. After a restart, a device reads again what it read before, which
-changes nothing.
+changes nothing. A session lasts a day. A login that carries its session
+keeps it, so a client that logs in at each step has one session.
+
+The app can write to the state while the server answers a call. The server
+then merges what it wrote with what the app wrote.
 
 The inspector serves the API at `/api/2/` over the folder that it serves at
 `/dav/`. As a result, AntennaPod, the browser player and any other device

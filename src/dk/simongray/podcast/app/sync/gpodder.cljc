@@ -117,37 +117,47 @@
     (not-empty (str/trim v))))
 
 (defn- seconds
-  "The seconds `v`; nil for none, or for the negative number a client writes
-  for a position it does not know."
+  "The seconds `v`; nil for none, for the negative number a client writes
+  for a position it does not know, and for a number that no episode
+  reaches."
   [v]
-  (when (and (number? v) (not (neg? v)))
+  (when (and (number? v) (<= 0 v) (< v 1e9))
     v))
+
+(defn- epoch
+  "The seconds since the epoch of the timestamp `v` of an answer: a whole
+  number, or from some servers a string of digits. Nil for anything else,
+  and for a time that a date of JavaScript does not hold."
+  [v]
+  (let [n (if (string? v)
+            (some->> v str/trim (re-matches #"\d{1,13}") parse-long)
+            (json/whole v))]
+    (when (and n (<= 0 n) (<= n 8640000000000))
+      n)))
 
 (defn- instant
   "The instant of the action time `v`: ISO 8601, without a zone in UTC, or
-  seconds since the epoch."
+  seconds since the epoch as `epoch` reads them."
   [v]
-  (cond
-    (string? v) (time/parse-iso8601 v)
-    (number? v) (time/->inst (* 1000 (long v)))))
+  (if (string? v)
+    (time/parse-iso8601 v)
+    (some-> (epoch v) (* 1000) time/->inst)))
+
+(defn- listed
+  "The items of the JSON value `v` when it is a list, and none otherwise."
+  [v]
+  (if (sequential? v) v []))
 
 (defn ^:no-doc read-action
   "The episode action `m`, as JSON reads it, with keyword keys, its name in
-  lower case and its time an instant; nil for anything but a map."
+  lower case and its time an instant; nil for anything but a map. A field
+  that does not read is nil."
   [m]
   (when (map? m)
     (into {} (for [[k f] {"podcast" text "episode" text "guid" text "device" text
                           "action"  (comp #(some-> % str/lower-case) text)
                           "timestamp" instant "started" seconds "position" seconds "total" seconds}]
                [(keyword k) (f (get m k))]))))
-
-(defn- epoch
-  "The seconds since the epoch of the timestamp `v` of an answer: a number,
-  or from some servers a string of digits."
-  [v]
-  (cond
-    (number? v) (long v)
-    (string? v) (some->> v str/trim (re-matches #"\d{1,12}") parse-long)))
 
 (defn- session
   "The session id that the Set-Cookie of the answer `headers` sets."
@@ -184,16 +194,17 @@
         :login         (session headers)
         :register      nil
         :subscriptions (let [m (data)]
-                         {:add       (filterv web-url? (get m "add"))
-                          :remove    (filterv web-url? (get m "remove"))
+                         {:add       (filterv web-url? (listed (get m "add")))
+                          :remove    (filterv web-url? (listed (get m "remove")))
                           :timestamp (epoch (get m "timestamp"))})
         :episodes      (let [m (data)]
-                         {:actions   (into [] (keep read-action) (get m "actions"))
+                         {:actions   (into [] (keep read-action) (listed (get m "actions")))
                           :timestamp (epoch (get m "timestamp"))})
         (:update-subscriptions
          :update-episodes) (let [m (if (str/blank? body) {} (data))]
                              {:timestamp   (epoch (get m "timestamp"))
-                              :update-urls (vec (for [[sent new] (get m "update_urls")
+                              :update-urls (vec (for [pair  (listed (get m "update_urls"))
+                                                      :let  [[sent new] (listed pair)]
                                                       :when (string? sent)]
                                                   [sent (when (web-url? new) new)]))})))))
 
@@ -210,16 +221,18 @@
       str/lower-case))
 
 (defn- indexed
-  "The feed `feed` at `url`, with its guid and the guids of its items, by
-  themselves and by the URLs of their media."
+  "The feed `feed` at `url` with its guid, and with the index of its items
+  as a delay: the items by their guids, and their guids by the URLs of
+  their media. A feed makes its index when a lookup first needs it."
   [[url feed]]
-  (let [items (keep (fn [item] (when-let [g (feed/item-guid item)] [g item])) (:rss/items feed))]
-    {:url      url
-     :guid     (feed/feed-guid feed url)
-     :items    (into {} items)
-     :by-media (into {} (for [[g item] items
-                              {media :url} (resolve/enclosures item)]
-                          [(normal-url media) g]))}))
+  {:url   url
+   :guid  (feed/feed-guid feed url)
+   :index (delay
+            (let [items (keep (fn [item] (when-let [g (feed/item-guid item)] [g item])) (:rss/items feed))]
+              {:items    (into {} items)
+               :by-media (into {} (for [[g item] items
+                                        {media :url} (resolve/enclosures item)]
+                                    [(normal-url media) g]))}))})
 
 (defn identities
   "The ways to name the shows and episodes of `feeds`, the app's parsed feeds
@@ -233,18 +246,23 @@
   Each gives nil for a feed that `feeds` do not hold. An episode is found by
   its guid, which some servers keep, else by the URL of its media, and when
   neither finds it, it is named as podcast-clj names one that its feed
-  leaves out. URLs match whatever their scheme, case and trailing slashes."
+  leaves out. URLs match whatever their scheme, case and trailing slashes.
+
+  The items of a feed are indexed when a lookup first names the feed. An
+  app with many feeds keeps the result while its feeds are the same."
   [feeds]
   (let [known   (map indexed feeds)
         by-url  (into {} (map (juxt (comp normal-url :url) identity)) known)
-        by-guid (into {} (map (juxt :guid identity)) known)]
+        by-guid (into {} (map (juxt :guid identity)) known)
+        index   #(some-> % :index deref)]
     {:feed-guid   #(:guid (by-url (normal-url %)))
      :feed-url    #(:url (by-guid %))
      :episode-id  (fn [podcast media guid]
-                    (when-let [{g :guid :keys [items by-media]} (by-url (normal-url podcast))]
-                      [g (or (when (contains? items guid) guid) (by-media (normal-url media)) guid media)]))
+                    (when-let [{g :guid :as known} (by-url (normal-url podcast))]
+                      (let [{:keys [items by-media]} (index known)]
+                        [g (or (when (contains? items guid) guid) (by-media (normal-url media)) guid media)])))
      :episode-url (fn [[feed-guid item-guid]]
-                    (when-let [item (get-in (by-guid feed-guid) [:items item-guid])]
+                    (when-let [item (get (:items (index (by-guid feed-guid))) item-guid)]
                       (or (:url (:rss/enclosure item)) (:url (resolve/enclosure item)))))}))
 
 (defn ^:no-doc namer
@@ -252,13 +270,22 @@
   their own keys or by `:identities`, with defaults for those they lack.
 
   A feed is named by the subscription of `state` with its URL, else as
-  `:feed-guid` or its URL names it. An episode is named by `:episode-id`,
-  and without one by the guid of its action, else the URL of its media;
-  with one, an episode of a feed that it does not know stays unnamed."
+  `:feed-guid` or its URL names it. Of the subscriptions with one URL, a
+  live one names the feed before a removed one, and then the one that
+  changed last. An episode is named by `:episode-id`, and without one by
+  the guid of its action, else the URL of its media; with one, an episode
+  of a feed that it does not know stays unnamed.
+
+  The URL of the media of an episode is what `:episode-url` gives. Without
+  one, it is the guid of the item when that is a URL."
   [{:keys [identities] :as opts} state]
   (let [{:keys [feed-guid feed-url episode-id episode-url]}
         (merge (when identities (identities)) (select-keys opts [:feed-guid :feed-url :episode-id :episode-url]))
-        subscribed (into {} (for [[g {:keys [url]}] (:subscriptions state) :when url] [(normal-url url) g]))
+        subscribed (->> (:subscriptions state)
+                        (filter (comp :url val))
+                        (sort-by (fn [[g {:keys [removed? updated-at]}]]
+                                   [(if removed? 0 1) (or (some-> updated-at inst-ms) 0) (str g)]))
+                        (into {} (map (fn [[g e]] [(normal-url (:url e)) g]))))
         ;; TODO: a new feed that declares a guid of its own keeps the guid of
         ;; its URL, until the app re-keys its subscription
         guid-of    #(or (subscribed (normal-url %)) (when feed-guid (feed-guid %)) (guid/from-url %))]
@@ -269,13 +296,30 @@
                       (some-> (episode-id podcast media item) (update 0 #(or (subscribed (normal-url podcast)) %)))
                       [(guid-of podcast) (or item media)]))
      :episode-url (fn [[_ item :as id]]
-                    (or (when episode-url (episode-url id)) (when (web-url? item) item)))}))
+                    (if episode-url
+                      (episode-url id)
+                      (when (web-url? item) item)))}))
+
+(defn ^:no-doc writer
+  "The name that writes to a state what the `device` of a gpodder server
+  did. No device of podcast-clj has such a name. So the entry is the
+  knowledge of no device of the listener, and no push sends it back."
+  [device]
+  (str "gpodder:" device))
+
+(defn ^:no-doc device-of
+  "The device of a gpodder server that wrote an entry as `author`, the
+  `:device` of the entry: the inverse of `writer`. A device of podcast-clj
+  is its own name."
+  [author]
+  (str/replace-first (str author) #"^gpodder:" ""))
 
 (defn ^:no-doc written-by
-  "`(f state)` as the device `author` writes it, at the instants that `f`
-  gives, with the device of `state` and the later of the two clocks."
+  "`(f state)` as the device `author` of a gpodder server writes it, under
+  the name that `writer` gives it, at the instants that `f` gives, with the
+  device of `state` and the later of the two clocks."
   [state author f]
-  (let [written (f (-> state (assoc :device author) (dissoc :clock)))
+  (let [written (f (-> state (assoc :device (writer author)) (dissoc :clock)))
         clocks  (keep :clock [state written])]
     (cond-> (assoc written :device (:device state))
       (seq clocks) (assoc :clock (apply max-key inst-ms clocks)))))
@@ -284,14 +328,20 @@
   "`state` with the feed URLs `add` subscribed to and `remove` unsubscribed
   from, as the device `author` did at `at`; `names` gives each URL's guid.
 
-  A feed that already is as the change says is left alone."
+  A feed that already is as the change says is left alone. A server tells
+  the URL of a show, and no title. So the entry of a show that `state` does
+  not know is stamped at the start of time, and the entry of a device that
+  knows the show wins over it."
   [state {:keys [add remove]} names author at]
   (let [guid-of     (:feed-guid names)
         subscribe   (fn [s url]
-                      (let [g (guid-of url)]
+                      (let [g     (guid-of url)
+                            known (get-in s [:subscriptions g])
+                            show  {:url url :title (:title known) :added-at at}
+                            stamp (if known at (time/->inst 0))]
                         (cond-> s
                           (not (player/subscribed? s g))
-                          (written-by author #(player/subscribe % g {:url url :title (get-in % [:subscriptions g :title])} at)))))
+                          (written-by author #(player/subscribe % g show stamp)))))
         unsubscribe (fn [s url]
                       (let [g (guid-of url)]
                         (cond-> s
@@ -325,24 +375,26 @@
   no action tells it.
 
   A played episode is a play to its end, as AntennaPod writes it, and an
-  episode marked not played is `new`, but not on a `first?` push. Positions
-  are whole seconds, and a played episode of an unknown duration tells
-  nothing."
-  [id e podcast media device first?]
-  (let [{:keys [position duration played?]} e
-        whole (fn [x] (when (and (number? x) (== x x) (not (infinite? x)) (not (neg? x))) (long x)))
-        at    (whole position)
-        total (let [d (whole duration)] (when (and d (pos? d)) d))
-        act   (cond
-                (and played? total)                     {"action" "play" "started" total "position" total "total" total}
-                played?                                 nil
-                (and (false? played?) (contains? #{nil 0} at)) (when-not first? {"action" "new"})
-                (and at total)                          {"action" "play" "started" at "position" at "total" total}
-                at                                      {"action" "play" "position" at})]
-    (when act
-      ;; ISO 8601 to the second and without a zone, which every server reads
-      (merge act {"podcast" podcast "episode" media "guid" (second id) "device" device
-                  "timestamp" (subs (time/format-iso8601 (:updated-at e)) 0 19)}))))
+  episode marked not played is `new`, but not on the first push, `:first?`
+  in `opts`. Positions are whole seconds, and a played episode of an
+  unknown duration tells nothing."
+  ([id e podcast media device]
+   (entry-action id e podcast media device {}))
+  ([id e podcast media device {:keys [first?]}]
+   (let [{:keys [position duration played?]} e
+         whole (fn [x] (when (and (number? x) (== x x) (not (infinite? x)) (not (neg? x))) (long x)))
+         at    (whole position)
+         total (let [d (whole duration)] (when (and d (pos? d)) d))
+         act   (cond
+                 (and played? total)                     {"action" "play" "started" total "position" total "total" total}
+                 played?                                 nil
+                 (and (false? played?) (contains? #{nil 0} at)) (when-not first? {"action" "new"})
+                 (and at total)                          {"action" "play" "started" at "position" at "total" total}
+                 at                                      {"action" "play" "position" at})]
+     (when act
+       ;; ISO 8601 to the second and without a zone, which every server reads
+       (merge act {"podcast" podcast "episode" media "guid" (second id) "device" device
+                   "timestamp" (subs (time/format-iso8601 (:updated-at e)) 0 19)})))))
 
 (defn- ahead?
   "Whether the episode action `a` names a time that is more than
@@ -371,7 +423,9 @@
 
   An action that is `ahead?` of `at` changes nothing, and the report names
   its device. A change to the subscriptions counts as made at `at` at the
-  latest, whatever time the server tells."
+  latest, whatever time the server tells. An action that names no feed, no
+  media or no time that reads is left out, and the report counts such
+  actions."
   [state ctx subs episodes {:keys [name max-pending] :as opts} at]
   (let [names   (namer opts state)
         local   #(get (:urls ctx) % %)
@@ -383,9 +437,10 @@
         id-of   (fn [{:keys [podcast episode guid]}] ((:episode-id names) (local podcast) (local episode) guid))
         changed (apply-subscriptions state {:add (map local (:add subs)) :remove (map local (:remove subs))}
                                      names name since)
-        actions (->> (concat (:pending ctx) (:actions episodes))
-                     (filter (every-pred :podcast :episode :timestamp))
-                     (sort-by (comp inst-ms :timestamp)))
+        ;; a server tells an action again in the day before the cursor
+        told-of (distinct (concat (:pending ctx) (:actions episodes)))
+        whole?  (every-pred :podcast :episode :timestamp)
+        actions (sort-by (comp inst-ms :timestamp) (filter whole? told-of))
         [s unnamed] (reduce (fn [[s unnamed] a]
                               (if-let [id (id-of a)]
                                 [(apply-action s id a name) unnamed]
@@ -393,7 +448,9 @@
                             [changed []]
                             (remove #(ahead? % at) actions))
         pending (vec (take-last max-pending unnamed))
-        more    (- (count pending) (count (:pending ctx)))]
+        more    (- (count pending) (count (:pending ctx)))
+        broken  (count (remove whole? told-of))
+        counted (fn [d n] (diagnostics/describe (assoc d :count n)))]
     {:states   [(player/changes-since s state)]
      :partial? true
      :ctx      (cond-> (-> ctx
@@ -401,8 +458,8 @@
                            (assoc :subscriptions told :episodes (or (:timestamp episodes) (:episodes ctx))))
                  (seq pending) (assoc :pending pending))
      :report   (cond-> (vec (ahead-report (filter #(ahead? % at) actions) name at))
-                 (pos? more)
-                 (conj (diagnostics/describe {:id :sync/unknown-episodes :level :info :count more})))}))
+                 (pos? more)   (conj (counted {:id :sync/unknown-episodes :level :info} more))
+                 (pos? broken) (conj (counted {:id :sync/malformed-actions :level :warning} broken)))}))
 
 (defn- caller
   "A function of a call and its parameters that sends it to the server at
@@ -431,11 +488,12 @@
 (defn- start!
   "The cursor `ctx` once a step started with `call!`: logged in on a server
   whose API has a login, the session in the atom `session`, and the device
-  registered as `registered!` does it; deferred."
+  registered as `registered!` does it; deferred. The login carries the
+  session of the step before, which a server can keep."
   [call! {:keys [api] :as opts} session ctx]
   (if-not (:login (paths api))
     (registered! call! opts nil ctx)
-    (async/then (async/attempt #(call! :login {}))
+    (async/then (async/attempt #(call! :login {:session @session}))
                 (fn [{:keys [value error]}]
                   ;; a server without a login answers otherwise, and does without one
                   (when (= 401 (:status (ex-data error)))
@@ -490,7 +548,7 @@
 (defn- pushing
   "What a push of `state` sends for `device`: the body of
   `:update-subscriptions`, nil when none changed, the episode `:actions`,
-  and how many changed episodes stay `:unnamed`.
+  and the ids of the changed episodes that stay `:unnamed`.
 
   Only what devices of podcast-clj wrote since the stamps `pushed` of the
   last push counts, this one or those in the registry of `state`, never
@@ -509,27 +567,31 @@
                               (public (:url e)))))
         adds    (vec (urls (complement :removed?)))
         drops   (if pushed (vec (remove (set adds) (urls :removed?))) [])
-        named   (for [[[g _ :as id] e] (changed :episodes)
+        told    (for [[[g _ :as id] e] (changed :episodes)
                       :let [podcast (some-> ((:feed-url names) g) public)
                             media   ((:episode-url names) id)]]
                   (if (and (web-url? podcast) (web-url? media))
-                    (entry-action id e podcast media device (nil? pushed))
-                    ::unnamed))]
+                    {:action (entry-action id e podcast media device {:first? (nil? pushed)})}
+                    {:unnamed id}))]
     {:subscriptions (when (or (seq adds) (seq drops)) {"add" adds "remove" drops})
-     :actions       (remove #{::unnamed nil} named)
-     :unnamed       (count (filter #{::unnamed} named))}))
+     :actions       (keep :action told)
+     :unnamed       (keep :unnamed told)}))
 
 (defn- push!
   "The push of the backend: what `pushing` gives of `state`, sent with
   `call!`, and the cursor `ctx` with the stamps of this push and the URLs
-  the server rewrote; deferred."
+  the server rewrote; deferred.
+
+  An episode that the push did not name has no stamp in the cursor, so the
+  next push tries it again."
   [call! {:keys [device batch-size] :as opts} session state {:keys [pushed urls] :as ctx}]
   (let [{:keys [subscriptions actions unnamed]} (pushing state pushed (namer opts state) device)
-        sent (fn [rewrites call body]
-               (async/then rewrites
-                           (fn [rewrites]
-                             (async/then (call! call {:body body :session @session})
-                                         #(into rewrites (:update-urls %))))))]
+        stamps (fn [k] (update-vals (get state k) #(some-> (:updated-at %) inst-ms)))
+        sent   (fn [rewrites call body]
+                 (async/then rewrites
+                             (fn [rewrites]
+                               (async/then (call! call {:body body :session @session})
+                                           #(into rewrites (:update-urls %))))))]
     (async/then
      (reduce #(sent %1 :update-episodes (vec %2))
              (if subscriptions (sent [] :update-subscriptions subscriptions) [])
@@ -538,17 +600,13 @@
              (partition-all batch-size actions))
      (fn [rewrites]
        {:ctx    (assoc ctx
-                       :pushed (into {} (for [k [:subscriptions :episodes]]
-                                          [k (update-vals (get state k) #(some-> (:updated-at %) inst-ms))]))
+                       :pushed {:subscriptions (stamps :subscriptions)
+                                :episodes      (apply dissoc (stamps :episodes) unnamed)}
                        :urls   (into (or urls {}) (for [[sent new] rewrites :when (and new (not= sent new))] [new sent])))
         :report (cond-> (vec (for [[sent new] rewrites :when (nil? new)]
                                (diagnostics/describe {:id :sync/rejected-url :level :warning :url sent})))
-                  (pos? unnamed) (conj (diagnostics/describe {:id :sync/unnamed-episodes :level :info :count unnamed})))}))))
-
-(defn- host
-  "The host of the URL `root`."
-  [root]
-  (second (re-find #"(?i)^[a-z][a-z0-9+.-]*://(?:[^/@]*@)?([^/:]+)" (str root))))
+                  (seq unnamed)
+                  (conj (diagnostics/describe {:id :sync/unnamed-episodes :level :info :count (count unnamed)})))}))))
 
 (defn backend
   "A backend for `dk.simongray.podcast.app.sync/sync!` over the gpodder API
@@ -577,7 +635,7 @@
   of the account there, or give `:device` the id of another app's device."
   ([root]
    (backend root {}))
-  ([root {:keys [name device] :or {name (host root)} :as opts}]
+  ([root {:keys [name device] :or {name (http/host root)} :as opts}]
    {:pre [(map? opts)]}
    (let [session     (atom nil)
          opts        (merge {:api :gpodder :caption "podcast-clj" :type "other"}

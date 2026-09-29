@@ -248,7 +248,7 @@ platforms. It takes these options:
 | `:caption`, `:type` | What the server shows for the device. The type is desktop, laptop, mobile, server, tablet or other. | `"podcast-clj"`, `"other"` |
 | `:identities` | A function of no arguments that gives the ways to name shows and episodes, as `identities` makes them over the feeds of the app | none |
 | `:feed-guid`, `:feed-url`, `:episode-id`, `:episode-url` | Each of those ways by itself | none |
-| `:name` | The name of the backend | the host |
+| `:name` | The name of the backend | the domain of the server |
 | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | The limits of the server and of the cursor, see [Services and their defaults](services.md#the-gpodder-api) | 1000, 10, 100 and 500 |
 | `:timeout-seconds` | The time that each request can take | 30 |
 | `:send` | A function that sends a request map, in place of `http/call!` | `http/call!` |
@@ -269,15 +269,21 @@ the server rewrote, and the actions that name a feed that the app does not
 know yet, the last `:max-pending`. A pull reports `:sync/unknown-episodes` when such
 actions wait. It reports `:sync/future-actions` for the actions of a device
 that name a time more than a minute after the pull, which change nothing.
-A push reports `:sync/unnamed-episodes` for the episodes that it could not
-name by a media URL, and `:sync/rejected-url` for a URL that the server
-refused.
+It reports `:sync/malformed-actions` for the actions that name no feed, no
+media file or no time that reads. A push reports `:sync/unnamed-episodes`
+for the episodes that it could not name by a media URL, and
+`:sync/rejected-url` for a URL that the server refused.
+
+An entry that comes from a server has `gpodder:` and the id of a device of
+the server as its `:device`, such as `gpodder:antennapod`.
 
 `app.sync.gpodder.server/handler` serves the API as a Ring handler, on both
 platforms. It answers the login, the devices, the changes to the
 subscriptions, and the episode actions, under `/api/2`. It takes the atom
 of the server's state, `:authorized?`, a `:step` that syncs the state, and
-the same ways to name shows and episodes as the backend.
+the same ways to name shows and episodes as the backend. A `:step` gives a
+state, and not a promise of one. In ClojureScript, `sync!` gives a promise,
+so an app there syncs on its own, and merges the result into the atom.
 
 
 ## Where the stores are, as of September 2026

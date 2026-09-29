@@ -67,6 +67,14 @@
   (when (or (string? v) (number? v))
     (str v)))
 
+(defn ^:no-doc whole
+  "The JSON value `v` read for a field that holds a whole number: `v` as an
+  integer when it is a number without a fraction that JavaScript holds
+  exactly, and nil for anything else."
+  [v]
+  (when (and (number? v) (== v (Math/floor v)) (< (Math/abs (double v)) 9e15))
+    (long v)))
+
 (defn write-str
   "Serialize `x` as JSON, indented when `opts` has `:pretty?`. Characters
   outside ASCII are written as they are, on the JVM as in JavaScript."

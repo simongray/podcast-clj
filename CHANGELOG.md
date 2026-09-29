@@ -181,7 +181,11 @@
   actions for a feed that the app does not know yet wait for it. An action
   that names a time after the pull changes nothing, and the report names
   its device. The server counts an action as made when it arrived, at the
-  latest.
+  latest. An entry from a server has `gpodder:` and the device of the
+  server as its writer, so no push sends it back. An odd value in an answer
+  reads as none, and the report counts the actions that do not read. A
+  push tries an episode again when the app did not know its media. A
+  session of the server lasts a day.
   `app.sync.gpodder.server` serves the API over a player state, and the
   inspector serves it at `/api/2/` over its sync folder.
 - `comments` reads the comments on an episode from the thread that
