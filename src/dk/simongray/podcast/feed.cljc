@@ -15,6 +15,7 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.secret :as secret]
             [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.xml :as xml]))
 
@@ -614,7 +615,8 @@
 (defn for-subscriber
   "`feed` as the private feed of one subscriber, who has the `token`. The
   host makes the tokens and keeps them, and it serves this feed at a URL
-  with the token.
+  with the token. The token can be a hidden text of
+  `dk.simongray.podcast.secret`. The feed has it in its URLs, as text.
 
   The token goes into the query of each URL of a media file, and of each
   link of the feed to its own documents, so that each request tells its
@@ -638,7 +640,8 @@
                 :or   {param token-param own? (constantly true) block? true}
                 :as   opts}]
    {:pre [(map? opts)]}
-   (let [with-token (or with-token #(http/with-query %1 {param %2}))
+   (let [token      (secret/reveal token)
+         with-token (or with-token #(http/with-query %1 {param %2}))
          personal   #(if (and (http/web-url? %) (own? %)) (with-token % token) %)
          hub?       #(= "hub" (some-> (:rel %) str/lower-case))
          links      (fn [links]

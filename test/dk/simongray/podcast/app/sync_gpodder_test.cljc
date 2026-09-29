@@ -14,7 +14,9 @@
             [dk.simongray.podcast.app.sync.gpodder.server :as server]
             [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.guid :as guid]
+            [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
+            [dk.simongray.podcast.secret :as secret]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.time :as time]))
 
@@ -25,7 +27,9 @@
 (deftest requests
   (let [subs (gpodder/request :subscriptions root {:credentials creds :device "phone" :since 42})]
     (is (= [:get "https://gpodder.example.org/api/2/subscriptions/simon/phone.json?since=42"] ((juxt :method :url) subs)))
-    (is (= "Basic c2ltb246YXBwIHBhc3M=" (get-in subs [:headers "Authorization"])))
+    (is (= "Basic c2ltb246YXBwIHBhc3M=" (get-in (http/revealed subs) [:headers "Authorization"])))
+    (is (secret/hidden? (get-in subs [:headers "Authorization"])))
+    (is (not (re-find #"c2ltb246" (pr-str subs))) "a request that is printed does not show the password")
     (is (str/starts-with? (get-in subs [:headers "User-Agent"]) "podcast-clj")))
   (is (= "https://gpodder.example.org/api/2/episodes/simon.json?since=0"
          (:url (gpodder/request :episodes (str root "/") {:credentials creds})))
@@ -36,9 +40,12 @@
     (is (= "https://gpodder.example.org/api/2/devices/simon/phone%201.json" (:url register)))
     (is (= "{\"caption\":\"Phone\"}" (:body register)))
     (is (= "application/json" (get-in register [:headers "Content-Type"]))))
-  (is (= "sessionid=abc" (get-in (gpodder/request :episodes root {:credentials creds :session "abc"}) [:headers "Cookie"])))
-  (is (= "Basic bGF0ZXI6eA==" (get-in (gpodder/request :episodes root {:credentials (constantly {:username "later" :password "x"})})
-                                      [:headers "Authorization"]))
+  (is (= "sessionid=abc"
+         (get-in (http/revealed (gpodder/request :episodes root {:credentials creds :session "abc"})) [:headers "Cookie"])))
+  (is (secret/hidden? (get-in (gpodder/request :episodes root {:credentials creds :session "abc"}) [:headers "Cookie"])))
+  (is (= "Basic bGF0ZXI6eA=="
+         (get-in (http/revealed (gpodder/request :episodes root {:credentials (constantly {:username "later" :password "x"})}))
+                 [:headers "Authorization"]))
       "credentials may be a function")
   (testing "the paths of the GPodder Sync app for Nextcloud"
     (let [nc #(gpodder/request % "https://cloud.example.org" {:api :nextcloud :credentials creds :since 7})]
@@ -140,10 +147,12 @@
 (defn- ring-send
   "A send, as `http/call!` takes a request map, to the Ring `handler`: the
   answer with its header names in lower case and each value in a vector,
-  as the client's are."
+  as the client's are. It reads the hidden headers of the request, as a
+  client does that is not `http/call!`."
   [handler]
-  (fn [{:keys [method url headers body]}]
-    (let [[_ path q] (re-matches #"https?://[^/]+([^?]*)(?:\?(.*))?" url)
+  (fn [request]
+    (let [{:keys [method url headers body]} (http/revealed request)
+          [_ path q] (re-matches #"https?://[^/]+([^?]*)(?:\?(.*))?" url)
           answer     (handler {:request-method method :uri path :query-string q :body body
                                :headers (into {} (map (fn [[k v]] [(str/lower-case k) v])) headers)})]
       (update answer :headers #(into {} (map (fn [[k v]] [(str/lower-case k) [v]])) %)))))

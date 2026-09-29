@@ -169,6 +169,29 @@ other devices and to the stores, and an address goes into OPML too.
 `http/split-credentials` gives the address and the credentials apart. Keep
 the password in the keychain of the platform.
 
+While your app holds a password, hide it with `secret/hide`. The printer
+writes a hidden text as `#<secret>`, so a log or a REPL does not show it.
+Each function that takes a password, a token, a passphrase or a secret
+key takes a hidden text too. `split-credentials` gives the password as a
+hidden text.
+
+```clojure
+(def creds {:username "simon" :password (secret/hide (from-the-keychain))})
+creds                                     ; => {:username "simon", :password #<secret>}
+(podcast/fetch! url {:credentials creds})
+```
+
+A request map hides its credentials too. The headers Authorization and
+Cookie are hidden texts, and `http/call!` reads them when it sends the
+request. If another HTTP client sends your requests, take each request
+through `http/revealed` first.
+
+```clojure
+(def request (webdav/request :list cloud-root nil {:credentials creds}))
+request                               ; => {:method :propfind … :headers {"Authorization" #<secret> …}}
+(my-client/send (http/revealed request))
+```
+
 In a browser, `fetch!` does not exist, and few feed servers accept requests
 from other origins. Get the XML through your own server, and give the string
 to `podcast/parse`.
@@ -849,7 +872,7 @@ documents of the other devices. `sync!` does one step: pull, merge and push.
 5. Ask `sync/next-at` when to call `sync!` again, and set a timer.
 
 ```clojure
-(def creds {:username "simon" :password "app-password"})
+(def creds {:username "simon" :password (secret/hide "app-password")})
 (def cloud-root "https://cloud.example.org/remote.php/dav/files/simon/podcasts/")
 (store/check! (webdav/store cloud-root {:credentials creds}))  ; => {:ok? true :checks [{:id :store/reachable …} …]}
 

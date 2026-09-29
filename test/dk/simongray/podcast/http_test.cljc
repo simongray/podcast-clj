@@ -6,6 +6,7 @@
             [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.secret :as secret]
             [dk.simongray.podcast.test-support :refer [run #?(:clj with-file-server)]])
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
                    [java.io ByteArrayOutputStream]
@@ -99,15 +100,48 @@
                          (done))))))))
 
 (deftest credentials-as-a-header
-  (is (= "Basic dTpw" (http/authorization {:username "u" :password "p"})))
-  (is (= "Bearer t" (http/authorization (fn [] {:token "t"}))) "a function is asked for the current ones")
-  (is (nil? (http/authorization nil))))
+  (let [header (comp secret/reveal http/authorization)]
+    (is (= "Basic dTpw" (header {:username "u" :password "p"})))
+    (is (= "Bearer t" (header (fn [] {:token "t"}))) "a function is asked for the current ones")
+    (is (nil? (http/authorization nil)))
+    (testing "a password and a token that are hidden"
+      (is (= "Basic dTpw" (header {:username "u" :password (secret/hide "p")})))
+      (is (= "Bearer t" (header {:token (secret/hide "t")})))
+      (is (= "Bearer t" (header (fn [] {:token (secret/hide "t")}))))
+      (is (not (re-find #"hunter2" (pr-str {:username "u" :password (secret/hide "hunter2")})))))
+    (testing "the header is a hidden text"
+      (is (secret/hidden? (http/authorization {:username "u" :password "p"})))
+      (is (= "#<secret>" (pr-str (http/authorization {:token "t"})))))))
+
+(deftest a-request-for-another-client
+  (let [request {:method  :post
+                 :url     "https://example.org/x"
+                 :headers {"Authorization" (http/authorization {:token "hunter2"})
+                           "Cookie"        (secret/hide "sessionid=abc")
+                           "Accept"        "*/*"}
+                 :body    (secret/hide "hub.secret=s3cr3t")}]
+    (is (not (re-find #"hunter2|sessionid|s3cr3t" (pr-str request))))
+    (is (= {:method  :post
+            :url     "https://example.org/x"
+            :headers {"Authorization" "Bearer hunter2" "Cookie" "sessionid=abc" "Accept" "*/*"}
+            :body    "hub.secret=s3cr3t"}
+           (http/revealed request)))
+    (is (= (http/revealed request) (http/revealed (http/revealed request))))
+    (is (= {:url "https://example.org/x"} (http/revealed {:url "https://example.org/x"})) "a request without headers and a body")
+    (testing "a redirect to another origin leaves the hidden headers behind too"
+      (is (= {"Accept" "*/*"} (:headers (http/redirected request 307 "https://other.example/x"))))
+      (is (= (:headers request) (:headers (http/redirected request 307 "https://example.org/y")))))))
 
 (deftest credentials-in-a-url
-  (is (= ["https://host.example:8443/feed.xml?x=1" {:username "simon@example.org" :password "p p"}]
+  (is (= ["https://host.example:8443/feed.xml?x=1" {:username "simon@example.org" :password (secret/hide "p p")}]
          (http/split-credentials "https://simon%40example.org:p%20p@host.example:8443/feed.xml?x=1"))
       "decoded, and the URL without them")
-  (is (= ["https://host.example/" {:username "user" :password ""}] (http/split-credentials "https://user@host.example/")))
+  (let [[url credentials] (http/split-credentials "https://simon:hunter2@host.example/feed.xml")]
+    (is (= "https://host.example/feed.xml" url))
+    (is (= "hunter2" (secret/reveal (:password credentials))))
+    (is (= "{:username \"simon\", :password #<secret>}" (pr-str credentials)) "the password does not show in print")
+    (is (= "Basic c2ltb246aHVudGVyMg==" (secret/reveal (http/authorization credentials)))))
+  (is (= ["https://host.example/" {:username "user" :password (secret/hide "")}] (http/split-credentials "https://user@host.example/")))
   (is (= ["https://host.example/a@b" nil] (http/split-credentials "https://host.example/a@b")) "an @ in the path is no user")
   (is (= ["https://host.example/feed.xml" nil] (http/split-credentials "https://host.example/feed.xml"))))
 

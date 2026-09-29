@@ -25,6 +25,7 @@
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.resolve :as resolve]
+            [dk.simongray.podcast.secret :as secret]
             #?@(:cljs [[goog.crypt.Hmac]
                        [goog.crypt.Sha1]
                        [goog.crypt.Sha256]
@@ -107,26 +108,31 @@
     end.
   - `:secret`, a random text of fewer than 200 bytes. The hub then signs
     what it sends, and `handler` checks the signature. Section 5.1 says
-    that a secret goes over https, so `request` throws for another hub."
+    that a secret goes over https, so `request` throws for another hub.
+    The secret can be a hidden text of `dk.simongray.podcast.secret`. The
+    request has it in its body, so the body of such a request is a hidden
+    text."
   ([mode hub topic callback]
    (request mode hub topic callback {}))
-  ([mode hub topic callback {:keys [lease-seconds secret] :as opts}]
+  ([mode hub topic callback {:keys [lease-seconds] :as opts}]
    {:pre [(map? opts)]}
    (when-not (contains? #{:subscribe :unsubscribe} mode)
      (throw (ex-info "The mode of a request is :subscribe or :unsubscribe" {:mode mode})))
    (when-not (every? http/web-url? [hub topic callback])
      (throw (ex-info "The hub, the topic and the callback are http or https URLs"
                      {:hub hub :topic topic :callback callback})))
-   (when secret
-     (when-not (and (string? secret) (< 0 (bytes/length (bytes/encode secret)) 200))
-       (throw (ex-info "A secret is a text of fewer than 200 bytes" {})))
-     (when-not (re-find #"(?i)^https:" hub)
-       (throw (ex-info "A secret goes to an https hub alone" {:hub hub}))))
-   (hub-request hub [["hub.callback" callback]
-                     ["hub.mode" (name mode)]
-                     ["hub.topic" topic]
-                     ["hub.lease_seconds" lease-seconds]
-                     ["hub.secret" secret]])))
+   (let [secret (secret/reveal (:secret opts))]
+     (when secret
+       (when-not (and (string? secret) (< 0 (bytes/length (bytes/encode secret)) 200))
+         (throw (ex-info "A secret is a text of fewer than 200 bytes" {})))
+       (when-not (re-find #"(?i)^https:" hub)
+         (throw (ex-info "A secret goes to an https hub alone" {:hub hub}))))
+     (cond-> (hub-request hub [["hub.callback" callback]
+                               ["hub.mode" (name mode)]
+                               ["hub.topic" topic]
+                               ["hub.lease_seconds" lease-seconds]
+                               ["hub.secret" secret]])
+       secret (update :body secret/hide)))))
 
 (def publish-form
   "The form of the request that tells a hub of a change, as the public
@@ -186,14 +192,14 @@
 (defn signature
   "The signature of the bytes `body` with the text `secret`, by the hash
   algorithm `method` of `signature-methods`. Nil for a method that is
-  none.
+  none. The secret can be a hidden text of `dk.simongray.podcast.secret`.
 
   It is the HMAC of the body in hexadecimal, after the method and an
   equals sign, such as sha256=1f3a…. Section 7.1 of WebSub defines it as
   the value of the header X-Hub-Signature."
   [method secret body]
   (when (contains? algorithms method)
-    (let [k (bytes/encode secret)]
+    (let [k (bytes/encode (secret/reveal secret))]
       (str method "="
            (guid/hex
             #?(:clj  (let [algorithm (algorithms method)]

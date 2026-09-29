@@ -18,7 +18,8 @@
   `dk.simongray.podcast.nostr/verified?` checks it."
   (:require [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.chacha20 :as chacha20]
-            [dk.simongray.podcast.secp256k1 :as secp256k1]))
+            [dk.simongray.podcast.secp256k1 :as secp256k1]
+            [dk.simongray.podcast.secret :as secret]))
 
 (def default-limits
   "The limits of `encrypt` and `decrypt` that their options do not set.
@@ -54,10 +55,11 @@
         (recur (inc i) part (conj out part))))))
 
 (defn- key?
-  "Whether `x` is hexadecimal text of 32 bytes, as a conversation key and
-  a nonce are."
+  "Whether `x` is hexadecimal text of 32 bytes, plain or hidden, as a
+  conversation key and a nonce are."
   [x]
-  (boolean (and (string? x) (re-matches #"[0-9a-fA-F]{64}" x))))
+  (let [text (secret/reveal x)]
+    (boolean (and (string? text) (re-matches #"[0-9a-fA-F]{64}" text)))))
 
 (defn conversation-key
   "The key that the owner of `secret-key` shares with the owner of
@@ -66,13 +68,15 @@
 
   The owner of the other secret key gets the same key with the public key
   of this one. The key is for each payload between the two, so an app
-  computes it once. It is as secret as the secret key.
+  computes it once. It is as secret as the secret key, so it is a hidden
+  text of `dk.simongray.podcast.secret`. `encrypt` and `decrypt` take it
+  hidden or plain.
 
   The section Encryption of NIP-44 defines it: the x coordinate that
   `secp256k1/shared-x` gives, extracted by HKDF with the salt nip44-v2."
   [secret-key public-key]
   (when-let [x (secp256k1/shared-x secret-key public-key)]
-    (bytes/hex (extracted (bytes/encode salt) (bytes/from-hex x)))))
+    (secret/hide (bytes/hex (extracted (bytes/encode salt) (bytes/from-hex (secret/reveal x)))))))
 
 (defn ^:no-doc message-keys
   "The keys of one payload, from `conversation-key` and `nonce`, each
@@ -80,7 +84,7 @@
   of ChaCha20, and the `:check-key` of the HMAC, as bytes. They are 76
   bytes that HKDF expands."
   [conversation-key nonce]
-  (let [b (expanded (bytes/from-hex conversation-key) (bytes/from-hex nonce) 76)]
+  (let [b (expanded (bytes/from-hex (secret/reveal conversation-key)) (bytes/from-hex nonce) 76)]
     {:cipher-key   (bytes/copy b 0 32)
      :cipher-nonce (bytes/copy b 32 44)
      :check-key    (bytes/copy b 44 76)}))

@@ -50,7 +50,10 @@
             "hub.topic"         topic
             "hub.lease_seconds" "864000"
             "hub.secret"        secret}
-           (http/query-params (:body r)))))
+           (http/query-params (:body (http/revealed r)))))
+    (is (not (str/includes? (pr-str r) secret)) "a request that is printed does not show the secret")
+    (is (string? (:body (websub/request :subscribe hub topic callback {:lease-seconds 864000})))
+        "a request without a secret has a body of text"))
   (is (= {"hub.callback" callback "hub.mode" "unsubscribe" "hub.topic" topic}
          (http/query-params (:body (websub/request :unsubscribe hub topic callback))))
       "the fields without a value are left out")

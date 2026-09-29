@@ -19,6 +19,7 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.bytes :as bytes]
+            [dk.simongray.podcast.secret :as secret]
             [dk.simongray.podcast.time :as time])
   #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream IOException]
                    [java.net IDN InetAddress URI]
@@ -113,13 +114,37 @@
 
   `credentials` is a map, or a function of no arguments that gives one.
   The map is `{:username :password}` for basic authentication, or
-  `{:token}` for a bearer token."
+  `{:token}` for a bearer token. The password and the token can be hidden
+  texts of `dk.simongray.podcast.secret`, so that a map of credentials
+  does not show them when it is printed.
+
+  The header has the password or the token, so it is a hidden text too.
+  A request map with this header shows `#<secret>` when it is printed.
+  `call!` reads the text when it sends the request, and `revealed` gives
+  the request with the text, for another client."
   [credentials]
-  (let [{:keys [username password token]} (if (fn? credentials) (credentials) credentials)]
+  (let [{:keys [username password token]} (if (fn? credentials) (credentials) credentials)
+        password (secret/reveal password)
+        token    (secret/reveal token)]
     (cond
-      token    (str "Bearer " token)
-      username (str "Basic " (base64 (str username ":" password)))
+      token    (secret/hide (str "Bearer " token))
+      username (secret/hide (str "Basic " (base64 (str username ":" password))))
       :else    nil)))
+
+(defn revealed
+  "The request map `request` with the text of each hidden header and of a
+  hidden body, as the server needs them.
+
+  The functions that write a request hide what holds a password, a token
+  or a secret: the headers Authorization and Cookie, and the body of a
+  request with a secret. `call!` reads the text when it sends. A client
+  that is not `call!` takes the request through `revealed` before it
+  sends it. A request that is revealed shows its credentials when it is
+  printed."
+  [{:keys [headers] :as request}]
+  (cond-> request
+    headers                   (update :headers update-vals secret/reveal)
+    (contains? request :body) (update :body secret/reveal)))
 
 (defn ^:no-doc header
   "The first value of `header-name` in the response headers map `headers`,
@@ -242,7 +267,10 @@
 
   Such a URL is `https://user:pass@host/feed.xml`. An app can use this
   when it adds a feed, to keep the password apart from the address. An
-  address travels into OPML, sync documents and messages."
+  address travels into OPML, sync documents and messages.
+
+  The password is a hidden text of `dk.simongray.podcast.secret`, which
+  the printer writes as `#<secret>`. `secret/reveal` gives its text."
   [url]
   (let [[_ scheme authority tail] (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://)([^/?#]*)(.*)" (str url))
         at                        (some-> authority (str/last-index-of "@"))]
@@ -250,7 +278,7 @@
       (let [[user password] (str/split (subs authority 0 at) #":" 2)]
         [(str scheme (subs authority (inc at)) tail)
          (when-not (str/blank? user)
-           {:username (percent-decode user) :password (percent-decode (or password ""))})])
+           {:username (percent-decode user) :password (secret/hide (percent-decode (or password "")))})])
       [url nil])))
 
 #?(:clj
@@ -525,18 +553,21 @@
    (defn- java-request
      "The java.net.http request of `method` to `uri`, with `headers` and the
      `body` string, answered within `timeout-ms` milliseconds or given up;
-     gzip is accepted unless `headers` name an Accept-Encoding."
+     gzip is accepted unless `headers` name an Accept-Encoding. A header
+     and a body that are hidden texts go out as their texts."
      ^HttpRequest [^URI uri method headers body timeout-ms]
      (let [builder (cond-> (.timeout (HttpRequest/newBuilder uri) (Duration/ofMillis timeout-ms))
                      (not-any? #(= "accept-encoding" (str/lower-case (str %))) (keys headers))
                      (.header "Accept-Encoding" "gzip"))
-           builder (reduce-kv (fn [^HttpRequest$Builder b k v] (.header b (str k) (str v))) builder headers)]
+           builder (reduce-kv (fn [^HttpRequest$Builder b k v] (.header b (str k) (str (secret/reveal v))))
+                              builder
+                              headers)]
        (-> (if (or (nil? method) (= :get method))
              (.GET ^HttpRequest$Builder builder)
              (.method ^HttpRequest$Builder builder
                       (str/upper-case (name method))
                       (if (some? body)
-                        (HttpRequest$BodyPublishers/ofString (str body))
+                        (HttpRequest$BodyPublishers/ofString (str (secret/reveal body)))
                         (HttpRequest$BodyPublishers/noBody))))
            (.build)))))
 
@@ -967,9 +998,11 @@
 
   The request is `{:method :url :headers :body}`. It is a GET unless
   `:method` names another method, and it goes with the `:body` string when
-  it has one. The body of the response is text, with gzip undone. It is
-  absent for a HEAD request and for an empty body. With `:as :bytes`, the
-  body is bytes, for a media file.
+  it has one. A header and a body can be hidden texts of
+  `dk.simongray.podcast.secret`, and they go out as their texts. The body
+  of the response is text, with gzip undone. It is absent for a HEAD
+  request and for an empty body. With `:as :bytes`, the body is bytes, for
+  a media file.
 
   `:timeout-seconds` (default 30) limits the whole exchange, and
   `:max-bytes` (default `default-max-bytes`, nil for no limit) limits the
@@ -1017,10 +1050,11 @@
        :cljs (let [{:keys [url body]} request]
                (if-not (allow? url)
                  (js/Promise.reject (refusal url))
+                 ;; a hidden header and a hidden body go out as their texts
                  (-> (js/fetch url (clj->js (cond-> {:method  (str/upper-case (name (or method :get)))
-                                                     :headers (:headers request)
+                                                     :headers (:headers (revealed request))
                                                      :signal  (js/AbortSignal.timeout (* 1000 timeout-seconds))}
-                                              (some? body) (assoc :body body))))
+                                              (some? body) (assoc :body (secret/reveal body)))))
                      (.then #(fetch-answer % request))))))))
 
 (defn call-public!

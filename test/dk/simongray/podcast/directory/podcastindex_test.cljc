@@ -34,7 +34,8 @@
     (is (= "https://api.podcastindex.org/api/1.0/search/byterm?q=podcasting%202.0&max=5&fulltext" (:url r)))
     (is (= {"User-Agent" http/user-agent "X-Auth-Key" "K" "X-Auth-Date" "1700000000"
             "Authorization" "2112f595eb505b9d54dc5eab2336b197daf80af4"}
-           (:headers r))))
+           (:headers (http/revealed r))))
+    (is (not (re-find #"2112f595" (pr-str r))) "a request that is printed does not show the hash"))
   (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
                (index/request credentials :search/by-term {:q "x"} {}))
       "a request is signed at a time the caller gives, never one read here")
@@ -218,8 +219,10 @@
      (async done
        (let [original (.-fetch js/globalThis)]
          (set! (.-fetch js/globalThis)
-               (fn [url _opts]
+               (fn [url opts]
                  (is (str/starts-with? url "https://api.podcastindex.org/api/1.0/podcasts/byguid?guid="))
+                 (is (re-matches #"[0-9a-f]{40}" (str (aget (.-headers opts) "Authorization")))
+                     "the hash goes out as its text")
                  (js/Promise.resolve #js {:status 200 :text (fn [] (js/Promise.resolve podcast-body))})))
          (-> (index/call! credentials :podcasts/by-guid {:guid "9b024349"})
              (.then (fn [{:keys [status feed]}]

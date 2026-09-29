@@ -3,9 +3,9 @@
   blocks, the writers, the URLs a ping concerns, and on the JVM the poll
   with its fallback across nodes."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            #?(:clj [dk.simongray.podcast.http :as http])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.podping :as podping]
             [dk.simongray.podcast.test-support :refer [fixture]]))
@@ -132,7 +132,8 @@
   (let [r (podping/notify-request "secret-token" "https://example.com/feed.xml" {:reason "live"})]
     (is (= :get (:method r)))
     (is (= "https://podping.cloud/?url=https%3A%2F%2Fexample.com%2Ffeed.xml&reason=live&medium=podcast" (:url r)))
-    (is (= "secret-token" (get-in r [:headers "Authorization"])))
+    (is (= "secret-token" (get-in (http/revealed r) [:headers "Authorization"])))
+    (is (not (re-find #"secret-token" (pr-str r))) "a request that is printed does not show the token")
     (is (str/includes? (:url (podping/notify-request "t" "https://x/f")) "reason=update&medium=podcast")))
   (testing "another service that takes the same call"
     (is (= "https://ping.example.org/notify?url=https%3A%2F%2Fx%2Ff&reason=update&medium=podcast"

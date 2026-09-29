@@ -59,6 +59,12 @@
   tells whether the request went out. `lnaddress/proves?` checks the
   preimage of a payment against its invoice. `secret` hides a text from
   the printer, and a connection to a wallet hides its secret key.
+- Each function that takes a password, a token, a passphrase or a secret
+  key takes a hidden text of `secret/hide` too. `http/split-credentials`
+  gives the password as a hidden text, and `nip44/conversation-key` gives
+  a hidden key. A request map has its credentials as hidden texts.
+  `http/call!` reads them when it sends, and `http/revealed` gives the
+  request with their texts, for another client.
 - Hostile input takes linear time and bounded stack. No regular expression
   backtracks quadratically. Elements nest at most `xml/max-depth` levels in
   XML and `html/max-depth` in HTML. `:timeout-seconds` bounds the whole

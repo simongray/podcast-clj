@@ -160,9 +160,10 @@
              (http/call! (assoc request :timeout-seconds (:timeout-seconds opts 30))))
      ;; a local named fetch would shadow the global that js/fetch compiles to
      :cljs (let [send (or (:fetch opts) js/fetch)]
-             (fn [{:keys [method url headers body]}]
-               (-> (send url (clj->js (cond-> {:method (str/upper-case (name method)) :headers headers}
-                                        (some? body) (assoc :body body))))
+             (fn [request]
+               (-> (let [{:keys [method url headers body]} (http/revealed request)]
+                     (send url (clj->js (cond-> {:method (str/upper-case (name method)) :headers headers}
+                                          (some? body) (assoc :body body)))))
                    (.then (fn [res]
                             (.then (.text res)
                                    (fn [text]

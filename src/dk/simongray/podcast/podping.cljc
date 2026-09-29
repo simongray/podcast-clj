@@ -32,6 +32,7 @@
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
+            [dk.simongray.podcast.secret :as secret]
             [dk.simongray.podcast.time :as time]))
 
 (def nodes
@@ -187,7 +188,9 @@
 
 (defn notify-request
   "The call that a host makes to announce that the feed at `url` changed,
-  with the `token` that the service gave the host.
+  with the `token` that the service gave the host. The token can be a
+  hidden text of `dk.simongray.podcast.secret`. The request has the token
+  in a header, as a hidden text.
 
   `opts` give the `:medium` (default \"podcast\") and the `:reason`:
   \"update\", \"live\" or \"liveEnd\" (default \"update\"). The call goes to
@@ -202,7 +205,7 @@
       :url     (str service
                     (if (str/includes? service "?") "&" "?")
                     (http/query-string {:url url :reason reason :medium medium}))
-      :headers {"Authorization" token "User-Agent" http/user-agent}})))
+      :headers {"Authorization" (secret/hide token) "User-Agent" http/user-agent}})))
 
 (defn call!
   "Send `call` with `params` as `opts` say, and return the body, for
@@ -240,7 +243,7 @@
              :else      (throw (ex-info (str "No node answered " (name call))
                                         {:type ::unavailable :failures (conj failures [node failure])}))))))
      :cljs
-     (let [{:keys [url headers body]} (request call params opts)]
+     (let [{:keys [url headers body]} (http/revealed (request call params opts))]
        (-> (js/fetch url (clj->js {:method "POST" :headers headers :body body}))
            (.then (fn [res] (.text res)))))))
 

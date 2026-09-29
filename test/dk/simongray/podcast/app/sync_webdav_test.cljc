@@ -36,10 +36,14 @@
     (is (= :propfind (:method listing)))
     (is (= root (:url listing)))
     (is (= "1" (get-in listing [:headers "Depth"])))
-    (is (= "Basic c2ltb246YXBwIHBhc3M=" (get-in listing [:headers "Authorization"])))
+    (is (= "Basic c2ltb246YXBwIHBhc3M=" (get-in (http/revealed listing) [:headers "Authorization"])))
+    (is (not (re-find #"c2ltb246" (pr-str listing))) "a request that is printed does not show the password")
     (is (str/includes? (:body listing) "<d:getetag/>"))
-    (is (= "Bearer t" (get-in (webdav/request :list root nil {:credentials {:token "t"}}) [:headers "Authorization"])))
-    (is (= "Bearer later" (get-in (webdav/request :list root nil {:credentials (constantly {:token "later"})}) [:headers "Authorization"]))
+    (is (= "Bearer t"
+           (get-in (http/revealed (webdav/request :list root nil {:credentials {:token "t"}})) [:headers "Authorization"])))
+    (is (= "Bearer later"
+           (get-in (http/revealed (webdav/request :list root nil {:credentials (constantly {:token "later"})}))
+                   [:headers "Authorization"]))
         "credentials may be a function, for a token that is refreshed")
     (is (nil? (get-in (webdav/request :list root) [:headers "Authorization"])))
     (testing "one document"

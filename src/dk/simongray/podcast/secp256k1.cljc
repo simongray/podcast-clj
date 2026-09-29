@@ -5,7 +5,8 @@
   `verify` checks a signature, `sign` makes one, and `public-key` gives
   the public key of a secret key. `shared-x` gives what two owners of keys
   share, which is the start of an encrypted exchange. Each key, message
-  and signature is hexadecimal text, which is how Nostr writes them.
+  and signature is hexadecimal text, which is how Nostr writes them. A
+  secret key can be a hidden text of `dk.simongray.podcast.secret`.
 
   `verify` reads no secret key, so the time that it takes tells nothing
   that is secret. The time that `sign`, `public-key` and `shared-x` take
@@ -20,7 +21,8 @@
   the multiples of the generator are computed once. No standard defines
   this, so the widths of the digits are a choice."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.bytes :as bytes])
+            [dk.simongray.podcast.bytes :as bytes]
+            [dk.simongray.podcast.secret :as secret])
   #?(:clj (:import [java.math BigInteger])))
 
 (defn- big
@@ -297,14 +299,16 @@
   #?(:clj  (.mod (.subtract ^BigInteger n ^BigInteger e) n)
      :cljs (mod (- n e) n)))
 
-(defn- secret
+(defn- secret-number
   "The number of the secret key `secret-key`, hexadecimal text of 32
-  bytes. Nil for a text that is no secret key of the curve."
+  bytes, plain or hidden. Nil for a text that is no secret key of the
+  curve."
   [secret-key]
-  (when (and (string? secret-key) (re-matches #"[0-9a-fA-F]{64}" secret-key))
-    (let [d (big secret-key)]
-      (when (and (not= zero d) (< d n))
-        d))))
+  (let [text (secret/reveal secret-key)]
+    (when (and (string? text) (re-matches #"[0-9a-fA-F]{64}" text))
+      (let [d (big text)]
+        (when (and (not= zero d) (< d n))
+          d)))))
 
 (def ^:no-doc widths
   "The bits of a window of `digits`, for a product with the generator and
@@ -370,7 +374,7 @@
   The section Public Key Generation of BIP-340 defines it: the x
   coordinate of the secret number times the generator."
   [secret-key]
-  (when-let [d (secret secret-key)]
+  (when-let [d (secret-number secret-key)]
     (hex32 (first (multiplied d)))))
 
 (defn public-key?
@@ -392,12 +396,14 @@
   get the same point, each from the own secret key and the public key of
   the other. NIP-44 uses the x coordinate as it is, without a hash.
 
-  The time that `shared-x` takes depends on the secret key."
+  The result is as secret as the secret key, so it is a hidden text of
+  `dk.simongray.podcast.secret`. The time that `shared-x` takes depends on
+  the secret key."
   [secret-key public-key]
-  (when-let [d (secret secret-key)]
+  (when-let [d (secret-number secret-key)]
     (when (public-key? public-key)
       (let [point (lifted (big (str/lower-case public-key)))]
-        (some-> (affine (summed [(by-point d point)])) first hex32)))))
+        (some-> (affine (summed [(by-point d point)])) first hex32 secret/hide)))))
 
 (defn sign
   "The signature of the message `message` with the secret key
@@ -412,7 +418,7 @@
   The time that `sign` takes depends on the secret key. So sign only
   where no stranger measures that time."
   [secret-key message aux]
-  (when-let [d (secret secret-key)]
+  (when-let [d (secret-number secret-key)]
     (when (and (some? (bytes/from-hex message))
                (string? aux) (re-matches #"[0-9a-fA-F]{64}" aux))
       (let [[px py] (multiplied d)

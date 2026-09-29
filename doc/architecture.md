@@ -690,6 +690,51 @@ The check of an integrity fetches a whole file. With a `:send` of the app,
 with `http/digest!`, which takes the guard as its option `:allow?`.
 
 
+## Secrets
+
+An app holds secrets of the listener. Examples are the password of a
+private feed, the token of a service, and the key of a wallet. An app
+also prints its data, to a log and at a REPL, and a printed map shows
+each of its values.
+
+`secret/hide` wraps a text, and the printer writes the wrapped text as
+`#<secret>`. `pr`, `str` and the pretty printer do so on both platforms,
+and so does `JSON.stringify` in JavaScript. The reader does not read
+`#<secret>`. So a map with a hidden text does not go to a file as EDN and
+come back without its secret.
+
+Each function that takes a secret takes a hidden text too, and reads it
+at the one place that needs the text:
+
+- the `:credentials` of a request, of a WebDAV store and of gpodder
+- the credentials of the Podcast Index
+- the token of OP3, of Podping and of a private feed
+- the `:secret` of WebSub
+- the `:passphrase` of the encrypted store
+- the secret key of an event of Nostr
+
+podcast-clj hides the secrets that it makes itself:
+
+- the password that `http/split-credentials` takes out of a URL
+- the secret key of a connection to a wallet
+- the key that two owners of keys share
+- the headers Authorization and Cookie of a request map
+- the body of a request with a secret, as the request of WebSub has it
+
+So a request map that is printed shows `#<secret>` in the place of a
+password. `http/call!` reads the text when it sends the request. A
+request is still a map that any HTTP client can send, with one step
+before it: `http/revealed` gives the request with its texts. A client
+that does not take this step sends `#<secret>` to the server, and the
+server refuses the request.
+
+A hidden text protects from a print by accident, and from no more than
+that. A debugger and the console of a browser show the fields of an
+object. A request that went through `http/revealed` shows its
+credentials. A private feed with a token in its URL has the token in each
+address.
+
+
 ## The directories and the Podcast Index
 
 `directory` puts the podcast directories behind one shape: Apple Podcasts,

@@ -4,6 +4,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.secp256k1 :as secp256k1]
+            [dk.simongray.podcast.secret :as secret]
             [dk.simongray.podcast.test-support :refer [fixture secret-key]]))
 
 (def vectors
@@ -70,9 +71,21 @@
           bob (secret-key 4)]
       (is (= (secp256k1/shared-x ann (secp256k1/public-key bob))
              (secp256k1/shared-x bob (secp256k1/public-key ann))))
-      (is (re-matches #"[0-9a-f]{64}" (secp256k1/shared-x ann (secp256k1/public-key bob))))
+      (is (re-matches #"[0-9a-f]{64}" (secret/reveal (secp256k1/shared-x ann (secp256k1/public-key bob)))))
+      (is (= "#<secret>" (pr-str (secp256k1/shared-x ann (secp256k1/public-key bob)))) "it is as secret as the key")
       (is (nil? (secp256k1/shared-x ann (apply str (repeat 64 "f")))) "a key that is no point of the curve")
       (is (nil? (secp256k1/shared-x "no key" (secp256k1/public-key bob)))))))
+
+(deftest a-secret-key-that-is-hidden
+  (let [secret  (secret-key 3)
+        hidden  (secret/hide secret)
+        message (apply str (repeat 32 "ab"))
+        aux     (apply str (repeat 32 "01"))]
+    (is (= (secp256k1/public-key secret) (secp256k1/public-key hidden)))
+    (is (= (secp256k1/sign secret message aux) (secp256k1/sign hidden message aux)))
+    (is (= (secp256k1/shared-x secret (secp256k1/public-key (secret-key 4)))
+           (secp256k1/shared-x hidden (secp256k1/public-key (secret-key 4)))))
+    (is (nil? (secp256k1/public-key (secret/hide "no key"))))))
 
 (deftest what-is-no-key-and-no-signature
   (let [zero  (apply str (repeat 64 "0"))

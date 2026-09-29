@@ -23,7 +23,8 @@
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
             [dk.simongray.podcast.app.sync.store :as store]
-            [dk.simongray.podcast.async :as async])
+            [dk.simongray.podcast.async :as async]
+            [dk.simongray.podcast.secret :as secret])
   #?(:clj (:import [java.nio.charset StandardCharsets]
                    [java.security SecureRandom]
                    [java.util Base64]
@@ -83,13 +84,15 @@
 
 (defn- derive-key
   "The AES key for `passphrase` with `salt` over `iterations` of PBKDF2 with
-  HMAC-SHA256; a promise of one in ClojureScript."
+  HMAC-SHA256. In ClojureScript, it is a promise of the key. The passphrase
+  is a text, or a hidden text of `dk.simongray.podcast.secret`."
   [passphrase salt iterations]
   #?(:clj  (let [factory (SecretKeyFactory/getInstance "PBKDF2WithHmacSHA256")
-                 spec    (PBEKeySpec. (.toCharArray ^String passphrase) ^bytes salt (int iterations) 256)]
+                 text    (secret/reveal passphrase)
+                 spec    (PBEKeySpec. (.toCharArray ^String text) ^bytes salt (int iterations) 256)]
              (SecretKeySpec. (.getEncoded (.generateSecret factory spec)) "AES"))
      :cljs (let [subtle (.-subtle js/crypto)]
-             (-> (.importKey subtle "raw" (utf8 passphrase) #js {:name "PBKDF2"} false #js ["deriveKey"])
+             (-> (.importKey subtle "raw" (utf8 (secret/reveal passphrase)) #js {:name "PBKDF2"} false #js ["deriveKey"])
                  (.then (fn [base]
                           (.deriveKey subtle
                                       #js {:name "PBKDF2" :salt salt :iterations iterations :hash "SHA-256"}
@@ -193,7 +196,9 @@
 (defn store
   "The store `inner` with its documents encrypted at rest under the
   `:passphrase` in `opts`, a string or a function of no arguments returning
-  one. `:iterations` (default `default-iterations`) derives the key, once
+  one. The string can be a hidden text of `dk.simongray.podcast.secret`,
+  so that the options do not show it when they are printed. `:iterations`
+  (default `default-iterations`) derives the key, once
   per salt and iteration count and cached; each store instance seals with
   a salt of its own, and opens whatever salt a document carries. When the
   passphrase is a function, a document the cached keys do not open empties

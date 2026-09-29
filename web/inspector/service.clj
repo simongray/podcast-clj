@@ -27,6 +27,7 @@
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.podping :as podping]
             [dk.simongray.podcast.resolve :as resolve]
+            [dk.simongray.podcast.secret :as secret]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.nwc :as nwc]
@@ -241,11 +242,12 @@
 (def index-credentials
   "Podcast Index API credentials from the environment, when the inspector
   is to resolve remote value splits: PODCASTINDEX_API_KEY and
-  PODCASTINDEX_API_SECRET."
+  PODCASTINDEX_API_SECRET. The secret is a hidden text, so the value of
+  this var does not show it at a REPL."
   (let [key    (System/getenv "PODCASTINDEX_API_KEY")
         secret (System/getenv "PODCASTINDEX_API_SECRET")]
     (when (and (seq key) (seq secret))
-      {:key key :secret secret :user-agent "podcast-clj inspector"})))
+      {:key key :secret (secret/hide secret) :user-agent "podcast-clj inspector"})))
 
 (defn- remote-values
   "The value blocks the remote items of the time splits of `block` point

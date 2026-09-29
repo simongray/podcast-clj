@@ -17,6 +17,7 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.json :as json]
+            [dk.simongray.podcast.secret :as secret]
             [dk.simongray.podcast.time :as time]
             [dk.simongray.podcast.http :as http]))
 
@@ -129,13 +130,17 @@
 (defn auth-headers
   "The headers that authenticate a request with `key` and `secret` at Unix
   time `seconds`: the date, the key and the SHA-1 of key, secret and date.
-  The API requires a descriptive User-Agent; `:user-agent` in the
-  credentials replaces the library's."
+  The API requires a descriptive User-Agent, and `:user-agent` in the
+  credentials replaces that of podcast-clj.
+
+  The secret can be a hidden text of `dk.simongray.podcast.secret`. It is
+  in no header: the API gets the hash, which holds for some minutes. The
+  hash is a hidden text, as each Authorization header is."
   [{:keys [key secret user-agent]} seconds]
   {"User-Agent"    (or user-agent http/user-agent)
    "X-Auth-Key"    key
    "X-Auth-Date"   (str seconds)
-   "Authorization" (guid/sha1-hex (str key secret seconds))})
+   "Authorization" (secret/hide (guid/sha1-hex (str key (secret/reveal secret) seconds)))})
 
 (defn request
   "The request map for `endpoint`, a key of `endpoints`, with the query
@@ -404,7 +409,7 @@
   ([credentials endpoint params opts]
    (let [req (request credentials endpoint params (assoc opts :auth-date (now-seconds)))]
      #?(:clj  (-> req http/call! :body response)
-        :cljs (-> (js/fetch (:url req) (clj->js {:headers (:headers req)}))
+        :cljs (-> (js/fetch (:url req) (clj->js {:headers (:headers (http/revealed req))}))
                   (.then (fn [res] (.text res)))
                   (.then response))))))
 

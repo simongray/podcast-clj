@@ -54,9 +54,19 @@ follow, and one line for each namespace. The docstrings give the details.
   HTTP status is an answer, so `podcast/fetch!` and `http/probe!` give a
   404 as a `:status`. A call and a step throw for an argument that is
   wrong.
+- **A secret can be a hidden text.** Each function that takes a password,
+  a token, a passphrase or a secret key takes a text, or a hidden text of
+  `secret/hide`. The printer writes a hidden text as `#<secret>`. A
+  function that gives a secret gives a hidden text. A request map has
+  its credentials as hidden texts, and `http/revealed` gives the request
+  with their texts, for a client that is not `http/call!`.
+  [Secrets](architecture.md#secrets) tells what a hidden text protects
+  from.
 - **Requests are maps.** The directories, the Podcast Index, Podping and the
   WebDAV store build requests as `{:method :url :headers :body}`, and pure
-  functions read the answers. Any HTTP client can send the requests.
+  functions read the answers. Any HTTP client can send the requests. A
+  client that is not `http/call!` takes a request through `http/revealed`
+  first, which gives the text of each hidden header.
 - **What podcast-clj knows about one service is a default.** A public var
   holds the address, the paths, the limits or the rules of the service as
   data. An option of the same name replaces it for one call. Where an
@@ -166,10 +176,10 @@ Each name below is relative to `dk.simongray.podcast`.
 | `time.rrule` | RFC 5545 recurrence rules: parse, write and evaluate. |
 | `guid` | The `podcast:guid` UUIDv5, and SHA-1. |
 | `json` | JSON strings to data and back, on both platforms. |
-| `http` | Requests as maps, credentials as a header, URLs made absolute, and when a server says to ask again. `call!` sends a request with byte ranges and limits of size and time: on the JVM with redirects that keep the credentials to their origin, and in ClojureScript with fetch. `probe!` learns the facts of a file from two bytes of it, and `fetcher` fetches a file by byte ranges. JVM: `fetch!`, which fetches a feed with conditional requests, and `digest!`, which streams a body through a digest. `public?` tells whether a host is on the public internet, and `call-public!` sends only to such hosts. `byte-ranges` reads a Range header, `links` reads a Link header, and `with-query` adds parameters to a URL. |
+| `http` | Requests as maps, credentials as a hidden header, URLs made absolute, and when a server says to ask again. `revealed` gives a request with the texts of its hidden headers, for another client. `call!` sends a request with byte ranges and limits of size and time: on the JVM with redirects that keep the credentials to their origin, and in ClojureScript with fetch. `probe!` learns the facts of a file from two bytes of it, and `fetcher` fetches a file by byte ranges. JVM: `fetch!`, which fetches a feed with conditional requests, and `digest!`, which streams a body through a digest. `public?` tells whether a host is on the public internet, and `call-public!` sends only to such hosts. `byte-ranges` reads a Range header, `links` reads a Link header, and `with-query` adds parameters to a URL. |
 | `bytes` | Bytes on both platforms, read as numbers and text, and a view of the parts of a file that have arrived, which says what a reader still needs. `read!` fetches it for the reader until it is done, within the limits of bytes, time and rounds of `default-limits`. `hex`, `from-hex` and `sha256`. `join`, `same?`, `hmac-sha256`, `from-base64` and `random!` are for the encryption. |
 | `bech32` | Bech32, the encoding of BIP-173: `decode` and `encode`. `words` and `of-words` read and write data that are no whole bytes, as those of an invoice. |
-| `secret` | Texts that do not show when they are printed: `hide`, `reveal` and `hidden?`. The printer writes a hidden text as `#<secret>`. |
+| `secret` | Texts that do not show when they are printed: `hide`, `reveal` and `hidden?`. The printer writes a hidden text as `#<secret>`. Each function that takes a password, a token, a passphrase or a secret key takes a hidden text. |
 | `secp256k1` | Schnorr signatures over the curve secp256k1, as BIP-340 defines them: `verify`, `sign` and `public-key`. `shared-x` gives what two owners of keys share, and `public-key?` tells whether a text is a public key. |
 | `chacha20` | ChaCha20, the stream cipher of RFC 8439: `encrypt`, which is its own inverse. |
 | `nip44` | The encrypted payloads of NIP-44, version 2: `conversation-key`, `encrypt` and `decrypt`. |

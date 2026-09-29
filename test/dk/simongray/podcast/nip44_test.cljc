@@ -8,6 +8,7 @@
             [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.nip44 :as nip44]
             [dk.simongray.podcast.secp256k1 :as secp256k1]
+            [dk.simongray.podcast.secret :as secret]
             [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def vectors
@@ -20,18 +21,32 @@
   [s]
   (bytes/hex (bytes/sha256 (bytes/encode s))))
 
+(defn- shared
+  "The conversation key of `secret-key` and `public-key`, as text."
+  [secret-key public-key]
+  (secret/reveal (nip44/conversation-key secret-key public-key)))
+
 (deftest the-key-of-a-conversation
   (doseq [{:strs [sec1 pub2 conversation_key note]} (get-in vectors ["valid" "get_conversation_key"])]
-    (is (= conversation_key (nip44/conversation-key sec1 pub2)) (str note)))
+    (is (= conversation_key (shared sec1 pub2)) (str note)))
   (doseq [{:strs [sec1 pub2 note]} (get-in vectors ["invalid" "get_conversation_key"])]
     (is (nil? (nip44/conversation-key sec1 pub2)) note))
   (testing "the two owners get one key"
     (let [ann "5c0c523f52a5b6fad39ed2403092df8cebc36318b39383bca6c00808626fab3a"
           bob "4b22aa260e4acb7021e32f38a6cdf4b673c6a277755bfce287e370c924dc936d"]
       (is (= "3e2b52a63be47d34fe0a80e34e73d436d6963bc8f39827f327057a9986c20a45"
-             (nip44/conversation-key ann (secp256k1/public-key bob))
-             (nip44/conversation-key bob (secp256k1/public-key ann))
-             (nip44/conversation-key (str/upper-case bob) (str/upper-case (secp256k1/public-key ann)))))))
+             (shared ann (secp256k1/public-key bob))
+             (shared bob (secp256k1/public-key ann))
+             (shared (str/upper-case bob) (str/upper-case (secp256k1/public-key ann)))
+             (shared (secret/hide ann) (secp256k1/public-key bob))))))
+  (testing "the key does not show in print, and it opens a payload"
+    (let [key (nip44/conversation-key "0000000000000000000000000000000000000000000000000000000000000001"
+                                      (secp256k1/public-key "0000000000000000000000000000000000000000000000000000000000000002"))]
+      (is (secret/hidden? key))
+      (is (= "#<secret>" (pr-str key)))
+      (is (= "a" (nip44/decrypt (nip44/encrypt "a" key (apply str (repeat 64 "0"))) key)))
+      (is (= (nip44/encrypt "a" key (apply str (repeat 64 "0")))
+             (nip44/encrypt "a" (secret/reveal key) (apply str (repeat 64 "0")))))))
   (doseq [[secret public] [[nil nil] ["01" "02"] [5 5] ["" ""]]]
     (is (nil? (nip44/conversation-key secret public)) (pr-str secret))))
 
@@ -51,7 +66,7 @@
 (deftest payloads-that-the-key-opens
   (doseq [{:strs [sec1 sec2 conversation_key nonce plaintext payload]} (get-in vectors ["valid" "encrypt_decrypt"])]
     (testing plaintext
-      (is (= conversation_key (nip44/conversation-key sec1 (secp256k1/public-key sec2))))
+      (is (= conversation_key (shared sec1 (secp256k1/public-key sec2))))
       (is (= payload (nip44/encrypt plaintext conversation_key nonce)))
       (is (= plaintext (nip44/decrypt payload (nip44/conversation-key sec2 (secp256k1/public-key sec1)))))
       (is (= 2 (nip44/payload-version payload))))))

@@ -21,6 +21,7 @@
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.resolve :as resolve]
+            [dk.simongray.podcast.secret :as secret]
             [dk.simongray.podcast.time :as time]))
 
 (def calls
@@ -92,18 +93,22 @@
        :session     \"…\"}      ; the session of a :login
 
   Every call carries the credentials as Basic authentication, and the
-  session when there is one: some servers want the one, others the other."
-  [call root {:keys [api credentials device since body session] :or {api :gpodder}}]
-  (let [creds (if (fn? credentials) (credentials) credentials)
-        auth  (http/authorization creds)
-        get?  (contains? #{:subscriptions :episodes} call)]
+  session when there is one: some servers want the one, others the other.
+  The password and the session can be hidden texts of
+  `dk.simongray.podcast.secret`. The request has them in its headers, as
+  hidden texts."
+  [call root {:keys [api credentials device since body] :or {api :gpodder} :as opts}]
+  (let [creds   (if (fn? credentials) (credentials) credentials)
+        auth    (http/authorization creds)
+        session (secret/reveal (:session opts))
+        get?    (contains? #{:subscriptions :episodes} call)]
     (cond-> {:method  (if get? :get :post)
              :url     (str (str/replace root #"(^|[^/])/+$" "$1")
                            (path api call (:username creds) device)
                            (when get? (str "?since=" (or since 0))))
              :headers (cond-> {"User-Agent" http/user-agent "Accept" "application/json"}
                         auth         (assoc "Authorization" auth)
-                        session      (assoc "Cookie" (str "sessionid=" session))
+                        session      (assoc "Cookie" (secret/hide (str "sessionid=" session)))
                         (some? body) (assoc "Content-Type" "application/json"))}
       (some? body) (assoc :body (json/write-str body)))))
 

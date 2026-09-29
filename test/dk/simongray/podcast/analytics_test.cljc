@@ -11,6 +11,7 @@
             [dk.simongray.podcast.analytics :as analytics]
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.async :as async]
+            [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.time :as time]))
@@ -202,9 +203,9 @@
   "A `:send` that answers as OP3 did, to the bearer token test-token, with
   each URL that it is asked for in `log`."
   [log]
-  (fn [{:keys [url headers]}]
+  (fn [{:keys [url] :as request}]
     (swap! log conj url)
-    (let [{:strs [status body]} (if (= "Bearer test-token" (get headers "Authorization"))
+    (let [{:strs [status body]} (if (= "Bearer test-token" (get-in (http/revealed request) [:headers "Authorization"]))
                                   (get recorded url {"status" 404 "body" {"error" "not found"}})
                                   (get recorded "unauthorized"))]
       {:status status :url url :body (if (string? body) body (json/write-str body))})))
@@ -265,7 +266,9 @@
                                                       :start (at "2026-09-26T00:00:00Z") :end "2026-09-27" :bots? true})]
     (is (= "https://op3.dev/api/1/downloads/show/fb3d03641442410e881acb0562ef27c6?format=json&start=2026-09-26T00%3A00%3A00Z&end=2026-09-27&bots=include"
            (:url request)))
-    (is (= "Bearer test-token" (get-in request [:headers "Authorization"])) "the token goes in a header, not in the URL"))
+    (is (= "Bearer test-token" (get-in (http/revealed request) [:headers "Authorization"]))
+        "the token goes in a header, not in the URL")
+    (is (not (re-find #"test-token" (pr-str request))) "a request that is printed does not show the token"))
   (is (= ["https://op3.dev/api/1/shows/aHR0cHM6Ly9mZWVkcy5wb2RjYXN0aW5kZXgub3JnL3BjMjAueG1s"
           "https://op3.dev/api/1/queries/top-apps-for-show?podcastGuid=917393e3-1b1e-5cef-ace4-edaa54e1f810"
           "https://op3.dev/api/1/queries/show-download-counts?showUuid=a&showUuid=b"]
