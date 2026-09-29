@@ -48,14 +48,23 @@
                                :cljs "application/activity+json")}
    ::comments/for for})
 
+(defn ^:no-doc own-url
+  "`url` when it is an http or https URL on the server of `id`. A server
+  speaks only for itself, so a post or an author links to no page on
+  another server."
+  [url id]
+  (when (http/same-origin? url id)
+    (common/web-url url)))
+
 (defn ^:no-doc web-page
-  "The web page of the ActivityPub object `o`: the url that it names, the
-  one of type text/html first, or else its id."
+  "The web page of the ActivityPub object `o`: the first url that it names
+  on the server of its id, one of the type text/html before the others, or
+  else its id."
   [o]
-  (let [urls (common/values o "url")]
-    (some common/web-url [(some #(when (= "text/html" (get % "mediaType")) (href %)) (filter map? urls))
-                          (href urls)
-                          (id-of o)])))
+  (let [id   (id-of o)
+        urls (common/values o "url")
+        html (keep #(when (= "text/html" (get % "mediaType")) (href %)) (filter map? urls))]
+    (some #(own-url % id) (concat html (keep href urls) [id]))))
 
 (defn ^:no-doc attributed
   "The id of the author of the ActivityPub object `o`: the first person
@@ -256,23 +265,29 @@
 
   A public object from the server of `url` is a comment when `objects?`, a
   post that is not public is withheld, and anything else is a comment to
-  fetch by its id. A page gives a thousand items at most, an id is 2048
-  characters at most, and a thread takes 10,000 comments at most, since
-  servers list some dozens to a page and more is a flood."
+  fetch by its id.
+
+  The `common/limits` of a page, of an id and of a thread apply. The
+  thread counts the items that a limit cut, for its report."
   [thread owner items url at objects?]
-  (reduce (fn [thread item]
-            (let [id (id-of item)
-                  o  (when (and objects? (map? item)) (post-of item))]
-              (cond
-                (or (not (common/web-url id)) (> (count id) 2048)) thread
-                (:read-at (get-in thread [:comments id]))          thread
-                (>= (count (:comments thread)) 10000)              (reduced thread)
-                (and o (trusted? o url) (public? o))               (with-object thread o url at true)
-                (and o (trusted? o url))                           (common/withhold thread id)
-                (contains? (:comments thread) id)                  thread
-                :else                                              (assoc-in thread [:comments id] {:id id :in-reply-to owner}))))
-          thread
-          (take 1000 items)))
+  (let [{:keys [page] longest :id most :thread} common/limits
+        full? (fn [thread id]
+                (and (not (contains? (:comments thread) id))
+                     (>= (count (:comments thread)) most)))]
+    (reduce (fn [thread item]
+              (let [id (id-of item)
+                    o  (when (and objects? (map? item)) (post-of item))]
+                (cond
+                  (not (common/web-url id))                 thread
+                  (> (count id) longest)                    (common/truncate thread :id 1)
+                  (:read-at (get-in thread [:comments id])) thread
+                  (full? thread id)                         (common/truncate thread :thread 1)
+                  (and o (trusted? o url) (public? o))      (with-object thread o url at true)
+                  (and o (trusted? o url))                  (common/withhold thread id)
+                  (contains? (:comments thread) id)         thread
+                  :else                                     (assoc-in thread [:comments id] {:id id :in-reply-to owner}))))
+            (common/truncate thread :page (count (drop page items)))
+            (take page items))))
 
 (defn ^:no-doc with-collection
   "`thread` with the collection `c` of replies to `owner` at `path`, a value
@@ -470,7 +485,7 @@
                      :name    (common/first-text (get account "display_name") (get account "username"))
                      :handle  (when (and acct (re-matches #"[A-Za-z0-9_.~-]+" acct))
                                 (str "@" acct "@" (http/host origin)))
-                     :url     (common/web-url (get account "url"))
+                     :url     (own-url (get account "url") origin)
                      :avatar  (common/web-url (get account "avatar"))
                      :read-at at})))
 
@@ -505,7 +520,7 @@
   [status ids origin at]
   (let [poll (status-poll (get status "poll"))]
     (common/present {:id                   (get status "uri")
-                     :url                  (common/web-url (get status "url"))
+                     :url                  (own-url (get status "url") origin)
                      :author               (account-id (get status "account") origin)
                      :in-reply-to          (get ids (get status "in_reply_to_id"))
                      :published            (time/parse-date (get status "created_at"))
@@ -526,14 +541,17 @@
 
   The API speaks for its own server alone. Of the public statuses in the
   answer, those of the server are comments with their authors, and those
-  of other servers are comments to fetch from them."
+  of other servers are comments to fetch from them. An answer that holds
+  no status, or no list of the statuses below it, is a problem."
   [{:keys [uri root] :as thread} part id {:keys [problem document] origin :url} at]
   (let [statuses    (if (= :status part) [document] (common/values document "descendants"))
         own?        #(and (common/web-url (get % "uri"))
                           (http/same-origin? (get % "uri") origin)
                           (contains? #{nil "public" "unlisted"} (get % "visibility")))
         problem     (or problem
-                        (when (and (= :status part) (not (own? document))) {:id :comments/malformed :url uri}))
+                        (when (and (= :status part) (not (own? document))) {:id :comments/malformed :url uri})
+                        (when (and (= :context part) (not (sequential? (get document "descendants"))))
+                          {:id :comments/malformed :url origin}))
         ids         (into {id (or root (get document "uri"))} (map (juxt #(get % "id") #(get % "uri"))) statuses)]
     (if problem
       (update thread ::comments/api #(-> % (update :read (fnil conj #{}) part) (assoc :error problem)))
@@ -582,10 +600,31 @@
   [{:keys [uri]}]
   (some? (common/web-url uri)))
 
+(defn- reopened
+  "The collection `c` of replies open again from the page that failed, when
+  the failure can pass with time."
+  [{:keys [error] :as c}]
+  (if (:retry? error)
+    (cond-> (assoc (dissoc c :error :read-at) :url (:url error))
+      (::comments/pages c) (update ::comments/pages disj (:url error)))
+    c))
+
+(defn resumed
+  "The ActivityPub `thread` as a new reading of it starts: unread again
+  where a failure that can pass with time stopped the last reading.
+
+  This is the root, a post, an author, a page of a collection, and the
+  answer of the Mastodon API."
+  [{:keys [comments] ::comments/keys [api conversation] :as thread}]
+  (cond-> (common/retried thread)
+    comments               (update :comments update-vals #(cond-> % (::comments/collection %) (update ::comments/collection reopened)))
+    conversation           (update ::comments/conversation reopened)
+    (:retry? (:error api)) (dissoc ::comments/api)))
+
 (defn requests
   "The requests that the ActivityPub `thread` needs next, of those whose
   URLs `ask?` takes. They ask for no more posts than the `:max-comments`
-  of `opts` allows.
+  of `opts` allows, counted from the last `resumed`.
 
   The root post comes first. When its server keeps it from the reader, the
   Mastodon API of that server comes next. Then come the pages of the
@@ -595,11 +634,11 @@
 
   The URL of the root post tells its id in the Mastodon API, by
   `status-paths` or by the `:status-paths` of `opts`."
-  [{:keys [uri root read-at comments authors via] ::comments/keys [api] :as thread}
+  [{:keys [uri root read-at comments authors via] ::comments/keys [api held] :as thread}
    {:keys [max-comments] :as opts}
    ask?]
   (let [all     (vals comments)
-        room    (- max-comments (count (filter :read-at all)))
+        room    (- max-comments (- (count (filter :read-at all)) (or held 0)))
         waiting (count (remove :read-at all))
         depth   (common/depths thread)
         paths   (:status-paths opts status-paths)]

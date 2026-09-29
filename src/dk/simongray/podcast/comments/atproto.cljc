@@ -47,28 +47,35 @@
    :headers       {"Accept" "application/json"}
    ::comments/for [:thread uri]})
 
+(defn ^:no-doc labels
+  "The labels that apply to the AT Protocol post `view`: those of the post
+  and those of the account of its author, without the labels that are
+  negated."
+  [view]
+  (remove #(get % "neg")
+          (filter map? (concat (common/values view "labels") (common/values (get view "author") "labels")))))
+
 (defn- withheld?
   "Whether the AT Protocol post `view` is kept from a reader without an
   account: its author or the post asks so with the label
   !no-unauthenticated, or a moderation service hid it with !hide."
   [view]
   (let [did (get-in view ["author" "did"])]
-    (boolean (some (fn [{:strs [val src neg]}]
-                     (and (not neg)
-                          (or (= "!no-unauthenticated" val)
-                              (and (= "!hide" val) (not= src did)))))
-                   (filter map? (concat (common/values view "labels") (common/values (get view "author") "labels")))))))
+    (boolean (some (fn [{:strs [val src]}]
+                     (or (= "!no-unauthenticated" val)
+                         (and (= "!hide" val) (not= src did))))
+                   (labels view)))))
 
 (defn- warnings
   "The labels of the AT Protocol post `view` that put it behind a warning:
   those of adult content and graphic media, and !warn when a moderation
-  service set it, since clients ignore it from the author."
+  service set it, since clients ignore it from the author. A label on the
+  account of the author counts as a label on each of its posts."
   [view]
   (let [did (get-in view ["author" "did"])]
-    (set (for [{:strs [val src neg]} (filter map? (common/values view "labels"))
-               :when (and (not neg)
-                          (or (contains? #{"porn" "sexual" "nudity" "graphic-media"} val)
-                              (and (= "!warn" val) (not= src did))))]
+    (set (for [{:strs [val src]} (labels view)
+               :when (or (contains? #{"porn" "sexual" "nudity" "graphic-media"} val)
+                         (and (= "!warn" val) (not= src did)))]
            val))))
 
 (defn- links
@@ -172,20 +179,32 @@
 
 (defn- with-view
   "`thread` with the posts of the AT Protocol thread `view` read at `at`
-  below the post `parent`, the replies in `hidden` hidden, 64 levels down
-  from `level` at most, and 10,000 comments in all at most.
+  below the post `parent`, the replies in `hidden` hidden, and `level`
+  levels down from the post that was asked for.
 
-  A post that is gone is a deleted comment, and a withheld one is left out
-  with the replies below it."
+  A post that is gone is a deleted comment. A withheld post is left out
+  with the replies below it, and so is a post that the AppView does not
+  give because of a block. The `common/limits` of the depth and of a thread
+  apply, and the thread counts the posts that a limit cut."
   [thread view parent hidden at level]
   (let [post (get view "post")
         uri  (if (map? post) (get post "uri") (get view "uri"))]
     (cond
-      (or (> level 64) (not (string? uri)) (>= (count (:comments thread)) 10000))
+      (not (string? uri))
       thread
+
+      (> level (:depth common/limits))
+      (common/truncate thread :depth 1)
+
+      (and (not (contains? (:comments thread) uri))
+           (>= (count (:comments thread)) (:thread common/limits)))
+      (common/truncate thread :thread 1)
 
       (true? (get view "notFound"))
       (assoc-in thread [:comments uri] (common/present {:id uri :in-reply-to parent :deleted? true :read-at at}))
+
+      (true? (get view "blocked"))
+      (common/withhold thread uri)
 
       (not (map? post))
       thread
@@ -209,19 +228,31 @@
   [{:keys [uri]} opts]
   (and (post-uri? uri) (string? (:appview opts))))
 
+(defn resumed
+  "The AT Protocol `thread` as a new reading of it starts: unread again
+  where a failure that can pass with time stopped the last reading.
+
+  This is the root, and the replies below a post."
+  [{:keys [comments] :as thread}]
+  (cond-> (common/retried thread)
+    comments (update :comments update-vals #(cond-> %
+                                              (:retry? (:error (::comments/collection %)))
+                                              (dissoc ::comments/collection)))))
+
 (defn requests
   "The requests that the AT Protocol `thread` needs next, of those whose
   URLs `ask?` takes. They go to the `:appview` of `opts`, and they ask for
-  no more posts than the `:max-comments` of `opts` allows.
+  no more posts than the `:max-comments` of `opts` allows, counted from
+  the last `resumed`.
 
   The root post comes first. Then come the posts nearest to it whose
   replies are below the levels that the AppView gives at once."
-  [{:keys [uri read-at comments] :as thread} {:keys [appview max-comments]} ask?]
+  [{:keys [uri read-at comments] ::comments/keys [held] :as thread} {:keys [appview max-comments]} ask?]
   (->> (cond
          (not (string? appview)) []
          (nil? read-at)          (when (post-uri? uri) [(thread-request appview uri)])
          :else                   (let [all (vals comments)]
-                                   (when (< (count (filter :read-at all)) max-comments)
+                                   (when (< (- (count (filter :read-at all)) (or held 0)) max-comments)
                                      (common/nearest-first (common/depths thread)
                                                            (for [{:keys [id] ::comments/keys [reply-count collection]} all
                                                                  :when (and reply-count (not (:read-at collection)))]

@@ -296,7 +296,7 @@
    {:id :comments/malformed :level :warning
     :doc "The URI of the root post, or a document that a server sent, is not in a form that podcast-clj reads. Such a document is a post, a collection of replies, an author or a thread."}
    {:id :comments/unreachable :level :warning
-    :doc "podcast-clj did not get a post, a collection of replies or an author. The request failed, or the server answered with an error."}
+    :doc "podcast-clj did not get a post, a collection of replies or an author. The request failed, or the server answered with an error. When the diagnostic has `:retry?`, the next fetch of the thread asks again."}
    {:id :comments/refused :level :warning
     :doc "A server refused an unsigned request, as a server in secure mode does."}
    {:id :comments/untrusted :level :warning
@@ -304,9 +304,11 @@
    {:id :comments/through-api :level :info
     :doc "ActivityPub did not give the root post. podcast-clj read the thread through the Mastodon API of the root post's server instead. The API can give fewer replies."}
    {:id :comments/withheld :level :info
-    :doc "podcast-clj left out some replies. They are not public, their authors ask apps to show them only to signed-in users, or a moderation service hid them."}
+    :doc "podcast-clj left out some replies. They are not public, their authors ask apps to show them only to signed-in users, or a moderation service hid them. An AppView also keeps back a reply when its author and the author of the post above it have a block between them."}
+   {:id :comments/truncated :level :warning
+    :doc "A limit of size cut some replies, and the diagnostic counts them. Its `:limit` names the limit. `:page` is the 1,000 items of one page of replies, and `:id` is the 2,048 characters of an id. `:thread` is the 10,000 comments of one thread, and `:depth` is the 64 levels of replies of an AT Protocol thread."}
    {:id :comments/incomplete :level :info
-    :doc "The fetch reached a limit before it read the whole thread. To read more of the thread, fetch it again."}
+    :doc "The fetch reached a limit before it read the whole thread, or a server did not answer for a time. To read more of the thread, fetch it again."}
 
    ;; value: reading the record of a payment
    {:id :value/not-an-object :level :warning

@@ -12,8 +12,8 @@
   id of the `:root` post, the `:comments` by id, their `:authors` by id,
   and the `:report` of what went wrong. A later fetch reads on from where
   the last one stopped. `tree` gives the comments in the shape to show them.
-  `requests`, `next-page` and `with-exchanges` are the pure steps of
-  `fetch!`, for an app that sends the requests itself.
+  `resumed`, `requests`, `next-page` and `with-exchanges` are the pure
+  steps of `fetch!`, for an app that sends the requests itself.
 
   A comment:
 
@@ -83,11 +83,32 @@
 (defn ^:no-doc spared-origins
   "The origins that the reading of `thread` asks no more: those of the
   servers that did not answer in time, and of those that answered 429, too
-  many requests."
+  many requests. `resumed` takes these failures out of a thread, so a
+  server is spared in one reading only."
   [{:keys [error] :as thread}]
   (set (for [{:keys [url status timeout?]} (cons error (errors thread))
              :when (or timeout? (= 429 status))]
          (http/origin url))))
+
+(defn resumed
+  "`thread` as a new reading of it starts. `fetch!` applies it first, and
+  an app that sends the `requests` itself does the same.
+
+  A post, an author, a page of replies or a root is unread again, where a
+  failure that can pass with time kept it from the last reading. Such a
+  failure is `:retry?` in the report: the request failed, or the server
+  answered 429 or a status from 500. The thread also notes how many
+  comments it holds, so that `:max-comments` counts the comments of this
+  reading."
+  [{:keys [protocol] :as thread}]
+  (let [thread (case protocol
+                 "activitypub" (activitypub/resumed thread)
+                 "atproto"     (atproto/resumed thread)
+                 thread)
+        held   (count (filter :read-at (vals (:comments thread))))]
+    (if (pos? held)
+      (assoc thread ::held held)
+      (dissoc thread ::held))))
 
 (defn ^:no-doc pending
   "The requests that `thread` needs next with the limits of `opts`, of those
@@ -110,11 +131,12 @@
 
   The root post comes first. Then come the posts and the collections of
   replies nearest to it, and then their authors. They ask for no more
-  posts than the `:max-comments` of `opts` or `default-limits` allows. For
-  the AT Protocol, they go to the `:appview` of `opts`. For the Mastodon
-  API, the `:status-paths` of `opts` replace `activitypub/status-paths`. A
-  server that did not answer in time, or that answered 429, gets no more
-  requests. Each request is a request map for `http/call!`, and each URL
+  posts than the `:max-comments` of `opts` or `default-limits` allows,
+  counted from the last `resumed`. For the AT Protocol, they go to the
+  `:appview` of `opts`. For the Mastodon API, the `:status-paths` of `opts`
+  replace `activitypub/status-paths`. A server that did not answer in
+  time, or that answered 429, gets no more requests until the next
+  `resumed`. Each request is a request map for `http/call!`, and each URL
   comes once."
   ([thread]
    (requests thread {}))
@@ -139,7 +161,9 @@
   The exchanges are the exchange of the request and, for a collection, the
   exchanges of the pages that `next-page` names after it. Each exchange is
   `{:request :response}`. The response is the map that `http/call!` gives,
-  or `{:error reason}` when the request failed."
+  or `{:error reason}` when the request failed. Such a response is also
+  `:timeout?` when the request took too long, and `:retry?` when a later
+  request can get an answer."
   [thread exchanges at]
   (case (:protocol thread)
     "activitypub" (activitypub/with-exchanges thread exchanges at)
@@ -179,11 +203,11 @@
   Protocol, `opts` names the `:appview`.
 
   They tell why podcast-clj did not read the thread, a post, a collection
-  of replies or an author. They also tell whether it left out replies, and
-  whether a limit stopped the fetch."
+  of replies or an author. They also tell whether it left out replies, how
+  many replies a limit of size cut, and whether a limit stopped the fetch."
   ([thread]
    (report thread {}))
-  ([{:keys [protocol uri error via] ::keys [withheld] :as thread} opts]
+  ([{:keys [protocol uri error via] ::keys [withheld truncated] :as thread} opts]
    (let [opts (merge default-limits opts)]
      (mapv diagnostics/describe
            (cond
@@ -200,7 +224,10 @@
              (concat (when error [(cond-> error via (assoc :id :comments/through-api))])
                      (errors thread)
                      (when (seq withheld) [{:id :comments/withheld :count (count withheld)}])
-                     (when (seq (pending thread (assoc opts :max-comments ##Inf) (constantly true)))
+                     (for [[limit n] (sort-by key truncated)]
+                       {:id :comments/truncated :limit limit :count n})
+                     ;; what the next fetch asks for, with no limit and no server spared
+                     (when (seq (pending (resumed thread) (assoc opts :max-comments ##Inf) (constantly true)))
                        [{:id :comments/incomplete}])))))))
 
 (defn tree
@@ -251,15 +278,22 @@
   and the JSON object that the body held. When sending failed, the
   response is `{:error reason}`, and `:timeout?` when it took too long; a
   body larger than the limit fails too, when a `:send` did not keep to
-  it."
+  it.
+
+  A failed response is `:retry?`, unless the guard of the request refused
+  its URL or the answer was too large. A later request gets the same
+  failure then."
   [request {:keys [send timeout-seconds max-bytes now] ::keys [deadline] :as opts}]
   (let [left    (when deadline (quot (- deadline (inst-ms (now))) 1000))
-        seconds (max 1 (min timeout-seconds (or left timeout-seconds)))]
+        seconds (max 1 (min timeout-seconds (or left timeout-seconds)))
+        stays?  #(contains? #{::http/refused ::http/too-large} (:type (ex-data %)))]
     (async/then (async/attempt #(send (http/limited request (assoc opts :timeout-seconds seconds))))
                 (fn [{:keys [value error]}]
                   (cond
                     error
-                    {:request request :response (cond-> {:error (async/explain error)} (http/timeout? error) (assoc :timeout? true))}
+                    {:request request :response (cond-> {:error (async/explain error)}
+                                                  (http/timeout? error) (assoc :timeout? true)
+                                                  (not (stays? error))  (assoc :retry? true))}
 
                     (and max-bytes (> (count (str (:body value))) max-bytes))
                     {:request request :response {:error (str "The answer is larger than " max-bytes " bytes")}}
@@ -311,12 +345,13 @@
 
   `thread` is an interact from `resolve/social-interacts`, or a thread
   that an earlier fetch gave. A second fetch reads on from where the first
-  stopped. To read what is new, fetch the interact again. `opts`, with
+  stopped, and it asks again for what failed for a time, as `resumed`
+  tells. To read what is new, fetch the interact again. `opts`, with
   `default-limits` for the limits:
 
       {:appview         \"https://…\"  ; to read AT Protocol threads from
        :status-paths    [#\"…\"]       ; in place of activitypub/status-paths
-       :max-comments    100          ; ask for no more posts after this many
+       :max-comments    100          ; ask for no more posts after this many in a fetch
        :max-requests    300          ; start no round after this many
        :max-seconds     60           ; start no request after this long
        :concurrency     4            ; requests under way at a time
@@ -330,8 +365,12 @@
   The requests go out in rounds. The root post comes first, then the posts
   nearest to it, then the authors. The pages of a collection come one after
   another, as `next-page` names them. A server that did not answer in
-  time, or that answered 429 Too Many Requests, gets no more requests. The
-  time that is left limits each request. `fetch!` throws nothing.
+  time, or that answered 429 Too Many Requests, gets no more requests in
+  the same fetch. The time that is left limits each request. `fetch!`
+  throws nothing.
+
+  A thread also has limits of size that no option sets, such as 10,000
+  comments in all. The report counts the replies that such a limit cut.
 
   The servers of a thread choose the URLs that `fetch!` fetches. So each
   request carries `http/public?` as its `:allow?`, and `http/call!` then
@@ -356,7 +395,7 @@
          limit (fn [b sent]
                  (max 1 (min max-pages (quot (- max-requests sent) (count b)))))
          done  #(assoc % :report (report % opts))]
-     #?(:clj  (loop [thread thread sent 0]
+     #?(:clj  (loop [thread (resumed thread) sent 0]
                 (if-let [b (batch thread sent)]
                   (let [round (round! b (limit b sent) opts)]
                     (recur (with-round thread round (now)) (+ sent (count (apply concat round)))))
@@ -366,7 +405,7 @@
                           (async/then (round! b (limit b sent) opts)
                                       #(step (with-round thread % (now)) (+ sent (count (apply concat %)))))
                           (done thread)))]
-                (js/Promise.resolve (step thread 0)))))))
+                (js/Promise.resolve (step (resumed thread) 0)))))))
 
 #?(:clj
    (comment

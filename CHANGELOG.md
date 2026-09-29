@@ -217,13 +217,23 @@
 - `comments` reads the comments on an episode from the thread that
   `podcast:socialInteract` names. `comments.activitypub` reads threads over
   ActivityPub, and `comments.atproto` reads AT Protocol threads from an
-  AppView that the app names. Both give comments and authors of one shape. It follows a conversation or the replies of
-  each post, and takes each post only from its own server. When a server
-  refuses unsigned requests or a browser blocks its answers, `fetch!` reads
-  the thread through the Mastodon API of the server. `async/iteration`
-  reads the pages of a collection. A post that does not read is a comment
-  with an `:error`, and the posts around it are read. The inspector shows
-  the comments on an episode.
+  AppView that the app names. Both give comments and authors of one shape.
+  It follows a conversation or the replies of each post, and takes each
+  post only from its own server. When a server refuses unsigned requests
+  or a browser blocks its answers, `fetch!` reads the thread through the
+  Mastodon API of the server. `async/iteration` reads the pages of a
+  collection. A post that does not read is a comment with an `:error`, and
+  the posts around it are read. The inspector shows the comments on an
+  episode.
+- A later fetch of a thread asks again for what failed for a time. That is
+  a request that got no answer, a 429, or a status from 500. Such a
+  failure has `:retry?` in the report, and `comments/resumed` is the pure
+  step. `:max-comments` counts the comments of one fetch, so each fetch
+  reads more. `:comments/truncated` counts the replies that a limit of
+  size cut. An answer of the Mastodon API that holds no thread is a
+  problem. A post or an author links only to a page on its own server. On
+  the AT Protocol, a warning on an account puts its posts behind a
+  warning. The report counts a reply that a block keeps back.
 - `value/parse-boostagram` reads the bLIP-10 record of a payment that a
   node received, and forgives what real apps write. A payment is one map
   for each way to pay, with its amounts in millisatoshis.

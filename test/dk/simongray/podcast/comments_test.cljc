@@ -17,6 +17,7 @@
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
             [dk.simongray.podcast.comments.atproto :as atproto]
+            [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
@@ -317,7 +318,29 @@
            (comments/fetch! {:protocol "activitypub" :uri root} {:send send})
            (fn [thread]
              (is (= ["Dave"] (shape (comments/tree thread))))
-             (is (= [:comments/through-api :comments/unreachable] (ids thread))))))))
+             (is (= [:comments/through-api :comments/unreachable :comments/incomplete] (ids thread))
+                 "a later fetch asks the API again, since a 503 can pass"))))))
+
+(deftest a-server-in-secure-mode-whose-api-gives-no-thread
+  (let [context (atom "<html>Just a moment...</html>")
+        send    (fn [{:keys [url] :as request}]
+                  (cond
+                    (= root url)                    {:status 401 :url url}
+                    (str/ends-with? url "/context") {:status 200 :url url :body @context}
+                    :else                           ((server mastodon-api (atom [])) request)))
+        fetch   #(comments/fetch! {:protocol "activitypub" :uri root} {:send send})]
+    (run #(async/then
+           (fetch)
+           (fn [thread]
+             (is (= ["Dave"] (shape (comments/tree thread))))
+             (is (= [:comments/through-api :comments/malformed] (ids thread))
+                 "an answer that is no JSON is not a thread without replies")
+             (reset! context "{\"error\":\"Record not found\"}")
+             (async/then
+              (fetch)
+              (fn [thread]
+                (is (= [:comments/through-api :comments/malformed] (ids thread))
+                    "and neither is an object that lists no statuses"))))))))
 
 (deftest the-paths-of-statuses
   (is (= [["https://podcastindex.social" "117294750060235480"]
@@ -440,6 +463,236 @@
              (is (= [:comments/incomplete :comments/unreachable :comments/unreachable :comments/unreachable :comments/unreachable]
                     (sort (ids thread)))
                  "the post left on the server that did not answer is still to read"))))))
+
+(deftest a-server-that-answers-again
+  (let [top     "https://a.example/1"
+        note    (fn [id] {"id" id "type" "Note" "content" "x" "inReplyTo" top})
+        answers {top                   (assoc (note top) "inReplyTo" nil
+                                              "replies" {"type"  "Collection"
+                                                         "items" ["https://b.example/1" "https://b.example/2" "https://c.example/gone"]})
+                 "https://b.example/1" (note "https://b.example/1")
+                 "https://b.example/2" (note "https://b.example/2")}
+        busy?   (atom true)
+        log     (atom [])
+        send    (fn [{:keys [url] :as request}]
+                  (if (and @busy? (= "https://b.example/1" url))
+                    (do (swap! log conj url) {:status 429 :url url})
+                    ((server answers log) request)))]
+    (run #(async/then
+           (comments/fetch! {:protocol "activitypub" :uri top} {:send send :concurrency 1})
+           (fn [busy]
+             (is (= [{:id :comments/unreachable :status 429 :retry? true} {:id :comments/incomplete}]
+                    (summary busy :id :status :retry?)))
+             (is (= [top "https://b.example/1" "https://c.example/gone"] @log)
+                 "a server that answered 429 gets no more requests in the same fetch")
+             (reset! busy? false)
+             (reset! log [])
+             (async/then
+              (comments/fetch! busy {:send send :concurrency 1})
+              (fn [thread]
+                (is (= ["https://b.example/1" "https://b.example/2"] @log)
+                    "the next fetch asks it again, and it asks no server again that answered 404")
+                (is (= [] (:report thread)))
+                (is (= 4 (count (filter :read-at (vals (:comments thread)))))))))))))
+
+(deftest a-page-that-failed-for-a-time
+  (let [top     "https://a.example/1"
+        page    #(str "https://a.example/replies?page=" %)
+        reply   #(str "https://a.example/r" %)
+        note    (fn [id] {"id" id "type" "Note" "content" "x" "inReplyTo" top})
+        answers (into {top (assoc (note top) "inReplyTo" nil "replies" (page 0))}
+                      (mapcat (fn [n]
+                                [[(page n) (cond-> {"id" (page n) "type" "CollectionPage" "items" [(reply n)]}
+                                             (< n 2) (assoc "next" (page (inc n))))]
+                                 [(reply n) (note (reply n))]]))
+                      (range 3))
+        down?   (atom true)
+        log     (atom [])
+        send    (fn [{:keys [url] :as request}]
+                  (if (and @down? (= (page 1) url))
+                    (do (swap! log conj url) {:status 503 :url url})
+                    ((server answers log) request)))]
+    (run #(async/then
+           (comments/fetch! {:protocol "activitypub" :uri top} {:send send :concurrency 1})
+           (fn [cut]
+             (is (= [{:id :comments/unreachable :url (page 1) :status 503 :retry? true} {:id :comments/incomplete}]
+                    (summary cut :id :url :status :retry?)))
+             (is (= [top (page 0) (page 1) (reply 0)] @log))
+             (reset! down? false)
+             (reset! log [])
+             (async/then
+              (comments/fetch! cut {:send send :concurrency 1})
+              (fn [thread]
+                (is (= [(page 1) (page 2) (reply 1) (reply 2)] @log)
+                    "the next fetch reads on from the page that failed")
+                (is (= [] (:report thread)))
+                (is (= #{top (reply 0) (reply 1) (reply 2)} (set (keys (:comments thread))))))))))))
+
+(deftest what-a-later-fetch-does-not-ask-again
+  (let [log   (atom [])
+        send  (fn [{:keys [url]}]
+                (swap! log conj url)
+                (throw (ex-info "The answer is too large" {:type :dk.simongray.podcast.http/too-large})))
+        fetch #(comments/fetch! % {:send send})]
+    (run #(async/then
+           (async/then (fetch {:protocol "activitypub" :uri "https://a.example/1"}) fetch)
+           (fn [thread]
+             (is (= ["https://a.example/1"] @log) "an answer that is too large is as large the next time")
+             (is (= [{:id :comments/unreachable}] (summary thread :id :retry?)))))
+         #(async/then
+           (async/then (comments/fetch! {:protocol "activitypub" :uri "http://127.0.0.1:1/notes/1"}) comments/fetch!)
+           (fn [thread]
+             (is (= [{:id :comments/unreachable}] (summary thread :id :retry?))
+                 "and a URL that the guard refused is refused the next time"))))))
+
+(deftest a-root-that-did-not-answer-in-time
+  (let [top   "https://a.example/1"
+        slow? (atom true)
+        log   (atom [])
+        send  (fn [{:keys [url] :as request}]
+                (if @slow?
+                  (do (swap! log conj url)
+                      (throw (ex-info "request timed out" {:type :dk.simongray.podcast.http/timeout})))
+                  ((server {top {"id" top "type" "Note" "content" "root"}} log) request)))]
+    (run #(async/then
+           (comments/fetch! {:protocol "activitypub" :uri top} {:send send})
+           (fn [late]
+             (is (= [{:id :comments/unreachable :timeout? true :retry? true} {:id :comments/incomplete}]
+                    (summary late :id :timeout? :retry?)))
+             (reset! slow? false)
+             (async/then
+              (comments/fetch! late {:send send})
+              (fn [thread]
+                (is (= [top top] @log))
+                (is (= [] (:report thread)))
+                (is (= top (:root thread))))))))))
+
+(deftest a-limit-of-comments-for-each-fetch
+  (let [top     "https://a.example/0"
+        reply   #(str "https://a.example/" %)
+        note    (fn [id] {"id" id "type" "Note" "content" "x" "inReplyTo" top})
+        answers (into {top (assoc (note top) "inReplyTo" nil "replies" {"type" "Collection" "items" (mapv reply (range 1 13))})}
+                      (map (fn [n] [(reply n) (note (reply n))]))
+                      (range 1 13))
+        log     (atom [])
+        fetch   #(comments/fetch! % {:send (server answers log) :max-comments 5})
+        read    #(count (filter :read-at (vals (:comments %))))]
+    (run #(async/then
+           (fetch {:protocol "activitypub" :uri top})
+           (fn [one]
+             (async/then
+              (fetch one)
+              (fn [two]
+                (async/then
+                 (fetch two)
+                 (fn [three]
+                   (is (= [5 10 13] (map read [one two three])) "each fetch reads five comments more")
+                   (is (= [[:comments/incomplete] [:comments/incomplete] []] (map ids [one two three])))
+                   (is (= 13 (count @log)) "and each post once"))))))))))
+
+(deftest replies-that-a-limit-cuts
+  (let [top    "https://a.example/0"
+        at     #inst "2026-09-28T12:00:00Z"
+        note   (fn [i] {"id" (str "https://a.example/" i) "type" "Note" "content" "x" "inReplyTo" top
+                        "to" ["https://www.w3.org/ns/activitystreams#Public"]})
+        read   (fn [items]
+                 (let [thread {:protocol "activitypub" :uri top}
+                       doc    (assoc (note 0) "inReplyTo" nil "replies" {"type" "Collection" "items" items})]
+                   (comments/with-exchanges thread
+                                            [{:request  (first (comments/requests thread))
+                                              :response {:status 200 :url top :body (json/write-str doc)}}]
+                                            at)))
+        cut    (fn [thread opts] (map (juxt :id :limit :count :level) (comments/report thread opts)))]
+    (testing "a page of more than a thousand items"
+      (let [thread (read (mapv note (range 1 1501)))]
+        (is (= 1001 (count (:comments thread))))
+        (is (= [[:comments/truncated :page 500 :warning]] (cut thread {})))))
+    (testing "an id of more than 2,048 characters"
+      (let [thread (read [(note 1) (str "https://a.example/" (apply str (repeat 2049 "x"))) (note 2)])]
+        (is (= 3 (count (:comments thread))))
+        (is (= [[:comments/truncated :id 1 :warning]] (cut thread {})))))
+    (testing "more comments than a thread holds"
+      (let [thread (with-redefs [common/limits (assoc common/limits :thread 3)]
+                     (read (mapv note (range 1 8))))]
+        (is (= 3 (count (:comments thread))))
+        (is (= [[:comments/truncated :thread 5 :warning]] (cut thread {})))))
+    (testing "replies of an AT Protocol thread below the last level, and a reply that a block keeps back"
+      (let [uri    #(str "at://did:plc:" % "/app.bsky.feed.post/1")
+            view   (fn [did & replies]
+                     {"$type"   "app.bsky.feed.defs#threadViewPost"
+                      "post"    {"uri" (uri did) "author" {"did" (str "did:plc:" did)} "record" {"text" did}}
+                      "replies" (vec replies)})
+            doc    {"thread" (view "a"
+                                   (view "b" (view "c" (view "d" (view "e"))))
+                                   {"$type" "app.bsky.feed.defs#blockedPost" "uri" (uri "w") "blocked" true})}
+            url    "https://appview.example/xrpc/app.bsky.feed.getPostThread?uri=a"
+            thread (with-redefs [common/limits (assoc common/limits :depth 2)]
+                     (comments/with-exchanges {:protocol "atproto" :uri (uri "a")}
+                                              [{:request  {:url url ::comments/for [:thread (uri "a")]}
+                                                :response {:status 200 :url url :body (json/write-str doc)}}]
+                                              at))]
+        (is (= #{(uri "a") (uri "b") (uri "c")} (set (keys (:comments thread)))))
+        (is (= [[:comments/withheld nil 1 :info] [:comments/truncated :depth 1 :warning]]
+               (cut thread {:appview "https://appview.example"})))))))
+
+(deftest a-page-on-another-server
+  (let [at     #inst "2026-09-28T12:00:00Z"
+        actor  "https://b.example/users/mallory"
+        person {"id" actor "type" "Person" "preferredUsername" "mallory" "name" "Dave Jones"}
+        author (fn [url]
+                 (-> (comments/with-exchanges {:protocol "activitypub" :uri "https://a.example/1" :root "https://a.example/1" :read-at at}
+                                              [{:request  {:url actor ::comments/for [:author actor]}
+                                                :response {:status 200 :url actor :body (json/write-str (assoc person "url" url))}}]
+                                              at)
+                     (get-in [:authors actor])
+                     (select-keys [:name :handle :url])))]
+    (is (= {:name "Dave Jones" :handle "@mallory@b.example" :url actor} (author "https://podcastindex.social/@dave"))
+        "an author links to no page on another server, so its name does not lead to the page of another person")
+    (is (= "https://b.example/@mallory"
+           (:url (author ["https://podcastindex.social/@dave"
+                          {"type" "Link" "mediaType" "text/html" "href" "https://b.example/@mallory"}])))
+        "the first page on its own server")
+    (is (= ["https://a.example/@ann/2" "https://a.example/notes/2"]
+           (map #(activitypub/web-page {"id" "https://a.example/notes/2" "type" "Note" "url" %})
+                ["https://a.example/@ann/2" "https://other.example/@ann/2"]))
+        "and so for a post")
+    (testing "and the Mastodon API"
+      (let [page   "https://a.example/@ann/1"
+            api    "https://a.example/api/v1/statuses/1"
+            status {"id" "1" "uri" "https://a.example/users/ann/statuses/1" "url" "https://other.example/@ann/1"
+                    "content" "<p>root</p>" "visibility" "public"
+                    "account" {"acct" "ann" "display_name" "Ann" "uri" "https://a.example/users/ann" "url" "https://other.example/@ann"}}
+            send   (fn [{:keys [url]}]
+                     (condp = url
+                       page                 {:status 401 :url url}
+                       api                  {:status 200 :url url :body (json/write-str status)}
+                       (str api "/context") {:status 200 :url url :body (json/write-str {"ancestors" [] "descendants" []})}))]
+        (run #(async/then
+               (comments/fetch! {:protocol "activitypub" :uri page} {:send send})
+               (fn [thread]
+                 (is (= ["Ann"] (shape (comments/tree thread))))
+                 (is (= [nil nil] [(:url (get-in thread [:comments (:root thread)]))
+                                   (:url (get-in thread [:authors "https://a.example/users/ann"]))])))))))))
+
+(deftest a-warning-on-an-account
+  (let [at    #inst "2026-09-28T12:00:00Z"
+        uri   #(str "at://did:plc:" % "/app.bsky.feed.post/1")
+        post  (fn [did labels]
+                {"$type"   "app.bsky.feed.defs#threadViewPost"
+                 "replies" []
+                 "post"    {"uri" (uri did) "author" {"did" (str "did:plc:" did) "labels" labels} "record" {"text" "hello"}}})
+        doc   {"thread" (assoc (post "x" [])
+                               "replies" [(post "y" [{"val" "!warn" "src" "did:plc:labeler"}])
+                                          (post "z" [{"val" "!warn" "src" "did:plc:z"}])
+                                          (post "n" [{"val" "porn" "src" "did:plc:labeler" "neg" true}])])}
+        url   "https://appview.example/xrpc/app.bsky.feed.getPostThread?uri=x"
+        read  (comments/with-exchanges {:protocol "atproto" :uri (uri "x")}
+                                       [{:request  {:url url ::comments/for [:thread (uri "x")]}
+                                         :response {:status 200 :url url :body (json/write-str doc)}}]
+                                       at)]
+    (is (= [{:sensitive? true :labels #{"!warn"}} {} {}]
+           (map #(select-keys (get-in read [:comments (uri %)]) [:sensitive? :labels]) ["y" "z" "n"]))
+        "a warning that a moderation service put on the account, not one of the author, and not a label that is taken back")))
 
 (deftest an-answer-that-exhausts-a-reader
   (let [deep (str (apply str (repeat 100000 "[")) (apply str (repeat 100000 "]")))

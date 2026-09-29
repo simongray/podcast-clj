@@ -361,7 +361,13 @@ Keep the thread with the episode. `fetch!` reads a thread as far as its
 limits allow, and the report tells when it stopped early. By default, it
 reads for one minute at most. To show comments sooner, give it
 `:max-seconds 5`. Show what it read, then fetch the kept thread again to
-read more. To see new comments, fetch a new thread from `comments/thread`.
+read more. Each fetch reads 100 comments more, by default. To see new
+comments, fetch a new thread from `comments/thread`.
+
+A server can fail for a time. The report then has `:comments/incomplete`,
+and the failure has `:retry?`. The next fetch of the kept thread asks that
+server again. A very large thread is cut, and the report tells how many
+replies a limit of size cut, as `:comments/truncated`.
 
 The AT Protocol gives no web page for a post. Link such a post to a web app
 of your choice. Build the link from the DID of the author and the record

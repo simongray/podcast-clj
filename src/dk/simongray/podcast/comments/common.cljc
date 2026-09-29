@@ -69,19 +69,34 @@
     (:document exchange)
     (document response)))
 
+(def ^:no-doc limits
+  "The limits of size of a thread, which no option sets. A page of a
+  collection gives `:page` items at most, and an id has `:id` characters
+  at most. A thread holds `:thread` comments at most. The replies of an AT
+  Protocol thread go `:depth` levels down at most. Servers list some dozens
+  of items to a page, so more is a flood."
+  {:page 1000 :id 2048 :thread 10000 :depth 64})
+
 (defn ^:no-doc failure
   "What went wrong with the `response` to the request for `url`, as a
   diagnostic without its level; nil when nothing did.
 
   A server that refuses a request that is not signed answers 401 or 403. A
   request that failed has the `:error` of it in place of the response, and
-  one that took too long is `:timeout?` as well."
-  [url {:keys [status error timeout?]}]
+  one that took too long is `:timeout?` as well.
+
+  A failure is `:retry?` when it can pass with time, so that a later
+  reading asks again. The request failed and the response says `:retry?`,
+  or the server answered 429 or a status from 500."
+  [url {:keys [status error timeout? retry?]}]
   (cond
     error                                             (cond-> {:id :comments/unreachable :url url :reason error}
-                                                        timeout? (assoc :timeout? true))
+                                                        timeout? (assoc :timeout? true)
+                                                        retry?   (assoc :retry? true))
     (#{401 403} status)                               {:id :comments/refused :url url :status status}
-    (not (and (integer? status) (<= 200 status 299))) {:id :comments/unreachable :url url :status status}))
+    (not (and (integer? status) (<= 200 status 299))) (cond-> {:id :comments/unreachable :url url :status status}
+                                                        (and (integer? status) (or (= 429 status) (<= 500 status 599)))
+                                                        (assoc :retry? true))))
 
 (defn ^:no-doc fit-links
   "The Hiccup `nodes` of a post whose URL is `base`, fit to show on the page
@@ -130,6 +145,26 @@
   report counts."
   [thread id]
   (update thread ::comments/withheld (fnil conj #{}) id))
+
+(defn ^:no-doc truncate
+  "`thread` with `n` more replies among those that the limit `k` of `limits`
+  cut, which its report counts."
+  [thread k n]
+  (cond-> thread
+    (pos? n) (update-in [::comments/truncated k] (fnil + 0) n)))
+
+(defn ^:no-doc retried
+  "`thread` with its root, its posts and its authors unread again, where a
+  failure that can pass with time kept them from the reading.
+
+  The failure of a root that the Mastodon API gave stays, because it tells
+  why the thread came through the API."
+  [{:keys [error via comments authors] :as thread}]
+  (let [unread #(cond-> % (:retry? (:error %)) (dissoc :error :read-at))]
+    (cond-> thread
+      (and (:retry? error) (not via)) (dissoc :error :read-at)
+      comments                        (update :comments update-vals unread)
+      authors                         (update :authors #(into {} (remove (comp :retry? :error val)) %)))))
 
 (defn ^:no-doc depths
   "How many replies down from the root of `thread` each of its comments is,

@@ -571,14 +571,18 @@ more often than it must:
   numbers, and the options of `feed!` set each of them.
 - `comments/fetch!` reads a thread of comments in rounds of four requests,
   and it reads the posts nearest the root post first. It asks for no more
-  posts when it has 100, and it starts no round after 300 requests. It
-  starts no request after one minute, and the time that is left limits
-  each request. It reads five pages of a collection in a round, and each
-  page only once. A second fetch continues an incomplete thread. A server
-  that did not answer in time, or that answered 429, gets no more requests
-  in the same fetch. An answer is 5 MB at most, and a thread holds 10,000
-  comments at most. The options of `fetch!` set each of these numbers,
-  except the 10,000 comments.
+  posts when it has 100 from this fetch, and it starts no round after 300
+  requests. It starts no request after one minute, and the time that is
+  left limits each request. It reads five pages of a collection in a
+  round, and each page only once. A second fetch continues an incomplete
+  thread. A server that did not answer in time, or that answered 429, gets
+  no more requests in the same fetch. The next fetch asks again for what a
+  request that failed, a 429 or a status from 500 kept from it. An answer
+  is 5 MB at most. The options of `fetch!` set each of these numbers.
+- A thread of comments also has limits of size that no option sets. A page
+  of replies gives 1,000 items, and an id has 2,048 characters. A thread
+  holds 10,000 comments, and the replies of an AT Protocol thread go 64
+  levels down. The report counts the replies that such a limit cut.
 - `value.lnaddress/invoice!` sends two requests for an invoice, and
   `node!` sends one. An answer is 256 KB at most, since the terms of an
   address can hold an image. The podcast namespace asks apps to keep the
@@ -771,6 +775,15 @@ gives the requests that a thread needs next. `with-exchanges` reads the
 answers into the thread. Both are pure, and `fetch!` only sends the
 requests and receives the answers.
 
+A failure is data in the thread too, and some failures pass with time.
+These are a request that got no answer, a 429, and a status from 500.
+`resumed` is the first step of each fetch. It makes unread again what such
+a failure kept from the last fetch, so the new fetch asks again. A page of
+replies that failed is read again from that page. `resumed` also notes how
+many comments the thread holds, so `:max-comments` counts the comments of
+one fetch. A failure that does not pass stays: a post that is gone, a
+server that refuses, and an answer that does not read.
+
 On ActivityPub, each post is a JSON document at its own URL. A root post
 can start a conversation and name a collection of all its posts. This
 collection is the `context` of FEP-f228, which Mastodon serves from
@@ -795,7 +808,10 @@ the replies to a post must be on the server of the post. A post replies to
 the post that its own `inReplyTo` names, whatever collection lists it. The
 handle of an author is its user name at the domain of its id, as in
 `@ann@example.social`. `fetch!` does not take a `webfinger` that names
-another domain, because only a WebFinger lookup there can prove it.
+another domain, because only a WebFinger lookup there can prove it. The
+web page of a post or of an author is a page on its own server. If it
+names a page on another server, its id is its page. So the name of an
+author does not lead to the page of another person.
 
 A post is for everyone when its recipients include the Public collection,
 or when it names no recipients. `fetch!` leaves out all other posts.
@@ -819,10 +835,14 @@ Only an AppView knows the replies to a post. An AppView answers
 replies. `fetch!` asks again for each branch that the answer cut.
 podcast-clj names no AppView, because the choice belongs to the app.
 
-The labels that the AT Protocol defines apply. `fetch!` leaves out a reply
-whose author asks apps to show it only to signed-in users. It also leaves
-out a reply that a moderation service hid. A reply with a warning is
-`:sensitive?`. On Bluesky, the author of the root post can hide replies.
+The labels that the AT Protocol defines apply. A label on the account of
+an author counts as a label on each of its posts. `fetch!` leaves out a
+reply whose author asks apps to show it only to signed-in users. It also
+leaves out a reply that a moderation service hid. An AppView gives no
+reply where one of the two authors blocks the other. The report counts
+such a reply with the replies that `fetch!` left out. A reply with a
+warning is `:sensitive?`. On Bluesky, the author of the root post can hide
+replies.
 A hidden reply is `:hidden?`, and `tree` shows it only when its options
 ask for hidden replies.
 
