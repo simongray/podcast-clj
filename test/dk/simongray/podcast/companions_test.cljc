@@ -97,6 +97,24 @@
            (chapters/to-psc {:chapters [{:title "No start"} {:start-time 5 :title "A"}]}))
         "a chapter without a start is left out, as Podlove requires one")))
 
+(deftest jumps-between-chapters
+  (let [doc {:chapters [{:start-time 600 :title "Talk"}
+                        {:start-time 0 :title "Intro"}
+                        {:start-time 300 :title "Ad" :toc false}
+                        {:start-time 90 :title "News"}
+                        {:title "No start"}]}]
+    (testing "to the next chapter of the table of contents"
+      (is (= [90 90 600 600 600 nil nil] (map #(chapters/jump doc % :next) [0 50 90 300 599 600 700]))))
+    (testing "to the start of the chapter, or in its first seconds to the chapter before it"
+      (is (= [0 0 0 0 90 90 90 90 600] (map #(chapters/jump doc % :previous) [0 2 90 92 93 300 600 602 604])))
+      (is (= chapters/restart 3))
+      (is (= 90 (chapters/jump doc 604 :previous {:restart 10})) "with another number of seconds")
+      (is (= 600 (chapters/jump doc 600 :previous {:restart 0}))))
+    (testing "before the first chapter, and with no chapters"
+      (is (= 0 (chapters/jump {:chapters [{:start-time 60}]} 30 :previous)))
+      (is (= 60 (chapters/jump {:chapters [{:start-time 60}]} 30 :next)))
+      (is (= [nil 0] (map #(chapters/jump {} 30 %) [:next :previous]))))))
+
 (deftest chapters-from-show-notes
   (testing "timestamp lines at the start, however they are marked"
     (let [doc (chapters/from-text "<p>Great episode.</p><ul><li>00:00 Intro</li><li>(05:12) - The news</li><li>[1:02:03] Wrap-up</li></ul>")]

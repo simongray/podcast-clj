@@ -327,3 +327,13 @@
   is a diagnostic too, not a text. The function that `http/fetcher` makes
   throws `::failed` with the `:status`.
   [Namespaces](doc/namespaces.md#conventions) has the rule.
+- The player: `step` takes the event `[:chapter id direction doc]`, a jump
+  to the next or the previous chapter. `chapters/jump` gives the position
+  of such a jump. `step` takes a sleep timer as the option
+  `:sleep`, which stops the player when a number of episodes ended. The
+  state keeps ratings (`rate-episode`, `unrate-episode`, `rating`,
+  `rated`). Their scale is `rating-scale`, from 1 to 5, or the `:scale`
+  of the app, and each rating is kept with its scale. The state keeps
+  clips in the shape of a `podcast:soundbite` (`clip`, `unclip`,
+  `clips`). `search/episodes` takes the criterion `:rating`, and a
+  `:scale` for it.

@@ -21,6 +21,8 @@
        :inbox         {[feed-guid item-guid] {:removed? false}}
        :stars         {[feed-guid item-guid] {:removed? false}}
        :bookmarks     {[feed-guid item-guid] {754 {:title :removed?}}}
+       :clips         {[feed-guid item-guid] {754 {:duration :title :removed?}}}
+       :ratings       {[feed-guid item-guid] {:rating 4 :worst 1 :best 5 :removed?}}
        :filters       {name {:criteria {:where {:status :unplayed}} :removed?}}
        :listened      {feed-guid {\"2026-09\" {device-id {:seconds 5400.0}}}}
        :preferences   {:skip-forward {:value 30} ...}
@@ -49,6 +51,7 @@
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
@@ -221,7 +224,8 @@
 
 (defn rate
   "The playback rate for the feed `feed-guid`: its own setting, else the
-  listener's preference."
+  listener's preference. `rating` is what the listener thinks of an
+  episode."
   [state feed-guid]
   (or (:rate (settings state feed-guid)) (:rate (preferences state))))
 
@@ -404,8 +408,9 @@
 
   The tombstones are those of unsubscriptions, of lists that the listener
   follows no more, and of removals from the queue, the playlists and the
-  inbox. They are also those of the tags, the stars, the bookmarks and the
-  saved filters that the listener took away. The played marks and the
+  inbox. They are also those of the tags, the stars, the bookmarks, the
+  clips, the ratings and the saved filters that the listener took away.
+  The played marks and the
   counts of listening stay, because the listener still sees them. A device
   that syncs no more holds back the compaction until it is retired (see
   `lagging`).
@@ -431,7 +436,8 @@
                             m))]
      (reduce (fn [s k] (if (map? (get s k)) (update s k sweep) s))
              state
-             (cond->> [:subscriptions :tags :lists :queue :playlists :inbox :stars :bookmarks :filters]
+             (cond->> [:subscriptions :tags :lists :queue :playlists :inbox :stars :bookmarks :clips :ratings
+                       :filters]
                follows? (remove #{:subscriptions}))))))
 
 (defn lagging
@@ -664,15 +670,43 @@
     (write state [:bookmarks id s] (constantly {:title title :removed? false}) at)
     state))
 
+(defn ^:no-doc unmarked
+  "`state` with a tombstone at `at` in place of the live entry of the
+  collection `k` that the episode `id` has at `position` seconds. The
+  collection holds its entries by episode and by whole second."
+  [state k id position at]
+  (let [s (second-of position)
+        e (get-in state [k id s])]
+    (if (and e (not (:removed? e)))
+      (write state [k id s] #(assoc % :removed? true) at)
+      state)))
+
+(defn ^:no-doc marks
+  "The live entries of the collection `k` of `state`, the latest written
+  first. The collection holds its entries by episode and by whole second.
+
+  Each is a map with the `:id` of its episode, its second under `at-key`,
+  the keys `ks` of its entry, and `:updated-at`. With `id`, the result is
+  the entries of that episode, in the order of their seconds."
+  ([state k at-key ks]
+   (->> (for [[id entries] (get state k)
+              [s e] entries
+              :when (not (:removed? e))]
+          (clojure.core/merge {:id id at-key s}
+                              (zipmap ks (map e ks))
+                              {:updated-at (:updated-at e)}))
+        (sort-by #(- (stamp-ms %)))
+        vec))
+  ([state k at-key ks id]
+   (->> (marks {k (select-keys (get state k) [id])} k at-key ks)
+        (sort-by at-key)
+        vec)))
+
 (defn unbookmark
   "Remove the bookmark of the episode `id` at `position` seconds from
   `state` at `at`, leaving a tombstone."
   [state id position at]
-  (let [s (second-of position)
-        e (get-in state [:bookmarks id s])]
-    (if (and e (not (:removed? e)))
-      (write state [:bookmarks id s] #(assoc % :removed? true) at)
-      state)))
+  (unmarked state :bookmarks id position at))
 
 (defn bookmarks
   "The bookmarks of `state`, the latest written first. With `id`, the
@@ -681,16 +715,157 @@
   A bookmark is a map with `:id`, `:position` in whole seconds, `:title`
   and `:updated-at`."
   ([state]
-   (->> (for [[id marks] (:bookmarks state)
-              [position e] marks
-              :when (not (:removed? e))]
-          {:id id :position position :title (:title e) :updated-at (:updated-at e)})
-        (sort-by #(- (stamp-ms %)))
-        vec))
+   (marks state :bookmarks :position [:title]))
   ([state id]
-   (->> (bookmarks {:bookmarks (select-keys (:bookmarks state) [id])})
-        (sort-by :position)
-        vec)))
+   (marks state :bookmarks :position [:title] id)))
+
+(defn clip
+  "Keep a clip of the episode `id` in `state` at `at`, with `title`, which
+  can be nil. The clip starts `start` seconds into the episode, and it
+  lasts `duration` seconds.
+
+  A clip has the shape of a podcast:soundbite. The whole second of its
+  start identifies the clip. So another clip at the same second replaces
+  its duration and its title. A start or a duration that is no number of
+  seconds keeps no clip."
+  [state id start duration title at]
+  (let [s (second-of start)]
+    (if (and s (number? duration) (pos? duration) (not (infinite? duration)))
+      (write state [:clips id s] (constantly {:duration duration :title title :removed? false}) at)
+      state)))
+
+(defn unclip
+  "Remove the clip of the episode `id` that starts at `start` seconds
+  from `state` at `at`, leaving a tombstone."
+  [state id start at]
+  (unmarked state :clips id start at))
+
+(defn clips
+  "The clips of `state`, the latest written first. With `id`, the clips
+  of that episode, in the order of their starts.
+
+  A clip is a map with `:id`, `:start-time` in whole seconds, `:duration`
+  in seconds, `:title` and `:updated-at`."
+  ([state]
+   (marks state :clips :start-time [:duration :title]))
+  ([state id]
+   (marks state :clips :start-time [:duration :title] id)))
+
+(def rating-scale
+  "The scale of the ratings, for a function that gets no other scale: from
+  1, the worst rating, to 5, the best, as the stars of most apps.
+
+  A scale is a map with `:worst` and `:best`, two different numbers, as a
+  Rating of schema.org has them. An app with another scale gives it as
+  `:scale` in the options. Examples are `{:worst 1 :best 100}`, and
+  `{:worst 0 :best 1}` for a thumb down and a thumb up."
+  {:worst 1 :best 5})
+
+(defn ^:no-doc scale?
+  "Whether `x` is a scale of ratings: a map whose `:worst` and `:best` are
+  two different numbers."
+  [x]
+  (let [finite? #(and (number? %) (== % %) (not (infinite? %)))]
+    (and (map? x)
+         (finite? (:worst x))
+         (finite? (:best x))
+         (not (== (:worst x) (:best x))))))
+
+(defn ^:no-doc checked-scale
+  "The `scale` that an option gave, with its two keys alone. It throws
+  when `scale` is no scale."
+  [scale]
+  (if (scale? scale)
+    (select-keys scale [:worst :best])
+    (throw (ex-info "A scale of ratings has a :worst and a :best, two different numbers" {:scale scale}))))
+
+(defn ^:no-doc scale-of
+  "The scale of the rating entry `e`, which is `rating-scale` for an entry
+  that names none."
+  [e]
+  (clojure.core/merge rating-scale (select-keys e [:worst :best])))
+
+(defn ^:no-doc rating?
+  "Whether `n` is a rating of `scale`: a number from the worst to the best
+  of the scale."
+  [n {:keys [worst best] :as scale}]
+  (and (scale? scale)
+       (number? n)
+       (<= (min worst best) n (max worst best))))
+
+(defn ^:no-doc rescaled
+  "The rating `n` of the scale `from` as a rating of the scale `to`: as far
+  on the way from the worst to the best."
+  [n from to]
+  (if (= from to)
+    n
+    (+ (:worst to)
+       (* (/ (- n (:worst from)) (double (- (:best from) (:worst from))))
+          (- (:best to) (:worst to))))))
+
+(defn rating
+  "The rating that the listener gave the episode `id` in `state`, a
+  number. Nil when the episode has no rating.
+
+  The rating is in the scale that it has in the state. With `:scale` in
+  `opts`, it is in that scale, as far on the way from the worst to the
+  best. So a 4 of 1 to 5 is 75.25 of 1 to 100. `rated` gives each rating
+  with its scale."
+  ([state id]
+   (rating state id {}))
+  ([state id {:keys [scale] :as opts}]
+   {:pre [(map? opts)]}
+   (let [{:keys [removed?] n :rating :as e} (get-in state [:ratings id])]
+     (when (and (number? n) (not removed?))
+       (if scale
+         (rescaled n (scale-of e) (checked-scale scale))
+         n)))))
+
+(defn rated
+  "The episodes of `state` that have a rating, the latest rated first.
+
+  Each is a map with `:id`, `:rating`, the `:worst` and the `:best` of
+  its scale, and `:updated-at`. With `:scale` in `opts`, each rating is
+  in that scale, as `rating` gives it."
+  ([state]
+   (rated state {}))
+  ([state {:keys [scale] :as opts}]
+   {:pre [(map? opts)]}
+   (mapv (fn [id]
+           (let [e (get-in state [:ratings id])]
+             (clojure.core/merge {:id id :rating (rating state id opts)}
+                                 (if scale (checked-scale scale) (scale-of e))
+                                 {:updated-at (:updated-at e)})))
+         (live-by-stamp (:ratings state)))))
+
+(defn rate-episode
+  "Give the episode `id` in `state` the rating `n` at `at`. It takes the
+  place of an earlier rating.
+
+  `n` is a number from the worst to the best of `rating-scale`, which is
+  1 to 5, or of the `:scale` in `opts`. The state keeps the scale with
+  the rating, so another app reads the rating in its own scale. A number
+  outside the scale changes nothing.
+
+  `rate` is another thing: the speed of playback."
+  ([state id n at]
+   (rate-episode state id n at {}))
+  ([state id n at {:keys [scale] :as opts}]
+   {:pre [(map? opts)]}
+   (let [scale (checked-scale (or scale rating-scale))
+         e     (get-in state [:ratings id])
+         same? #(and (not (:removed? e)) (number? (:rating e)) (== n (:rating e)) (= scale (scale-of e)))]
+     (if (and (rating? n scale) (not (same?)))
+       (write state [:ratings id] (constantly (assoc scale :rating n :removed? false)) at)
+       state))))
+
+(defn unrate-episode
+  "Take the rating off the episode `id` in `state` at `at`, leaving a
+  tombstone."
+  [state id at]
+  (if (rating state id)
+    (write state [:ratings id] #(assoc % :removed? true) at)
+    state))
 
 (defn ^:no-doc ranked
   "The live entries of `entries`, a map of ranked entries such as the
@@ -1280,8 +1455,8 @@
   `problem` reads them. Each has the number of keys that name one entry:
   a bookmark is by episode and then by second, so it has two."
   [[:subscriptions 1] [:settings 2] [:tags 2] [:lists 1] [:episodes 1] [:queue 1]
-   [:playlists 2] [:inbox 1] [:stars 1] [:bookmarks 2] [:filters 1] [:listened 3]
-   [:preferences 1] [:devices 1] [:retired 1]])
+   [:playlists 2] [:inbox 1] [:stars 1] [:bookmarks 2] [:clips 2] [:ratings 1]
+   [:filters 1] [:listened 3] [:preferences 1] [:devices 1] [:retired 1]])
 
 (defn- clock-problem
   "The clock of `state` when it is not an instant, described."
@@ -1345,21 +1520,41 @@
 
 (defn- key-problem
   "The first key of `state` that is of the wrong kind for its collection,
-  described. A list is at a string, a bookmark is at a whole number of
-  seconds, and a tag is a string."
+  described. A list is at a string, a bookmark and a clip are at a whole
+  number of seconds, and a tag is a string."
   [state]
   (or (some (fn [url]
               (when-not (string? url)
                 (str "the list at " (pr-str url) " is not at a URL")))
             (keys (:lists state)))
-      (some (fn [[id marks]]
-              (when-not (every? #(and (integer? %) (<= 0 %)) (keys marks))
-                (str "a bookmark of " (pr-str id) " is not at a whole number of seconds")))
-            (:bookmarks state))
+      (some (fn [[what k]]
+              (some (fn [[id entries]]
+                      (when-not (every? #(and (integer? %) (<= 0 %)) (keys entries))
+                        (str "a " what " of " (pr-str id) " is not at a whole number of seconds")))
+                    (get state k)))
+            [["bookmark" :bookmarks] ["clip" :clips]])
       (some (fn [[feed-guid ts]]
               (when-not (every? string? (keys ts))
                 (str "a tag of " (pr-str feed-guid) " is not a string")))
             (:tags state))))
+
+(defn- mark-problem
+  "The first rating of `state` that is no number of its scale, or the
+  first clip that lasts no number of seconds, described. A tombstone has
+  no such rule."
+  [state]
+  (or (some (fn [[id {:keys [rating removed?] :as e}]]
+              (when-not (or removed? (rating? rating (scale-of e)))
+                (str "the rating of " (pr-str id) " is " (pr-str rating)
+                     ", not a number of the scale " (pr-str (scale-of e)))))
+            (:ratings state))
+      (some (fn [[id entries]]
+              (some (fn [[start {:keys [duration removed?]}]]
+                      (when-not (or removed? (and (number? duration) (pos? duration)))
+                        (str "the clip of " (pr-str id) " at " start " lasts " (pr-str duration)
+                             ", not a number of seconds")))
+                    entries))
+            (:clips state))))
 
 (defn- count-problem
   "The first show of `state` with a count of listening that is not a number
@@ -1384,7 +1579,7 @@
   that is a map. It describes the first problem of its kind, or it gives
   nil. A check relies on the checks before it."
   [clock-problem collection-problem #(stamp-problem [] %) rank-problem seen-problem
-   key-problem count-problem criteria-problem])
+   key-problem mark-problem count-problem criteria-problem])
 
 (defn problem
   "What in `state` breaks the rules that `merge` and the operations here
@@ -1398,8 +1593,10 @@
   - Each entry of a collection has a stamp, and each stamp is an instant.
   - Each rank in the queue and in a playlist is a rank.
   - What a device has seen is a map of instants.
-  - A list is at a URL, a tag is a string, and a bookmark is at a whole
-    number of seconds.
+  - A list is at a URL, a tag is a string, and a bookmark and a clip are
+    at a whole number of seconds.
+  - A rating is a number of its scale, and a clip lasts a number of
+    seconds.
   - A count of listening is a number of seconds.
   - The criteria of a saved filter are a map.
 
@@ -1437,24 +1634,50 @@
                     [k w]))))
         state))
 
-(declare step)
+(defn ^:no-doc stepped
+  "What `step` gives: `state`, the `effects`, and the sleep timer `sleep`
+  when one runs."
+  [state effects sleep]
+  (cond-> {:state state :effects effects}
+    sleep (assoc :sleep sleep)))
+
+(defn ^:no-doc ended
+  "What `step` gives when the episode `id` ended at `at`. The episode
+  counts as played, and it leaves the queue when it was current. The
+  effect is [:play next] when another episode is in the queue.
+
+  With the sleep timer `sleep`, one episode less is left to play. When
+  none is left, the effect is [:stop id], and the timer stops."
+  [state id at sleep]
+  (let [state'   (mark-played state id at)
+        current? (= id (current state'))
+        state'   (if current? (advance state' at) state')
+        next     (when current? (current state'))
+        left     (some-> (:episodes sleep) dec)]
+    (if (and left (not (pos? left)))
+      (stepped state' [[:stop id]] nil)
+      (stepped state' (if next [[:play next]] []) (cond-> sleep left (assoc :episodes left))))))
 
 (defn- moved
   "What `step` gives when the position of the episode `id` moved at `at`,
   from where `state` has it to where `state'` has it: `state'`, with the
   `effects` and then [:played id] when the episode now counts as played.
   When the position moved into the outro, [:stop id] takes the place of
-  the `effects`, and the episode ends as `step` ends it, its effects last."
-  [state state' id effects at]
+  the `effects`, and the episode ends as `ended` ends it, with the sleep
+  timer `sleep`, its effects last."
+  [state state' id effects at sleep]
   (let [was       (played? state id)
         start     (outro-start state' (first id) id)
         in-outro? #(let [p (:position (episode % id))]
                      (and start (number? p) (>= p start)))]
     (if (and (in-outro? state') (not (in-outro? state)))
-      (update (step state' [:ended id] at) :effects
-              #(into (cond-> [[:stop id]] (not was) (conj [:played id])) %))
-      {:state   state'
-       :effects (cond-> effects (and (not was) (played? state' id)) (conj [:played id]))})))
+      (update (ended state' id at sleep) :effects
+              #(into (cond-> [[:stop id]] (not was) (conj [:played id]))
+                     (remove #{[:stop id]})
+                     %))
+      (stepped state'
+               (cond-> effects (and (not was) (played? state' id)) (conj [:played id]))
+               sleep))))
 
 (defn step
   "Advance `state` by an event of the player at `at`. Returns `{:state ...
@@ -1472,30 +1695,49 @@
       [:skip id amount]                 moves `amount` seconds, or the preferred amount
                                         for :forward or :back; effect [:seek id position],
                                         and [:played id] when it now counts as played
+      [:chapter id direction doc]       moves to the next or the previous chapter of the
+                                        chapters document `doc`, for :next or :previous,
+                                        as `chapters/jump` has it; the effects of a skip,
+                                        and none after the start of the last chapter
 
-  A progress or a skip can move the position from before `outro-start` to
-  it or past it. It then ends the episode as [:ended id] does. The effect
-  [:stop id] comes first, then [:played id] when the episode now counts as
-  played, and no seek. The feed whose settings give the outro is the first
-  part of `id`."
-  [state [kind id & args] at]
-  (case kind
-    :skip     (let [[amount] args
-                    {:keys [skip-forward skip-back]} (preferences state)
-                    seconds (case amount :forward skip-forward :back (- skip-back) amount)
-                    state'  (skip state id seconds at)]
-                (moved state state' id [[:seek id (:position (episode state' id))]] at))
-    :progress (let [[position duration] args]
-                (moved state (-> state (heard id position at) (progress id position duration at)) id [] at))
-    :ended    (let [state'   (mark-played state id at)
-                    current? (= id (current state'))
-                    state'   (if current? (advance state' at) state')
-                    next     (when current? (current state'))]
-                {:state   state'
-                 :effects (if next [[:play next]] [])})
-    :play     {:state   (place state id (rank-between (:queue state) nil (first (remove #{id} (queue state)))) at)
-               :effects []}
-    {:state state :effects []}))
+  A progress, a skip or a jump to a chapter can move the position from
+  before `outro-start` to it or past it. It then ends the episode as
+  [:ended id] does. The effect [:stop id] comes first, then [:played id]
+  when the episode now counts as played, and no seek. The feed whose
+  settings give the outro is the first part of `id`.
+
+  `opts` can give `:sleep`, the sleep timer of this device. `{:episodes
+  n}` stops the player when `n` more episodes ended, so 1 stops it at the
+  end of this episode. The result then has the timer that is left under
+  `:sleep`, for the next step. When the last of the episodes ends, the
+  effect is [:stop id] in place of [:play next], and the result has no
+  timer. The timer is of one device, so the state does not hold it.
+
+  `opts` can also give `:restart`, the seconds of `chapters/jump` for a
+  jump to the previous chapter."
+  ([state event at]
+   (step state event at {}))
+  ([state [kind id & args] at {:keys [sleep] :as opts}]
+   {:pre [(map? opts)]}
+   (case kind
+     :skip     (let [[amount] args
+                     {:keys [skip-forward skip-back]} (preferences state)
+                     seconds (case amount :forward skip-forward :back (- skip-back) amount)
+                     state'  (skip state id seconds at)]
+                 (moved state state' id [[:seek id (:position (episode state' id))]] at sleep))
+     :chapter  (let [[direction doc] args
+                     position (:position (episode state id))
+                     from     (if (number? position) position 0)]
+                 (if-let [target (chapters/jump doc from direction (select-keys opts [:restart]))]
+                   (step state [:skip id (- target from)] at opts)
+                   (stepped state [] sleep)))
+     :progress (let [[position duration] args]
+                 (moved state (-> state (heard id position at) (progress id position duration at)) id [] at sleep))
+     :ended    (ended state id at sleep)
+     :play     (stepped (place state id (rank-between (:queue state) nil (first (remove #{id} (queue state)))) at)
+                        []
+                        sleep)
+     (stepped state [] sleep))))
 
 (comment
   (def sample
@@ -1506,12 +1748,24 @@
         (enqueue ["feed-1" "ep-1"] #inst "2026-01-01T01:00:00Z")
         (add-to-playlist "Road trip" ["feed-1" "ep-2"] #inst "2026-01-01T01:00:00Z")
         (star ["feed-1" "ep-1"] #inst "2026-01-01T01:00:00Z")
-        (bookmark ["feed-1" "ep-1"] 754 "The answer" #inst "2026-01-01T01:30:00Z")))
+        (bookmark ["feed-1" "ep-1"] 754 "The answer" #inst "2026-01-01T01:30:00Z")
+        (clip ["feed-1" "ep-1"] 754 42.5 "The answer, in full" #inst "2026-01-01T01:31:00Z")
+        (rate-episode ["feed-1" "ep-1"] 5 #inst "2026-01-01T01:32:00Z")))
 
   (folders sample)
   (tagged sample)
   (playlists sample)
   (bookmarks sample)
+  (clips sample)
+  (rated sample)
+
+  ;; a thumb up, and the same rating in the scale of another app
+  (def thumbs
+    (rate-episode sample ["feed-1" "ep-2"] 1 #inst "2026-01-01T01:33:00Z" {:scale {:worst 0 :best 1}}))
+
+  (rating thumbs ["feed-1" "ep-2"])
+  (rating thumbs ["feed-1" "ep-2"] {:scale rating-scale})
+
   (to-opml sample)
   (to-list-feed sample "Road trip" {:url "https://example.org/road-trip.xml"})
 
@@ -1523,6 +1777,20 @@
   (step (progress sample ["feed-1" "ep-1"] 3500 3600 #inst "2026-01-01T02:00:00Z")
         [:progress ["feed-1" "ep-1"] 3580 3600]
         #inst "2026-01-01T02:00:20Z")
+
+  ;; a jump to the next chapter, from 100 seconds into the episode
+  (def doc
+    {:chapters [{:start-time 0 :title "Intro"} {:start-time 90 :title "News"} {:start-time 600 :title "Talk"}]})
+
+  (:effects (step (progress sample ["feed-1" "ep-1"] 100 3600 #inst "2026-01-01T02:00:00Z")
+                  [:chapter ["feed-1" "ep-1"] :next doc]
+                  #inst "2026-01-01T02:00:05Z"))
+
+  ;; a sleep timer that stops the player at the end of this episode
+  (step (enqueue sample ["feed-1" "ep-2"] #inst "2026-01-01T02:00:00Z")
+        [:ended ["feed-1" "ep-1"]]
+        #inst "2026-01-01T03:00:00Z"
+        {:sleep {:episodes 1}})
   #_.)
 
 #?(:clj

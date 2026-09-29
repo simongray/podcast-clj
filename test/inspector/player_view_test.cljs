@@ -41,8 +41,12 @@
     (is (= {:loadedmetadata [:audio/loaded a 120] :timeupdate [:audio/time a] :ended [:ended a]}
            (:on (second audio)))
         "the audio element reports through events, the position to resume at included")
-    (is (= [[:skip a :back] [:skip a :forward] [:ended a]] (map #(get-in % [1 :on :click]) buttons)))
-    (is (= ["−15s" "+30s" "Ended"] (map #(nth % 2) buttons)) "the listener's preferences on the buttons")
+    (is (= [[:skip a :back] [:skip a :forward] [:ended a] [:sleep 1]] (map #(get-in % [1 :on :click]) buttons)))
+    (is (= ["−15s" "+30s" "Ended" "Stop after this episode"] (map #(nth % 2) buttons))
+        "the listener's preferences on the buttons")
+    (let [button (last (elements (view/bar (assoc state :sleep {:episodes 1})) :button))]
+      (is (= [[:sleep nil] "Play on after this episode"] [(get-in button [1 :on :click]) (nth button 2)])
+          "a timer that runs, and the button that stops it"))
     (is (str/includes? (text bar) "First"))
     (is (str/includes? (text bar) "at 2:00") "the resume position until the audio reports"))
   (testing "the readout the audio reported, and an episode without an enclosure"

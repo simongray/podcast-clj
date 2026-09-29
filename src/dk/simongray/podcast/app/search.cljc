@@ -665,7 +665,11 @@
    :starred?    (fn [v ctx]
                   (fn [feed item] (= (boolean v) (player/starred? (:player ctx) (episode-id ctx feed item)))))
    :inbox?      (fn [v ctx]
-                  (fn [feed item] (= (boolean v) (player/in-inbox? (:player ctx) (episode-id ctx feed item)))))})
+                  (fn [feed item] (= (boolean v) (player/in-inbox? (:player ctx) (episode-id ctx feed item)))))
+   :rating      (fn [v ctx]
+                  (let [opts (select-keys ctx [:scale])]
+                    (fn [feed item]
+                      (within? v (player/rating (:player ctx) (episode-id ctx feed item) opts)))))})
 
 (defn where
   "The predicate of a feed and one of its items for `criteria`. Each entry
@@ -683,12 +687,19 @@
                                            ; last as a prefix
        :status      :unplayed               ; :unplayed, :in-progress or :played, or a set
        :starred?    true                    ; starred; false for not starred
-       :inbox?      true}                   ; in the inbox; false for not
+       :inbox?      true                    ; in the inbox; false for not
+       :rating      [4 nil]}                ; the rating of the listener, either end
+                                           ; nil for open; an episode with no rating
+                                           ; is in no range
 
-  `:status`, `:starred?` and `:inbox?` need the player state under
+  `:status`, `:starred?`, `:inbox?` and `:rating` need the player state under
   `:player` in `ctx`. For feeds that declare no podcast:guid, they also
   need `:url`, a string or a function of the feed. The player names the
-  episodes of such a feed by its URL. An empty map takes each item."
+  episodes of such a feed by its URL. An empty map takes each item.
+
+  With `:scale` in `ctx`, the range of `:rating` is in that scale, and
+  each rating is read in it, as `player/rating` does. Without it, each
+  rating is the number that the state has."
   ([criteria]
    (where criteria {}))
   ([criteria ctx]
@@ -696,7 +707,7 @@
      (when (seq unknown)
        (throw (ex-info (str "Criteria the library does not know: " (str/join ", " unknown))
                        {:criteria (vec unknown)})))
-     (when-let [k (and (not (:player ctx)) (some #{:status :starred? :inbox?} (keys criteria)))]
+     (when-let [k (and (not (:player ctx)) (some #{:status :starred? :inbox? :rating} (keys criteria)))]
        (throw (ex-info (str k " needs the player state under :player") {:criteria criteria})))
      (let [tests (mapv (fn [[k v]] ((criterion k) v ctx)) criteria)]
        (fn [feed item]
@@ -749,7 +760,11 @@
        :order  :newest                          ; see `order`; default :listening
        :limit  20                               ; at most this many
        :player state                            ; the context `where` and `order` need
-       :url    url}
+       :url    url
+       :scale  {:worst 1 :best 100}}            ; the scale of the criterion :rating
+
+  A saved filter that keeps the `:scale` with its criteria reads the same
+  in an app with another scale of ratings.
 
   Given a collection of feeds instead, the selection runs over all of
   them and comes back as `[feed item]` pairs in one order, the inbox of
@@ -760,7 +775,7 @@
    (episodes feed {}))
   ([feed {:keys [limit] :as opts}]
    {:pre [(map? opts)]}
-   (let [ctx       (select-keys opts [:player :url])
+   (let [ctx       (select-keys opts [:player :url :scale])
          pred      (where (or (:where opts) {}) ctx)
          k         (or (:order opts) :listening)
          key       (order k ctx)
@@ -784,14 +799,16 @@
   have a later version of podcast-clj. `episodes` throws for criteria that
   it does not know. So an app asks here before it offers such a filter."
   [criteria]
-  (let [{:keys [where order limit]} (when (map? criteria) criteria)
+  (let [{:keys [where order limit scale]} (when (map? criteria) criteria)
         unknown (when (map? where) (filter #(not (contains? criterion %)) (keys where)))]
     (cond
       (not (map? criteria))                   "the criteria are not a map"
       (not (or (nil? where) (map? where)))    (str "the criteria under :where are " (pr-str where) ", not a map")
       (seq unknown)                           (str "the criteria " (str/join ", " (map pr-str unknown)) " are not known")
       (not (or (nil? order) (orders order)))  (str "the order " (pr-str order) " is not known")
-      (not (or (nil? limit) (number? limit))) (str "the limit is " (pr-str limit) ", not a number"))))
+      (not (or (nil? limit) (number? limit))) (str "the limit is " (pr-str limit) ", not a number")
+      (not (or (nil? scale) (player/scale? scale)))
+      (str "the scale is " (pr-str scale) ", not a scale of ratings"))))
 
 #?(:clj
    (comment

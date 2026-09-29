@@ -29,7 +29,8 @@
   "dk.simongray.podcast.app.player")
 
 (defonce ^{:doc "The whole state of the page: `:player` (the library's state),
-  `:titles` by episode id, and what the audio element last reported."}
+  `:titles` by episode id, the sleep timer under `:sleep`, and what the
+  audio element last reported."}
   app
   (atom nil))
 
@@ -127,10 +128,12 @@
       nil)))
 
 (defn dispatch!
-  "Run the player `event` through the library and perform its effects."
+  "Run the player `event` through the library, with the sleep timer of the
+  page, and perform its effects. The timer that is left is the timer of
+  the page from then on."
   [event]
-  (let [{:keys [state effects]} (player/step (:player @app) event (now))]
-    (swap! app assoc :player state)
+  (let [{:keys [state effects sleep]} (player/step (:player @app) event (now) (select-keys @app [:sleep]))]
+    (swap! app assoc :player state :sleep sleep)
     (perform! effects)))
 
 (defn operate!
@@ -164,6 +167,7 @@
   (case kind
     :skip         (let [[id amount] args] (skip! id amount))
     :ended        (dispatch! event)
+    :sleep        (swap! app assoc :sleep (when-let [n (first args)] {:episodes n}))
     :play-next    (operate! player/play-next (first args))
     :dequeue      (operate! player/dequeue (first args))
     :prefer       (when-let [n (parse-long (.. e -target -value))]

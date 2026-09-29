@@ -1064,7 +1064,9 @@ The map holds:
   the order, and the playlists, ranked in the same way
 - the inbox and the stars, one entry for each episode, and the saved
   filters, one entry for each name, each with a tombstone for each removal
-- the bookmarks, one entry for each whole second of an episode
+- the bookmarks and the clips, one entry for each whole second of an
+  episode, and a clip in the shape of a `podcast:soundbite`
+- the ratings, one entry for each episode, a number with its scale
 - the counts of listening, one for each show, month and device
 - the preferences of the listener, such as the skip amounts and the playback
   rate, one entry for each field
@@ -1097,10 +1099,21 @@ holds every show has another name, and stays a folder. `skip` moves within
 an episode, and never past its start or its end.
 
 `step` is a small reducer over the events of a player: `:progress`,
-`:ended`, `:play` and `:skip`. It returns the new state, and the effects for
-the app, such as to seek, to stop where the outro starts, or to play the
-next episode. `step` is the only place where behavior is composed, and it is
-short on purpose. At each `:progress`, it adds the seconds heard to a count
+`:ended`, `:play`, `:skip` and `:chapter`. It returns the new state, and the
+effects for the app, such as to seek, to stop where the outro starts, or to
+play the next episode. `step` is the only place where behavior is composed,
+and it is short on purpose. A jump to a chapter is a skip to the position
+that `chapters/jump` gives, so the rules of a skip are its rules too. The
+sleep timer counts the episodes that end. It is an option of `step` and a
+part of its result, not a part of the state. A timer of one device has no
+place in a document that every device gets. A timer that counts minutes
+needs a clock, and the clock is of the app. No standard has a scale for
+the ratings of a listener, and apps have stars, points and thumbs. So the
+scale is an option of the app, and `rating-scale` is the default, from 1
+to 5. An entry holds its rating with the worst and the best rating of its
+scale, as a Rating of schema.org does. So a rating reads in each scale,
+as far on the way from the worst to the best. At each
+`:progress`, `step` adds the seconds heard to a count
 for the show and the month. The seconds are how far the position moved
 since the last report, when that report is a minute old at most. Each
 device has a count of its own. Only that device writes it, and it only
@@ -1364,10 +1377,7 @@ the JSON of these requests from the body-params interceptor.
 of the features below, and which part of it fits a library:
 
 - Feeds: WebSub, and paged feeds that `emit` writes for a host.
-- The player: chapter navigation in `step`, and a stop at the end of the
-  episode or after some episodes.
-- The player state: ratings that the listener keeps, clips, and the rules
-  for downloads and deletes.
+- The player state: the rules for downloads and deletes.
 - Directories: the charts by category in `directory/trending!`.
 - Sharing: links to apps, and links with a time.
 - Hosts: a private feed for each subscriber.

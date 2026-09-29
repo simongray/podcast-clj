@@ -339,6 +339,16 @@ are. A star that one device removes stays removed when an older star comes
 from another device. Two tags that two devices give a show at the same
 time both stay, unlike two folders.
 
+The clips are a set as the bookmarks are, one entry for each whole second
+where a clip starts. The ratings have one entry for each episode. Of two
+ratings that two devices give an episode, the later rating wins. An entry
+holds the scale of its rating. Two apps of one listener can have two
+scales, and a number alone does not tell its scale.
+
+The sleep timer is not in the state. It is of one device and of one
+evening, so `step` takes it as an option and gives back what is left of
+it.
+
 Each device refreshes its feeds, so two devices can find the same new
 episode. `refresh` adds an episode to the queue or the inbox only if the
 state does not know it yet. Otherwise, a device that finds the episode late

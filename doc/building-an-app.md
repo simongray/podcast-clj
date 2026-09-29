@@ -432,6 +432,35 @@ if the episode was not played before, and then the effects of
 `[:ended id]`. `player/outro-start` gives the position where the outro
 starts.
 
+An episode with chapters lets the listener jump between them. Give `step`
+the chapters document of the episode, and the direction:
+
+```clojure
+(player/step playing [:chapter id :next doc] now)      ; => {:state … :effects [[:seek id 1500]]}
+(player/step playing [:chapter id :previous doc] now)  ; => {:state … :effects [[:seek id 1180]]}
+```
+
+A jump to the previous chapter goes to the start of the chapter that
+plays. In the first three seconds of a chapter, it goes to the chapter
+before it. A jump does not stop at a chapter that is not in the table of
+contents. `chapters/jump` gives the position alone, for a player that
+does not use `step`.
+
+A sleep timer stops the player at the end of an episode. Keep the timer
+beside the state, and give it to each `step`:
+
+```clojure
+(def timer {:episodes 2})                                   ; stop when two more episodes ended
+(def result (player/step playing [:ended id] now {:sleep timer}))
+(:effects result)                                           ; => [[:play next-id]]
+(:sleep result)                                             ; => {:episodes 1}, the timer for the next step
+(player/step (:state result) [:ended next-id] now {:sleep (:sleep result)})
+;; => {:state … :effects [[:stop next-id]]}, and no timer
+```
+
+The timer is of one device, so it is not in the state that syncs. A timer
+that counts minutes belongs to the clock of the app.
+
 The browser player of the inspector is a working example, in
 `web/inspector/player.cljs` and `web/inspector/player/view.cljs`.
 
@@ -468,6 +497,14 @@ episodes. Each change syncs to the other devices, as the queue does.
   `:inbox?`. `player/refresh` puts them there. An episode leaves the inbox
   when the listener queues it, plays it or dismisses it.
 - The listener can star an episode, and bookmark a position in it.
+- The listener can rate an episode. The scale is from 1 to 5, unless the
+  app gives another scale as `:scale`. Examples are `{:worst 1 :best
+  100}`, and `{:worst 0 :best 1}` for a thumb down and a thumb up. The
+  state keeps the scale with each rating. So `(player/rating state id
+  {:scale …})` gives a rating from another app in the scale of your app.
+  The criterion `:rating` of `search/episodes` takes a range of ratings.
+- A clip is a part of an episode, with a start, a duration and a title. It
+  has the shape of a `podcast:soundbite`.
 - A saved filter keeps the criteria of `search/episodes` under a name.
   Another device can save criteria of a later version of podcast-clj.
   `search/problem` tells what this version does not know, so ask it before
@@ -490,6 +527,8 @@ episodes. Each change syncs to the other devices, as the queue does.
                (player/tag guid "Daily" now)
                (player/star id now)
                (player/bookmark id 754 "The interview starts" now)
+               (player/rate-episode id 5 now)
+               (player/clip id 754 42.5 "The best answer" now)
                (player/save-filter "Starred" {:where {:starred? true :status :unplayed} :order :newest} now)))
 
 (player/folders state)       ; => {"News" [guid …] nil […]}, nil for the shows in no folder
@@ -498,6 +537,10 @@ episodes. Each change syncs to the other devices, as the queue does.
 (player/dismiss state id now)
 (player/starred state)       ; => [id …], the latest starred first
 (player/bookmarks state id)  ; => [{:id id :position 754 :title "The interview starts" …}]
+(player/rating state id)     ; => 5
+(player/rating state id {:scale {:worst 1 :best 100}})  ; => 100.0, the same rating of 1 to 100
+(player/rated state)         ; => [{:id id :rating 5 :worst 1 :best 5 …}], the latest rated first
+(player/clips state id)      ; => [{:id id :start-time 754 :duration 42.5 :title "The best answer" …}]
 (player/listened state)      ; => {guid {"2026-09" 5400.0 …} …}, seconds by show and month
 
 (def state (player/add-to-playlist state "Road trip" id now))

@@ -6,8 +6,8 @@
   The state is `{:player … :titles {id episode} :readout \"…\" :error \"…\"}`,
   the player being dk.simongray.podcast.app.player's and an episode what
   /episode.edn serves. An event is a vector whose first element names it:
-  `[:skip id :back]`, `[:ended id]`, `[:play-next id]`, `[:dequeue id]`,
-  `[:prefer :skip-back]`, `[:sync]`, and from the audio element
+  `[:skip id :back]`, `[:ended id]`, `[:sleep 1]`, `[:play-next id]`,
+  `[:dequeue id]`, `[:prefer :skip-back]`, `[:sync]`, and from the audio element
   `[:audio/loaded id position]` and `[:audio/time id]`. The shell in
   inspector.player performs them."
   (:require [cljs.pprint :as pprint]
@@ -26,9 +26,9 @@
           " " [:span.muted feed-title])))
 
 (defn bar
-  "The persistent player: the current episode, its audio element and the
-  skip buttons; nil when nothing is queued."
-  [{:keys [player titles readout]}]
+  "The persistent player: the current episode, its audio element, the
+  skip buttons and the sleep timer; nil when nothing is queued."
+  [{:keys [player titles readout sleep]}]
   (when-let [id (player/current player)]
     (let [{:keys [enclosure]} (titles id)
           {:keys [skip-forward skip-back]} (player/preferences player)
@@ -48,7 +48,10 @@
         " "
         [:button {:on {:click [:skip id :forward]}} (str "+" skip-forward "s")]
         " "
-        [:button {:on {:click [:ended id]}} "Ended"]]])))
+        [:button {:on {:click [:ended id]}} "Ended"]
+        " "
+        [:button {:on {:click [:sleep (when-not sleep 1)]}}
+         (if sleep "Play on after this episode" "Stop after this episode")]]])))
 
 (defn- up-next
   [{:keys [player titles]}]

@@ -98,7 +98,32 @@
       (is (= ["Trailer"] (titles {:where {:inbox? true} :player marked})))
       (is (= ["Bonus"] (titles (assoc (get (player/filters marked) "Starred") :player marked))))
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:inbox\? needs the player state"
-                            (search/where {:inbox? true}))))))
+                            (search/where {:inbox? true})))))
+  (testing "the ratings of the listener, as a range"
+    (let [rated (-> listened
+                    (player/rate-episode ["feed-guid" "b"] 5 t1)
+                    (player/rate-episode ["feed-guid" "t"] 2 t1))]
+      (is (= ["Bonus"] (titles {:where {:rating [4 nil]} :player rated})))
+      (is (= ["Trailer"] (titles {:where {:rating [nil 3]} :player rated})))
+      (is (= ["Trailer" "Bonus"] (titles {:where {:rating [1 5]} :player rated}))
+          "an episode with no rating is in no range")
+      (is (= [] (titles {:where  {:rating [4 nil]}
+                         :player (player/unrate-episode rated ["feed-guid" "b"] #inst "2026-03-03T00:00:00Z")})))
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:rating needs the player state"
+                            (search/where {:rating [4 nil]})))))
+  (testing "ratings in the scale of the app, and a saved filter that keeps its scale"
+    (let [hundred {:worst 1 :best 100}
+          rated   (-> listened
+                      (player/rate-episode ["feed-guid" "b"] 90 t1 {:scale hundred})
+                      (player/rate-episode ["feed-guid" "t"] 4 t1)
+                      (player/save-filter "Best" {:where {:rating [80 nil]} :scale hundred} t1))]
+      (is (= ["Bonus"] (titles {:where {:rating [80 nil]} :scale hundred :player rated}))
+          "a 4 of 1 to 5 is 75.25 of 1 to 100")
+      (is (= ["Trailer" "Bonus"] (titles {:where {:rating [4 nil]} :scale player/rating-scale :player rated})))
+      (is (= ["Trailer" "Bonus"] (titles {:where {:rating [4 nil]} :player rated}))
+          "without a scale, each rating is the number that the state has")
+      (is (= ["Bonus"] (titles (assoc (get (player/filters rated) "Best") :player rated))))
+      (is (nil? (search/problem (get (player/filters rated) "Best")))))))
 
 (deftest orders
   (is (= ["Bonus" "Season two, episode one" "Season one, episode two" "Season one, episode one: Café" "Trailer"]
@@ -124,13 +149,14 @@
     (doseq [criteria [{} {:where {:status :unplayed :season #{1 2}} :order :newest :limit 20} {:order :recent}]]
       (is (nil? (search/problem criteria)) (pr-str criteria))))
   (testing "what it throws for is one, so an app asks before it offers a saved filter"
-    (doseq [[criteria found] [[{:where {:rating 5 :status :played}} #"the criteria :rating are not known"]
+    (doseq [[criteria found] [[{:where {:mood "calm" :status :played}} #"the criteria :mood are not known"]
                               [{:order :random} #"the order :random is not known"]
                               [{:where [:status]} #":where are \[:status\], not a map"]
                               [{:limit "many"} #"the limit is \"many\", not a number"]
+                              [{:scale [1 5]} #"the scale is \[1 5\], not a scale of ratings"]
                               [[:where] #"the criteria are not a map"]]]
       (is (re-find found (str (search/problem criteria))) (pr-str criteria)))
-    (is (thrown? #?(:clj Exception :cljs js/Error) (titles {:where {:rating 5}})))))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (titles {:where {:mood "calm"}})))))
 
 (deftest across-feeds
   (let [other {:rss/title "Other" :podcast/guid "other"

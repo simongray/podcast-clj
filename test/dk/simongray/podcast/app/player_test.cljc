@@ -242,6 +242,106 @@
     (doseq [bad [-1 ##NaN ##Inf "12"]]
       (is (= s (player/bookmark s a bad "x" t3)) (str "no bookmark at " (pr-str bad))))))
 
+(deftest clips-of-episodes
+  (let [s (-> (player/state "phone")
+              (player/clip a 754.8 42.5 "The good bit" t0)
+              (player/clip a 30 10 nil t1)
+              (player/clip b 5 20 "Other" t2))]
+    (is (= [{:id a :start-time 30 :duration 10 :title nil :updated-at t1}
+            {:id a :start-time 754 :duration 42.5 :title "The good bit" :updated-at t0}]
+           (player/clips s a))
+        "the clips of an episode by their starts, in the shape of a soundbite")
+    (is (= [b a a] (map :id (player/clips s))) "all of them, the latest written first")
+    (is (= [60 "Longer"] ((juxt :duration :title) (second (player/clips (player/clip s a 754 60 "Longer" t3) a))))
+        "the same second is the same clip")
+    (is (= [30] (map :start-time (player/clips (player/unclip s a 754.2 t3) a))))
+    (is (:removed? (get-in (player/unclip s a 754 t3) [:clips a 754])) "a tombstone")
+    (is (= s (player/unclip s a 99 t3)) "no clip there")
+    (doseq [[start duration] [[-1 10] [##NaN 10] ["12" 10] [30 0] [30 -5] [30 ##NaN] [30 ##Inf] [30 "10"] [30 nil]]]
+      (is (= s (player/clip s a start duration "x" t3)) (str "no clip for " (pr-str [start duration]))))
+    (let [merged (player/merge s (-> (player/state "laptop")
+                                     (player/clip a 30 15 "Mine" t2)
+                                     (player/clip a 90 5 "More" t2)))]
+      (is (= [[30 15 "Mine"] [90 5 "More"] [754 42.5 "The good bit"]]
+             (map (juxt :start-time :duration :title) (player/clips merged a)))
+          "the clips of two devices merge, and the later write of one clip wins"))))
+
+(defn- near?
+  "Whether the numbers `x` and `y` are the same but for rounding."
+  [x y]
+  (< (abs (- x y)) 1e-9))
+
+(deftest ratings-of-episodes
+  (let [s (-> (player/state "phone") (player/rate-episode a 4 t0) (player/rate-episode b 2 t1))]
+    (is (= {:worst 1 :best 5} player/rating-scale) "the scale of a rating that names none")
+    (is (= 4 (player/rating s a)))
+    (is (nil? (player/rating s c)) "an episode with no rating")
+    (is (= [{:id b :rating 2 :worst 1 :best 5 :updated-at t1} {:id a :rating 4 :worst 1 :best 5 :updated-at t0}]
+           (player/rated s))
+        "the latest rated first, each with its scale")
+    (is (= s (player/rate-episode s a 4 t2)) "the same rating again changes nothing")
+    (is (= s (player/rate-episode s a 4.0 t2)) "in whatever form the number is")
+    (is (= 5 (player/rating (player/rate-episode s a 5 t2) a)) "another rating takes its place")
+    (is (= 4.5 (player/rating (player/rate-episode s a 4.5 t2) a)) "a number between two whole numbers")
+    (doseq [bad [0 6 -1 5.5 ##NaN ##Inf "4" nil]]
+      (is (= s (player/rate-episode s a bad t2)) (str "no rating of " (pr-str bad))))
+    (let [without (player/unrate-episode s a t2)]
+      (is (nil? (player/rating without a)))
+      (is (= [b] (map :id (player/rated without))))
+      (is (:removed? (get-in without [:ratings a])) "a tombstone")
+      (is (= without (player/unrate-episode without a t3)) "no rating to take off")
+      (is (= 3 (player/rating (player/rate-episode without a 3 t3) a)) "a rating after the removal")
+      (is (nil? (player/rating (player/merge without (player/rate-episode (player/state "laptop") a 1 t1)) a))
+          "the later removal outlives the older rating from another device"))
+    (is (= 2.0 (player/rate (player/prefer s {:rate 2.0} t2) "feed-a")) "the speed of playback is another thing")))
+
+(deftest ratings-in-the-scale-of-the-app
+  (let [hundred {:scale {:worst 1 :best 100}}
+        thumbs  {:scale {:worst 0 :best 1}}
+        grades  {:scale {:worst 6 :best 1}}
+        s       (-> (player/state "phone")
+                    (player/rate-episode a 4 t0)
+                    (player/rate-episode b 80 t1 hundred)
+                    (player/rate-episode c 1 t2 thumbs))]
+    (testing "a rating as the state has it, with the scale that it came in"
+      (is (= [4 80 1] (map #(player/rating s %) [a b c])))
+      (is (= [{:id c :rating 1 :worst 0 :best 1 :updated-at t2}
+              {:id b :rating 80 :worst 1 :best 100 :updated-at t1}
+              {:id a :rating 4 :worst 1 :best 5 :updated-at t0}]
+             (player/rated s)))
+      (is (= {:rating 80 :worst 1 :best 100 :removed? false}
+             (select-keys (get-in s [:ratings b]) [:rating :worst :best :removed?]))
+          "the entry is a rating with its scale, as a Rating of schema.org"))
+    (testing "a rating in the scale that the app asks for"
+      (is (every? true? (map near? [75.25 80 100] (map #(player/rating s % hundred) [a b c]))))
+      (is (every? true? (map near? [0.75 (/ 79 99.0) 1] (map #(player/rating s % thumbs) [a b c]))))
+      (is (every? true? (map near? [4 (+ 1 (* 4 (/ 79 99.0))) 5]
+                             (map #(player/rating s % {:scale player/rating-scale}) [a b c]))))
+      (is (= 80 (player/rating s b hundred)) "its own scale changes nothing of the number")
+      (is (= [[c 100 1 100] [b 80 1 100] [a 75 1 100]]
+             (map (juxt :id #(Math/round (double (:rating %))) :worst :best) (player/rated s hundred)))))
+    (testing "a scale whose best rating is the lower number"
+      (let [graded (player/rate-episode s a 2 t3 grades)]
+        (is (= 2 (player/rating graded a)))
+        (is (near? 4.2 (player/rating graded a {:scale player/rating-scale})))
+        (is (= s (player/rate-episode s a 7 t3 grades)))))
+    (testing "a number outside the scale of the app changes nothing"
+      (doseq [[n opts] [[0 hundred] [101 hundred] [2 thumbs] [-1 thumbs] [5 thumbs]]]
+        (is (= s (player/rate-episode s a n t3 opts)) (pr-str [n opts]))))
+    (testing "the same number in another scale is another rating"
+      (is (= [4 1 10] ((juxt :rating :worst :best)
+                       (get-in (player/rate-episode s a 4 t3 {:scale {:worst 1 :best 10}}) [:ratings a])))))
+    (testing "a scale that is none is a mistake of the app"
+      (doseq [bad [[1 5] {:worst 1} {:worst 1 :best 1} {:worst "1" :best 5} {:worst 1 :best ##Inf} 5]]
+        (is (thrown? #?(:clj Exception :cljs js/Error) (player/rate-episode s a 3 t3 {:scale bad})) (pr-str bad))
+        (is (thrown? #?(:clj Exception :cljs js/Error) (player/rating s a {:scale bad})) (pr-str bad))))
+    (testing "two devices with two scales"
+      (let [laptop (player/rate-episode (player/state "laptop") a 90 t3 hundred)
+            merged (player/merge s laptop)]
+        (is (= [90 1 100] ((juxt :rating :worst :best) (first (player/rated merged))))
+            "the later rating wins, with its scale")
+        (is (nil? (player/problem merged)))))))
+
 (deftest folders-of-shows
   (let [s (-> (player/state "phone")
               (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
@@ -477,14 +577,19 @@
                    (player/bookmark a 30 "Kept" t0) (player/bookmark a 60 "Gone" t0) (player/unbookmark a 60 t1)
                    (player/bookmark b 90 "Gone" t0) (player/unbookmark b 90 t1)
                    (player/write [:inbox b] (constantly {:removed? false}) t0) (player/dismiss b t1)
-                   (player/save-filter "F" {} t0) (player/remove-filter "F" t1))
+                   (player/save-filter "F" {} t0) (player/remove-filter "F" t1)
+                   (player/clip a 30 10 "Kept" t0) (player/clip b 60 10 "Gone" t0) (player/unclip b 60 t1)
+                   (player/rate-episode a 4 t0) (player/rate-episode b 2 t0) (player/unrate-episode b t1))
         laptop (player/acknowledge (player/merge (player/state "laptop") phone) [phone] t2)
         phone  (player/acknowledge (player/merge phone laptop) [laptop] t2)
         after  (player/compact phone far)]
-    (is (= {:stars {} :inbox {} :filters {} :bookmarks {a {30 (get-in phone [:bookmarks a 30])}}}
-           (select-keys after [:stars :inbox :filters :bookmarks]))
+    (is (= {:stars {} :inbox {} :filters {} :bookmarks {a {30 (get-in phone [:bookmarks a 30])}}
+            :clips {a {30 (get-in phone [:clips a 30])}} :ratings {a (get-in phone [:ratings a])}}
+           (select-keys after [:stars :inbox :filters :bookmarks :clips :ratings]))
         "the tombstones go, and an episode left with no bookmark goes with them")
-    (is (= (player/bookmarks phone) (player/bookmarks after)))))
+    (is (= (player/bookmarks phone) (player/bookmarks after)))
+    (is (= (player/clips phone) (player/clips after)))
+    (is (= (player/rated phone) (player/rated after)))))
 
 (deftest opml-round-trip
   (let [s    (-> (player/state "phone")
@@ -594,6 +699,11 @@
                                   (player/configure "feed-a" {:skip-intro 20} t0)
                                   (player/progress a 100 3600 t1)
                                   (player/enqueue b t1)
+                                  (player/clip a 30 10 "A clip" t1)
+                                  (player/unclip a 30 t2)
+                                  (player/rate-episode a 4 t1)
+                                  (player/unrate-episode a t2)
+                                  (player/rate-episode b 50 t1 {:scale {:worst 1 :best 100}})
                                   (player/acknowledge [(player/subscribe (player/state "laptop") "feed-b" {:url "https://b/rss"} t0)] t2))))))
   (testing "what would make an operation throw on every device it reached"
     (doseq [[state found] [[{:clock "now"} #"clock"]
@@ -607,6 +717,17 @@
                             #"the list at 5 is not at a URL"]
                            [{:bookmarks {a {754.5 {:title "x" :updated-at t0 :device "x"}}}} #"whole number of seconds"]
                            [{:bookmarks {a {-1 {:title "x" :updated-at t0 :device "x"}}}} #"whole number of seconds"]
+                           [{:clips {a {30.5 {:duration 10 :updated-at t0 :device "x"}}}}
+                            #"a clip of .* is not at a whole number of seconds"]
+                           [{:clips {a {30 {:duration "long" :updated-at t0 :device "x"}}}}
+                            #"lasts \"long\", not a number of seconds"]
+                           [{:ratings {a {:rating 7 :updated-at t0 :device "x"}}}
+                            #"is 7, not a number of the scale \{:worst 1, :best 5\}"]
+                           [{:ratings {a {:rating "good" :updated-at t0 :device "x"}}} #"is \"good\""]
+                           [{:ratings {a {:rating 101 :worst 1 :best 100 :updated-at t0 :device "x"}}}
+                            #"is 101, not a number of the scale"]
+                           [{:ratings {a {:rating 3 :worst 3 :best 3 :updated-at t0 :device "x"}}}
+                            #"not a number of the scale"]
                            [{:filters {"F" {:criteria [:where] :updated-at t0 :device "x"}}} #"criteria of the filter \"F\""]
                            [{:tags {"feed-a" "Tech"}} #"\[:tags \"feed-a\"\] is not a map"]]]
       (is (re-find found (str (player/problem state))) (pr-str state))))
@@ -619,7 +740,7 @@
                      {:listened {"feed-a" {"2026-09" {"x" {:seconds 5}}}}} {:retired {"x" {}}}]]
         (is (re-find #"is not stamped" (str (player/problem state))) (pr-str state)))))
   (testing "criteria of a later version are no problem of the state"
-    (is (nil? (player/problem {:filters {"F" {:criteria {:where {:rating 5}} :updated-at t0 :device "x"}}})))))
+    (is (nil? (player/problem {:filters {"F" {:criteria {:where {:mood "calm"}} :updated-at t0 :device "x"}}})))))
 
 (deftest merging-entries-with-keys-of-any-kind
   (let [s (player/identify (player/state "phone") {:name "Phone" "custom" 1} t0)]
@@ -773,3 +894,78 @@
     (testing "no outro, or one as long as the episode, ends nothing early"
       (is (= [[:played a]] (:effects (player/step (player/configure s "feed-a" {:skip-outro 0} t1) [:progress a 3590 3600] t2))))
       (is (= [[:played b]] (:effects (player/step (player/progress s b 10 50 t1) [:progress b 45 50] t2)))))))
+
+(def chapters-doc
+  "A chapters document with a chapter that is not in the table of contents."
+  {:chapters [{:start-time 0 :title "Intro"}
+              {:start-time 90 :title "News"}
+              {:start-time 300 :title "Ad" :toc false}
+              {:start-time 600 :title "Talk"}]})
+
+(deftest moving-between-chapters
+  (let [s      (-> (player/state "phone")
+                   (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+                   (player/enqueue a t0)
+                   (player/enqueue b t0)
+                   (player/progress a 100 3600 t0))
+        jump   (fn [state direction] (player/step state [:chapter a direction chapters-doc] t1))
+        at     (fn [position] (player/progress s a position 3600 t0))
+        seek   (fn [position] [[:seek a position]])]
+    (testing "to the next chapter of the table of contents"
+      (let [{:keys [state effects]} (jump s :next)]
+        (is (= (seek 600) effects) "the chapter outside the table of contents is no stop")
+        (is (= 600 (:position (player/episode state a))))))
+    (testing "to the start of the chapter that plays, or to the chapter before it"
+      (is (= (seek 90) (:effects (jump s :previous))))
+      (is (= (seek 0) (:effects (jump (at 92) :previous))) "in the first seconds of a chapter")
+      (is (= (seek 0) (:effects (player/step s [:chapter a :previous chapters-doc] t1 {:restart 15})))
+          "with the seconds that the app gives")
+      (is (= (seek 90) (:effects (jump (at 601) :previous))))
+      (is (= (seek 0) (:effects (jump (at 1) :previous)))))
+    (testing "after the start of the last chapter, the next chapter is no jump"
+      (is (= {:state (at 700) :effects []} (jump (at 700) :next))))
+    (testing "an episode whose position the state does not have starts at 0"
+      (is (= [[:seek b 90]] (:effects (player/step s [:chapter b :next chapters-doc] t1)))))
+    (testing "a document with no chapters"
+      (is (= [] (:effects (player/step s [:chapter a :next {}] t1))))
+      (is (= (seek 0) (:effects (player/step s [:chapter a :previous {}] t1)))))
+    (testing "a jump into the outro ends the episode, as a skip does"
+      (let [outro (player/configure s "feed-a" {:skip-outro 60} t0)]
+        (is (= [[:stop a] [:played a] [:play b]]
+               (:effects (player/step outro [:chapter a :next {:chapters [{:start-time 3570}]}] t1))))))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (jump s :sideways)) "a direction that is none")))
+
+(deftest the-sleep-timer
+  (let [s     (-> (player/state "phone") (player/enqueue a t0) (player/enqueue b t0))
+        sleep (fn [n] {:sleep {:episodes n}})]
+    (testing "at the end of this episode"
+      (let [{:keys [state effects] :as result} (player/step s [:ended a] t1 (sleep 1))]
+        (is (= [[:stop a]] effects) "the player stops, and the next episode does not play")
+        (is (= [b] (player/queue state)) "the next episode is current, for the next time")
+        (is (player/played? state a))
+        (is (not (contains? result :sleep)) "the timer ran out")))
+    (testing "after some episodes"
+      (let [first-end  (player/step s [:ended a] t1 (sleep 2))
+            second-end (player/step (:state first-end) [:ended b] t2 (select-keys first-end [:sleep]))]
+        (is (= [[[:play b]] {:episodes 1}] ((juxt :effects :sleep) first-end)))
+        (is (= [[:stop b]] (:effects second-end)))
+        (is (not (contains? second-end :sleep)))))
+    (testing "each other event keeps the timer as it is"
+      (doseq [event [[:progress a 100 3600] [:skip a 30] [:play b] [:chapter a :next chapters-doc] [:volume 3]]]
+        (is (= {:episodes 2} (:sleep (player/step s event t1 (sleep 2)))) (pr-str event))))
+    (testing "without a timer, the result has none"
+      (is (= #{:state :effects} (set (keys (player/step s [:ended a] t1)))))
+      (is (= #{:state :effects} (set (keys (player/step s [:ended a] t1 {}))))))
+    (testing "an episode that ends in its outro"
+      (let [outro (-> s
+                      (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+                      (player/configure "feed-a" {:skip-outro 60} t0)
+                      (player/progress a 3500 3600 t0))]
+        (is (= [[:stop a] [:played a]] (:effects (player/step outro [:progress a 3545 3600] t1 (sleep 1))))
+            "one stop, and no next episode")
+        (is (= [[[:stop a] [:played a] [:play b]] {:episodes 1}]
+               ((juxt :effects :sleep) (player/step outro [:progress a 3545 3600] t1 (sleep 2)))))))
+    (testing "the last episode of the queue"
+      (is (= [[:stop b]] (:effects (player/step (:state (player/step s [:ended a] t1)) [:ended b] t2 (sleep 1))))))
+    (testing "the timer is no part of the state"
+      (is (= (:state (player/step s [:ended a] t1)) (:state (player/step s [:ended a] t1 (sleep 3))))))))

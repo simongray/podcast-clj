@@ -226,18 +226,18 @@ of the merge must cover it.
 | Feature | Who has it | Verdict | Size | Status |
 |---|---|---|---|---|
 | Skip the outro | Pocket Casts, Castro | Target | Small | Built: `player/step`, `player/outro-start` |
-| Stop at the end of the episode, or after some episodes | AntennaPod, and the sleep timer of nearly all apps | In part | Small | Not built |
-| Chapter navigation | Pocket Casts, Overcast, Apple Podcasts, Castro, Fountain | Target | Small | Not built |
+| Stop at the end of the episode, or after some episodes | AntennaPod, and the sleep timer of nearly all apps | In part | Small | Built: `:sleep` of `player/step` |
+| Chapter navigation | Pocket Casts, Overcast, Apple Podcasts, Castro, Fountain | Target | Small | Built: `player/step`, `chapters/jump` |
 | Starred episodes | Pocket Casts, Castro, Podbean | Target | Small | Built: `player/star` |
 | Bookmarks and notes | Pocket Casts, Podcast Addict, Player FM, Podcini | Target | Small | Built: `player/bookmark` |
 | Folders for shows | Pocket Casts, Castro, Podbean, Player FM | Target | Small | Built: `player/folders` |
 | An inbox of new episodes | Castro, AntennaPod, Spotify | Target | Small | Built: `player/inbox` |
-| Ratings that the listener keeps | Podcini | Target | Small | Not built |
+| Ratings that the listener keeps | Podcini | Target | Small | Built: `player/rate-episode` |
 | Saved filters, or smart playlists | Pocket Casts, Overcast, Downcast, PinePods | Target | Small | Built: `player/save-filter` |
 | Playlists and several queues | Pocket Casts, Podcast Addict, Fountain, Podverse, Podcini | Target | Medium | Built: `player/playlist` |
 | Listening statistics and a year in review | Pocket Casts, AntennaPod, Spotify, PinePods | Target | Medium | Built: `player/listened` |
 | Rules for downloads and deletes | Apple Podcasts, Pocket Casts, AntennaPod, PinePods | In part | Medium | Not built |
-| Clips | Pocket Casts, Spotify, Fountain, Podverse | In part | Small | Not built |
+| Clips | Pocket Casts, Spotify, Fountain, Podverse | In part | Small | Built: `player/clip` |
 
 **Skip the outro.** The settings of a show have `:skip-outro`, but `step`
 does not act on it. Pocket Casts and Castro skip the outro of a show.

@@ -282,10 +282,39 @@
   [doc seconds]
   (last (take-while #(<= (:start-time %) seconds) (sorted doc))))
 
+(def restart
+  "How many seconds of a chapter a listener can hear before a jump back
+  goes to the start of that chapter. Earlier in the chapter, the jump
+  goes to the chapter before it, as in most players."
+  3)
+
+(defn jump
+  "Where a jump from `seconds` into the media goes, in seconds, by the
+  table of contents of `doc`. `direction` is :next or :previous.
+
+  A jump to the next chapter goes to the first chapter that starts after
+  `seconds`. It is nil after the start of the last chapter. A jump to the
+  previous chapter goes to the start of the chapter that plays, or to the
+  chapter before it in the first `restart` seconds of a chapter. Before
+  the first chapter, it goes to 0.
+
+  The chapters with `:toc false` are not in the table of contents, so no
+  jump goes to them. `opts` can give `:restart`, in seconds."
+  ([doc seconds direction]
+   (jump doc seconds direction {}))
+  ([doc seconds direction opts]
+   (let [back   (- seconds (:restart opts restart))
+         starts (map :start-time (visible doc))]
+     (case direction
+       :next     (first (drop-while #(<= % seconds) starts))
+       :previous (or (last (take-while #(<= % back) starts)) 0)))))
+
 #?(:clj
    (comment
      (parse-json (slurp "test/resources/chapters/example-complex.json"))
      (report *1)
      (println (emit-json *1))
      (at (parse-json (slurp "test/resources/chapters/example.json")) 300)
+     (jump (parse-json (slurp "test/resources/chapters/example.json")) 300 :next)
+     (jump (parse-json (slurp "test/resources/chapters/example.json")) 300 :previous)
      #_.))

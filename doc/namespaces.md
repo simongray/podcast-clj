@@ -102,7 +102,7 @@ Each name below is relative to `dk.simongray.podcast`.
 
 | Namespace | Contents |
 |---|---|
-| `format.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters from the timestamps in show notes. |
+| `format.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters from the timestamps in show notes. `at` gives the chapter at a position, and `jump` gives where a jump to the next or the previous chapter goes. |
 | `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers. |
 | `format.opml` | Subscription lists as OPML, with folders, the categories and creation time of each outline, inclusions of other lists, and the dates and owner of the list. |
 | `format.html` | The HTML in descriptions, as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. `feed-links` finds the feeds that a web page names. |
@@ -138,7 +138,7 @@ Each name below is relative to `dk.simongray.podcast`.
 
 | Namespace | Contents |
 |---|---|
-| `app.player` | The player state as a CRDT: queue, playlists, inbox, progress, stars, bookmarks, subscriptions with their settings, folders and tags, followed OPML lists, saved filters, counts of listening and devices. `merge`, `compact` and `step`. Playlists as list feeds. |
+| `app.player` | The player state as a CRDT: queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions with their settings, folders and tags, followed OPML lists, saved filters, counts of listening and devices. `merge`, `compact` and `step`. `step` takes the events of a player, with the jumps between chapters and a sleep timer. Playlists as list feeds. |
 | `app.search` | Filters and orders of episodes as data, and a full-text index over subscriptions, ranked by BM25. `problem` tells what in the criteria of a saved filter this version does not know. |
 | `app.sync` | The sync between devices: sync documents, `reconcile`, `sync!` over any backends, and `next-at`. |
 | `app.sync.store` | The store contract, `memory`, `backend` over any store, and `check!` to test a store. |
