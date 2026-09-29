@@ -253,45 +253,23 @@
   #"(?u)nostr:(?:npub|nprofile|note|nevent|naddr)1[02-9ac-hj-np-z]+|https?://[^\s<>]+|#[\p{L}\p{N}_]+")
 
 (defn- part
-  "The parts that the match `s` of `part-pattern` gives, in an event with
-  the hashtags `hashtags`, in lower case. A URL gives the signs that end a
-  sentence after it as text."
+  "The part that the match `s` of `part-pattern` gives, in an event with
+  the hashtags `hashtags`, in lower case. Nil for a match that is text.
+  The URL of a link is without the signs that end a sentence after it."
   [s hashtags]
-  (let [named (when (str/starts-with? s "nostr:") (decode s))
-        url   (when (re-find #"^https?://" s) (str/replace s #"[.,;:!?)\]'\"]+$" ""))]
+  (let [named (when (str/starts-with? s "nostr:") (decode s))]
     (cond
       (contains? #{:npub :nprofile} (:type named))
-      [(assoc (select-keys named [:public-key :relays]) :type :mention :uri s)]
+      (assoc (select-keys named [:public-key :relays]) :type :mention :uri s)
 
       named
-      [{:type :reference :target named :uri s}]
+      {:type :reference :target named :uri s}
 
-      url
-      (cond-> [{:type :link :url url}]
-        (not= url s) (conj {:type :text :text (subs s (count url))}))
+      (re-find #"^https?://" s)
+      {:type :link :url (str/replace s #"[.,;:!?)\]'\"]+$" "")}
 
       (contains? hashtags (str/lower-case (subs s 1)))
-      [{:type :hashtag :tag (subs s 1)}]
-
-      :else
-      [{:type :text :text s}])))
-
-(defn- joined-texts
-  "The parts `ps`, with the texts that follow each other as one text, and
-  without the texts that are empty."
-  [ps]
-  (reduce (fn [out {:keys [type text] :as p}]
-            (cond
-              (and (= :text type) (= "" text))
-              out
-
-              (and (= :text type) (= :text (:type (peek out))))
-              (update-in out [(dec (count out)) :text] str text)
-
-              :else
-              (conj out p)))
-          []
-          ps))
+      {:type :hashtag :tag (subs s 1)})))
 
 (defn parts
   "The parts of the content of `event`, in their order. The content of a
@@ -311,14 +289,24 @@
   mention of a profile can have `:relays`."
   [event]
   (let [content  (if (string? (get event "content")) (get event "content") "")
-        hashtags (set (map str/lower-case (filter string? (tag-values event "t"))))]
-    (loop [s content found (re-seq part-pattern content) out []]
+        hashtags (set (map str/lower-case (filter string? (tag-values event "t"))))
+        ;; the text from `from` to `to` goes into `out`, unless it is empty
+        with-text (fn [out from to]
+                    (cond-> out
+                      (< from to) (conj {:type :text :text (subs content from to)})))]
+    ;; `at` is where the next match starts or later, and `from` is where
+    ;; the text starts that no part has yet
+    (loop [found (re-seq part-pattern content) at 0 from 0 out []]
       (if-let [[match & more] (seq found)]
-        (let [i (str/index-of s match)]
-          (recur (subs s (+ i (count match)))
-                 more
-                 (into (conj out {:type :text :text (subs s 0 i)}) (part match hashtags))))
-        (joined-texts (conj out {:type :text :text s}))))))
+        (let [i (str/index-of content match at)
+              p (part match hashtags)]
+          (if p
+            (recur more
+                   (+ i (count match))
+                   (+ i (count (:url p match)))
+                   (conj (with-text out from i) p))
+            (recur more (+ i (count match)) from out)))
+        (with-text out from (count content))))))
 
 (defn relay-url
   "The URL `s` of a relay as podcast-clj knows a relay: a ws or wss URL

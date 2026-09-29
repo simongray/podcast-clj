@@ -12,7 +12,12 @@
 
   The numbers are BigInteger on the JVM and BigInt in JavaScript. A point
   of the curve is `[x y z]` in Jacobian coordinates, and nil is the point
-  at infinity."
+  at infinity.
+
+  A product of a number and a point is a row of doublings and additions.
+  The number is read as digits with signs, which need few additions, and
+  the multiples of the generator are computed once. No standard defines
+  this, so the widths of the digits are a choice."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.bytes :as bytes])
   #?(:clj (:import [java.math BigInteger])))
@@ -40,6 +45,10 @@
 (def ^:no-doc zero
   "The number 0, as the platform keeps a number of any size."
   (big "0"))
+
+(def ^:no-doc one
+  "The number 1, as the platform keeps a number of any size."
+  (big "1"))
 
 (def ^:no-doc root-power
   "The power that gives a square root in the field: (p + 1) / 4."
@@ -72,22 +81,54 @@
      :cljs (.toString k 2)))
 
 (defn- add
-  "The sum of `a` and `b` in the field."
+  "The sum of `a` and `b` in the field, for two numbers of the field. The
+  sum is below two times the size of the field, so one subtraction brings
+  it back, which costs less than a division."
   [a b]
-  #?(:clj  (.mod (.add ^BigInteger a ^BigInteger b) p)
-     :cljs (mod (+ a b) p)))
+  #?(:clj  (let [sum (.add ^BigInteger a ^BigInteger b)]
+             (if (neg? (.compareTo sum ^BigInteger p)) sum (.subtract sum ^BigInteger p)))
+     :cljs (let [sum (+ a b)]
+             (if (< sum p) sum (- sum p)))))
 
 (defn- sub
-  "The difference of `a` and `b` in the field."
+  "The difference of `a` and `b` in the field, for two numbers of the
+  field."
   [a b]
-  #?(:clj  (.mod (.subtract ^BigInteger a ^BigInteger b) p)
-     :cljs (mod (- a b) p)))
+  #?(:clj  (let [difference (.subtract ^BigInteger a ^BigInteger b)]
+             (if (neg? (.signum difference)) (.add difference ^BigInteger p) difference))
+     :cljs (let [difference (- a b)]
+             (if (neg? difference) (+ difference p) difference))))
+
+(def ^:no-doc low-bits
+  "The number 2^256 - 1, which keeps the 256 lowest bits of a number."
+  (big (str/join (repeat 64 "f"))))
+
+(def ^:no-doc overflow
+  "What 2^256 is in the field: 2^32 + 977. SEC 2 gives the size of the
+  field as 2^256 less this number, in its section 2.4.1."
+  (big "1000003d1"))
+
+(def ^:no-doc shift
+  "The number 256, as the platform shifts a number of any size."
+  #?(:clj 256 :cljs (js/BigInt 256)))
+
+(defn- folded
+  "A number that is `k` in the field, and smaller: the 256 lowest bits of
+  `k`, plus its higher bits times `overflow`."
+  [k]
+  #?(:clj  (.add (.and ^BigInteger k ^BigInteger low-bits)
+                 (.multiply (.shiftRight ^BigInteger k (int shift)) ^BigInteger overflow))
+     :cljs (+ (bit-and k low-bits) (* (bit-shift-right k shift) overflow))))
 
 (defn- mul
-  "The product of `a` and `b` in the field."
+  "The product of `a` and `b` in the field, for two numbers of the field.
+  Two folds bring the product below two times the size of the field, which
+  costs less than a division."
   [a b]
-  #?(:clj  (.mod (.multiply ^BigInteger a ^BigInteger b) p)
-     :cljs (mod (* a b) p)))
+  (let [product #?(:clj (.multiply ^BigInteger a ^BigInteger b) :cljs (* a b))
+        small   (folded (folded product))]
+    #?(:clj  (if (neg? (.compareTo ^BigInteger small ^BigInteger p)) small (.subtract ^BigInteger small ^BigInteger p))
+       :cljs (if (< small p) small (- small p)))))
 
 (defn- bits
   "The bits of the number `k` as a text of `width` characters 0 and 1, the
@@ -123,20 +164,23 @@
        (let [yz (mul y z)] (add yz yz))])))
 
 (defn- added
-  "The sum of the points `a` and `b`."
+  "The sum of the points `a` and `b`. The sum costs less when the z
+  coordinate of `b` is 1."
   [[x1 y1 z1 :as a] [x2 y2 z2 :as b]]
   (cond
     (nil? a) b
     (nil? b) a
     :else
-    (let [z1z1 (mul z1 z1)
-          z2z2 (mul z2 z2)
-          u1   (mul x1 z2z2)
-          u2   (mul x2 z1z1)
-          s1   (mul y1 (mul z2 z2z2))
-          s2   (mul y2 (mul z1 z1z1))
-          h    (sub u2 u1)
-          r    (sub s2 s1)]
+    (let [flat?   (= one z2)
+          z1z1    (mul z1 z1)
+          [u1 s1] (if flat?
+                    [x1 y1]
+                    (let [z2z2 (mul z2 z2)]
+                      [(mul x1 z2z2) (mul y1 (mul z2 z2z2))]))
+          u2      (mul x2 z1z1)
+          s2      (mul y2 (mul z1 z1z1))
+          h       (sub u2 u1)
+          r       (sub s2 s1)]
       (cond
         (and (= zero h) (= zero r)) (doubled a)
         (= zero h)                  nil
@@ -147,23 +191,68 @@
               x3  (sub (sub (mul r r) hhh) (add v v))]
           [x3
            (sub (mul r (sub v x3)) (mul s1 hhh))
-           (mul (mul z1 z2) h)])))))
+           (mul (if flat? z1 (mul z1 z2)) h)])))))
 
-(defn- combined
-  "The point `j` times the point `a` plus `k` times the point `b`, for the
-  numbers `j` and `k` below the order of the curve. The two products share
-  their doublings."
-  [j a k b]
-  (let [both (added a b)]
-    (reduce (fn [acc [bit-a bit-b]]
-              (let [acc (doubled acc)]
-                (case [bit-a bit-b]
-                  [\1 \1] (added acc both)
-                  [\1 \0] (added acc a)
-                  [\0 \1] (added acc b)
-                  acc)))
-            nil
-            (map vector (bits j 256) (bits k 256)))))
+(defn- negative
+  "The point that gives the point at infinity when it is added to
+  `point`."
+  [[x y z]]
+  [x (sub zero y) z])
+
+(defn- digits
+  "The number `k` below 2^256 as digits with signs, the lowest first, for
+  a window of `width` bits. A digit is 0 or an odd number, above and below
+  0, that is smaller than 2^(`width` - 1). After a digit that is not 0
+  come `width` - 1 digits that are 0.
+
+  This is the non-adjacent form with a window. Of 9 digits of 8 bits, 1 is
+  not 0, and only such a digit costs an addition."
+  [k width]
+  (let [width (long width)
+        low   (mapv #(if (= \1 %) 1 0) (reverse (bits k 256)))
+        full  (bit-shift-left 1 width)
+        bit   #(get low % 0)
+        ;; the number that the bits from `i` show in the window
+        shown (fn [i] (reduce + (map #(bit-shift-left (bit (+ i %)) %) (range width))))]
+    (loop [i 0 carry 0 out []]
+      (let [lowest (long (+ (bit i) carry))]
+        (cond
+          (and (<= 256 i) (zero? carry))
+          out
+
+          (even? lowest)
+          (recur (inc i) (quot lowest 2) (conj out 0))
+
+          :else
+          (let [v      (long (+ (shown i) carry))
+                above? (< (quot full 2) v)]
+            (recur (+ i width)
+                   (if above? 1 0)
+                   (into (conj out (if above? (- v full) v)) (repeat (dec width) 0)))))))))
+
+(defn- multiples
+  "The odd multiples of the point `point` for digits of `width` bits, as
+  a vector: the point times 1, 3, 5 and so on."
+  [point width]
+  (let [twice (doubled point)]
+    (vec (take (bit-shift-left 1 (- width 2)) (iterate #(added % twice) point)))))
+
+(defn- summed
+  "The sum of the products of `terms`. Each term is the digits of a
+  number, as `digits` gives them, and the odd multiples of a point, as
+  `multiples` gives them. The products share their doublings."
+  [terms]
+  (reduce (fn [acc i]
+            (reduce (fn [acc [ds points]]
+                      (let [d (get ds i 0)]
+                        (cond
+                          (zero? d) acc
+                          (pos? d)  (added acc (nth points (quot d 2)))
+                          :else     (added acc (negative (nth points (quot (- d) 2)))))))
+                    (doubled acc)
+                    terms))
+          nil
+          (range (dec (apply max (map (comp count first) terms))) -1 -1)))
 
 (defn- affine
   "The coordinates `[x y]` of the point `point` on the curve. Nil for the
@@ -216,10 +305,32 @@
       (when (and (not= zero d) (< d n))
         d))))
 
+(def ^:no-doc widths
+  "The bits of a window of `digits`, for a product with the generator and
+  for a product with another point. The multiples of the generator are
+  computed once, so its window is wide. Those of another point are
+  computed for each product."
+  {:generator 8 :point 5})
+
+(def ^:no-doc generator-multiples
+  "The odd multiples of the generator, each with the z coordinate 1, in a
+  delay. The first product with the generator computes them."
+  (delay (mapv #(conj (affine %) one) (multiples g (:generator widths)))))
+
+(defn- by-generator
+  "The term of `summed` for `k` times the generator of the curve."
+  [k]
+  [(digits k (:generator widths)) @generator-multiples])
+
+(defn- by-point
+  "The term of `summed` for `k` times the point `point`."
+  [k point]
+  [(digits k (:point widths)) (multiples point (:point widths))])
+
 (defn- multiplied
   "The coordinates `[x y]` of `k` times the generator of the curve."
   [k]
-  (affine (combined k g zero g)))
+  (affine (summed [(by-generator k)])))
 
 (defn- xor
   "The bytes of the hexadecimal texts `a` and `b`, each byte of `a` with
@@ -248,7 +359,7 @@
            s     (big (subs signature 64))]
        (when (and point (< r p) (< s n))
          (let [e     (challenge (subs signature 0 64) public-key message)
-               [x y] (affine (combined s g (negated e) point))]
+               [x y] (affine (summed [(by-generator s) (by-point (negated e) point)]))]
            (and (some? x) (even-number? y) (= x r))))))))
 
 (defn public-key

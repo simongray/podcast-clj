@@ -135,18 +135,14 @@
   "The parts `ps` of a content as a vector. The texts that follow each
   other are one text, and the texts that are empty are left out."
   [ps]
-  (reduce (fn [out {:keys [type text] :as p}]
-            (cond
-              (and (= :text type) (= "" text))
-              out
-
-              (and (= :text type) (= :text (:type (peek out))))
-              (update-in out [(dec (count out)) :text] str text)
-
-              :else
-              (conj out p)))
-          []
-          ps))
+  (let [text? #(= :text (:type %))]
+    (into []
+          (comp (remove #(and (text? %) (= "" (:text %))))
+                (partition-by text?)
+                (mapcat #(if (text? (first %))
+                           [(assoc (first %) :text (str/join (map :text %)))]
+                           %)))
+          ps)))
 
 (defn ^:no-doc user-link
   "The Hiccup of a link to `url` that a user wrote in a content, with the

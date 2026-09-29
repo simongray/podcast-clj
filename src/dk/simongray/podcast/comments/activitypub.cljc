@@ -260,14 +260,17 @@
   emoji `emojis`, a map from shortcodes to parts: each piece is a text, or
   the part of an emoji."
   [s emojis]
-  (loop [s s found (re-seq #":[A-Za-z0-9_+-]+:" s) out []]
+  ;; `at` is where the next match starts or later, and `from` is where the
+  ;; text starts that no piece has yet
+  (loop [found (re-seq #":[A-Za-z0-9_+-]+:" s) at 0 from 0 out []]
     (if-let [[match & more] (seq found)]
-      (let [i     (str/index-of s match)
+      (let [i     (str/index-of s match at)
+            end   (+ i (count match))
             emoji (get emojis (subs match 1 (dec (count match))))]
         (if emoji
-          (recur (subs s (+ i (count match))) more (conj out (subs s 0 i) (assoc emoji :text match)))
-          (recur s more out)))
-      (remove #{""} (conj out s)))))
+          (recur more end end (conj out (subs s from i) (assoc emoji :text match)))
+          (recur more end from out)))
+      (remove #{""} (conj out (subs s from))))))
 
 (defn- emojis-of
   "The custom emoji of `source`, by shortcode."

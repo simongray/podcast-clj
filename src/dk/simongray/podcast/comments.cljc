@@ -394,7 +394,9 @@
            "activitypub" (some-> (::activitypub/source comment) (activitypub/hiccup opts))
            "atproto"     (some-> (::atproto/record comment) (atproto/hiccup opts))
            "nostr"       (some-> (::nostr-comments/event comment)
-                                 (nostr-comments/hiccup (merge {:names (nostr-comments/names thread)} opts)))
+                                 (nostr-comments/hiccup (cond-> opts
+                                                          (not (contains? opts :names))
+                                                          (assoc :names (nostr-comments/names thread)))))
            nil)
          (html/hiccup content)))))
 

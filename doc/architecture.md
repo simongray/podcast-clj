@@ -1077,10 +1077,17 @@ The signature is a Schnorr signature over the curve secp256k1, as BIP-340
 defines it. The JDK has no such curve, and the Web Crypto API of the
 browsers has none. So `secp256k1` has the arithmetic of the curve, over
 BigInteger on the JVM and BigInt in JavaScript. It passes the test vectors
-of BIP-340 on both platforms. A check takes about 4 milliseconds on the
-JVM, and about 3 milliseconds in Node. `sign` and `public-key` are there for the requests to a wallet. The
-time that they take depends on the secret key, and their docstrings tell
-so.
+of BIP-340 on both platforms. `sign` and `public-key` are there for the
+requests to a wallet. The time that they take depends on the secret key,
+and their docstrings tell so.
+
+A check takes about 1 millisecond on the JVM and in Node, measured on
+2026-09-29. It is most of the time that the reading of a thread takes,
+so three things keep it short. The size of the field is 2^256 less a
+small number. So a product folds its high bits into its low bits, and
+needs no division. A number is read as digits with signs, which need an
+addition for one digit of six or of nine. The multiples of the generator
+are computed once.
 
 `decode` and `encode` read and write the names of NIP-19, which are
 Bech32. `bech32` is the encoding of BIP-173, with its test vectors.

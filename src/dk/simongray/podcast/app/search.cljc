@@ -797,6 +797,12 @@
        k
        (throw (ex-info (str "An order the library does not know: " k) {:order k}))))))
 
+(defn ^:no-doc sorted-by
+  "The items of `coll` in the order of `(sort-by f coll)`, with one call
+  of `f` for each item. `sort-by` calls `f` twice for each comparison."
+  [f coll]
+  (map second (sort-by first (map (juxt f identity) coll))))
+
 (defn episodes
   "The items of `feed` that `opts` selects, in the order it asks for:
 
@@ -815,7 +821,12 @@
   them and comes back as `[feed item]` pairs in one order, the inbox of
   an app; `:url` is then a function of the feed. The listening order is
   that of one show, so across shows each keeps its episodes together, in
-  the order the feeds are given."
+  the order the feeds are given.
+
+  With a `:limit` and an order of `orders`, the criteria read the items in
+  that order, and no more items than the limit needs. So a criterion that
+  reads the notes of an item, as `:text` does, reads those of a few
+  items."
   ([feed]
    (episodes feed {}))
   ([feed {:keys [limit] :as opts}]
@@ -828,11 +839,16 @@
          sort-key  (if (= :listening k)
                      (fn [[i f item]] [i (key f item)])
                      (fn [[_ f item]] (key f item)))
-         pairs     (->> (for [[i f] (map-indexed vector feeds), item (:rss/items f) :when (pred f item)]
-                          [i f item])
-                        (sort-by sort-key)
-                        (map rest))
-         pairs     (if limit (take limit pairs) pairs)]
+         meets?    (fn [[_ f item]] (pred f item))
+         all       (for [[i f] (map-indexed vector feeds), item (:rss/items f)]
+                     [i f item])
+         ;; a key of the app can need what the criteria select, so the
+         ;; order comes first with the keys of the library only
+         chosen    (if (and limit (keyword? k))
+                     (into [] (comp (filter meets?) (take limit)) (sorted-by sort-key all))
+                     (cond->> (sorted-by sort-key (filter meets? all))
+                       limit (take limit)))
+         pairs     (map rest chosen)]
      (vec (if (map? feed) (map second pairs) (map vec pairs))))))
 
 (defn- where-problem

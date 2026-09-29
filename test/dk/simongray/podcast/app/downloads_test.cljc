@@ -272,6 +272,18 @@
               :waiting  []}
              (parts {:rules (rules {:max-episodes 4 :default {:download? true :played 0}})}))))))
 
+(deftest room-after-many-downloads
+  (let [many  {:podcast/guid "feed-a"
+               :rss/items    (mapv #(item (str "m" %) (str "Episode " %) 1 100) (range 30000))}
+        state (-> (with-rules subscribed {:default {:download? true} :max-bytes 2000100 :make-room? true} {})
+                  (player/mark-played ["feed-a" "old"] (at 5)))
+        files {["feed-a" "old"] {:bytes 100 :at (at 2)}}
+        plan  (downloads/plan state [many] files now)]
+    (is (= 20001 (count (:download plan))) "20,000 files have room, and one more after the played file goes")
+    (is (= [[["feed-a" "old"] :room]] (mapv (juxt :id :reason) (:delete plan))))
+    (is (= 9999 (count (:waiting plan))))
+    (is (= #{:max-bytes} (set (map :limit (:waiting plan)))))))
+
 (deftest the-bytes-of-a-download
   (let [state   (with-rules subscribed {} {"feed-a" {:download? true :episodes {:limit 1}}})
         bare    (update-in show [:rss/items 0 :rss/enclosure] dissoc :length)

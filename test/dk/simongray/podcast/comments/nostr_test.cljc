@@ -382,6 +382,12 @@
     (is (= html (nostr-comments/note-html {"content" text "tags" []} {})) text))
   (doseq [text [nil "" "  \n" 5]]
     (is (nil? (nostr-comments/note-html {"content" text} {})) (pr-str text)))
+  (testing "a long content reads in a short time"
+    (let [lines (apply str (repeat 60000 "line\n"))
+          words (apply str (repeat 60000 "#x https://example.org/a "))]
+      (is (true? (= (str/trimr lines) (apply str (map :text (nostr-comments/parts {"content" lines}))))))
+      (is (= 1 (count (nostr-comments/hiccup {"content" lines}))))
+      (is (true? (= words (apply str (map :text (nostr-comments/parts {"content" words}))))))))
   (testing "the names that a note holds, for a reader"
     (let [ann-name (nostr/encode {:type :npub :public-key ann-key})
           bob-name (nostr/encode {:type :nprofile :public-key bob-key :relays [relay-a]})

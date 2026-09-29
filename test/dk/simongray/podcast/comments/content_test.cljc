@@ -130,7 +130,19 @@
     (doseq [source [nil {} {:html nil} {:html ""}]]
       (is (= [] (activitypub/parts source)) (pr-str source))
       (is (= [] (activitypub/hiccup source)) (pr-str source)))
-    (is (= [{:type :text :text "Plain text\nof two lines"}] (activitypub/parts {:html "Plain text\nof two lines"})))))
+    (is (= [{:type :text :text "Plain text\nof two lines"}] (activitypub/parts {:html "Plain text\nof two lines"}))))
+  (testing "a custom emoji after a shortcode that the post does not have"
+    (let [emoji {:type :emoji :shortcode "cat" :url "https://a.example/cat.png"}]
+      (is (= [{:type :text :text "x:dog:cat: "} (assoc emoji :text ":cat:") {:type :text :text " and "} (assoc emoji :text ":cat:")]
+             (activitypub/parts {:html "x:dog:cat: :cat: and :cat:" :tags [emoji]}))
+          "the emoji is where its shortcode stands alone")))
+  (testing "a long content reads in a short time"
+    (let [emoji {:type :emoji :shortcode "cat" :url "https://a.example/cat.png"}
+          lines (apply str (repeat 60000 "word\n"))
+          cats  (apply str (repeat 40000 ":cat: "))]
+      (is (true? (= (str/trimr lines) (text (activitypub/parts {:html lines})))))
+      (is (= 79999 (count (activitypub/parts {:html cats :tags [emoji]}))))
+      (is (= 79999 (count (drop 2 (first (activitypub/hiccup {:html cats :tags [emoji]} {:emoji? true})))))))))
 
 (deftest a-post-of-the-at-protocol
   (let [facet  (fn [start end feature] {"index" {"byteStart" start "byteEnd" end} "features" [feature]})

@@ -225,16 +225,18 @@
                            (search/episodes feed (merge ctx criteria)))])))
 
 (defn- catalogue
-  "The items of `feeds`, by the id of the episode."
-  [ctx feeds]
-  (into {}
-        (for [feed feeds
-              :let [feed-guid (guid-of ctx feed)]
-              :when feed-guid
-              item (:rss/items feed)
-              :let [item-guid (feed/item-guid item)]
-              :when item-guid]
-          [[feed-guid item-guid] item])))
+  "The items of `feeds` that the ids `ids` of episodes name, by id."
+  [ctx feeds ids]
+  (let [wanted (update-vals (group-by first ids) #(into #{} (map second) %))]
+    (into {}
+          (for [feed feeds
+                :let [feed-guid  (guid-of ctx feed)
+                      item-guids (get wanted feed-guid)]
+                :when (and feed-guid item-guids)
+                item (:rss/items feed)
+                :let [item-guid (feed/item-guid item)]
+                :when (and item-guid (contains? item-guids item-guid))]
+            [[feed-guid item-guid] item]))))
 
 (defn- free?
   "Whether the rules of `ctx` can delete the file `file` of the episode
@@ -286,21 +288,21 @@
   their ids. `selected` has the ids that each rule selects, by feed guid."
   [{:keys [files] :as ctx} selected]
   (let [selected (update-vals selected set)]
-    (for [[id file] (sort-by (comp pr-str key) files)
+    (for [[id file] (search/sorted-by (comp pr-str key) files)
           :when (free? ctx id file)
           :let [reason (expired ctx (get selected (first id)) id file)]
           :when reason]
       (gone id file reason))))
 
 (defn- spare
-  "The files of `files` that can go to make room for a download: those of
-  the played episodes that the rules of `ctx` can delete, the earliest
-  played first."
+  "The files of `files` that can go to make room for a download, as a
+  vector. They are those of the played episodes that the rules of `ctx`
+  can delete, the earliest played first."
   [{:keys [player] :as ctx} files]
   (->> files
        (filter (fn [[id file]] (and (player/played? player id) (free? ctx id file))))
-       (sort-by (fn [[id _]] [(or (played-ms (player/episode player id)) 0) (pr-str id)]))
-       (map (fn [[id file]] (gone id file :room)))))
+       (search/sorted-by (fn [[id _]] [(or (played-ms (player/episode player id)) 0) (pr-str id)]))
+       (mapv (fn [[id file]] (gone id file :room)))))
 
 (defn- dismissed?
   "Whether the listener took the episode `id` out of the inbox of `state`
@@ -344,19 +346,20 @@
   the front of the queue in its order, and then the episodes that the
   rules of the shows select, the newest first.
 
-  `selected` has the ids that each rule selects, by feed guid, and `items`
-  has the items of the feeds by id."
-  [{:keys [player rules] :as ctx} selected items]
+  `selected` has the ids that each rule selects, by feed guid, and `feeds`
+  have the items of the episodes."
+  [{:keys [player rules] :as ctx} selected feeds]
   (let [queued (front player (:queue rules))
-        newest (fn [id] [(- (or (some-> (get items id) resolve/published inst-ms) 0)) (pr-str id)])
         chosen (->> selected
                     (filter (fn [[feed-guid _]] (:download? (rule rules feed-guid))))
                     (mapcat val)
                     (remove (set queued))
-                    distinct
-                    (sort-by newest))]
+                    distinct)
+        items  (catalogue ctx feeds (concat queued chosen))
+        newest (fn [id] [(- (or (some-> (get items id) resolve/published inst-ms) 0)) (pr-str id)])]
     (concat (keep #(when (wanted? ctx %) (download ctx % (get items %) :queue)) queued)
-            (keep #(when (wanted? ctx %) (download ctx % (get items %) :rule)) chosen))))
+            (keep #(when (wanted? ctx %) (download ctx % (get items %) :rule))
+                  (search/sorted-by newest chosen)))))
 
 (defn- over
   "How far the files of `total` and one more file of `bytes` bytes are over
@@ -389,7 +392,7 @@
       (-> plan
           (update :download conj entry)
           (update :delete into clear)
-          (assoc :spare (drop (count clear) spare)
+          (assoc :spare (subvec spare (count clear))
                  :total {:episodes (- (inc (:episodes total)) (count clear))
                          :bytes    (- (+ (:bytes total) (:bytes entry))
                                       (reduce + (map #(:bytes % 0) clear)))}))
@@ -408,7 +411,7 @@
                   :spare    (spare ctx staying)
                   :total    {:episodes (count staying)
                              :bytes    (reduce + (map #(:bytes % 0) (vals staying)))}}]
-    (-> (reduce #(placed rules %1 %2) start (downloads ctx selected (catalogue ctx feeds)))
+    (-> (reduce #(placed rules %1 %2) start (downloads ctx selected feeds))
         (dissoc :spare :total))))
 
 (defn plan

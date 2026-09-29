@@ -175,6 +175,29 @@
   (is (thrown? #?(:clj Exception :cljs js/Error) (search/order :random)))
   (is (thrown? #?(:clj Exception :cljs js/Error) (search/order :recent))))
 
+(deftest a-limit-with-criteria
+  (testing "the first items of the selection, in each order"
+    (doseq [order (conj (vec search/orders) nil)
+            where [{} {:type "full"} {:duration [nil 1800]} {:not {:text #{"coffee"}}} {:status :unplayed}]
+            limit [0 1 2 10]
+            :let  [opts (cond-> {:where where :player listened} order (assoc :order order))]]
+      (is (= (vec (take limit (titles opts))) (titles (assoc opts :limit limit)))
+          (pr-str (dissoc opts :player) limit)))
+    (is (= (take 3 (search/episodes [show show] {:where {:type "full"}}))
+           (search/episodes [show show] {:where {:type "full"} :limit 3}))
+        "across feeds"))
+  (testing "the criteria read no more items than the limit needs"
+    (let [read (atom 0)
+          url  (fn [_] (swap! read inc) "https://x/feed.xml")]
+      (is (= ["Bonus"] (titles {:where {:status :unplayed} :player listened :url url :order :newest :limit 1})))
+      (is (= 1 @read))))
+  (testing "a key of the app gets only the items that the criteria select"
+    (is (= ["Season two, episode one" "Trailer"]
+           (titles {:where {:duration [nil 900]}
+                    :order (fn [_ item] (- (:itunes/duration item)))
+                    :limit 2}))
+        "the item without a duration has no key")))
+
 (deftest criteria-of-another-version
   (testing "what `episodes` takes is no problem"
     (doseq [criteria [{} {:where {:status :unplayed :season #{1 2}} :order :newest :limit 20} {:order :recent}

@@ -163,7 +163,13 @@
              (parts "#Blåbærgrød #日本語" [["t" "blåbærgrød"] ["t" "日本語"]]))))
     (testing "a long content reads in a short time"
       (let [content (apply str (repeat 20000 "nostr:npub1 https:// # "))]
-        (is (= content (apply str (map :text (parts content [])))))))))
+        (is (= content (apply str (map :text (parts content []))))))
+      (let [content (apply str (repeat 100000 "#x "))]
+        (is (true? (= [{:type :text :text content}] (parts content [["t" "other"]])))
+            "a word after a number sign that is no hashtag of the event"))
+      (let [content (apply str (repeat 30000 "https://example.org/a, "))]
+        (is (= 60000 (count (parts content []))))
+        (is (= #{{:type :link :url "https://example.org/a"} {:type :text :text ", "}} (set (parts content []))))))))
 
 (deftest the-filters-of-a-relay
   (let [event (signed ann {:kind 1111

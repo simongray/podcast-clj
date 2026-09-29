@@ -519,7 +519,9 @@ has the ids of the receipts. Such a note can have no content.
 
 A relay can send anything, so `fetch!` keeps only the events with a
 signature that is right. The report tells how many events it left out, as
-`:comments/unverified`. The check of a signature takes some milliseconds.
+`:comments/unverified`. The check of a signature takes about 1
+millisecond, so a thread of 500 notes takes about half a second. In a
+browser, the page waits during the checks of one answer of a relay.
 
 Nostr gives no web page for a note. The handle of an author is the public
 key, in the form `npub1…`. For a link, `nostr/uri` gives the `nostr:` URI

@@ -36,6 +36,29 @@
     (is (not= sig (secp256k1/sign secret message (apply str (repeat 32 "02")))) "other random data, another signature")
     (is (secp256k1/verify public message (secp256k1/sign secret message (apply str (repeat 32 "02")))))))
 
+(deftest numbers-of-each-pattern
+  (let [message (apply str (repeat 32 "ab"))
+        aux     (apply str (repeat 32 "01"))
+        highest "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140"]
+    (testing "two times the generator"
+      (is (= "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+             (secp256k1/public-key (secret-key 2)))))
+    (testing "a number and the order less the number have one public key"
+      (is (= (secp256k1/public-key (secret-key 1)) (secp256k1/public-key highest)))
+      (is (= (secp256k1/public-key (secret-key 2))
+             (secp256k1/public-key "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036413f"))))
+    (testing "a signature of a key with long runs of the same bit"
+      (doseq [secret [highest
+                      "8000000000000000000000000000000000000000000000000000000000000000"
+                      "00000000000000000000000000000000ffffffffffffffffffffffffffffffff"
+                      "5555555555555555555555555555555555555555555555555555555555555555"
+                      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      "7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0"]]
+        (let [public (secp256k1/public-key secret)
+              sig    (secp256k1/sign secret message aux)]
+          (is (secp256k1/verify public message sig) secret)
+          (is (not (secp256k1/verify public (str message "00") sig)) secret))))))
+
 (deftest what-is-no-key-and-no-signature
   (let [zero  (apply str (repeat 64 "0"))
         order "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"]
