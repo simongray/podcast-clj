@@ -249,7 +249,10 @@
 (def profiles
   "Required and recommended elements per profile, at channel and item level.
   A requirement is a model key, or a vector of a key and a predicate on its
-  value with a description."
+  value with a description.
+
+  They are the requirements of September 2026. `validate` takes a profile
+  by its name here, or as a map of requirements of this shape."
   {:psp-1 {:name    "Podcast Standards Project PSP-1"
            :channel {:required    [[:atom/links #(some (comp #{"self"} :rel) %) "atom:link rel=self"]
                                    :rss/title :rss/description :rss/link :rss/language
@@ -276,7 +279,7 @@
 
 (defn- profile-diagnostics
   [feed profile]
-  (let [{:keys [channel item]} (profiles profile)]
+  (let [{:keys [channel item]} (if (map? profile) profile (profiles profile))]
     (concat
      (requirement-diagnostics :error :validate/profile-required feed (:required channel) [])
      (requirement-diagnostics :warning :validate/profile-recommended feed (:recommended channel) [])
@@ -291,12 +294,15 @@
   `opts` names a `:profile` from `profiles`, that profile's requirements.
   `:registry` is the tag registry to check against, `spec/default` unless
   given. The feed is normalized first, so the shorthand `emit` takes
-  passes here too."
+  passes here too.
+
+  The `:profile` is a name in `profiles`, or a map of requirements of the
+  shape of its entries."
   ([feed]
    (validate feed {}))
   ([feed {:keys [profile registry] :or {registry spec/default} :as opts}]
    {:pre [(map? opts)]}
-   (when (and profile (not (contains? profiles profile)))
+   (when (and profile (not (map? profile)) (not (contains? profiles profile)))
      (throw (ex-info (str "Unknown profile " profile) {:profile profile :profiles (set (keys profiles))})))
    (let [registry (spec/registry registry)
          feed     (feed/normalize feed {:registry registry})]

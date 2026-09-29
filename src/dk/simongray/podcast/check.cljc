@@ -282,7 +282,10 @@
   "The rules that a check adds for a standard or a directory, under the
   profile names of `dk.simongray.podcast.feed.validate`: the size, the
   type, the colors and the file extension of the artwork of an
-  itunes:image, and the levels raised above those of the catalogue."
+  itunes:image, and the levels raised above those of the catalogue.
+
+  They are the rules of September 2026. `verdicts`, `report` and `feed!`
+  take a profile by its name here, or as a map of rules of this shape."
   {:psp-1 {:name    "Podcast Standards Project PSP-1"
            :artwork {:sizes [1400 3000] :types #{"image/jpeg" "image/png"} :colors #{:rgb :indexed}
                      :extension? true}}
@@ -293,10 +296,10 @@
 
 (defn- diagnostic
   "The diagnostic `id` about `file`, with the `details`, at the level of
-  the catalogue unless the `profile` raises it."
+  the catalogue unless the rules of the `profile` raise it."
   [{:keys [url path]} profile id & {:as details}]
   (merge {:id    id
-          :level (or (get-in profiles [profile :levels id]) (:level (diagnostics/by-id id)))
+          :level (or (get-in profile [:levels id]) (:level (diagnostics/by-id id)))
           :url   url
           :path  path}
          (present details)))
@@ -497,7 +500,7 @@
   the header of the image as it is shown, `image`: its type as its bytes
   or else the server give it."
   [{:keys [url] :as file} profile head {:keys [width height color] :as image}]
-  (let [{:keys [sizes types colors extension? alpha? last-modified?]} (get-in profiles [profile :artwork])
+  (let [{:keys [sizes types colors extension? alpha? last-modified?]} (:artwork profile)
         [least most] sizes
         type (or (:type image) (when (ok? head) (:type head)))
         ext  (extension url)]
@@ -600,24 +603,28 @@
 
 (defn verdicts
   "The diagnostics that the `facts` about `file`, from `files` and
-  `feed!`, call for, by the standards and by the rules of the `profile`
-  in `profiles`, if any. Each diagnostic has the `:url` of the file and
-  the `:path` of the element that names it."
+  `feed!`, call for, by the standards and by the rules of the `profile`,
+  if any. Each diagnostic has the `:url` of the file and the `:path` of
+  the element that names it.
+
+  `profile` is a name in `profiles`, or a map of rules of the shape of its
+  entries."
   [{:keys [kind] :as file} facts profile]
-  (->> (if (:error facts)
-         [(diagnostic file profile :check/unreachable :reason (:error facts))]
-         (case kind
-           :media                  (media-verdicts file profile facts)
-           :image                  (image-verdicts file profile facts)
-           (:transcript :chapters) (text-verdicts file profile facts)
-           :feed                   (feed-verdicts file profile facts)
-           []))
-       (mapv diagnostics/describe)))
+  (let [rules (if (map? profile) profile (get profiles profile))]
+    (->> (if (:error facts)
+           [(diagnostic file rules :check/unreachable :reason (:error facts))]
+           (case kind
+             :media                  (media-verdicts file rules facts)
+             :image                  (image-verdicts file rules facts)
+             (:transcript :chapters) (text-verdicts file rules facts)
+             :feed                   (feed-verdicts file rules facts)
+             []))
+         (mapv diagnostics/describe))))
 
 (defn report
   "The diagnostics of the checked `files`, each with its `:facts`, as
-  `feed!` gives them, by the rules of the `profile`: one check judged by
-  several profiles, with no request sent again."
+  `feed!` gives them, by the rules of the `profile`, as `verdicts` takes
+  it: one check judged by several profiles, with no request sent again."
   [files profile]
   (vec (mapcat #(verdicts % (:facts %) profile) files)))
 
@@ -630,7 +637,8 @@
       {:url         \"https://…\" ; the URL of the feed, which is checked too
        :credentials {…}         ; of a private feed, as http/fetch! takes them
        :items       10          ; the newest items whose files to check, or :all
-       :profile     :apple      ; a profile of `profiles` whose rules to add
+       :profile     :apple      ; a profile of `profiles` whose rules to add,
+                                ; or a map of rules
        :read?       false       ; read what the files hold: the format and duration
                                 ; of media files, transcripts and chapters whole
        :integrity?  false       ; fetch each file that has a podcast:integrity whole

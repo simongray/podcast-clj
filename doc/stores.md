@@ -243,12 +243,14 @@ platforms. It takes these options:
 | Option | Meaning | Default |
 |---|---|---|
 | `:credentials` | `{:username :password}`, or a function that returns them | none |
-| `:api` | `:gpodder` for the paths of gpodder.net under `/api/2`, or `:nextcloud` for those of the GPodder Sync app | `:gpodder` |
+| `:api` | `:gpodder` for the paths of gpodder.net under `/api/2`, `:nextcloud` for those of the GPodder Sync app, or a map of the paths of another server. [Services and their defaults](services.md#the-gpodder-api) gives the paths. | `:gpodder` |
 | `:device` | The id of the device on the server | the device of the state |
 | `:caption`, `:type` | What the server shows for the device. The type is desktop, laptop, mobile, server, tablet or other. | `"podcast-clj"`, `"other"` |
 | `:identities` | A function of no arguments that gives the ways to name shows and episodes, as `identities` makes them over the feeds of the app | none |
 | `:feed-guid`, `:feed-url`, `:episode-id`, `:episode-url` | Each of those ways by itself | none |
 | `:name` | The name of the backend | the host |
+| `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | The limits of the server and of the cursor, see [Services and their defaults](services.md#the-gpodder-api) | 1000, 10, 100 and 500 |
+| `:timeout-seconds` | The time that each request can take | 30 |
 | `:send` | A function that sends a request map, in place of `http/call!` | `http/call!` |
 
 What crosses, in each direction:
@@ -264,7 +266,7 @@ What crosses, in each direction:
 The cursor keeps the time of each list of changes at the server, the device
 that registered, the stamps of the entries at the last push, the URLs that
 the server rewrote, and the actions that name a feed that the app does not
-know yet, the last 500. A pull reports `:sync/unknown-episodes` when such
+know yet, the last `:max-pending`. A pull reports `:sync/unknown-episodes` when such
 actions wait. A push reports `:sync/unnamed-episodes` for the episodes that
 it could not name by a media URL, and `:sync/rejected-url` for a URL that
 the server refused.

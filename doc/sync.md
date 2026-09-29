@@ -457,7 +457,9 @@ entry at the last push, and a push sends the entries whose stamps differ.
 The servers differ, and the backend works with all of them:
 
 - The GPodder Sync app for Nextcloud has other paths, and keeps only play
-  actions. `:api :nextcloud` selects its paths.
+  actions. `:api :nextcloud` selects its paths. The paths of each API are
+  data, in `gpodder/apis`, so a server with other paths takes a map of its
+  paths as `:api`.
 - gpodder.net keeps one list of subscriptions for each device. To share
   the list, link the devices on the site, or give the backend the id of the
   device of the other app.
@@ -468,7 +470,9 @@ The servers differ, and the backend works with all of them:
   does no harm.
 - gpodder.net gives at most 1000 actions in an answer, so a pull reads them
   in pages. It takes more than 100 actions of one request in the background,
-  and reports no error of them, so a push sends 100 at most.
+  and reports no error of them, so a push sends 100 at most. These numbers
+  are the defaults of the backend, in `gpodder/default-limits`, and its
+  options replace them for a server with other limits.
 - Some servers want the session of a login, and others want Basic
   authentication on each request. The backend logs in at each step and
   sends both.

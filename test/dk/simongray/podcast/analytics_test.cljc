@@ -214,6 +214,27 @@
       "no prefix where OP3 answers with an error")
   (is (= "https://staging.op3.dev/e/cdn.example.com/e.mp3"
          (op3/prefix "https://cdn.example.com/e.mp3" {:origin "https://staging.op3.dev"})))
+  (testing "another instance of OP3"
+    (let [own {:origin "https://op3.example.org:8443/"}]
+      (is (= "https://op3.example.org:8443/e/cdn.example.com/e.mp3" (op3/prefix "https://cdn.example.com/e.mp3" own))
+          "an origin with a port and a slash at its end")
+      (is (= "https://op3.example.org:8443/e/cdn.example.com/e.mp3"
+             (op3/prefix (op3/prefix "https://cdn.example.com/e.mp3" own) own))
+          "one prefix, whatever the number of times")
+      (is (= "https://op3.example.org:8443/e/op3.dev/e/cdn.example.com/e.mp3"
+             (op3/prefix "https://op3.dev/e/cdn.example.com/e.mp3" own))
+          "the prefix of another instance is no prefix of this one")
+      (is (= "https://op3.example.org:8443/api/1/shows/abc" (:url (op3/request "t" :show {:show "abc"} own))))
+      (is (= "https://op3.dev/e/cdn.example.com/e.mp3?ref=https://op3.dev/e/x"
+             (op3/prefix "https://cdn.example.com/e.mp3?ref=https://op3.dev/e/x"))
+          "a prefix in the query is no prefix")))
+  (testing "an instance that takes other URLs"
+    (is (op3/accepts? "https://cdn.example.com/e.mp3"))
+    (is (not (op3/accepts? "https://media.test/e.mp3")))
+    (is (= "https://op3.example.org/e/media.test/e.mp3"
+           (op3/prefix "https://media.test/e.mp3" {:origin "https://op3.example.org" :accepts? (constantly true)})))
+    (is (nil? (op3/prefix "https://cdn.example.com/e.mp3" {:accepts? #(str/ends-with? % ".m4a")})))
+    (is (nil? (op3/prefix "ipfs://bafy/e.mp3" {:accepts? (constantly true)})) "a prefix is for http and https"))
   (let [feed (op3/with-prefix (podcast/parse (fixture "feeds/namespace-example.xml")))
         item (first (filter #(= "https://op3.dev/e/example.com/file-03.mp3" (get-in % [:rss/enclosure :url])) (:rss/items feed)))]
     (is (some? item) "the enclosure, without the guid of the example, which is no UUID")

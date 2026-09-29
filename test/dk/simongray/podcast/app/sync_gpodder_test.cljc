@@ -45,7 +45,17 @@
       (is (= [:post "https://cloud.example.org/index.php/apps/gpoddersync/subscription_change/create"] ((juxt :method :url) (nc :update-subscriptions))))
       (is (= [:get "https://cloud.example.org/index.php/apps/gpoddersync/episode_action?since=7"] ((juxt :method :url) (nc :episodes))))
       (is (= [:post "https://cloud.example.org/index.php/apps/gpoddersync/episode_action/create"] ((juxt :method :url) (nc :update-episodes))))
-      (is (thrown? #?(:clj Exception :cljs js/Error) (nc :login)) "the app has no login"))))
+      (is (thrown? #?(:clj Exception :cljs js/Error) (nc :login)) "the app has no login")))
+  (testing "the paths of a server with paths of its own"
+    (let [paths {:subscriptions "/sync/{user}/devices/{device}/shows" :episodes "/sync/{user}/actions"}
+          own   #(:url (gpodder/request % "https://sync.example.org/"
+                                        {:api paths :credentials {:username "si mon" :password "x"} :device "my/phone"}))]
+      (is (= "https://sync.example.org/sync/si%20mon/devices/my%2Fphone/shows?since=0" (own :subscriptions)))
+      (is (= "https://sync.example.org/sync/si%20mon/actions?since=0" (own :episodes)))
+      (is (thrown? #?(:clj Exception :cljs js/Error) (own :update-episodes)) "a call that the map leaves out"))
+    (is (= (:nextcloud gpodder/apis) (gpodder/paths :nextcloud)))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (gpodder/request :episodes root {:api :opodsync :credentials creds}))
+        "a name that apis does not have")))
 
 (def mygpo-actions
   "Episode actions as gpodder.net writes them: a time without a zone,
@@ -356,6 +366,54 @@
          (is (= "cloud" (:device (player/episode s [g-a "a1"])))
              "an action without a device, written by the backend")
          (is (= #{feed-a} (set (map :url (vals (player/subscriptions @state)))))))))))
+
+(deftest a-server-with-paths-and-limits-of-its-own
+  (let [calls   (atom [])
+        action  (fn [n] {"podcast" feed-a "episode" (str "https://a.example/" n ".mp3") "guid" (str "a" n) "action" "play"
+                         "timestamp" "2026-01-01T01:30:00" "position" n "total" 3600 "device" "other"})
+        ;; a server that gives two actions to a page, and whose time moves on
+        ;; with each page
+        page    (atom 0)
+        send    (fn [{:keys [method url body]}]
+                  (let [path (second (re-find #"^https://sync\.example\.org(/[^?]*)" url))]
+                    (swap! calls conj [method path (some-> body json/parse count)])
+                    {:status  200
+                     :headers {}
+                     :body    (json/write-str
+                               (case [method path]
+                                 [:get "/sync/simon/shows"]   {"add" [] "remove" [] "timestamp" 10}
+                                 [:get "/sync/simon/actions"] (let [n (swap! page inc)]
+                                                                {"actions"   [(action (* 2 n)) (action (inc (* 2 n)))]
+                                                                 "timestamp" (+ 1767230000 n)})
+                                 {"timestamp" 20 "update_urls" []}))}))
+        own     (gpodder/backend "https://sync.example.org"
+                                 {:credentials creds :send send :name "own"
+                                  :api         {:subscriptions        "/sync/{user}/shows"
+                                                :update-subscriptions "/sync/{user}/shows"
+                                                :episodes             "/sync/{user}/actions"
+                                                :update-episodes      "/sync/{user}/actions"}
+                                  :episode-url (fn [[_ item]] (str "https://a.example/" item ".mp3"))
+                                  :page-size   2
+                                  :max-pages   3
+                                  :batch-size  1})
+        state   (-> (phone)
+                    (player/progress [g-a "b1"] 10 3600 t1)
+                    (player/progress [g-a "b2"] 20 3600 t1))]
+    (run
+     #(async/then
+       (sync/sync! state [own] t2)
+       (fn [{s :state :keys [failed]}]
+         (is (nil? failed) (pr-str failed))
+         (testing "no login and no device, since the map has no path for them"
+           (is (= #{"/sync/simon/shows" "/sync/simon/actions"} (set (map second @calls)))))
+         (testing "a full page asks for the next, three pages at most"
+           (is (= 3 (count (filter #{[:get "/sync/simon/actions" nil]} @calls))))
+           (is (= [2 3 4 5 6 7]
+                  (sort (keep (fn [n] (:position (player/episode s [g-a (str "a" n)]))) (range 2 10))))))
+         (testing "one action to a request of the push"
+           (is (= [[:post "/sync/simon/shows" 2] [:post "/sync/simon/actions" 1] [:post "/sync/simon/actions" 1]
+                   [:post "/sync/simon/actions" 1]]
+                  (filter (comp #{:post} first) @calls)))))))))
 
 (deftest a-device-the-server-forgot
   (let [clock    (atom t2)

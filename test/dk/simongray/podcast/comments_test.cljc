@@ -11,10 +11,11 @@
                       [clojure.test.check.generators :as gen]
                       [clojure.test.check.properties :as prop]])
             [clojure.string :as str]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.comments :as comments]
+            [dk.simongray.podcast.comments.activitypub :as activitypub]
             [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
@@ -316,6 +317,47 @@
            (fn [thread]
              (is (= ["Dave"] (shape (comments/tree thread))))
              (is (= [:comments/through-api :comments/unreachable] (ids thread))))))))
+
+(deftest the-paths-of-statuses
+  (is (= [["https://podcastindex.social" "117294750060235480"]
+          ["https://podcastindex.social" "117294750060235480"]
+          ["https://gts.example.org" "01HXYZ"]
+          ["https://pleroma.example.org" "AbC123"]
+          nil
+          nil]
+         (map #(activitypub/api-status % activitypub/status-paths)
+              [root
+               (str root-id "/")
+               "https://gts.example.org/@ann/statuses/01HXYZ?x=1"
+               "https://pleroma.example.org/notice/AbC123#top"
+               "https://mk.spook.social/notes/arb76m33iw"
+               "not a URL"])))
+  (testing "a server in secure mode whose statuses have other paths"
+    (let [page   "https://notes.example.org/notes/abc123"
+          api    "https://notes.example.org/api/v1/statuses/abc123"
+          status {"id" "abc123" "uri" page "url" page "content" "<p>root</p>" "visibility" "public"
+                  "account" {"acct" "ann" "display_name" "Ann" "url" "https://notes.example.org/@ann"}}
+          log    (atom [])
+          send   (fn [{:keys [url]}]
+                   (swap! log conj url)
+                   (condp = url
+                     page                 {:status 401 :url url}
+                     api                  {:status 200 :url url :body (json/write-str status)}
+                     (str api "/context") {:status 200 :url url :body (json/write-str {"ancestors" [] "descendants" []})}
+                     {:status 404 :url url}))
+          fetch  (fn [opts] (comments/fetch! {:protocol "activitypub" :uri page} (merge {:send send} opts)))]
+      (run #(async/then
+             (fetch {})
+             (fn [refused]
+               (is (= [:comments/refused] (ids refused)) "no paths of podcast-clj tell the id of this status")
+               (is (= [page] @log))
+               (reset! log [])
+               (async/then
+                (fetch {:status-paths (conj activitypub/status-paths #"/notes/([0-9a-z]+)")})
+                (fn [thread]
+                  (is (= :mastodon-api (:via thread)))
+                  (is (= ["Ann"] (shape (comments/tree thread))))
+                  (is (= [page api (str api "/context")] @log))))))))))
 
 (deftest the-limits-and-reading-on
   (let [log (atom [])]

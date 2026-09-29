@@ -32,12 +32,37 @@
             [dk.simongray.podcast.time :as time]))
 
 (def sources
-  "The directories, by source, with their names and whether they need
-  credentials."
-  {:apple        {:name "Apple Podcasts" :credentials? false}
-   :fyyd         {:name "fyyd"           :credentials? false}
-   :gpodder      {:name "gpodder.net"    :credentials? false}
-   :podcastindex {:name "Podcast Index"  :credentials? true}})
+  "The directories that podcast-clj knows, by name. An entry tells the
+  `:api` that the directory speaks, its `:name` for a listener, whether it
+  needs credentials, and the URLs of the service.
+
+  `request`, `response` and `call!` take a source by its name here, or as
+  an entry of this shape. So an app reaches another service with the same
+  API:
+
+      (assoc (:fyyd sources) :id :mirror :root \"https://fyyd.example.org/0.2/\")
+
+  The `:id` of such an entry names the source in the results. Without an
+  `:id`, the name of its API does."
+  {:apple        {:api          :apple
+                  :name         "Apple Podcasts"
+                  :credentials? false
+                  :search       "https://itunes.apple.com/search"
+                  :lookup       "https://itunes.apple.com/lookup"
+                  :trending     "https://rss.marketingtools.apple.com/api/v2/"}
+   :fyyd         {:api          :fyyd
+                  :name         "fyyd"
+                  :credentials? false
+                  :root         "https://api.fyyd.de/0.2/"}
+   :gpodder      {:api          :gpodder
+                  :name         "gpodder.net"
+                  :credentials? false
+                  :root         "https://gpodder.net/"}
+   :podcastindex {:api          :podcastindex
+                  :name         "Podcast Index"
+                  :credentials? true
+                  :root         index/base-url
+                  :pages        "https://podcastindex.org/podcast/"}})
 
 (def endpoints
   "What every source answers: `:search` takes `:q` and `:limit`, with
@@ -46,6 +71,30 @@
   URL and for Apple may be several ids at once; `:trending` takes `:limit`
   and `:country` for Apple or `:language` for fyyd and the Podcast Index."
   #{:search :lookup :trending})
+
+(defn ^:no-doc source-id
+  "What names `source` in the results: its name in `sources`, or the `:id`
+  of an entry, else the name of its API."
+  [source]
+  (if (map? source)
+    (:id source (:api source))
+    source))
+
+(defn ^:no-doc entry
+  "The entry of `source`, a name in `sources` or an entry itself, with the
+  `:id` that `source-id` gives it. Throws for a source whose API
+  podcast-clj does not know."
+  [source]
+  (let [e (if (map? source) source (get sources source))]
+    (when-not (contains? sources (:api e))
+      (throw (ex-info (str "A directory the library does not know: " source) {:source source})))
+    (assoc e :id (source-id source))))
+
+(defn ^:no-doc below
+  "The URL of `path` below the URL `root`, whether `root` ends with a slash
+  or not."
+  [root path]
+  (str (str/replace (str root) #"(^|[^/])/+$" "$1") "/" path))
 
 (defn- get-request
   [url]
@@ -60,45 +109,50 @@
     code))
 
 (defn- apple-request
-  [endpoint {:keys [q id limit country]}]
+  [{:keys [search lookup trending]} endpoint {:keys [q id limit country]}]
   (case endpoint
-    :search   (get-request (str "https://itunes.apple.com/search?"
+    :search   (get-request (str search "?"
                                 (http/query-string {:media "podcast" :entity "podcast" :term q :limit limit
                                                      :country (some-> country name)})))
-    :lookup   (get-request (str "https://itunes.apple.com/lookup?"
+    :lookup   (get-request (str lookup "?"
                                 (http/query-string {:id (if (coll? id) (str/join "," id) id) :entity "podcast"})))
-    :trending (get-request (str "https://rss.marketingtools.apple.com/api/v2/" (country-code country)
-                                "/podcasts/top/" (long (or limit 25)) "/podcasts.json"))))
+    :trending (get-request
+               (below trending
+                      (str (country-code country) "/podcasts/top/" (long (or limit 25)) "/podcasts.json")))))
 
 (defn- fyyd-request
-  [endpoint {:keys [q id limit language]}]
-  (let [base "https://api.fyyd.de/0.2/"]
-    (case endpoint
-      :search   (get-request (str base "search/podcast?" (http/query-string {:term q :count limit})))
-      :lookup   (get-request (str base "podcast?" (http/query-string {:podcast_id id})))
-      :trending (get-request (str base "feature/podcast/hot?" (http/query-string {:count limit :language language}))))))
+  [{:keys [root]} endpoint {:keys [q id limit language]}]
+  (get-request
+   (below root (case endpoint
+                 :search   (str "search/podcast?" (http/query-string {:term q :count limit}))
+                 :lookup   (str "podcast?" (http/query-string {:podcast_id id}))
+                 :trending (str "feature/podcast/hot?"
+                                (http/query-string {:count limit :language language}))))))
 
 (defn- gpodder-request
-  [endpoint {:keys [q id limit]}]
-  (case endpoint
-    :search   (get-request (str "https://gpodder.net/search.json?" (http/query-string {:q q})))
-    :lookup   (get-request (str "https://gpodder.net/api/2/data/podcast.json?" (http/query-string {:url id})))
-    :trending (get-request (str "https://gpodder.net/toplist/" (long (or limit 25)) ".json"))))
+  [{:keys [root]} endpoint {:keys [q id limit]}]
+  (get-request
+   (below root (case endpoint
+                 :search   (str "search.json?" (http/query-string {:q q}))
+                 :lookup   (str "api/2/data/podcast.json?" (http/query-string {:url id}))
+                 :trending (str "toplist/" (long (or limit 25)) ".json")))))
 
 (defn- podcastindex-request
-  [endpoint {:keys [q id limit language]} credentials opts]
+  [{:keys [root id]} endpoint {:keys [q limit language] show :id} credentials opts]
   (when-not credentials
-    (throw (ex-info "The Podcast Index needs credentials under :credentials" {:source :podcastindex})))
-  (case endpoint
-    :search   (index/request credentials :search/by-term {:q q :max limit} opts)
-    :lookup   (if (guid/guid? (str id))
-                (index/request credentials :podcasts/by-guid {:guid id} opts)
-                (index/request credentials :podcasts/by-feed-id {:id id} opts))
-    :trending (index/request credentials :podcasts/trending {:max limit :lang language} opts)))
+    (throw (ex-info "The Podcast Index needs credentials under :credentials" {:source id})))
+  (let [opts (cond-> opts root (assoc :base-url root))]
+    (case endpoint
+      :search   (index/request credentials :search/by-term {:q q :max limit} opts)
+      :lookup   (if (guid/guid? (str show))
+                  (index/request credentials :podcasts/by-guid {:guid show} opts)
+                  (index/request credentials :podcasts/by-feed-id {:id show} opts))
+      :trending (index/request credentials :podcasts/trending {:max limit :lang language} opts))))
 
 (defn request
   "The request map for `endpoint` at `source` with `params`, see
-  `endpoints`: `{:method :get :url :headers}`. `opts` carry the
+  `endpoints`: `{:method :get :url :headers}`. `source` is a name in
+  `sources`, or an entry of the shape of its entries. `opts` carry the
   `:credentials` of the Podcast Index, `{:key :secret}`, and the
   `:auth-date` its requests are signed at, Unix seconds, which `call!`
   supplies (see `index/request`)."
@@ -106,15 +160,15 @@
    (request source endpoint params {}))
   ([source endpoint params {:keys [credentials] :as opts}]
    {:pre [(map? opts)]}
-   (when-not (contains? sources source)
-     (throw (ex-info (str "A directory the library does not know: " source) {:source source})))
-   (when-not (contains? endpoints endpoint)
-     (throw (ex-info (str "An endpoint the directories do not answer: " endpoint) {:endpoint endpoint})))
-   (case source
-     :apple        (apple-request endpoint params)
-     :fyyd         (fyyd-request endpoint params)
-     :gpodder      (gpodder-request endpoint params)
-     :podcastindex (podcastindex-request endpoint params credentials (select-keys opts [:auth-date])))))
+   (let [{:keys [api] :as e} (entry source)]
+     (when-not (contains? endpoints endpoint)
+       (throw (ex-info (str "An endpoint the directories do not answer: " endpoint) {:endpoint endpoint})))
+     (case api
+       :apple        (apple-request e endpoint params)
+       :fyyd         (fyyd-request e endpoint params)
+       :gpodder      (gpodder-request e endpoint params)
+       :podcastindex (podcastindex-request e endpoint params credentials
+                                           (select-keys opts [:auth-date]))))))
 
 (defn- present
   "`m` without the entries that say nothing: nil, a blank string or an
@@ -154,7 +208,6 @@
                 :itunes/explicit         (apple-explicit contentAdvisoryRating)
                 :itunes/categories       (vec (for [g genres :when (not= "Podcasts" g)] {:text g}))
                 :rss/pub-date            (some-> releaseDate time/parse-iso8601)
-                :directory/source        :apple
                 :directory/id            (some-> collectionId str)
                 :directory/url           collectionViewUrl
                 :directory/episode-count trackCount
@@ -170,7 +223,6 @@
             :itunes/image      (when artworkUrl100 {:href artworkUrl100})
             :itunes/explicit   (apple-explicit contentAdvisoryRating)
             :itunes/categories (vec (for [{:strs [name]} genres :when (not= "Podcasts" name)] {:text name}))
-            :directory/source  :apple
             :directory/id      id
             :directory/url     url
             :directory/raw     r}))
@@ -187,7 +239,6 @@
                 :itunes/image            (when-let [href (or imgURL layoutImageURL)] {:href href})
                 :rss/pub-date            (some-> lastpub time/parse-iso8601)
                 :podcast/funding         (when-not (str/blank? (str paymentURL)) [{:url paymentURL}])
-                :directory/source        :fyyd
                 :directory/id            id
                 :directory/url           url_fyyd
                 :directory/episode-count episode_count
@@ -203,7 +254,6 @@
                 :rss/description        description
                 :rss/link               website
                 :itunes/image           (when-let [href (or logo_url scaled_logo_url)] {:href href})
-                :directory/source       :gpodder
                 :directory/id           url
                 :directory/url          mygpo_link
                 :directory/subscribers  subscribers
@@ -212,12 +262,11 @@
 
 (defn- podcastindex-show
   "A show from the feed map `m` that `index/response` read, its `:index/*`
-  keys kept."
-  [m]
+  keys kept. Its page is below `pages`, the URL of the pages of the shows."
+  [m pages]
   (-> (present (assoc m
-                      :directory/source        :podcastindex
                       :directory/id            (:index/id m)
-                      :directory/url           (some->> (:index/id m) (str "https://podcastindex.org/podcast/"))
+                      :directory/url           (when pages (some->> (:index/id m) (str pages)))
                       :directory/episode-count (:index/episode-count m)
                       :directory/raw           (:index/raw m)))
       (with-feed-url (:index/url m))))
@@ -231,22 +280,25 @@
   "The shows in the JSON `body` that `source` answered for `endpoint`, a
   vector: one for a lookup, in chart order with `:directory/rank` for
   trending, empty when the body reports a failure. Throws only when the
-  body is not JSON at all."
+  body is not JSON at all. `source` is as `request` takes it, and each
+  show names it under `:directory/source`."
   [source endpoint body]
-  (let [shows (if (= :podcastindex source)
+  (let [{:keys [api id pages]} (entry source)
+        shows (if (= :podcastindex api)
                 (let [{:keys [status feed feeds]} (index/response body)]
                   (when status
-                    (map podcastindex-show (or feeds (when feed [feed])))))
+                    (map #(podcastindex-show % pages) (or feeds (when feed [feed])))))
                 (let [raw (json/read-str body)]
-                  (case source
+                  (case api
                     :apple   (if (= :trending endpoint)
                                (map apple-chart-show (get-in raw ["feed" "results"]))
                                (map apple-show (filter #(= "podcast" (get % "kind")) (get raw "results"))))
                     :fyyd    (when (= 1 (get raw "status"))
                                (let [data (get raw "data")]
                                  (map fyyd-show (if (map? data) [data] data))))
-                    :gpodder (map gpodder-show (if (map? raw) [raw] raw)))))]
-    (vec (if (= :trending endpoint) (ranked shows) shows))))
+                    :gpodder (map gpodder-show (if (map? raw) [raw] raw)))))
+        named (map #(assoc % :directory/source id) shows)]
+    (vec (if (= :trending endpoint) (ranked named) named))))
 
 (defn- name-of
   "The title and author of `show`, lower-cased: what tells shows apart when
@@ -322,12 +374,13 @@
       {:pre [(map? opts)]}
       (let [opts                  (cond-> opts (not (:auth-date opts)) (assoc :auth-date (quot (System/currentTimeMillis) 1000)))
             req                   (assoc (request source endpoint params opts) :timeout-seconds (:timeout-seconds opts 15))
-            {:keys [status body]} (http/call! req)]
+            {:keys [status body]} (http/call! req)
+            id                    (source-id source)]
         (cond
           (<= 200 status 299) (response source endpoint body)
           (= 404 status)      []
-          :else               (throw (ex-info (str (name source) " answered " status)
-                                              {:type ::failed :source source :status status})))))))
+          :else               (throw (ex-info (str (name id) " answered " status)
+                                              {:type ::failed :source id :status status})))))))
 
 #?(:clj
    (defn- completed!
@@ -335,8 +388,8 @@
      leaves out fetched: Apple's names no feed, so its entries are looked
      up by id, all in one request, for `combine` to fold in."
      [source endpoint shows opts]
-     (if (and (= :apple source) (= :trending endpoint) (seq shows))
-       (concat shows (call! :apple :lookup {:id (keep :directory/id shows)} opts))
+     (if (and (= :apple (:api (entry source))) (= :trending endpoint) (seq shows))
+       (concat shows (call! source :lookup {:id (keep :directory/id shows)} opts))
        shows)))
 
 #?(:clj
@@ -349,7 +402,7 @@
                                      (async/attempt #(completed! source endpoint (call! source endpoint params opts) opts)))
                                    sources))
            failed  (into {} (for [[source {:keys [error]}] (map vector sources answers) :when error]
-                              [source (async/explain error)]))]
+                              [(source-id source) (async/explain error)]))]
        (cond-> {:results (combine (mapcat :value answers))}
          (seq failed) (assoc :failed failed)))))
 
@@ -359,7 +412,8 @@
      `{:results [...] :failed {...}}`: one entry per show, the ones most
      sources agree on first, and what any source that failed said. `opts`:
 
-         {:sources         [:apple :fyyd]   ; default: every source without credentials,
+         {:sources         [:apple :fyyd]   ; each a name in `sources` or an entry.
+                                            ; default: every source without credentials,
                                             ; plus the Podcast Index when given them
           :limit           10               ; per source
           :country         \"dk\"             ; Apple's store

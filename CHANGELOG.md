@@ -208,3 +208,12 @@
   both platforms. On the JVM, `http/call!` fetches hosts with letters
   outside ASCII. `json/read-str` refuses JSON nested deeper than the stack reaches.
   On the JVM, it also refuses a run of more than a thousand digits.
+- What podcast-clj knows about one service is a default that an app
+  replaces with an option: the URLs of each directory, the root of the
+  Podcast Index API, the Podping service for hosts, the instance of OP3
+  and the URLs that it takes, the paths and the limits of the gpodder API,
+  and the paths of statuses for the Mastodon API. A source of `directory`,
+  the `:api` of a gpodder backend and a `:profile` are a name or an entry
+  as data, so the paths of the GPodder Sync app for Nextcloud are now data
+  in `gpodder/apis`. `doc/services.md` lists the defaults. `op3/prefix`
+  puts one prefix on a URL for an instance of OP3 whose origin has a port.

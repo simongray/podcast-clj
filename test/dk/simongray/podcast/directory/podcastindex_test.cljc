@@ -41,7 +41,15 @@
   (is (= "https://api.podcastindex.org/api/1.0/value/byepisodeguid?podcastguid=a94f&episodeguid=x%231"
          (:url (index/request credentials :value/by-episode-guid {:podcastguid "a94f" :episodeguid "x#1"} {:auth-date 1}))))
   (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
-               (index/request credentials :nope {} {:auth-date 1}))))
+               (index/request credentials :nope {} {:auth-date 1})))
+  (testing "another service with the same API"
+    (is (= ["https://index.example.org/api/1.0/podcasts/byguid?guid=a94f"
+            "https://index.example.org/api/1.0/podcasts/byguid?guid=a94f"]
+           (for [root ["https://index.example.org/api/1.0" "https://index.example.org/api/1.0/"]]
+             (:url (index/request credentials :podcasts/by-guid {:guid "a94f"} {:auth-date 1 :base-url root})))))
+    (is (every? #(str/starts-with? (:url %) "https://index.example.org/api/1.0/value/")
+                (index/remote-value-requests credentials {:feed-guid "a94f" :item-guid "x"}
+                                             {:auth-date 1 :base-url "https://index.example.org/api/1.0/"})))))
 
 (deftest a-feed-from-the-index
   (let [{:keys [status description query feed]} (index/response podcast-body)]

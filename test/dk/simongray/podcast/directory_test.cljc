@@ -73,6 +73,37 @@
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :episodes {:q "x"})))
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :trending {:country "Denmark"})))))
 
+(deftest another-service
+  (let [mirror (assoc (:fyyd directory/sources) :id :mirror :name "A mirror" :root "https://fyyd.example.org/0.2")
+        own    (assoc (:gpodder directory/sources) :root "https://podcasts.example.org/")
+        index  (assoc (:podcastindex directory/sources) :id "index-2" :root "https://index.example.org/api/1.0/" :pages nil)
+        charts (assoc (:apple directory/sources) :trending "https://charts.example.org/api/v2")]
+    (testing "the requests go to the URLs of the entry"
+      (is (= "https://fyyd.example.org/0.2/search/podcast?term=x&count=5"
+             (:url (directory/request mirror :search {:q "x" :limit 5}))))
+      (is (= "https://podcasts.example.org/toplist/3.json" (:url (directory/request own :trending {:limit 3}))))
+      (is (= "https://index.example.org/api/1.0/podcasts/trending?max=3"
+             (:url (directory/request index :trending {:limit 3} {:credentials {:key "K" :secret "S"} :auth-date 1}))))
+      (is (= "https://charts.example.org/api/v2/dk/podcasts/top/10/podcasts.json"
+             (:url (directory/request charts :trending {:country :dk :limit 10}))))
+      (is (= "https://itunes.apple.com/lookup?id=1&entity=podcast" (:url (directory/request charts :lookup {:id 1})))
+          "what the entry leaves as it was"))
+    (testing "the shows name the source by the id of the entry, or else by its API"
+      (is (= [:mirror] (distinct (map :directory/source (directory/response mirror :search fyyd-search)))))
+      (is (= [:gpodder] (distinct (map :directory/source (directory/response own :search gpodder-search)))))
+      (let [[show] (directory/response index :search index-search)]
+        (is (= "index-2" (:directory/source show)))
+        (is (nil? (:directory/url show)) "an entry without the pages of the shows")))
+    (testing "and the entries of two services combine as two sources"
+      (let [[show] (directory/combine (concat (directory/response :fyyd :search fyyd-search)
+                                              (directory/response mirror :search fyyd-search)))]
+        (is (= {:fyyd 61003 :mirror 61003} (:directory/sources show)))))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request {:api :spotify :root "https://x/"} :search {:q "x"}))
+        "an API that podcast-clj does not know")
+    #?(:clj (testing "a source that fails is named by its id"
+              (with-redefs [http/call! (fn [_] {:status 500 :body "down"})]
+                (is (= [:mirror] (keys (:failed (directory/search! "x" {:sources [mirror]}))))))))))
+
 (deftest apple
   (testing "search results"
     (let [shows (directory/response :apple :search apple-search)

@@ -100,6 +100,8 @@ Documentation
   contain.
 - [Sync stores and documents](doc/stores.md): the store contract, the sync
   document format, and where some providers keep their stores.
+- [Services and their defaults](doc/services.md): what podcast-clj knows
+  about each service, and the option that replaces it.
 - [Architecture](doc/architecture.md): the design of podcast-clj, and the
   reasons for it.
 - [Syncing](doc/sync.md): the design of the sync between devices.

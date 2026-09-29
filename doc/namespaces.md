@@ -39,6 +39,12 @@ follow, and one line for each namespace. The docstrings give the details.
 - **Requests are maps.** The directories, the Podcast Index, Podping and the
   WebDAV store build requests as `{:method :url :headers :body}`, and pure
   functions read the answers. Any HTTP client can send the requests.
+- **What podcast-clj knows about one service is a default.** A public var
+  holds the address, the paths, the limits or the rules of the service as
+  data. An option of the same name replaces it for one call. Where an
+  option takes the name of an entry, such as `:profile :apple`, it also
+  takes an entry as data. [Services and their defaults](services.md) lists
+  the defaults.
 - **The code is `.cljc`.** Each namespace runs on the JVM and in
   ClojureScript, except the namespaces and functions that the table marks
   "JVM". In ClojureScript, a function that sends requests returns a promise.

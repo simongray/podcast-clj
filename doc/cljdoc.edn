@@ -4,6 +4,7 @@
                    ["The feed model" {:file "doc/tags.md"}]
                    ["Diagnostics" {:file "doc/diagnostics.md"}]
                    ["Sync stores and documents" {:file "doc/stores.md"}]
+                   ["Services and their defaults" {:file "doc/services.md"}]
                    ["Architecture" {:file "doc/architecture.md"}]
                    ["Syncing" {:file "doc/sync.md"}]
                    ["Changelog" {:file "CHANGELOG.md"}]]}

@@ -65,7 +65,18 @@
         (is (= [:atom/links] (:path (first (filter (comp #{:validate/profile-required} :id) v)))))
         (is (= 3 (:validate/profile-recommended (ids v))))))
     (testing "and against Apple"
-      (is (validate/valid? f {:profile :apple})))))
+      (is (validate/valid? f {:profile :apple})))
+    (testing "and against the requirements that an app gives"
+      (let [own {:name    "A directory of our own"
+                 :channel {:required [:podcast/guid :itunes/new-feed-url] :recommended [:podcast/locked]}
+                 :item    {:required [:podcast/transcripts]}}
+            v   (validate/validate f {:profile own})]
+        (is (= [[:itunes/new-feed-url]] (map :path (filter (comp #{:validate/profile-required} :id) v)))
+            "what the channel lacks")
+        (is (nil? (:validate/profile-recommended (ids v))))
+        (is (= (validate/validate f {:profile :apple})
+               (validate/validate f {:profile (:apple validate/profiles)}))
+            "an entry of profiles is a profile")))))
 
 (deftest unknown-elements-are-reported
   (let [f (podcast/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><mystery/></channel></rss>")

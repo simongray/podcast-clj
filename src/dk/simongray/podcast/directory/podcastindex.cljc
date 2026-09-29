@@ -21,7 +21,9 @@
             [dk.simongray.podcast.http :as http]))
 
 (def base-url
-  "The root of the API's URLs; `endpoints` are relative to it."
+  "The root of the URLs of the API. The paths of `endpoints` are below it.
+  `request` uses it, unless its options give the root of another service
+  with the same API as `:base-url`."
   "https://api.podcastindex.org/api/1.0/")
 
 (def endpoints
@@ -89,16 +91,19 @@
   `params`, authenticated with `credentials` (`:key`, `:secret`, optional
   `:user-agent`) at the `:auth-date` in `opts`, Unix seconds, which the
   API accepts within a few minutes of its own clock; the caller reads the
-  clock, as `call!` does."
+  clock, as `call!` does.
+
+  The request goes to `base-url`, or to the `:base-url` of `opts`."
   [credentials endpoint params {:keys [auth-date] :as opts}]
   {:pre [(map? opts)]}
   (when-not auth-date
     (throw (ex-info "A request is signed at an :auth-date, Unix seconds" {:endpoint endpoint})))
   (let [path (or (endpoints endpoint)
                  (throw (ex-info "Unknown Podcast Index endpoint" {:endpoint endpoint})))
+        root (str/replace (:base-url opts base-url) #"(^|[^/])/+$" "$1")
         qs   (http/query-string params)]
     {:method  :get
-     :url     (str base-url path (when (seq qs) (str "?" qs)))
+     :url     (str root "/" path (when (seq qs) (str "?" qs)))
      :headers (auth-headers credentials auth-date)}))
 
 (defn- ->number
@@ -335,30 +340,39 @@
 
 (defn call!
   "Send `endpoint` with `params` for `credentials`, signed now, and read the
-  answer with `response`.
+  answer with `response`. `opts` give the `:base-url` of `request`.
 
   The JVM sends it with the library's HTTP client, and ClojureScript with
   the platform's `fetch`, returning a js/Promise of the result. In a
   browser, the API's CORS policy decides whether the call is allowed at
   all."
-  [credentials endpoint params]
-  (let [req (request credentials endpoint params {:auth-date (now-seconds)})]
-    #?(:clj  (-> req http/call! :body response)
-       :cljs (-> (js/fetch (:url req) (clj->js {:headers (:headers req)}))
-                 (.then (fn [res] (.text res)))
-                 (.then response)))))
+  ([credentials endpoint params]
+   (call! credentials endpoint params {}))
+  ([credentials endpoint params opts]
+   (let [req (request credentials endpoint params (assoc opts :auth-date (now-seconds)))]
+     #?(:clj  (-> req http/call! :body response)
+        :cljs (-> (js/fetch (:url req) (clj->js {:headers (:headers req)}))
+                  (.then (fn [res] (.text res)))
+                  (.then response))))))
 
 #?(:clj
    (defn remote-value!
-     "`remote-value` with the library's HTTP client, signed now."
-     [credentials remote-item]
-     (remote-value credentials remote-item http/call! {:auth-date (now-seconds)})))
+     "`remote-value` of `remote-item` for `credentials`, sent with
+     `http/call!` and signed now. `opts` give the `:base-url` of `request`."
+     ([credentials remote-item]
+      (remote-value! credentials remote-item {}))
+     ([credentials remote-item opts]
+      (remote-value credentials remote-item http/call! (assoc opts :auth-date (now-seconds))))))
 
 #?(:clj
    (defn remote-item!
-     "`remote-item` with the library's HTTP client, signed now."
-     [credentials remote-item]
-     (remote-item credentials remote-item http/call! {:auth-date (now-seconds)})))
+     "What `remote-item` points at for `credentials`, as the function
+     `remote-item` gives it, sent with `http/call!` and signed now. `opts`
+     give the `:base-url` of `request`."
+     ([credentials remote-item]
+      (remote-item! credentials remote-item {}))
+     ([credentials remote-item opts]
+      (remote-item credentials remote-item http/call! (assoc opts :auth-date (now-seconds))))))
 
 (comment
   (request {:key "K" :secret "S"} :search/by-term {:q "podcasting 2.0" :max 5} {:auth-date 1700000000})

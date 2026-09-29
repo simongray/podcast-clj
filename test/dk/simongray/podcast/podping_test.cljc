@@ -121,7 +121,13 @@
     (is (= :get (:method r)))
     (is (= "https://podping.cloud/?url=https%3A%2F%2Fexample.com%2Ffeed.xml&reason=live&medium=podcast" (:url r)))
     (is (= "secret-token" (get-in r [:headers "Authorization"])))
-    (is (str/includes? (:url (podping/notify-request "t" "https://x/f")) "reason=update&medium=podcast"))))
+    (is (str/includes? (:url (podping/notify-request "t" "https://x/f")) "reason=update&medium=podcast")))
+  (testing "another service that takes the same call"
+    (is (= "https://ping.example.org/notify?url=https%3A%2F%2Fx%2Ff&reason=update&medium=podcast"
+           (:url (podping/notify-request "t" "https://x/f" {:gateway "https://ping.example.org/notify"}))))
+    (is (= "https://ping.example.org/?key=1&url=https%3A%2F%2Fx%2Ff&reason=update&medium=podcast"
+           (:url (podping/notify-request "t" "https://x/f" {:gateway "https://ping.example.org/?key=1"})))
+        "a query of its own stays")))
 
 #?(:clj
    (defn- node-answering

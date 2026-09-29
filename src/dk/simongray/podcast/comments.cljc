@@ -111,9 +111,11 @@
   The root post comes first. Then come the posts and the collections of
   replies nearest to it, and then their authors. They ask for no more
   posts than the `:max-comments` of `opts` or `default-limits` allows. For
-  the AT Protocol, they go to the `:appview` of `opts`. A server that did
-  not answer in time, or that answered 429, gets no more requests. Each
-  request is a request map for `http/call!`, and each URL comes once."
+  the AT Protocol, they go to the `:appview` of `opts`. For the Mastodon
+  API, the `:status-paths` of `opts` replace `activitypub/status-paths`. A
+  server that did not answer in time, or that answered 429, gets no more
+  requests. Each request is a request map for `http/call!`, and each URL
+  comes once."
   ([thread]
    (requests thread {}))
   ([thread opts]
@@ -314,6 +316,7 @@
   `default-limits` for the limits:
 
       {:appview         \"https://…\"  ; to read AT Protocol threads from
+       :status-paths    [#\"…\"]       ; in place of activitypub/status-paths
        :max-comments    100          ; ask for no more posts after this many
        :max-requests    300          ; start no round after this many
        :max-seconds     60           ; start no request after this long

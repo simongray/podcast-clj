@@ -162,6 +162,19 @@
       (is (= #{:check/artwork-type} (ids artwork (assoc-in square-jpeg [:image :process] :lossless) :apple)))
       (is (= #{:check/artwork-type} (ids artwork (update square-jpeg :image assoc :process :extended :bits 12) :apple))
           "JPEGs that browsers do not decode")))
+  (testing "the rules of a directory that the app gives"
+    (let [own   {:name    "A directory of our own"
+                 :artwork {:sizes [3000 6000] :types #{"image/webp"}}
+                 :levels  {:check/artwork-type :warning}}
+          small (assoc-in (assoc-in square-jpeg [:image :width] 1400) [:image :height] 1400)]
+      (is (= #{} (ids artwork small :apple)))
+      (is (= #{[:check/artwork-size :error] [:check/artwork-type :warning]}
+             (set (map (juxt :id :level) (check/verdicts artwork small own))))
+          "with a level of its own")
+      (is (= #{:check/artwork-size}
+             (ids artwork small (assoc-in (:apple check/profiles) [:artwork :sizes] [3000 6000])))
+          "the rules of Apple Podcasts with another size")
+      (is (= #{} (ids artwork small :no-such-profile)) "a name that profiles does not have adds no rules")))
   (testing "a podcast:image against its attributes"
     (let [image {:kind :image :url "https://a/i.webp" :path [] :declared {:sources #{:podcast}}}
           facts (fn [w h] {:head {:status 200 :type "image/webp"} :image {:type "image/webp" :width w :height h :color :rgb}})

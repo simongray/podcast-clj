@@ -103,6 +103,12 @@ The [conventions](namespaces.md#conventions) of the API have these reasons:
 - **Requests as maps.** A browser can send a request map with `fetch`, and
   the tests can run on recorded answers. The JVM client in `http` is one way
   to send the requests, not the only way.
+- **Services as defaults.** A service can close, change its owner, or get
+  a copy at another address. A directory can change its rules. The app
+  then gives the new address or the new rules as data, and it needs no new
+  version of podcast-clj. A fact that a specification defines does not
+  change with a service, so it is a constant in the code. [Services and
+  their defaults](services.md) lists the defaults.
 
 
 ## XML as Hiccup

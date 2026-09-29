@@ -25,58 +25,70 @@
             [dk.simongray.podcast.xml :as xml]))
 
 (def origin
-  "The origin of OP3. Another instance of OP3 has its own, which the
-  options of the functions take as `:origin`."
+  "The origin of OP3. The functions use it, unless their options give the
+  origin of another instance of OP3 as `:origin`."
   "https://op3.dev")
+
+(defn ^:no-doc instance
+  "The origin of the instance of OP3 that `opts` name, else `origin`,
+  without a slash at its end."
+  [opts]
+  (str/replace (:origin opts origin) #"(^|[^/])/+$" "$1"))
 
 (defn prefixed?
   "Whether the URL `url` goes through OP3, at the `:origin` of `opts`: its
-  prefix is in the URL, also behind other prefixes."
+  prefix is in the URL before the query, also behind other prefixes."
   ([url]
    (prefixed? url {}))
   ([url opts]
-   (let [host  (http/host (:origin opts origin))
-         lower (str/lower-case (str url))]
-     (boolean (and host (some #(or (str/starts-with? lower %) (str/includes? lower (str "/" %)))
-                              [(str host "/e/") (str host "/e,")]))))))
+   (let [site  (str/lower-case (str/replace (instance opts) #"(?i)^https?://" ""))
+         lower (str/lower-case (first (str/split (str url) #"[?#]" 2)))]
+     (boolean (some #(or (str/starts-with? lower %) (str/includes? lower (str "/" %)))
+                    [(str site "/e/") (str site "/e,")])))))
+
+(defn accepts?
+  "Whether OP3 takes the URL `url` behind its prefix, as its server did in
+  September 2026. `prefix` asks this, unless its options give another
+  predicate of a URL as `:accepts?`.
+
+  OP3 answers a URL that it does not take with an error, so the episode
+  behind the prefix does not play. It takes an http or https URL with a
+  path and without a user name. It does not take a domain that is an IPv6
+  address, that has no dot, or that RFC 2606 keeps for tests, such as
+  example.test."
+  [url]
+  (boolean
+   (when-let [[_ domain port] (re-matches #"(?i)https?://([a-z0-9.-]+)(?::(\d{1,5}))?/.+"
+                                          (str url))]
+     (and (not (re-find #"^[.-]|-$|\.\." domain))
+          (str/includes? domain ".")
+          (not (contains? #{"test" "example" "invalid" "localhost"}
+                          (peek (str/split (str/lower-case domain) #"\."))))
+          (or (nil? port) (<= 1 (parse-long port) 65535))))))
 
 (defn- target
-  "The scheme of the URL `url` and the rest of it, when OP3 redirects to
-  it: `[\"https\" \"cdn.example.com/episode.mp3\"]`. Nil for a URL that
-  OP3 answers with an error, since such an episode does not play."
+  "The scheme of the http or https URL `url`, and the rest of the URL:
+  `[\"https\" \"cdn.example.com/episode.mp3\"]`. Nil for another URL."
   [url]
-  (when-let [[_ scheme tail] (re-matches #"(?i)(https?)://(.*)" (str url))]
-    (let [slash             (str/index-of tail "/")
-          [_ hostname port] (when slash (re-matches #"([a-zA-Z0-9.-]+)(?::(\d{1,5}))?" (subs tail 0 slash)))
-          tld               (some-> hostname str/lower-case (str/split #"\.") peek)]
-      (when (and hostname
-                 ;; a path longer than /
-                 (< (inc slash) (count tail))
-                 (not (re-find #"^[.-]|-$|\.\." hostname))
-                 (str/includes? hostname ".")
-                 ;; the names that RFC 2606 keeps for tests and examples
-                 (not (contains? #{"test" "example" "invalid" "localhost"} tld))
-                 (or (nil? port) (<= 1 (parse-long port) 65535)))
-        [(str/lower-case scheme) tail]))))
+  (when-let [[_ scheme tail] (re-matches #"(?i)(https?)://(.+)" (str url))]
+    [(str/lower-case scheme) tail]))
 
 (defn prefix
   "The URL `url` with the prefix of OP3 in front, such as
   https://op3.dev/e/cdn.example.com/episode.mp3, so that OP3 counts the
-  requests for it. `opts` give the `:podcast-guid` of the show, which helps
-  OP3 find the show, and the `:origin` of another instance of OP3.
+  requests for it. Nil for a URL that OP3 does not take, as `accepts?`
+  tells. A URL that goes through OP3 already stays as it is.
 
-  A URL that goes through OP3 already stays as it is. Nil for a URL that
-  OP3 answers with an error, since such an episode does not play. These
-  are URLs that are not http or https, or that have a user name or no
-  path. The same goes for hosts that are IPv6 addresses, names without a
-  dot or names of RFC 2606, such as example.test."
+  `opts` give the `:podcast-guid` of the show, which helps OP3 find the
+  show. For another instance of OP3, they give its `:origin`, and the
+  predicate `:accepts?` when that instance takes other URLs."
   ([url]
    (prefix url {}))
   ([url {:keys [podcast-guid] :as opts}]
    (if (prefixed? url opts)
      url
-     (when-let [[scheme tail] (target url)]
-       (str (:origin opts origin) "/e"
+     (when-let [[scheme tail] (when ((:accepts? opts accepts?) url) (target url))]
+       (str (instance opts) "/e"
             (when (guid/guid? podcast-guid) (str ",pg=" (str/lower-case podcast-guid)))
             "/" (when (= "http" scheme) "http://") tail)))))
 
@@ -156,7 +168,7 @@
                          (throw (ex-info (str "A call that the API of OP3 does not have: " endpoint) {:endpoint endpoint})))
          q             (query params)]
      {:method  :get
-      :url     (str (:origin opts origin) "/api/1/" path (when (seq q) (str "?" q)))
+      :url     (str (instance opts) "/api/1/" path (when (seq q) (str "?" q)))
       :headers {"Authorization" (http/authorization {:token token}) "User-Agent" http/user-agent}})))
 
 (defn- record

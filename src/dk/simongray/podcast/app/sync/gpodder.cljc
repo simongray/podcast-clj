@@ -21,34 +21,67 @@
             [dk.simongray.podcast.time :as time]))
 
 (def calls
-  "What a backend asks a server; the GPodder Sync app for Nextcloud has no
-  `:login` and no `:register`."
+  "What a backend asks a server. `apis` gives the path of each call."
   #{:login :register :subscriptions :update-subscriptions :episodes :update-episodes})
 
+(def apis
+  "The paths of the calls, by the API that a server speaks. In a path,
+  `{user}` is the user name, and `{device}` is the id of the device.
+
+  :gpodder is the API of gpodder.net, which oPodSync and other servers
+  speak too. :nextcloud is the API of the GPodder Sync app for Nextcloud.
+  That app has no login and keeps no devices, so it has no path for
+  `:login` and none for `:register`.
+
+  The `:api` in the options of `request` and `backend` is a name here. For
+  a server with paths of its own, it is a map of paths of this shape."
+  {:gpodder   {:login                "/api/2/auth/{user}/login.json"
+               :register             "/api/2/devices/{user}/{device}.json"
+               :subscriptions        "/api/2/subscriptions/{user}/{device}.json"
+               :update-subscriptions "/api/2/subscriptions/{user}/{device}.json"
+               :episodes             "/api/2/episodes/{user}.json"
+               :update-episodes      "/api/2/episodes/{user}.json"}
+   :nextcloud {:subscriptions        "/index.php/apps/gpoddersync/subscriptions"
+               :update-subscriptions "/index.php/apps/gpoddersync/subscription_change/create"
+               :episodes             "/index.php/apps/gpoddersync/episode_action"
+               :update-episodes      "/index.php/apps/gpoddersync/episode_action/create"}})
+
+(def default-limits
+  "The limits of `backend` that its options do not set.
+
+  A pull asks for one more page of episode actions when a page holds
+  `:page-size` actions, and it reads `:max-pages` pages at most. A push
+  sends `:batch-size` episode actions in one request. The page and the
+  batch are those of gpodder.net, and another server can have others. The
+  cursor keeps the last `:max-pending` actions that name a feed that the
+  app does not know."
+  {:page-size   1000
+   :max-pages   10
+   :batch-size  100
+   :max-pending 500})
+
+(defn ^:no-doc paths
+  "The paths of the calls of `api`, a name in `apis` or a map of paths.
+  Throws for a name that `apis` does not have."
+  [api]
+  (or (if (map? api) api (get apis api))
+      (throw (ex-info (str "An API that podcast-clj does not know: " api) {:api api}))))
+
 (defn- path
-  "The path of `call` in the `api`, :gpodder or :nextcloud, for the account
-  `user` and the `device`."
+  "The path of `call` in the `api`, for the account `user` and the
+  `device`."
   [api call user device]
-  (let [u (http/encode user)
-        d (http/encode device)]
-    (case [api call]
-      [:gpodder :login]                  (str "/api/2/auth/" u "/login.json")
-      [:gpodder :register]               (str "/api/2/devices/" u "/" d ".json")
-      ([:gpodder :subscriptions]
-       [:gpodder :update-subscriptions]) (str "/api/2/subscriptions/" u "/" d ".json")
-      ([:gpodder :episodes]
-       [:gpodder :update-episodes])      (str "/api/2/episodes/" u ".json")
-      [:nextcloud :subscriptions]        "/index.php/apps/gpoddersync/subscriptions"
-      [:nextcloud :update-subscriptions] "/index.php/apps/gpoddersync/subscription_change/create"
-      [:nextcloud :episodes]             "/index.php/apps/gpoddersync/episode_action"
-      [:nextcloud :update-episodes]      "/index.php/apps/gpoddersync/episode_action/create"
-      (throw (ex-info (str "The " (name api) " API has no call " call) {:api api :call call})))))
+  (let [template (or (get (paths api) call)
+                     (throw (ex-info (str "The API has no call " call) {:api api :call call})))]
+    (str/replace template
+                 #"\{user\}|\{device\}"
+                 #(http/encode (case % "{user}" user "{device}" device)))))
 
 (defn request
   "The request map for `call`, one of `calls`, to the server at `root`, as
   `opts` say:
 
-      {:api         :gpodder   ; or :nextcloud, the GPodder Sync app's paths
+      {:api         :gpodder   ; or :nextcloud, or a map of paths, see `apis`
        :credentials {:username \"simon\" :password \"…\"}  ; or a function returning them
        :device      \"…\"       ; the device's id on the server
        :since       1727000000  ; for :subscriptions and :episodes, in seconds
@@ -316,9 +349,9 @@
 
   They are applied to `state` as their devices did them, and the result is
   what changed, a partial state; the actions whose episodes the app does not
-  know yet wait in the cursor, the last 500. `opts` give the ways to name
-  and the backend's `:name`, which writes what names no device."
-  [state ctx subs episodes {:keys [name] :as opts} at]
+  know yet wait in the cursor, the last `:max-pending`. `opts` give the ways
+  to name and the backend's `:name`, which writes what names no device."
+  [state ctx subs episodes {:keys [name max-pending] :as opts} at]
   (let [names   (namer opts state)
         local   #(get (:urls ctx) % %)
         told    (or (:timestamp subs) (quot (inst-ms at) 1000))
@@ -337,7 +370,7 @@
                             (->> (concat (:pending ctx) (:actions episodes))
                                  (filter (every-pred :podcast :episode :timestamp))
                                  (sort-by (comp inst-ms :timestamp))))
-        pending (vec (take-last 500 unnamed))
+        pending (vec (take-last max-pending unnamed))
         waiting (count (:pending ctx))]
     {:states   [(player/changes-since s state)]
      :partial? true
@@ -361,24 +394,31 @@
                    timeout-seconds (assoc :timeout-seconds timeout-seconds)))
                 #(response call %))))
 
-(defn- start!
-  "The cursor `ctx` once a step started with `call!`: logged in on a server of
-  the :gpodder API, the session in the atom `session`, and the device
-  registered unless `ctx` says it is; deferred."
+(defn- registered!
+  "The cursor `ctx` with the `device` registered through `call!` in the
+  `session`, unless `ctx` says that it is, or the `api` keeps no devices;
+  deferred."
   [call! {:keys [api device]} session ctx]
-  (if (= :nextcloud api)
+  (if (or (not (:register (paths api))) (= device (:registered ctx)))
     ctx
+    ;; TODO: link the device to the account's others through
+    ;; sync-devices, since gpodder.net keeps subscriptions per device
+    (async/then (call! :register {:session session}) (fn [_] (assoc ctx :registered device)))))
+
+(defn- start!
+  "The cursor `ctx` once a step started with `call!`: logged in on a server
+  whose API has a login, the session in the atom `session`, and the device
+  registered as `registered!` does it; deferred."
+  [call! {:keys [api] :as opts} session ctx]
+  (if-not (:login (paths api))
+    (registered! call! opts nil ctx)
     (async/then (async/attempt #(call! :login {}))
                 (fn [{:keys [value error]}]
                   ;; a server without a login answers otherwise, and does without one
                   (when (= 401 (:status (ex-data error)))
                     (throw error))
                   (reset! session value)
-                  (if (= device (:registered ctx))
-                    ctx
-                    ;; TODO: link the device to the account's others through
-                    ;; sync-devices, since gpodder.net keeps subscriptions per device
-                    (async/then (call! :register {:session value}) (fn [_] (assoc ctx :registered device))))))))
+                  (registered! call! opts value ctx)))))
 
 (defn- subscriptions!
   "The changes to the subscriptions since `since`, asked with `call!`; when
@@ -389,21 +429,25 @@
     (async/then (async/attempt ask)
                 (fn [{:keys [value error]}]
                   (cond
-                    (not error)                                              value
-                    (and (= :gpodder api) (= 404 (:status (ex-data error)))) (async/then (call! :register {:session session})
-                                                                                        (fn [_] (ask)))
-                    :else                                                    (throw error))))))
+                    (not error)
+                    value
+
+                    (and (:register (paths api)) (= 404 (:status (ex-data error))))
+                    (async/then (call! :register {:session session}) (fn [_] (ask)))
+
+                    :else
+                    (throw error))))))
 
 (defn- episode-pages
   "The episode actions since `since`, asked with `call!` a page at a time
-  while pages come full, ten at most: `{:actions [...] :timestamp seconds}`;
-  deferred. gpodder.net answers with a thousand actions at most."
-  [call! session since]
+  while pages come full, as the `:page-size` and the `:max-pages` of
+  `opts` say: `{:actions [...] :timestamp seconds}`; deferred."
+  [call! {:keys [page-size max-pages]} session since]
   (letfn [(page [acc since n]
             (async/then (call! :episodes {:since since :session session})
                         (fn [{:keys [actions timestamp]}]
                           (let [acc (-> acc (update :actions into actions) (assoc :timestamp timestamp))]
-                            (if (and (<= 1000 (count actions)) timestamp (> timestamp since) (< n 10))
+                            (if (and (<= page-size (count actions)) timestamp (> timestamp since) (< n max-pages))
                               (page acc timestamp (inc n))
                               acc)))))]
     (page {:actions []} since 1)))
@@ -417,7 +461,7 @@
                 (async/then (async/all [(subscriptions! call! opts @session (or (:subscriptions ctx) 0))
                                         ;; a day back, since servers select actions by the time they
                                         ;; name, not the time they arrived, and so miss a late one
-                                        (episode-pages call! @session (max 0 (- (or (:episodes ctx) 0) 86400)))])
+                                        (episode-pages call! opts @session (max 0 (- (or (:episodes ctx) 0) 86400)))])
                             (fn [[subs episodes]] (pulled state ctx subs episodes opts at))))))
 
 (defn- pushing
@@ -456,7 +500,7 @@
   "The push of the backend: what `pushing` gives of `state`, sent with
   `call!`, and the cursor `ctx` with the stamps of this push and the URLs
   the server rewrote; deferred."
-  [call! {:keys [device] :as opts} session state {:keys [pushed urls] :as ctx}]
+  [call! {:keys [device batch-size] :as opts} session state {:keys [pushed urls] :as ctx}]
   (let [{:keys [subscriptions actions unnamed]} (pushing state pushed (namer opts state) device)
         sent (fn [rewrites call body]
                (async/then rewrites
@@ -466,9 +510,9 @@
     (async/then
      (reduce #(sent %1 :update-episodes (vec %2))
              (if subscriptions (sent [] :update-subscriptions subscriptions) [])
-             ;; gpodder.net takes more than 100 actions in the background, and
-             ;; reports no error of them
-             (partition-all 100 actions))
+             ;; gpodder.net takes a longer list in the background, and reports
+             ;; no error of it
+             (partition-all batch-size actions))
      (fn [rewrites]
        {:ctx    (assoc ctx
                        :pushed (into {} (for [k [:subscriptions :episodes]]
@@ -488,7 +532,7 @@
   of the server at `root`, as `opts` say:
 
       {:credentials {:username \"simon\" :password \"…\"}  ; or a function returning them
-       :api         :gpodder      ; or :nextcloud, for the GPodder Sync app
+       :api         :gpodder      ; or :nextcloud, or a map of paths, see `apis`
        :device      \"…\"         ; the device's id on the server; the state's by default
        :caption     \"podcast-clj\" ; the name the server shows for it
        :type        \"other\"     ; desktop, laptop, mobile, server, tablet or other
@@ -496,6 +540,10 @@
        :identities  #(identities @feeds)  ; the ways to name shows and episodes, made at
                                            ; each step; or each by its own key:
        :feed-guid   f :feed-url f :episode-id f :episode-url f
+       :page-size   1000        ; the limits, see `default-limits`
+       :max-pages   10
+       :batch-size  100
+       :max-pending 500
        :timeout-seconds 30
        :send        f}          ; how to send a request map, in place of http/call!
 
@@ -509,7 +557,10 @@
   ([root {:keys [name device] :or {name (host root)} :as opts}]
    {:pre [(map? opts)]}
    (let [session     (atom nil)
-         opts        (merge {:api :gpodder :caption "podcast-clj" :type "other"} opts {:name name})
+         opts        (merge {:api :gpodder :caption "podcast-clj" :type "other"}
+                            default-limits
+                            opts
+                            {:name name})
          with-device #(assoc opts :device (or device (:device %)))]
      {:name name
       :pull (fn [state ctx at]

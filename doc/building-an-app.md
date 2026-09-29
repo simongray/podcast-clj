@@ -746,6 +746,53 @@ a `:continuation-token`, OP3 has more downloads. Give the token to
 `downloads!` in the parameters to read on.
 
 
+## Use another service
+
+podcast-clj knows the addresses and the rules of some services. Each is a
+default, and an option replaces it. [Services and their
+defaults](services.md) lists them all.
+
+To search a directory at another address, give its entry in place of its
+name. Start from the entry of a directory with the same API:
+
+```clojure
+(def mirror (assoc (:fyyd directory/sources) :id :mirror :root "https://fyyd.example.org/0.2/"))
+
+(directory/search! "podcasting 2.0" {:sources [:apple mirror]})
+;; => {:results [{:rss/title "Podcasting 2.0" :directory/sources {:apple "1584274529" :mirror 61003} …} …]}
+```
+
+To use another instance of a service, give its address:
+
+```clojure
+(podcastindex/call! credentials :podcasts/by-guid {:guid guid} {:base-url "https://index.example.org/api/1.0/"})
+(podping/notify-request token feed-url {:gateway "https://ping.example.org/"})
+(op3/with-prefix feed {:origin "https://op3.example.org"})
+```
+
+To sync with a server whose gpodder API has other paths, give the paths as
+`:api`. `{user}` is the user name, and `{device}` is the id of the device:
+
+```clojure
+(gpodder/backend "https://sync.example.org"
+                 {:credentials {:username "simon" :password password}
+                  :api         {:subscriptions        "/sync/{user}/shows"
+                                :update-subscriptions "/sync/{user}/shows"
+                                :episodes             "/sync/{user}/actions"
+                                :update-episodes      "/sync/{user}/actions"}
+                  :page-size   500})
+```
+
+To check a feed against the rules of a directory that changed its rules,
+give the rules as the profile:
+
+```clojure
+(def wide (assoc-in (:apple check/profiles) [:artwork :sizes] [1400 4000]))
+
+(check/feed! feed {:url url :profile wide})
+```
+
+
 ## What the app does itself
 
 podcast-clj does not do these tasks. The app does them:

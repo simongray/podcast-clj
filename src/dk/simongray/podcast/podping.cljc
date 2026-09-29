@@ -37,6 +37,12 @@
   "Public Hive API nodes, tried in this order until one answers."
   ["https://api.hive.blog" "https://api.deathwing.me" "https://api.openhive.network" "https://hive-api.arcange.eu"])
 
+(def gateway
+  "The URL of podping.cloud, the service that writes a podping for a host.
+  `notify-request` sends to it, unless its options give another service as
+  `:gateway`."
+  "https://podping.cloud/")
+
 (def calls
   "What a consumer asks a node: `:head-block` for the newest block and the
   last irreversible one; `:blocks` with `:from` and `:count` for a run of
@@ -179,17 +185,23 @@
     (filterv #(contains? pinged (guid/from-url %)) urls)))
 
 (defn notify-request
-  "The call a host makes to podping.cloud to announce that the feed at
-  `url` changed, with the `token` podping.cloud issued it; `opts` may give
-  the `:medium` (default \"podcast\") and the `:reason`, \"update\", \"live\"
-  or \"liveEnd\" (default \"update\")."
+  "The call that a host makes to announce that the feed at `url` changed,
+  with the `token` that the service gave the host.
+
+  `opts` give the `:medium` (default \"podcast\") and the `:reason`:
+  \"update\", \"live\" or \"liveEnd\" (default \"update\"). The call goes to
+  `gateway`, or to the `:gateway` of `opts`, the URL of another service
+  that takes the same call."
   ([token url]
    (notify-request token url {}))
   ([token url {:keys [medium reason] :or {medium "podcast" reason "update"} :as opts}]
    {:pre [(map? opts)]}
-   {:method  :get
-    :url     (str "https://podping.cloud/?" (http/query-string {:url url :reason reason :medium medium}))
-    :headers {"Authorization" token "User-Agent" http/user-agent}}))
+   (let [service (:gateway opts gateway)]
+     {:method  :get
+      :url     (str service
+                    (if (str/includes? service "?") "&" "?")
+                    (http/query-string {:url url :reason reason :medium medium}))
+      :headers {"Authorization" token "User-Agent" http/user-agent}})))
 
 (defn call!
   "Send `call` with `params` as `opts` say, and return the body, for

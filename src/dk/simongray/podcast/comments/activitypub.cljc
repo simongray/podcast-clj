@@ -413,25 +413,45 @@
                                      {:id id :error problem :read-at at}
                                      (assoc (actor-author document at) :id id)))))
 
+(def status-paths
+  "The paths of the pages and of the ActivityPub ids of statuses, on the
+  servers that answer the Mastodon API, as of September 2026. Each is a
+  regular expression of the whole path, and its one group is the id of the
+  status in the API.
+
+  They are the paths of Mastodon, of GoToSocial, of the ActivityPub ids of
+  both, and of Pleroma and Akkoma. `requests` reads them, unless its
+  options give the paths of other servers as `:status-paths`."
+  [#"/@[^/?#]+/([0-9A-Za-z]+)"
+   #"/@[^/?#]+/statuses/([0-9A-Za-z]+)"
+   #"/users/[^/?#]+/statuses/([0-9A-Za-z]+)"
+   #"/notice/([0-9A-Za-z]+)"])
+
 (defn ^:no-doc api-status
   "The origin of the server of the status at the web or ActivityPub URL
-  `uri`, and the id of the status in the Mastodon API there, as Mastodon,
-  GoToSocial and Pleroma name their statuses; nil for another URL."
-  [uri]
-  (when-let [[_ origin id] (when (string? uri)
-                             (re-find #"^(https?://[^/?#]+)/(?:@[^/?#]+/(?:statuses/)?|users/[^/?#]+/statuses/|notice/)([0-9A-Za-z]+)/?(?:[?#].*)?$" uri))]
-    [origin id]))
+  `uri`, and the id of the status in the Mastodon API there, by the `paths`
+  of statuses, as `status-paths` has them; nil for another URL."
+  [uri paths]
+  (when-let [[_ origin path] (when (string? uri)
+                               (re-find #"^(https?://[^/?#]+)(/[^?#]*)" uri))]
+    (let [path (str/replace path #"(^|[^/])/+$" "$1")
+          id   (some (fn [pattern]
+                       (let [match (re-matches pattern path)]
+                         (when (vector? match) (second match))))
+                     paths)]
+      (when id
+        [origin id]))))
 
 (defn- api-requests
   "The requests to the Mastodon API of the server of `uri` for the parts of
   its thread that it has not `read`: the `:status` of the root and the
-  `:context` of the replies below it."
-  [uri read]
-  (let [[origin id] (api-status uri)
+  `:context` of the replies below it. `paths` are those of `api-status`."
+  [uri read paths]
+  (let [[origin id] (api-status uri paths)
         status      (str origin "/api/v1/statuses/" id)]
     (for [[part url] [[:status status] [:context (str status "/context")]]
           :when      (not (contains? read part))]
-      {:method :get :url url :headers {"Accept" "application/json"} ::comments/for [part]})))
+      {:method :get :url url :headers {"Accept" "application/json"} ::comments/for [part id]})))
 
 (defn ^:no-doc account-id
   "The id of the `account` of the Mastodon API of the server at `origin`:
@@ -501,15 +521,14 @@
 
 (defn- read-api
   "`thread` with the answer of the Mastodon API about its root read at `at`,
-  its `part`, :status or :context, from the `answer`, or with the problem
-  that kept the answer from being read.
+  its `part`, :status or :context, from the `answer` to the request for the
+  status `id`, or with the problem that kept the answer from being read.
 
   The API speaks for its own server alone. Of the public statuses in the
   answer, those of the server are comments with their authors, and those
   of other servers are comments to fetch from them."
-  [{:keys [uri root] :as thread} part {:keys [problem document]} at]
-  (let [[origin id] (api-status uri)
-        statuses    (if (= :status part) [document] (common/values document "descendants"))
+  [{:keys [uri root] :as thread} part id {:keys [problem document] origin :url} at]
+  (let [statuses    (if (= :status part) [document] (common/values document "descendants"))
         own?        #(and (common/web-url (get % "uri"))
                           (http/same-origin? (get % "uri") origin)
                           (contains? #{nil "public" "unlisted"} (get % "visibility")))
@@ -539,9 +558,10 @@
 (defn- api-fallback?
   "Whether `thread` is read through the Mastodon API of the server of its
   root: when the server refused the root unsigned, or the request for it
-  failed without an answer, as a request that CORS keeps from a page does."
-  [{:keys [uri error]}]
-  (boolean (and (api-status uri)
+  failed without an answer, as a request that CORS keeps from a page does.
+  `paths` are those of `api-status`."
+  [{:keys [uri error]} paths]
+  (boolean (and (api-status uri paths)
                 (or (= :comments/refused (:id error))
                     (and (= :comments/unreachable (:id error)) (nil? (:status error)) (not (:timeout? error)))))))
 
@@ -571,18 +591,24 @@
   Mastodon API of that server comes next. Then come the pages of the
   collections and the posts that they name, nearest the root first, and
   then the authors. It asks for no more pages while the posts that wait
-  fill the room that `:max-comments` leaves."
-  [{:keys [uri root read-at comments authors via] ::comments/keys [api] :as thread} {:keys [max-comments]} ask?]
+  fill the room that `:max-comments` leaves.
+
+  The URL of the root post tells its id in the Mastodon API, by
+  `status-paths` or by the `:status-paths` of `opts`."
+  [{:keys [uri root read-at comments authors via] ::comments/keys [api] :as thread}
+   {:keys [max-comments] :as opts}
+   ask?]
   (let [all     (vals comments)
         room    (- max-comments (count (filter :read-at all)))
         waiting (count (remove :read-at all))
-        depth   (common/depths thread)]
+        depth   (common/depths thread)
+        paths   (:status-paths opts status-paths)]
     (->> (cond
            (nil? read-at)
            (when (common/web-url uri) [(document-request uri [:root])])
 
-           (and (api-fallback? thread) (not= #{:status :context} (:read api)))
-           (api-requests uri (:read api))
+           (and (api-fallback? thread paths) (not= #{:status :context} (:read api)))
+           (api-requests uri (:read api) paths)
 
            root
            (concat (when (pos? room)
@@ -610,5 +636,5 @@
       :root              (read-root thread (answer-of exchange) at)
       :comment           (read-item thread id (answer-of exchange) at)
       :author            (read-actor thread id (answer-of exchange) at)
-      (:status :context) (read-api thread kind (answer-of exchange) at)
+      (:status :context) (read-api thread kind id (answer-of exchange) at)
       thread)))
