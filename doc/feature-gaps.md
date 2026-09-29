@@ -236,7 +236,7 @@ of the merge must cover it.
 | Saved filters, or smart playlists | Pocket Casts, Overcast, Downcast, PinePods | Target | Small | Built: `player/save-filter` |
 | Playlists and several queues | Pocket Casts, Podcast Addict, Fountain, Podverse, Podcini | Target | Medium | Built: `player/playlist` |
 | Listening statistics and a year in review | Pocket Casts, AntennaPod, Spotify, PinePods | Target | Medium | Built: `player/listened` |
-| Rules for downloads and deletes | Apple Podcasts, Pocket Casts, AntennaPod, PinePods | In part | Medium | Not built |
+| Rules for downloads and deletes | Apple Podcasts, Pocket Casts, AntennaPod, PinePods | In part | Medium | Built: `downloads/plan` |
 | Clips | Pocket Casts, Spotify, Fountain, Podverse | In part | Small | Built: `player/clip` |
 
 **Skip the outro.** The settings of a show have `:skip-outro`, but `step`

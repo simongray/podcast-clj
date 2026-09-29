@@ -361,3 +361,16 @@
   `ids` reads the keys of a show, and `link` and `links` write the
   links. `at-time` writes the media fragment of a time on the URL of a
   media file.
+- Download rules, in the new namespace `app.downloads`. `plan` gives the
+  episodes to download and the files to delete on a device, each with
+  its reason. It is a pure function of the player state, the feeds, the
+  files of the device and the rules. A rule selects its episodes with the
+  options of `search/episodes`. `rules` reads the rules from the player
+  state, and `problems` tells what in them this version does not know.
+- `search/episodes` takes the criteria `:age`, `:not` and
+  `:since-subscription?`, and a set of texts as `:text`. `:age` is a
+  number of seconds before the time of now, which `episodes` takes as
+  `:at`.
+- The player: `progress`, `skip` and `step` take the option
+  `:played-threshold`, and `step` takes `:listening-gap`. They replace
+  the numbers of the vars of those names.

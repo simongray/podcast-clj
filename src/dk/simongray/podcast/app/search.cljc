@@ -636,12 +636,39 @@
                (resolve/inferred-chapters item))))
 
 (defn- mentions?
-  "Whether the title or notes of `item` hold every word of the query
+  "Whether the set of terms `present` holds every word of the query
   `words`, the last as a prefix."
-  [{:keys [terms prefix]} item]
-  (let [present (set (concat (tokens (resolve/title item)) (tokens (notes item))))]
-    (boolean (and (every? present terms)
-                  (or (nil? prefix) (some #(str/starts-with? % prefix) present))))))
+  [{:keys [terms prefix]} present]
+  (boolean (and (every? present terms)
+                (or (nil? prefix) (some #(str/starts-with? % prefix) present)))))
+
+(defn- mentioned
+  "The predicate of the criterion :text for `v`, a query or a set of
+  queries. It tells whether the title or the notes of an item hold one of
+  the queries."
+  [v]
+  (let [queries (mapv words (if (set? v) v [v]))]
+    (fn [_ item]
+      (let [present (set (concat (tokens (resolve/title item)) (tokens (notes item))))]
+        (boolean (some #(mentions? % present) queries))))))
+
+(defn- age
+  "The seconds between the publication of `item` and the instant `at`. 0
+  for an item with a later date, and nil for an item without a date."
+  [item at]
+  (when-let [published (resolve/published item)]
+    (max 0 (/ (- (inst-ms at) (inst-ms published)) 1000.0))))
+
+(defn- since-subscription?
+  "Whether `item` of `feed` came out after the listener subscribed to the
+  feed, by the player state in `ctx`."
+  [ctx feed item]
+  (let [[feed-guid] (episode-id ctx feed item)
+        added       (get-in ctx [:player :subscriptions feed-guid :added-at])
+        published   (resolve/published item)]
+    (boolean (and (inst? added) published (> (inst-ms published) (inst-ms added))))))
+
+(declare where)
 
 (def ^:no-doc criterion
   "The test behind each criterion of `where`: a function of the value given
@@ -653,6 +680,7 @@
                   (fn [_ item]
                     (within? [(some-> lo inst-ms) (some-> hi inst-ms)]
                              (some-> (resolve/published item) inst-ms))))
+   :age         (fn [v ctx] (fn [_ item] (within? v (age item (:at ctx)))))
    :transcript? (fn [v _] (fn [feed item] (= (boolean v) (some? (resolve/transcript feed item)))))
    :chapters?   (fn [v _] (fn [_ item] (= (boolean v) (has-chapters? item))))
    :explicit?   (fn [v _] (fn [feed item] (= (boolean v) (boolean (resolve/explicit? feed item)))))
@@ -660,7 +688,8 @@
                   (let [q (fold v)]
                     (fn [feed item]
                       (boolean (some #(str/includes? (fold (:name %)) q) (resolve/people feed item))))))
-   :text        (fn [v _] (let [q (words v)] (fn [_ item] (mentions? q item))))
+   :text        (fn [v _] (mentioned v))
+   :not         (fn [v ctx] (complement (where v ctx)))
    :status      (fn [v ctx] (fn [feed item] (in? v (status (entry ctx feed item)))))
    :starred?    (fn [v ctx]
                   (fn [feed item] (= (boolean v) (player/starred? (:player ctx) (episode-id ctx feed item)))))
@@ -669,7 +698,9 @@
    :rating      (fn [v ctx]
                   (let [opts (select-keys ctx [:scale])]
                     (fn [feed item]
-                      (within? v (player/rating (:player ctx) (episode-id ctx feed item) opts)))))})
+                      (within? v (player/rating (:player ctx) (episode-id ctx feed item) opts)))))
+   :since-subscription?
+   (fn [v ctx] (fn [feed item] (= (boolean v) (since-subscription? ctx feed item))))})
 
 (defn where
   "The predicate of a feed and one of its items for `criteria`. Each entry
@@ -679,23 +710,33 @@
        :type        \"full\"                 ; \"full\", \"trailer\" or \"bonus\", or a set
        :duration    [600 3600]              ; seconds, either end nil for open
        :published   [#inst \"2026-01-01\" nil]
+       :age         [nil 604800]            ; seconds since it came out, either end
+                                           ; nil for open; 0 for a later date
        :transcript? true                    ; has a transcript; false for has none
        :chapters?   true                    ; linked, embedded or listed in the notes
        :explicit?   false                   ; the item's flag, else the feed's
        :person      \"Adam\"                 ; someone credited, matched folded
        :text        \"value for\"            ; every word in the title or notes, the
-                                           ; last as a prefix
+                                           ; last as a prefix; or a set of such
+                                           ; texts, for an item with one of them
+       :not         {:text #{\"rerun\"}}     ; criteria that the item does not meet
        :status      :unplayed               ; :unplayed, :in-progress or :played, or a set
        :starred?    true                    ; starred; false for not starred
        :inbox?      true                    ; in the inbox; false for not
-       :rating      [4 nil]}                ; the rating of the listener, either end
+       :rating      [4 nil]                 ; the rating of the listener, either end
                                            ; nil for open; an episode with no rating
                                            ; is in no range
+       :since-subscription? true}           ; came out after the listener subscribed
 
-  `:status`, `:starred?`, `:inbox?` and `:rating` need the player state under
-  `:player` in `ctx`. For feeds that declare no podcast:guid, they also
-  need `:url`, a string or a function of the feed. The player names the
-  episodes of such a feed by its URL. An empty map takes each item.
+  `:status`, `:starred?`, `:inbox?`, `:rating` and `:since-subscription?`
+  need the player state under `:player` in `ctx`. For feeds that declare
+  no podcast:guid, they also need `:url`, a string or a function of the
+  feed. The player names the episodes of such a feed by its URL. An empty
+  map takes each item.
+
+  `:age` needs the instant of now under `:at` in `ctx`, because nothing
+  here reads a clock. It is for a saved filter, where the dates of
+  `:published` get old.
 
   With `:scale` in `ctx`, the range of `:rating` is in that scale, and
   each rating is read in it, as `player/rating` does. Without it, each
@@ -707,8 +748,11 @@
      (when (seq unknown)
        (throw (ex-info (str "Criteria the library does not know: " (str/join ", " unknown))
                        {:criteria (vec unknown)})))
-     (when-let [k (and (not (:player ctx)) (some #{:status :starred? :inbox? :rating} (keys criteria)))]
+     (when-let [k (and (not (:player ctx))
+                       (some #{:status :starred? :inbox? :rating :since-subscription?} (keys criteria)))]
        (throw (ex-info (str k " needs the player state under :player") {:criteria criteria})))
+     (when (and (contains? criteria :age) (not (inst? (:at ctx))))
+       (throw (ex-info ":age needs the instant of now under :at" {:criteria criteria})))
      (let [tests (mapv (fn [[k v]] ((criterion k) v ctx)) criteria)]
        (fn [feed item]
          (every? #(% feed item) tests))))))
@@ -761,6 +805,7 @@
        :limit  20                               ; at most this many
        :player state                            ; the context `where` and `order` need
        :url    url
+       :at     #inst \"2026-09-29\"               ; now, for the criterion :age
        :scale  {:worst 1 :best 100}}            ; the scale of the criterion :rating
 
   A saved filter that keeps the `:scale` with its criteria reads the same
@@ -775,7 +820,7 @@
    (episodes feed {}))
   ([feed {:keys [limit] :as opts}]
    {:pre [(map? opts)]}
-   (let [ctx       (select-keys opts [:player :url :scale])
+   (let [ctx       (select-keys opts [:player :url :scale :at])
          pred      (where (or (:where opts) {}) ctx)
          k         (or (:order opts) :listening)
          key       (order k ctx)
@@ -790,6 +835,18 @@
          pairs     (if limit (take limit pairs) pairs)]
      (vec (if (map? feed) (map second pairs) (map vec pairs))))))
 
+(defn- where-problem
+  "What in the criteria `where` of the place `place` this version of
+  podcast-clj does not know, described. The criteria under :not are
+  criteria too."
+  [where place]
+  (let [unknown (when (map? where) (filter #(not (contains? criterion %)) (keys where)))]
+    (cond
+      (nil? where)       nil
+      (not (map? where)) (str "the criteria under " place " are " (pr-str where) ", not a map")
+      (seq unknown)      (str "the criteria " (str/join ", " (map pr-str unknown)) " are not known")
+      :else              (where-problem (:not where) :not))))
+
 (defn problem
   "What in `criteria`, the options of `episodes` as a saved filter has them,
   this version of podcast-clj does not know, described. Nil when it knows
@@ -800,11 +857,10 @@
   it does not know. So an app asks here before it offers such a filter."
   [criteria]
   (let [{:keys [where order limit scale]} (when (map? criteria) criteria)
-        unknown (when (map? where) (filter #(not (contains? criterion %)) (keys where)))]
+        in-where (where-problem where :where)]
     (cond
       (not (map? criteria))                   "the criteria are not a map"
-      (not (or (nil? where) (map? where)))    (str "the criteria under :where are " (pr-str where) ", not a map")
-      (seq unknown)                           (str "the criteria " (str/join ", " (map pr-str unknown)) " are not known")
+      in-where                                in-where
       (not (or (nil? order) (orders order)))  (str "the order " (pr-str order) " is not known")
       (not (or (nil? limit) (number? limit))) (str "the limit is " (pr-str limit) ", not a number")
       (not (or (nil? scale) (player/scale? scale)))

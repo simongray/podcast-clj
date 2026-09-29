@@ -142,6 +142,7 @@ Each name below is relative to `dk.simongray.podcast`.
 |---|---|
 | `app.player` | The player state as a CRDT: queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions with their settings, folders and tags, followed OPML lists, saved filters, counts of listening and devices. `merge`, `compact` and `step`. `step` takes the events of a player, with the jumps between chapters and a sleep timer. Playlists as list feeds. |
 | `app.search` | Filters and orders of episodes as data, and a full-text index over subscriptions, ranked by BM25. `problem` tells what in the criteria of a saved filter this version does not know. |
+| `app.downloads` | The episodes to download and the files to delete on a device, by the rules of the listener. `plan` is a pure function of the player state, the feeds, the files of the device and the rules. A rule selects its episodes with the options of `search/episodes`. `rules` reads the rules from the player state, and `problems` tells what in them this version does not know. |
 | `app.sync` | The sync between devices: sync documents, `reconcile`, `sync!` over any backends, and `next-at`. |
 | `app.sync.store` | The store contract, `memory`, `backend` over any store, and `check!` to test a store. |
 | `app.sync.file` | JVM. A folder as a store: a folder that a sync client mirrors, or a Git working tree. |

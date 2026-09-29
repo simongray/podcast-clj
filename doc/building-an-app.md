@@ -16,6 +16,7 @@ An app keeps these values between runs:
   the last fetch
 - the parsed OPML lists that the listener follows, by URL, in the same way
 - the search index of `app.search`, if the app searches
+- the list of the files on the device, by episode, if the app downloads
 - the sync cursors that `sync!` returns, if the app syncs
 
 All of these values are EDN. The app decides where to store them.
@@ -26,6 +27,7 @@ The examples use these aliases:
 (require '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.analytics :as analytics]
          '[dk.simongray.podcast.analytics.op3 :as op3]
+         '[dk.simongray.podcast.app.downloads :as downloads]
          '[dk.simongray.podcast.app.player :as player]
          '[dk.simongray.podcast.app.search :as search]
          '[dk.simongray.podcast.app.sync :as sync]
@@ -515,8 +517,89 @@ beside the state, and give it to each `step`:
 The timer is of one device, so it is not in the state that syncs. A timer
 that counts minutes belongs to the clock of the app.
 
+An episode counts as played when the listener is 30 seconds from its end.
+`step` counts no listening between two reports that are more than 60
+seconds apart. Give `step` other numbers as options:
+
+```clojure
+(player/step playing [:progress id 3500 3600] now {:played-threshold 120 :listening-gap 90})
+;; => {:state … :effects [[:played id]]}
+```
+
 The browser player of the inspector is a working example, in
 `web/inspector/player.cljs` and `web/inspector/player/view.cljs`.
+
+
+## Download episodes
+
+`downloads/plan` tells which episodes to download and which files to
+delete. The app downloads and deletes the files, and it keeps the list of
+the files on the device.
+
+Keep the rules in the player state, so that they sync. The rule of a show
+is the setting `:downloads`, and the rules of the listener are the
+preference `:downloads`:
+
+```clojure
+(def state
+  (-> state
+      (player/prefer {:downloads {:default      {:played 86400}  ; a played file goes after a day
+                                  :queue        3                ; have the first three of the queue
+                                  :max-episodes 50}}
+                     now)
+      (player/configure guid
+                        {:downloads {:download? true
+                                     :episodes  {:where {:duration [600 nil] :not {:text #{"rerun"}}}
+                                                 :limit 3}}}
+                        now)))
+
+(downloads/problems (downloads/rules state))  ; => nil, this version knows each rule
+```
+
+`:episodes` has the options of `search/episodes`. The rule above selects
+the newest three episodes of the show that last ten minutes or more and
+do not have the word rerun. `downloads/default-rule` and
+`downloads/default-rules` tell each key of the rules.
+
+Make a plan after each refresh of the feeds, and when the listener plays
+or queues an episode:
+
+```clojure
+(def files {[guid "ep-1"] {:bytes 50117331 :at #inst "2026-09-09"}})  ; the files on the device
+
+(downloads/plan state (map :feed (vals feeds)) files now)
+;; => {:download [{:id [guid "ep-3"] :url "https://…/3.mp3" :type "audio/mpeg" :bytes 48211004 :reason :rule}]
+;;     :delete   [{:id [guid "ep-1"] :bytes 50117331 :reason :played}]
+;;     :waiting  []}
+```
+
+Then follow the plan:
+
+- Download each file of `:download`, in its order. Add an entry to the
+  list of the files when the download starts, with the time as `:at`.
+- Delete each file of `:delete`. Keep its entry, and set `:removed?` in
+  it. `plan` downloads no episode that has an entry.
+- Show the listener what is in `:waiting`. These downloads have no room
+  within `:max-episodes` and `:max-bytes`.
+
+Set `:keep?` in the entry of a file that the listener asked for. No rule
+deletes such a file. To download an episode again, remove its entry.
+
+The rules in the state are for each device of the listener. For rules of
+one device, give `plan` the rules as an option:
+
+```clojure
+(downloads/plan state (map :feed (vals feeds)) files now
+                {:rules     (assoc (downloads/rules state) :max-bytes 2000000000 :make-room? true)
+                 :enclosure {:types ["audio/opus" "audio/mpeg"]}})
+```
+
+`:enclosure` has the options of `resolve/enclosure`, which selects the
+file of an episode. For feeds that declare no podcast:guid, give `:url` as
+a function of the feed, as `search/episodes` takes it.
+
+`plan` does not know the network or the battery. The app decides when it
+follows the plan.
 
 
 ## Share a show or an episode
@@ -599,6 +682,10 @@ episodes. Each change syncs to the other devices, as the queue does.
   Another device can save criteria of a later version of podcast-clj.
   `search/problem` tells what this version does not know, so ask it before
   you offer the filter.
+- A filter for the episodes of the last week has the criterion `:age`, a
+  number of seconds. `search/episodes` takes the time of now as `:at`.
+  The criteria under `:not` exclude episodes, such as `{:not {:text
+  #{"rerun" "trailer"}}}`.
 - A playlist is a list of episodes beside the queue, in the order the
   listener gives. Play it by queueing its episodes. `player/to-list-feed`
   writes it as a list feed of the podcast namespace, which Podcasting 2.0
@@ -640,7 +727,7 @@ episodes. Each change syncs to the other devices, as the queue does.
 (let [urls     (into {} (for [[_ {:keys [url feed]}] feeds] [feed url]))  ; for feeds without a podcast:guid
       criteria (get (player/filters state) "Starred")]
   (when-not (search/problem criteria)
-    (search/episodes (keys urls) (assoc criteria :player state :url #(urls %)))))
+    (search/episodes (keys urls) (assoc criteria :player state :url #(urls %) :at now))))
 ```
 
 `player/from-opml` reads the folders, the tags and the dates of
@@ -1066,7 +1153,9 @@ podcast-clj does not do these tasks. The app does them:
   what a web page can fetch.
 - Play the media, through a media element that the effects of `player/step`
   control.
-- Download episodes, show notifications and make payments.
+- Download and delete the files of episodes, as the plan of
+  `downloads/plan` says, and when the network and the battery allow it.
+- Show notifications and make payments.
 - Draw the user interface.
 - For a host, keep the logs of the server and the lists that the count of
   downloads uses: user agents, data centers and bots.

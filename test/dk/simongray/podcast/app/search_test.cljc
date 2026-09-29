@@ -123,7 +123,38 @@
       (is (= ["Trailer" "Bonus"] (titles {:where {:rating [4 nil]} :player rated}))
           "without a scale, each rating is the number that the state has")
       (is (= ["Bonus"] (titles (assoc (get (player/filters rated) "Best") :player rated))))
-      (is (nil? (search/problem (get (player/filters rated) "Best")))))))
+      (is (nil? (search/problem (get (player/filters rated) "Best"))))))
+  (testing "one of several texts, and criteria that an item does not meet"
+    (is (= ["Trailer" "Season one, episode one: Café" "Season one, episode two" "Bonus"]
+           (titles {:where {:text #{"coffee" "trailer" "bonus"}}})))
+    (is (= ["Season two, episode one"] (titles {:where {:not {:text #{"coffee" "trailer" "bonus"}}}})))
+    (is (= ["Season one, episode one: Café"] (titles {:where {:season 1 :not {:duration [3000 nil]}}})))
+    (is (= ["Trailer" "Season two, episode one" "Bonus"]
+           (titles {:where {:not {:status #{:played :in-progress}}} :player listened})))
+    (is (= (titles {:where {:season 1}}) (titles {:where {:not {:not {:season 1}}}})))
+    (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:status needs the player state"
+                          (search/where {:not {:status :played}})))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (search/where {:not {:colour "red"}}))))
+  (testing "the age of an episode, in seconds before now"
+    (let [now  #inst "2026-02-08T00:00:00Z"
+          week (* 7 24 60 60)]
+      (is (= ["Season two, episode one" "Bonus"] (titles {:where {:age [nil week]} :at now})))
+      (is (= ["Trailer" "Season one, episode one: Café" "Season one, episode two"]
+             (titles {:where {:age [(* 3 week) nil]} :at now})))
+      (is (= (titles {}) (titles {:where {:age [0 week]} :at #inst "2025-01-01T00:00:00Z"}))
+          "an episode with a later date has the age 0")
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:age needs the instant of now"
+                            (search/where {:age [nil week]})))))
+  (testing "the episodes that came out after the listener subscribed"
+    (let [subscribed (player/subscribe listened "feed-guid" {:url "https://x/feed" :title "Test Show"}
+                                       #inst "2026-01-20T00:00:00Z")]
+      (is (= ["Season two, episode one" "Bonus"] (titles {:where {:since-subscription? true} :player subscribed})))
+      (is (= ["Trailer" "Season one, episode one: Café" "Season one, episode two"]
+             (titles {:where {:since-subscription? false} :player subscribed})))
+      (is (= [] (titles {:where {:since-subscription? true} :player listened}))
+          "without a subscription, no episode came out after it")
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:since-subscription\? needs the player state"
+                            (search/where {:since-subscription? true}))))))
 
 (deftest orders
   (is (= ["Bonus" "Season two, episode one" "Season one, episode two" "Season one, episode one: Café" "Trailer"]
@@ -146,10 +177,14 @@
 
 (deftest criteria-of-another-version
   (testing "what `episodes` takes is no problem"
-    (doseq [criteria [{} {:where {:status :unplayed :season #{1 2}} :order :newest :limit 20} {:order :recent}]]
+    (doseq [criteria [{} {:where {:status :unplayed :season #{1 2}} :order :newest :limit 20} {:order :recent}
+                      {:where {:age [nil 604800] :not {:text #{"rerun"} :not {:season 1}}}}]]
       (is (nil? (search/problem criteria)) (pr-str criteria))))
   (testing "what it throws for is one, so an app asks before it offers a saved filter"
     (doseq [[criteria found] [[{:where {:mood "calm" :status :played}} #"the criteria :mood are not known"]
+                              [{:where {:season 1 :not {:mood "calm"}}} #"the criteria :mood are not known"]
+                              [{:where {:not [:season]}} #":not are \[:season\], not a map"]
+                              [{:where {:season 1} :order :random} #"the order :random is not known"]
                               [{:order :random} #"the order :random is not known"]
                               [{:where [:status]} #":where are \[:status\], not a map"]
                               [{:limit "many"} #"the limit is \"many\", not a number"]

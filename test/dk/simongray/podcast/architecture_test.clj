@@ -21,7 +21,7 @@
    "feed" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
    "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.html" 3
    "format.id3" 3 "format.mp3" 3 "format.mp4" 3 "format.media" 3 "format.image" 3
-   "value" 3 "value.lnaddress" 3 "value.metadata" 3 "resolve" 3 "check" 3 "app.player" 3 "app.search" 3
+   "value" 3 "value.lnaddress" 3 "value.metadata" 3 "resolve" 3 "check" 3 "app.player" 3 "app.search" 3 "app.downloads" 3
    "app.sync" 3 "app.sync.store" 3 "app.sync.file" 3 "app.sync.webdav" 3 "app.sync.webdav.server" 3
    "app.sync.encrypted" 3 "app.sync.gpodder" 3 "app.sync.gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "podping" 3 "websub" 3 "links" 3

@@ -70,8 +70,9 @@ The names follow the design where one part belongs to another:
   `feed.validate` and `feed.schema` interpret the tag registry for the
   model, and `feed.coerce` holds the value types that the registry uses.
 - The companion formats are under `format`.
-- `app` holds what an app keeps (`app.player`), finds (`app.search`) and
-  syncs (`app.sync`). The stores are under `app.sync`.
+- `app` holds what an app keeps (`app.player`), finds (`app.search`),
+  downloads (`app.downloads`) and syncs (`app.sync`). The stores are under
+  `app.sync`.
 - The Podcast Index client is under `directory`, because the Podcast Index
   is one of the directories.
 - The readers of ActivityPub and of the AT Protocol are under `comments`,
@@ -1168,7 +1169,7 @@ The map holds:
 - the OPML lists that the listener follows, one entry for each URL
 - the episodes by `[feed-guid item-guid]`, with position, duration and the
   played mark, which `progress` sets within `played-threshold` seconds of
-  the end
+  the end. The app gives another number of seconds as an option.
 - the queue, one entry for each episode, with a rank from `rank` that gives
   the order, and the playlists, ranked in the same way
 - the inbox and the stars, one entry for each episode, and the saved
@@ -1224,8 +1225,9 @@ scale, as a Rating of schema.org does. So a rating reads in each scale,
 as far on the way from the worst to the best. At each
 `:progress`, `step` adds the seconds heard to a count
 for the show and the month. The seconds are how far the position moved
-since the last report, when that report is a minute old at most. Each
-device has a count of its own. Only that device writes it, and it only
+since the last report, when that report is a minute old at most. The
+minute is `listening-gap`, and the app gives another time as an option.
+Each device has a count of its own. Only that device writes it, and it only
 grows. So the counts of two devices that count at the same time add up,
 and none is lost. The merge takes the higher of two counts of one device.
 No standard counts listening, and a log of each play, as the gpodder API
@@ -1249,6 +1251,12 @@ and the `:recent` order, take the player state. Because the criteria are
 data, a user interface can build them from a form, and the filter form of
 the inspector does this. An unknown criterion or order throws, because it is
 a programming error, not content to forgive.
+
+Saved criteria stay true as time goes on. So `:age` is a number of seconds
+before now, and `episodes` takes the instant of now as `:at`. The criteria
+under `:not` are those that an item does not meet. A set of texts under
+`:text` finds an item with one of the texts. With these, a filter
+excludes words.
 
 **An index that is a value.** `index` and `add` build a map, `query`
 searches it, and `remove` takes a document out. Nothing changes in place,
@@ -1289,6 +1297,41 @@ build. The show notes are nine tenths of the terms. An app with little
 memory, for example in a browser, can index fewer fields: titles and people
 alone cost a tenth. It can also index transcripts only for the episodes that
 it downloaded.
+
+
+## Download rules
+
+An app downloads new episodes and deletes old files by rules of the
+listener. No standard defines such rules. [Services and their
+defaults](services.md#the-rules-of-the-apps-for-downloads) lists the rules
+of three apps, and `app.downloads` has their kinds of rule.
+
+`plan` is a pure function. It takes the player state, the parsed feeds,
+the files of the device and the instant of now. It gives the episodes to
+download and the files to delete, each with its reason. The app
+downloads and deletes. The app also knows the network and the power of
+the device, so it decides when it follows the plan.
+
+A rule selects its episodes with the options of `search/episodes`, as a
+saved filter does. So the rules need no language of their own, and each
+criterion of a filter is a criterion of a rule. A number of episodes is
+`:limit`, a minimum duration is `:duration`, and the words to exclude are
+`:text` under `:not`.
+
+The rules are data in the player state. The rule of a show is the setting
+`:downloads` of its subscription, and the rules of the listener are the
+preference `:downloads`. They sync as the other settings do. A phone and
+a desktop often need different limits, so `plan` also takes the rules as
+an option.
+
+The list of the files is not in the state. The files are those of one
+device, and the other devices have no use for the list. The app keeps the
+entry of a file that went. `plan` downloads no episode that has an
+entry, so a file that the listener deleted does not come back.
+
+The rules can come from a later version of podcast-clj. `problems` tells
+what this version does not know. `plan` does nothing for a show whose rule
+has a problem, because a wrong delete costs more than a late download.
 
 
 ## Syncing
@@ -1485,6 +1528,5 @@ the JSON of these requests from the body-params interceptor.
 [Podcast features outside podcast-clj](feature-gaps.md) tells about each
 of the features below, and which part of it fits a library:
 
-- The player state: the rules for downloads and deletes.
 - Comments from Nostr.
 - Payments through the wallet of the listener, with WebLN and NWC.

@@ -49,6 +49,15 @@
         (is (player/played? done a))
         (is (= t2 (:played-at (player/episode done a))))
         (is (= 15 (player/resume-position done "feed-a" a)) "a played episode starts over")))
+    (testing "the threshold of the app"
+      (is (not (player/played? (player/progress s a 3580 nil t2 {:played-threshold 10}) a)))
+      (is (player/played? (player/progress s a 3590 nil t2 {:played-threshold 10}) a))
+      (is (player/played? (player/progress s a 3300 nil t2 {:played-threshold 300}) a))
+      (is (not (player/played? (player/skip s a 2980 t2 {:played-threshold 10}) a)))
+      (is (player/played? (player/skip s a 2980 t2) a))
+      (is (= [[:seek a 3580]] (:effects (player/step s [:skip a 2980] t2 {:played-threshold 10}))))
+      (is (= [] (:effects (player/step s [:progress a 3580 3600] t2 {:played-threshold 10}))))
+      (is (= [[:played a]] (:effects (player/step s [:progress a 3580 3600] t2)))))
     (testing "marks"
       (is (player/played? (player/mark-played s b t2) b))
       (let [again (player/mark-unplayed (player/mark-played s a t2) a t3)]
@@ -541,7 +550,12 @@
         (is (= {g {"2026-10" 15}} (player/listened (:state (player/step paused [:progress id 1505 3600] (at 615)))))
             "and the next report counts from there")
         (is (= {g {"2026-10" 70}} (player/listened (:state (player/step s2 [:progress id 170 3600] (at (+ 10 player/listening-gap))))))
-            "a report at the end of the gap counts")))
+            "a report at the end of the gap counts")
+        (is (= {g {"2026-10" 310}}
+               (player/listened (:state (player/step s2 [:progress id 410 3600] (at 310) {:listening-gap 300}))))
+            "the gap of the app")
+        (is (= (player/listened s2)
+               (player/listened (:state (player/step s2 [:progress id 140 3600] (at 40) {:listening-gap 20})))))))
     (testing "a device that is restored from a backup counts on from the higher count"
       (let [play     (fn [s from to start]
                        (reduce #(:state (player/step %1 [:progress id (+ from (* 10 %2)) 3600] (at (+ start (* 10 %2)))))

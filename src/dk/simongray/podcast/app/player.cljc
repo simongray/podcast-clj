@@ -200,7 +200,10 @@
   "Change the `settings` of the subscription `feed-guid` at `at`: the keys
   of `default-settings`, and `:rate`, a playback rate for this show over
   the listener's preferred one. Each setting is an entry of its own, so two
-  devices changing different ones both have their way."
+  devices changing different ones both have their way.
+
+  The setting `:downloads` is the rule of the show for
+  `dk.simongray.podcast.app.downloads`."
   [state feed-guid settings at]
   (if (get-in state [:subscriptions feed-guid])
     (write-each state (for [[k v] settings] [[:settings feed-guid k] (constantly {:value v})]) at)
@@ -218,7 +221,10 @@
 
 (defn prefer
   "Change the listener's `preferences` at `at`; the keys are those of
-  `default-preferences`, each an entry of its own."
+  `default-preferences`, each an entry of its own.
+
+  The preference `:downloads` has the rules of the listener for
+  `dk.simongray.podcast.app.downloads`."
   [state preferences at]
   (write-each state (for [[k v] preferences] [[:preferences k] (constantly {:value v})]) at))
 
@@ -462,13 +468,16 @@
             [id (when (every? some? behind) (apply min-key inst-ms behind))]))))
 
 (def played-threshold
-  "How many seconds before the end of an episode count as having heard it."
+  "How many seconds before the end of an episode count as having heard it.
+  The option `:played-threshold` of `progress`, `skip` and `step` gives
+  another number."
   30)
 
 (def listening-gap
   "How many seconds can pass between two reports of the position of an
   episode that are one stretch of listening. After a longer time, the
-  listener paused, and `step` counts no listening for that time."
+  listener paused, and `step` counts no listening for that time. The
+  option `:listening-gap` of `step` gives another number."
   60)
 
 (defn episode
@@ -482,9 +491,9 @@
   (boolean (:played? (episode state id))))
 
 (defn- heard-to-the-end?
-  [position duration]
+  [position duration threshold]
   (and (number? duration) (pos? duration) (number? position)
-       (>= position (- duration played-threshold))))
+       (>= position (- duration threshold))))
 
 (defn ^:no-doc out-of-inbox
   "The writes that take the episode `id` out of the inbox of `state`: a
@@ -499,17 +508,22 @@
   episode `id` at `at`, with its `duration` when that is known.
 
   An episode that the listener heard to within `played-threshold` seconds
-  of its end counts as played, and it leaves the inbox.
+  of its end counts as played, and it leaves the inbox. `opts` give
+  another number of seconds as `:played-threshold`.
 
   The entry keeps `at` as `:reported-at`, the time on the clock of the
   device. The stamp of the entry can be later than that time, so the
   counts of listening measure from `:reported-at`."
   ([state id position at]
-   (progress state id position nil at))
+   (progress state id position nil at {}))
   ([state id position duration at]
+   (progress state id position duration at {}))
+  ([state id position duration at opts]
+   {:pre [(map? opts)]}
    (let [e (cond-> (assoc (or (episode state id) {}) :position position :reported-at (time/date at))
              duration (assoc :duration duration))
-         e (if (and (not (:played? e)) (heard-to-the-end? position (:duration e)))
+         e (if (and (not (:played? e))
+                    (heard-to-the-end? position (:duration e) (:played-threshold opts played-threshold)))
              (assoc e :played? true :played-at (time/date at))
              e)]
      (write-each state (into [[[:episodes id] (constantly e)]] (when (:played? e) (out-of-inbox state id))) at))))
@@ -535,13 +549,16 @@
   `at`, never before its start nor, when the duration is known, past its
   end. A duration of zero, or one that is not a finite number, as a player
   reports before it knows, is not known. The new position is in the state
-  for the UI to seek to."
-  [state id seconds at]
-  (let [{:keys [position duration]} (episode state id)
-        finite?  #(and (number? %) (== % %) (not (infinite? %)))
-        target   (+ (if (finite? position) position 0) seconds)
-        target   (max 0 (if (and (finite? duration) (pos? duration)) (min target duration) target))]
-    (progress state id target at)))
+  for the UI to seek to. `opts` are those of `progress`."
+  ([state id seconds at]
+   (skip state id seconds at {}))
+  ([state id seconds at opts]
+   {:pre [(map? opts)]}
+   (let [{:keys [position duration]} (episode state id)
+         finite?  #(and (number? %) (== % %) (not (infinite? %)))
+         target   (+ (if (finite? position) position 0) seconds)
+         target   (max 0 (if (and (finite? duration) (pos? duration)) (min target duration) target))]
+     (progress state id target nil at opts))))
 
 (defn- heard
   "`state` with the seconds that the listener heard of the episode `id`,
@@ -551,16 +568,16 @@
   The seconds are how far the position moved since the last report. They
   are three times the time since that report at most, because a move
   further than playback at three times the speed is a seek. Nothing counts
-  when the last report is more than `listening-gap` seconds old, because
-  the listener paused. The time is measured from the `:reported-at` of the
+  when the last report is more than `gap` seconds old, because the
+  listener paused. The time is measured from the `:reported-at` of the
   episode, and from its stamp for an entry without one."
-  [state id position at]
+  [state id position at gap]
   (let [{p0 :position :keys [reported-at updated-at]} (episode state id)
         t0      (or reported-at updated-at)
         seconds (when (and (number? position) (number? p0) (inst? t0))
                   (let [moved (- position p0)
                         spent (/ (- (inst-ms at) (inst-ms t0)) 1000.0)]
-                    (when (and (pos? moved) (pos? spent) (<= spent listening-gap))
+                    (when (and (pos? moved) (pos? spent) (<= spent gap))
                       (min moved (* 3 spent)))))]
     (if seconds
       (write state [:listened (first id) (subs (time/format-iso8601 at) 0 7) (:device state)]
@@ -1714,7 +1731,10 @@
   timer. The timer is of one device, so the state does not hold it.
 
   `opts` can also give `:restart`, the seconds of `chapters/jump` for a
-  jump to the previous chapter."
+  jump to the previous chapter.
+
+  `:played-threshold` and `:listening-gap` in `opts` give other numbers
+  of seconds than the vars of those names."
   ([state event at]
    (step state event at {}))
   ([state [kind id & args] at {:keys [sleep] :as opts}]
@@ -1723,7 +1743,7 @@
      :skip     (let [[amount] args
                      {:keys [skip-forward skip-back]} (preferences state)
                      seconds (case amount :forward skip-forward :back (- skip-back) amount)
-                     state'  (skip state id seconds at)]
+                     state'  (skip state id seconds at (select-keys opts [:played-threshold]))]
                  (moved state state' id [[:seek id (:position (episode state' id))]] at sleep))
      :chapter  (let [[direction doc] args
                      position (:position (episode state id))
@@ -1731,8 +1751,11 @@
                  (if-let [target (chapters/jump doc from direction (select-keys opts [:restart]))]
                    (step state [:skip id (- target from)] at opts)
                    (stepped state [] sleep)))
-     :progress (let [[position duration] args]
-                 (moved state (-> state (heard id position at) (progress id position duration at)) id [] at sleep))
+     :progress (let [[position duration] args
+                     state' (-> state
+                                (heard id position at (:listening-gap opts listening-gap))
+                                (progress id position duration at (select-keys opts [:played-threshold])))]
+                 (moved state state' id [] at sleep))
      :ended    (ended state id at sleep)
      :play     (stepped (place state id (rank-between (:queue state) nil (first (remove #{id} (queue state)))) at)
                         []

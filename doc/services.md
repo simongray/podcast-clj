@@ -2,8 +2,9 @@
 
 podcast-clj knows some services by name: the podcast directories, the
 Podcast Index, Podping, OP3 and the servers of the gpodder API. It also
-knows how some apps write their OPML, and the forms of the links of the
-apps. This page lists what podcast-clj
+knows how some apps write their OPML, the forms of the links of the
+apps, and the rules of some apps for downloads. This page lists what
+podcast-clj
 knows about each service, and the option that replaces it. [Architecture](architecture.md#why-the-api-is-regular) gives
 the reason. [How to build a podcast
 app](building-an-app.md#use-another-service) shows the calls.
@@ -225,6 +226,33 @@ the episode. The research found no page of an app that defines the
 form. A form is data, so an app adds its forms to the table, with a key
 such as `:time` in its ids. `links/at-time` writes the media fragment of
 the W3C on the URL of a media file, which a browser plays from the time.
+
+
+## The rules of the apps for downloads
+
+No standard defines the rules by which an app downloads episodes and
+deletes files. `app.downloads` has the kinds of rule that these apps
+have. The table tells the rules as the help pages of the apps gave them
+on 29 September 2026, and the rule of `app.downloads` for each.
+
+| App | The rule of the app | In `app.downloads` |
+|---|---|---|
+| [Apple Podcasts](https://support.apple.com/en-us/102243) | Automatic downloads of a number of episodes, or of the episodes of a time | `:limit` and `:age` of `:episodes` |
+| Apple Podcasts | No automatic downloads for one show | `:download?` of the rule of the show |
+| Apple Podcasts | A played episode goes 24 hours after the play | `:played` |
+| [Pocket Casts](https://support.pocketcasts.com/knowledge-base/archiving-episodes/) | A played episode goes at the end of the play, or some time later | `:played` |
+| Pocket Casts | An episode goes when the listener did not play or download it for some time | `:inactive` |
+| Pocket Casts | An episode with a star stays, when the listener wants that | `:keep` |
+| Pocket Casts | A show keeps its newest 1, 2, 5 or 10 episodes | `:limit` of `:episodes`, with `:trim?` |
+| [AntennaPod](https://antennapod.org/documentation/automation/automatic-downloads) | Automatic downloads of the episodes of the inbox, for each show | `:download?`, and `:inbox?` of `:episodes` |
+| AntennaPod | A filter of a show: a minimum length, and words to include or to exclude | `:duration`, `:text` and `:not` of `:episodes` |
+| AntennaPod | 50 episodes at most, until the listener gives another number | `:max-episodes` |
+| [AntennaPod](https://antennapod.org/documentation/automation/deletion) | A file goes at the end of the play | `:played` of 0 |
+| AntennaPod | Old files go when a download needs the room. The files of the queue and of the favorites stay. | `:make-room?`, and `:keep` |
+
+The defaults of podcast-clj are in `app.downloads/default-rule` and
+`app.downloads/default-rules`. They download nothing and delete nothing,
+until the listener gives a rule.
 
 
 ## The folder around an OPML list
