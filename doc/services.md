@@ -29,6 +29,7 @@ Each namespace below is relative to `dk.simongray.podcast`.
 | The root of the Podcast Index API | `directory.podcastindex/base-url` | `:base-url` | `https://api.podcastindex.org/api/1.0/` |
 | The Hive nodes that Podping reads | `podping/nodes` | `:nodes`, or one `:node` | four public nodes |
 | The service that writes a podping for a host | `podping/gateway` | `:gateway` | `https://podping.cloud/` |
+| The request that tells a WebSub hub of a change | `websub/publish-form` | `:form` | the fields `hub.mode=publish` and `hub.url` |
 | The instance of OP3 | `analytics.op3/origin` | `:origin` | `https://op3.dev` |
 | The URLs that OP3 takes behind its prefix | `analytics.op3/accepts?` | `:accepts?`, a predicate of a URL | the rules of op3.dev |
 | The paths of the gpodder API | `app.sync.gpodder/apis` | `:api`, as a name or as a map of paths | `:gpodder` |
@@ -40,6 +41,7 @@ Each namespace below is relative to `dk.simongray.podcast`.
 
 podcast-clj has no default for these services, and the app gives them:
 
+- the WebSub hub of a feed, which the feed names
 - the AppView that reads AT Protocol threads, as `:appview`
 - the root of a gpodder server, and the URL of a WebDAV collection.
   [Sync stores and documents](stores.md) lists some of them.

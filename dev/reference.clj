@@ -27,7 +27,9 @@
    {:title "RawVoice" :namespaces #{"rawvoice"}
     :about "The namespace of Blubrry, as far as its feeds use it."}
    {:title "Atom, Dublin Core, content and syndication" :namespaces #{"atom" "dc" "content" "sy"}
-    :about "Modules from the wider RSS world that podcast feeds contain."}])
+    :about "Modules from the wider RSS world that podcast feeds contain."}
+   {:title "Feed paging and archiving" :namespaces #{"fh"}
+    :about "The elements of RFC 5005, for a feed that comes in more than one document. The links between the documents are `atom:link` elements."}])
 
 (defn- parent-name
   [parent]
@@ -102,6 +104,7 @@
    ["decimal" "a number, a long if it is whole, written back without an exponent"]
    ["boolean" "`true` or `false` in the XML, a boolean in the model"]
    ["yes-no" "`yes` or `no` in the XML, a boolean in the model"]
+   ["presence" "an empty element in the XML, `true` in the model when the element is there"]
    ["rfc2822" "an RFC 2822 date, read leniently, an `#inst` in the model, written in GMT"]
    ["iso8601" "an ISO 8601 date or date-time, an `#inst` in the model, written in UTC"]
    ["duration" "seconds as a number, read from seconds or from clock notation, written as seconds"]

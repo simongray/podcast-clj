@@ -51,7 +51,8 @@ The examples use these aliases:
          '[dk.simongray.podcast.resolve :as resolve]
          '[dk.simongray.podcast.value :as value]
          '[dk.simongray.podcast.value.lnaddress :as lnaddress]
-         '[dk.simongray.podcast.value.metadata :as metadata])
+         '[dk.simongray.podcast.value.metadata :as metadata]
+         '[dk.simongray.podcast.websub :as websub])
 
 (def now (java.util.Date.))  ; each write to the player state takes the time
 ```
@@ -205,6 +206,38 @@ of writers. Every few seconds, ask for the blocks after that block:
 When no node of the chain answers, the result of `poll!` has an `:error`,
 the diagnostic `:podping/unavailable`. Its `:block` is the last block that
 the step read, so the next step reads on from there.
+
+A server can get the feeds from a WebSub hub. The hub calls the server,
+so the server needs a public URL, the callback. The result of `fetch!` has
+`:websub` when the feed names a hub. Ask the hub for the feed, with a
+callback and a secret that nobody can guess, one of each for each
+subscription:
+
+```clojure
+(let [{:keys [hubs topic]} (:websub r)]
+  (websub/call! (websub/request :subscribe (first hubs) topic
+                                "https://app.example.net/websub/4f1c9e2a"
+                                {:secret secret :lease-seconds 864000})))
+;; => {:status 202 :url "https://hub.example.org/"}
+```
+
+`handler` is a Ring handler for the callback. `:wanted?` tells whether
+the server asked for the topic, and `:deliver!` gets each feed that has
+the signature of the secret. Return fast from `:deliver!`, and parse the
+feed after that:
+
+```clojure
+(def callback
+  (websub/handler {:wanted?  (fn [{:keys [mode topic lease-seconds]}] (= topic (pending mode)))
+                   :deliver! (fn [{:keys [body topic]}] (swap! inbox conj [topic body]))
+                   :secret   secret}))
+
+(podcast/parse (java.io.ByteArrayInputStream. body))  ; on the JVM, the bytes of a feed
+```
+
+A subscription lasts for the `:lease-seconds` that the hub gives to
+`:wanted?`. Send the request again before the end. Keep the schedule of
+`next-check` too, because a hub can fail.
 
 
 ## Follow lists of shows
@@ -873,6 +906,51 @@ OP3 answers 429. The answer then has the `:error`, with the downloads of
 the pages before that page. Its token names the page that failed, so the
 next call reads on from there. `call!` throws for an answer that is a
 failure.
+
+
+## Serve the feed of a show
+
+This section is for a host. `podcast/emit` writes a feed. A long feed is
+slow to fetch, so serve it in more than one document. `feed/pages` makes
+the documents, with the links between them that RFC 5005 defines:
+
+```clojure
+(def documents (feed/pages feed {:kind :archived :page-size 100}))
+(map :url documents)
+;; => ("https://example.org/feed.xml"             ; the newest items, for the apps that poll
+;;     "https://example.org/feed.xml?archive=2"   ; the archives, the newest first
+;;     "https://example.org/feed.xml?archive=1")
+(podcast/emit (:feed (first documents)))
+```
+
+The archives of an archived feed do not change when the show gets an
+episode, so an app fetches each archive once. The pages of the kind
+`:paged` change with each episode. Give the URLs of your server as
+`:page-url`, a function of the number of a page.
+
+A WebSub hub sends the feed to the servers that subscribe. Name the hub
+in the feed, next to the link of the feed to itself. Then tell the hub of
+each change:
+
+```clojure
+(def feed (update feed :atom/links conj {:rel "hub" :href "https://hub.example.org/"}))
+(websub/call! (websub/publish-request "https://hub.example.org/" "https://example.org/feed.xml"))
+```
+
+A private feed has a token for each subscriber. Make the tokens and keep
+them, and check the token of each request for a feed or a media file.
+`feed/for-subscriber` writes the token into the URLs of one subscriber:
+
+```clojure
+(def private (feed/for-subscriber feed "k3J9x2"))
+(get-in private [:rss/items 0 :rss/enclosure :url])  ; => "https://media.example.org/54.mp3?token=k3J9x2"
+(resolve/blocked? private "apple")                   ; => true, the feed is closed to the directories
+(feed/pages private)                                 ; the pages have the token too
+```
+
+The options give another name for the parameter, or a function that puts
+the token in the path. `op3/with-prefix` comes after `for-subscriber`,
+because the prefix goes in front of the whole URL.
 
 
 ## Use another service

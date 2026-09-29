@@ -41,7 +41,7 @@ ecosystem that podcast-clj was written for.
 
 ```
   4  front door   dk.simongray.podcast
-  3  companions   format.*  value  value.*  resolve  check  directory  directory.podcastindex  podping  comments  comments.*  analytics  analytics.*  app.*
+  3  companions   format.*  value  value.*  resolve  check  directory  directory.podcastindex  podping  websub  comments  comments.*  analytics  analytics.*  app.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
   1  vocabulary   spec  quirks
   0  primitives   xml  xml.jsoup  time  time.rrule  guid  json  http  bytes  rank  async  diagnostics
@@ -80,8 +80,8 @@ The names follow the design where one part belongs to another:
   `value`, which holds the payment that they send.
 - The client of OP3 is under `analytics`, which counts downloads as OP3
   does.
-- `resolve`, `check`, `guid`, `json`, `http`, `bytes`, `rank`, `async` and
-  `diagnostics` belong to no group.
+- `resolve`, `check`, `podping`, `websub`, `guid`, `json`, `http`, `bytes`,
+  `rank`, `async` and `diagnostics` belong to no group.
 
 
 ## Why the API is regular
@@ -289,6 +289,28 @@ Validation does not throw on content. A value with a shape that its element
 does not take is `:validate/wrong-shape`, a diagnostic like the others. A
 profile that the validator does not know is a programming error, and it
 throws.
+
+A host with a long feed serves it in more than one document. `feed/pages`
+makes the documents, in the two kinds of RFC 5005, and `feed/join-pages`
+is its inverse. The pages of a paged feed change with each new item,
+because each item moves one place. An archived feed has a subscription
+document with the newest items, and archives that do not change. So a
+reader fetches each archive once, and a server can cache it for good.
+`pages` counts the items of an archive from the oldest item. An archive
+is a document only when the feed has a newer item than its items, so that
+no archive gets an item later. The subscription document holds the newest
+items, and some of them are in the newest archive too. `join-pages` leaves
+out an item that it has. RFC 5005 marks a document with an empty element,
+`fh:complete` or `fh:archive`. The registry has the type `:presence` for
+such an element, which is true because it is there.
+
+`feed/for-subscriber` makes the private feed of one subscriber. The token
+of the subscriber goes on the URLs of the media files and on the links of
+the feed to its own documents. The feed is blocked from the directories,
+and it names no WebSub hub. The host makes the tokens, keeps them, and
+checks them at each request. podcast-clj has no store for them.
+`feed/update-media-urls` is the function under it, and under the prefix
+of OP3.
 
 
 ## Resolving the vocabularies
@@ -755,6 +777,48 @@ with the token of the host.
 The Podping page of the inspector reads the last twenty blocks live. The
 tests run on recorded answers, with a node that fails when the test tells it
 to.
+
+
+## WebSub
+
+WebSub is the W3C Recommendation for the same signal. A feed names a hub,
+and the hub sends the feed to each subscriber when the feed changes. The
+hub calls the subscriber, so a subscriber is a server with a public URL.
+An app on a phone has no such URL, and it reads Podping. A server that
+keeps the feeds of many listeners can use both.
+
+`websub` has the parts of a subscriber. `discover` finds the hubs and the
+topic, which is the URL to subscribe to. It reads the Link headers of the
+answer first, as the Recommendation asks, and then the `atom:link`
+elements of the feed. `podcast/fetch!` gives the result as `:websub`.
+`request` builds the request that subscribes or unsubscribes, and `call!`
+sends it. `handler` is a Ring handler for the callback URL, like the
+handlers of the WebDAV server and the gpodder server.
+
+A hub calls the callback in three ways, and the handler answers each:
+
+- The hub makes sure that the subscriber asked. The handler asks the app,
+  and gives the challenge of the hub back. It sends the challenge as
+  `application/octet-stream` with `nosniff`, and it takes only a challenge
+  of the characters that the Recommendation allows. A challenge is the
+  text of a stranger, and a browser must not read it as a page.
+- The hub sends the feed. With a secret, the hub signs the feed with an
+  HMAC, and the handler checks the signature before the app gets the
+  feed. It answers 200 to a feed without the right signature too, so that
+  a stranger learns nothing about the secret. The comparison of the two
+  signatures takes the same time wherever they differ.
+- The hub tells that it denied a subscription.
+
+The signature is an HMAC with SHA-1, SHA-256, SHA-384 or SHA-512. The JVM
+has them, and the Closure Library has them for ClojureScript, so the
+handler is one function that gives a response on both platforms. Most hubs
+sign with SHA-1. The app can take a smaller set of methods.
+
+A host is a publisher. It names the hub in its feed, and it tells the hub
+of each change. The Recommendation leaves that request to the hub, so
+`publish-request` has the form of the public hubs as a default. A private
+feed names no hub, because a subscriber gives the URL of the feed to the
+hub, and that URL holds the token.
 
 
 ## Comments
@@ -1376,10 +1440,8 @@ the JSON of these requests from the body-params interceptor.
 [Podcast features outside podcast-clj](feature-gaps.md) tells about each
 of the features below, and which part of it fits a library:
 
-- Feeds: WebSub, and paged feeds that `emit` writes for a host.
 - The player state: the rules for downloads and deletes.
 - Directories: the charts by category in `directory/trending!`.
 - Sharing: links to apps, and links with a time.
-- Hosts: a private feed for each subscriber.
 - Comments from Nostr.
 - Payments through the wallet of the listener, with WebLN and NWC.

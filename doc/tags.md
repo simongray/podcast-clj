@@ -39,6 +39,7 @@ identity of a feed and of an item.
 | decimal | a number, a long if it is whole, written back without an exponent |
 | boolean | `true` or `false` in the XML, a boolean in the model |
 | yes-no | `yes` or `no` in the XML, a boolean in the model |
+| presence | an empty element in the XML, `true` in the model when the element is there |
 | rfc2822 | an RFC 2822 date, read leniently, an `#inst` in the model, written in GMT |
 | iso8601 | an ISO 8601 date or date-time, an `#inst` in the model, written in UTC |
 | duration | seconds as a number, read from seconds or from clock notation, written as seconds |
@@ -1551,3 +1552,27 @@ How many times the channel is updated per period.
 - Parent: channel
 - Count: one
 - Text: integer
+
+## Feed paging and archiving
+
+The elements of RFC 5005, for a feed that comes in more than one document. The links between the documents are `atom:link` elements.
+
+- `fh`: http://purl.org/syndication/history/1.0
+
+### `<fh:complete>`
+
+The document holds every item of the feed.
+
+- Key: `:fh/complete`
+- Parent: channel
+- Count: one
+- Text: presence
+
+### `<fh:archive>`
+
+The document is an archive of the feed, and its items do not change.
+
+- Key: `:fh/archive`
+- Parent: channel
+- Count: one
+- Text: presence

@@ -23,7 +23,8 @@
             [dk.simongray.podcast.xml :as xml]
             #?@(:clj [[dk.simongray.podcast.async :as async]
                       [dk.simongray.podcast.http :as http]
-                      [dk.simongray.podcast.resolve :as resolve]])))
+                      [dk.simongray.podcast.resolve :as resolve]
+                      [dk.simongray.podcast.websub :as websub]])))
 
 (defn- malformed?
   [e]
@@ -212,15 +213,17 @@
      "What `fetch!` gives of the `response` of 200 to the request for
      `asked`. It is the body, the feed and its report, or the `:error` of
      a body that is no feed."
-     [asked {:keys [url body]} opts]
+     [asked {:keys [url body] :as response} opts]
      (let [{first-page :value error :error}
            (attempted :fetch/malformed url #(parse (str body) (select-keys opts [:quirks? :registry :except])))]
        (if error
          (cond-> {:error error} body (assoc :body body))
          (let [feed  (with-pages asked url first-page opts)
-               moved (resolve/new-feed-url feed)]
+               moved (resolve/new-feed-url feed)
+               hubs  (websub/discover response first-page)]
            (cond-> {:body body :feed feed :report (report feed)}
-             moved (assoc :new-feed-url moved)))))))
+             moved (assoc :new-feed-url moved)
+             hubs  (assoc :websub hubs)))))))
 
 #?(:clj
    (defn fetch!
@@ -233,6 +236,7 @@
           :not-before #inst \"…\"            ; when the server says to wait
           :body \"…\" :feed {…} :report [...] ; on a 200: the XML, the feed, its report
           :new-feed-url \"…\"                ; when the feed declares it has moved
+          :websub {:hubs [\"…\"] :topic \"…\"}  ; when the feed names a WebSub hub
           :error {…}}                      ; when the fetch got no answer or no feed
 
      `opts` can give these:

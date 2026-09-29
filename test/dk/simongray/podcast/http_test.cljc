@@ -4,6 +4,7 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast.async :as async]
+            [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.test-support :refer [run #?(:clj with-file-server)]])
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
@@ -484,6 +485,42 @@
   (is (every? http/web-url? ["https://a.example/feed.xml" "HTTP://a.example" "https://user:pass@a.example/x"]))
   (is (not-any? http/web-url? ["https://" "ftp://a.example/x" "a.example/x" " https://a.example/" "" nil 5
                                "javascript:alert(1)"])))
+
+(deftest parameters-of-a-query
+  (is (= "https://a.example/feed.xml?page=2" (http/with-query "https://a.example/feed.xml" {:page 2})))
+  (is (= "https://a.example/feed.xml?x=1&page=2&token=a%20b#top"
+         (http/with-query "https://a.example/feed.xml?x=1#top" [[:page 2] [:token "a b"]]))
+      "after the parameters that the URL has, and before its fragment")
+  (is (= "https://a.example/feed.xml?page=2" (http/with-query "https://a.example/feed.xml?" {:page 2})))
+  (is (= "https://a.example/feed.xml?x=1&page=2" (http/with-query "https://a.example/feed.xml?x=1&" {:page 2})))
+  (is (= "https://a.example/feed.xml" (http/with-query "https://a.example/feed.xml" {:page nil}))
+      "no parameters, no change")
+  (is (= {"since" "1727000000" "podcast" "https://example.org/feed.xml" "q" "a b c" "flag" nil}
+         (http/query-params "since=1727000000&podcast=https%3A%2F%2Fexample.org%2Ffeed.xml&q=a+b%20c&flag&=x"))
+      "the parameters of a query, decoded"))
+
+(deftest links-of-a-header
+  (is (= [{:href "https://hub.example.com/" :rel "hub"} {:href "http://example.com/feed" :rel "self"}]
+         (http/links {"link" "<https://hub.example.com/>; rel=\"hub\", <http://example.com/feed>; rel=\"self\""})))
+  (is (= [{:href "https://hub.example.com/?a=1,2" :rel "hub" :title "A, B; C"}
+          {:href "/feed.xml" :rel "self alternate" :type "application/rss+xml"}]
+         (http/links {"link" ["<https://hub.example.com/?a=1,2>; rel=hub; title=\"A, B; C\"; REL=other"
+                              "</feed.xml>;rel=\"self alternate\";type=application/rss+xml"]}))
+      "several headers, a comma and a semicolon inside a value, and the first value of a parameter")
+  (is (= [{:href "x"}] (http/links {"link" "garbage, <>; rel, <x>; rel"})) "what is no link is left out")
+  (is (= [] (http/links {})))
+  (is (= [] (http/links {"link" (apply str (repeat 20000 "<"))})) "a long header of a stranger"))
+
+(deftest the-bytes-of-a-ring-request
+  (is (= 0 (bytes/length (http/request-bytes nil 10))))
+  (is (= [5 nil] [(bytes/length (http/request-bytes "hello" 5)) (http/request-bytes "hello!" 5)]))
+  (is (= 5 (bytes/length (http/request-bytes "Ærø" 5))) "the limit is in bytes")
+  (is (nil? (http/request-bytes "Ærø" 4)))
+  (is (= 3 (bytes/length (http/request-bytes (bytes/of [1 2 3]) 3))))
+  #?(:clj (is (= [3 nil]
+                 [(bytes/length (http/request-bytes (java.io.ByteArrayInputStream. (byte-array 3)) 3))
+                  (http/request-bytes (java.io.ByteArrayInputStream. (byte-array 4)) 3)])
+              "a stream, of which one byte more than the limit is read")))
 
 (deftest the-body-of-a-ring-request
   (is (= "" (http/body-text nil 10)))

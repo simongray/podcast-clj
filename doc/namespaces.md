@@ -90,7 +90,7 @@ Each name below is relative to `dk.simongray.podcast`.
 |---|---|
 | `spec` | The tag registry as data. `registry` indexes or extends it. Also the enumerations of the specifications. |
 | `quirks` | The repairs of malformed XML, the namespace URI variants, and the normalizations of the tree. |
-| `feed` | Hiccup to feed maps and back. `normalize` expands the shorthand of a producer. `feed-guid` and `item-guid` give identity. `diff` compares two parses of a feed. |
+| `feed` | Hiccup to feed maps and back. `normalize` expands the shorthand of a producer. `feed-guid` and `item-guid` give identity. `diff` compares two parses of a feed. For a host: `pages` splits a long feed into the documents of RFC 5005, and `join-pages` joins them. `for-subscriber` makes the private feed of one subscriber, and `update-media-urls` changes the URLs of the media files. |
 | `feed.coerce` | The value types of the tag registry: strings to values, and back. |
 | `feed.validate` | Validation by the tag registry, with the PSP-1 and Apple profiles. |
 | `feed.schema` | Malli schemas of the model, generated from the tag registry. Malli is not a dependency. |
@@ -122,6 +122,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results. JVM: `call!`, `search!` and `trending!`. |
 | `directory.podcastindex` | The Podcast Index API: authenticated requests, responses mapped onto the model, and remote items resolved. JVM: `remote-value!` and `remote-item!`. |
 | `podping` | Podping: calls to the Hive chain as request maps, pings read from blocks, and writers verified. JVM: `poll!`. `notify-request` is for a host. |
+| `websub` | WebSub, for a server that a hub sends the feeds to. `discover` finds the hubs of a feed, `request` and `call!` subscribe, and `handler` is a Ring handler for the callback, which checks the signature of the hub. `publish-request` is for a host. |
 | `comments` | The comments on an episode, from the thread that `podcast:socialInteract` names, over ActivityPub or the AT Protocol, in one shape. `thread` picks the thread of an episode. `fetch!` reads it, and a second `fetch!` reads on from where the first stopped. `tree` gives the comments in the shape to show. `requests`, `next-page` and `with-exchanges` are the pure steps of `fetch!`. |
 | `comments.activitypub` | The threads of ActivityPub: a conversation, or the replies of each post, with each post from its own server. It reads through the Mastodon API when a server keeps the root post from the reader. |
 | `comments.atproto` | The threads of the AT Protocol, from an AppView, with the labels of the protocol. `at-uri` gives the parts of an at URI. |
@@ -159,7 +160,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `time.rrule` | RFC 5545 recurrence rules: parse, write and evaluate. |
 | `guid` | The `podcast:guid` UUIDv5, and SHA-1. |
 | `json` | JSON strings to data and back, on both platforms. |
-| `http` | Requests as maps, credentials as a header, URLs made absolute, and when a server says to ask again. `call!` sends a request with byte ranges and limits of size and time: on the JVM with redirects that keep the credentials to their origin, and in ClojureScript with fetch. `probe!` learns the facts of a file from two bytes of it, and `fetcher` fetches a file by byte ranges. JVM: `fetch!`, which fetches a feed with conditional requests, and `digest!`, which streams a body through a digest. `public?` tells whether a host is on the public internet, and `call-public!` sends only to such hosts. `byte-ranges` reads a Range header. |
+| `http` | Requests as maps, credentials as a header, URLs made absolute, and when a server says to ask again. `call!` sends a request with byte ranges and limits of size and time: on the JVM with redirects that keep the credentials to their origin, and in ClojureScript with fetch. `probe!` learns the facts of a file from two bytes of it, and `fetcher` fetches a file by byte ranges. JVM: `fetch!`, which fetches a feed with conditional requests, and `digest!`, which streams a body through a digest. `public?` tells whether a host is on the public internet, and `call-public!` sends only to such hosts. `byte-ranges` reads a Range header, `links` reads a Link header, and `with-query` adds parameters to a URL. |
 | `bytes` | Bytes on both platforms, read as numbers and text, and a view of the parts of a file that have arrived, which says what a reader still needs. `read!` fetches it for the reader until it is done, within the limits of bytes, time and rounds of `default-limits`. |
 | `async` | Deferred values: futures on the JVM, and promises in JavaScript. `iteration` reads an API that answers in pages, as `clojure.core/iteration` does, on both platforms. |
 | `rank` | Ranks that always leave room for another rank between two ranks, and that stay short at the ends of a list. `after` gives the ranks of many items that go to the end at one time. |

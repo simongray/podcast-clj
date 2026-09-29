@@ -17,7 +17,9 @@
     :attrs    the specified attributes by XML name, each with an optional
               :type (see dk.simongray.podcast.feed.coerce/types), :required and,
               for :enum, :values
-    :content  the type of the node text, :none when the element has none
+    :content  the type of the node text, :none when the element has none,
+              and :presence for an empty element that is true when it is
+              there
     :values   the permitted node-text values of an enumeration
     :deprecated  true, or the tag that replaces it
     :children-as the context to look the element's children up under, when
@@ -226,6 +228,13 @@
    {:tag :sy/updateFrequency :key :sy/update-frequency :parent #{:channel} :count :one
     :content :integer
     :doc "How many times the channel is updated per period."}
+
+   ;; feed paging and archiving: RFC 5005, sections 2 and 4, and appendix B
+   ;; for their place in the channel of RSS 2.0
+   {:tag :fh/complete :key :fh/complete :parent #{:channel} :count :one :content :presence
+    :doc "The document holds every item of the feed."}
+   {:tag :fh/archive :key :fh/archive :parent #{:channel} :count :one :content :presence
+    :doc "The document is an archive of the feed, and its items do not change."}
 
    ;; iTunes, channel
    {:tag :itunes/title :key :itunes/title :parent #{:channel :item} :count :one

@@ -112,7 +112,7 @@ find more, or cost less.
 | Private feeds with a user name and a password | Overcast, AntennaPod, gPodder, PinePods | Target | Small | Built: `:credentials` of `podcast/fetch!` |
 | The kind of a redirect: permanent or temporary | AntennaPod, gPodder, the Livewire validator | Target | Small | Built: `:permanent-url` of `podcast/fetch!` |
 | Polite polling: `Retry-After` and `Cache-Control` | gPodder, Overcast | Target | Small | Built: `:not-before` of `podcast/fetch!` |
-| WebSub | Pocket Casts | In part | Small | Not built |
+| WebSub | Pocket Casts | In part | Small | Built: `websub` |
 
 **Paged feeds.** RFC 5005 lets a host split a long feed into pages. The
 pages link to each other with `atom:link rel="next"`. The feeds of
@@ -458,8 +458,8 @@ accounts with a payment service.
 | Checks of a feed over the network | Cast Feed Validator, Podbase, Livewire, Apple Podcasts | Target | Medium | Built: `check` |
 | OP3: the prefix and the public statistics | Transistor, Captivate, Libsyn, Spreaker, Simplecast, RSS.com, Podhome | Target | Small | Built: `analytics.op3` |
 | Download counts by the rules of the IAB | Hosts with IAB certification, OP3 | In part | Medium | Built: `analytics/downloads` |
-| Paged feeds | Podlove Publisher | Target | Small | Not built |
-| A private feed for each subscriber | Buzzsprout, Transistor, Captivate, Castos | In part | Small | Not built |
+| Paged feeds | Podlove Publisher | Target | Small | Built: `feed/pages` |
+| A private feed for each subscriber | Buzzsprout, Transistor, Captivate, Castos | In part | Small | Built: `feed/for-subscriber` |
 | Ad insertion, generated show notes, video, websites | Most hosts | Out | | |
 
 **Checks over the network.** [Media files](#media-files) describes them.

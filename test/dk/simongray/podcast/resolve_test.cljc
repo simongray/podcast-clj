@@ -272,6 +272,11 @@
     (is (= "https://new/feed.xml" (resolve/new-feed-url {:itunes/new-feed-url "https://new/feed.xml"})))
     (is (= "https://a/rss" (resolve/self-url {:atom/links [{:href "https://hub" :rel "hub"} {:href "https://a/rss" :rel "Self"}]})))
     (is (nil? (resolve/self-url f)))
+    (is (= ["https://hub" "https://hub2"]
+           (resolve/hubs {:atom/links [{:href "https://hub" :rel "hub"} {:href "https://a/rss" :rel "self"}
+                                       {:href "https://hub2" :rel "HUB"}]}))
+        "the WebSub hubs of a feed, in its order")
+    (is (empty? (resolve/hubs f)))
     (is (= "?page=2" (resolve/next-page {:atom/links [{:href "https://a/rss" :rel "self"} {:href "?page=2" :rel "Next"}]}))
         "the next page of a paged feed, as the feed writes it")
     (is (= "/2025.xml" (resolve/next-page {:atom/links [{:href "/2025.xml" :rel "prev-archive"}]})) "or of an archived one")

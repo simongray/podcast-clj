@@ -337,3 +337,16 @@
   clips in the shape of a `podcast:soundbite` (`clip`, `unclip`,
   `clips`). `search/episodes` takes the criterion `:rating`, and a
   `:scale` for it.
+- For hosts: `feed/pages` splits a long feed into the documents of RFC
+  5005, as pages or as archives that do not change. The registry has
+  `fh:complete` and `fh:archive`, with the new value type `:presence` for
+  an empty element. `feed/for-subscriber` makes the private feed of one
+  subscriber, with a token on the URLs of the host.
+  `feed/update-media-urls` changes the URLs of the media files.
+- WebSub, in the new namespace `websub`: `discover`, `request`, `call!`
+  and `handler`. The handler is a Ring handler for the callback of a
+  subscriber, and it checks the signature of the hub. `publish-request`
+  is for a host.
+  `podcast/fetch!` gives the hubs of a feed as `:websub`, and
+  `resolve/hubs` reads them from the feed. `http/links` reads a Link
+  header, and `http/with-query` adds parameters to a URL.

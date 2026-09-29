@@ -23,6 +23,7 @@
    :decimal  'number?
    :boolean  :boolean
    :yes-no   :boolean
+   :presence [:= true]
    :rfc2822  'inst?
    :iso8601  'inst?
    :duration 'number?

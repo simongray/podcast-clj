@@ -596,6 +596,16 @@
   (some #(when (= "self" (some-> (:rel %) str/lower-case)) (:href %))
         (:atom/links feed)))
 
+(defn hubs
+  "The URLs of the WebSub hubs of `feed`, from its atom:links with
+  rel=hub, in the order of the feed.
+
+  A hub tells its subscribers when the feed changes.
+  dk.simongray.podcast.websub has the requests of a subscriber."
+  [feed]
+  (keep #(when (= "hub" (some-> (:rel %) str/lower-case)) (:href %))
+        (:atom/links feed)))
+
 (defn next-page
   "The URL of the page with the older items of `feed`, when the feed comes
   in pages as RFC 5005 defines them.
@@ -750,7 +760,7 @@
    :license license :chat chat :social-interacts social-interacts
    :locations locations :value value :live-items live-items :medium medium
    :list-feed? list-feed? :complete? complete? :locked? locked?
-   :new-feed-url new-feed-url :self-url self-url :podroll podroll
+   :new-feed-url new-feed-url :self-url self-url :hubs hubs :podroll podroll
    :remote-items remote-items :publisher publisher :categories categories})
 
 (def ^:no-doc episode-properties

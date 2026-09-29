@@ -28,6 +28,7 @@
    :googleplay "http://www.google.com/schemas/play-podcasts/1.0"
    :spotify    "http://www.spotify.com/ns/rss"
    :sy         "http://purl.org/rss/1.0/modules/syndication/"
+   :fh         "http://purl.org/syndication/history/1.0"
    :rawvoice   "http://www.rawvoice.com/rawvoiceRssModule/"
    :xhtml      "http://www.w3.org/1999/xhtml"
    :opml       "http://opml.org/spec2"})

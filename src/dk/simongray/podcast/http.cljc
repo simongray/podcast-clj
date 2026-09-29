@@ -73,6 +73,30 @@
                     (encode (name k))
                     (str (encode (name k)) "=" (encode v))))))
 
+(defn ^:no-doc query-params
+  "The parameters of the query string `s`, decoded, by name. A plus sign
+  is a space, as in the body of a form."
+  [s]
+  (into {} (for [part  (str/split (str s) #"&")
+                 :let  [[k v] (map #(percent-decode (str/replace (str %) "+" " ")) (str/split part #"=" 2))]
+                 :when (seq k)]
+             [k v])))
+
+(defn with-query
+  "The URL `url` with `params` added to its query, as `query-string` writes
+  them. The parameters go after the parameters that the URL has, and
+  before its fragment."
+  [url params]
+  (let [[_ base fragment] (re-matches #"(?s)([^#]*)(#.*)?" (str url))
+        query             (query-string params)
+        joint             (cond
+                            (not (str/includes? base "?")) "?"
+                            (re-find #"[?&]$" base)        ""
+                            :else                          "&")]
+    (if (str/blank? query)
+      (str url)
+      (str base joint query fragment))))
+
 (defn ^:no-doc base64
   "The UTF-8 bytes of `s` in base64."
   [s]
@@ -104,6 +128,35 @@
   [headers header-name]
   (let [v (get headers (str/lower-case header-name))]
     (if (string? v) v (some->> (seq v) (str/join ", ")))))
+
+(defn- link-of
+  "The link that the `tokens` of one value of a Link header give: its
+  target, and then its parameters, each after a semicolon. Nil when the
+  value starts with no target."
+  [[target & params]]
+  (when (and target (re-find #"^<\s*[^\s>]" target))
+    (reduce (fn [link [k eq v]]
+              (let [k (keyword (str/lower-case k))]
+                (cond-> link
+                  (and (= "=" eq) v (not (contains? link k)))
+                  (assoc k (str/replace v #"^\"|\"$" "")))))
+            {:href (str/trim (subs target 1 (dec (count target))))}
+            (remove #(= ";" (first %)) (partition-by #(= ";" %) params)))))
+
+(defn links
+  "The links of the Link header in the response headers map `headers`, as
+  section 3 of RFC 8288 defines them. Each link is a map with `:href`,
+  its target, and with its parameters by name, such as `:rel` and
+  `:type`.
+
+  The links are in the order of the header. The first value of a
+  parameter counts, and a target can be relative to the URL of the
+  response."
+  [headers]
+  (->> (re-seq #"<[^>]*>|\"[^\"]*\"|[;,=]|[^\s;,=<\"]+" (str (joined headers "link")))
+       (partition-by #(= "," %))
+       (keep link-of)
+       vec))
 
 (defn ^:no-doc seconds
   "The whole number of seconds that the header value `s` gives. Nil when
@@ -1223,6 +1276,21 @@
      (async/then (async/all [(answer! {:method :head :headers (merge {"Accept-Encoding" "identity"} headers)})
                              (answer! {:range [0 1] :as :bytes :headers headers})])
                  (fn [[head got]] {:head head :get got})))))
+
+(defn ^:no-doc request-bytes
+  "The bytes of the `body` of a Ring request, which is a string, bytes, a
+  stream or nothing. Nil when the body holds more than `max-bytes`, and
+  for a stream in ClojureScript."
+  [body max-bytes]
+  (let [b (cond
+            (nil? body)    (bytes/of [])
+            (string? body) (bytes/encode body)
+            :else          #?(:clj  (if (bytes? body)
+                                      body
+                                      (.readNBytes ^InputStream body (int (inc max-bytes))))
+                              :cljs (when (instance? js/Uint8Array body) body)))]
+    (when (and b (<= (bytes/length b) max-bytes))
+      b)))
 
 (defn ^:no-doc body-text
   "The text of the `body` of a Ring request, which is a string, a stream

@@ -206,14 +206,6 @@
       (when-let [i (some-> decoded (str/index-of ":"))]
         [(subs decoded 0 i) (subs decoded (inc i))]))))
 
-(defn- query
-  "The parameters of the query string `s`, decoded, by name."
-  [s]
-  (into {} (for [part  (str/split (str s) #"&")
-                 :let  [[k v] (map #(http/percent-decode (str/replace (str %) "+" " ")) (str/split part #"=" 2))]
-                 :when (seq k)]
-             [k v])))
-
 (defn ^:no-doc put!
   "Put the state `s`, which was made from the state `from` of the atom
   `state`, in the atom. When the app changed the atom in between, `s` is
@@ -248,7 +240,7 @@
   the `state` of the server `env`: the state, the book and the names, the
   time, the parameters, and the JSON of the body."
   [{:keys [book max-bytes] :as env} request state at]
-  (let [params (query (:query-string request))]
+  (let [params (http/query-params (:query-string request))]
     {:state   state
      :book    @book
      :names   (gpodder/namer env state)
@@ -355,7 +347,7 @@
 (comment
   (route "/api/2/subscriptions/ann/phone.json")
   (basic "Basic YW5uOnNlY3JldA==")
-  (query "since=1727000000&podcast=https%3A%2F%2Fexample.org%2Ffeed.xml")
+  (http/query-params "since=1727000000&podcast=https%3A%2F%2Fexample.org%2Ffeed.xml")
 
   ;; a server over a state with one subscription, and a request of an app
   (def serve

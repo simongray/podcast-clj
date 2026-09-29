@@ -298,8 +298,10 @@
   chapter before it in the first `restart` seconds of a chapter. Before
   the first chapter, it goes to 0.
 
-  The chapters with `:toc false` are not in the table of contents, so no
-  jump goes to them. `opts` can give `:restart`, in seconds."
+  The chapters with `:toc false` are not in the table of contents, as
+  the JSON Chapters format of the podcast namespace has it, so no jump
+  goes to them. No standard says where a jump back goes, so the seconds
+  are a choice: `opts` can give `:restart`."
   ([doc seconds direction]
    (jump doc seconds direction {}))
   ([doc seconds direction opts]

@@ -219,3 +219,25 @@
         (let [r (podcast/fetch! (str base "/page.html"))]
           (is (= "\"p\"" (:etag r)) "the validators of the answer")
           (is (str/starts-with? (:body r) "<html>") "and the body, where an app can look for the feed"))))))
+
+(deftest the-hubs-of-a-fetched-feed
+  (let [hubbed (str "<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\"><channel><title>Hubbed</title>"
+                    "<atom:link rel=\"hub\" href=\"https://hub.example/\"/>"
+                    "<atom:link rel=\"self\" href=\"https://a.example/feed.xml\"/>"
+                    "<item><title>E1</title><guid>1</guid></item></channel></rss>")]
+    (with-routes
+      (fn [path ^HttpExchange exchange]
+        (case path
+          "/linked.xml" (respond exchange 200 hubbed
+                                 {"Link" "<https://header.example/>; rel=\"hub\", </linked.xml>; rel=\"self\""})
+          "/hubbed.xml" (respond exchange 200 hubbed {})
+          (respond exchange 200 feed-xml {})))
+      (fn [base]
+        (is (= {:hubs ["https://header.example/"] :topic (str base "/linked.xml")}
+               (:websub (podcast/fetch! (str base "/linked.xml"))))
+            "from the Link headers of the answer first")
+        (is (= {:hubs ["https://hub.example/"] :topic "https://a.example/feed.xml"}
+               (:websub (podcast/fetch! (str base "/hubbed.xml"))))
+            "and else from the links of the feed")
+        (is (not (contains? (podcast/fetch! (str base "/feed.xml")) :websub))
+            "a feed that names no hub")))))

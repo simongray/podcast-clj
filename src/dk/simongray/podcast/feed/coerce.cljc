@@ -12,7 +12,7 @@
 (def coerced-types
   "The value types whose model values are not strings, so that a string
   where one is expected means the value did not coerce."
-  #{:integer :decimal :boolean :yes-no :rfc2822 :iso8601 :duration :rrule :geo :osm})
+  #{:integer :decimal :boolean :yes-no :presence :rfc2822 :iso8601 :duration :rrule :geo :osm})
 
 (def types
   "The value types a registry entry may give an attribute or node text:
@@ -85,7 +85,10 @@
 (defn parse
   "Read the string `s` as a value of `type`; `::invalid` when it cannot be.
   The white space around `s` goes first, no-break spaces included, which
-  the JVM would otherwise keep and JavaScript not."
+  the JVM would otherwise keep and JavaScript not.
+
+  An element of the type :presence has no text. It is true because it is
+  there, whatever `s` is."
   [type s]
   (let [s (xml/trim s)]
     (case type
@@ -93,6 +96,7 @@
       :decimal  (read-decimal s)
       :boolean  (read-boolean s)
       :yes-no   (read-yes-no s)
+      :presence true
       :rfc2822  (or-invalid (some-> (time/parse-date s) time/floor-seconds))
       :iso8601  (or-invalid (or (time/parse-iso8601 s) (time/parse-rfc2822 s)))
       :duration (or-invalid (time/parse-duration s))
@@ -114,12 +118,15 @@
   "Whether `v` is a model value of `type`, of the kind `parse` makes of a
   string that reads: a whole number both platforms hold exactly, a finite
   number, a boolean, an instant, the map of a rule, a geo URI or an OSM
-  reference, and for the types that stay strings, a string."
+  reference, and for the types that stay strings, a string. The value of
+  the type :presence is true, and a feed without the element has no value
+  for it."
   [type v]
   (case type
     :integer             (and (integer? v) (<= (abs v) time/max-whole))
     (:decimal :duration) (finite? v)
     (:boolean :yes-no)   (boolean? v)
+    :presence            (true? v)
     (:rfc2822 :iso8601)  (inst? v)
     :rrule               (and (map? v) (contains? rrule/freq-values (:freq v)))
     :geo                 (and (map? v) (finite? (:lat v)) (finite? (:lon v)))
