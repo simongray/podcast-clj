@@ -74,6 +74,13 @@
   (is (nil? (:alpha? (image/read (view (png 1400 1400 2 (png-chunk "t3XT" [0]))))))
       "a chunk type that is not letters")
   (is (= [:grayscale false] ((juxt :color :alpha?) (image/read (view (png 600 600 0))))))
+  (let [cut (image/read (view (concat png-signature
+                                      (png-chunk "IHDR" (concat (be 4 500) (be 4 400) [8 2 0 0 0]))
+                                      (be 4 100000) (ascii "tEXt") [0 0 0 0])))]
+    (is (= ["image/png" 500 400 nil] ((juxt :type :width :height :alpha?) cut))
+        "a chunk past the end of the file, which leaves the header as it is")
+    (is (= [[:file/truncated :transparency]] (map (juxt :id :part) (:report cut))))
+    (is (every? :message (:report cut))))
   (is (= [:file/malformed] (map :id (:report (image/read (view (concat png-signature (png-chunk "tEXt" (repeat 20 0))))))))
       "a first chunk that is not IHDR"))
 

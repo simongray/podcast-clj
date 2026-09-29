@@ -346,8 +346,8 @@ replies. To show them, give `tree` the options `{:hidden? true}`.
 The servers of a thread choose the URLs that `fetch!` fetches. So `fetch!`
 sends nothing to the network of your app, as
 [Requests that strangers choose](architecture.md#requests-that-strangers-choose)
-tells. If your app must reach its own network, give `fetch!` the `:send`
-`http/call!`.
+tells. If your app must reach its own network, give `fetch!` the option
+`:allow? (constantly true)`.
 
 Keep the thread with the episode. `fetch!` reads a thread as far as its
 limits allow, and the report tells when it stopped early. By default, it
@@ -661,6 +661,14 @@ and chapters file whole.
 
 (check/report (:files result) :psp-1)  ; the same check by another profile, with no request sent again
 ```
+
+A feed names the files of its check, so a check has limits. They are 500
+files, ten minutes, and 32 MB of each file that it reads.
+`check/default-limits` holds them, and the options of `feed!` set each of
+them. A file that a limit left out has the facts `{:unchecked …}`, and the
+report counts such files with `:check/unchecked`. If your server checks
+feeds that strangers submit, give `feed!` the option
+`:allow? http/public?`. It then sends no request to your own network.
 
 Each diagnostic has the `:url` of the file and the `:path` of the element
 that names it. `check/verdicts` gives the diagnostics of facts that the app

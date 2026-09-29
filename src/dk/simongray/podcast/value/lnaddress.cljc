@@ -303,8 +303,8 @@
 (defn- exchange!
   "The response to `request`, sent by the `:send` of `opts` within its
   limits, or `{:error diagnostic}` when it could not be sent; deferred."
-  [request {:keys [send timeout-seconds max-bytes]}]
-  (async/then (async/attempt #(send (assoc request :timeout-seconds timeout-seconds :max-bytes max-bytes)))
+  [request {:keys [send] :as opts}]
+  (async/then (async/attempt #(send (http/limited request opts)))
               (fn [{:keys [value error]}]
                 (if error
                   {:error (diagnostics/describe {:id :value/unreachable :url (:url request) :reason (async/explain error)})}
@@ -320,15 +320,16 @@
   the address that gives the text. The function fits a comment to the
   `:comment-length` of the terms, as `value.metadata/payment-comment` does.
 
-  The other options are `:send`, a function that sends a request map in
-  place of `http/call-public!`, and the limits of `default-limits`. The
-  domain of an address in a feed chooses the URLs that this fetches. So it
-  sends nothing to the network of the app, unless the app gives
-  `http/call!` as `:send`."
+  The other options are the limits of `default-limits`, `:allow?`, and
+  `:send`, a function that sends a request map in place of `http/call!`.
+  The domain of an address in a feed chooses the URLs that this fetches.
+  So each request carries `http/public?` as its `:allow?`, and
+  `http/call!` then sends nothing to the network of the app. An app that
+  must reach its own network gives `(constantly true)` as `:allow?`."
   ([address msat]
    (invoice! address msat {}))
   ([address msat opts]
-   (let [opts (merge default-limits {:send http/call-public!} opts)]
+   (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)]
      (async/then (lnurlp-request address)
                  (fn [request]
                    (if-not request
@@ -355,7 +356,7 @@
   ([address]
    (node! address {}))
   ([address opts]
-   (let [opts (merge default-limits {:send http/call-public!} opts)]
+   (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)]
      (async/then (keysend-request address)
                  (fn [request]
                    (if-not request

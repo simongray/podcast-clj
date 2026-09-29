@@ -75,7 +75,12 @@
       (is (= [[:p {} text]] (html/parse (str "<p>" text))))))
   (testing "a long run of blanks in a pre is kept, and tidied in linear time"
     (let [blanks (apply str (repeat 100000 " "))]
-      (is (= (str "a" blanks "b") (html/text (str "<pre>a" blanks "b</pre>")))))))
+      (is (= (str "a" blanks "b") (html/text (str "<pre>a" blanks "b</pre>"))))))
+  (testing "a start tag with thousands of quoted values costs no stack"
+    (let [tag (str "<a " (apply str (map #(str "a" % "=\"b>\" ") (range 20000))) ">x</a>")]
+      (is (= [20000 "b>"] ((juxt count :a19999) (second (first (html/parse tag))))))
+      (is (= "x" (html/text tag)))
+      (is (= [[:a {} "x"]] (html/hiccup tag))))))
 
 (deftest hiccup-for-a-client
   (testing "markup is parsed and sanitized"

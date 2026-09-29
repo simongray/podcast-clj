@@ -17,6 +17,7 @@
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
             [dk.simongray.podcast.comments.atproto :as atproto]
+            [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.test-support :refer [fixture run]]
@@ -451,6 +452,55 @@
              (is (= [[{:id :comments/malformed :url "https://a.example/1"}] [{:id :comments/malformed :url "https://a.example/1"}]]
                     (map (fn [thread] (summary thread :id :url)) threads))
                  "JSON nested too deep, and a number of thousands of digits"))))))
+
+(deftest the-network-of-the-app
+  (let [asked (atom [])
+        send  (fn [request]
+                (swap! asked conj request)
+                {:status 404 :url (:url request)})
+        note  {:protocol "activitypub" :uri "https://a.example/notes/1"}]
+    (run #(async/then
+           (comments/fetch! {:protocol "activitypub" :uri "http://127.0.0.1:1/notes/1"})
+           (fn [thread]
+             (is (= [:comments/unreachable] (ids thread)))
+             (is (str/includes? (:reason (first (:report thread))) "is not allowed")
+                 "no request goes to it, unless the app allows it")))
+         #(async/then
+           (async/all [(comments/fetch! note {:send send})
+                       (comments/fetch! note {:send send :allow? any?})])
+           (fn [_]
+             (is (= #{http/public? any?} (set (map :allow? @asked)))
+                 "each request carries the guard, which a :send gets too"))))))
+
+(deftest a-post-that-does-not-read
+  (let [root   "https://a.example/0"
+        at     #inst "2026-09-28T12:00:00Z"
+        note   (fn [i content]
+                 {"id" (str "https://a.example/" i) "type" "Note" "content" content "inReplyTo" root
+                  "to" ["https://www.w3.org/ns/activitystreams#Public"]})
+        values (apply str (repeat 5000 "a=\"b\" "))
+        doc    (assoc (note 0 "root")
+                      "inReplyTo" nil
+                      "replies" {"type"  "Collection"
+                                 "items" [(note 1 "one") (note 2 (str "<a " values ">two</a>")) (note 3 "boom")]})
+        thread {:protocol "activitypub" :uri root}
+        read   (fn []
+                 (comments/with-exchanges thread
+                                          [{:request  (first (comments/requests thread))
+                                            :response {:status 200 :url root :body (json/write-str doc)}}]
+                                          at))
+        hiccup html/hiccup
+        shown  (fn [t] (map (juxt :content (comp :id :error)) (map (:comments t) (map #(str "https://a.example/" %) (range 4)))))]
+    (testing "a tag with thousands of quoted values, which is a post like any other"
+      (is (= [["<p>root</p>" nil] ["<p>one</p>" nil] ["<a rel=\"nofollow ugc\">two</a>" nil] ["<p>boom</p>" nil]]
+             (shown (read)))))
+    (testing "the posts around it are read, and the report names it"
+      (let [t (with-redefs [html/hiccup (fn [s] (if (= "boom" s) (throw (ex-info "It does not read" {})) (hiccup s)))]
+                (read))]
+        (is (= [["<p>root</p>" nil] ["<p>one</p>" nil] ["<a rel=\"nofollow ugc\">two</a>" nil] [nil :comments/malformed]]
+               (shown t)))
+        (is (= [[:comments/malformed "https://a.example/3" "It does not read"]]
+               (map (juxt :id :url :reason) (comments/report t))))))))
 
 (deftest a-thread-of-the-at-protocol
   (let [log (atom [])]

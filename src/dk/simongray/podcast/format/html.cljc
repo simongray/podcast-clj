@@ -19,8 +19,17 @@
   or a stray angle bracket. The start tag is a run of plain characters and
   then quoted values each followed by another, which a regular expression
   matches in one pass, where a choice for every character costs a third
-  of the time of the whole parse."
-  #"(?s)<[sS][cC][rR][iI][pP][tT](?=[\s/>])[^>]*>.*?(?:</[sS][cC][rR][iI][pP][tT]\s*>|$)|<[sS][tT][yY][lL][eE](?=[\s/>])[^>]*>.*?(?:</[sS][tT][yY][lL][eE]\s*>|$)|<!--.*?(?:-->|$)|<!\[CDATA\[.*?(?:\]\]>|$)|<![^>]*>?|<\?[^>]*>?|</[a-zA-Z][^>]*>?|<[a-zA-Z][^>\"']*(?:(?:\"[^\"]*\"|'[^']*'|[\"'])[^>\"']*)*>?|[^<]+|<")
+  of the time of the whole parse.
+
+  On the JVM, the run of quoted values is possessive. A run that can give
+  back what it took costs a stack frame for each value there, and a tag
+  with thousands of values overflows the stack."
+  (re-pattern
+   (str "(?s)<[sS][cC][rR][iI][pP][tT](?=[\\s/>])[^>]*>.*?(?:</[sS][cC][rR][iI][pP][tT]\\s*>|$)"
+        "|<[sS][tT][yY][lL][eE](?=[\\s/>])[^>]*>.*?(?:</[sS][tT][yY][lL][eE]\\s*>|$)"
+        "|<!--.*?(?:-->|$)|<!\\[CDATA\\[.*?(?:\\]\\]>|$)|<![^>]*>?|<\\?[^>]*>?|</[a-zA-Z][^>]*>?"
+        "|<[a-zA-Z][^>\"']*(?:(?:\"[^\"]*\"|'[^']*'|[\"'])[^>\"']*)*" #?(:clj "+" :cljs "")
+        ">?|[^<]+|<")))
 
 (def ^:no-doc markup
   "What makes a description HTML rather than plain text: a comment, or a

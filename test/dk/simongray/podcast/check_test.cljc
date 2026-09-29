@@ -6,9 +6,11 @@
             #?(:clj [clojure.string :as str])
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.async :as async]
             #?(:clj [dk.simongray.podcast.bytes :as bytes])
             [dk.simongray.podcast.check :as check]
-            [dk.simongray.podcast.test-support :refer [fixture #?@(:clj [ascii be with-server])]])
+            [dk.simongray.podcast.test-support :refer [fixture run #?@(:clj [ascii be with-server])]]
+            [dk.simongray.podcast.time :as time])
   #?(:clj (:import [java.security MessageDigest])))
 
 (def example
@@ -186,7 +188,13 @@
       (is (= #{:check/image-size} (ids (assoc image :declared {:sources #{:podcast} :width 3000 :aspect-ratio "1/1"}) (facts 1400 1400))))
       (is (= #{:check/image-size} (ids wide (facts 630 1200))))
       (is (= #{} (ids wide (assoc-in (facts 630 1200) [:image :orientation] 6)))
-          "an image that EXIF turns a quarter, as a viewer shows it")))
+          "an image that EXIF turns a quarter, as a viewer shows it")
+      (let [spaces (apply str (repeat 200000 " "))
+            sized  (fn [ratio] (assoc image :declared {:sources #{:podcast} :aspect-ratio ratio}))]
+        (is (= #{:check/image-size} (ids (sized (str spaces "16" spaces ":" spaces "9" spaces)) (facts 1400 1400)))
+            "the white space in a ratio, however much")
+        (is (= #{} (ids (sized (str "1" spaces "x")) (facts 1200 630)))
+            "a ratio that does not read claims nothing, and takes no time"))))
   (is (= #{:file/unknown-format} (ids artwork (assoc square-jpeg :image {:report [{:id :file/unknown-format :level :warning}]})))))
 
 (deftest verdicts-on-transcripts-chapters-and-feeds
@@ -223,6 +231,35 @@
     (is (= #{} (ids feed {:get {:status 200 :url "https://a/feed.xml" :filtered? true}}))
         "a browser hides the ETag")
     (is (= #{:check/head} (ids feed {:head {:status 501} :get {:status 206 :url "https://a/feed.xml" :cors "*" :etag "\"1\""}})))))
+
+(deftest the-limits-of-a-check
+  (let [feed  {:rss/items [{:rss/enclosure       {:url "https://a.example/e.mp3" :type "audio/mpeg"}
+                            :podcast/transcripts (vec (for [i (range 50)]
+                                                        {:url (str "https://a.example/t" i ".vtt") :type "text/vtt"}))}]}
+        sent  (atom [])
+        send  (fn [{:keys [url method] :as request}]
+                (swap! sent conj request)
+                {:status (if (= :head method) 200 206) :url url :headers {"content-type" ["text/vtt"]}})
+        left  (fn [result] (frequencies (map (comp :unchecked :facts) (:files result))))
+        told  (fn [result] (map (juxt :limit :count) (filter #(= :check/unchecked (:id %)) (:report result))))]
+    (run
+     #(async/then (check/feed! feed {:send send :max-files 10 :allow? (constantly true)})
+                  (fn [result]
+                    (is (= 51 (count (:files result))) "every file that the feed names")
+                    (is (= {nil 10 :max-files 41} (left result)))
+                    (is (= [[:max-files 41]] (told result)) "one diagnostic counts the files that the check left out")
+                    (is (= 20 (count @sent)))
+                    (is (= #{[30 (:max-bytes check/default-limits) true]}
+                           (set (map (juxt :timeout-seconds :max-bytes (comp some? :allow?)) @sent)))
+                        "each request carries the limits and the guard")))
+     #(let [ms (atom 0)]
+        (async/then (check/feed! feed {:send        send
+                                       :concurrency 1
+                                       :max-seconds 10
+                                       :now         (fn [] (time/->inst (swap! ms + 1000)))})
+                    (fn [result]
+                      (is (= [[:max-seconds (get (left result) :max-seconds)]] (told result)))
+                      (is (< 40 (get (left result) :max-seconds)) "no file starts after the time of the check")))))))
 
 #?(:clj
    (defn- png

@@ -221,9 +221,14 @@
 
 (defn u64
   "The big-endian 64-bit number at `p` in `view`, exact up to 2^53 in
-  JavaScript."
+  JavaScript, and up to 2^63 on the JVM. Above that, it is the nearest
+  floating-point number."
   [view p]
-  (+ (* 4294967296 (u32 view p)) (u32 view (+ p 4))))
+  (let [high (u32 view p)
+        low  (u32 view (+ p 4))]
+    (if (< high 0x80000000)
+      (+ (* 4294967296 high) low)
+      (+ (* 4294967296.0 high) low))))
 
 (defn- copy-into!
   "Copy the bytes of `b` from `start` to `end` into the bytes `out`, from
@@ -266,6 +271,30 @@
   [view p n]
   (text view p (+ p n) :latin1))
 
+(defn ^:no-doc failure
+  "The diagnostic of a reading that failed with `e`: `:file/truncated` when
+  it went past the end of the file, and `:file/malformed` otherwise."
+  [e]
+  (if (truncated? e)
+    {:id :file/truncated :level :warning}
+    {:id :file/malformed :level :warning :reason (async/explain e)}))
+
+(defn ^:no-doc part
+  "What `(f)` gives as `{:value v}`, the reading of the part `k` of a file
+  that the rest of the file can do without, such as its artwork. When the
+  part does not read, `{:report [diagnostic]}`, which names the `:part`.
+
+  A reading that lacks bytes of the view throws on, so that the caller can
+  fetch them."
+  [k f]
+  (let [failed #(if (missing %) (throw %) {:report [(assoc (failure %) :part k)]})]
+    (try
+      {:value (f)}
+      (catch #?(:clj Exception :cljs :default) e
+        (failed e))
+      #?(:clj (catch StackOverflowError e
+                (failed e))))))
+
 (defn reading
   "What `(f)`, a reading of a view, gives: its result; `{:need [[start end]
   ...]}`, the ranges that the view lacked, end excluded; or a report of
@@ -274,10 +303,7 @@
   overflowing the stack. Every diagnostic in the report of the result has
   its message."
   [f]
-  (let [failed #(cond
-                  (missing %)    {:need (missing %)}
-                  (truncated? %) {:report [{:id :file/truncated :level :warning}]}
-                  :else          {:report [{:id :file/malformed :level :warning :reason (async/explain %)}]})
+  (let [failed #(if (missing %) {:need (missing %)} {:report [(failure %)]})
         result (try
                  (f)
                  (catch #?(:clj Exception :cljs :default) e
@@ -292,22 +318,20 @@
   one request."
   (* 64 1024))
 
-(def ^:no-doc max-rounds
-  "How many times `read!` fetches before it gives up."
-  8)
-
-(def ^:no-doc max-requests
-  "How many requests `read!` sends in one round at most; the ranges that a
-  reading needs beyond them come in the rounds after."
-  16)
-
 (def default-limits
   "The limits of `read!` that its options do not set.
 
-  `:max-bytes` is the most that one reading fetches of a file: 32 MB, and
-  nil for no limit. The sizes in a file are numbers that its writer chose,
-  so a file can ask a reader for more than it holds."
-  {:max-bytes (* 32 1024 1024)})
+  One reading fetches `:max-bytes` of a file at most, 32 MB, and starts no
+  request after `:max-seconds`. Nil sets no limit of bytes or of time. It
+  fetches in `:max-rounds` rounds, of `:max-requests` requests each. The
+  ranges that a reading needs beyond them come in the rounds after.
+
+  The sizes in a file are numbers that its writer chose, so a file can ask
+  a reader for more than it holds."
+  {:max-bytes    (* 32 1024 1024)
+   :max-seconds  60
+   :max-rounds   8
+   :max-requests 16})
 
 (defn- spans
   "The `ranges` that a reading needs, `[[start end] ...]`, in order, and
@@ -323,13 +347,22 @@
           (sort ranges)))
 
 (defn- fetch-all
-  "The parts that `fetch` gives of the `ranges`, one request after another;
-  deferred."
-  [fetch ranges]
+  "The parts that `fetch` gives of the `ranges`, one request after another,
+  and none once `in-time?` says no; deferred. A part without bytes is left
+  out."
+  [fetch ranges in-time?]
   (reduce (fn [parts [start end]]
-            (async/then parts (fn [got] (async/then (fetch start end) #(conj got %)))))
+            (async/then parts (fn [got]
+                                (if (in-time?)
+                                  (async/then (fetch start end) #(cond-> got (:bytes %) (conj %)))
+                                  got))))
           []
           ranges))
+
+(defn- with-parts
+  "`view` with the `parts` that a round fetched."
+  [view parts]
+  (reduce (fn [v {b :bytes :keys [start total]}] (add v start b total)) view parts))
 
 (defn- size
   "The number of bytes in the `ranges`."
@@ -346,6 +379,45 @@
                  [[] spare]
                  ranges)))
 
+(defn- ahead
+  "How far past the end of `range`, the one range of a round, the round
+  reads: `chunk-size`, where a reading most often goes next. It is twice as
+  far as in the round before, up to 1 MB, when the range is short and
+  starts where that round ended, `[until before]`, as a walk through the
+  segments of a file asks."
+  [[start end] [until before]]
+  (if (and until (<= until start) (< (- start until) chunk-size) (< (- end start) chunk-size))
+    (min (* 2 before) (* 16 chunk-size))
+    chunk-size))
+
+(defn- round-of
+  "The round that fetches the ranges `need` of a reading within `limits`:
+  `{:ranges :walk}`, the ranges to fetch, and for a round of one range
+  where it ends and how far ahead it reads. Nil when `need` holds more
+  bytes than `room`, those that the reading can still fetch.
+
+  `walk` is that of the round before. With `whole?`, the server sends a
+  file from its start, whatever range a request names, so each request
+  costs all the bytes before its range. The round then asks once, from the
+  start of the file to an eighth further than the reading needs."
+  [need {:keys [max-requests]} room walk whole?]
+  (when-let [wanted (seq (take max-requests (spans need)))]
+    (let [far    (apply max (map second wanted))
+          batch  (if whole? [[0 far]] wanted)
+          spare  (- room (size batch))
+          more   (cond
+                   whole?       (max chunk-size (quot far 8))
+                   (next batch) nil
+                   :else        (ahead (first batch) walk))
+          ranges (widened batch
+                          (if more
+                            (fn [[_ end]] (+ end more))
+                            (fn [[start end]] (max end (+ start chunk-size))))
+                          spare)]
+      (when-not (neg? spare)
+        {:ranges ranges
+         :walk   (when (and more (not whole?)) [(second (first ranges)) more])}))))
+
 (defn read!
   "What the reader `read` gives of the file whose bytes `fetch` gets, within
   the limits of `opts`: on the JVM the result, in ClojureScript a promise
@@ -354,7 +426,9 @@
   `read` is a function of a view that gives its result, or `{:need
   [[start end] ...]}` as `reading` gives it. `fetch` is a function of a
   start and an end, end excluded, that gives `{:bytes :start :total}` or a
-  deferred one, as `dk.simongray.podcast.http/fetcher` makes.
+  deferred one, as `dk.simongray.podcast.http/fetcher` makes. Its answer
+  is `:whole?` when it holds the file from its start, whatever start was
+  asked, as the answer of a server that ignores ranges does.
 
   The ranges that one reading needs come in one round, in 16 requests at
   most, one after another, each of 64 KB at least, and ranges near each
@@ -363,41 +437,39 @@
   time, up to 1 MB, when it is shorter than that and starts where the last
   ended, as a walk through the segments of a file asks.
 
-  The result is a report of `:file/incomplete` when ranges did not come
-  after 8 rounds. It is the same when a reading needs more bytes than the
-  `:max-bytes` of `opts` leave, see `default-limits`. Those bytes are not
-  fetched."
+  `opts` give the limits, with `default-limits` for those that they do not
+  set, and `:now`, a function that gives the time, the clock by default.
+  The result is a report of `:file/incomplete` when a limit stops the
+  reading, or when the ranges that it asked for did not come. A reading
+  fetches nothing of ranges that hold more bytes than it can still fetch."
   ([fetch read]
    (read! fetch read {}))
   ([fetch read opts]
-   (letfn [(step [v round previous [until ahead] room]
-             (let [{:keys [need] :as result} (read v)
-                   batch (vec (take max-requests (spans need)))]
-               (cond
-                 (nil? need)
-                 result
+   (let [{:keys [max-bytes max-seconds max-rounds now] :as limits}
+         (merge default-limits {:now #?(:clj #(java.util.Date.) :cljs #(js/Date.))} opts)
+         deadline (when max-seconds (+ (inst-ms (now)) (* 1000 max-seconds)))
+         in-time? #(or (nil? deadline) (< (inst-ms (now)) deadline))
+         step     (fn step [v {:keys [round previous room walk whole?]}]
+                    (let [{:keys [need] :as result} (read v)
+                          more? (and need (< round max-rounds) (not= need previous) (in-time?))
+                          plan  (when more? (round-of need limits room walk whole?))]
+                      (cond
+                        (nil? need)
+                        result
 
-                 (or (>= round max-rounds) (= need previous) (< room (size batch)))
-                 {:report [(diagnostics/describe {:id :file/incomplete :level :warning :ranges need})]}
+                        (nil? plan)
+                        {:report [(diagnostics/describe {:id :file/incomplete :level :warning
+                                                         :ranges need})]}
 
-                 :else
-                 (let [[start end] (first batch)
-                       ahead       (if (and until (< (- start until) chunk-size) (< (- end start) chunk-size))
-                                     (min (* 2 ahead) (* 16 chunk-size))
-                                     chunk-size)
-                       wide        (if (next batch)
-                                     (fn [[s e]] (max e (+ s chunk-size)))
-                                     (fn [[_ e]] (+ e ahead)))
-                       ranges      (widened batch wide (- room (size batch)))]
-                   (async/then (fetch-all fetch ranges)
-                               (fn [parts]
-                                 (step (reduce (fn [v {b :bytes :keys [start total]}]
-                                                 (cond-> v b (add start b total)))
-                                               v parts)
-                                       (inc round)
-                                       need
-                                       (when-not (next batch) [(second (first ranges)) ahead])
-                                       (- room (reduce + (map length (keep :bytes parts)))))))))))]
-     (let [room (or (:max-bytes (merge default-limits opts)) ##Inf)]
-       #?(:clj  (step (view) 0 nil nil room)
-          :cljs (js/Promise.resolve (step (view) 0 nil nil room)))))))
+                        :else
+                        (async/then (fetch-all fetch (:ranges plan) in-time?)
+                                    (fn [parts]
+                                      (step (with-parts v parts)
+                                            {:round    (inc round)
+                                             :previous need
+                                             :room     (- room (reduce + (map (comp length :bytes) parts)))
+                                             :walk     (:walk plan)
+                                             :whole?   (or whole? (some? (some :whole? parts)))}))))))
+         result   (step (view) {:round 0 :room (or max-bytes ##Inf)})]
+     #?(:clj  result
+        :cljs (js/Promise.resolve result)))))

@@ -168,7 +168,7 @@
    {:id :file/malformed :level :warning
     :doc "The file could not be read as its format says."}
    {:id :file/incomplete :level :warning
-    :doc "Bytes that the reading of the file needed did not arrive, so the file was not read."}
+    :doc "The reading of the file did not get the bytes that it needed, so the file was not read. The bytes did not arrive, or a limit of the reading stopped it."}
 
    ;; checks over the network of the files a feed links to
    {:id :check/unreachable :level :error
@@ -223,6 +223,8 @@
     :doc "The server does not let pages of other sites read the feed, so a web app cannot read it without a server of its own."}
    {:id :check/validators :level :info
     :doc "The server sends the feed without ETag or Last-Modified, so a client cannot ask whether the feed changed, and fetches it whole each time."}
+   {:id :check/unchecked :level :warning
+    :doc "The check reached a limit of files or of time, and did not look at the files after that. The diagnostic counts them."}
 
    ;; validation
    {:id :validate/rss-version :level :warning

@@ -306,7 +306,7 @@
   (let [id (id-of o)]
     (-> thread
         (update-in [:comments id] (fn [listed]
-                                    (let [c (object-comment o at)]
+                                    (let [c (common/guarded id at #(object-comment o at))]
                                       (cond-> c
                                         (and (:deleted? c) (not (:in-reply-to c)) (:in-reply-to listed))
                                         (assoc :in-reply-to (:in-reply-to listed))))))
@@ -541,7 +541,7 @@
                 (let [status-uri (get status "uri")]
                   (cond
                     (own? status)
-                    (let [c (status-comment status ids origin at)]
+                    (let [c (common/guarded status-uri at #(status-comment status ids origin at))]
                       (cond-> (assoc-in thread [:comments status-uri] c)
                         (:author c) (assoc-in [:authors (:author c)] (account-author (get status "account") origin at))))
 

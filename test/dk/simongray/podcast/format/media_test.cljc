@@ -19,7 +19,8 @@
             [dk.simongray.podcast.format.mp4 :as mp4]
             #?(:clj [dk.simongray.podcast.http :as http])
             [dk.simongray.podcast.test-support :refer [ascii be code fetch-from run view
-                                                       #?(:clj with-file-server)]]))
+                                                       #?(:clj with-file-server)]]
+            [dk.simongray.podcast.time :as time]))
 
 (defn- syncsafe
   [x]
@@ -140,6 +141,47 @@
                (-> (reduce (fn [p c] (.then p #(run c))) (js/Promise.resolve nil) cases)
                    (.catch (fn [e] (is false (str "rejected: " e))))
                    (.finally done))))))
+
+(defn- places
+  "A reader that needs four bytes at each of the offsets `ps`, one after
+  another."
+  [ps]
+  (fn [v]
+    (bytes/reading #(do (doseq [p ps] (bytes/need v p (+ p 4)))
+                        {:read ps}))))
+
+(deftest the-limits-of-a-reading
+  (let [reading (fn [fetch-of reader opts]
+                  (let [log (atom [])]
+                    (async/then (bytes/read! (fetch-of 4000000 log) reader opts)
+                                (fn [r] [(or (:read r) (map :id (:report r))) @log]))))
+        whole   (fn [total log]
+                  (fn [start end]
+                    (swap! log conj [start end])
+                    {:bytes (bytes/of (repeat (min end total) 0)) :start 0 :total total :whole? true}))
+        ticking (fn []
+                  (let [ms (atom 0)]
+                    #(time/->inst (swap! ms + 25000))))]
+    (run
+     #(async/then (reading zeros (places [1000000 0]) {})
+                  (fn [[read log]]
+                    (is (= [[1000000 0] [[1000000 1065540] [0 65540]]] [read log])
+                        "no further ahead after a jump back")))
+     #(async/then (reading zeros (places [0 1000000 2000000]) {:max-rounds 2})
+                  (fn [[report log]]
+                    (is (= [[:file/incomplete] 2] [report (count log)]) "the rounds")))
+     #(async/then (reading zeros (places [0 1000000 2000000]) {:max-seconds 60 :now (ticking)})
+                  (fn [[report log]]
+                    (is (= [[:file/incomplete] [[0 65540]]] [report log])
+                        "no request after the time of the reading, which the first answer used up")))
+     #(async/then (reading whole (places [0 300000 500000]) {})
+                  (fn [[read log]]
+                    (is (= [[0 300000 500000] [[0 65540] [0 365540] [0 565540]]] [read log])
+                        "a server that ignores ranges is asked once in a round, from the start")))
+     #(async/then (reading whole (places [0 300000 500000]) {:max-bytes 400000})
+                  (fn [[report log]]
+                    (is (= [[:file/incomplete] [[0 65540] [0 334460]]] [report log])
+                        "and each request costs all the bytes before its range"))))))
 
 (deftest id3-tags
   (doseq [version [3 4]]
@@ -537,6 +579,30 @@
                   (box "stco" [0 0 0 0] (be 4 n) (into [] (mapcat (fn [_] (be 4 8))) (range n))))]
     (is (= mp4/max-samples (count (:chapters (mp4/read (view (chapter-track-file stbl n))))))
         "50000 chunks in as many runs, read in one pass, and no more chapters than the most")))
+
+(deftest parts-that-do-not-read
+  (let [reading (fn [xs] (let [r (media/read (view xs))]
+                           [(:format r) (:duration r) (map (juxt :id :part) (:report r))]))]
+    (testing "a chapter track past the end of the file"
+      (let [stbl (box "stbl"
+                      (box "stts" [0 0 0 0] (be 4 1) (be 4 1) (be 4 1000))
+                      (box "stsz" [0 0 0 0] (be 4 10) (be 4 1))
+                      (box "stsc" [0 0 0 0] (be 4 1) (be 4 1) (be 4 1) (be 4 1))
+                      (box "stco" [0 0 0 0] (be 4 1) (be 4 5000000)))]
+        (is (= [:mp4 0.001 [[:file/truncated :chapters]]] (reading (chapter-track-file stbl 1)))
+            "the format and the duration as they are, and the report names the part")))
+    (testing "a Nero chapter at a time of all ones, more than the JVM counts to"
+      (let [chpl (box "chpl" [1 0 0 0] (be 4 0) [1] (repeat 8 0xFF) [5] (ascii "Intro"))
+            r    (media/read (view (concat (box "ftyp" (ascii "M4A ") (be 4 0))
+                                           (box "moov" (mvhd 600 90000) (box "udta" chpl)))))]
+        (is (= [:mp4 150.0 ["Intro"]] [(:format r) (:duration r) (map :title (:chapters (:chapters r)))]))))
+    (testing "a tag that says it has an extended header, and has none"
+      (is (= [:mp3 (/ (* 1000 1152) 44100.0) [[:id3/malformed nil]]]
+             (reading (concat (ascii "ID3") [3 0 0x40 0 0 0 0] (xing-frame 1000) (audio-frame) (audio-frame))))))
+    (testing "a Xing header that counts no frames knows no duration"
+      (let [[format duration report] (reading (concat (xing-frame 0) (apply concat (repeat 20 (audio-frame)))))]
+        (is (= [:mp3 [[:mp3/estimated-duration nil]]] [format report]))
+        (is (about= (/ (* 21 1152) 44100.0) duration))))))
 
 (defn- hollow
   "A fetch of a file of `total` bytes that holds the bytes `b` at its start

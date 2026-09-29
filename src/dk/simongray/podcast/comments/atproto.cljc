@@ -195,9 +195,10 @@
 
       :else
       (let [replies (get view "replies")
-            author  (get post "author")]
+            author  (get post "author")
+            c       (common/guarded uri at #(post-comment post hidden (sequential? replies) at))]
         (reduce #(with-view %1 %2 uri hidden at (inc level))
-                (cond-> (assoc-in thread [:comments uri] (post-comment post hidden (sequential? replies) at))
+                (cond-> (assoc-in thread [:comments uri] c)
                   (string? (get author "did")) (assoc-in [:authors (get author "did")] (profile-author author at)))
                 (when (sequential? replies) replies))))))
 

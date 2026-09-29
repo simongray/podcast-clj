@@ -329,7 +329,11 @@
   the artwork as `{:type :data}`, each left out when the file has none;
   with the diagnostics of the reading under `:report`. `opts` may give
   `:except`, the ids of the quirks to leave out. The reading throws for
-  bytes the view lacks (see `dk.simongray.podcast.bytes/missing`)."
+  bytes the view lacks (see `dk.simongray.podcast.bytes/missing`).
+
+  The chapters, the artwork and the index of the fragments are parts that
+  the rest can do without. A part that does not read is left out, and the
+  report names it."
   ([view]
    (read view {}))
   ([view {:keys [except] :as opts}]
@@ -339,7 +343,9 @@
            [scale d]  (some->> (child view moov "mvhd") (timing view))
            tracks     (mapv #(track view %) (filter #(= "trak" (:type %)) (children view (:content moov) (:end moov))))
            mvex       (child view moov "mvex")
-           fragmented (when mvex (fragmented-duration view mvex scale tracks))
+           fragments  (bytes/part :fragments
+                                  #(when mvex (fragmented-duration view mvex scale tracks)))
+           fragmented (:value fragments)
            longest    (some->> tracks
                                (keep (fn [{[s n] :timing}] (when (and s n (pos? s) (pos? n)) (/ n (double s)))))
                                seq (apply max))
@@ -349,13 +355,14 @@
                             longest?                            longest
                             (and d (pos? d) scale (pos? scale)) (/ d (double scale)))
            udta       (child view moov "udta")
-           chapters   (or (quicktime-chapters view tracks)
-                          (some->> (when udta (child view udta "chpl")) (nero-chapters view)))
-           art        (when udta (artwork view udta))]
-       (cond-> {:report (cond-> []
+           chapters   (bytes/part :chapters #(or (quicktime-chapters view tracks)
+                                                 (some->> (when udta (child view udta "chpl"))
+                                                          (nero-chapters view))))
+           art        (bytes/part :artwork #(when udta (artwork view udta)))]
+       (cond-> {:report (cond-> (into [] (mapcat :report) [fragments chapters art])
                           longest?                    (conj {:id :mp4/zero-duration :level :info})
                           (and mvex (not fragmented)) (conj {:id :mp4/fragments-unread :level :info}))}
-         duration       (assoc :duration duration)
-         (seq chapters) (assoc :chapters (vec chapters))
-         art            (assoc :artwork art)))
+         duration                (assoc :duration duration)
+         (seq (:value chapters)) (assoc :chapters (vec (:value chapters)))
+         (:value art)            (assoc :artwork (:value art))))
      {:report [{:id :mp4/no-movie :level :warning}]})))

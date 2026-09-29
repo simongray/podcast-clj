@@ -101,6 +101,22 @@
                  {:at {} :kept []}
                  files)))
 
+(def default-limits
+  "The limits of `feed!` that its options do not set.
+
+  A check looks at the files of the `:items` newest items, `:max-files`
+  files at most, and at `:concurrency` files at a time. It starts no file
+  after `:max-seconds`. Each request takes `:timeout-seconds` at most. A
+  check reads `:max-bytes` of a file at most, but for its integrity.
+
+  A feed names the files of a check, so a feed can name thousands."
+  {:items           10
+   :max-files       500
+   :max-seconds     600
+   :concurrency     4
+   :timeout-seconds 30
+   :max-bytes       (* 32 1024 1024)})
+
 (defn files
   "The files that a check of `feed` fetches, each a map with its `:kind`
   (:feed, :media, :image, :transcript or :chapters), its `:url`, the
@@ -115,14 +131,15 @@
   :all)."
   ([feed]
    (files feed {}))
-  ([feed {:keys [url items] :or {items 10}}]
-   (once (concat (when (web-url? url)
-                   [{:kind :feed :url url :path [] :declared {}}])
-                 (for [[j {:keys [url type length]}] (map-indexed vector (:podcast/trailers feed))
-                       :when (web-url? url)]
-                   {:kind :media :url url :path [:podcast/trailers j] :declared (present {:type type :length length})})
-                 (image-files feed [])
-                 (mapcat item-files (newest feed items))))))
+  ([feed opts]
+   (let [{:keys [url items]} (merge default-limits opts)]
+     (once (concat (when (web-url? url)
+                     [{:kind :feed :url url :path [] :declared {}}])
+                   (for [[j {:keys [url type length]}] (map-indexed vector (:podcast/trailers feed))
+                         :when (web-url? url)]
+                     {:kind :media :url url :path [:podcast/trailers j] :declared (present {:type type :length length})})
+                   (image-files feed [])
+                   (mapcat item-files (newest feed items)))))))
 
 (def ^:no-doc origin
   "The origin that a check names in its requests for the files that pages
@@ -171,10 +188,24 @@
   {"audio/mpeg" :mp3 "audio/mp4" :mp4 "audio/x-m4a" :mp4 "audio/m4a" :mp4
    "video/mp4" :mp4 "video/x-m4v" :mp4 "video/quicktime" :mp4})
 
+(defn- time-left
+  "The seconds that the check with `opts` has left, one at least. Nil when
+  the check has no limit of time."
+  [{:keys [now] ::keys [deadline]}]
+  (when deadline
+    (max 1 (quot (- deadline (inst-ms (now))) 1000))))
+
+(defn ^:no-doc reading-opts
+  "The options of a reading by byte ranges in the check with `opts`: the
+  limits of the check that a reading has too, and `send` to send with."
+  [send opts]
+  (assoc (select-keys opts [:timeout-seconds :max-bytes :now]) :send send))
+
 (defn- probe-media!
   "The facts of the media file `file`, as `probed!` gives them, and, as
   `opts` ask, what the file says about itself and whether it has its
-  integrity; deferred."
+  integrity; deferred. The fetch of a whole file for its integrity takes
+  the time that the check has left."
   [send {:keys [url declared]} {:keys [read? integrity?] :as opts}]
   (async/then
    (probed! send url {})
@@ -182,12 +213,15 @@
      (let [target (or (:url get) (:url head) url)
            stated (http/media-type (:type declared))
            came?  (contains? #{200 206} (:status get))
-           limits (select-keys opts [:timeout-seconds :allow?])]
+           ;; a whole file takes longer than a request for a part of it
+           left   (time-left opts)
+           whole  (cond-> (select-keys opts [:allow?])
+                    left (assoc :timeout-seconds left))]
        (async/then
         (async/all [(when (and read? came? (or (nil? stated) (contains? formats stated)))
-                      (async/attempt #(media/read! target (assoc (select-keys opts [:timeout-seconds]) :send send))))
+                      (async/attempt #(media/read! target (reading-opts send opts))))
                     (when (and integrity? came? (:integrity declared))
-                      (async/attempt #(media/verify! target (:integrity declared) limits)))])
+                      (async/attempt #(media/verify! target (:integrity declared) whole)))])
         (fn [[read verified]]
           (cond-> facts
             read     (assoc :media (-> (attempted read)
@@ -201,7 +235,7 @@
   (async/then (head! send url {})
               (fn [head]
                 (let [target (if (ok? head) (:url head url) url)]
-                  (async/then (async/attempt #(image/read! target (assoc (select-keys opts [:timeout-seconds]) :send send)))
+                  (async/then (async/attempt #(image/read! target (reading-opts send opts)))
                               (fn [read] {:head head :image (attempted read)}))))))
 
 (defn- reading
@@ -261,10 +295,15 @@
   next file when their last is done, so that `n` files at most are under
   way and no slow file holds up the others; deferred. On the JVM a lane is
   a loop on a thread of its own, since a probe there gives its value at
-  once, and in ClojureScript a chain of promises."
-  [send files opts n]
+  once, and in ClojureScript a chain of promises.
+
+  A lane takes no file after the `::deadline` of `opts`. A file that no
+  lane took is `:unchecked`."
+  [send files {:keys [now] ::keys [deadline] :as opts} n]
   (let [queue (atom (map-indexed vector files))
-        next! (fn [] (first (first (swap-vals! queue rest))))
+        next! (fn []
+                (when (or (nil? deadline) (< (inst-ms (now)) deadline))
+                  (first (first (swap-vals! queue rest)))))
         lane  #?(:clj  (fn [_]
                          (loop [done []]
                            (if-let [[i file] (next!)]
@@ -276,8 +315,10 @@
                            done)))]
     (async/then (async/all (repeatedly n #(async/attempt (fn [] (lane [])))))
                 (fn [lanes]
-                  (let [by-index (into {} (mapcat :value) lanes)]
-                    (mapv #(get by-index % {:error "The file was not checked."}) (range (count files))))))))
+                  (let [by-index (into {} (mapcat :value) lanes)
+                        waiting  (into {} (map (fn [[i _]] [i {:unchecked :max-seconds}])) @queue)]
+                    (mapv #(or (by-index %) (waiting %) {:error "The file was not checked."})
+                          (range (count files))))))))
 
 (def profiles
   "The rules that a check adds for a standard or a directory, under the
@@ -445,7 +486,10 @@
   "The aspect ratio that the podcast:image attribute `s` gives, such as 1/1
   or 1.91, as a number; nil when it does not read."
   [s]
-  (when-let [[_ a b] (re-matches #"\s*(\d+(?:\.\d+)?)\s*(?:[/:]\s*(\d+(?:\.\d+)?))?\s*" (str s))]
+  ;; trimmed first: two runs of white space that one run can feed make a
+  ;; pattern try every split of it
+  (when-let [[_ a b] (re-matches #"(\d+(?:\.\d+)?)(?:\s*[/:]\s*(\d+(?:\.\d+)?))?"
+                                 (str/trim (str s)))]
     (let [a (parse-double a) b (if b (parse-double b) 1.0)]
       (when (pos? b) (/ a b)))))
 
@@ -612,28 +656,35 @@
   entries."
   [{:keys [kind] :as file} facts profile]
   (let [rules (if (map? profile) profile (get profiles profile))]
-    (->> (if (:error facts)
-           [(diagnostic file rules :check/unreachable :reason (:error facts))]
-           (case kind
-             :media                  (media-verdicts file rules facts)
-             :image                  (image-verdicts file rules facts)
-             (:transcript :chapters) (text-verdicts file rules facts)
-             :feed                   (feed-verdicts file rules facts)
-             []))
+    (->> (cond
+           (:unchecked facts) []
+           (:error facts)     [(diagnostic file rules :check/unreachable :reason (:error facts))]
+           :else              (case kind
+                                :media                  (media-verdicts file rules facts)
+                                :image                  (image-verdicts file rules facts)
+                                (:transcript :chapters) (text-verdicts file rules facts)
+                                :feed                   (feed-verdicts file rules facts)
+                                []))
          (mapv diagnostics/describe))))
 
 (defn report
   "The diagnostics of the checked `files`, each with its `:facts`, as
   `feed!` gives them, by the rules of the `profile`, as `verdicts` takes
-  it: one check judged by several profiles, with no request sent again."
+  it: one check judged by several profiles, with no request sent again.
+
+  The files that a limit of the check left out have no diagnostics of
+  their own. One `:check/unchecked` counts them for each limit."
   [files profile]
-  (vec (mapcat #(verdicts % (:facts %) profile) files)))
+  (into (vec (mapcat #(verdicts % (:facts %) profile) files))
+        (for [[limit n] (frequencies (keep (comp :unchecked :facts) files))]
+          (diagnostics/describe {:id :check/unchecked :level :warning :limit limit :count n}))))
 
 (defn feed!
   "Check over the network the files that `feed` links to, as `files` lists
   them: `{:files [...] :report [...]}`, each file with the `:facts` that
   its answers gave, and the diagnostics of all of them, from `report`.
-  On the JVM the result, in ClojureScript a promise of it. `opts`:
+  On the JVM the result, in ClojureScript a promise of it. `opts`, with
+  `default-limits` for the limits:
 
       {:url         \"https://…\" ; the URL of the feed, which is checked too
        :credentials {…}         ; of a private feed, as http/fetch! takes them
@@ -643,10 +694,14 @@
        :read?       false       ; read what the files hold: the format and duration
                                 ; of media files, transcripts and chapters whole
        :integrity?  false       ; fetch each file that has a podcast:integrity whole
+       :max-files   500         ; check no more files than this
+       :max-seconds 600         ; start no file after this long
        :concurrency 4           ; how many files to check at a time
-       :timeout-seconds 30      ; how long each request may take
+       :timeout-seconds 30      ; how long each request can take
+       :max-bytes   33554432    ; how much of a file to read, but for its integrity
        :allow?      f           ; which URLs a request can go to, as for http/call!
-       :send        f}          ; how to send the requests, in place of http/call!
+       :send        f           ; how to send the requests, in place of http/call!
+       :now         f}          ; the time, the clock by default
 
   The credentials go with the requests for the feed alone, and so do a
   user name and a password in its URL, which the result names without
@@ -656,22 +711,31 @@
   whole of a file whose integrity it checks, with `http/digest!` on the
   JVM. The byte ranges of media files and images come by `http/fetcher`.
 
-  Each request carries the `:timeout-seconds` and the `:allow?`, also the
-  request of `http/digest!`, which does not go through `:send`. A server
-  that checks feeds for strangers gives `http/public?` as `:allow?`."
+  Each request carries the `:timeout-seconds`, the `:max-bytes` and the
+  `:allow?`. The request of `http/digest!` does not go through `:send`. It
+  carries the `:allow?`, and it takes the time that the check has left. A
+  server that checks feeds for strangers gives `http/public?` as `:allow?`.
+
+  A file that a limit left out has the facts `{:unchecked limit}`, and the
+  report counts such files with `:check/unchecked`."
   ([feed]
    (feed! feed {}))
-  ([feed {:keys [url credentials profile concurrency send]
-          :or   {concurrency 4 send http/call!}
-          :as   opts}]
-   (let [[url in-url] (http/split-credentials url)
+  ([feed opts]
+   (let [{:keys [url credentials profile concurrency send max-files max-seconds now] :as opts}
+         (merge default-limits
+                {:send http/call! :now #?(:clj #(java.util.Date.) :cljs #(js/Date.))}
+                opts)
+         [url in-url] (http/split-credentials url)
+         auth         (http/authorization (or credentials in-url))
          opts         (cond-> (assoc opts :url url)
-                        (or credentials in-url) (assoc ::authorization (http/authorization (or credentials in-url))))
+                        auth        (assoc ::authorization auth)
+                        max-seconds (assoc ::deadline (+ (inst-ms (now)) (* 1000 max-seconds))))
          found        (files feed opts)
-         limits       (select-keys opts [:timeout-seconds :allow?])
-         send         (if (seq limits) #(send (merge % limits)) send)]
-     (async/then (in-lanes send found opts (max 1 concurrency))
+         [near far]   (if max-files (split-at max-files found) [found nil])]
+     (async/then (in-lanes #(send (http/limited % opts)) near opts (max 1 concurrency))
                  (fn [facts]
-                   (let [checked (mapv #(assoc %1 :facts %2) found facts)]
+                   (let [checked (into (mapv #(assoc %1 :facts %2) near facts)
+                                       (map #(assoc % :facts {:unchecked :max-files}))
+                                       far)]
                      {:files  checked
                       :report (report checked profile)}))))))

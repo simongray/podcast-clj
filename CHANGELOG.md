@@ -149,13 +149,19 @@
   artwork. It moves two bytes of most files unless it is asked to read
   them, and sends the credentials of a private feed to the feed alone.
   `check/report` judges a check by another profile with no request sent
-  again. The inspector has a page for it.
+  again. A check looks at 500 files at most, and starts no file after ten
+  minutes. The report counts the files that it left out.
+  `check/default-limits` holds these limits. The inspector has a page for
+  it.
 - The readers of media files and images take hostile files in linear time
   and bounded stack: ID3 chapter frames nested deep, tables of contents
   that list each other, and MP4 sample tables of any size. Random and
   mangled files give a report, not an exception. A file can name sizes
-  that it does not have. One reading fetches 32 MB of a file at most, or
-  the `:max-bytes` of its options.
+  that it does not have. One reading fetches 32 MB of a file at most, and
+  starts no request after a minute. `bytes/default-limits` holds the
+  limits, and the options of a reading set each of them. A part that does
+  not read, such as the chapters or the artwork, is left out, and the
+  report names it. The rest of the file is read.
 - `http/probe!` learns the facts of a file from a HEAD request and two
   bytes of it. `http/call!` also runs in ClojureScript, with fetch and
   limits of time and size, and on the JVM it gives the redirects it
@@ -163,7 +169,9 @@
   range asked for. `format.image` reads the header of an image, and
   `bytes/read!` and `http/fetcher` now serve every reader that fetches by
   range: ranges near each other in one request, at most 16 requests a
-  round, and further ahead in a walk through the segments of a file.
+  round, and further ahead in a walk through the segments of a file. A
+  server that ignores ranges is asked once in a round. In Node,
+  `http/call!` names podcast-clj as its User-Agent.
   `async/explain` adds the causes of a failure, where the JDK and Node
   tell why a connection failed.
 - `app.sync.gpodder` syncs through the gpodder API, as AntennaPod, Kasts
@@ -183,8 +191,9 @@
   each post, and takes each post only from its own server. When a server
   refuses unsigned requests or a browser blocks its answers, `fetch!` reads
   the thread through the Mastodon API of the server. `async/iteration`
-  reads the pages of a collection. The inspector shows the comments on an
-  episode.
+  reads the pages of a collection. A post that does not read is a comment
+  with an `:error`, and the posts around it are read. The inspector shows
+  the comments on an episode.
 - `value/parse-boostagram` reads the bLIP-10 record of a payment that a
   node received, and forgives what real apps write. A payment is one map
   for each way to pay, with its amounts in millisatoshis.
@@ -196,10 +205,11 @@
 - `http/call-public!` sends nothing to the network of the app: no request
   to a host whose address is loopback, private, link-local, shared,
   multicast or reserved. On the JVM, it resolves the name and checks every
-  redirect. It is the default of `comments/fetch!`,
-  `value.lnaddress/invoice!` and `node!`, and `value.metadata/fetch!`,
-  since strangers choose their URLs. `http/call!` takes `:allow?`, and
-  `podcast/fetch!`, `check/feed!` and `format.media/verify!` pass it on.
+  redirect. Its guard is `http/public?`, which `http/call!` takes as
+  `:allow?`. Each function that fetches what a feed or a stranger names
+  takes `:allow?`, and puts it on each request. It is `http/public?` by
+  default in `comments/fetch!`, `value.lnaddress/invoice!` and `node!`,
+  and `value.metadata/fetch!`, since strangers choose their URLs.
 - `analytics/downloads` counts the downloads of episodes from the requests
   that a host logs, by the rules of the IAB Tech Lab, version 2.2. It
   leaves out HEAD requests, requests for two bytes, bots and Apple Podcasts
@@ -211,9 +221,11 @@
   reads the downloads and counts of a show from the API of OP3. A download
   of OP3 has the keys of a download of `analytics/downloads`.
 - podcast-clj compares the origins of URLs as the URL standard does, on
-  both platforms. On the JVM, `http/call!` fetches hosts with letters
-  outside ASCII. `json/read-str` refuses JSON nested deeper than the stack reaches.
-  On the JVM, it also refuses a number of more than a thousand digits.
+  both platforms. `http/absolute-url` resolves a URL as a browser does: it
+  takes the spaces around a URL, and a path does not go above the root. On
+  the JVM, `http/call!` fetches hosts with letters outside ASCII.
+  `json/read-str` refuses JSON nested deeper than the stack reaches. On the
+  JVM, it also refuses a number of more than a thousand digits.
 - What podcast-clj knows about one service is a default that an app
   replaces with an option: the URLs of each directory, the root of the
   Podcast Index API, the Podping service for hosts, the instance of OP3

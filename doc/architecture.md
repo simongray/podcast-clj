@@ -549,20 +549,26 @@ more often than it must:
   another. A walk through the segments of a file reads further ahead each
   round, up to 1 MB. After 8 rounds the reader gives up. The sizes in a file
   are numbers that its writer chose, so a file can ask for more than it
-  holds. One reading fetches 32 MB at most (`:max-bytes`), and it fetches
-  nothing of ranges that do not fit in what is left.
+  holds. One reading fetches 32 MB at most, and it fetches nothing of
+  ranges that do not fit in what is left. It starts no request after one
+  minute. `bytes/default-limits` holds these numbers, and the options of a
+  reading set each of them.
 - `http/probe!` learns the facts of a file from a HEAD request and two
   bytes of it.
 - A server that ignores a byte range sends the whole file, and some send
   more than the range. The client reads the bytes that it asked for, and
   then closes the connection. From such a server, the bytes at an offset
-  cost all the bytes before them. So a reading fails when it needs bytes
-  after the first 32 MB of a file.
+  cost all the bytes before them. So a reading asks such a server once in
+  a round, from the start of the file to an eighth further than it needs.
+  It gives up when it needs bytes after the first 32 MB of a file.
 - A check probes each file. It reads what a file holds only when it is
   asked to, and then fetches the transcripts and chapters whole. It fetches
   a media file whole only to check its integrity. At most four files are
   under way at a time, and a lane takes the next file as soon as its last
-  is done.
+  is done. A feed names the files of its check, so a check looks at 500
+  files at most, and it starts no file after ten minutes. The report
+  counts the files that it left out. `check/default-limits` holds these
+  numbers, and the options of `feed!` set each of them.
 - `comments/fetch!` reads a thread of comments in rounds of four requests,
   and it reads the posts nearest the root post first. It asks for no more
   posts when it has 100, and it starts no round after 300 requests. It
@@ -577,7 +583,7 @@ more often than it must:
   `node!` sends one. An answer is 256 KB at most, since the terms of an
   address can hold an image. The podcast namespace asks apps to keep the
   node of an address for a while. `value.metadata/fetch!` reads two bytes
-  of the page of the metadata.
+  of the page of the metadata, whatever the status of the answer.
 - `analytics.op3/downloads!` reads at most five pages of 20,000 downloads.
   When there are more, it gives the token of the next page, so that the
   next call reads on from there.
@@ -599,12 +605,17 @@ Lightning address names the URL of the metadata of the payment. Such a
 request can make an app on a server ask its own network. That network
 holds routers, other services, and the metadata of a cloud server.
 
-So the functions that fetch these URLs send with `http/call-public!`:
-`comments/fetch!`, `value.lnaddress/invoice!` and `node!`, and
-`value.metadata/fetch!`. It sends nothing to a host whose address is
-loopback, private, link-local, shared, multicast or reserved, as the IANA
-registry of special addresses lists them. It also refuses an IPv6 address
-that holds such an IPv4 address.
+The guard is `:allow?`, a predicate of a URL. Each function that sends
+requests takes it as an option, and puts it on each request map.
+`http/call!` and `http/digest!` ask it about the URL of the request. A
+`:send` of the app gets the same request maps, so it can ask too.
+
+The functions that fetch these URLs have `http/public?` as their `:allow?`
+by default: `comments/fetch!`, `value.lnaddress/invoice!` and `node!`, and
+`value.metadata/fetch!`. `public?` takes no host whose address is loopback,
+private, link-local, shared, multicast or reserved, as the IANA registry of
+special addresses lists them. It also refuses an IPv6 address that holds
+such an IPv4 address. `http/call-public!` is `http/call!` with this guard.
 
 On the JVM, `http/public?` resolves the name of the host and checks every
 address that the name resolves to. `http/call!` checks the URL of each
@@ -620,16 +631,17 @@ from a browser comes from the device of its user, not from a server. A
 server in Node that fetches URLs that strangers choose gives these
 functions a `:send` of its own.
 
-An app that must reach its own network gives `http/call!` as `:send`. A
-server that fetches feeds or files for strangers gives
-`{:allow? http/public?}` to `podcast/fetch!`, `check/feed!` and
-`format.media/verify!`. It gives `http/call-public!` as the `:send` of
-`format.media/read!` and `format.image/read!`.
+An app that must reach its own network gives `(constantly true)` as
+`:allow?`. The functions that fetch what a feed names have no guard by
+default, because the app chose the feed. They are `podcast/fetch!`,
+`check/feed!`, `format.media/read!` and `verify!`, `format.image/read!`
+and `http/probe!`. A server that fetches feeds or files for strangers
+gives them `{:allow? http/public?}`.
 
-`check/feed!` puts its `:allow?` on each request that it sends. On the JVM,
-the check of an integrity streams the file with `http/digest!`, which does
-not go through `:send`. So the `:send` of a check is no guard for that
-request, and `:allow?` is.
+The guard is an option of its own, and not a property of `:send`. On the
+JVM, the check of an integrity streams the file with `http/digest!`, which
+does not go through `:send`. A `:send` that logs or signs requests keeps
+the guard, because the guard is in each request map.
 
 
 ## The directories and the Podcast Index

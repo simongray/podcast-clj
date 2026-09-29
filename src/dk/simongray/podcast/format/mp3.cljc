@@ -154,8 +154,12 @@
      {:tags        tags
       :audio-start p
       :duration    (cond
-                     frames (/ (* frames (:samples h)) (double (:sample-rate h)))
-                     (and h total) (do (vswap! (:report ctx) conj {:id :mp3/estimated-duration :level :info})
-                                       (/ (* 8.0 (- total p)) (average-bitrate view p h))))
+                     ;; a header that counts no frames knows no duration
+                     (and frames (pos? frames))
+                     (/ (* frames (:samples h)) (double (:sample-rate h)))
+
+                     (and h total)
+                     (do (vswap! (:report ctx) conj {:id :mp3/estimated-duration :level :info})
+                         (/ (* 8.0 (- total p)) (average-bitrate view p h))))
       :report      (cond-> (into (vec (mapcat :report tags)) @(:report ctx))
                      (nil? h) (conj {:id :mp3/no-audio :level :warning}))})))

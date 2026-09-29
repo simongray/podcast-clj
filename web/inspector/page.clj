@@ -326,8 +326,14 @@
     [:tr
      [:td (name kind)]
      [:td [:a {:href (link url)} (shorten url 70)]]
-     [:td (if failed
+     [:td (cond
+            (:unchecked facts)
+            [:span.muted "not checked"]
+
+            failed
             [:span.error failed]
+
+            :else
             (list (str "HTTP " (:status answer))
                   (when-let [hops (seq (:redirects answer))]
                     [:span.muted (str " · " (count hops) (if (next hops) " redirects" " redirect"))])

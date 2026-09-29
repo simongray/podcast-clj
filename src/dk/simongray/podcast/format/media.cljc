@@ -83,10 +83,11 @@
   `http/fetcher`, and its `:send`; and the `:except` of `read`. A file
   whose ranges do not come gives a report of `:file/incomplete`.
 
-  The reading fetches the `:max-bytes` of `opts` at most, by default those
-  of `bytes/default-limits`. A file that asks for more gives the same
-  report. A server that ignores ranges sends a file from its start, so
-  the reading throws `::http/too-large` when it needs bytes after those."
+  `opts` also give the limits of `bytes/read!`, with
+  `bytes/default-limits` for those that they do not set, and the `:allow?`
+  of `http/call!`. A file that asks for more than the limits allow gives
+  the same report. A server that ignores ranges sends a file from its
+  start, so the bytes at an offset cost all the bytes before them."
   ([url]
    (read! url {}))
   ([url {:keys [fetch] :as opts}]

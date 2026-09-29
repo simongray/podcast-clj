@@ -252,11 +252,10 @@
   response is `{:error reason}`, and `:timeout?` when it took too long; a
   body larger than the limit fails too, when a `:send` did not keep to
   it."
-  [request {:keys [send timeout-seconds max-bytes now] ::keys [deadline]}]
-  (let [left (when deadline (quot (- deadline (inst-ms (now))) 1000))]
-    (async/then (async/attempt #(send (assoc request
-                                             :timeout-seconds (max 1 (min timeout-seconds (or left timeout-seconds)))
-                                             :max-bytes max-bytes)))
+  [request {:keys [send timeout-seconds max-bytes now] ::keys [deadline] :as opts}]
+  (let [left    (when deadline (quot (- deadline (inst-ms (now))) 1000))
+        seconds (max 1 (min timeout-seconds (or left timeout-seconds)))]
+    (async/then (async/attempt #(send (http/limited request (assoc opts :timeout-seconds seconds))))
                 (fn [{:keys [value error]}]
                   (cond
                     error
@@ -324,7 +323,8 @@
        :max-pages       5            ; of a collection in a round
        :timeout-seconds 30           ; for each request
        :max-bytes       5242880      ; of each answer
-       :send            f            ; in place of http/call-public!
+       :allow?          http/public? ; which URLs a request can go to
+       :send            f            ; in place of http/call!
        :now             f}           ; the time, the clock by default
 
   The requests go out in rounds. The root post comes first, then the posts
@@ -333,17 +333,22 @@
   time, or that answered 429 Too Many Requests, gets no more requests. The
   time that is left limits each request. `fetch!` throws nothing.
 
-  The servers of a thread choose the URLs that `fetch!` fetches. So it
-  sends with `http/call-public!`, which sends nothing to the network of the
-  app. An app that must reach its own network gives `http/call!`. A
-  `:send` keeps to the `:timeout-seconds` of each request. A `:send` that
+  The servers of a thread choose the URLs that `fetch!` fetches. So each
+  request carries `http/public?` as its `:allow?`, and `http/call!` then
+  sends nothing to the network of the app. An app that must reach its own
+  network gives `(constantly true)` as `:allow?`. A `:send` keeps to the
+  `:timeout-seconds` and the `:allow?` of each request. A `:send` that
   signs its requests can also read the servers that answer only signed
   requests."
   ([thread]
    (fetch! thread {}))
   ([thread opts]
    (let [{:keys [concurrency max-requests max-pages max-seconds now] :as opts}
-         (merge default-limits {:send http/call-public! :now #?(:clj #(java.util.Date.) :cljs #(js/Date.))} opts)
+         (merge default-limits
+                {:send   http/call!
+                 :allow? http/public?
+                 :now    #?(:clj #(java.util.Date.) :cljs #(js/Date.))}
+                opts)
          opts  (cond-> opts max-seconds (assoc ::deadline (+ (inst-ms (now)) (* 1000 max-seconds))))
          batch (fn [thread sent]
                  (when (or (not max-seconds) (< (inst-ms (now)) (::deadline opts)))

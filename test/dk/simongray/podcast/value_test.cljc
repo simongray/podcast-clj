@@ -277,7 +277,17 @@
          (lnaddress/node! "fountain@fountain.fm" {:send recorded})
          (fn [node]
            (is (= ["03b6f613e88bd874177c28c6ad83b3baba43c4c656f56be1f8df84669556054b79" "906608"]
-                  ((juxt :address :custom-key) node)))))))
+                  ((juxt :address :custom-key) node)))))
+       (fn []
+         (let [asked (atom [])
+               send  (fn [request] (swap! asked conj request) (recorded request))]
+           (async/then
+            (async/all [(lnaddress/node! "fountain@fountain.fm" {:send send})
+                        (lnaddress/node! "fountain@fountain.fm" {:send send :allow? any? :max-bytes 1000})])
+            (fn [_]
+              (is (= #{[10 262144 http/public?] [10 1000 any?]}
+                     (set (map (juxt :timeout-seconds :max-bytes :allow?) @asked)))
+                  "each request carries the limits and the guard, which a :send gets too")))))))
 
 (def example-metadata
   "The metadata of the example of the RSS Payment Metadata, with the
@@ -336,7 +346,18 @@
            (metadata/fetch! url {:send (send (metadata/header payment))})
            (fn [found]
              (is (= payment found))
-             (is (= [0 1] (:range (first @asked))) "two bytes of the page")))
+             (is (= [0 1] (:range (first @asked))) "two bytes of the page")
+             (is (= [10 65536 http/public?] ((juxt :timeout-seconds :max-bytes :allow?) (first @asked)))
+                 "with the limits and the guard, which a :send gets too")))
+         #(async/then
+           (metadata/fetch! url {:send (send nil) :max-bytes 1000 :allow? any?})
+           (fn [_]
+             (is (= [1000 any?] ((juxt :max-bytes :allow?) (last @asked))) "as the options set them")))
+         #(async/then
+           (metadata/fetch! "http://127.0.0.1:1/payment")
+           (fn [{:keys [error]}]
+             (is (= :value/unreachable (:id error)))
+             (is (str/includes? (:reason error) "is not allowed") "no request to the network of the host")))
          #(async/then
            (metadata/fetch! url {:send (send nil)})
            (fn [{:keys [error]}]

@@ -162,9 +162,11 @@
         said?             (assoc :message message)))))
 
 (def default-limits
-  "The limits of `fetch!` that its options do not set: the seconds that the
-  request can take."
-  {:timeout-seconds 10})
+  "The limits of `fetch!` that its options do not set. They are the seconds
+  that the request can take, and the size of an answer in bytes. The header
+  holds the metadata, so the answer needs no body."
+  {:timeout-seconds 10
+   :max-bytes       (* 64 1024)})
 
 (defn request
   "The request for the metadata at `url`. It asks for two bytes of the page,
@@ -177,18 +179,20 @@
   reads the header x-rss-payment of the answer, or `{:error diagnostic}`.
   On the JVM the payment, in ClojureScript a promise of it.
 
-  Take `url` from `parse-comment`. `opts` are `:send`, a function that
-  sends a request map in place of `http/call-public!`, and the limits of
-  `default-limits`. The sender of the payment chooses the URL. So this
-  sends nothing to the network of the host, unless the host gives
-  `http/call!` as `:send`. A browser reads the header only when the server
-  exposes it with CORS."
+  Take `url` from `parse-comment`. `opts` are the limits of
+  `default-limits`, `:allow?`, and `:send`, a function that sends a request
+  map in place of `http/call!`. The sender of the payment chooses the URL.
+  So the request carries `http/public?` as its `:allow?`, and `http/call!`
+  then sends nothing to the network of the host. A host that must reach
+  its own network gives `(constantly true)` as `:allow?`. A browser reads
+  the header only when the server exposes it with CORS."
   ([url]
    (fetch! url {}))
   ([url opts]
-   (let [{:keys [send timeout-seconds]} (merge default-limits {:send http/call-public!} opts)]
+   (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)
+         send (:send opts)]
      (async/then (async/attempt #(when (http/origin url)
-                                   (send (assoc (request url) :timeout-seconds timeout-seconds))))
+                                   (send (http/limited (request url) opts))))
                  (fn [{:keys [value error]}]
                    (let [found (when (map? value) (http/header (:headers value) header-name))]
                      (cond

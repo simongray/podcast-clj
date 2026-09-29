@@ -74,11 +74,13 @@
    (deftest probing-with-fetch
      (async done
        (let [real     (.-fetch js/globalThis)
-             requests (atom [])]
+             requests (atom [])
+             agents   (atom #{})]
          ;; the global fetch, as call! finds it
          (set! (.-fetch js/globalThis)
                (fn [_ init]
                  (swap! requests conj [(.-method init) (or (aget (.-headers init) "Range") nil)])
+                 (swap! agents conj (aget (.-headers init) "User-Agent"))
                  (js/Promise.resolve
                   (if (= "HEAD" (.-method init))
                     (js/Response. nil #js {:status 200 :headers #js {"content-type" "audio/mpeg" "content-length" "1000"}})
@@ -88,7 +90,8 @@
              (.then (fn [{:keys [head get]}]
                       (is (= [200 "audio/mpeg" 1000] ((juxt :status :type :length) head)))
                       (is (= [206 {:start 0 :end 1 :total 1000}] ((juxt :status :range) get)))
-                      (is (= #{["HEAD" nil] ["GET" "bytes=0-1"]} (set @requests)))))
+                      (is (= #{["HEAD" nil] ["GET" "bytes=0-1"]} (set @requests)))
+                      (is (= #{http/user-agent} @agents) "outside a browser, each request names podcast-clj")))
              (.catch (fn [e] (is false (str "rejected: " e))))
              (.finally (fn []
                          (set! (.-fetch js/globalThis) real)
@@ -118,7 +121,21 @@
       (is (= "https://b.example/f.xml" (http/absolute-url page "https://b.example/f.xml"))))
     (testing "a base without a path, and a fragment alone"
       (is (= "https://a.example/feed.xml" (http/absolute-url "https://a.example" "feed.xml")))
-      (is (= "https://a.example/show/feed.xml#x" (http/absolute-url (str page "#top") "#x"))))))
+      (is (= "https://a.example/show/feed.xml#x" (http/absolute-url (str page "#top") "#x"))))
+    (testing "a path that goes above the root stays at the root"
+      (is (= "https://a.example/x" (http/absolute-url page "../../../x")))
+      (is (= "https://a.example/x" (http/absolute-url page "/../x")))
+      (is (= "https://a.example/" (http/absolute-url page "../..")))
+      (is (= "https://b.example/x" (http/absolute-url page "https://b.example/../x"))))
+    (testing "no reference is the document itself, without its fragment"
+      (is (= "https://a.example/show/feed.xml?page=2" (http/absolute-url (str page "?page=2#top") ""))))
+    (testing "the spaces around a URL, and the line breaks in it"
+      (is (= "https://b.example/f.xml" (http/absolute-url page " https://b.example/f.xml\n")))
+      (is (= "https://a.example/feed.xml" (http/absolute-url (str " " page) "\n/feed.xml")))
+      (is (= "https://a.example/show/x" (http/absolute-url page (str (apply str (repeat 100000 " ")) "x")))))
+    (testing "a base that is no URL, or that holds no path"
+      (is (every? nil? (map #(http/absolute-url % "x") ["not a url" "/only/a/path" "mailto:a@b.example" nil])))
+      (is (nil? (http/absolute-url page nil))))))
 
 (deftest when-to-ask-again
   (let [at #inst "2026-09-27T12:00:00Z"]
@@ -135,6 +152,12 @@
         (is (= #inst "2026-09-27T12:20:00Z"
                (http/not-before (assoc two-hours-ahead "expires" ["Sun, 27 Sep 2026 14:30:00 GMT"] "age" ["600"]) at))
             "less the age")))
+    (testing "a Retry-After that does not read counts as none"
+      (is (= #inst "2026-09-27T12:10:00Z" (http/not-before {"retry-after" ["soon"] "cache-control" ["max-age=600"]} at)))
+      (is (nil? (http/not-before {"retry-after" ["soon"]} at))))
+    (testing "the values of every Cache-Control header"
+      (is (= #inst "2026-09-27T12:10:00Z" (http/not-before {"cache-control" ["public" "max-age=600"]} at)))
+      (is (nil? (http/not-before {"cache-control" ["max-age=600" "no-store"]} at))))
     (testing "nothing when the headers forbid a cache or name no later time"
       (is (nil? (http/not-before {"cache-control" ["no-cache, max-age=600"]} at)))
       (is (nil? (http/not-before {"cache-control" ["s-maxage=600"]} at)) "a shared cache's age is not ours")
@@ -376,7 +399,23 @@
          (fn [base]
            (let [{:keys [status body content-range]} (http/call! {:url (str base "/a.mp3") :as :bytes :range [0 1]})]
              (is (= [206 {:start 0 :end 999 :total 1000}] [status content-range]))
-             (is (= [0 1] (map #(bit-and % 0xFF) body)) "a 206 of the whole file, of which the range is read")))))))
+             (is (= [0 1] (map #(bit-and % 0xFF) body)) "a 206 of the whole file, of which the range is read")))))
+     (testing "an answer that holds none of the file"
+       (let [page (byte-array (* 2 1024 1024) (byte 120))]
+         (with-server {"/gone.mp3" [404 {"Content-Type" "text/html"} page]}
+           (fn [base]
+             (let [{:keys [status body]} (http/call! {:url (str base "/gone.mp3") :range [0 1] :max-bytes 1024})]
+               (is (= [404 "xx"] [status body]) "of a page of 2 MB, the two bytes that the range names")
+               (is (= 404 (get-in (http/probe! (str base "/gone.mp3") {:max-bytes 1024}) [:get :status]))))))))))
+
+#?(:clj
+   (deftest an-algorithm-that-the-platform-lacks
+     (let [asked (atom 0)]
+       (with-server {"/a.mp3" [200 {} (byte-array 10)]}
+         (fn [base]
+           (is (thrown? java.security.NoSuchAlgorithmException
+                        (http/digest! (str base "/a.mp3") ["SHA-9000"] {:allow? (fn [_] (swap! asked inc) true)})))
+           (is (zero? @asked) "no request is sent"))))))
 
 (deftest the-requests-of-a-fetcher
   (let [sent  (atom nil)

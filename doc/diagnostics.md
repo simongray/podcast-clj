@@ -94,7 +94,7 @@ The namespace of an id tells which part of podcast-clj found the problem:
 | `:file/unknown-format` | warning | The file is in no format that its reader knows, so nothing was read from it: MP3 or MP4 for a media file, and for an image PNG, JPEG, GIF or WebP, whose headers it reads, or AVIF, HEIC, HEIF, SVG, BMP, TIFF or ICO, whose type it knows. |
 | `:file/truncated` | warning | The file ends before its structures say that it does. |
 | `:file/malformed` | warning | The file could not be read as its format says. |
-| `:file/incomplete` | warning | Bytes that the reading of the file needed did not arrive, so the file was not read. |
+| `:file/incomplete` | warning | The reading of the file did not get the bytes that it needed, so the file was not read. The bytes did not arrive, or a limit of the reading stopped it. |
 | `:check/unreachable` | error | The file could not be fetched: the connection, the TLS handshake or the time allowed failed. |
 | `:check/status` | error | The server answered the request for the file with a status that is not a success, so a listener does not get the file. |
 | `:check/downgrade` | error | A redirect leads from https to http, which clients refuse to follow. |
@@ -121,6 +121,7 @@ The namespace of an id tells which part of podcast-clj found the problem:
 | `:check/empty` | error | The transcript or chapters file holds no segments or chapters in the format that the feed declares. |
 | `:check/feed-cors` | info | The server does not let pages of other sites read the feed, so a web app cannot read it without a server of its own. |
 | `:check/validators` | info | The server sends the feed without ETag or Last-Modified, so a client cannot ask whether the feed changed, and fetches it whole each time. |
+| `:check/unchecked` | warning | The check reached a limit of files or of time, and did not look at the files after that. The diagnostic counts them. |
 | `:validate/rss-version` | warning | The rss element's version is not 2.0. |
 | `:validate/missing-element` | error | An element RSS 2.0 requires is missing. |
 | `:validate/missing-enclosure` | warning | An item has no enclosure, so there is nothing to play. |

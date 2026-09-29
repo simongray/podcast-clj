@@ -311,21 +311,28 @@
                   (recur stop (cond-> acc frame (conj frame))))))))))))
 
 (defn- tag
-  "The tag of the header `h` in `view`, read in the context `ctx`."
+  "The tag of the header `h` in `view`, read in the context `ctx`. A tag
+  whose extended header does not read has no frames, and the report says
+  so."
   [ctx view {:keys [version flags start end] :as h}]
   (bytes/need view start end)
   (let [body-end (- end (if (and (= 4 version) (bit-test flags 4)) 10 0))
         body     (cond-> (bytes/slice view (+ start 10) body-end)
                    (and (#{2 3} version) (bit-test flags 7)) resync)
         body     (view-of body)
-        extended (cond
-                   (not (bit-test flags 6)) 0
-                   (= 4 version)            (or (syncsafe body 0) 0)
-                   (= 3 version)            (+ 4 (bytes/u32 body 0))
-                   :else                    0)
+        extended (fn []
+                   (cond
+                     (not (bit-test flags 6)) 0
+                     (= 4 version)            (or (syncsafe body 0) 0)
+                     (= 3 version)            (+ 4 (bytes/u32 body 0))
+                     :else                    0))
         ctx      (assoc ctx :unsync-all? (and (= 4 version) (bit-test flags 7)))]
     (assoc (select-keys h [:version :start :end])
-           :frames (frames ctx body version extended (:total body)))))
+           :frames (try
+                     (frames ctx body version (extended) (:total body))
+                     (catch #?(:clj Exception :cljs :default) _
+                       (note! ctx (diagnostic :id3/malformed :warning :offset start))
+                       [])))))
 
 (defn read
   "The ID3v2 tag at `p` in `view`, `{:version :start :end :frames}`, with

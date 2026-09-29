@@ -74,16 +74,21 @@
 
 (defn- png
   "The header of the PNG image in `view`, from the IHDR chunk, which comes
-  first; `:alpha?` nil when the chunks after it do not read."
+  first; `:alpha?` nil when the chunks after it do not read. When the file
+  ends before them, the `:report` says so."
   [view]
   (bytes/need view 8 33)
   (when (= "IHDR" (bytes/code view 12 4))
-    (let [kind (bytes/u8 view 25)]
-      {:type   "image/png"
-       :width  (bytes/u32 view 16)
-       :height (bytes/u32 view 20)
-       :color  (get {0 :grayscale 2 :rgb 3 :indexed 4 :grayscale 6 :rgb} kind)
-       :alpha? (if (contains? #{4 6} kind) true (transparent? view kind))})))
+    (let [kind  (bytes/u8 view 25)
+          alpha (if (contains? #{4 6} kind)
+                  {:value true}
+                  (bytes/part :transparency #(transparent? view kind)))]
+      (cond-> {:type   "image/png"
+               :width  (bytes/u32 view 16)
+               :height (bytes/u32 view 20)
+               :color  (get {0 :grayscale 2 :rgb 3 :indexed 4 :grayscale 6 :rgb} kind)
+               :alpha? (:value alpha)}
+        (:report alpha) (assoc :report (:report alpha))))))
 
 (def ^:no-doc frame-markers
   "The coding process of each JPEG marker that starts a frame, which gives
@@ -255,8 +260,9 @@
   `http/fetcher` makes, and the `:headers`, `:timeout-seconds` and `:send`
   of `http/fetcher`.
 
-  The reading fetches the `:max-bytes` of `opts` at most, by default those
-  of `bytes/default-limits`."
+  `opts` also give the limits of `bytes/read!`, with
+  `bytes/default-limits` for those that they do not set, and the `:allow?`
+  of `http/call!`."
   ([url]
    (read! url {}))
   ([url {:keys [fetch] :as opts}]

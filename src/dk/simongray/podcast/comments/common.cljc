@@ -4,6 +4,7 @@
   safe to show. Also the posts that a thread withholds, and the order of
   the requests by the depth of their posts."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.http :as http]
@@ -113,6 +114,16 @@
   [s base]
   (when (and (string? s) (not (str/blank? s)))
     (html/emit (fit-links (html/hiccup s) base))))
+
+(defn ^:no-doc guarded
+  "The comment that `(f)` reads of the post `id` at `at`. When the reading
+  fails, the comment holds the `:error` of it, so that the reading goes on
+  with the posts around it."
+  [id at f]
+  (try
+    (f)
+    (catch #?(:clj Throwable :cljs :default) e
+      {:id id :error {:id :comments/malformed :url id :reason (async/explain e)} :read-at at})))
 
 (defn ^:no-doc withhold
   "`thread` with the post `id` among the posts that it withholds, which its

@@ -45,6 +45,12 @@ follow, and one line for each namespace. The docstrings give the details.
   option takes the name of an entry, such as `:profile :apple`, it also
   takes an entry as data. [Services and their defaults](services.md) lists
   the defaults.
+- **What a feed or a stranger names is fetched within limits.** The
+  functions that fetch such URLs hold their limits in the `default-limits`
+  of their namespace, and their options set each limit. The option
+  `:allow?` tells which URLs a request can go to, and `:send` sends in
+  place of `http/call!`. [Requests that strangers
+  choose](architecture.md#requests-that-strangers-choose) tells more.
 - **The code is `.cljc`.** Each namespace runs on the JVM and in
   ClojureScript, except the namespaces and functions that the table marks
   "JVM". In ClojureScript, a function that sends requests returns a promise.
@@ -71,7 +77,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `feed.validate` | Validation by the tag registry, with the PSP-1 and Apple profiles. |
 | `feed.schema` | Malli schemas of the model, generated from the tag registry. Malli is not a dependency. |
 | `resolve` | One answer where the vocabularies overlap. `properties` gives all answers at once, and `sources` tells where they came from. Also the listening order of the episodes, `blocked?` and `next-check`. |
-| `check` | Checks over the network of the files a feed links to: media files, images, transcripts, chapters and the feed itself, by the standards and by the profiles of PSP-1 and Apple Podcasts. `files`, `verdicts` and `report` are pure, and `feed!` sends the requests: two bytes of most files and the header of each image, unless it is asked to read them. |
+| `check` | Checks over the network of the files a feed links to: media files, images, transcripts, chapters and the feed itself, by the standards and by the profiles of PSP-1 and Apple Podcasts. `files`, `verdicts` and `report` are pure, and `feed!` sends the requests: two bytes of most files and the header of each image, unless it is asked to read them. `default-limits` holds its limits of files, time and bytes. |
 | `diagnostics` | Every diagnostic id, with its level and meaning. |
 
 ### Formats
@@ -136,6 +142,6 @@ Each name below is relative to `dk.simongray.podcast`.
 | `guid` | The `podcast:guid` UUIDv5, and SHA-1. |
 | `json` | JSON strings to data and back, on both platforms. |
 | `http` | Requests as maps, credentials as a header, URLs made absolute, and when a server says to ask again. `call!` sends a request with byte ranges and limits of size and time: on the JVM with redirects that keep the credentials to their origin, and in ClojureScript with fetch. `probe!` learns the facts of a file from two bytes of it, and `fetcher` fetches a file by byte ranges. JVM: `fetch!`, which fetches a feed with conditional requests, and `digest!`, which streams a body through a digest. `public?` tells whether a host is on the public internet, and `call-public!` sends only to such hosts. `byte-ranges` reads a Range header. |
-| `bytes` | Bytes on both platforms, read as numbers and text, and a view of the parts of a file that have arrived, which says what a reader still needs. `read!` fetches it for the reader until it is done, `:max-bytes` of a file at most. |
+| `bytes` | Bytes on both platforms, read as numbers and text, and a view of the parts of a file that have arrived, which says what a reader still needs. `read!` fetches it for the reader until it is done, within the limits of bytes, time and rounds of `default-limits`. |
 | `async` | Deferred values: futures on the JVM, and promises in JavaScript. `iteration` reads an API that answers in pages, as `clojure.core/iteration` does, on both platforms. |
 | `rank` | Ranks that always leave room for another rank between two ranks. |
