@@ -36,5 +36,12 @@ addresses of the listeners and their audience ids are replaced with made-up
 ones. The list of episodes is cut to three, and the second page of the
 downloads to two rows, the last.
 
+`secp256k1/bip340-test-vectors.csv` holds the test vectors of BIP-340,
+from https://github.com/bitcoin/bips, under the BSD-2-Clause license.
+`nostr/fountain-note.json` holds a note about an episode that the app
+Fountain wrote, as `wss://relay.primal.net` gave it on 2026-09-29. The
+other events of the tests of Nostr are signed by the tests, with the
+secret keys 1, 2 and 3.
+
 The corpus of real feeds is outside Git, in `dev-resources/corpus/`. See
 `dev/corpus.clj`.

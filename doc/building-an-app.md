@@ -40,6 +40,7 @@ The examples use these aliases:
          '[dk.simongray.podcast.check :as check]
          '[dk.simongray.podcast.comments :as comments]
          '[dk.simongray.podcast.comments.atproto :as atproto]
+         '[dk.simongray.podcast.comments.nostr :as nostr-comments]
          '[dk.simongray.podcast.directory :as directory]
          '[dk.simongray.podcast.directory.podcastindex :as podcastindex]
          '[dk.simongray.podcast.feed :as feed]
@@ -50,6 +51,7 @@ The examples use these aliases:
          '[dk.simongray.podcast.format.transcript :as transcript]
          '[dk.simongray.podcast.http :as http]
          '[dk.simongray.podcast.links :as links]
+         '[dk.simongray.podcast.nostr :as nostr]
          '[dk.simongray.podcast.podping :as podping]
          '[dk.simongray.podcast.resolve :as resolve]
          '[dk.simongray.podcast.value :as value]
@@ -406,11 +408,12 @@ them.
 ## Show the comments on an episode
 
 A podcast feed can name a thread of comments about an episode, with
-`podcast:socialInteract`. The thread is on ActivityPub, as on Mastodon, or
-on the AT Protocol, as on Bluesky. For an episode, `comments/thread` picks
-the first thread, by priority, that podcast-clj can read. Fetch the
-thread, and show its tree. For a thread on the AT Protocol, also give the
-URL of an AppView. The AppView gives the replies to a post.
+`podcast:socialInteract`. The thread is on ActivityPub, as on Mastodon, on
+the AT Protocol, as on Bluesky, or on Nostr. For an episode,
+`comments/thread` picks the first thread, by priority, that podcast-clj
+can read. Fetch the thread, and show its tree. For a thread on the AT
+Protocol, also give the URL of an AppView. The AppView gives the replies
+to a post. For a thread on Nostr, you can give the relays to ask.
 
 ```clojure
 (def opts {:appview "https://public.api.bsky.app"})
@@ -451,6 +454,60 @@ replies a limit of size cut, as `:comments/truncated`.
 The AT Protocol gives no web page for a post. Link such a post to a web app
 of your choice. Build the link from the DID of the author and the record
 key of the post. `atproto/at-uri` gives both.
+
+On Nostr, people also write about an episode that names no thread. Each
+such note names the episode by its guid. `nostr-comments/about` gives the
+thread of these notes, for an episode or for a show:
+
+```clojure
+(def about (nostr-comments/about show item))
+;; => {:protocol "nostr" :uri "podcast:item:guid:d98d189b-dc7b-45b1-8720-d4b98690f31f"}
+
+(def thread (comments/fetch! about {:relays ["wss://relay.fountain.fm" "wss://relay.damus.io"]}))
+(:replies (comments/tree thread))  ; the notes about the episode, each with its replies
+```
+
+The root of such a thread is the episode, so the root of the tree has no
+content. The podcaster did not choose this thread. When
+`resolve/social-interacts` gives the protocol `disabled`, show no
+comments.
+
+The `:content` of a comment from Nostr is HTML, as that of each other
+comment. A mention of a profile is the name of the profile, such as
+`@Ann`. To give the mentions and the hashtags links, write the content
+from the event of the comment, with a function that gives the link of a
+part:
+
+```clojure
+(let [event (::nostr-comments/event comment)]
+  (nostr-comments/hiccup event {:names (nostr-comments/names thread)
+                                :link  (fn [{:keys [uri tag]}]
+                                         (if uri uri (str "https://example.org/tags/" tag)))}))
+;; => [[:p {} "Is this " [:a {:href "nostr:npub1…"} "@Ann"] " approved? " [:a {:href "https://…"} "#podcast"]]]
+```
+
+A part with a `:uri` is a mention or a reference to an event, and the
+URI opens an app of Nostr on the device. `nostr/parts` gives the parts
+of a content, for an app that writes them in another way. When a note
+came with a payment, `(::nostr-comments/receipts comment)` has the ids of
+the receipts. Such a note can have no content.
+
+A relay can send anything, so `fetch!` keeps only the events with a
+signature that is right. The report tells how many events it left out, as
+`:comments/unverified`. The check of a signature takes some milliseconds.
+
+Nostr gives no web page for a note. The handle of an author is the public
+key, in the form `npub1…`. For a link, `nostr/uri` gives the `nostr:` URI
+of a note, which an app of Nostr on the device opens:
+
+```clojure
+(nostr/uri {:type :nevent :id (:id comment) :relays ["wss://relay.fountain.fm"]})
+;; => "nostr:nevent1…"
+```
+
+Without `:relays`, `fetch!` asks the relays of `nostr/relays`. [Services
+and their defaults](services.md#the-relays-of-nostr) tells what they
+answered.
 
 AppViews that answer without an account, as of September 2026:
 

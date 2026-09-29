@@ -16,7 +16,7 @@
   the vocabulary, the feed model with its interpreters, the companions with
   the formats, the app and the directories, and the front door."
   {"diagnostics" 0 "time" 0 "time.rrule" 0 "guid" 0 "json" 0 "xml" 0 "xml.jsoup" 0
-   "http" 0 "rank" 0 "async" 0 "bytes" 0
+   "http" 0 "rank" 0 "async" 0 "bytes" 0 "bech32" 0 "secp256k1" 0
    "spec" 1 "quirks" 1
    "feed" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
    "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.html" 3
@@ -26,6 +26,7 @@
    "app.sync.encrypted" 3 "app.sync.gpodder" 3 "app.sync.gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "podping" 3 "websub" 3 "links" 3
    "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3
+   "comments.nostr" 3 "nostr" 3
    "analytics" 3 "analytics.op3" 3
    "" 4})
 

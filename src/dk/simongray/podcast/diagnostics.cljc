@@ -308,6 +308,8 @@
     :doc "podcast-clj does not read comments over the protocol of the thread."}
    {:id :comments/no-appview :level :warning
     :doc "podcast-clj did not read an AT Protocol thread, because the options named no AppView."}
+   {:id :comments/no-relay :level :warning
+    :doc "podcast-clj did not read a Nostr thread, because the options named no relay and the root names none."}
    {:id :comments/malformed :level :warning
     :doc "The URI of the root post, or a document that a server sent, is not in a form that podcast-clj reads. Such a document is a post, a collection of replies, an author or a thread."}
    {:id :comments/unreachable :level :warning
@@ -320,6 +322,8 @@
     :doc "ActivityPub did not give the root post. podcast-clj read the thread through the Mastodon API of the root post's server instead. The API can give fewer replies."}
    {:id :comments/withheld :level :info
     :doc "podcast-clj left out some replies. They are not public, their authors ask apps to show them only to signed-in users, or a moderation service hid them. An AppView also keeps back a reply when its author and the author of the post above it have a block between them."}
+   {:id :comments/unverified :level :warning
+    :doc "A relay of Nostr gave events that podcast-clj left out, and the diagnostic counts them. Such an event has a wrong id or a wrong signature, or it is not an event that the request asked for."}
    {:id :comments/truncated :level :warning
     :doc "A limit of size cut some replies, and the diagnostic counts them. Its `:limit` names the limit. `:page` is the 1,000 items of one page of replies, and `:id` is the 2,048 characters of an id. `:thread` is the 10,000 comments of one thread, and `:depth` is the 64 levels of replies of an AT Protocol thread."}
    {:id :comments/incomplete :level :info

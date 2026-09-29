@@ -9,7 +9,9 @@
             #?(:cljs [clojure.test :refer [is async]])
             #?(:clj [dk.simongray.podcast :as podcast])
             [dk.simongray.podcast.app.player :as player]
-            [dk.simongray.podcast.bytes :as bytes])
+            [dk.simongray.podcast.bytes :as bytes]
+            [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.secp256k1 :as secp256k1])
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
                    [java.io File]
                    [java.net InetSocketAddress]
@@ -105,6 +107,24 @@
   "The bytes of `s`, which holds only ASCII."
   [s]
   (map code s))
+
+(defn secret-key
+  "A secret key of a test, which is the number `n` from 1 to 255."
+  [n]
+  (bytes/hex (bytes/of (concat (repeat 31 0) [n]))))
+
+(defn signed
+  "The Nostr event of `kind` with `content` and `tags`, which the owner of
+  the secret key `secret` wrote at `at`, a time in seconds. It has the id
+  and the signature of its content."
+  [secret {:keys [kind content tags at] :or {kind 1 content "" tags []}}]
+  (let [event {"pubkey"     (secp256k1/public-key secret)
+               "created_at" at
+               "kind"       kind
+               "tags"       (vec tags)
+               "content"    content}
+        id    (nostr/event-id event)]
+    (assoc event "id" id "sig" (secp256k1/sign secret id (bytes/hex (bytes/of (repeat 32 7)))))))
 
 (defn view
   "A view of all of the bytes `xs`."

@@ -1,0 +1,54 @@
+(ns dk.simongray.podcast.secp256k1-test
+  "Schnorr signatures by the test vectors of BIP-340, on both platforms."
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.secp256k1 :as secp256k1]
+            [dk.simongray.podcast.test-support :refer [fixture secret-key]]))
+
+(def vectors
+  "The test vectors of BIP-340, each as a map of the columns of the file."
+  (let [[header & rows] (map #(str/split % #"," -1) (str/split-lines (fixture "secp256k1/bip340-test-vectors.csv")))]
+    (mapv #(zipmap header %) rows)))
+
+(deftest the-vectors-of-bip-340
+  (is (= 19 (count vectors)))
+  (doseq [{:strs [index message signature comment] secret "secret key" public "public key"
+           aux "aux_rand" result "verification result"} vectors]
+    (testing (str "vector " index " " comment)
+      (is (= (= "TRUE" result) (secp256k1/verify public message signature)))
+      (when (seq secret)
+        (is (= (str/lower-case public) (secp256k1/public-key secret)))
+        (is (= (str/lower-case signature) (secp256k1/sign secret message aux)))))))
+
+(deftest a-signature-of-another-message
+  (let [secret  (secret-key 3)
+        public  (secp256k1/public-key secret)
+        message (apply str (repeat 32 "ab"))
+        aux     (apply str (repeat 32 "01"))
+        sig     (secp256k1/sign secret message aux)]
+    (is (= "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9" public))
+    (is (secp256k1/verify public message sig))
+    (is (secp256k1/verify (str/upper-case public) (str/upper-case message) (str/upper-case sig)) "in upper case")
+    (is (not (secp256k1/verify public (str "ac" (subs message 2)) sig)))
+    (is (not (secp256k1/verify (secp256k1/public-key (secret-key 4)) message sig)))
+    (is (not (secp256k1/verify public message (str (subs sig 0 127) (if (str/ends-with? sig "0") "1" "0")))))
+    (is (not= sig (secp256k1/sign secret message (apply str (repeat 32 "02")))) "other random data, another signature")
+    (is (secp256k1/verify public message (secp256k1/sign secret message (apply str (repeat 32 "02")))))))
+
+(deftest what-is-no-key-and-no-signature
+  (let [zero  (apply str (repeat 64 "0"))
+        order "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"]
+    (doseq [secret [nil "" "03" zero order (apply str (repeat 64 "f")) (apply str (repeat 64 "g")) 3]]
+      (is (nil? (secp256k1/public-key secret)) (pr-str secret))
+      (is (nil? (secp256k1/sign secret zero zero)) (pr-str secret)))
+    (is (nil? (secp256k1/sign (secret-key 3) "abc" zero)) "a message with a half byte")
+    (is (nil? (secp256k1/sign (secret-key 3) zero "00")) "random data of another size")
+    (doseq [[public message signature] [[nil zero (str zero zero)]
+                                        ["03" zero (str zero zero)]
+                                        [(secp256k1/public-key (secret-key 3)) nil (str zero zero)]
+                                        [(secp256k1/public-key (secret-key 3)) "xyz" (str zero zero)]
+                                        [(secp256k1/public-key (secret-key 3)) zero zero]
+                                        [(secp256k1/public-key (secret-key 3)) zero nil]
+                                        [(secp256k1/public-key (secret-key 3)) zero (str zero zero)]]]
+      (is (false? (secp256k1/verify public message signature)) (pr-str [public message signature])))))

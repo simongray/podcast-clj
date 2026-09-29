@@ -41,8 +41,9 @@
     (is (= {:loadedmetadata [:audio/loaded a 120] :timeupdate [:audio/time a] :ended [:ended a]}
            (:on (second audio)))
         "the audio element reports through events, the position to resume at included")
-    (is (= [[:skip a :back] [:skip a :forward] [:ended a] [:sleep 1]] (map #(get-in % [1 :on :click]) buttons)))
-    (is (= ["−15s" "+30s" "Ended" "Stop after this episode"] (map #(nth % 2) buttons))
+    (is (= [[:skip a :back] [:skip a :forward] [:ended a] [:dequeue a] [:sleep 1]]
+           (map #(get-in % [1 :on :click]) buttons)))
+    (is (= ["−15s" "+30s" "Ended" "Remove" "Stop after this episode"] (map #(nth % 2) buttons))
         "the listener's preferences on the buttons")
     (let [button (last (elements (view/bar (assoc state :sleep {:episodes 1})) :button))]
       (is (= [[:sleep nil] "Play on after this episode"] [(get-in button [1 :on :click]) (nth button 2)])
@@ -53,7 +54,24 @@
     (is (str/includes? (text (view/bar (assoc state :readout "at 1:00 of 1:00:00"))) "at 1:00 of 1:00:00"))
     (let [bar (view/bar (assoc-in state [:titles a :enclosure] nil))]
       (is (empty? (elements bar :audio#player)))
-      (is (str/includes? (text bar) "No enclosure to play.")))))
+      (is (str/includes? (text bar) "No enclosure to play."))))
+  (testing "an episode that came through a sync"
+    (let [bar (view/bar (update state :titles dissoc a))]
+      (is (empty? (elements bar :audio#player)))
+      (is (str/includes? (text bar) "This browser has no data of the episode."))
+      (is (= [[:code "[\"feed\" \"a\"]"]] (elements bar :code)) "the id, and no link to a page")
+      (is (empty? (elements bar :a)))
+      (is (some #{[:dequeue a]} (map #(get-in % [1 :on :click]) (elements bar :button)))
+          "the listener removes it"))
+    (let [told (-> state
+                   (update :titles dissoc a)
+                   (update :player player/write [:inspector/episodes a] (constantly {:value (titles a)}) t0))
+          bar  (view/bar told)]
+      (is (= "https://x/a.mp3" (:src (second (first (elements bar :audio#player)))))
+          "the data that the other device wrote into the state")
+      (is (str/includes? (text bar) "First"))
+      (is (= (titles a) (view/episode-of told a)))
+      (is (nil? (view/episode-of told ["feed" "z"]))))))
 
 (deftest the-page
   (let [page (view/page state)]
@@ -62,8 +80,14 @@
       (let [[item :as items] (elements page :li)]
         (is (= 2 (count items)) "the one up next, and the one in the history")
         (is (str/includes? (text item) "Second"))
-        (is (= [[:play-next b] [:dequeue b]] (map #(get-in % [1 :on :click]) (elements item :button)))))
+        (is (= [[:play b] [:play-next b] [:dequeue b]] (map #(get-in % [1 :on :click]) (elements item :button))))
+        (is (empty? (elements (second items) :button)) "the episode that plays has no button in the history"))
       (is (str/includes? (text page) "at 2:00") "the history says where the first one is")
+      (let [heard   (update state :player player/progress b 60 3600 t0)
+            entries (filter #(str/includes? (text %) "Second") (elements (view/page heard) :li))]
+        (is (= [[:play b] [:play-next b] [:dequeue b] [:play b]]
+               (mapcat (fn [li] (map #(get-in % [1 :on :click]) (elements li :button))) entries))
+            "an episode of the history plays again"))
       (let [inputs (elements page :input)]
         (is (= [15 30] (map #(get-in % [1 :value]) inputs)))
         (is (= [[:prefer :skip-back] [:prefer :skip-forward]] (map #(get-in % [1 :on :change]) inputs)))))

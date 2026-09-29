@@ -17,8 +17,10 @@
   reader needs until the reading is done, and `report` gives the
   diagnostics of a reading."
   (:require [dk.simongray.podcast.async :as async]
-            [dk.simongray.podcast.diagnostics :as diagnostics])
+            [dk.simongray.podcast.diagnostics :as diagnostics]
+            #?(:cljs [goog.crypt.Sha256]))
   #?(:clj (:import [java.nio.charset StandardCharsets]
+                   [java.security MessageDigest]
                    [java.util Arrays Base64])))
 
 (defn length
@@ -52,6 +54,32 @@
      [b]
      (apply str (for [i (range 0 (alength b) 32768)]
                   (.apply js/String.fromCharCode nil (.subarray b i (min (alength b) (+ i 32768))))))))
+
+(defn hex
+  "The bytes `b` in hexadecimal, two characters in lower case for each
+  byte."
+  [b]
+  (let [digits "0123456789abcdef"]
+    (apply str (mapcat (fn [i]
+                         (let [x (at b i)]
+                           [(nth digits (bit-shift-right x 4)) (nth digits (bit-and x 15))]))
+                       (range (length b))))))
+
+(defn from-hex
+  "The bytes that the hexadecimal text `s` names, in upper or lower case.
+  Nil for a text that is not hexadecimal, or that has a half byte."
+  [s]
+  (when (and (string? s) (even? (count s)) (re-matches #"[0-9a-fA-F]*" s))
+    (of (map #(#?(:clj Integer/parseInt :cljs js/parseInt) (subs s % (+ % 2)) 16)
+             (range 0 (count s) 2)))))
+
+(defn sha256
+  "The SHA-256 digest of the bytes `b`, as 32 bytes."
+  [b]
+  #?(:clj  (.digest (MessageDigest/getInstance "SHA-256") ^bytes b)
+     :cljs (let [h (goog.crypt.Sha256.)]
+             (.update h b)
+             (js/Uint8Array.from (.digest h)))))
 
 (defn base64
   "The bytes `b` in base64, as RFC 4648 defines it and data URLs and SRI use

@@ -41,10 +41,10 @@ ecosystem that podcast-clj was written for.
 
 ```
   4  front door   dk.simongray.podcast
-  3  companions   format.*  value  value.*  resolve  check  directory  directory.podcastindex  links  podping  websub  comments  comments.*  analytics  analytics.*  app.*
+  3  companions   format.*  value  value.*  resolve  check  directory  directory.podcastindex  links  podping  websub  nostr  comments  comments.*  analytics  analytics.*  app.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
   1  vocabulary   spec  quirks
-  0  primitives   xml  xml.jsoup  time  time.rrule  guid  json  http  bytes  rank  async  diagnostics
+  0  primitives   xml  xml.jsoup  time  time.rrule  guid  json  http  bytes  bech32  secp256k1  rank  async  diagnostics
 ```
 
 A namespace requires only namespaces in its own layer or in a lower layer.
@@ -75,14 +75,15 @@ The names follow the design where one part belongs to another:
   `app.sync`.
 - The Podcast Index client is under `directory`, because the Podcast Index
   is one of the directories.
-- The readers of ActivityPub and of the AT Protocol are under `comments`,
-  with what they share in `comments.common`.
+- The readers of ActivityPub, of the AT Protocol and of Nostr are under
+  `comments`, with what they share in `comments.common`.
 - The payment of Lightning addresses and the RSS Payment Metadata are under
   `value`, which holds the payment that they send.
 - The client of OP3 is under `analytics`, which counts downloads as OP3
   does.
-- `resolve`, `check`, `links`, `podping`, `websub`, `guid`, `json`, `http`,
-  `bytes`, `rank`, `async` and `diagnostics` belong to no group.
+- `resolve`, `check`, `links`, `podping`, `websub`, `nostr`, `guid`,
+  `json`, `http`, `bytes`, `bech32`, `secp256k1`, `rank`, `async` and
+  `diagnostics` belong to no group.
 
 
 ## Why the API is regular
@@ -872,9 +873,9 @@ hub, and that URL holds the token.
 `podcast:socialInteract` names the root post of a thread of comments about
 an episode or a show. Most often, the root post is the podcaster's post
 about the episode. The podcaster also chooses the protocol of the thread,
-and the specification lists eight protocols. `comments` reads the two that
-feeds use most. These are ActivityPub, which Mastodon, PeerTube and the
-podcast host Castopod speak, and the AT Protocol of Bluesky. The protocol
+and the specification lists eight protocols. `comments` reads three of
+them. These are ActivityPub, which Mastodon, PeerTube and the podcast host
+Castopod speak, the AT Protocol of Bluesky, and Nostr. The protocol
 `disabled` tells apps that the podcaster wants no public comments.
 `resolve/social-interacts` then gives only the `disabled` interact.
 
@@ -886,8 +887,8 @@ by id, and their authors by id. Each comment names the post that it
 replies to. `tree` makes the tree from these names.
 
 `comments` is the front door. It sends each call to the reader of the
-protocol of the thread: `comments.activitypub` or `comments.atproto`. The
-readers share the functions of `comments.common`. They cannot use
+protocol of the thread: `comments.activitypub`, `comments.atproto` or
+`comments.nostr`. The readers share the functions of `comments.common`. They cannot use
 functions of `comments`, because `comments` requires them, and a cycle of
 requires does not load. The keys that record the reading are in the
 namespace `comments`. The readers write them through an `:as-alias`, which
@@ -977,9 +978,103 @@ replies.
 A hidden reply is `:hidden?`, and `tree` shows it only when its options
 ask for hidden replies.
 
-The comments page of the inspector shows the thread of an episode. The
-tests run on recorded answers of Mastodon, Misskey, PeerTube, the Mastodon
-API and a Bluesky AppView.
+On Nostr, a comment is an event that its author signed, and relays hold
+the events. A thread has one of two kinds of root. The first is a note
+that `podcast:socialInteract` names, by a `nostr:` URI of NIP-21. The
+second is the episode itself. NIP-73 gives an episode the id
+`podcast:item:guid:` with its guid, and an event names the episode in a
+tag. `comments.nostr/about` gives the thread of an episode or a show. Such
+a thread needs no tag in the feed, so an app can show comments for each
+episode. Its root is a comment without content, because no post is its
+root.
+
+NIP-22 defines the comment on an episode as an event of kind 1111. On 29
+September 2026, the relays had few such events. The app Fountain writes a
+note of kind 1 with the id of the episode in an `i` tag. Other apps reply
+to that note as NIP-10 defines. So the reader asks for both kinds, and it
+reads the parent of each event by the rules of its kind.
+
+A relay can send anything, and no server speaks for an author. The
+signature does. So the reader keeps only the events that
+`nostr/verified?` takes and that pass a filter of the request. The report
+counts the events that it left out. Each relay gets the same questions,
+and an event that two relays give is one comment. An event of kind 5
+deletes a comment of its own author, as NIP-09 defines. The thread keeps
+the deletion, because another relay can give the comment later.
+
+The name of an author comes from the event of kind 0 of the author. Its
+handle is the public key in the form `npub1…`. The event can name an
+address of NIP-05, such as `ann@example.org`. podcast-clj does not check
+that address, so it does not show it as the handle.
+
+The content of a note is plain text, but a person cannot read all of it.
+It names a profile as `nostr:npub1…` and an event as `nostr:nevent1…`,
+as NIP-27 defines. `nostr/parts` gives the content as data: text,
+mentions, references, links and hashtags. `comments.nostr/hiccup` writes
+Hiccup from the parts. A mention becomes the name of its profile, so the
+reader also asks the relays for the profiles that the comments mention.
+The name comes after the comment, and the content of the comment then
+gets the name.
+
+Some lines of a note say again what its tags tell. Fountain ends each
+note with the web page of the episode, which the `i` tag of the note has
+as its hint. A note that came with a payment also names the receipt of
+the payment, an event of kind 9735 of NIP-57. `hiccup` leaves out such
+lines, and `receipts` gives the ids of the receipts. A note with a
+payment and no message then has no content.
+
+Nostr has no web pages, so a mention has no link of its own. The app
+chooses a web app or the `nostr:` scheme, and gives `hiccup` a function
+for the links. The `:content` of a comment has no such links. Each
+comment keeps its event, so an app writes the content in its own way.
+
+The comments page of the inspector shows the thread of an episode. When
+the feed names no thread that podcast-clj reads, the page shows the notes
+about the episode on Nostr, with links to the gateway njump.me. The tests run on recorded answers of Mastodon,
+Misskey, PeerTube, the Mastodon API and a Bluesky AppView. The tests of
+Nostr sign their own events, and one note is a recording of a relay.
+
+
+## Nostr
+
+`nostr` holds what a podcast app needs of Nostr, under the comments and
+the wallets. Nostr has no servers that own data. Each event is a JSON
+object with the public key and the signature of its author, and relays
+pass the events on.
+
+An event stays the plain data that a relay gives, with string keys. Its
+id is the SHA-256 of a text that NIP-01 defines to the character.
+`event-id` writes that text itself. A JSON writer escapes more
+characters than NIP-01 allows, and the id is then another id.
+`verified?` checks the id and the signature.
+
+The signature is a Schnorr signature over the curve secp256k1, as BIP-340
+defines it. The JDK has no such curve, and the Web Crypto API of the
+browsers has none. So `secp256k1` has the arithmetic of the curve, over
+BigInteger on the JVM and BigInt in JavaScript. It passes the test vectors
+of BIP-340 on both platforms. A check takes about 4 milliseconds on the
+JVM, and about 3 milliseconds in Node. `sign` and `public-key` are there for the requests to a wallet. The
+time that they take depends on the secret key, and their docstrings tell
+so.
+
+`decode` and `encode` read and write the names of NIP-19, which are
+Bech32. `bech32` is the encoding of BIP-173, with its test vectors.
+podcast-clj reads no name of a secret key.
+
+A relay speaks over a WebSocket. `call!` is one exchange: it opens a
+connection, asks for the events of some filters, reads until the relay
+has no more, and closes. It is the WebSocket of the JDK on the JVM, and
+the WebSocket of the platform in JavaScript. So a request to a relay is a
+map, as a request to a server is, and `comments/fetch!` sends both kinds
+in the same rounds. `received` is the pure step of the reading, for an app
+that holds its connections open. The guard of
+[Requests that strangers choose](#requests-that-strangers-choose) applies
+to a relay too, because a name of NIP-19 can name any relay.
+
+`nostr/relays` names three public relays, and
+[Services and their defaults](services.md#the-relays-of-nostr) tells when
+they answered. The relays are a choice of the app, so `:relays` replaces
+them.
 
 
 ## Value for value
@@ -1423,7 +1518,10 @@ The queue page has a small player in ClojureScript, over `app.player`. The
 player state is in localStorage, and Replicant renders it into a bar on
 every page. The audio element reports its position through `step`, and the
 effects of `step` seek or stop the audio element, or start the next
-episode. The
+episode. The player also writes the data of each episode into the player
+state, as entries of its own under `:inspector/episodes`. `player/write`
+stamps them, so they merge and sync as the rest of the state does. So a
+browser plays an episode that another device put in the queue. The
 folder at `/dav/` is the sync backend that the player shares with any WebDAV
 client. A click on a link fetches the next page and replaces only the
 content below the bar. As a result, playback continues across pages, but the
@@ -1528,5 +1626,4 @@ the JSON of these requests from the body-params interceptor.
 [Podcast features outside podcast-clj](feature-gaps.md) tells about each
 of the features below, and which part of it fits a library:
 
-- Comments from Nostr.
 - Payments through the wallet of the listener, with WebLN and NWC.

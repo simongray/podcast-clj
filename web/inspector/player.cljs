@@ -30,7 +30,8 @@
 
 (defonce ^{:doc "The whole state of the page: `:player` (the library's state),
   `:titles` by episode id, the sleep timer under `:sleep`, and what the
-  audio element last reported."}
+  audio element last reported. The player state holds the data of the
+  episodes too, under `:inspector/episodes`, for the other devices."}
   app
   (atom nil))
 
@@ -141,6 +142,13 @@
   [f & args]
   (swap! app update :player #(apply f % (concat args [(now)]))))
 
+(defn- play!
+  "Make the episode `id` the current one, at the front of the queue, and
+  start the audio once it is rendered."
+  [id]
+  (dispatch! [:play id])
+  (perform! [[:play id]]))
+
 (defn- skip!
   "Skip the episode `id` by `amount`, telling the library where the audio
   is first so that the skip starts from the truth."
@@ -165,6 +173,7 @@
   audio element's reports are read off it."
   [[kind & args :as event] e]
   (case kind
+    :play         (play! (first args))
     :skip         (let [[id amount] args] (skip! id amount))
     :ended        (dispatch! event)
     :sleep        (swap! app assoc :sleep (when-let [n (first args)] {:episodes n}))
@@ -180,6 +189,22 @@
     :audio/time   (time-update! (first args) (.-target e))
     nil))
 
+(defn- add!
+  "Add the `episode` that /episode.edn served to the player, as `mode`
+  says: \"now\" plays it, \"next\" puts it after the current episode, and
+  any other mode puts it at the end of the queue.
+
+  The data of the episode goes into the player state too, as an entry of
+  the inspector. So a device that gets the queue through a sync gets what
+  it needs to play the episode."
+  [{:keys [id] :as episode} mode]
+  (swap! app assoc-in [:titles id] episode)
+  (operate! player/write [:inspector/episodes id] (constantly {:value episode}))
+  (case mode
+    "now"  (play! id)
+    "next" (operate! player/play-next id)
+    (operate! player/enqueue id)))
+
 (defn- add-from-query!
   []
   (let [params (js/URLSearchParams. js/location.search)
@@ -190,10 +215,7 @@
       (js/history.replaceState nil "" "/queue")
       (-> (js/fetch (str "/episode.edn?url=" (js/encodeURIComponent url) "&guid=" (js/encodeURIComponent guid)))
           (.then #(if (.-ok %) (.text %) (throw (js/Error. (str "episode.edn answered " (.-status %))))))
-          (.then (fn [edn]
-                   (let [{:keys [id] :as episode} (reader/read-string edn)]
-                     (swap! app assoc-in [:titles id] episode)
-                     (operate! (if (= mode "next") player/play-next player/enqueue) id))))
+          (.then (fn [edn] (add! (reader/read-string edn) mode)))
           (.catch #(swap! app assoc :error (str %)))))))
 
 (defn- render!

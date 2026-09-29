@@ -377,7 +377,7 @@ these.
 | Feature | Who has it | Verdict | Size | Status |
 |---|---|---|---|---|
 | Comments from ActivityPub and AT Protocol threads | Podverse, Castamatic. Castopod writes the threads. | Target | Medium | Built: `comments` |
-| Comments from Nostr | Fountain | In part | Medium | Not built |
+| Comments from Nostr | Fountain | In part | Medium | Built: `comments.nostr`, `nostr` |
 | Public ratings and reviews | Apple Podcasts, Pocket Casts, Podcast Guru | Out | | |
 | Comments and polls inside one platform | Spotify, Castbox | Out | | |
 | The activity of friends | Fountain | Out | | |

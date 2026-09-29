@@ -57,8 +57,11 @@
            (is (some? audio))
            (is (= "https://x/a.mp3" (.-src audio)))
            (is (= "/queue" (.-pathname js/location)) "the add parameters are gone from the URL"))
-         (testing "the state is kept in localStorage"
-           (is (str/includes? (str (.getItem js/localStorage shell/storage-key)) "\"a\"")))
+         (testing "the state is kept in localStorage, with the data of the episode for the other devices"
+           (is (str/includes? (str (.getItem js/localStorage shell/storage-key)) "\"a\""))
+           (is (= "https://x/a.mp3"
+                  (get-in (:player @shell/app) [:inspector/episodes ["feed" "a"] :value :enclosure])))
+           (is (nil? (player/problem (:player @shell/app)))))
          (testing "the audio element's reports show on the bar"
            (set! (.-currentTime audio) 100)
            (.dispatchEvent audio (js/Event. "timeupdate"))
@@ -79,7 +82,12 @@
              (.dispatchEvent js/window (new (.-StorageEvent js/window) "storage"
                                             #js {:key shell/storage-key :newValue (pr-str other)}))
              (is (str/includes? (.-textContent app) "From the other tab"))
-             (is (str/includes? (.-textContent bar) "First") "this tab's episode plays on"))))
+             (is (str/includes? (.-textContent bar) "First") "this tab's episode plays on")))
+         (testing "a click on Play now makes a queued episode the current one"
+           (.click (first (filter #(= "Play now" (.-textContent %)) (buttons app))))
+           (is (= ["feed" "b"] (player/current (:player @shell/app))))
+           (is (str/includes? (.-textContent bar) "From the other tab"))
+           (is (= [["feed" "b"] ["feed" "a"]] (player/queue (:player @shell/app))) "and the other waits")))
        (done))
      100)))
 

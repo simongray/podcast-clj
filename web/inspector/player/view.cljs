@@ -5,11 +5,13 @@
 
   The state is `{:player … :titles {id episode} :readout \"…\" :error \"…\"}`,
   the player being dk.simongray.podcast.app.player's and an episode what
-  /episode.edn serves. An event is a vector whose first element names it:
-  `[:skip id :back]`, `[:ended id]`, `[:sleep 1]`, `[:play-next id]`,
-  `[:dequeue id]`, `[:prefer :skip-back]`, `[:sync]`, and from the audio element
-  `[:audio/loaded id position]` and `[:audio/time id]`. The shell in
-  inspector.player performs them."
+  /episode.edn serves. The player state also holds the episodes that the
+  devices of the listener added, under `:inspector/episodes`, so that a
+  sync brings their data too. An event is a vector whose first element
+  names it: `[:play id]`, `[:skip id :back]`, `[:ended id]`, `[:sleep 1]`,
+  `[:play-next id]`, `[:dequeue id]`, `[:prefer :skip-back]`, `[:sync]`,
+  and from the audio element `[:audio/loaded id position]` and
+  `[:audio/time id]`. The shell in inspector.player performs them."
   (:require [cljs.pprint :as pprint]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.time :as time]))
@@ -19,29 +21,44 @@
   [{:keys [url guid]}]
   (str "/item?url=" (js/encodeURIComponent url) "&guid=" (js/encodeURIComponent guid)))
 
+(defn episode-of
+  "What the page `state` knows of the episode `id`: the data that
+  /episode.edn served to this browser, or else the data that a device of
+  the listener wrote into the player state. Nil when no device told."
+  [{:keys [player titles]} id]
+  (or (get titles id)
+      (:value (get-in player [:inspector/episodes id]))))
+
 (defn- episode-link
-  [titles id]
-  (let [{:keys [title feed-title] :as episode} (titles id)]
+  "The link to the page of the episode `id`, with the title of its show.
+  An episode without data is its id."
+  [state id]
+  (if-let [{:keys [title feed-title] :as episode} (episode-of state id)]
     (list [:a {:href (item-href episode)} (or title (pr-str id))]
-          " " [:span.muted feed-title])))
+          " " [:span.muted feed-title])
+    (list [:code (pr-str id)])))
 
 (defn bar
   "The persistent player: the current episode, its audio element, the
-  skip buttons and the sleep timer; nil when nothing is queued."
-  [{:keys [player titles readout sleep]}]
+  skip buttons and the sleep timer; nil when nothing is queued.
+
+  An episode that came through a sync from a device that told no data of
+  it has nothing to play. The bar tells so, and the listener removes it."
+  [{:keys [player readout sleep] :as state}]
   (when-let [id (player/current player)]
-    (let [{:keys [enclosure]} (titles id)
+    (let [{:keys [enclosure] :as episode} (episode-of state id)
           {:keys [skip-forward skip-back]} (player/preferences player)
           position (player/resume-position player (first id) id)]
       [:div.bar
-       [:span (episode-link titles id)]
-       (if enclosure
-         [:audio#player {:controls true :preload "metadata" :src enclosure
-                         :replicant/key id
-                         :on {:loadedmetadata [:audio/loaded id position]
-                              :timeupdate     [:audio/time id]
-                              :ended          [:ended id]}}]
-         [:span.muted "No enclosure to play."])
+       [:span (episode-link state id)]
+       (cond
+         enclosure [:audio#player {:controls true :preload "metadata" :src enclosure
+                                   :replicant/key id
+                                   :on {:loadedmetadata [:audio/loaded id position]
+                                        :timeupdate     [:audio/time id]
+                                        :ended          [:ended id]}}]
+         episode   [:span.muted "No enclosure to play."]
+         :else     [:span.muted "This browser has no data of the episode. Remove it, or open its item and play it."])
        [:span.muted (or readout (str "at " (time/format-clock (or position 0))))]
        [:span
         [:button {:on {:click [:skip id :back]}} (str "−" skip-back "s")]
@@ -50,11 +67,13 @@
         " "
         [:button {:on {:click [:ended id]}} "Ended"]
         " "
+        [:button {:on {:click [:dequeue id]}} "Remove"]
+        " "
         [:button {:on {:click [:sleep (when-not sleep 1)]}}
          (if sleep "Play on after this episode" "Stop after this episode")]]])))
 
 (defn- up-next
-  [{:keys [player titles]}]
+  [{:keys [player] :as state}]
   (let [queue (rest (player/queue player))]
     [:section
      [:h2 "Up next"]
@@ -65,15 +84,17 @@
        [:ol
         (for [id queue]
           [:li {:replicant/key id}
-           (episode-link titles id)
+           (episode-link state id)
            (when (player/played? player id) [:span.badge "played"])
+           " "
+           [:button {:on {:click [:play id]}} "Play now"]
            " "
            [:button {:on {:click [:play-next id]}} "Play next"]
            " "
            [:button {:on {:click [:dequeue id]}} "Remove"]])])]))
 
 (defn- history
-  [{:keys [player titles]}]
+  [{:keys [player] :as state}]
   [:section
    [:h2 "History"]
    (if (empty? (:episodes player))
@@ -82,8 +103,10 @@
       (for [id (player/history player)
             :let [{:keys [position played?]} (player/episode player id)]]
         [:li {:replicant/key id}
-         (episode-link titles id)
-         [:span.muted (str " · " (if played? "played" (str "at " (time/format-clock (or position 0)))))]])])])
+         (episode-link state id)
+         [:span.muted (str " · " (if played? "played" (str "at " (time/format-clock (or position 0)))))]
+         (when (and (episode-of state id) (not= id (player/current player)))
+           (list " " [:button {:on {:click [:play id]}} "Play now"]))])])])
 
 (defn- preferences
   [{:keys [player]}]
@@ -128,12 +151,12 @@
 
 (defn page
   "The queue page: the detailed view of the state the bar plays from."
-  [{:keys [player titles error] :as state}]
+  [{:keys [player error] :as state}]
   [:div
    [:p.muted "The player state of dk.simongray.podcast.app.player, running in this browser and kept in localStorage; Replicant renders it, the audio element in the bar reports to it, and its effects drive the audio."]
    (when error [:p.error error])
    (when-let [id (player/current player)]
-     [:p "Now playing: " (episode-link titles id)])
+     [:p "Now playing: " (episode-link state id)])
    (up-next state)
    (history state)
    (preferences state)

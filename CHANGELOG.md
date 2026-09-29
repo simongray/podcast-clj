@@ -374,3 +374,25 @@
 - The player: `progress`, `skip` and `step` take the option
   `:played-threshold`, and `step` takes `:listening-gap`. They replace
   the numbers of the vars of those names.
+- Comments from Nostr. `comments/fetch!` reads the thread of a note that
+  `podcast:socialInteract` names, from relays. `comments.nostr/about`
+  gives the thread of the notes about an episode or a show, by the id
+  that NIP-73 gives it. The reader takes the replies of NIP-10 and the
+  comments of NIP-22, and it keeps only the events with a signature that
+  is right. The new diagnostics are `:comments/unverified` and
+  `:comments/no-relay`.
+- The content of a note of Nostr, for a reader. `nostr/parts` gives the
+  content as text, mentions, references, links and hashtags.
+  `comments.nostr/hiccup` writes Hiccup from them, with the names of the
+  profiles and the links of the app. It leaves out the lines that say
+  again what the tags of the note tell.
+- The inspector: the player has Play now for each episode, and Remove
+  for the episode that plays. It keeps the data of each episode in the
+  player state, so an episode that came through a sync plays too.
+- Nostr, in the new namespace `nostr`. `verified?` checks the id and the
+  signature of an event. `decode` and `encode` read and write the names
+  of NIP-19. `call!` is one exchange with a relay over a WebSocket.
+  `nostr/relays` names the relays, and `:relays` replaces them.
+- The new namespace `secp256k1` has the Schnorr signatures of BIP-340,
+  and the new namespace `bech32` has the encoding of BIP-173. `bytes` has
+  `hex`, `from-hex` and `sha256`.

@@ -1,0 +1,28 @@
+{
+  "content": "https://fountain.fm/episode/T4SA3gGVLwEOZrY0kk5V\n\nnostr:nevent1qvzqqqpxqupzpwrxeemtukuzv62esqjgxg4cmaxrs9sgl7j6tdrufuaturv0wea9qqspthhulu2yk7txuzc90x45tj0m93mmmf657p3fpvqjks9jpvnu8gg9m4plx",
+  "created_at": 1790696888,
+  "id": "8761968778536a3ba25b11784680c7c7a987268f974478a2df8936435b57c167",
+  "kind": 1,
+  "pubkey": "91aeab23b5664edaa57dbe00b041ccb50544f89d7d956345bbd78b7dbaa48660",
+  "sig": "83e0b367061e5d51a849ef5a764e30abe47743bb2c50b813cc040051a7365c9c239ec4a55398d74d6c63b3c66840cbbc0d65089de5bc136861f75309afd03237",
+  "tags": [
+    [
+      "k",
+      "podcast:item:guid"
+    ],
+    [
+      "i",
+      "podcast:item:guid:173eee40-32ae-41c8-a5e5-884c257dd47f",
+      "https://fountain.fm/episode/T4SA3gGVLwEOZrY0kk5V"
+    ],
+    [
+      "k",
+      "podcast:guid"
+    ],
+    [
+      "i",
+      "podcast:guid:96748822-dcb1-5519-a46d-b9c9bfc0241d",
+      "https://fountain.fm/show/68gcLZFDRxOzgGeZmXq6"
+    ]
+  ]
+}

@@ -8,6 +8,7 @@
             [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.atproto :as atproto]
+            [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.validate :as validate]
@@ -15,6 +16,7 @@
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.resolve :as resolve]
             [dk.simongray.podcast.time :as time]
             [dk.simongray.podcast.value :as value]))
@@ -530,10 +532,10 @@
               (when-let [people (seq (resolve/people feed item))]
                 [:div.muted (str/join " · " (map #(str (:role %) ": " (:name %)) people))])
               [:div
+               [:a.badge {:href (into-player "now")} "Play now"]
                [:a.badge {:href (into-player "last")} "Add to queue"]
                [:a.badge {:href (into-player "next")} "Play next"]
-               (when (seq (resolve/social-interacts feed item))
-                 [:a.badge {:href (feed-href "/comments" url {:guid guid})} "Comments"])]]]
+               [:a.badge {:href (feed-href "/comments" url {:guid guid})} "Comments"]]]]
             [:h2 "Description"]
             [:div.notes (html/hiccup (resolve/description item))]
             [:h2 "Media"]
@@ -678,19 +680,41 @@
 
 (defn- web-link
   "The web page of the comment `c`. For a post of the AT Protocol, it is the
-  page in Bluesky's web app. The inspector chose this app among the apps
-  that show such posts."
+  page in Bluesky's web app. For a note of Nostr, it is the page of the
+  gateway njump.me. The inspector chose these among the apps that show
+  such posts."
   [{:keys [url id]}]
   (or (link url)
       (let [{:keys [authority collection rkey]} (atproto/at-uri id)]
         (when (and (= "app.bsky.feed.post" collection) rkey)
-          (str "https://bsky.app/profile/" authority "/post/" rkey)))))
+          (str "https://bsky.app/profile/" authority "/post/" rkey)))
+      (some->> (nostr/encode {:type :nevent :id id}) (str "https://njump.me/"))))
+
+(defn- nostr-link
+  "The web page of the part `part` of the content of a note: the page of
+  the gateway njump.me for a profile, an event or a hashtag."
+  [{:keys [uri tag]}]
+  (if uri
+    (str "https://njump.me/" (subs uri (count "nostr:")))
+    (str "https://njump.me/t/" (http/encode tag))))
+
+(defn- content-of
+  "The content of the comment `c` as Hiccup. For a note of Nostr, the
+  inspector writes it from the event, with a link for each mention, and
+  with the `names` of the profiles of the thread."
+  [names {:keys [content] ::nostr-comments/keys [event]}]
+  (if event
+    (html/sanitize (nostr-comments/hiccup event {:names names :link nostr-link}))
+    (html/hiccup content)))
 
 (defn- comment-item
-  "The comment `c` of a thread's tree, and the replies below it."
-  [{:keys [author published title content summary sensitive? labels attachments deleted? error hidden? replies] :as c}]
+  "The comment `c` of a thread's tree, and the replies below it, with the
+  `names` of the profiles of a thread of Nostr."
+  [names {:keys [author published title content summary sensitive? labels attachments deleted? error hidden? replies]
+          ::nostr-comments/keys [receipts]
+          :as   c}]
   (let [body (list (when title [:strong title])
-                   [:div.notes (html/hiccup content)]
+                   [:div.notes (content-of names c)]
                    (for [{:keys [kind url preview alt]} attachments]
                      (if (= :image kind)
                        [:a {:href (link url)} [:img.attachment {:src (link (or preview url)) :alt (str alt)}]]
@@ -701,6 +725,7 @@
         [:img.avatar {:src avatar :alt ""}])
       [:strong (or (:name author) (:handle author) (:id author))] " " (:handle author)
       " · " [:a {:href (web-link c)} (if published (inst-str published) "open")]
+      (when (seq receipts) " · with a payment")
       (when hidden? " · hidden by the author of the root post")]
      (cond
        deleted?                  [:p.muted "This post was deleted."]
@@ -708,7 +733,7 @@
        (or summary sensitive?)   [:details [:summary (or summary (str "Sensitive: " (str/join ", " labels)))] body]
        :else                     body)
      (when (seq replies)
-       [:ol.comments (map comment-item replies)])]))
+       [:ol.comments (map #(comment-item names %) replies)])]))
 
 (defn comments-page
   "The page of the comments on `item` of the feed at `url`, from the
@@ -716,10 +741,12 @@
 
   It shows the thread as a tree, with its report, or tells why there is no
   thread. With `hidden?`, the tree holds the replies that the author of the
-  root post hid."
+  root post hid. A thread about the episode itself has no root post, so
+  the page shows the comments on the episode."
   [{:keys [url item interacts thread hidden?]}]
-  (let [title (or (resolve/title item) "(untitled)")
-        guid  (feed/item-guid item)]
+  (let [title  (or (resolve/title item) "(untitled)")
+        guid   (feed/item-guid item)
+        about? (str/starts-with? (str (:uri thread)) "podcast:")]
     (layout (str "Comments: " title)
             [:p [:a {:href (feed-href "/item" url {:guid guid})} "← " title]]
             [:h1 "Comments"]
@@ -727,21 +754,28 @@
               (= "disabled" (:protocol (first interacts)))
               [:p.muted "The podcaster wants no public comments shown with this episode."]
 
-              (empty? interacts)
+              (and (nil? thread) (empty? interacts))
               [:p.muted "The feed names no thread of comments for this episode."]
 
               (nil? thread)
               [:p.muted (str "podcast-clj reads no comments over " (str/join ", " (distinct (map :protocol interacts))) ".")]
 
               :else
-              (list [:p.muted "The thread of " [:code (:uri thread)] " over " (:protocol thread)
+              (list (when about?
+                      [:p.muted "The feed names no thread of comments that podcast-clj reads for this episode. "
+                       "These are the notes about the episode on Nostr."])
+                    [:p.muted "The thread of " [:code (:uri thread)] " over " (:protocol thread)
                      (when (:via thread) ", read through the Mastodon API")
                      ", " (count (filter :read-at (vals (:comments thread)))) " posts. "
                      [:a {:href (feed-href "/comments" url {:guid guid :hidden (when-not hidden? "1")})}
                       (if hidden? "Leave out the hidden replies" "Show the hidden replies")]]
-                    (if-let [tree (comments/tree thread {:hidden? hidden?})]
-                      [:ol.comments (comment-item tree)]
-                      [:p.muted "The inspector did not get the root post."])
+                    (let [tree  (comments/tree thread {:hidden? hidden?})
+                          names (nostr-comments/names thread)]
+                      (cond
+                        (nil? tree)           [:p.muted "The inspector did not get the root post."]
+                        (not about?)          [:ol.comments (comment-item names tree)]
+                        (seq (:replies tree)) [:ol.comments (map #(comment-item names %) (:replies tree))]
+                        :else                 [:p.muted "The relays have no note about this episode."]))
                     [:h2 "Report"]
                     (diagnostics-table (:report thread)))))))
 

@@ -163,12 +163,14 @@ A function that sends requests gives a failure as a diagnostic too, under the
 | `:podping/unavailable` | warning | No node of the Hive chain answered a call of the poll. The result has the pings of the blocks that the poll read before that call. |
 | `:comments/unsupported` | info | podcast-clj does not read comments over the protocol of the thread. |
 | `:comments/no-appview` | warning | podcast-clj did not read an AT Protocol thread, because the options named no AppView. |
+| `:comments/no-relay` | warning | podcast-clj did not read a Nostr thread, because the options named no relay and the root names none. |
 | `:comments/malformed` | warning | The URI of the root post, or a document that a server sent, is not in a form that podcast-clj reads. Such a document is a post, a collection of replies, an author or a thread. |
 | `:comments/unreachable` | warning | podcast-clj did not get a post, a collection of replies or an author. The request failed, or the server answered with an error. When the diagnostic has `:retry?`, the next fetch of the thread asks again. |
 | `:comments/refused` | warning | A server refused an unsigned request, as a server in secure mode does. |
 | `:comments/untrusted` | warning | A server sent a post or an author from another server. podcast-clj did not use it, because a server speaks only for its own posts and authors. |
 | `:comments/through-api` | info | ActivityPub did not give the root post. podcast-clj read the thread through the Mastodon API of the root post's server instead. The API can give fewer replies. |
 | `:comments/withheld` | info | podcast-clj left out some replies. They are not public, their authors ask apps to show them only to signed-in users, or a moderation service hid them. An AppView also keeps back a reply when its author and the author of the post above it have a block between them. |
+| `:comments/unverified` | warning | A relay of Nostr gave events that podcast-clj left out, and the diagnostic counts them. Such an event has a wrong id or a wrong signature, or it is not an event that the request asked for. |
 | `:comments/truncated` | warning | A limit of size cut some replies, and the diagnostic counts them. Its `:limit` names the limit. `:page` is the 1,000 items of one page of replies, and `:id` is the 2,048 characters of an id. `:thread` is the 10,000 comments of one thread, and `:depth` is the 64 levels of replies of an AT Protocol thread. |
 | `:comments/incomplete` | info | The fetch reached a limit before it read the whole thread, or a server did not answer for a time. To read more of the thread, fetch it again. |
 | `:value/not-an-object` | warning | The record is not a JSON object, so it describes no payment. |

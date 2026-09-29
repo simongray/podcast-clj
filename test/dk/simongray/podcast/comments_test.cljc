@@ -722,8 +722,11 @@
            (async/all [(comments/fetch! note {:send send})
                        (comments/fetch! note {:send send :allow? any?})])
            (fn [_]
-             (is (= #{http/public? any?} (set (map :allow? @asked)))
-                 "each request carries the guard, which a :send gets too"))))))
+             (is (= #{comments/public? any?} (set (map :allow? @asked)))
+                 "each request carries the guard, which a :send gets too")
+             (is (= [true false false false]
+                    (map comments/public? ["https://93.184.216.34/" "http://127.0.0.1/" "wss://127.0.0.1" "ws://localhost:7777"]))
+                 "the guard of a server and of a relay"))))))
 
 (deftest a-post-that-does-not-read
   (let [root   "https://a.example/0"
@@ -880,14 +883,17 @@
   (let [sent (atom [])
         send (fn [request] (swap! sent conj request) {:status 500})]
     (run #(async/then
-           (async/all (for [[interact opts] [[{:protocol "nostr" :uri "nostr:nevent1qqs"} {}]
+           (async/all (for [[interact opts] [[{:protocol "matrix" :uri "https://matrix.to/#/#podcast:example.org"} {}]
                                              [{:protocol "atproto" :uri bluesky-root} {}]
                                              [{:protocol "activitypub" :uri "fuffaweb_italia.bio.link"} {}]
                                              [{:protocol "atproto" :uri "https://bsky.app/profile/atproto.com/post/3msydg6sd7s2d"}
-                                              {:appview "https://appview.example"}]]]
+                                              {:appview "https://appview.example"}]
+                                             [{:protocol "nostr" :uri "nostr:nevent1qqs"} {}]
+                                             [{:protocol "nostr" :uri "podcast:item:guid:1"} {:relays []}]]]
                         (comments/fetch! interact (assoc opts :send send))))
            (fn [threads]
-             (is (= [[:comments/unsupported] [:comments/no-appview] [:comments/malformed] [:comments/malformed]]
+             (is (= [[:comments/unsupported] [:comments/no-appview] [:comments/malformed] [:comments/malformed]
+                     [:comments/malformed] [:comments/no-relay]]
                     (map ids threads)))
              (is (empty? @sent)))))))
 

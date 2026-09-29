@@ -136,7 +136,10 @@
         (is (str/includes? (:body (get* "/item" "url" "https://example.com/talk.xml" "guid" "t")) "/comments?url=")))
       (testing "an episode whose podcaster wants no comments shown, one with no thread, and no episode"
         (is (str/includes? (:body (get* "/comments" "url" "https://example.com/talk.xml" "guid" "q")) "wants no public comments"))
-        (is (str/includes? (:body (get* "/comments" "url" "https://example.com/talk.xml" "guid" "s")) "names no thread"))
+        (let [body (:body (get* "/comments" "url" "https://example.com/talk.xml" "guid" "s"))]
+          (is (str/includes? body "names no thread"))
+          (is (str/includes? body "podcast:item:guid:s") "the notes about the episode on Nostr")
+          (is (str/includes? body "The relays have no note about this episode")))
         (is (= 404 (:status (get* "/comments" "url" "https://example.com/talk.xml" "guid" "nope"))))))))
 
 (deftest quotes-and-parameters

@@ -1,10 +1,12 @@
 (ns dk.simongray.podcast.comments
   "The public comments on an episode or a show, from the thread below the
-  root post that podcast:socialInteract names. The comments of ActivityPub
-  and of the AT Protocol come in one shape. `comments.activitypub` reads
-  the threads of ActivityPub, which Mastodon, PeerTube and the podcast host
-  Castopod speak. `comments.atproto` reads those of the AT Protocol, which
-  Bluesky speaks, from an AppView.
+  root post that podcast:socialInteract names. The comments of
+  ActivityPub, of the AT Protocol and of Nostr come in one shape.
+  `comments.activitypub` reads the threads of ActivityPub, which Mastodon,
+  PeerTube and the podcast host Castopod speak. `comments.atproto` reads
+  those of the AT Protocol, which Bluesky speaks, from an AppView.
+  `comments.nostr` reads those of Nostr from relays. It also reads the
+  comments about an episode that names no root post.
 
   A thread is a map. Each interact that `resolve/social-interacts` gives,
   `{:protocol :uri}`, is an unread thread, and `thread` gives the one of an
@@ -40,20 +42,24 @@
   A deleted post is `:deleted?`, and a post that podcast-clj did not get
   has an `:error` that tells why. An author is
   `{:id :name :handle :url :avatar}`. The handle is `@name@domain` on
-  ActivityPub and `@handle` on the AT Protocol. A thread that podcast-clj
-  read through the Mastodon API is `:via :mastodon-api`. The keys in this
-  namespace, such as `::collection`, record how far the reading went."
-  (:require [dk.simongray.podcast.async :as async]
+  ActivityPub, `@handle` on the AT Protocol and `npub1…` on Nostr. A
+  thread that podcast-clj read through the Mastodon API is `:via
+  :mastodon-api`. The keys in this namespace, such as `::collection`,
+  record how far the reading went."
+  (:require [clojure.string :as str]
+            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
             [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.comments.common :as common]
+            [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.resolve :as resolve]))
 
 (def protocols
   "The protocols of podcast:socialInteract whose threads `fetch!` reads."
-  #{"activitypub" "atproto"})
+  #{"activitypub" "atproto" "nostr"})
 
 (def default-limits
   "The limits of `fetch!` that its options do not set.
@@ -72,13 +78,36 @@
 
 (defn ^:no-doc errors
   "The errors of the reading of `thread` below its root: of the Mastodon
-  API, its conversation, its posts, the collections of their replies and
-  their authors, as diagnostics without their level."
-  [{:keys [comments authors] ::keys [api conversation]}]
+  API, its conversation, its relays, its posts, the collections of their
+  replies and their authors, as diagnostics without their level."
+  [{:keys [comments authors] ::keys [api conversation] ::nostr-comments/keys [relays]}]
   (concat (keep :error [api conversation])
+          (keep :error (map val (sort-by key relays)))
           (keep :error (vals comments))
           (keep (comp :error ::collection) (vals comments))
           (keep :error (vals authors))))
+
+(defn ^:no-doc origin
+  "The origin of the URL `url` of a server or of a relay, as `http/origin`
+  reads the origin of a web URL."
+  [url]
+  (http/origin (str/replace (str url) #"(?i)^ws" "http")))
+
+(defn ^:no-doc public?
+  "Whether the host of the URL `url` of a server or of a relay is on the
+  public internet, as `http/public?` and `nostr/public?` tell."
+  [url]
+  (if (nostr/relay-url url)
+    (nostr/public? url)
+    (http/public? url)))
+
+(defn ^:no-doc send!
+  "Sends the request map `request` as `http/call!` does, or as
+  `nostr/call!` does when its URL is that of a relay."
+  [request]
+  (if (nostr/relay-url (:url request))
+    (nostr/call! request)
+    (http/call! request)))
 
 (defn ^:no-doc spared-origins
   "The origins that the reading of `thread` asks no more: those of the
@@ -88,7 +117,7 @@
   [{:keys [error] :as thread}]
   (set (for [{:keys [url status timeout?]} (cons error (errors thread))
              :when (or timeout? (= 429 status))]
-         (http/origin url))))
+         (origin url))))
 
 (defn resumed
   "`thread` as a new reading of it starts. `fetch!` applies it first, and
@@ -104,6 +133,7 @@
   (let [thread (case protocol
                  "activitypub" (activitypub/resumed thread)
                  "atproto"     (atproto/resumed thread)
+                 "nostr"       (nostr-comments/resumed thread)
                  thread)
         held   (count (filter :read-at (vals (:comments thread))))]
     (if (pos? held)
@@ -117,6 +147,7 @@
   (case (:protocol thread)
     "activitypub" (activitypub/requests thread opts ask?)
     "atproto"     (atproto/requests thread opts ask?)
+    "nostr"       (nostr-comments/requests thread opts ask?)
     []))
 
 (defn- distinct-by
@@ -134,15 +165,17 @@
   posts than the `:max-comments` of `opts` or `default-limits` allows,
   counted from the last `resumed`. For the AT Protocol, they go to the
   `:appview` of `opts`. For the Mastodon API, the `:status-paths` of `opts`
-  replace `activitypub/status-paths`. A server that did not answer in
-  time, or that answered 429, gets no more requests until the next
-  `resumed`. Each request is a request map for `http/call!`, and each URL
-  comes once."
+  replace `activitypub/status-paths`. For Nostr, they go to the relays
+  that the root names and to the `:relays` of `opts`. A server that did
+  not answer in time, or that answered 429, gets no more requests until
+  the next `resumed`. Each request is a request map for `http/call!`, or
+  for `nostr/call!` when its URL is that of a relay, and each URL comes
+  once."
   ([thread]
    (requests thread {}))
   ([thread opts]
    (let [spared (spared-origins thread)]
-     (distinct-by :url (pending thread (merge default-limits opts) #(not (contains? spared (http/origin %))))))))
+     (distinct-by :url (pending thread (merge default-limits opts) #(not (contains? spared (origin %))))))))
 
 (defn next-page
   "The request for the page after the one in `exchange`, an exchange
@@ -168,6 +201,7 @@
   (case (:protocol thread)
     "activitypub" (activitypub/with-exchanges thread exchanges at)
     "atproto"     (atproto/with-exchanges thread exchanges at)
+    "nostr"       (nostr-comments/with-exchanges thread exchanges at)
     thread))
 
 (defn readable?
@@ -177,13 +211,15 @@
   The protocol of the thread must be one of `protocols`, and its URI must
   have the form of that protocol. For ActivityPub, the URI is an http or
   https URL. For the AT Protocol, it is the at URI of a post, and `opts`
-  must name an `:appview`."
+  must name an `:appview`. For Nostr, it is the name of a note, or the id
+  that NIP-73 gives a show or an episode."
   ([interact]
    (readable? interact {}))
   ([{:keys [protocol] :as interact} opts]
    (case protocol
      "activitypub" (activitypub/readable? interact)
      "atproto"     (atproto/readable? interact opts)
+     "nostr"       (nostr-comments/readable? interact opts)
      false)))
 
 (defn thread
@@ -204,10 +240,12 @@
 
   They tell why podcast-clj did not read the thread, a post, a collection
   of replies or an author. They also tell whether it left out replies, how
-  many replies a limit of size cut, and whether a limit stopped the fetch."
+  many replies a limit of size cut, and whether a limit stopped the fetch.
+  For Nostr, they tell how many events a relay gave that are not
+  verified."
   ([thread]
    (report thread {}))
-  ([{:keys [protocol uri error via] ::keys [withheld truncated] :as thread} opts]
+  ([{:keys [protocol uri error via] ::keys [withheld truncated] ::nostr-comments/keys [left-out] :as thread} opts]
    (let [opts (merge default-limits opts)]
      (mapv diagnostics/describe
            (cond
@@ -217,6 +255,9 @@
              (and (= "atproto" protocol) (not (string? (:appview opts))))
              [{:id :comments/no-appview}]
 
+             (and (= "nostr" protocol) (nostr-comments/root-of uri) (empty? (nostr-comments/relays-of thread opts)))
+             [{:id :comments/no-relay}]
+
              (not (readable? thread opts))
              [{:id :comments/malformed :url uri}]
 
@@ -224,6 +265,7 @@
              (concat (when error [(cond-> error via (assoc :id :comments/through-api))])
                      (errors thread)
                      (when (seq withheld) [{:id :comments/withheld :count (count withheld)}])
+                     (when left-out [{:id :comments/unverified :count left-out}])
                      (for [[limit n] (sort-by key truncated)]
                        {:id :comments/truncated :limit limit :count n})
                      ;; what the next fetch asks for, with no limit and no server spared
@@ -365,6 +407,7 @@
 
       {:appview         \"https://…\"  ; to read AT Protocol threads from
        :status-paths    [#\"…\"]       ; in place of activitypub/status-paths
+       :relays          [\"wss://…\"]  ; to read Nostr threads from, in place of nostr/relays
        :max-comments    100          ; ask for no more posts after this many in a fetch
        :max-requests    300          ; start no round after this many
        :max-seconds     60           ; start no request after this long
@@ -372,8 +415,8 @@
        :max-pages       5            ; of a collection in a round
        :timeout-seconds 30           ; for each request
        :max-bytes       5242880      ; of each answer
-       :allow?          http/public? ; which URLs a request can go to
-       :send            f            ; in place of http/call!
+       :allow?          f            ; which URLs a request can go to
+       :send            f            ; in place of http/call! and nostr/call!
        :now             f}           ; the time, the clock by default
 
   The requests go out in rounds. The root post comes first, then the posts
@@ -387,19 +430,24 @@
   comments in all. The report counts the replies that such a limit cut.
 
   The servers of a thread choose the URLs that `fetch!` fetches. So each
-  request carries `http/public?` as its `:allow?`, and `http/call!` then
-  sends nothing to the network of the app. An app that must reach its own
-  network gives `(constantly true)` as `:allow?`. A `:send` keeps to the
-  `:timeout-seconds` and the `:allow?` of each request. A `:send` that
+  request carries a guard as its `:allow?`, which is `http/public?` for a
+  server and `nostr/public?` for a relay. `http/call!` and `nostr/call!`
+  then send nothing to the network of the app. An app that must reach its
+  own network gives `(constantly true)` as `:allow?`. A `:send` keeps to
+  the `:timeout-seconds` and the `:allow?` of each request. A `:send` that
   signs its requests can also read the servers that answer only signed
-  requests."
+  requests.
+
+  A request to a relay has the `:url` of the relay and the `:filters` of
+  NIP-01, and `nostr/call!` sends it over a WebSocket. A `:send` of the
+  app gets such requests too, and answers them as `nostr/call!` does."
   ([thread]
    (fetch! thread {}))
   ([thread opts]
    (let [{:keys [concurrency max-requests max-pages max-seconds now] :as opts}
          (merge default-limits
-                {:send   http/call!
-                 :allow? http/public?
+                {:send   send!
+                 :allow? public?
                  :now    #?(:clj #(java.util.Date.) :cljs #(js/Date.))}
                 opts)
          opts  (cond-> opts max-seconds (assoc ::deadline (+ (inst-ms (now)) (* 1000 max-seconds))))
@@ -428,7 +476,7 @@
   (readable? interact)
   (readable? {:protocol "atproto" :uri "at://did:plc:ann/app.bsky.feed.post/1"})
   (requests interact)
-  (map :id (report {:protocol "nostr" :uri "nostr:note1"}))
+  (map :id (report {:protocol "matrix" :uri "https://matrix.to/#/#podcast:example.org"}))
 
   ;; a thread that a fetch read: the root, a reply, and a reply that the
   ;; author of the root hid

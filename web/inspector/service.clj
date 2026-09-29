@@ -16,6 +16,7 @@
             [dk.simongray.podcast.app.sync.webdav.server :as webdav-server]
             [dk.simongray.podcast.check :as check]
             [dk.simongray.podcast.comments :as comments]
+            [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed :as feed]
@@ -320,20 +321,27 @@
   "The comments page of the item that the `guid` parameter names, in the
   feed that the `url` parameter names, for `request`.
 
-  It shows the thread that `comments/thread` picks. With the `hidden`
-  parameter, it also shows the replies that the author of the root post
-  hid."
+  It shows the thread that `comments/thread` picks. When the feed names
+  no thread that podcast-clj reads, it shows the notes about the episode
+  on Nostr, unless the podcaster wants no comments shown. With the
+  `hidden` parameter, it also shows the replies that the author of the
+  root post hid."
   [request]
   (with-feed request
     (fn [{:keys [url feed]}]
       (let [{:keys [guid hidden]} (:query-params request)
-            item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
+            item      (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))
+            interacts (when item (resolve/social-interacts feed item))
+            thread    (when item
+                        (or (comments/thread feed item {:appview appview})
+                            (when-not (= "disabled" (:protocol (first interacts)))
+                              (nostr-comments/about feed item))))]
         (if item
           (html (page/comments-page {:url       url
                                      :item      item
-                                     :interacts (resolve/social-interacts feed item)
+                                     :interacts interacts
                                      :hidden?   (= "1" hidden)
-                                     :thread    (some-> (comments/thread feed item {:appview appview}) thread-of)}))
+                                     :thread    (some-> thread thread-of)}))
           (-> (html (page/error-page "No such item in the feed" url (str "No item with guid " guid)))
               (assoc :status 404)))))))
 
