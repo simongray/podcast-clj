@@ -40,6 +40,20 @@ follow, and one line for each namespace. The docstrings give the details.
   All other functions take the time as an argument. For example, each write
   to the player state takes the instant of the write, and a Podcast Index
   request takes the instant to sign.
+- **A call throws, and a step gives data.** A call sends one request and
+  gives the answer. The calls are the functions with the name `call!`, the
+  functions of a store, `http/fetch!`, `http/digest!`, and the function
+  that `http/fetcher` makes. When a call has no answer to give, it throws
+  an `ex-info`, and the `:type` in its data tells why. In ClojureScript, it
+  rejects its promise with that `ex-info`. The client of an API throws
+  `::failed` with the `:status` for an answer that is a failure. Each
+  other function with a name that ends in `!` is a step, such as
+  `podcast/fetch!`, `media/read!` and `sync!`. A step throws nothing for
+  what a network, a server or a file does. It gives what it got, and the
+  part that failed holds `:error`, a diagnostic with the `:reason`. An
+  HTTP status is an answer, so `podcast/fetch!` and `http/probe!` give a
+  404 as a `:status`. A call and a step throw for an argument that is
+  wrong.
 - **Requests are maps.** The directories, the Podcast Index, Podping and the
   WebDAV store build requests as `{:method :url :headers :body}`, and pure
   functions read the answers. Any HTTP client can send the requests.

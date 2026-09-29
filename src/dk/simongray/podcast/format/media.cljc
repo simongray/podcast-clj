@@ -23,6 +23,7 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.bytes :as bytes]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.id3 :as id3]
             [dk.simongray.podcast.format.mp3 :as mp3]
@@ -108,13 +109,16 @@
   `:file/incomplete`.
 
   A server that ignores ranges sends a file from its start. The bytes at
-  an offset then cost all the bytes before them."
+  an offset then cost all the bytes before them.
+
+  `read!` throws nothing for what the network or the server does. When a
+  request fails, the result is `{:error diagnostic}`, and the diagnostic
+  is `:file/unreachable`."
   ([url]
    (read! url {}))
-  ([url {:keys [fetch] :as opts}]
-   (let [read-opts (select-keys opts [:except])
-         opts      (merge bytes/default-limits opts)]
-     (bytes/read! (or fetch (http/fetcher url opts)) #(read % read-opts) opts))))
+  ([url opts]
+   (let [read-opts (select-keys opts [:except])]
+     (http/read-by-ranges! url #(read % read-opts) opts))))
 
 (def ^:no-doc sri-algorithms
   "The hash algorithms of Subresource Integrity, weakest first, with their
@@ -145,9 +149,16 @@
   {:valid? (contains? digests digest) :algorithm algorithm})
 
 (defn ^:no-doc unverified
-  "The verdict on a file that was not checked, for the `reason`."
-  [reason]
-  {:valid? nil :reason reason})
+  "The verdict on a file that was not checked. The `diagnostic` tells
+  why."
+  [diagnostic]
+  {:valid? nil :error (diagnostics/describe diagnostic)})
+
+(defn ^:no-doc absent
+  "The verdict on the file at `url` that did not come, since the request
+  for it failed with `e`."
+  [url e]
+  (unverified (assoc (bytes/unreachable e) :url url)))
 
 (defn- digest
   "The digest in base64 of the bytes `b`, by the `algorithm` as
@@ -162,11 +173,12 @@
   `send` fetches the file whole, with the limits of `opts`; deferred."
   [send url metadata algorithm opts]
   (async/then
-   (send (http/limited {:url url :as :bytes :headers (:headers opts) :timeout-seconds 600} opts))
-   (fn [{:keys [status body]}]
-     (if (= 200 status)
-       (async/then (digest algorithm (or body (bytes/of []))) #(verdict metadata %))
-       (unverified (str "The file answered " status "."))))))
+   (http/sent! send {:url url :as :bytes :headers (:headers opts) :timeout-seconds 600} opts)
+   (fn [{:keys [error] {:keys [status body]} :value}]
+     (cond
+       error          (absent url error)
+       (= 200 status) (async/then (digest algorithm (or body (bytes/of []))) #(verdict metadata %))
+       :else          (absent url (http/failed url status))))))
 
 #?(:clj
    (defn- streamed!
@@ -174,10 +186,13 @@
      `algorithm`. The file streams through the digest, with the limits of
      `opts`."
      [url metadata algorithm opts]
-     (let [{:keys [status digests]} (http/digest! url [algorithm] opts)]
-       (if digests
-         (verdict metadata (bytes/base64 (get digests algorithm)))
-         (unverified (str "The file answered " status "."))))))
+     (try
+       (let [{:keys [status digests]} (http/digest! url [algorithm] opts)]
+         (if digests
+           (verdict metadata (bytes/base64 (get digests algorithm)))
+           (absent url (http/failed url status))))
+       (catch Exception e
+         (absent url e)))))
 
 (defn verify!
   "Whether the file at `url` is what `integrity` says, the
@@ -186,10 +201,14 @@
 
   The result is `{:valid? true :algorithm …}` when the digest of the whole
   file is one of the strongest hashes of `integrity`. `:valid?` is false
-  when it is not. The result is `{:valid? nil :reason …}` when no check
-  was made. A PGP signature needs the key of the publisher. A value can
-  name no hash that Subresource Integrity knows. A server can answer
-  without the file.
+  when it is not.
+
+  The result is `{:valid? nil :error diagnostic}` when no check was made.
+  The diagnostic is `:file/unverifiable` for a PGP signature, which needs
+  the key of the publisher, and for a value that names no hash that
+  Subresource Integrity knows. It is `:file/unreachable` when the file
+  did not come. `verify!` throws nothing for what the network or the
+  server does.
 
   On the JVM, the file streams through the digest. With `:send` in
   `opts`, and in ClojureScript, the file comes whole, up to the
@@ -205,10 +224,10 @@
          metadata  (when (= "sri" kind) (sri value))
          algorithm (get (into {} sri-algorithms) (:algorithm metadata))
          reason    (cond
-                     (= "pgp-signature" kind) "A PGP signature needs the publisher's key."
+                     (= "pgp-signature" kind) "A PGP signature needs the key of the publisher."
                      (nil? metadata)          "The integrity names no hash of sha256, sha384 or sha512.")]
      (if reason
-       (async/then (unverified reason) identity)
+       (async/then (unverified {:id :file/unverifiable :reason reason}) identity)
        #?(:clj  (if send
                   (whole! send url metadata algorithm opts)
                   (streamed! url metadata algorithm opts))

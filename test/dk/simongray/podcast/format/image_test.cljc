@@ -8,9 +8,10 @@
                       [clojure.test.check.generators :as gen]
                       [clojure.test.check.properties :as prop]])
             [clojure.test :refer [deftest is #?(:cljs async)]]
+            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.format.image :as image]
             [dk.simongray.podcast.bytes :as bytes]
-            [dk.simongray.podcast.test-support :refer [ascii be fetch-from le view]]))
+            [dk.simongray.podcast.test-support :refer [ascii be fetch-from le run view]]))
 
 (def png-signature
   "The eight bytes a PNG image begins with."
@@ -162,6 +163,18 @@
                    (.then check)
                    (.catch (fn [e] (is false (str "rejected: " e))))
                    (.finally done))))))
+
+(deftest an-image-that-does-not-come
+  (let [url "https://example.org/a.png"]
+    (run
+     #(async/then (image/read! url {:send (fn [_] (throw (ex-info "Connection refused" {})))})
+                  (fn [header]
+                    (is (= [:error] (keys header)) "a result with the error alone, and nothing thrown")
+                    (is (= [:file/unreachable url "Connection refused"]
+                           ((juxt :id :url :reason) (:error header))))))
+     #(async/then (image/read! url {:send (fn [request] {:status 403 :url (:url request) :headers {}})})
+                  (fn [header]
+                    (is (= [:file/unreachable url 403] ((juxt :id :url :status) (:error header)))))))))
 
 (deftest a-jpeg-of-many-segments
   (let [b     (bytes/of (apply jpeg 0xC0 1400 1400 3 (repeat 9 (segment 0xE2 (repeat 65533 0)))))

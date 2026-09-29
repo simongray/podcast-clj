@@ -389,8 +389,9 @@
            (is (= [200 1000] ((juxt :status :length) (:get (http/probe! url))))
                "a server that sends the whole file, of which two bytes are read"))))
      (let [closed (with-open [s (java.net.ServerSocket. 0)] (.getLocalPort s))]
-       (is (every? :error (vals (http/probe! (str "http://127.0.0.1:" closed "/nothing"))))
-           "a port where no server listens"))))
+       (is (= [:file/unreachable :file/unreachable]
+              (map (comp :id :error) (vals (http/probe! (str "http://127.0.0.1:" closed "/nothing")))))
+           "a port where no server listens, told by a diagnostic"))))
 
 #?(:clj
    (deftest more-than-was-asked
@@ -446,6 +447,14 @@
 
 (deftest a-fetcher-without-options
   (is (fn? (http/fetcher "https://example.org/a.mp3"))))
+
+(deftest a-fetcher-of-a-file-that-is-gone
+  (let [url   "https://example.org/a.mp3"
+        fetch (http/fetcher url {:send (fn [request] {:status 404 :url (:url request) :headers {}})})]
+    (run #(async/then (async/attempt (fn [] (fetch 0 10)))
+                      (fn [{:keys [error]}]
+                        (is (= {:type ::http/failed :status 404 :url url} (ex-data error))
+                            "a call throws, with the type and the status"))))))
 
 (deftest the-request-after-a-redirect
   (let [post {:method  :post

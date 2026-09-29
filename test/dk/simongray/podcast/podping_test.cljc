@@ -192,6 +192,28 @@
          (is (= 110255080 (:block (podping/poll! nil {:node "https://api.hive.blog" :up-to :irreversible}))))))))
 
 #?(:clj
+   (deftest polling-when-no-node-answers
+     (testing "no node at all: a step that gives data, and the poller reads on from where it was"
+       (with-redefs [http/call! (node-answering {})]
+         (let [step (podping/poll! 110255078 {:nodes ["https://a" "https://b"] :writers #{"podping"}})]
+           (is (= {:pings [] :refused [] :block 110255078 :writers #{"podping"}} (dissoc step :error)))
+           (is (= [:podping/unavailable :warning] ((juxt :id :level) (:error step))))
+           (is (= ["https://a" "https://b"] (map first (:failures (:error step)))))
+           (is (string? (:message (:error step)))))
+         (is (= :podping/unavailable (:id (:error (podping/poll! nil {:node "https://a"}))))
+             "the writers that no node gave")))
+     (testing "a node that gives the head and not the blocks"
+       (let [node (fn [body]
+                    (if (str/includes? body "get_block_range")
+                      "<html>maintenance</html>"
+                      ((chain 110255080) body)))]
+         (with-redefs [http/call! (node-answering {"https://api.hive.blog" node})]
+           (let [step (podping/poll! 110255078 {:node "https://api.hive.blog"})]
+             (is (= [[] 110255078] ((juxt :pings :block) step)) "the next step asks for the blocks again")
+             (is (= 25 (count (:writers step))))
+             (is (= :podping/unavailable (:id (:error step))))))))))
+
+#?(:clj
    (deftest falling-back-across-nodes
      (testing "a node that fails is passed over"
        (with-redefs [http/call! (node-answering {"https://api.hive.blog"         502

@@ -7,7 +7,6 @@
             [clojure.pprint :as pprint :refer [print-table]]
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.check :as check]
             [dk.simongray.podcast.format.chapters :as chapters]
@@ -342,16 +341,16 @@
    (let [manifest (vec (for [[i {:keys [url] :as e}] (map-indexed vector (first-enclosures n))]
                          (let [parts (atom [])
                                fetch (http/fetcher url)
-                               r     (try (media/read! url {:fetch (fn [start end]
-                                                                    (let [part (fetch start end)]
-                                                                      (swap! parts conj part)
-                                                                      part))})
-                                          (catch Exception ex {:error (ex-message ex)}))]
+                               r     (media/read! url {:fetch (fn [start end]
+                                                               (let [part (fetch start end)]
+                                                                 (swap! parts conj part)
+                                                                 part))})
+                               error (get-in r [:error :reason])]
                            (doseq [[k {b :bytes}] (map-indexed vector @parts)]
                              (with-open [out (io/output-stream (io/file media-dir (str i "-" k ".bin")))]
                                (.write out ^bytes b)))
-                           (println i (:format r) (:error r))
-                           (assoc e :n i :error (:error r)
+                           (println i (:format r) error)
+                           (assoc e :n i :error error
                                   :parts (vec (for [[k {:keys [start total]}] (map-indexed vector @parts)]
                                                 {:file (str i "-" k ".bin") :start start :total total}))))))]
      (spit (io/file media-dir "manifest.edn") (with-out-str (pprint/pprint manifest)))
@@ -383,12 +382,11 @@
   ([] (check-feeds! {:items 2 :profile :apple :read? true}))
   ([opts]
    (vec (pmap (fn [[name url]]
-                (try
-                  (let [{:keys [feed]}         (podcast/fetch! url)
-                        {:keys [files report]} (check/feed! feed (assoc opts :url url))]
-                    {:name name :files (count files) :report report})
-                  (catch Exception e
-                    {:name name :error (async/explain e)})))
+                (let [{:keys [feed status error]} (podcast/fetch! url)]
+                  (if feed
+                    (let [{:keys [files report]} (check/feed! feed (assoc opts :url url))]
+                      {:name name :files (count files) :report report})
+                    {:name name :error (or (:reason error) (str "HTTP " status))})))
               (sort feeds)))))
 
 (defn check-report

@@ -23,6 +23,11 @@
   ([file facts profile]
    (set (map :id (check/verdicts file facts profile)))))
 
+(defn- failed
+  "The facts of a request or a reading that failed for `reason`."
+  [reason]
+  {:error {:id :file/unreachable :level :warning :reason reason}})
+
 (deftest files-of-a-feed
   (let [files (check/files @example {:url "https://example.com/feed.xml" :items 1})]
     (is (= [:feed :media :image] (map :kind (take 3 files))) "the feed, its trailer and its images first")
@@ -73,7 +78,9 @@
 (deftest verdicts-on-media
   (is (= #{} (ids media served)) "a file served as its feed says")
   (is (= [] (check/report [(assoc media :facts served)] :apple)) "and by the rules of a profile")
-  (is (= #{:check/unreachable} (ids media {:head {:error "refused"} :get {:error "refused"}})))
+  (is (= [[:check/unreachable "refused"]]
+         (map (juxt :id :reason) (check/verdicts media {:head (failed "refused") :get (failed "refused")} nil)))
+      "with the reason of the diagnostic in the facts")
   (is (= #{:check/status} (ids media (assoc served :get {:status 404 :url "https://a/e.mp3"}))))
   (is (= #{:check/status} (ids media (assoc served :get {:status "206" :url "https://a/e.mp3"})))
       "a status that is no number, as an app's own client can give it")
@@ -117,12 +124,20 @@
         "a file of the declared format that breaks off")
     (is (= #{:check/duration} (ids media (assoc served :media {:format :mp3 :duration 700 :report []}))))
     (is (= #{} (ids media (assoc served :media {:format :mp3 :duration 605 :report []}))) "within 10 seconds")
-    (is (= #{:check/unread} (ids media (assoc served :media {:error "The file answered 403: https://a/e.mp3"})))))
+    (is (= [[:check/unread "The file answered 403: https://a/e.mp3"]]
+           (map (juxt :id :reason)
+                (check/verdicts media (assoc served :media (failed "The file answered 403: https://a/e.mp3")) nil)))))
   (testing "the integrity"
     (is (= #{:check/integrity} (ids media (assoc served :integrity {:valid? false :algorithm "sha384"}))))
     (is (= #{} (ids media (assoc served :integrity {:valid? true :algorithm "sha384"}))))
-    (is (= #{:check/unverified} (ids media (assoc served :integrity {:valid? nil :reason "A PGP signature needs the publisher's key."}))))
-    (is (= #{:check/unverified} (ids media (assoc served :integrity {:error "request timed out"})))))
+    (is (= [[:check/unverified "A PGP signature needs the key of the publisher."]]
+           (map (juxt :id :reason)
+                (check/verdicts media
+                                (assoc served :integrity {:valid? nil
+                                                          :error  {:id     :file/unverifiable
+                                                                   :reason "A PGP signature needs the key of the publisher."}})
+                                nil))))
+    (is (= #{:check/unverified} (ids media (assoc served :integrity (assoc (failed "request timed out") :valid? nil))))))
   (is (every? :message (check/verdicts media (assoc served :head {:status 405}) nil)) "every diagnostic with its message")
   (is (= [:rss/items 0 :rss/enclosure] (:path (first (check/verdicts media (assoc served :head {:status 405}) nil))))))
 
@@ -136,8 +151,8 @@
 (deftest verdicts-on-images
   (is (= #{} (ids artwork square-jpeg :apple)) "artwork as Apple Podcasts wants it")
   (is (= #{:check/image-type} (ids artwork (assoc-in square-jpeg [:head :type] "image/jpg"))))
-  (is (= #{:check/unread} (ids artwork (assoc square-jpeg :image {:error "The file answered 403: https://a/cover.jpg"}))))
-  (is (= #{:check/unreachable} (ids artwork {:head {:error "refused"} :image {:error "refused"}})))
+  (is (= #{:check/unread} (ids artwork (assoc square-jpeg :image (failed "The file answered 403: https://a/cover.jpg")))))
+  (is (= #{:check/unreachable} (ids artwork {:head (failed "refused") :image (failed "refused")})))
   (is (= #{:file/malformed} (ids artwork (assoc square-jpeg :image {:type "image/jpeg" :report [{:id :file/malformed :level :warning}]}) :apple))
       "an image that does not read has no size to judge")
   (testing "the artwork rules, which only a profile adds"
@@ -221,7 +236,11 @@
         "an answer that a browser let through")
     (is (= #{:check/type} (ids transcript {:get (assoc answer :type "application/octet-stream") :read read})))
     (is (= #{:check/empty} (ids transcript {:get answer :read {:count 0 :report []}})))
-    (is (= #{:check/unread} (ids transcript {:get answer :read {:error "Unexpected end of input"}})))
+    (is (= [[:check/unread "Unexpected end of input"]]
+           (map (juxt :id :reason)
+                (check/verdicts transcript
+                                {:get answer :read {:error {:id :file/malformed :reason "Unexpected end of input"}}}
+                                nil))))
     (is (= #{:check/head} (ids transcript {:head {:status 405} :get answer}))))
   (let [feed {:kind :feed :url "https://a/feed.xml" :path [] :declared {}}]
     (is (= #{} (ids feed {:get {:status 200 :url "https://a/feed.xml" :cors "*" :etag "\"1\""}})))
@@ -367,7 +386,8 @@
                      facts  (:facts (first (filter #(= (str base "/v.mp4") (:url %)) (:files result))))]
                  (is (= 3 @asked))
                  (is (= 206 (get-in facts [:get :status])) "the probe, which the app allowed")
-                 (is (str/includes? (str (get-in facts [:integrity :error])) "is not allowed"))
+                 (is (= :file/unreachable (get-in facts [:integrity :error :id])))
+                 (is (str/includes? (get-in facts [:integrity :error :reason]) "is not allowed"))
                  (is (contains? (found result "/v.mp4") :check/unverified))
                  (is (= 1 (count (filter #(and (= "/v.mp4" (:path %)) (= "GET" (:method %))) @requests)))
                      "and no request for the whole file")))

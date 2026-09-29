@@ -1071,13 +1071,21 @@
   [request opts]
   (into request (remove (comp nil? val)) (select-keys opts [:timeout-seconds :max-bytes :allow?])))
 
+(defn ^:no-doc failed
+  "The exception for the answer to a request for the file at `url` whose
+  `status` is a failure."
+  [url status]
+  (ex-info (str "The file answered " status ": " url)
+           {:type ::failed :status status :url url}))
+
 (defn fetcher
   "A function that fetches the bytes of the file at `url` by range, as
   `dk.simongray.podcast.bytes/read!` takes it.
 
   The function takes a start and an end, end excluded. It gives `{:bytes
   :start :total}`, deferred in ClojureScript. An app can wrap it to log or
-  keep what it fetches.
+  keep what it fetches. It throws as `call!` does, and it throws
+  `::failed` with the `:status` for an answer that is a failure.
 
   A server that ignores ranges sends the file from its start. The
   function then reads only the bytes up to the end, and its answer is
@@ -1106,7 +1114,21 @@
             ;; the body of a 416 is at most a page about the error
             416 {:bytes (bytes/of []) :start start
                  :total (unsatisfied-total (header (:headers response) "content-range"))}
-            (throw (ex-info (str "The file answered " status ": " url) {:status status :url url})))))))))
+            (throw (failed url status)))))))))
+
+(defn ^:no-doc read-by-ranges!
+  "What the reader `read` gives of the file at `url`, as
+  `dk.simongray.podcast.bytes/read!` gives it. In ClojureScript, it gives
+  a promise of it.
+
+  The bytes come by the `:fetch` of `opts`, or by the `fetcher` that
+  `opts` make. `opts` give the limits of the reading, with
+  `bytes/default-limits` for the limits that they do not set. The
+  `:error` of a file that did not come names the `url`."
+  [url read {:keys [fetch] :as opts}]
+  (let [opts (merge bytes/default-limits opts)]
+    (async/then (bytes/read! (or fetch (fetcher url opts)) read opts)
+                #(cond-> % (:error %) (assoc-in [:error :url] url)))))
 
 (defn media-type
   "The media type of the Content-Type value `s`, or of a type attribute.
@@ -1169,9 +1191,9 @@
 
 (defn ^:no-doc sent-facts
   "The `facts` of the response of an `attempt` from `sent!`, or `{:error
-  text}` for a request that failed."
+  diagnostic}` for a request that failed."
   [{:keys [value error]}]
-  (if error {:error (async/explain error)} (facts value)))
+  (if error {:error (bytes/unreachable error)} (facts value)))
 
 (defn probe!
   "What the server says about the file at `url`, while no more than two
@@ -1180,7 +1202,8 @@
 
   The result is `{:head :get}`: the `facts` of the answers to a HEAD
   request and to a request for the first two bytes. The facts of a request
-  that failed are `{:error text}`.
+  that failed are `{:error diagnostic}`, and the diagnostic is
+  `:file/unreachable`.
 
   Most servers answer the second request with 206, and with the size of
   the whole file in Content-Range. A server that ignores ranges answers

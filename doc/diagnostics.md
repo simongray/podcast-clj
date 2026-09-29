@@ -21,12 +21,18 @@ The namespace of an id tells which part of podcast-clj found the problem:
 - `validate`: the validator
 - `check`: the checks over the network
 - `sync`: the sync between devices
+- `podping`: a poll of the Hive chain
 - `comments`: the threads of comments
 - `value`: the records of payments and the Lightning addresses
-- `analytics`: the list of user agents
+- `analytics`: the list of user agents, and the downloads of OP3
+
+A function that sends requests gives a failure as a diagnostic too, under the
+`:error` of its result.
 
 | Id | Level | Meaning |
 |---|---|---|
+| `:fetch/unreachable` | warning | podcast-clj did not get the feed. The connection failed, the request took too long, the answer was too large, or the guard of the request refused the URL. |
+| `:fetch/malformed` | warning | The server answered with a body that is no RSS feed. The body is no XML, or its root element is not rss. |
 | `:fetch/page-failed` | warning | podcast-clj did not get or read a page of a feed that comes in pages. The feed lacks the items of that page and of the pages after it. |
 | `:repair/leading-junk` | warning | Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed. |
 | `:repair/trailing-junk` | warning | Text after the end of the rss element, such as a PHP warning, was removed. |
@@ -96,6 +102,8 @@ The namespace of an id tells which part of podcast-clj found the problem:
 | `:file/truncated` | warning | The file ends before its structures say that it does. |
 | `:file/malformed` | warning | The file does not read as its format says. |
 | `:file/incomplete` | warning | The reading of the file did not get the bytes that it needed, so it gave nothing. The bytes did not arrive, or a limit stopped the reading. |
+| `:file/unreachable` | warning | podcast-clj did not get the file. The request failed, or the server answered with a status that is not a success. |
+| `:file/unverifiable` | info | podcast-clj has no check for this podcast:integrity. A PGP signature needs the key of the publisher. A value of the type sri must name a hash of sha256, sha384 or sha512. |
 | `:check/unreachable` | error | The check did not get the file. The connection failed, the TLS handshake failed, or the request took too long. |
 | `:check/status` | error | The server answered the request for the file with a status that is not a success, so a listener does not get the file. |
 | `:check/downgrade` | error | A redirect leads from https to http, which clients refuse to follow. |
@@ -152,6 +160,7 @@ The namespace of an id tells which part of podcast-clj found the problem:
 | `:sync/malformed-actions` | warning | Episode actions from a gpodder server name no feed, no media file or no time that reads. They were left out. |
 | `:sync/unnamed-episodes` | info | Episodes changed, but the app knows no URL of their media, which the gpodder API names an episode by, so the server was not told. |
 | `:sync/rejected-url` | warning | A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it. |
+| `:podping/unavailable` | warning | No node of the Hive chain answered a call of the poll. The result has the pings of the blocks that the poll read before that call. |
 | `:comments/unsupported` | info | podcast-clj does not read comments over the protocol of the thread. |
 | `:comments/no-appview` | warning | podcast-clj did not read an AT Protocol thread, because the options named no AppView. |
 | `:comments/malformed` | warning | The URI of the root post, or a document that a server sent, is not in a form that podcast-clj reads. Such a document is a post, a collection of replies, an author or a thread. |

@@ -67,7 +67,8 @@
         (testing "an error status comes back without a feed"
           (let [gone (podcast/fetch! (str base "/gone"))]
             (is (= 404 (:status gone)))
-            (is (not (contains? gone :feed)))))))))
+            (is (not (contains? gone :feed)))
+            (is (not (contains? gone :error)) "a status is an answer")))))))
 
 (defn- page-xml
   "A page of a paged feed with the items `guids`, linking to `next`."
@@ -182,3 +183,39 @@
                       [[:host "/page2.xml"] nil]]
                      @seen)
                   "the feed is at another origin, where no page gets them"))))))))
+
+(deftest a-fetch-that-fails
+  (testing "a port where no server listens"
+    (let [closed (with-open [s (java.net.ServerSocket. 0)] (.getLocalPort s))
+          url    (str "http://127.0.0.1:" closed "/feed.xml")
+          r      (podcast/fetch! (str "http://u:p@127.0.0.1:" closed "/feed.xml"))]
+      (is (= [:url :error] (keys r)) "a result with the error, and nothing thrown")
+      (is (= url (:url r)) "no URL in the result holds the credentials")
+      (is (= [:fetch/unreachable :warning url] ((juxt :id :level :url) (:error r))))
+      (is (string? (:reason (:error r))))
+      (is (string? (:message (:error r))) "the diagnostic with its message")))
+  (with-routes
+    (fn [path ^HttpExchange exchange]
+      (case path
+        "/page.html" (respond exchange 200 "<html><body><p>Not a feed</p></body></html>" {"ETag" "\"p\""})
+        "/data.json" (respond exchange 200 "{\"feed\": false}" {})
+        "/atom.xml"  (respond exchange 200 "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>A</title></feed>" {})
+        "/empty.xml" (respond exchange 200 "" {})
+        (respond exchange 200 feed-xml {})))
+    (fn [base]
+      (testing "a URL that the app does not allow"
+        (let [r (podcast/fetch! (str base "/feed.xml") {:allow? (constantly false)})]
+          (is (= [:url :error] (keys r)))
+          (is (= :fetch/unreachable (:id (:error r))))
+          (is (str/includes? (:reason (:error r)) "is not allowed"))))
+      (testing "an answer that is too large"
+        (is (= :fetch/unreachable (:id (:error (podcast/fetch! (str base "/feed.xml") {:max-bytes 100}))))))
+      (testing "a body that is no feed"
+        (doseq [path ["/page.html" "/data.json" "/atom.xml" "/empty.xml"]
+                :let [r (podcast/fetch! (str base path))]]
+          (is (= [200 :fetch/malformed (str base path)] [(:status r) (:id (:error r)) (:url (:error r))]) path)
+          (is (not (contains? r :feed)) path)
+          (is (string? (:reason (:error r))) path))
+        (let [r (podcast/fetch! (str base "/page.html"))]
+          (is (= "\"p\"" (:etag r)) "the validators of the answer")
+          (is (str/starts-with? (:body r) "<html>") "and the body, where an app can look for the feed"))))))

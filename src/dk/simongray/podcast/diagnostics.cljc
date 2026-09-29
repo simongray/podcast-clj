@@ -4,20 +4,25 @@
   the catalogue and the source in step, and dev/reference.clj writes it out
   as doc/diagnostics.md.
 
-  Ids are namespaced by the layer that raises them: `repair` for the text
-  repairs of a malformed document, `xml` for namespace resolution, `quirk`
+  Ids are namespaced by the layer that raises them: `fetch` for the fetch
+  of a feed, `repair` for the text repairs of a malformed document, `xml`
+  for namespace resolution, `quirk`
   for the normalizations of the tree, `feed` for the model, `transcript` and
   `chapters` for the companion formats, `id3`, `mp3`, `mp4` and `file` for
   the media files and images, `validate` for the validator, whose
   diagnostics are about the feed rather than about reading it, `check` for
   the checks over the network of what the feed links to, `sync` for a step
-  of keeping devices in step, `comments` for the reading of a thread of
-  comments, `value` for the records of payments, and `analytics` for the
-  list of user agents.")
+  of keeping devices in step, `podping` for a poll of the Hive chain,
+  `comments` for the reading of a thread of comments, `value` for the
+  records of payments, and `analytics` for the list of user agents.")
 
 (def catalogue
   "The diagnostics, in the order they tend to arise."
   [;; fetching
+   {:id :fetch/unreachable :level :warning
+    :doc "podcast-clj did not get the feed. The connection failed, the request took too long, the answer was too large, or the guard of the request refused the URL."}
+   {:id :fetch/malformed :level :warning
+    :doc "The server answered with a body that is no RSS feed. The body is no XML, or its root element is not rss."}
    {:id :fetch/page-failed :level :warning
     :doc "podcast-clj did not get or read a page of a feed that comes in pages. The feed lacks the items of that page and of the pages after it."}
 
@@ -171,6 +176,10 @@
     :doc "The file does not read as its format says."}
    {:id :file/incomplete :level :warning
     :doc "The reading of the file did not get the bytes that it needed, so it gave nothing. The bytes did not arrive, or a limit stopped the reading."}
+   {:id :file/unreachable :level :warning
+    :doc "podcast-clj did not get the file. The request failed, or the server answered with a status that is not a success."}
+   {:id :file/unverifiable :level :info
+    :doc "podcast-clj has no check for this podcast:integrity. A PGP signature needs the key of the publisher. A value of the type sri must name a hash of sha256, sha384 or sha512."}
 
    ;; checks over the network of the files a feed links to
    {:id :check/unreachable :level :error
@@ -289,6 +298,10 @@
     :doc "Episodes changed, but the app knows no URL of their media, which the gpodder API names an episode by, so the server was not told."}
    {:id :sync/rejected-url :level :warning
     :doc "A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it."}
+
+   ;; podping: a poll of the Hive chain
+   {:id :podping/unavailable :level :warning
+    :doc "No node of the Hive chain answered a call of the poll. The result has the pings of the blocks that the poll read before that call."}
 
    ;; comments: reading the thread that a podcast:socialInteract names
    {:id :comments/unsupported :level :info

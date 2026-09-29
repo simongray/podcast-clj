@@ -27,7 +27,8 @@
   A host announces a change through podping.cloud; `notify-request` builds
   that call with the token the host was given."
   (:require [clojure.string :as str]
-            #?(:clj [dk.simongray.podcast.async :as async])
+            #?@(:clj [[dk.simongray.podcast.async :as async]
+                      [dk.simongray.podcast.diagnostics :as diagnostics]])
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
@@ -244,64 +245,107 @@
            (.then (fn [res] (.text res)))))))
 
 #?(:clj
+   (defn ^:no-doc attempted
+     "What `(f)` gives, a reading of the answer to a call. When it throws,
+     the result is `{:error diagnostic}`, and the diagnostic is
+     `:podping/unavailable`."
+     [f]
+     (try
+       (f)
+       (catch Exception e
+         {:error (diagnostics/describe
+                  (into {:id :podping/unavailable :reason (async/explain e)}
+                        (select-keys (ex-data e) [:failures])))}))))
+
+#?(:clj
+   (defn- read-chunk!
+     "The podpings in the blocks `chunk`, numbers in a row, that one request
+     gets: `{:pings :through}`. `:through` is the last block before the
+     first block that the node left out of its answer."
+     [chunk opts]
+     (let [blocks  (get (result (call! :blocks {:from (first chunk) :count (count chunk)} opts)) "blocks")
+           numbers (set (map #(block-number (get % "block_id")) blocks))
+           through (last (take-while numbers chunk))]
+       {:through through
+        :pings   (filterv #(and through (<= (:block %) through)) (block-pings blocks))})))
+
+#?(:clj
    (defn- read-blocks!
-     "The podpings in the blocks `start` to `end` and the last block read,
-     `[pings block]`, a hundred blocks a request, since a hundred answer in a
-     second and a thousand in forty. A node that leaves blocks out of its
-     answer ends the reading before the first one it left out, so that the
-     next step asks for them again, and no ping comes twice."
+     "The podpings in the blocks `start` to `end`, and the last block read:
+     `{:pings :block}`. A request gets 100 blocks, since 100 blocks answer
+     in a second and 1000 blocks in 40 seconds.
+
+     A node that leaves blocks out of its answer ends the reading before
+     the first block that it left out. So the next step asks for them
+     again, and no ping comes twice. A call that fails ends the reading
+     too, and the result has the `:error` of it."
      [start end opts]
      (loop [chunks (partition-all 100 (range start (inc end)))
             found  []
             read   (dec start)]
-       (if-let [chunk (first chunks)]
-         (let [blocks  (get (result (call! :blocks {:from (first chunk) :count (count chunk)} opts)) "blocks")
-               numbers (set (map #(block-number (get % "block_id")) blocks))
-               through (last (take-while numbers chunk))
-               found   (into found (filter #(and through (<= (:block %) through))) (block-pings blocks))]
-           (if (= through (last chunk))
-             (recur (rest chunks) found through)
-             [found (or through read)]))
-         [found read]))))
+       (let [chunk                         (first chunks)
+             {:keys [pings through error]} (when chunk (attempted #(read-chunk! chunk opts)))
+             found                         (into found pings)]
+         (cond
+           (nil? chunk)             {:pings found :block read}
+           error                    {:pings found :block read :error error}
+           (= through (last chunk)) (recur (rest chunks) found through)
+           :else                    {:pings found :block (or through read)})))))
 
 #?(:clj
    (defn poll!
-     "The poller's one step: the podpings written after the block `from`, up
-     to the head of the chain, as
+     "The podpings that came after the block `from`, up to the head of the
+     chain. This is the one step that a poller repeats:
 
-         {:pings   [...]                 ; from the writers podping follows, in chain order
-          :refused [...]                 ; from anyone else
-          :block   110254840             ; the last block read, to pass as `from` next time
-          :writers #{\"podping.eee\" …}}  ; the writers, read once, to pass back
+         {:pings   [...]                 ; from the writers that podping follows, in chain order
+          :refused [...]                 ; from each other account
+          :block   110254840             ; the last block read, the `from` of the next step
+          :writers #{\"podping.eee\" …}   ; the writers, to give back in `opts`
+          :error   {…}}                  ; when no node answered a call
 
-     `from` nil starts at the head. `opts`: `:max-blocks` read in one step
-     (default 100, five minutes of blocks in one request; the caller
-     continues from `:block` when behind, or asks for more, a hundred per
-     request), `:up-to` `:irreversible` to stop at the block a fork can no
-     longer take back rather than at the head, `:writers` from the last
-     step so that the followers are read once, `:verify?` false to keep
-     every ping whoever wrote it, and `:nodes`, `:node` and
-     `:timeout-seconds` as for `call!`. `:block` is the last block a node
-     answered with, so a block left out of an answer is read in the next
-     step."
+     With `from` nil, the step starts at the head. `opts` can give these:
+
+     - `:max-blocks`, the most blocks that one step reads (default 100,
+       five minutes of the chain). A poller that is behind reads on from
+       `:block`.
+     - `:up-to`, which is `:head` (the default) or `:irreversible`, the
+       last block that a fork cannot take back
+     - `:writers` from the last step, so that the step does not read them
+       again
+     - `:verify?` false, to keep each ping, whatever account wrote it
+     - `:nodes`, `:node` and `:timeout-seconds`, as `call!` takes them
+
+     `:block` is the last block that a node answered with. So the next
+     step reads a block that an answer left out.
+
+     `poll!` throws nothing for what a node or the network does. When no
+     node answers a call, the result has the diagnostic
+     `:podping/unavailable` as its `:error`. It has the pings of the
+     blocks that the step read before that call, and `:block` names the
+     last of those blocks."
      ([from]
       (poll! from {}))
      ([from {:keys [max-blocks verify? up-to] :or {max-blocks 100 verify? true up-to :head} :as opts}]
       {:pre [(map? opts)]}
-      (let [position      (head-block (call! :head-block {} opts))
-            head          (if (= :irreversible up-to) (:irreversible position) (:block position))
-            start         (if from (inc from) head)
-            end           (min head (+ start (dec max-blocks)))
-            [pings block] (read-blocks! start end opts)
-            known         (or (:writers opts)
-                              (when verify? (writers (call! :following {} opts))))
-            {ok true refused false} (if verify?
-                                      (group-by #(contains? known (:account %)) pings)
-                                      {true pings})]
-        {:pings   (vec ok)
-         :refused (vec refused)
-         :block   (if (<= start end) block (or from head))
-         :writers known}))))
+      (let [known    (or (:writers opts)
+                         (when verify? (attempted #(writers (call! :following {} opts)))))
+            position (if (:error known)
+                       known
+                       (attempted #(head-block (call! :head-block {} opts))))]
+        (if-let [error (:error position)]
+          {:pings [] :refused [] :block from :writers (:writers opts) :error error}
+          (let [head  (if (= :irreversible up-to) (:irreversible position) (:block position))
+                start (if from (inc from) head)
+                end   (min head (+ start (dec max-blocks)))
+                {:keys [pings block error]} (read-blocks! start end opts)
+                {ok true refused false}     (if verify?
+                                              (group-by #(contains? known (:account %)) pings)
+                                              {true pings})]
+            (cond-> {:pings   (vec ok)
+                     :refused (vec refused)
+                     :block   (if (<= start end) block (or from head))
+                     :writers known}
+              error (assoc :error error))))))))
 
 #?(:clj
    (comment

@@ -23,6 +23,7 @@
   read. So a check sees most on the JVM or in Node."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.async :as async]
+            [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.image :as image]
@@ -169,9 +170,15 @@
   (and (integer? status) (<= 200 status) (< status 300)))
 
 (defn ^:no-doc attempted
-  "The value of the `attempt` of a reading, or its `:error`."
+  "The value of the `attempt` of a reading, or `{:error diagnostic}` for
+  an attempt that failed."
   [{:keys [value error]}]
-  (if error {:error (async/explain error)} value))
+  (if error {:error (bytes/unreachable error)} value))
+
+(defn ^:no-doc why
+  "The reason of the `:error` that the `facts` hold, when they hold one."
+  [facts]
+  (get-in facts [:error :reason]))
 
 (defn ^:no-doc read-facts
   "The facts of what a reader gave: the value of the `attempt`, with the
@@ -260,8 +267,8 @@
 (defn- reading
   "What the transcript or chapters file of `kind` holds, read from its
   `body` as its declared `type`: `{:count :report}`, how many segments or
-  chapters, and the report of the reader; `{:error}` when the reader
-  fails."
+  chapters, and the report of the reader; `{:error diagnostic}` when the
+  reader fails."
   [kind body type]
   (try
     (if (= :transcript kind)
@@ -270,7 +277,7 @@
       (let [doc (chapters/parse-json body)]
         {:count (count (:chapters doc)) :report (chapters/report doc)}))
     (catch #?(:clj Exception :cljs :default) e
-      {:error (async/explain e)})))
+      {:error (diagnostics/describe (bytes/failure e))})))
 
 (defn- probe-text!
   "The facts of the transcript or chapters `file`, as `probed!` gives
@@ -339,7 +346,7 @@
                 (fn [lanes]
                   (let [by-index (into {} (mapcat :value) lanes)
                         waiting  (into {} (map (fn [[i _]] [i {:unchecked :max-seconds}])) @queue)]
-                    (mapv #(or (by-index %) (waiting %) {:error "The file was not checked."})
+                    (mapv #(or (by-index %) (waiting %) (attempted {:error (ex-info "The file was not checked." {})}))
                           (range (count files))))))))
 
 (def profiles
@@ -379,7 +386,7 @@
   (let [redirect? (and (integer? status) (= 3 (quot status 100)))]
     (cond
       error
-      [(diagnostic file profile :check/unreachable :reason error)]
+      [(diagnostic file profile :check/unreachable :reason (why answer))]
 
       (and redirect? location
            (str/starts-with? (str/lower-case (str answered)) "https:")
@@ -400,7 +407,7 @@
   the facts hold one."
   [file profile head]
   (when (and head (not (ok? head)))
-    [(diagnostic file profile :check/head :status (:status head) :reason (:error head))]))
+    [(diagnostic file profile :check/head :status (:status head) :reason (why head))]))
 
 (defn ^:no-doc passed-on
   "The diagnostics of the report of a reader of `file` that warn of more
@@ -465,7 +472,7 @@
       nil
 
       (:error media)
-      [(diagnostic file profile :check/unread :reason (:error media))]
+      [(diagnostic file profile :check/unread :reason (why media))]
 
       :else
       (concat
@@ -480,11 +487,11 @@
   "The diagnostic of the check of the media `file` against its
   podcast:integrity, `integrity`: a file that does not match it, or one
   that could not be checked."
-  [file profile {:keys [valid? algorithm reason error] :as integrity}]
+  [file profile {:keys [valid? algorithm] :as integrity}]
   (cond
     (nil? integrity) nil
     (false? valid?)  [(diagnostic file profile :check/integrity :algorithm algorithm)]
-    (not valid?)     [(diagnostic file profile :check/unverified :reason (or error reason))]))
+    (not valid?)     [(diagnostic file profile :check/unverified :reason (why integrity))]))
 
 (defn- media-verdicts
   "The diagnostics of the media `file` from its `facts`."
@@ -594,7 +601,7 @@
     (reaching file profile head)
 
     (:error image)
-    [(diagnostic file profile :check/unread :reason (:error image))]
+    [(diagnostic file profile :check/unread :reason (why image))]
 
     :else
     (let [image (shown image)]
@@ -649,7 +656,7 @@
      (type-verdict file profile (:type get))
      (cors-verdict file profile :check/cors url get)
      (cond
-       (:error read)                    [(diagnostic file profile :check/unread :reason (:error read))]
+       (:error read)                    [(diagnostic file profile :check/unread :reason (why read))]
        (and read (zero? (:count read))) [(diagnostic file profile :check/empty)])
      (passed-on file (:report read)))))
 
@@ -692,7 +699,7 @@
         judge (get judges kind (constantly []))]
     (->> (cond
            (:unchecked facts) []
-           (:error facts)     [(diagnostic file rules :check/unreachable :reason (:error facts))]
+           (:error facts)     [(diagnostic file rules :check/unreachable :reason (why facts))]
            :else              (judge file rules facts))
          (mapv diagnostics/describe))))
 

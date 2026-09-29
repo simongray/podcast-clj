@@ -310,6 +310,12 @@
     (>= n 1000)    (str (quot n 1000) " KB")
     :else          (str n " B")))
 
+(defn- told
+  "What the diagnostic `d` tells about a failure: its reason, or its
+  message when it has no reason."
+  [d]
+  (or (:reason d) (:message d)))
+
 (defn- file-row
   "A row of the table of the files that a check fetched: what the answers
   to its requests told, what the file holds, and the ids of the `findings`
@@ -317,12 +323,12 @@
   [findings {:keys [kind url facts]}]
   (let [{:keys [head image media read integrity] got :get} facts
         answer  (or got head)
-        failed  (or (:error facts) (:error answer))
+        failed  (told (or (:error facts) (:error answer)))
         ;; the length of a 206 is that of the part
         size    (or (get-in got [:range :total])
                     (when (= 200 (:status got)) (:length got))
                     (when (= 200 (:status head)) (:length head)))
-        unread  (or (:error media) (:error image) (:error read))]
+        unread  (told (or (:error media) (:error image) (:error read)))]
     [:tr
      [:td (name kind)]
      [:td [:a {:href (link url)} (shorten url 70)]]
@@ -354,7 +360,7 @@
         (case (:valid? integrity)
           true  [:span.muted (str " · " (:algorithm integrity) " matches")]
           false [:span.error (str " · " (:algorithm integrity) " does not match")]
-          [:span.muted (str " · integrity not checked: " (or (:reason integrity) (:error integrity)))]))]
+          [:span.muted (str " · integrity not checked: " (told (:error integrity)))]))]
      [:td (for [{:keys [id level]} findings]
             (list [:code {:class (level-class level)} (subs (str id) 1)] " "))]]))
 
@@ -624,8 +630,9 @@
 
 (defn podping-page
   "The podpings read from the chain just now: `pings` from the blocks up to
-  `block`, the `head` of the chain, and what is known of the `writers`."
-  [{:keys [pings refused block head writers]}]
+  `block`, the `head` of the chain, and what is known of the `writers`.
+  The `error` of the poll tells when no node answered a call."
+  [{:keys [pings refused block head writers error]}]
   (layout "Podping"
           [:h1 "Podping"]
           [:p.muted "The feeds that just announced a change on the Hive blockchain, read by dk.simongray.podcast.podping from the twenty blocks before the head, about a minute of the chain, in one request. A poller keeps the block it reached and asks for the blocks since; a ping counts only when the podping account follows its writer."]
@@ -633,6 +640,8 @@
                          (count pings) " pings from the " (count writers) " writers podping follows"
                          (when (seq refused)
                            (str "; " (count refused) " refused, from " (str/join ", " (distinct (map :account refused))))))]
+          (when error
+            [:p [:span.error (str (:message error) " " (:reason error))]])
           (if (empty? pings)
             [:p.muted "No pings in these blocks."]
             [:table

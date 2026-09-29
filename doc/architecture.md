@@ -103,6 +103,14 @@ The [conventions](namespaces.md#conventions) of the API have these reasons:
 - **Requests as maps.** A browser can send a request map with `fetch`, and
   the tests can run on recorded answers. The JVM client in `http` is one way
   to send the requests, not the only way.
+- **A call throws, and a step gives data.** A call has one answer to
+  give. Without the answer it has nothing to return, so it throws. A step
+  does more than one thing, and a part of it can fail while the rest has
+  a result. A poll keeps the pings that it read, and a check keeps the
+  facts of the other files. A failure that is thrown is an exception on
+  the JVM, and a rejected promise in ClojureScript. Only a failure that is
+  data has one shape for code that runs on both platforms. The failure is
+  a diagnostic, so an app handles it as it handles a report.
 - **Services as defaults.** A service can close, change its owner, or get
   a copy at another address. A directory can change its rules. The app
   then gives the new address or the new rules as data, and it needs no new
@@ -439,9 +447,12 @@ list and the source agree.
   requests and a few hundred kilobytes. From a server that ignores ranges,
   the fetcher reads only the start of the file that the reader needs. A
   host that inserts ads can send a different file to each request, so the
-  duration is that of the file that came. `verify!` checks a file against
+  duration is that of the file that came. When a request fails, the
+  result of `read!` is the `:error` alone, the diagnostic
+  `:file/unreachable`. `verify!` checks a file against
   the `podcast:integrity` of an alternate enclosure, by the rules of W3C
-  Subresource Integrity.
+  Subresource Integrity. When it made no check, its verdict has an
+  `:error` that tells why.
 - **Images** (`format.image`) reads the header of a PNG, JPEG, GIF or WebP
   image: its type, its size in pixels, its color model and whether it can
   be transparent, and of a JPEG also its coding process and its EXIF
@@ -731,7 +742,10 @@ reads the missing blocks again. If the caller gives the writers back,
 last block that a fork cannot take back. `call!` tries the public nodes in
 turn. An exception, a status other than 200, an answer that is not JSON and
 a JSON-RPC error are failures of that node. If no node answers, the
-exception names all of them.
+exception names all of them. `poll!` throws nothing for a call that no
+node answered. Its result then has the `:error`, the diagnostic
+`:podping/unavailable`, with the pings of the blocks that it read before
+that call. The block to continue from is the last of those blocks.
 
 `pinged?` and `affected` compare URLs the way that `podcast:guid` does. For
 example, a ping for `http://…/feed/` matches a subscription stored as
@@ -1345,3 +1359,17 @@ the JSON of these requests from the body-params interceptor.
 - A lenient XML parser for JavaScript.
 - A folder store for Node.
 - The release to Clojars.
+
+[Podcast features outside podcast-clj](feature-gaps.md) tells about each
+of the features below, and which part of it fits a library:
+
+- Feeds: WebSub, and paged feeds that `emit` writes for a host.
+- The player: chapter navigation in `step`, and a stop at the end of the
+  episode or after some episodes.
+- The player state: ratings that the listener keeps, clips, and the rules
+  for downloads and deletes.
+- Directories: the charts by category in `directory/trending!`.
+- Sharing: links to apps, and links with a time.
+- Hosts: a private feed for each subscriber.
+- Comments from Nostr.
+- Payments through the wallet of the listener, with WebLN and NWC.

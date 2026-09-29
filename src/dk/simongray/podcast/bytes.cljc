@@ -302,6 +302,14 @@
     {:id :file/truncated :level :warning}
     {:id :file/malformed :level :warning :reason (async/explain e)}))
 
+(defn ^:no-doc unreachable
+  "The diagnostic of a file that did not come, since the request for it
+  failed with `e`. It has the `:url` and the `:status` that `e` holds."
+  [e]
+  (diagnostics/describe
+   (into {:id :file/unreachable :reason (async/explain e)}
+         (select-keys (ex-data e) [:url :status]))))
+
 (defn ^:no-doc part
   "What `(f)` gives as `{:value v}`, the reading of the part `k` of a file
   that the rest of the file can do without, such as its artwork. When the
@@ -373,13 +381,20 @@
 (defn- fetch-all
   "The parts that `fetch` gives of the `ranges`, one request after another,
   and none once `in-time?` says no; deferred. A part without bytes is left
-  out."
+  out. When a request fails, the result is `{:error e}`, and no request
+  goes out after it."
   [fetch ranges in-time?]
   (reduce (fn [parts [start end]]
-            (async/then parts (fn [got]
-                                (if (in-time?)
-                                  (async/then (fetch start end) #(cond-> got (:bytes %) (conj %)))
-                                  got))))
+            (async/then parts
+                        (fn [got]
+                          (if (or (:error got) (not (in-time?)))
+                            got
+                            (async/then (async/attempt #(async/then (fetch start end) identity))
+                                        (fn [{:keys [value error]}]
+                                          (cond
+                                            error          {:error error}
+                                            (:bytes value) (conj got value)
+                                            :else          got)))))))
           []
           ranges))
 
@@ -467,7 +482,11 @@
   clock by default. When a limit stops the reading, or when the ranges
   did not come, the result is an empty map, and its report has
   `:file/incomplete`. A reading fetches nothing of ranges that hold more
-  bytes than it can still fetch."
+  bytes than it can still fetch.
+
+  `read!` throws nothing for what `fetch` does. When `fetch` fails, the
+  result is `{:error diagnostic}`, and the diagnostic is
+  `:file/unreachable`."
   ([fetch read]
    (read! fetch read {}))
   ([fetch read opts]
@@ -489,12 +508,14 @@
                         :else
                         (async/then (fetch-all fetch (:ranges plan) in-time?)
                                     (fn [parts]
-                                      (step (with-parts v parts)
-                                            {:round    (inc round)
-                                             :previous need
-                                             :room     (- room (reduce + (map (comp length :bytes) parts)))
-                                             :walk     (:walk plan)
-                                             :whole?   (or whole? (some? (some :whole? parts)))}))))))
+                                      (if-let [e (:error parts)]
+                                        {:error (unreachable e)}
+                                        (step (with-parts v parts)
+                                              {:round    (inc round)
+                                               :previous need
+                                               :room     (- room (reduce + (map (comp length :bytes) parts)))
+                                               :walk     (:walk plan)
+                                               :whole?   (or whole? (some? (some :whole? parts)))})))))))
          result   (step (view) {:round 0 :room (or max-bytes ##Inf)})]
      #?(:clj  result
         :cljs (js/Promise.resolve result)))))

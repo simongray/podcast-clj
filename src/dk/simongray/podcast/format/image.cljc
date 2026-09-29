@@ -301,12 +301,15 @@
   of `http/call!`.
 
   `opts` give the limits of `bytes/read!`, with `bytes/default-limits` for
-  the limits that they do not set."
+  the limits that they do not set.
+
+  `read!` throws nothing for what the network or the server does. When a
+  request fails, the result is `{:error diagnostic}`, and the diagnostic
+  is `:file/unreachable`."
   ([url]
    (read! url {}))
-  ([url {:keys [fetch] :as opts}]
-   (let [opts (merge bytes/default-limits opts)]
-     (bytes/read! (or fetch (http/fetcher url opts)) read opts))))
+  ([url opts]
+   (http/read-by-ranges! url read opts)))
 
 (comment
   ;; the start of a PNG image of 1400 by 1400 pixels in RGB: the

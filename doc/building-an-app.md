@@ -87,6 +87,7 @@ subscription to the player state:
 
 ```clojure
 (def r (podcast/fetch! url {:max-pages 20}))  ; {:status 200 :feed … :etag … :last-modified … :url …}
+(:error r)                                     ; a diagnostic, when the fetch got no answer or no feed
 (def show (:feed r))
 (def guid (feed/feed-guid show url))
 
@@ -109,6 +110,13 @@ Some feeds come in pages, and the first page holds only the newest
 episodes. `:max-pages` makes `fetch!` read the older pages too, and join
 them into one feed. Use it on the first fetch. Later fetches need only the
 first page.
+
+`fetch!` throws nothing for what the network or the server does. When the
+request fails, the result has an `:error` and no status. The `:error` is a
+diagnostic, `:fetch/unreachable`, and its `:reason` tells what failed. When
+the server answers 200 with a body that is no feed, the `:error` is
+`:fetch/malformed`, and the result keeps the `:body`. A status such as 404
+is an answer, so the result then has the `:status` and no `:error`.
 
 A listener can give the address of the website of a show, not of its feed.
 `html/feed-links` finds the feeds that the page names:
@@ -193,6 +201,10 @@ of writers. Every few seconds, ask for the blocks after that block:
 (podping/affected (:pings polled) (map :url (vals (player/subscriptions state))))
 ;; => ("https://feeds.podcastindex.org/pc20.xml")                         ; fetch these now
 ```
+
+When no node of the chain answers, the result of `poll!` has an `:error`,
+the diagnostic `:podping/unavailable`. Its `:block` is the last block that
+the step read, so the next step reads on from there.
 
 
 ## Follow lists of shows
@@ -283,6 +295,10 @@ The report is in the metadata of the result, as the report of a parsed
 feed is. Metadata does not survive printing. So read the report before
 you store the result.
 
+When the file does not come, the result is `{:error …}`. The `:error` is
+the diagnostic `:file/unreachable`, with the `:reason`, and with the
+`:status` when the server answered with one.
+
 An alternate enclosure can give the hash of its file in
 `podcast:integrity`. `resolve/enclosure` keeps it under `:integrity`, and
 `media/verify!` checks the file against it:
@@ -292,6 +308,9 @@ An alternate enclosure can give the hash of its file in
   (when integrity
     (media/verify! url integrity)))  ; => {:valid? true :algorithm "sha384"}
 ```
+
+`:valid?` is false for a file that does not match. It is nil when
+`verify!` made no check, and the `:error` of the result then tells why.
 
 `resolve/transcript` selects the transcript that suits the listener: by
 language first, then by timings, then by type. Fetch it, and parse it with

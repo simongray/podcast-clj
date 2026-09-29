@@ -21,7 +21,8 @@
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.quirks :as quirks]
             [dk.simongray.podcast.xml :as xml]
-            #?@(:clj [[dk.simongray.podcast.http :as http]
+            #?@(:clj [[dk.simongray.podcast.async :as async]
+                      [dk.simongray.podcast.http :as http]
                       [dk.simongray.podcast.resolve :as resolve]])))
 
 (defn- malformed?
@@ -180,6 +181,48 @@
                         :kf    (fn [{:keys [url feed seen]}] (when feed (next-of url feed seen))))))))
 
 #?(:clj
+   (defn ^:no-doc attempted
+     "What `(f)` gives, as `{:value v}`. When it throws, the result is
+     `{:error diagnostic}`: the diagnostic `id` about `url`, with the
+     reason."
+     [id url f]
+     (try
+       {:value (f)}
+       (catch Exception e
+         {:error (diagnostics/describe {:id id :url url :reason (async/explain e)})}))))
+
+#?(:clj
+   (defn- with-pages
+     "The feed `first-page`, the page at `url`, joined with the pages after
+     it, `:max-pages` of `opts` at most. `asked` is the URL that the app
+     gave. When a later page does not read, the report of the feed tells
+     so."
+     [asked url first-page {:keys [max-pages] :or {max-pages 1} :as opts}]
+     (let [pages  (when (> max-pages 1) (later-pages asked url first-page (dec max-pages) opts))
+           failed (first (remove :feed pages))]
+       (cond-> (if (seq pages)
+                 (feed/join-pages (cons first-page (keep :feed pages)))
+                 first-page)
+         failed (vary-meta update :podcast/report conj
+                           {:id :fetch/page-failed :level :warning
+                            :url (:url failed) :reason (:failure failed)})))))
+
+#?(:clj
+   (defn- read-answer
+     "What `fetch!` gives of the `response` of 200 to the request for
+     `asked`. It is the body, the feed and its report, or the `:error` of
+     a body that is no feed."
+     [asked {:keys [url body]} opts]
+     (let [{first-page :value error :error}
+           (attempted :fetch/malformed url #(parse (str body) (select-keys opts [:quirks? :registry :except])))]
+       (if error
+         (cond-> {:error error} body (assoc :body body))
+         (let [feed  (with-pages asked url first-page opts)
+               moved (resolve/new-feed-url feed)]
+           (cond-> {:body body :feed feed :report (report feed)}
+             moved (assoc :new-feed-url moved)))))))
+
+#?(:clj
    (defn fetch!
      "Fetch the feed at `url` and parse it, the one step that a poller
      repeats:
@@ -189,7 +232,8 @@
           :etag \"…\" :last-modified \"…\"    ; to hand back next time
           :not-before #inst \"…\"            ; when the server says to wait
           :body \"…\" :feed {…} :report [...] ; on a 200: the XML, the feed, its report
-          :new-feed-url \"…\"}               ; when the feed declares it has moved
+          :new-feed-url \"…\"                ; when the feed declares it has moved
+          :error {…}}                      ; when the fetch got no answer or no feed
 
      `opts` can give these:
 
@@ -201,10 +245,16 @@
      - the options of `parse`
 
      A user name and a password in `url` are the credentials when `opts`
-     give none, and no URL in the result holds them. `fetch!` throws as
-     `http/fetch!` and `parse` do. A server that fetches feeds for
-     strangers gives `{:allow? http/public?}`, which sends nothing to its
-     own network.
+     give none, and no URL in the result holds them. A server that fetches
+     feeds for strangers gives `{:allow? http/public?}`, which sends
+     nothing to its own network.
+
+     `fetch!` throws nothing for what the network, the server or the body
+     does. When the request fails, the result is `{:url :error}`, and the
+     `:error` is the diagnostic `:fetch/unreachable`. When the body of a
+     200 is no feed, the result has the diagnostic `:fetch/malformed` as
+     its `:error`, and no feed. Each other status is an answer, so the
+     result has the `:status` and no `:error`.
 
      A feed can come in pages, and each page names the next (see
      `resolve/next-page`). With `:max-pages` above 1, `fetch!` fetches that
@@ -214,27 +264,18 @@
      not read ends the pages, and the report tells so."
      ([url]
       (fetch! url {}))
-     ([url {:keys [max-pages] :or {max-pages 1} :as opts}]
+     ([url opts]
       {:pre [(map? opts)]}
       (let [[url in-url] (http/split-credentials url)
             opts         (cond-> opts (and in-url (not (:credentials opts))) (assoc :credentials in-url))
-            {:keys [status body] :as response}
-            (http/fetch! url (select-keys opts [:etag :last-modified :credentials :timeout-seconds :max-bytes :user-agent :allow?]))
-            result (select-keys response [:status :url :permanent-url :etag :last-modified :not-before])]
-        (if (and (= 200 status) body)
-          (let [first-page (parse body (select-keys opts [:quirks? :registry :except]))
-                pages      (when (> max-pages 1) (later-pages url (:url response) first-page (dec max-pages) opts))
-                failed     (first (remove :feed pages))
-                feed       (cond-> (if (seq pages)
-                                     (feed/join-pages (cons first-page (keep :feed pages)))
-                                     first-page)
-                             failed (vary-meta update :podcast/report conj
-                                               {:id :fetch/page-failed :level :warning
-                                                :url (:url failed) :reason (:failure failed)}))
-                moved      (resolve/new-feed-url feed)]
-            (cond-> (assoc result :body body :feed feed :report (report feed))
-              moved (assoc :new-feed-url moved)))
-          result)))))
+            {response :value error :error}
+            (attempted :fetch/unreachable url
+                       #(http/fetch! url (select-keys opts [:etag :last-modified :credentials :timeout-seconds :max-bytes :user-agent :allow?])))
+            result       (select-keys response [:status :url :permanent-url :etag :last-modified :not-before])]
+        (cond
+          error                      {:url url :error error}
+          (= 200 (:status response)) (merge result (read-answer url response opts))
+          :else                      result)))))
 
 (defn summarize
   "Group `diagnostics`, from `report` or from `dk.simongray.podcast.feed.validate`,

@@ -316,3 +316,14 @@
   short sentences, and so are the messages of the diagnostics of `fetch`,
   `id3`, `mp3`, `mp4`, `file` and `check`. Each namespace that came with
   those features has a `comment` block with examples that run.
+- A call throws, and a step gives data. `podcast/fetch!`, `media/read!`,
+  `image/read!`, `media/verify!` and `podping/poll!` throw nothing for
+  what a network, a server or a file does. The result has the `:error` of
+  the failure, a diagnostic: `:fetch/unreachable`, `:fetch/malformed`,
+  `:file/unreachable`, `:file/unverifiable` or `:podping/unavailable`.
+  `poll!` keeps the pings that it read before the failure. `verify!` gives
+  no `:reason`, and the `:error` of its verdict tells why it made no
+  check. The `:error` in the facts of `http/probe!` and of `check/feed!`
+  is a diagnostic too, not a text. The function that `http/fetcher` makes
+  throws `::failed` with the `:status`.
+  [Namespaces](doc/namespaces.md#conventions) has the rule.

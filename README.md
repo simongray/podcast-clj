@@ -107,9 +107,9 @@ Documentation
 - [Syncing](doc/sync.md): the design of the sync between devices.
 - [Podcasting 2.0 and Clojure](doc/podcasting-2.0-clojure-survey.md): the
   survey of the ecosystem that came before podcast-clj, from September 2026.
-- [Podcast features outside podcast-clj](doc/feature-gaps.md): what apps,
-  hosts and other libraries have that podcast-clj does not, from September
-  2026.
+- [Podcast features outside podcast-clj](doc/feature-gaps.md): the
+  research of September 2026 into what apps, hosts and other libraries
+  have. It tells the status of each feature in podcast-clj.
 
 
 Development

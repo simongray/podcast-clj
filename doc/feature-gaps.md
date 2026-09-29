@@ -1,10 +1,11 @@
 # Podcast features outside podcast-clj
 
-This page lists podcast features that podcast-clj does not have, as of
+This page lists the podcast features that podcast-clj did not have on 27
 September 2026. It compares podcast-clj with podcast apps, hosting
 platforms, specifications and libraries in other languages. For each
 feature, it tells if the feature fits a library, and which part of it
-podcast-clj can supply.
+podcast-clj can supply. [Status](#status-on-29-september-2026) tells which
+of the features podcast-clj has now.
 
 The research read the websites, help pages, changelogs and app store pages
 of the products. It also read the repositories of the open-source projects,
@@ -12,6 +13,25 @@ and the specifications. The research read all sources on 27 September 2026,
 and [Sources](#sources) lists them. [Podcasting 2.0 and
 Clojure](podcasting-2.0-clojure-survey.md) is the survey that came before
 podcast-clj.
+
+
+## Status on 29 September 2026
+
+The research is from 27 September 2026, and the text of this page tells
+what podcast-clj had on that day. After the research, podcast-clj got
+all nine groups of targets in [A suggested order](#a-suggested-order).
+The column **Status** of each table tells the state of a feature on 29
+September 2026:
+
+- **Built**: podcast-clj has the feature, or the part of it that the
+  verdict gives to a library. The column names the namespace or the
+  function that has it.
+- **Not built**: podcast-clj does not have the feature. [Not
+  built](architecture.md#not-built) lists these features too.
+- A feature with the verdict Out has no status.
+
+The [changelog](../CHANGELOG.md) tells what came with each feature, and
+[Namespaces](namespaces.md) tells where each feature is.
 
 
 ## How to read this page
@@ -37,7 +57,7 @@ The size of a target is an estimate:
   server side.
 
 
-## What podcast-clj has
+## What podcast-clj had on 27 September 2026
 
 - The feed model: RSS 2.0, the iTunes namespace, the `podcast` namespace
   and nine other vocabularies. `parse`, `emit`, `validate` and the Malli
@@ -85,14 +105,14 @@ Many typical features of apps need no change in podcast-clj:
 An app fetches each feed again and again. These features make the fetch
 find more, or cost less.
 
-| Feature | Who has it | Verdict | Size |
-|---|---|---|---|
-| Paged feeds, RFC 5005 | AntennaPod and gPodder read them. Podlove Publisher writes them. | Target | Small |
-| Feed discovery from a web page | AntennaPod, gPodder | Target | Small |
-| Private feeds with a user name and a password | Overcast, AntennaPod, gPodder, PinePods | Target | Small |
-| The kind of a redirect: permanent or temporary | AntennaPod, gPodder, the Livewire validator | Target | Small |
-| Polite polling: `Retry-After` and `Cache-Control` | gPodder, Overcast | Target | Small |
-| WebSub | Pocket Casts | In part | Small |
+| Feature | Who has it | Verdict | Size | Status |
+|---|---|---|---|---|
+| Paged feeds, RFC 5005 | AntennaPod and gPodder read them. Podlove Publisher writes them. | Target | Small | Built: `:max-pages` of `podcast/fetch!` |
+| Feed discovery from a web page | AntennaPod, gPodder | Target | Small | Built: `format.html/feed-links` |
+| Private feeds with a user name and a password | Overcast, AntennaPod, gPodder, PinePods | Target | Small | Built: `:credentials` of `podcast/fetch!` |
+| The kind of a redirect: permanent or temporary | AntennaPod, gPodder, the Livewire validator | Target | Small | Built: `:permanent-url` of `podcast/fetch!` |
+| Polite polling: `Retry-After` and `Cache-Control` | gPodder, Overcast | Target | Small | Built: `:not-before` of `podcast/fetch!` |
+| WebSub | Pocket Casts | In part | Small | Not built |
 
 **Paged feeds.** RFC 5005 lets a host split a long feed into pages. The
 pages link to each other with `atom:link rel="next"`. The feeds of
@@ -144,16 +164,16 @@ and podcast-clj reads Podping already.
 Apps read data from the media files, and hosts check that the files reach
 the listener.
 
-| Feature | Who has it | Verdict | Size |
-|---|---|---|---|
-| Chapters inside MP3 and M4A files | Apple Podcasts, Overcast, Pocket Casts, AntennaPod, Kasts | Target | Medium |
-| Artwork inside MP3 files | The libraries mutagen, music-metadata and TagLib | Target | Small |
-| The duration, from the media file | The libraries podgen and music-metadata | Target | Medium |
-| Checks of media delivery: HEAD, byte ranges, length, type | Rules of Apple Podcasts. Cast Feed Validator, Podbase | Target | Medium |
-| Checks of artwork: size, format, color | Rules of Apple Podcasts. Cast Feed Validator, Podbase | Target | Small |
-| CORS on transcript and chapter files | podcast-partytime | Target | Small |
-| A check of `podcast:integrity` | No app found | Target | Small |
-| Silence trimming, voice boost, loudness, equalizer | Overcast, Pocket Casts, Castro, AntennaPod, Podcast Addict | Out | |
+| Feature | Who has it | Verdict | Size | Status |
+|---|---|---|---|---|
+| Chapters inside MP3 and M4A files | Apple Podcasts, Overcast, Pocket Casts, AntennaPod, Kasts | Target | Medium | Built: `format.media/read!` |
+| Artwork inside MP3 files | The libraries mutagen, music-metadata and TagLib | Target | Small | Built: `format.media/read!` |
+| The duration, from the media file | The libraries podgen and music-metadata | Target | Medium | Built: `format.media/read!` |
+| Checks of media delivery: HEAD, byte ranges, length, type | Rules of Apple Podcasts. Cast Feed Validator, Podbase | Target | Medium | Built: `check/feed!` |
+| Checks of artwork: size, format, color | Rules of Apple Podcasts. Cast Feed Validator, Podbase | Target | Small | Built: `check/feed!`, `format.image` |
+| CORS on transcript and chapter files | podcast-partytime | Target | Small | Built: `check/feed!` |
+| A check of `podcast:integrity` | No app found | Target | Small | Built: `format.media/verify!` |
+| Silence trimming, voice boost, loudness, equalizer | Overcast, Pocket Casts, Castro, AntennaPod, Podcast Addict | Out | | |
 
 **Chapters, artwork and duration in the file.** Many podcasts put their
 chapters in the media file, not in the feed. MP3 files use the ID3v2 frames
@@ -203,21 +223,21 @@ The player state holds what the listener does. These features add to it.
 Each new kind of entry must keep `merge` a join, and the generative tests
 of the merge must cover it.
 
-| Feature | Who has it | Verdict | Size |
-|---|---|---|---|
-| Skip the outro | Pocket Casts, Castro | Target | Small |
-| Stop at the end of the episode, or after some episodes | AntennaPod, and the sleep timer of nearly all apps | In part | Small |
-| Chapter navigation | Pocket Casts, Overcast, Apple Podcasts, Castro, Fountain | Target | Small |
-| Starred episodes | Pocket Casts, Castro, Podbean | Target | Small |
-| Bookmarks and notes | Pocket Casts, Podcast Addict, Player FM, Podcini | Target | Small |
-| Folders for shows | Pocket Casts, Castro, Podbean, Player FM | Target | Small |
-| An inbox of new episodes | Castro, AntennaPod, Spotify | Target | Small |
-| Ratings that the listener keeps | Podcini | Target | Small |
-| Saved filters, or smart playlists | Pocket Casts, Overcast, Downcast, PinePods | Target | Small |
-| Playlists and several queues | Pocket Casts, Podcast Addict, Fountain, Podverse, Podcini | Target | Medium |
-| Listening statistics and a year in review | Pocket Casts, AntennaPod, Spotify, PinePods | Target | Medium |
-| Rules for downloads and deletes | Apple Podcasts, Pocket Casts, AntennaPod, PinePods | In part | Medium |
-| Clips | Pocket Casts, Spotify, Fountain, Podverse | In part | Small |
+| Feature | Who has it | Verdict | Size | Status |
+|---|---|---|---|---|
+| Skip the outro | Pocket Casts, Castro | Target | Small | Built: `player/step`, `player/outro-start` |
+| Stop at the end of the episode, or after some episodes | AntennaPod, and the sleep timer of nearly all apps | In part | Small | Not built |
+| Chapter navigation | Pocket Casts, Overcast, Apple Podcasts, Castro, Fountain | Target | Small | Not built |
+| Starred episodes | Pocket Casts, Castro, Podbean | Target | Small | Built: `player/star` |
+| Bookmarks and notes | Pocket Casts, Podcast Addict, Player FM, Podcini | Target | Small | Built: `player/bookmark` |
+| Folders for shows | Pocket Casts, Castro, Podbean, Player FM | Target | Small | Built: `player/folders` |
+| An inbox of new episodes | Castro, AntennaPod, Spotify | Target | Small | Built: `player/inbox` |
+| Ratings that the listener keeps | Podcini | Target | Small | Not built |
+| Saved filters, or smart playlists | Pocket Casts, Overcast, Downcast, PinePods | Target | Small | Built: `player/save-filter` |
+| Playlists and several queues | Pocket Casts, Podcast Addict, Fountain, Podverse, Podcini | Target | Medium | Built: `player/playlist` |
+| Listening statistics and a year in review | Pocket Casts, AntennaPod, Spotify, PinePods | Target | Medium | Built: `player/listened` |
+| Rules for downloads and deletes | Apple Podcasts, Pocket Casts, AntennaPod, PinePods | In part | Medium | Not built |
+| Clips | Pocket Casts, Spotify, Fountain, Podverse | In part | Small | Not built |
 
 **Skip the outro.** The settings of a show have `:skip-outro`, but `step`
 does not act on it. Pocket Casts and Castro skip the outro of a show.
@@ -278,13 +298,13 @@ which is out.
 
 ## Sync between apps
 
-| Feature | Who has it | Verdict | Size |
-|---|---|---|---|
-| A client of the gpodder API | AntennaPod, gPodder, Kasts, PinePods | Target | Large |
-| A server of the gpodder API | Nextcloud GPodder Sync, oPodSync, gpodder2go, PinePods, mygpo | Target | Large |
-| The Open Podcast API | No client or server ships it | In part | Medium |
-| Sync over the local network with no server | Podcini | Out | |
-| The sync services of the apps | Pocket Casts, Castro, Podverse, Apple Podcasts | Out | |
+| Feature | Who has it | Verdict | Size | Status |
+|---|---|---|---|---|
+| A client of the gpodder API | AntennaPod, gPodder, Kasts, PinePods | Target | Large | Built: `app.sync.gpodder` |
+| A server of the gpodder API | Nextcloud GPodder Sync, oPodSync, gpodder2go, PinePods, mygpo | Target | Large | Built: `app.sync.gpodder.server` |
+| The Open Podcast API | No client or server ships it | In part | Medium | Not built |
+| Sync over the local network with no server | Podcini | Out | | |
+| The sync services of the apps | Pocket Casts, Castro, Podverse, Apple Podcasts | Out | | |
 
 **The gpodder API.** Most open-source apps sync through the gpodder API.
 gpodder.net stopped its directory in 2023, and now it only syncs devices.
@@ -293,7 +313,7 @@ for Nextcloud, oPodSync, gpodder2go and PinePods. AntennaPod, gPodder,
 Kasts and PinePods are clients. The API syncs subscriptions and episode
 actions, such as a play with its position.
 
-[Syncing](sync.md#gpodder-for-later) describes a backend for this API. A
+[Syncing](sync.md#the-gpodder-api) describes a backend for this API. A
 client backend lets a listener sync an app on podcast-clj with AntennaPod or
 Kasts. A server over the stores of podcast-clj, like the WebDAV server,
 lets those apps sync to a Clojure server. The difficult part is identity.
@@ -317,14 +337,14 @@ own.
 
 ## Discovery and sharing
 
-| Feature | Who has it | Verdict | Size |
-|---|---|---|---|
-| Accessors for `podroll`, `publisher`, `socialInteract`, `soundbite` and `txt` | Pocket Casts, Apple Podcasts, many Podcasting 2.0 apps | Target | Small |
-| Charts by category | The Podcast Index | Target | Small |
-| Links to apps, and links with a time | Apple Podcasts, Pocket Casts, Spotify, the Podlove Subscribe Button | In part | Small |
-| Personal recommendations | Apple Podcasts, Overcast, Pocket Casts | Out | |
-| Search inside the audio of all shows | Castbox, Apple Podcasts, Snipd | Out | |
-| Discovery through a chat | Spotify, YouTube Music, Castro | Out | |
+| Feature | Who has it | Verdict | Size | Status |
+|---|---|---|---|---|
+| Accessors for `podroll`, `publisher`, `socialInteract`, `soundbite` and `txt` | Pocket Casts, Apple Podcasts, many Podcasting 2.0 apps | Target | Small | Built: `resolve` |
+| Charts by category | The Podcast Index | Target | Small | Not built |
+| Links to apps, and links with a time | Apple Podcasts, Pocket Casts, Spotify, the Podlove Subscribe Button | In part | Small | Not built |
+| Personal recommendations | Apple Podcasts, Overcast, Pocket Casts | Out | | |
+| Search inside the audio of all shows | Castbox, Apple Podcasts, Snipd | Out | | |
+| Discovery through a chat | Spotify, YouTube Music, Castro | Out | | |
 
 **Accessors.** The model reads `podroll`, `publisher`, `socialInteract`,
 `soundbite` and `txt`, but `resolve` has no accessor for them. Apps show
@@ -354,13 +374,13 @@ these.
 
 ## Comments and other social features
 
-| Feature | Who has it | Verdict | Size |
-|---|---|---|---|
-| Comments from ActivityPub and AT Protocol threads | Podverse, Castamatic. Castopod writes the threads. | Target | Medium |
-| Comments from Nostr | Fountain | In part | Medium |
-| Public ratings and reviews | Apple Podcasts, Pocket Casts, Podcast Guru | Out | |
-| Comments and polls inside one platform | Spotify, Castbox | Out | |
-| The activity of friends | Fountain | Out | |
+| Feature | Who has it | Verdict | Size | Status |
+|---|---|---|---|---|
+| Comments from ActivityPub and AT Protocol threads | Podverse, Castamatic. Castopod writes the threads. | Target | Medium | Built: `comments` |
+| Comments from Nostr | Fountain | In part | Medium | Not built |
+| Public ratings and reviews | Apple Podcasts, Pocket Casts, Podcast Guru | Out | | |
+| Comments and polls inside one platform | Spotify, Castbox | Out | | |
+| The activity of friends | Fountain | Out | | |
 
 **Comments.** `podcast:socialInteract` points to the first post of a
 discussion about an episode. The specification lists ActivityPub, AT
@@ -388,13 +408,13 @@ and the activity of friends need a service with accounts.
 podcast-clj computes the share of each recipient and writes the boostagram
 record. It does not pay. These features are the steps around the payment.
 
-| Feature | Who has it | Verdict | Size |
-|---|---|---|---|
-| Lightning addresses: LNURL-pay and the keysend lookup | Fountain, Castamatic, Breez, the library lightning-tools | In part | Medium |
-| Payment through the wallet of the listener: NWC, WebLN | Fountain, Castamatic, Podverse on the web | In part | Medium |
-| RSS Payment Metadata | Fountain, Castamatic, Helipad, BoostBox | Target | Small |
-| Received boostagrams | Helipad, BoostBox | In part | Small |
-| Card payments and other payment types | Fountain, and two open proposals | Out | |
+| Feature | Who has it | Verdict | Size | Status |
+|---|---|---|---|---|
+| Lightning addresses: LNURL-pay and the keysend lookup | Fountain, Castamatic, Breez, the library lightning-tools | In part | Medium | Built: `value.lnaddress` |
+| Payment through the wallet of the listener: NWC, WebLN | Fountain, Castamatic, Podverse on the web | In part | Medium | Not built |
+| RSS Payment Metadata | Fountain, Castamatic, Helipad, BoostBox | Target | Small | Built: `value.metadata` |
+| Received boostagrams | Helipad, BoostBox | In part | Small | Built: `value/parse-boostagram` |
+| Card payments and other payment types | Fountain, and two open proposals | Out | | |
 
 **Lightning addresses.** A recipient can have a Lightning address in place
 of a node. The app then asks the domain of the address for an invoice, with
@@ -433,14 +453,14 @@ accounts with a payment service.
 
 ## Tools for hosts
 
-| Feature | Who has it | Verdict | Size |
-|---|---|---|---|
-| Checks of a feed over the network | Cast Feed Validator, Podbase, Livewire, Apple Podcasts | Target | Medium |
-| OP3: the prefix and the public statistics | Transistor, Captivate, Libsyn, Spreaker, Simplecast, RSS.com, Podhome | Target | Small |
-| Download counts by the rules of the IAB | Hosts with IAB certification, OP3 | In part | Medium |
-| Paged feeds | Podlove Publisher | Target | Small |
-| A private feed for each subscriber | Buzzsprout, Transistor, Captivate, Castos | In part | Small |
-| Ad insertion, generated show notes, video, websites | Most hosts | Out | |
+| Feature | Who has it | Verdict | Size | Status |
+|---|---|---|---|---|
+| Checks of a feed over the network | Cast Feed Validator, Podbase, Livewire, Apple Podcasts | Target | Medium | Built: `check` |
+| OP3: the prefix and the public statistics | Transistor, Captivate, Libsyn, Spreaker, Simplecast, RSS.com, Podhome | Target | Small | Built: `analytics.op3` |
+| Download counts by the rules of the IAB | Hosts with IAB certification, OP3 | In part | Medium | Built: `analytics/downloads` |
+| Paged feeds | Podlove Publisher | Target | Small | Not built |
+| A private feed for each subscriber | Buzzsprout, Transistor, Captivate, Castos | In part | Small | Not built |
+| Ad insertion, generated show notes, video, websites | Most hosts | Out | | |
 
 **Checks over the network.** [Media files](#media-files) describes them.
 The same checks help a host before it publishes.
@@ -523,7 +543,9 @@ supply:
 
 ## A suggested order
 
-These targets give the most for their size, in this order:
+On 29 September 2026, podcast-clj has the targets of all nine groups,
+but for the features that have the status Not built. These targets give
+the most for their size, in this order:
 
 1. The gaps in the fetch: paged feeds, feed discovery, Basic
    authentication, the kind of a redirect, and polite polling. Each is

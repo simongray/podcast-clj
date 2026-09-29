@@ -677,11 +677,37 @@
          (and (map? r) (or (:format r) (seq (media/report r))))))))
 
 (deftest a-file-that-the-app-does-not-allow
-  (run #(async/then (async/attempt (fn [] (media/verify! "https://example.org/a.mp3" {:type "sri" :value "sha384-AAAA"}
-                                                         {:allow? (constantly false)})))
-                    (fn [{:keys [error]}]
-                      (is (= :dk.simongray.podcast.http/refused (:type (ex-data error)))
+  (run #(async/then (media/verify! "https://example.org/a.mp3" {:type "sri" :value "sha384-AAAA"}
+                                   {:allow? (constantly false)})
+                    (fn [{:keys [valid? error]}]
+                      (is (nil? valid?))
+                      (is (= [:file/unreachable "https://example.org/a.mp3"] ((juxt :id :url) error)))
+                      (is (str/includes? (:reason error) "is not allowed")
                           "no request is sent for it, on either platform")))))
+
+(deftest a-file-that-does-not-come
+  (let [url     "https://example.org/a.mp3"
+        down    (fn [_] (throw (ex-info "Connection refused" {})))
+        missing (fn [request] {:status 404 :url (:url request) :headers {}})
+        told    (juxt :id :url :status :reason)]
+    (run
+     #(async/then (media/read! url {:send down})
+                  (fn [file]
+                    (is (= [:error] (keys file)) "a result with the error alone, and nothing thrown")
+                    (is (= [:file/unreachable url nil "Connection refused"] (told (:error file))))
+                    (is (string? (:message (:error file))) "the diagnostic with its message")
+                    (is (= [] (media/report file)))))
+     #(async/then (media/read! url {:send missing})
+                  (fn [file]
+                    (is (= [:file/unreachable url 404 (str "The file answered 404: " url)] (told (:error file))))))
+     #(async/then (media/read! url {:fetch (fn [_ _] (throw (ex-info "The disk is gone" {})))})
+                  (fn [file]
+                    (is (= [:file/unreachable url nil "The disk is gone"] (told (:error file)))
+                        "the fetch of the app")))
+     #(async/then (media/verify! url {:type "sri" :value "sha384-AAAA"} {:send down})
+                  (fn [verdict]
+                    (is (nil? (:valid? verdict)))
+                    (is (= [:file/unreachable url nil "Connection refused"] (told (:error verdict)))))))))
 
 (deftest a-file-that-the-app-sends-for
   (let [file   (bytes/of (ascii "hello"))
@@ -704,18 +730,20 @@
                     (is (= {:valid? false :algorithm "sha256"} verdict))
                     (is (= 5 (:timeout-seconds (peek @sent))))))
      #(async/then (verify sha256 {:send (fn [request] {:status 404 :url (:url request) :headers {}})})
-                  (fn [verdict]
-                    (is (= {:valid? nil :reason "The file answered 404."} verdict)))))))
+                  (fn [{:keys [valid? error]}]
+                    (is (nil? valid?))
+                    (is (= [:file/unreachable 404] ((juxt :id :status) error))))))))
 
 (deftest subresource-integrity
   (is (= {:algorithm "sha384" :digests #{"abc="}} (media/sri "sha256-xyz= sha384-abc=")) "the strongest wins")
   (is (= {:algorithm "sha512" :digests #{"a" "b"}} (media/sri "sha512-a sha512-b?ct=audio sha1-c")))
   (is (nil? (media/sri "md5-abc sha1-def")) "no hash SRI knows")
-  (let [unverified {:valid? nil :reason "A PGP signature needs the publisher's key."}
+  (let [unverified [nil :file/unverifiable :info "A PGP signature needs the key of the publisher."]
+        told       (juxt :valid? (comp :id :error) (comp :level :error) (comp :reason :error))
         result     (media/verify! "https://example.org/a.mp3" {:type "pgp-signature" :value "…"})]
-    #?(:clj  (is (= unverified result))
+    #?(:clj  (is (= unverified (told result)))
        :cljs (async done
                (-> result
-                   (.then #(is (= unverified %) "a promise, as for any other integrity"))
+                   (.then #(is (= unverified (told %)) "a promise, as for any other integrity"))
                    (.catch (fn [e] (is false (str "rejected: " e))))
                    (.finally done))))))
