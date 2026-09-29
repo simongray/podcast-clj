@@ -206,6 +206,8 @@
           (cond
             (str/includes? url "itunes.apple.com/search")     "directory/apple-search.json"
             (str/includes? url "itunes.apple.com/lookup")     "directory/apple-lookup.json"
+            (str/includes? url "/rss/toppodcasts/")           "directory/apple-genre-chart.json"
+            (str/includes? url "gpodder.net/api/2/tag/")      "directory/gpodder-toplist.json"
             (str/includes? url "rss.marketingtools.apple.com") "directory/apple-charts.json"
             (str/includes? url "api.fyyd.de/0.2/search")      "directory/fyyd-search.json"
             (str/includes? url "api.fyyd.de/0.2/feature")     "directory/fyyd-hot.json"
@@ -225,7 +227,15 @@
       (let [{:keys [status body]} (get* "/directory" "country" "dk")]
         (is (= 200 status))
         (is (str/includes? body "Mørkeland"))
-        (is (str/includes? body "rank 1"))))))
+        (is (str/includes? body "rank 1"))
+        (is (str/includes? body "/directory?country=dk&amp;category=Society%20%26%20Culture")
+            "with the links to the charts of some categories")))
+    (testing "the charts of one category"
+      (let [{:keys [status body]} (get* "/directory" "country" "dk" "category" "Technology")]
+        (is (= 200 status))
+        (is (str/includes? body "The charts, dk, Technology"))
+        (is (str/includes? body "Jagten på det evige liv"))
+        (is (str/includes? body "fyyd has no chart by category") "a directory without such a chart tells so")))))
 
 (defn- hive-fixture
   "The recorded answer of a Hive node to the JSON-RPC `body`, with the head

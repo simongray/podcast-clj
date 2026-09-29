@@ -69,6 +69,57 @@
    :add/by-itunes-id            "add/byitunesid"
    :lookup                      "lookup"})
 
+(def categories
+  "The categories of the Podcast Index by id, from categories.json of the
+  podcast namespace. They are the words of the categories of Apple
+  Podcasts: Society & Culture is Society and Culture here.
+
+  The call :categories/list gives the list as the index has it now."
+  (zipmap (iterate inc 1)
+          ["Arts" "Books" "Design" "Fashion" "Beauty" "Food" "Performing" "Visual" "Business" "Careers"
+           "Entrepreneurship" "Investing" "Management" "Marketing" "Non-Profit" "Comedy" "Interviews" "Improv"
+           "Stand-Up" "Education" "Courses" "How-To" "Language" "Learning" "Self-Improvement" "Fiction" "Drama"
+           "History" "Health" "Fitness" "Alternative" "Medicine" "Mental" "Nutrition" "Sexuality" "Kids"
+           "Family" "Parenting" "Pets" "Animals" "Stories" "Leisure" "Animation" "Manga" "Automotive"
+           "Aviation" "Crafts" "Games" "Hobbies" "Home" "Garden" "Video-Games" "Music" "Commentary" "News"
+           "Daily" "Entertainment" "Government" "Politics" "Buddhism" "Christianity" "Hinduism" "Islam"
+           "Judaism" "Religion" "Spirituality" "Science" "Astronomy" "Chemistry" "Earth" "Life" "Mathematics"
+           "Natural" "Nature" "Physics" "Social" "Society" "Culture" "Documentary" "Personal" "Journals"
+           "Philosophy" "Places" "Travel" "Relationships" "Sports" "Baseball" "Basketball" "Cricket" "Fantasy"
+           "Football" "Golf" "Hockey" "Rugby" "Running" "Soccer" "Swimming" "Tennis" "Volleyball" "Wilderness"
+           "Wrestling" "Technology" "True Crime" "TV" "Film" "After-Shows" "Reviews" "Climate" "Weather"
+           "Tabletop" "Role-Playing" "Cryptocurrency"]))
+
+(defn category-filter
+  "The value of the parameters cat and notcat for `category`, by the
+  `:categories` of `opts`, which are `categories` by default. Nil for no
+  category.
+
+  `category` is a name or an id of a category, or a collection of them.
+  A name can hold several names with commas or ampersands between them,
+  so a name of Apple Podcasts such as Society & Culture reads as its two
+  categories. The case of a name does not count, and a space reads as a
+  hyphen where the index has one.
+
+  The index gives the whole chart for a name that it does not know, and
+  it tells no error. So `category-filter` throws for such a name."
+  ([category]
+   (category-filter category {}))
+  ([category opts]
+   (let [known   (:categories opts categories)
+         spoken  #(str/lower-case (str/replace (str %) #"[\s-]+" " "))
+         by-name (into {} (map (fn [[_ name]] [(spoken name) name])) known)
+         parts   (->> (if (coll? category) category [category])
+                      (mapcat #(str/split (str %) #"[,&]"))
+                      (map str/trim)
+                      (remove str/blank?))
+         named   (fn [part]
+                   (or (when (re-matches #"\d{1,6}" part) (get known (parse-long part)))
+                       (get by-name (spoken part))
+                       (throw (ex-info (str "The Podcast Index has no category " (pr-str part))
+                                       {:category category}))))]
+     (not-empty (str/join "," (map named parts))))))
+
 (defn- now-seconds
   "The current Unix time in seconds, for the calls that send."
   []

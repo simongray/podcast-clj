@@ -499,6 +499,12 @@
          (http/query-params "since=1727000000&podcast=https%3A%2F%2Fexample.org%2Ffeed.xml&q=a+b%20c&flag&=x"))
       "the parameters of a query, decoded"))
 
+(deftest base64-of-urls
+  (is (= "aHR0cHM6Ly9mZWVkcy5wb2RjYXN0aW5kZXgub3JnL3BjMjAueG1s"
+         (http/base64url "https://feeds.podcastindex.org/pc20.xml")))
+  (is (= "Pz8_Pj4-" (http/base64url "???>>>")) "with - and _ in the place of + and /")
+  (is (= ["YQ" "YWI" "YWJj"] (map http/base64url ["a" "ab" "abc"])) "and without padding"))
+
 (deftest links-of-a-header
   (is (= [{:href "https://hub.example.com/" :rel "hub"} {:href "http://example.com/feed" :rel "self"}]
          (http/links {"link" "<https://hub.example.com/>; rel=\"hub\", <http://example.com/feed>; rel=\"self\""})))

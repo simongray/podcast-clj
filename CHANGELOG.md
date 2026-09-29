@@ -350,3 +350,14 @@
   `podcast/fetch!` gives the hubs of a feed as `:websub`, and
   `resolve/hubs` reads them from the feed. `http/links` reads a Link
   header, and `http/with-query` adds parameters to a URL.
+- Charts by category: the `:trending` call of `directory`, and
+  `trending!`, take `:category`. Apple Podcasts, the Podcast Index and
+  gpodder.net have such a chart, and each reads the category in its own
+  way. `directory/apple-genres` has the genres of Apple, and
+  `directory.podcastindex/category-filter` checks a name before the
+  request, because the index ignores a name that it does not know.
+- Links to apps, in the new namespace `links`. `links/apps` has the
+  forms of the links to a show and an episode in 48 apps and pages.
+  `ids` reads the keys of a show, and `link` and `links` write the
+  links. `at-time` writes the media fragment of a time on the URL of a
+  media file.

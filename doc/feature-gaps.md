@@ -340,8 +340,8 @@ own.
 | Feature | Who has it | Verdict | Size | Status |
 |---|---|---|---|---|
 | Accessors for `podroll`, `publisher`, `socialInteract`, `soundbite` and `txt` | Pocket Casts, Apple Podcasts, many Podcasting 2.0 apps | Target | Small | Built: `resolve` |
-| Charts by category | The Podcast Index | Target | Small | Not built |
-| Links to apps, and links with a time | Apple Podcasts, Pocket Casts, Spotify, the Podlove Subscribe Button | In part | Small | Not built |
+| Charts by category | The Podcast Index | Target | Small | Built: `:category` of `directory/trending!` |
+| Links to apps, and links with a time | Apple Podcasts, Pocket Casts, Spotify, the Podlove Subscribe Button | In part | Small | Built: `links` |
 | Personal recommendations | Apple Podcasts, Overcast, Pocket Casts | Out | | |
 | Search inside the audio of all shows | Castbox, Apple Podcasts, Snipd | Out | | |
 | Discovery through a chat | Spotify, YouTube Music, Castro | Out | | |

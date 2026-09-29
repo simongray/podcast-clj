@@ -41,7 +41,7 @@ ecosystem that podcast-clj was written for.
 
 ```
   4  front door   dk.simongray.podcast
-  3  companions   format.*  value  value.*  resolve  check  directory  directory.podcastindex  podping  websub  comments  comments.*  analytics  analytics.*  app.*
+  3  companions   format.*  value  value.*  resolve  check  directory  directory.podcastindex  links  podping  websub  comments  comments.*  analytics  analytics.*  app.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
   1  vocabulary   spec  quirks
   0  primitives   xml  xml.jsoup  time  time.rrule  guid  json  http  bytes  rank  async  diagnostics
@@ -80,8 +80,8 @@ The names follow the design where one part belongs to another:
   `value`, which holds the payment that they send.
 - The client of OP3 is under `analytics`, which counts downloads as OP3
   does.
-- `resolve`, `check`, `podping`, `websub`, `guid`, `json`, `http`, `bytes`,
-  `rank`, `async` and `diagnostics` belong to no group.
+- `resolve`, `check`, `links`, `podping`, `websub`, `guid`, `json`, `http`,
+  `bytes`, `rank`, `async` and `diagnostics` belong to no group.
 
 
 ## Why the API is regular
@@ -714,6 +714,19 @@ entry gets the URL of its feed. On the JVM, `search!` and `trending!` ask
 all sources at the same time. A source that fails becomes an entry under
 `:failed`, not an exception.
 
+A chart can be the chart of one category. The category is a name of the
+categories of Apple Podcasts, which `itunes:category` has too, and each
+source reads it in its own way. Apple takes the id of a genre, the
+Podcast Index takes its own names, gpodder.net takes a tag, and fyyd has
+no such chart. The Podcast Index gives the chart of all categories for a
+name that it does not know, without an error. A chart of the wrong shows
+is worse than no chart, so `index/category-filter` throws for such a
+name, and the source is then under `:failed`. A source without a chart
+of the category is there too, and no source adds the shows of all
+categories to the chart of one. [Services and their
+defaults](services.md#the-chart-of-a-category) has the facts of each
+directory.
+
 Podchaser, Listen Notes and Taddy are not included. Each needs an account,
 and the four sources above already cover discovery for an app without one.
 
@@ -777,6 +790,38 @@ with the token of the host.
 The Podping page of the inspector reads the last twenty blocks live. The
 tests run on recorded answers, with a node that fails when the test tells it
 to.
+
+
+## Links to the apps
+
+A listener shares a show, and the person who gets the link has another
+app. No standard defines a link to a show in an app. Each app has a form
+of its own. Most forms hold a key that the app did not make. The keys
+are the URL of the feed, the `podcast:guid`, the id of Apple Podcasts
+and the id of the Podcast Index. podcast-clj has these keys, so it can
+write the links.
+
+The forms are facts about other products, and they change. So `links`
+holds them as data in `links/apps`, and an app gives a table of its own.
+A form is a vector of texts and keys. It is no text with a syntax of its
+own, so the code has no parser for it. [Services and their
+defaults](services.md#the-links-of-the-apps) has the table with its date
+and its source, and a test keeps the page and the data the same. The
+table leaves out the forms that need an id of the app itself, because
+podcast-clj has no such id.
+
+`links/ids` reads the keys from a parsed feed, or from a show of
+`directory`, whose `:directory/sources` has the ids of the directories.
+`links` writes each link that the keys are enough for. A link with the
+scheme of an app opens the app, and works only where the app is. A link
+to a web page works in each browser.
+
+A link with a time has one standard, the media fragment of the W3C:
+`#t=754` on the URL of a media file. `links/at-time` writes it, and a
+clip of `app.player` gives its start and its end. The forms of the apps
+for a time need the id that the app has for the episode. The research
+found no page of an app that defines such a form. So the table has
+none.
 
 
 ## WebSub
@@ -1441,7 +1486,5 @@ the JSON of these requests from the body-params interceptor.
 of the features below, and which part of it fits a library:
 
 - The player state: the rules for downloads and deletes.
-- Directories: the charts by category in `directory/trending!`.
-- Sharing: links to apps, and links with a time.
 - Comments from Nostr.
 - Payments through the wallet of the listener, with WebLN and NWC.

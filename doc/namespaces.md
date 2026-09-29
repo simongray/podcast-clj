@@ -119,8 +119,9 @@ Each name below is relative to `dk.simongray.podcast`.
 
 | Namespace | Contents |
 |---|---|
-| `directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results. JVM: `call!`, `search!` and `trending!`. |
-| `directory.podcastindex` | The Podcast Index API: authenticated requests, responses mapped onto the model, and remote items resolved. JVM: `remote-value!` and `remote-item!`. |
+| `directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results, and their charts, also for one category. JVM: `call!`, `search!` and `trending!`. |
+| `directory.podcastindex` | The Podcast Index API: authenticated requests, responses mapped onto the model, and remote items resolved. `categories` and `category-filter` name its categories. JVM: `remote-value!` and `remote-item!`. |
+| `links` | Links to a show and to an episode in the apps of listeners, from a table of the forms of 48 apps and pages. `ids` reads the keys of a show, and `links` writes the links. `at-time` writes the media fragment of a time on the URL of a media file. |
 | `podping` | Podping: calls to the Hive chain as request maps, pings read from blocks, and writers verified. JVM: `poll!`. `notify-request` is for a host. |
 | `websub` | WebSub, for a server that a hub sends the feeds to. `discover` finds the hubs of a feed, `request` and `call!` subscribe, and `handler` is a Ring handler for the callback, which checks the signature of the hub. `publish-request` is for a host. |
 | `comments` | The comments on an episode, from the thread that `podcast:socialInteract` names, over ActivityPub or the AT Protocol, in one shape. `thread` picks the thread of an episode. `fetch!` reads it, and a second `fetch!` reads on from where the first stopped. `tree` gives the comments in the shape to show. `requests`, `next-page` and `with-exchanges` are the pure steps of `fetch!`. |

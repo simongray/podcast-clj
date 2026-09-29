@@ -1,0 +1,45 @@
+{
+ "feed": {
+  "entry": [
+   {
+    "im:name": {"label": "Jagten på det evige liv"},
+    "im:image": [
+     {"label": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/66/e9/11/66e9113d-3861-03e6-231a-a1e151c89e84/mza_6704443421739976050.jpg/55x55bb.png", "attributes": {"height": "55"}},
+     {"label": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/66/e9/11/66e9113d-3861-03e6-231a-a1e151c89e84/mza_6704443421739976050.jpg/60x60bb.png", "attributes": {"height": "60"}},
+     {"label": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/66/e9/11/66e9113d-3861-03e6-231a-a1e151c89e84/mza_6704443421739976050.jpg/170x170bb.png", "attributes": {"height": "170"}}
+    ],
+    "summary": {"label": "Hvordan kan du holde din krop ung og frisk så længe som muligt? Hvordan skal du motionere, hvad skal du spise og hvornår"},
+    "im:price": {"label": "Get", "attributes": {"amount": "0", "currency": "DKK"}},
+    "im:contentType": {"attributes": {"term": "Podcast", "label": "Podcast"}},
+    "rights": {"label": "© DR"},
+    "title": {"label": "Jagten på det evige liv - DR"},
+    "link": {"attributes": {"rel": "alternate", "type": "text/html", "href": "https://podcasts.apple.com/dk/podcast/jagten-p%C3%A5-det-evige-liv/id1745048921?uo=2"}},
+    "id": {"label": "https://podcasts.apple.com/dk/podcast/jagten-p%C3%A5-det-evige-liv/id1745048921?uo=2", "attributes": {"im:id": "1745048921"}},
+    "im:artist": {"label": "DR"},
+    "category": {"attributes": {"im:id": "1318", "term": "Technology", "scheme": "https://podcasts.apple.com/dk/genre/podcasts-technology/id1318?uo=2", "label": "Technology"}},
+    "im:releaseDate": {"label": "2026-09-28T20:00:00-07:00", "attributes": {"label": "28 September 2026"}}
+   },
+   {
+    "im:name": {"label": "Prompt"},
+    "im:image": [
+     {"label": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/97/b8/00/97b8000a-e7c2-29d5-d703-589d7590dbfd/mza_14666402966793484144.jpg/55x55bb.png", "attributes": {"height": "55"}},
+     {"label": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/97/b8/00/97b8000a-e7c2-29d5-d703-589d7590dbfd/mza_14666402966793484144.jpg/60x60bb.png", "attributes": {"height": "60"}},
+     {"label": "https://is1-ssl.mzstatic.com/image/thumb/Podcasts116/v4/97/b8/00/97b8000a-e7c2-29d5-d703-589d7590dbfd/mza_14666402966793484144.jpg/170x170bb.png", "attributes": {"height": "170"}}
+    ],
+    "summary": {"label": "Hver uge går Prompt bag om tech-giganternes 'Ultra Pro Max'-løfter, bullshit-tester de nyeste tech-nyheder og undersøger"},
+    "im:price": {"label": "Get", "attributes": {"amount": "0", "currency": "DKK"}},
+    "im:contentType": {"attributes": {"term": "Podcast", "label": "Podcast"}},
+    "rights": {"label": "© DR"},
+    "title": {"label": "Prompt - DR"},
+    "link": {"attributes": {"rel": "alternate", "type": "text/html", "href": "https://podcasts.apple.com/dk/podcast/prompt/id1701616757?uo=2"}},
+    "id": {"label": "https://podcasts.apple.com/dk/podcast/prompt/id1701616757?uo=2", "attributes": {"im:id": "1701616757"}},
+    "im:artist": {"label": "DR"},
+    "category": {"attributes": {"im:id": "1318", "term": "Technology", "scheme": "https://podcasts.apple.com/dk/genre/podcasts-technology/id1318?uo=2", "label": "Technology"}},
+    "im:releaseDate": {"label": "2026-09-23T20:00:00-07:00", "attributes": {"label": "23 September 2026"}}
+   }
+  ],
+  "updated": {"label": "2026-09-29T08:11:57-07:00"},
+  "title": {"label": "iTunes Store: Top Podcasts in Technology"},
+  "id": {"label": "https://itunes.apple.com/dk/rss/toppodcasts/limit=2/genre=1318/json"}
+ }
+}

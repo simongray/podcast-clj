@@ -47,6 +47,7 @@ The examples use these aliases:
          '[dk.simongray.podcast.format.opml :as opml]
          '[dk.simongray.podcast.format.transcript :as transcript]
          '[dk.simongray.podcast.http :as http]
+         '[dk.simongray.podcast.links :as links]
          '[dk.simongray.podcast.podping :as podping]
          '[dk.simongray.podcast.resolve :as resolve]
          '[dk.simongray.podcast.value :as value]
@@ -74,6 +75,26 @@ searches the Podcast Index. It combines the results into one entry per show.
 ;; => (["Podcasting 2.0" "Podcast Index LLC" {:apple "1584274529" :fyyd 61003 :gpodder "https://…"}] …)
 
 (def url (resolve/self-url (first found)))  ; the URL of the feed
+```
+
+`directory/trending!` gives the charts of the directories, and the charts
+of one category with `:category`. The category is a name of the
+categories of Apple Podcasts, and `directory/apple-genres` has the names:
+
+```clojure
+(def chart (directory/trending! {:category "Technology" :country "dk" :limit 10}))
+(map resolve/title (:results chart))
+(:failed chart)  ; => {:fyyd "fyyd has no chart by category"}
+```
+
+The names of the top categories work for Apple Podcasts, the Podcast
+Index and gpodder.net. The Podcast Index has no name for a category of
+the second level, such as Tech News. For such a category, give a map
+with a category for each source:
+
+```clojure
+(directory/trending! {:category {:apple "Tech News" :podcastindex "Technology,News"}
+                      :credentials credentials})
 ```
 
 In a browser, build the request with `directory/request`, send it, and read
@@ -496,6 +517,42 @@ that counts minutes belongs to the clock of the app.
 
 The browser player of the inspector is a working example, in
 `web/inspector/player.cljs` and `web/inspector/player/view.cljs`.
+
+
+## Share a show or an episode
+
+A listener shares a show with a person who has another app. `links/links`
+gives the link to the show in each app. `links/ids` reads the keys that
+the links hold from a show of `directory`, or from a parsed feed:
+
+```clojure
+(def keys-of-show (links/ids (first found) item))
+;; => {:feed-url "https://…" :podcast-guid "917393e3-…" :apple-id "1584274529" :episode-guid "…" …}
+
+(links/links keys-of-show {:only #{:apple :pocketcasts :antennapod}})
+;; => [{:app :antennapod :name "AntennaPod" :type :app
+;;      :show "https://antennapod.org/deeplink/subscribe?url=https://…"
+;;      :subscribe "antennapod-subscribe://…"} …]
+
+(links/link :podlink :show keys-of-show)  ; => "https://pod.link/1584274529", a page for each app
+```
+
+A show from `directory/search!` has the ids of the directories, so it has
+the most links. A feed alone has its URL and its guid. The link of the
+kind `:subscribe` opens the app, so show it only on a device that has the
+app. [Services and their defaults](services.md#the-links-of-the-apps)
+lists the form of each link. The forms change, so give a table of your
+own as `:apps` when a form is wrong.
+
+For a link to a time, put a media fragment on the URL of the media file.
+A browser plays the file from that time. A clip of the player state has
+the two times:
+
+```clojure
+(let [{:keys [start-time duration]} (first (player/clips state id))]
+  (links/at-time (:url (resolve/enclosure item)) start-time (+ start-time duration)))
+;; => "https://example.org/54.mp3#t=754,796.5"
+```
 
 
 ## Search the episodes

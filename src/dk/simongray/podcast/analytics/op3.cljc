@@ -124,18 +124,13 @@
   2026-09 or 2026-09-26, or a time before now, such as -24h."
   #{:show :downloads :show-download-counts :episode-download-counts :top-apps-for-show})
 
-(defn ^:no-doc base64url
-  "The URL `url` in the base64 of URLs, as OP3 takes the URL of a feed."
-  [url]
-  (-> (http/base64 url) (str/replace "+" "-") (str/replace "/" "_") (str/replace #"=+$" "")))
-
 (defn- show-param
   "The query parameter of OP3 that names the show `id`: its show UUID, its
   podcast guid, or the URL of its feed."
   [id]
   (cond
     (guid/guid? id)    {"podcastGuid" (str/lower-case id)}
-    (http/web-url? id) {"feedUrlBase64" (base64url id)}
+    (http/web-url? id) {"feedUrlBase64" (http/base64url id)}
     :else              {"showUuid" id}))
 
 (defn- query
@@ -155,7 +150,7 @@
    (request token endpoint params {}))
   ([token endpoint {:keys [show episodes? start end episode bots? limit continuation-token]} opts]
    (let [[path params] (case endpoint
-                         :show                    [(str "shows/" (http/encode (if (http/web-url? show) (base64url show) show)))
+                         :show                    [(str "shows/" (http/encode (if (http/web-url? show) (http/base64url show) show)))
                                                    {"episodes" (when episodes? "include")}]
                          :downloads               [(str "downloads/show/" (http/encode show))
                                                    {"format" "json" "start" start "end" end "episodeId" episode

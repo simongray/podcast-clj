@@ -2,7 +2,8 @@
 
 podcast-clj knows some services by name: the podcast directories, the
 Podcast Index, Podping, OP3 and the servers of the gpodder API. It also
-knows how some apps write their OPML. This page lists what podcast-clj
+knows how some apps write their OPML, and the forms of the links of the
+apps. This page lists what podcast-clj
 knows about each service, and the option that replaces it. [Architecture](architecture.md#why-the-api-is-regular) gives
 the reason. [How to build a podcast
 app](building-an-app.md#use-another-service) shows the calls.
@@ -30,6 +31,8 @@ Each namespace below is relative to `dk.simongray.podcast`.
 | The Hive nodes that Podping reads | `podping/nodes` | `:nodes`, or one `:node` | four public nodes |
 | The service that writes a podping for a host | `podping/gateway` | `:gateway` | `https://podping.cloud/` |
 | The request that tells a WebSub hub of a change | `websub/publish-form` | `:form` | the fields `hub.mode=publish` and `hub.url` |
+| The genres of Apple Podcasts, for the chart of a category | `directory/apple-genres` | the `:genres` of a source | 110 genres |
+| The forms of the links of the apps | `links/apps` | `:apps` | 48 apps and pages |
 | The instance of OP3 | `analytics.op3/origin` | `:origin` | `https://op3.dev` |
 | The URLs that OP3 takes behind its prefix | `analytics.op3/accepts?` | `:accepts?`, a predicate of a URL | the rules of op3.dev |
 | The paths of the gpodder API | `app.sync.gpodder/apis` | `:api`, as a name or as a map of paths | `:gpodder` |
@@ -66,6 +69,26 @@ The `:sources` of `search!` and `trending!` hold names and entries. The
 `:id` of an entry names the source in `:directory/source`, in
 `:directory/sources` and in `:failed`. An entry without an `:id` has the
 name of its API.
+
+
+### The chart of a category
+
+Each directory has its own way to name a category. These facts are from
+the answers of the services on 29 September 2026:
+
+| Directory | The chart of a category | The category |
+|---|---|---|
+| Apple Podcasts | The feed `{country}/rss/toppodcasts/limit={n}/genre={id}/json`, below the `:genre-charts` of the entry. It has the form of the older feeds of Apple, and it names no feed. A chart of one show has an object in the place of a list. | The id of a genre. `directory/apple-genres` has the ids by name, from the [genre service of Apple](https://itunes.apple.com/WebObjects/MZStoreServices.woa/ws/genres?id=26). |
+| Podcast Index | The call `podcasts/trending` with the parameter `cat` | A name or an id of [categories.json](https://github.com/Podcastindex-org/podcast-namespace/blob/main/categories.json) of the podcast namespace, or more than one, with commas. The index gives the chart of all categories for a name that it does not know, and it tells no error. |
+| gpodder.net | The call `api/2/tag/{tag}/{n}.json` | A tag, which is a word that the users of gpodder.net gave to a show |
+| fyyd | None. The call `feature/podcast/hot` ignores a category. | |
+
+The Podcast Index has the words of the names of Apple as its categories.
+Society & Culture of Apple is Society and Culture there. So the names of
+the top categories of Apple work for both, and `index/category-filter`
+reads a name with an ampersand as its parts. A category of the second
+level of Apple, such as Tech News, has no name in the Podcast Index. For
+such a category, give a map with a category for each source.
 
 
 ## The gpodder API
@@ -122,6 +145,86 @@ without a user name. It does not take these domains:
 
 Another instance of OP3 can take other URLs. Give its `:origin`, and its
 rules as `:accepts?`.
+
+
+## The links of the apps
+
+`links/apps` holds the forms of the links to a show and to an episode in
+each app. The forms are those of the list [Podcast Platform
+Links](https://github.com/nathangathright/podcast-platform-links) of
+Nathan Gathright, as the list was on 29 September 2026. The table has
+the forms that hold a key that the app did not make. It leaves out the
+forms that need an id of the app itself, such as the id of a show at
+Spotify.
+
+A key in braces is a key of `links/ids`. A word before the key is an
+encoding:
+
+- `encoded` is the percent-encoding of a query.
+- `base64url` is the base64 of URLs.
+- `hex` is hexadecimal.
+- `bare` is the URL without its scheme.
+
+The app does not read `{slug}`, and `links/default-slug` is there. An
+entry of the type page is a web page that leads a listener to the apps.
+
+| Name | Type | Show | Episode | Subscribe |
+|---|---|---|---|---|
+| 1tuner | app | `https://1tuner.com/podcast/{slug}/{base64url feed-url}` | `https://1tuner.com/podcast/{slug}/{base64url feed-url}/{encoded episode-guid}` |  |
+| AntennaPod | app | `https://antennapod.org/deeplink/subscribe?url={feed-url}` |  | `antennapod-subscribe://{bare feed-url}` |
+| Anytime Player | app | `https://anytimeplayer.app/subscribe?url={feed-url}` |  |  |
+| Apple Podcasts | app | `https://podcasts.apple.com/podcast/id{apple-id}` |  | `podcast://{bare feed-url}` |
+| Breez | app | `https://breez.link/p?feedURL={encoded feed-url}` | `https://breez.link/p?feedURL={encoded feed-url}&episodeID={encoded episode-guid}` |  |
+| Castamatic | app | `https://castamatic.com/guid/{podcast-guid}` |  | `castamatic://{bare feed-url}` |
+| Castbox | app | `https://castbox.fm/vic/{apple-id}` |  |  |
+| Castro | app | `https://castro.fm/itunes/{apple-id}` |  | `castros://subscribe/{bare feed-url}` |
+| CurioCaster | app | `https://curiocaster.com/podcast/pi{podcastindex-id}` |  |  |
+| Downcast | app |  |  | `downcast://{bare feed-url}` |
+| Fountain | app | `https://fountain.fm/show/{podcastindex-id}` | `https://fountain.fm/episode/{podcastindex-episode-id}` |  |
+| Goodpods | app | `https://www.goodpods.com/podcasts-aid/{apple-id}` |  |  |
+| gPodder | app | `https://gpodder.net/subscribe?url={feed-url}` |  | `gpodder://{bare feed-url}` |
+| Great Pods | page | `https://www.greatpods.co/podcasts?podcastIndexId={podcastindex-id}`<br>`https://www.greatpods.co/podcasts?itunesId={apple-id}` |  |  |
+| iCatcher! | app |  |  | `icatcher://{bare feed-url}` |
+| Metacast | app | `https://metacast.app/itunes/{apple-id}`<br>`https://open.metacast.app/podcasts/{podcast-guid}` |  |  |
+| Moon FM | app | `https://moon.fm/itunes/{apple-id}` |  |  |
+| Odesli | page | `https://pods.link/i/{apple-id}` |  |  |
+| Overcast | app | `https://overcast.fm/itunes{apple-id}` |  | `overcast://x-callback-url/add?url={feed-url}` |
+| Player FM | app | `https://player.fm/subscribe?id={encoded feed-url}` |  | `playerfm://{bare feed-url}` |
+| Plink | page | `https://plinkhq.com/i/{apple-id}?to=page` |  |  |
+| Pocket Casts | app | `https://pca.st/itunes/{apple-id}` |  | `pktc://subscribe/{bare feed-url}` |
+| Pod Engine | page | `https://www.podengine.ai/podcasts/id/{apple-id}` |  |  |
+| pod.link | page | `https://pod.link/{apple-id}`<br>`https://pod.link/{base64url feed-url}` |  |  |
+| Podbean | app | `https://www.podbean.com/itunes/{apple-id}` |  |  |
+| Podcast Addict | app | `https://podcastaddict.com/feed/{encoded feed-url}` | `https://podcastaddict.com/episode/{encoded enclosure-url}` | `podcastaddict://{bare feed-url}` |
+| Podcast Details | page | `https://podcastdetails.com/?url={feed-url}` |  |  |
+| Podcast Guru | app | `https://app.podcastguru.io/podcast/{apple-id}`<br>`https://app.podcastguru.io/podcast/X{hex feed-url}` |  | `podcastguru://{bare feed-url}` |
+| Podcast Index | page | `https://podcastindex.org/podcast/{podcastindex-id}`<br>`https://podcastindex.org/podcast/{podcast-guid}` |  |  |
+| Podcast Parrot | app | `https://podcastparrot.app/show?url={encoded feed-url}` |  |  |
+| Podcast Republic | app | `https://www.podcastrepublic.net/podcast/{apple-id}` |  |  |
+| Podcast X-Ray | page | `https://podcastxray.com/podcast/{apple-id}` |  |  |
+| Podcat | app |  |  | `podcat://{bare feed-url}` |
+| Podchaser | page | `https://podchaser.com/f/pod/{apple-id}` |  |  |
+| podfollow | page | `https://podfollow.com/{apple-id}` |  |  |
+| Podfriend | app |  | `https://podfriend.com/podcast/{apple-id}/{encoded episode-guid}` |  |
+| Podkicker | app |  |  | `podkicker://subscribe/{bare feed-url}` |
+| PodLP | app | `https://link.podlp.app/{apple-id}`<br>`https://link.podlp.app/{podcast-guid}` |  |  |
+| Podnews | page | `https://podnews.net/podcast/{apple-id}`<br>`https://podnews.net/podcast/pi{podcastindex-id}`<br>`https://podnews.net/podcast/{podcast-guid}` |  |  |
+| podStation | app | `https://podstation.github.io/subscribe-ext/?feedURL={feed-url}` |  |  |
+| Podurama | app | `https://podurama.com/podcast/{slug}-i{apple-id}` |  |  |
+| Podverse | app | `https://api.podverse.fm/api/v1/podcast/podcastindex/{podcastindex-id}` |  |  |
+| RSSRadio | app |  |  | `rssradio://{bare feed-url}` |
+| Sonnet | app | `https://sonnet.fm/p/{apple-id}` |  |  |
+| Steno.fm | app | `https://steno.fm/show/{podcast-guid}` | `https://steno.fm/show/{podcast-guid}/episode/{base64url episode-guid}` |  |
+| The Podcast App | app | `https://thepodcastapp.dev/p/itunes{apple-id}`<br>`https://thepodcastapp.dev/p/{podcastindex-id}` |  |  |
+| TrueFans | app | `https://truefans.fm/{podcast-guid}` |  |  |
+| YouTube Music | app | `https://music.youtube.com/library/podcasts?addrssfeed={base64url feed-url}` |  |  |
+
+podcast-clj has no form of an app for a link with a time. The apps that
+share an episode at a time put the time on a link with their own id of
+the episode. The research found no page of an app that defines the
+form. A form is data, so an app adds its forms to the table, with a key
+such as `:time` in its ids. `links/at-time` writes the media fragment of
+the W3C on the URL of a media file, which a browser plays from the time.
 
 
 ## The folder around an OPML list

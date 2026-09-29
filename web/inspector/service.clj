@@ -393,16 +393,18 @@
 (defn directory-page
   "The shows the directories answer for the `q` parameter, or their charts
   for the `country` parameter when there is no query, the Podcast Index
-  among them when its credentials are set."
+  among them when its credentials are set. The `category` parameter
+  gives the charts of one category."
   [request]
-  (let [{:keys [q country]} (:query-params request)
+  (let [{:keys [q country category]} (:query-params request)
         opts (cond-> {:limit 10 :country (if (str/blank? country) "us" country)}
-               index-credentials (assoc :credentials index-credentials))]
+               index-credentials         (assoc :credentials index-credentials)
+               (not (str/blank? category)) (assoc :category category))]
     (try
       (let [answer (if (str/blank? q)
                      (directory/trending! opts)
                      (directory/search! q opts))]
-        (html (page/directory-page (assoc answer :q q :country (:country opts)))))
+        (html (page/directory-page (assoc answer :q q :country (:country opts) :category (:category opts)))))
       (catch Throwable e
         (failure "Could not ask the directories" (if (str/blank? q) (:country opts) q) e)))))
 

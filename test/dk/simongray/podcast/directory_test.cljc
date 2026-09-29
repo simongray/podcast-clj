@@ -19,6 +19,11 @@
 (def apple-charts
   (fixture "directory/apple-charts.json"))
 
+(def apple-genre-chart
+  "The chart of the genre Technology in Denmark, as Apple gave it on 29
+  September 2026, with its descriptions cut."
+  (fixture "directory/apple-genre-chart.json"))
+
 (def fyyd-search
   (fixture "directory/fyyd-search.json"))
 
@@ -72,6 +77,79 @@
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :spotify :search {:q "x"})))
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :episodes {:q "x"})))
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :trending {:country "Denmark"})))))
+
+(deftest the-chart-of-a-category
+  (let [credentials {:credentials {:key "K" :secret "S"} :auth-date 1700000000}
+        url         (fn [source params] (:url (directory/request source :trending params credentials)))
+        refused?    (fn [source params]
+                      (try (url source params) false
+                           (catch #?(:clj Exception :cljs js/Error) e (ex-message e))))]
+    (testing "Apple takes the id of a genre, which its entry has by name"
+      (is (= "https://itunes.apple.com/dk/rss/toppodcasts/limit=5/genre=1324/json"
+             (url :apple {:country "dk" :limit 5 :category "Society & Culture"})))
+      (is (= "https://itunes.apple.com/us/rss/toppodcasts/limit=25/genre=1528/json"
+             (url :apple {:category "tech news"}))
+          "a genre of the second level, in whatever case")
+      (is (= (url :apple {:category "Technology"}) (url :apple {:category 1318}) (url :apple {:category "1318"}))
+          "or the id itself")
+      (is (= "Apple Podcasts has no genre \"Knitting\"" (refused? :apple {:category "Knitting"})))
+      (is (= 110 (count directory/apple-genres)))
+      (is (= "https://charts.example/us/rss/toppodcasts/limit=25/genre=7/json"
+             (url (assoc (:apple directory/sources) :genre-charts "https://charts.example" :genres {"Knitting" 7})
+                  {:category "Knitting"}))
+          "the table and the URL are those of the entry"))
+    (testing "the Podcast Index takes its own names, which are the words of the names of Apple"
+      (is (str/ends-with? (url :podcastindex {:limit 5 :language "en" :category "Kids & Family"})
+                          "podcasts/trending?max=5&lang=en&cat=Kids%2CFamily"))
+      (is (str/ends-with? (url :podcastindex {:category "technology"}) "cat=Technology"))
+      (is (= "The Podcast Index has no category \"Tech News\"" (refused? :podcastindex {:category "Tech News"}))
+          "a name that it does not know gives the whole chart there, so it is no request"))
+    (testing "gpodder.net takes a tag, and fyyd has no chart by category"
+      (is (= "https://gpodder.net/api/2/tag/society%20%26%20culture/3.json"
+             (url :gpodder {:limit 3 :category "Society & Culture"})))
+      (is (= "fyyd has no chart by category" (refused? :fyyd {:category "Technology"})))
+      (is (= "https://api.fyyd.de/0.2/feature/podcast/hot?count=3" (url :fyyd {:limit 3 :category nil}))))
+    (testing "a category for each source"
+      (let [category {:apple "Tech News" :podcastindex "Technology,News"}]
+        (is (str/ends-with? (url :apple {:category category}) "genre=1528/json"))
+        (is (str/ends-with? (url :podcastindex {:category category}) "cat=Technology%2CNews"))
+        (is (= "The category names no category for gpodder" (refused? :gpodder {:category category})))))
+    (testing "the chart of a genre of Apple, which has another form and names no feed"
+      (let [shows (directory/response :apple :trending apple-genre-chart)
+            show  (first shows)]
+        (is (= [["Jagten på det evige liv" 1] ["Prompt" 2]] (map (juxt :rss/title :directory/rank) shows)))
+        (is (= {:itunes/author      "DR"
+                :itunes/categories  [{:text "Technology"}]
+                :directory/id       "1745048921"
+                :directory/source   :apple
+                :directory/url      "https://podcasts.apple.com/dk/podcast/jagten-p%C3%A5-det-evige-liv/id1745048921?uo=2"}
+               (select-keys show [:itunes/author :itunes/categories :directory/id :directory/source :directory/url])))
+        (is (str/ends-with? (:href (:itunes/image show)) "170x170bb.png") "the largest image")
+        (is (str/starts-with? (:rss/description show) "Hvordan kan du"))
+        (is (nil? (resolve/self-url show)))))
+    (testing "a chart of one show, which Apple gives as an object and not as a list"
+      (is (= ["Alone"] (map :rss/title
+                            (directory/response :apple :trending
+                                                "{\"feed\":{\"entry\":{\"im:name\":{\"label\":\"Alone\"}}}}"))))
+      (is (= [] (directory/response :apple :trending "{\"feed\":{}}"))))))
+
+#?(:clj
+   (deftest the-charts-of-a-category-combined
+     (let [asked (atom [])]
+       (with-redefs [http/call! (fn [{:keys [url]}]
+                                  (swap! asked conj url)
+                                  (cond
+                                    (str/includes? url "/rss/toppodcasts/") {:status 200 :body apple-genre-chart}
+                                    (str/includes? url "/lookup")           {:status 200 :body apple-lookup}
+                                    (str/includes? url "/api/2/tag/")       {:status 200 :body gpodder-toplist}
+                                    :else                                   {:status 500 :body ""}))]
+         (let [{:keys [results failed]} (directory/trending! {:category "Technology" :country "dk" :limit 2})]
+           (is (= {:fyyd "fyyd has no chart by category"} failed) "a source without such a chart tells so")
+           (is (some #(str/includes? % "genre=1318") @asked))
+           (is (some #(str/includes? % "lookup?id=1745048921%2C1701616757") @asked)
+               "the shows of the chart of Apple, looked up for their feeds")
+           (is (some #(str/ends-with? % "/api/2/tag/technology/2.json") @asked))
+           (is (= "Jagten på det evige liv" (:rss/title (first results)))))))))
 
 (deftest another-service
   (let [mirror (assoc (:fyyd directory/sources) :id :mirror :name "A mirror" :root "https://fyyd.example.org/0.2")

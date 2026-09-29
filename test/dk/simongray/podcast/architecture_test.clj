@@ -24,7 +24,7 @@
    "value" 3 "value.lnaddress" 3 "value.metadata" 3 "resolve" 3 "check" 3 "app.player" 3 "app.search" 3
    "app.sync" 3 "app.sync.store" 3 "app.sync.file" 3 "app.sync.webdav" 3 "app.sync.webdav.server" 3
    "app.sync.encrypted" 3 "app.sync.gpodder" 3 "app.sync.gpodder.server" 3
-   "directory" 3 "directory.podcastindex" 3 "podping" 3 "websub" 3
+   "directory" 3 "directory.podcastindex" 3 "podping" 3 "websub" 3 "links" 3
    "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3
    "analytics" 3 "analytics.op3" 3
    "" 4})

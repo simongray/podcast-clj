@@ -592,12 +592,15 @@
 
 (defn directory-page
   "The shows the directories answered for the query `q`, or their charts
-  for `country` without one: `results` as `directory/combine` folds them,
-  and what `failed`."
-  [{:keys [q country results failed]}]
-  (let [charts? (str/blank? q)]
+  for `country` without one, of the `category` when there is one:
+  `results` as `directory/combine` folds them, and what `failed`."
+  [{:keys [q country category results failed]}]
+  (let [charts? (str/blank? q)
+        chart   (fn [params] (str "/directory?" (http/query-string params)))]
     (layout (if charts? "Charts" (str "Find: " q))
-            [:h1 (if charts? (str "The charts, " country) "Find a podcast")]
+            [:h1 (if charts?
+                   (str "The charts, " country (when category (str ", " category)))
+                   "Find a podcast")]
             [:form {:method "get" :action "/directory"}
              [:input {:type "search" :name "q" :value q :placeholder "words in a show's title" :required true}]
              " "
@@ -605,6 +608,11 @@
             [:p.muted "Apple Podcasts, fyyd and gpodder.net, and the Podcast Index when its credentials are set, asked at once and combined into one entry per show. Charts: "
              [:a {:href "/directory?country=us"} "US"] " · " [:a {:href "/directory?country=dk"} "Denmark"]
              " · " [:a {:href "/directory?country=de"} "Germany"]]
+            (when charts?
+              [:p.muted "The chart of one category: "
+               (interpose " · "
+                          (for [c ["Technology" "News" "Society & Culture" "True Crime" "Comedy" "Science"]]
+                            [:a {:href (chart {:country country :category c})} c]))])
             (when (seq failed)
               [:p.warning (str "No answer from " (str/join ", " (map name (keys failed))) ": "
                                (str/join "; " (vals failed)))])

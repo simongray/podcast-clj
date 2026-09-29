@@ -31,6 +31,45 @@
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.time :as time]))
 
+(def apple-genres
+  "The ids of the genres of Apple Podcasts by name, as the genre service
+  of Apple gave them on 29 September 2026. The names are the categories
+  of itunes:category, of both levels.
+
+  The entry of Apple in `sources` holds them as `:genres`, so an app
+  gives another table with an entry of its own."
+  {"Arts" 1301 "Food" 1306 "Design" 1402 "Performing Arts" 1405 "Visual Arts" 1406 "Fashion & Beauty" 1459
+   "Books" 1482
+   "Comedy" 1303 "Improv" 1495 "Comedy Interviews" 1496 "Stand-Up" 1497
+   "Education" 1304 "Language Learning" 1498 "How To" 1499 "Self-Improvement" 1500 "Courses" 1501
+   "Kids & Family" 1305 "Education for Kids" 1519 "Stories for Kids" 1520 "Parenting" 1521
+   "Pets & Animals" 1522
+   "TV & Film" 1309 "TV Reviews" 1561 "After Shows" 1562 "Film Reviews" 1563 "Film History" 1564
+   "Film Interviews" 1565
+   "Music" 1310 "Music Commentary" 1523 "Music History" 1524 "Music Interviews" 1525
+   "Religion & Spirituality" 1314 "Buddhism" 1438 "Christianity" 1439 "Islam" 1440 "Judaism" 1441
+   "Spirituality" 1444 "Hinduism" 1463 "Religion" 1532
+   "Technology" 1318
+   "Business" 1321 "Careers" 1410 "Investing" 1412 "Management" 1491 "Marketing" 1492
+   "Entrepreneurship" 1493 "Non-Profit" 1494
+   "Society & Culture" 1324 "Personal Journals" 1302 "Places & Travel" 1320 "Philosophy" 1443
+   "Documentary" 1543 "Relationships" 1544
+   "Fiction" 1483 "Drama" 1484 "Science Fiction" 1485 "Comedy Fiction" 1486
+   "History" 1487
+   "True Crime" 1488
+   "News" 1489 "Business News" 1490 "Daily News" 1526 "Politics" 1527 "Tech News" 1528 "Sports News" 1529
+   "News Commentary" 1530 "Entertainment News" 1531
+   "Leisure" 1502 "Automotive" 1503 "Aviation" 1504 "Hobbies" 1505 "Crafts" 1506 "Games" 1507
+   "Home & Garden" 1508 "Video Games" 1509 "Animation & Manga" 1510
+   "Government" 1511
+   "Health & Fitness" 1512 "Alternative Health" 1513 "Fitness" 1514 "Nutrition" 1515 "Sexuality" 1516
+   "Mental Health" 1517 "Medicine" 1518
+   "Science" 1533 "Natural Sciences" 1534 "Social Sciences" 1535 "Mathematics" 1536 "Nature" 1537
+   "Astronomy" 1538 "Chemistry" 1539 "Earth Sciences" 1540 "Life Sciences" 1541 "Physics" 1542
+   "Sports" 1545 "Soccer" 1546 "Football" 1547 "Basketball" 1548 "Baseball" 1549 "Hockey" 1550
+   "Running" 1551 "Rugby" 1552 "Golf" 1553 "Cricket" 1554 "Wrestling" 1555 "Tennis" 1556
+   "Volleyball" 1557 "Swimming" 1558 "Wilderness" 1559 "Fantasy Sports" 1560})
+
 (def sources
   "The directories that podcast-clj knows, by name. An entry tells the
   `:api` that the directory speaks, its `:name` for a listener, whether it
@@ -49,7 +88,9 @@
                   :credentials? false
                   :search       "https://itunes.apple.com/search"
                   :lookup       "https://itunes.apple.com/lookup"
-                  :trending     "https://rss.marketingtools.apple.com/api/v2/"}
+                  :trending     "https://rss.marketingtools.apple.com/api/v2/"
+                  :genre-charts "https://itunes.apple.com/"
+                  :genres       apple-genres}
    :fyyd         {:api          :fyyd
                   :name         "fyyd"
                   :credentials? false
@@ -69,7 +110,18 @@
   `:country` for Apple and `:language` for the Podcast Index; `:lookup`
   takes the source's `:id` for the show, which for gpodder.net is the feed
   URL and for Apple may be several ids at once; `:trending` takes `:limit`
-  and `:country` for Apple or `:language` for fyyd and the Podcast Index."
+  and `:country` for Apple or `:language` for fyyd and the Podcast Index.
+
+  `:trending` also takes `:category`, for the chart of one category. It
+  is a name of the categories of Apple Podcasts, such as Technology or
+  Society & Culture. A map gives each source a category of its own, by
+  the id of the source. Each source reads the category in its own way:
+
+  - Apple takes a name or an id of the `:genres` of its entry.
+  - The Podcast Index takes what `index/category-filter` takes. It has
+    the top categories of Apple, and words of its own for the rest.
+  - gpodder.net takes the category as a tag, in lower case.
+  - fyyd has no chart by category, so `request` throws for it."
   #{:search :lookup :trending})
 
 (defn ^:no-doc source-id
@@ -108,20 +160,54 @@
       (throw (ex-info "A country is two letters" {:country country})))
     code))
 
+(defn- category-for
+  "The category that the source with the entry `e` gets of `category`, the
+  category of a chart: the value under the id of the source when
+  `category` is a map, and else `category`. Throws for a map that names
+  no category for the source, because the source then has only the chart
+  of all categories."
+  [{:keys [id]} category]
+  (cond
+    (not (map? category))   category
+    (contains? category id) (get category id)
+    :else                   (throw (ex-info (str "The category names no category for " (name id))
+                                            {:source id :category category}))))
+
+(defn- apple-genre
+  "The id of the genre of Apple for `category`, a name of `genres` or an
+  id. Throws for a name that `genres` do not have."
+  [genres category]
+  (let [s     (str/trim (str category))
+        named (into {} (map (fn [[name id]] [(str/lower-case name) id])) genres)]
+    (or (when (re-matches #"\d{1,9}" s) s)
+        (get named (str/lower-case s))
+        (throw (ex-info (str "Apple Podcasts has no genre " (pr-str category)) {:category category})))))
+
+(defn- apple-chart
+  "The URL of the chart of Apple for `country`, with `limit` shows. The
+  chart of a `category` is a feed of the older kind of Apple, below
+  `genre-charts`, which takes the id of a genre."
+  [{:keys [trending genre-charts genres]} {:keys [limit country category]}]
+  (let [limit (long (or limit 25))]
+    (if category
+      (below genre-charts (str (country-code country) "/rss/toppodcasts/limit=" limit
+                               "/genre=" (apple-genre genres category) "/json"))
+      (below trending (str (country-code country) "/podcasts/top/" limit "/podcasts.json")))))
+
 (defn- apple-request
-  [{:keys [search lookup trending]} endpoint {:keys [q id limit country]}]
+  [{:keys [search lookup] :as e} endpoint {:keys [q id limit country] :as params}]
   (case endpoint
     :search   (get-request (str search "?"
                                 (http/query-string {:media "podcast" :entity "podcast" :term q :limit limit
                                                      :country (some-> country name)})))
     :lookup   (get-request (str lookup "?"
                                 (http/query-string {:id (if (coll? id) (str/join "," id) id) :entity "podcast"})))
-    :trending (get-request
-               (below trending
-                      (str (country-code country) "/podcasts/top/" (long (or limit 25)) "/podcasts.json")))))
+    :trending (get-request (apple-chart e params))))
 
 (defn- fyyd-request
-  [{:keys [root]} endpoint {:keys [q id limit language]}]
+  [{:keys [root]} endpoint {:keys [q id limit language category]}]
+  (when (and category (= :trending endpoint))
+    (throw (ex-info "fyyd has no chart by category" {:category category})))
   (get-request
    (below root (case endpoint
                  :search   (str "search/podcast?" (http/query-string {:term q :count limit}))
@@ -130,15 +216,18 @@
                                 (http/query-string {:count limit :language language}))))))
 
 (defn- gpodder-request
-  [{:keys [root]} endpoint {:keys [q id limit]}]
+  [{:keys [root]} endpoint {:keys [q id limit category]}]
   (get-request
    (below root (case endpoint
                  :search   (str "search.json?" (http/query-string {:q q}))
                  :lookup   (str "api/2/data/podcast.json?" (http/query-string {:url id}))
-                 :trending (str "toplist/" (long (or limit 25)) ".json")))))
+                 :trending (if category
+                             (str "api/2/tag/" (http/encode (str/lower-case (str/trim (str category))))
+                                  "/" (long (or limit 25)) ".json")
+                             (str "toplist/" (long (or limit 25)) ".json"))))))
 
 (defn- podcastindex-request
-  [{:keys [root id]} endpoint {:keys [q limit language] show :id} credentials opts]
+  [{:keys [root id]} endpoint {:keys [q limit language category] show :id} credentials opts]
   (when-not credentials
     (throw (ex-info "The Podcast Index needs credentials under :credentials" {:source id})))
   (let [opts (cond-> opts root (assoc :base-url root))]
@@ -147,7 +236,9 @@
       :lookup   (if (guid/guid? (str show))
                   (index/request credentials :podcasts/by-guid {:guid show} opts)
                   (index/request credentials :podcasts/by-feed-id {:id show} opts))
-      :trending (index/request credentials :podcasts/trending {:max limit :lang language} opts))))
+      :trending (index/request credentials :podcasts/trending
+                               {:max limit :lang language :cat (some-> category index/category-filter)}
+                               opts))))
 
 (defn request
   "The request map for `endpoint` at `source` with `params`, as `{:method
@@ -163,7 +254,9 @@
    (request source endpoint params {}))
   ([source endpoint params {:keys [credentials] :as opts}]
    {:pre [(map? opts)]}
-   (let [{:keys [api] :as e} (entry source)]
+   (let [{:keys [api] :as e} (entry source)
+         params              (cond-> params
+                               (contains? params :category) (update :category #(category-for e %)))]
      (when-not (contains? endpoints endpoint)
        (throw (ex-info (str "An endpoint the directories do not answer: " endpoint) {:endpoint endpoint})))
      (case api
@@ -229,6 +322,23 @@
             :directory/id      id
             :directory/url     url
             :directory/raw     r}))
+
+(defn- apple-genre-show
+  "A show from an entry `r` of the chart of a genre of Apple, which has the
+  form of the older feeds of Apple. It names no feed, as `apple-chart-show`
+  names none."
+  [r]
+  (let [label  #(let [x (get r %)] (get (if (map? x) x (first x)) "label"))
+        images (let [x (get r "im:image")] (if (map? x) [x] x))
+        link   (let [x (get r "link")] (if (map? x) x (first x)))]
+    (present {:rss/title         (label "im:name")
+              :itunes/author     (label "im:artist")
+              :rss/description   (label "summary")
+              :itunes/image      (when-let [href (get (last images) "label")] {:href href})
+              :itunes/categories (vec (for [c [(get-in r ["category" "attributes" "label"])] :when c] {:text c}))
+              :directory/id      (get-in r ["id" "attributes" "im:id"])
+              :directory/url     (get-in link ["attributes" "href"])
+              :directory/raw     r})))
 
 (defn- fyyd-show
   "A show from a podcast record `r` of fyyd's API."
@@ -296,7 +406,9 @@
                 (let [raw (json/read-str body)]
                   (case api
                     :apple   (if (= :trending endpoint)
-                               (map apple-chart-show (get-in raw ["feed" "results"]))
+                               (let [entries (get-in raw ["feed" "entry"])]
+                                 (concat (map apple-chart-show (get-in raw ["feed" "results"]))
+                                         (map apple-genre-show (if (map? entries) [entries] entries))))
                                (map apple-show (filter #(= "podcast" (get % "kind")) (get raw "results"))))
                     :fyyd    (when (= 1 (get raw "status"))
                                (let [data (get raw "data")]
@@ -444,14 +556,19 @@
 #?(:clj
    (defn trending!
      "The charts of the directories combined, as `search!` returns them,
-     in the order the sources list them; `opts` as for `search!`."
+     in the order that the sources list them. `opts` are those of
+     `search!`.
+
+     `opts` can also give `:category`, for the charts of one category, as
+     `endpoints` tells. A source that has no chart of the category is in
+     `:failed`, with the reason."
      ([]
       (trending! {}))
      ([opts]
       {:pre [(map? opts)]}
       (fan-out! (or (:sources opts) (default-sources opts))
                 :trending
-                (select-keys opts [:limit :country :language])
+                (select-keys opts [:limit :country :language :category])
                 opts))))
 
 #?(:clj

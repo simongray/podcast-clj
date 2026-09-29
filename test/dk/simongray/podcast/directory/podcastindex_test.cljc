@@ -51,6 +51,30 @@
                 (index/remote-value-requests credentials {:feed-guid "a94f" :item-guid "x"}
                                              {:auth-date 1 :base-url "https://index.example.org/api/1.0/"})))))
 
+(deftest categories-of-the-index
+  (is (= 112 (count index/categories)))
+  (is (= ["Arts" "Video-Games" "Society" "Culture" "Technology" "True Crime" "Cryptocurrency"]
+         (map index/categories [1 52 77 78 102 103 112]))
+      "by the ids of categories.json of the podcast namespace")
+  (testing "a name or an id, and a name of Apple Podcasts as the names of its parts"
+    (is (= ["Technology" "Society,Culture" "Society,Culture" "Video-Games" "Self-Improvement" "Technology"
+            "Technology,News" "True Crime,News"]
+           (map index/category-filter ["technology" "Society & Culture" "society, culture" "video games"
+                                       "Self Improvement" 102 "102, 55" ["True Crime" "news"]]))))
+  (is (nil? (index/category-filter nil)))
+  (is (nil? (index/category-filter " ")))
+  (testing "a name that the index does not know is no filter there, so it is a mistake here"
+    (doseq [unknown ["Tech News" "Knitting" "Technology,Knitting" 999]]
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"has no category"
+                            (index/category-filter unknown))
+          (pr-str unknown))))
+  (is (= "Knitting" (index/category-filter "knitting" {:categories {1 "Knitting"}}))
+      "the list of the index as it is now, from the call :categories/list")
+  (is (str/ends-with? (:url (index/request credentials :podcasts/trending
+                                           {:max 5 :cat (index/category-filter "Health & Fitness")}
+                                           {:auth-date 1}))
+                      "podcasts/trending?max=5&cat=Health%2CFitness")))
+
 (deftest a-feed-from-the-index
   (let [{:keys [status description query feed]} (index/response podcast-body)]
     (is (true? status))

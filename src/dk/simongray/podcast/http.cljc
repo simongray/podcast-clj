@@ -102,6 +102,12 @@
   [s]
   (bytes/base64 (bytes/encode s)))
 
+(defn ^:no-doc base64url
+  "The UTF-8 bytes of `s` in the base64 of URLs, without padding, as
+  section 5 of RFC 4648 defines it."
+  [s]
+  (-> (base64 s) (str/replace "+" "-") (str/replace "/" "_") (str/replace #"=+$" "")))
+
 (defn authorization
   "The Authorization header for `credentials`. Nil for no credentials.
 
