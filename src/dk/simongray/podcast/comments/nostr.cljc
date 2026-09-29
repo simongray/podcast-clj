@@ -287,24 +287,72 @@
     (str (subs s 0 12) "…" (subs s (- (count s) 6)))
     s))
 
-(defn- node
-  "The Hiccup of the part `p` of a content, with the options of `hiccup`."
-  [{:keys [type text url uri tag public-key] :as p} {:keys [names link]}]
-  (let [linked (fn [label]
-                 (if-let [href (when link (link p))]
-                   [:a {:href href} label]
-                   label))]
-    (case type
-      :text      text
-      :link      [:a {:href url} url]
-      :mention   (linked (str "@" (or (get names public-key) (shortened (subs uri 6)))))
-      :reference (linked (shortened (subs uri 6)))
-      :hashtag   (linked (str "#" tag)))))
+(defn- shown
+  "The part `p` of `nostr/parts` with the `:text` that a reader sees for
+  it, and with the public key of a mention as its `:id`, which is the id
+  of the author in a thread. `names` has the names of profiles by public
+  key."
+  [{:keys [type url uri tag public-key] :as p} names]
+  (case type
+    :text      p
+    :link      (assoc p :text url)
+    :mention   (assoc p :id public-key :text (str "@" (or (get names public-key) (shortened (subs uri 6)))))
+    :reference (assoc p :text (shortened (subs uri 6)))
+    :hashtag   (assoc p :text (str "#" tag))))
+
+(defn- paragraphs
+  "The content of `event` as a reader sees it: its paragraphs, each the
+  lines of the paragraph, and each line the parts of the line, with the
+  names `names` of profiles.
+
+  Some lines say again what the tags of the event tell. Such a line has
+  only the web page of the episode or the show that the note is about, or
+  only the media of an attachment. It is left out, and so is a reference
+  to the receipt of a payment."
+  [event names]
+  (let [again?     (restated event)
+        space?     #(and (= :text (:type %)) (str/blank? (:text %)))
+        blank?     #(every? space? %)
+        restating? (fn [line]
+                     (and (not (blank? line))
+                          (every? #(or (space? %) (and (= :link (:type %)) (contains? again? (:url %)))) line)))]
+    (->> (lines (remove receipt? (nostr/parts event)))
+         (remove restating?)
+         (partition-by blank?)
+         (remove (comp blank? first))
+         (map (fn [paragraph] (map (fn [line] (map #(shown % names) line)) paragraph))))))
+
+(defn parts
+  "The parts of the content of `event` as a reader sees it, in their
+  order. Each part is a part of `nostr/parts`, with the `:text` that the
+  content shows for it:
+
+      {:type :text :text \"Is this \"}
+      {:type :mention :text \"@Ann\" :id \"3bf0…\" :public-key \"3bf0…\" :uri \"nostr:npub1…\"}
+      {:type :reference :text \"nevent1qqs9…m9d82\" :target {…} :uri \"nostr:nevent1…\"}
+      {:type :link :text \"https://example.org/\" :url \"https://example.org/\"}
+      {:type :hashtag :text \"#podcast\" :tag \"podcast\"}
+
+  The text of a mention is an at sign and the name of the profile, from
+  `:names` of `opts`, a map from public keys to names. Without a name, it
+  is the start and the end of the npub1… name. The text of a reference
+  is the start and the end of its name. The lines that `hiccup` leaves
+  out are not there. A blank line is between two paragraphs."
+  ([event]
+   (parts event {}))
+  ([event {:keys [names] :as opts}]
+   {:pre [(map? opts)]}
+   (let [break (fn [s] [{:type :text :text s}])]
+     (common/joined (->> (paragraphs event names)
+                         (map #(apply concat (interpose (break "\n") %)))
+                         (interpose (break "\n\n"))
+                         (apply concat))))))
 
 (defn hiccup
   "The content of `event` as Hiccup: a paragraph for each group of lines,
-  in the order of the text. NIP-10 and NIP-22 give a note plain text, and
-  NIP-27 tells what its nostr: URIs are.
+  in the order of the text, as a sequence of nodes to put inside a parent
+  element. NIP-10 and NIP-22 give a note plain text, and NIP-27 tells
+  what its nostr: URIs are.
 
   - A web URL is a link.
   - A mention of a profile is an at sign and the name of the profile from
@@ -313,10 +361,10 @@
   - A reference to an event is the start and the end of its name.
   - A hashtag is the word with its number sign.
 
-  `:link` in `opts` is a function of a part of `nostr/parts`. It gives the
-  URL that a mention, a reference or a hashtag links to, or nil for no
-  link. podcast-clj names no web page for them, because the app chooses
-  the web app or the scheme that shows them.
+  `:link` in `opts` is a function of a part of `parts`. It gives the URL
+  that a mention, a reference or a hashtag links to, or nil for no link.
+  podcast-clj names no web page for them, because the app chooses the web
+  app or the scheme that shows them.
 
   Some lines say again what the tags of the event tell. Such a line has
   only the web page of the episode or the show that the note is about, or
@@ -324,22 +372,17 @@
   to the receipt of a payment. `receipts` gives those."
   ([event]
    (hiccup event {}))
-  ([event opts]
+  ([event {:keys [names] :as opts}]
    {:pre [(map? opts)]}
-   (let [again?     (restated event)
-         space?     #(and (= :text (:type %)) (str/blank? (:text %)))
-         blank?     #(every? space? %)
-         restating? (fn [line]
-                      (and (not (blank? line))
-                           (every? #(or (space? %) (and (= :link (:type %)) (contains? again? (:url %)))) line)))
-         paragraphs (->> (lines (remove receipt? (nostr/parts event)))
-                         (remove restating?)
-                         (partition-by blank?)
-                         (remove (comp blank? first)))]
-     (vec (for [paragraph paragraphs]
-            (into [:p {}]
-                  (comp (interpose [[:br {}]]) cat (remove #{""}))
-                  (map (fn [line] (map #(node % opts) line)) paragraph)))))))
+   (let [node (fn [{:keys [type text url] :as p}]
+                (case type
+                  :text text
+                  :link (common/user-link url text)
+                  (common/linked p text opts)))]
+     (apply list (for [paragraph (paragraphs event names)]
+                   (into [:p {}]
+                         (comp (interpose [[:br {}]]) cat (remove #{""}))
+                         (map #(map node %) paragraph)))))))
 
 (defn names
   "The names of the authors that `thread` has, by public key, as the
@@ -353,7 +396,7 @@
   link. Nil for a content that says nothing."
   [event names]
   (when-let [paragraphs (seq (hiccup event {:names names}))]
-    (html/emit (common/fit-links (html/sanitize paragraphs) nil))))
+    (html/emit (html/sanitize paragraphs))))
 
 (defn- parent
   "The id of what `event` replies to in a thread whose root is `root`. Nil
@@ -567,7 +610,7 @@
       (with-root t root at))))
 
 (comment
-  (root-of "nostr:note1tjpa5aa0rhkx6u5fsdye3tt6477eugv3897htmpucflh5aezdumqxwh3jl")
+  (root-of "nostr:note1tjpa5aa0rhkx6u5fsdye3tt6477eugv389khtmpucfl45aezdumqkkhgwy")
   (root-of "podcast:item:guid:d98d189b-dc7b-45b1-8720-d4b98690f31f")
 
   (def episode

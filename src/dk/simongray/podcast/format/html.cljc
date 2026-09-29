@@ -334,9 +334,11 @@
     [tag {} more]))
 
 (defn- safe-attributes
-  [tag attrs]
+  "The attributes `attrs` of an element `tag` that the table `allowed`
+  has, without a URL that a client cannot follow."
+  [tag attrs allowed]
   (into {} (for [[k v] attrs
-                 :when (contains? (allowed-attributes tag) k)
+                 :when (contains? (get allowed tag) k)
                  :when (or (not (url-attributes k)) (safe-url? v))]
              [k v])))
 
@@ -345,23 +347,32 @@
   `allowed-tags` and `allowed-attributes` kept, URLs limited to http, https,
   mailto and relative ones, `dropped-tags` removed with their content, any
   other element replaced by its children, and layout whitespace removed
-  from lists and tables."
-  [nodes]
-  (letfn [(node [x]
-            (cond
-              (string? x)       [x]
-              (not (vector? x)) []
-              :else
-              (let [[tag attrs children] (parts x)
-                    kids (mapcat node children)
-                    kids (if (structural-tags tag)
-                           (remove #(and (string? %) (str/blank? %)) kids)
-                           kids)]
-                (cond
-                  (dropped-tags tag) []
-                  (allowed-tags tag) [(into [tag (safe-attributes tag attrs)] kids)]
-                  :else              kids))))]
-    (apply list (mapcat node nodes))))
+  from lists and tables.
+
+  `opts` can give `:allowed-tags`, `:dropped-tags` and
+  `:allowed-attributes`, each in the place of the var of its name."
+  ([nodes]
+   (sanitize nodes {}))
+  ([nodes opts]
+   {:pre [(map? opts)]}
+   (let [allowed    (:allowed-tags opts allowed-tags)
+         dropped    (:dropped-tags opts dropped-tags)
+         attributes (:allowed-attributes opts allowed-attributes)]
+     (letfn [(node [x]
+               (cond
+                 (string? x)       [x]
+                 (not (vector? x)) []
+                 :else
+                 (let [[tag attrs children] (parts x)
+                       kids (mapcat node children)
+                       kids (if (structural-tags tag)
+                              (remove #(and (string? %) (str/blank? %)) kids)
+                              kids)]
+                   (cond
+                     (dropped tag) []
+                     (allowed tag) [(into [tag (safe-attributes tag attrs attributes)] kids)]
+                     :else         kids))))]
+       (apply list (mapcat node nodes))))))
 
 (defn- paragraphs
   "The plain text `s` as paragraphs, blank lines between them and line

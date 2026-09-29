@@ -100,6 +100,10 @@
            [:button {:type "submit"} "Find"]
            " "
            [:a.muted {:href "/directory"} "charts"]]
+          [:form {:method "get" :action "/thread"}
+           [:input {:type "text" :name "uri" :placeholder "or read the comments below a post" :required true}]
+           " "
+           [:button {:type "submit"} "Read"]]
           (when (seq corpus)
             (list [:h2 "Corpus"]
                   [:p.muted "Real feeds from the hosting platforms the library is tested against."]
@@ -690,31 +694,29 @@
           (str "https://bsky.app/profile/" authority "/post/" rkey)))
       (some->> (nostr/encode {:type :nevent :id id}) (str "https://njump.me/"))))
 
-(defn- nostr-link
-  "The web page of the part `part` of the content of a note: the page of
-  the gateway njump.me for a profile, an event or a hashtag."
-  [{:keys [uri tag]}]
-  (if uri
-    (str "https://njump.me/" (subs uri (count "nostr:")))
-    (str "https://njump.me/t/" (http/encode tag))))
-
-(defn- content-of
-  "The content of the comment `c` as Hiccup. For a note of Nostr, the
-  inspector writes it from the event, with a link for each mention, and
-  with the `names` of the profiles of the thread."
-  [names {:keys [content] ::nostr-comments/keys [event]}]
-  (if event
-    (html/sanitize (nostr-comments/hiccup event {:names names :link nostr-link}))
-    (html/hiccup content)))
+(defn- part-link
+  "The web page of the part `part` of the content of a comment: a mention,
+  a hashtag or a reference. For Nostr, it is the page of the gateway
+  njump.me, and for the AT Protocol, the page in Bluesky's web app. A part
+  of ActivityPub keeps the link that its post has."
+  [{:keys [protocol type uri tag id]}]
+  (case protocol
+    "nostr"   (if uri
+                (str "https://njump.me/" (subs uri (count "nostr:")))
+                (str "https://njump.me/t/" (http/encode tag)))
+    "atproto" (case type
+                :mention (str "https://bsky.app/profile/" (http/encode id))
+                :hashtag (str "https://bsky.app/hashtag/" (http/encode tag))
+                nil)
+    nil))
 
 (defn- comment-item
-  "The comment `c` of a thread's tree, and the replies below it, with the
-  `names` of the profiles of a thread of Nostr."
-  [names {:keys [author published title content summary sensitive? labels attachments deleted? error hidden? replies]
-          ::nostr-comments/keys [receipts]
-          :as   c}]
+  "The comment `c` of the tree of `thread`, and the replies below it."
+  [thread {:keys [author published title content summary sensitive? labels attachments deleted? error hidden? replies]
+           ::nostr-comments/keys [receipts]
+           :as   c}]
   (let [body (list (when title [:strong title])
-                   [:div.notes (content-of names c)]
+                   [:div.notes (comments/hiccup thread c {:link part-link})]
                    (for [{:keys [kind url preview alt]} attachments]
                      (if (= :image kind)
                        [:a {:href (link url)} [:img.attachment {:src (link (or preview url)) :alt (str alt)}]]
@@ -733,7 +735,28 @@
        (or summary sensitive?)   [:details [:summary (or summary (str "Sensitive: " (str/join ", " labels)))] body]
        :else                     body)
      (when (seq replies)
-       [:ol.comments (map #(comment-item names %) replies)])]))
+       [:ol.comments (map #(comment-item thread %) replies)])]))
+
+(defn- thread-view
+  "The `thread` that `comments/fetch!` read, as a tree with its report.
+  `toggle` is the address of the same page with or without the replies
+  that the author of the root post hid, and `hidden?` tells which the page
+  shows. A thread about an episode itself has no root post, so the view
+  shows the comments on the episode."
+  [thread hidden? toggle]
+  (let [about? (str/starts-with? (str (:uri thread)) "podcast:")
+        tree   (comments/tree thread {:hidden? hidden?})]
+    (list [:p.muted "The thread of " [:code (:uri thread)] " over " (:protocol thread)
+           (when (:via thread) ", read through the Mastodon API")
+           ", " (count (filter :read-at (vals (:comments thread)))) " posts. "
+           [:a {:href toggle} (if hidden? "Leave out the hidden replies" "Show the hidden replies")]]
+          (cond
+            (nil? tree)           [:p.muted "The inspector did not get the root post."]
+            (not about?)          [:ol.comments (comment-item thread tree)]
+            (seq (:replies tree)) [:ol.comments (map #(comment-item thread %) (:replies tree))]
+            :else                 [:p.muted "The relays have no note about this episode."])
+          [:h2 "Report"]
+          (diagnostics-table (:report thread)))))
 
 (defn comments-page
   "The page of the comments on `item` of the feed at `url`, from the
@@ -741,12 +764,10 @@
 
   It shows the thread as a tree, with its report, or tells why there is no
   thread. With `hidden?`, the tree holds the replies that the author of the
-  root post hid. A thread about the episode itself has no root post, so
-  the page shows the comments on the episode."
+  root post hid."
   [{:keys [url item interacts thread hidden?]}]
-  (let [title  (or (resolve/title item) "(untitled)")
-        guid   (feed/item-guid item)
-        about? (str/starts-with? (str (:uri thread)) "podcast:")]
+  (let [title (or (resolve/title item) "(untitled)")
+        guid  (feed/item-guid item)]
     (layout (str "Comments: " title)
             [:p [:a {:href (feed-href "/item" url {:guid guid})} "← " title]]
             [:h1 "Comments"]
@@ -761,23 +782,35 @@
               [:p.muted (str "podcast-clj reads no comments over " (str/join ", " (distinct (map :protocol interacts))) ".")]
 
               :else
-              (list (when about?
+              (list (when (str/starts-with? (str (:uri thread)) "podcast:")
                       [:p.muted "The feed names no thread of comments that podcast-clj reads for this episode. "
                        "These are the notes about the episode on Nostr."])
-                    [:p.muted "The thread of " [:code (:uri thread)] " over " (:protocol thread)
-                     (when (:via thread) ", read through the Mastodon API")
-                     ", " (count (filter :read-at (vals (:comments thread)))) " posts. "
-                     [:a {:href (feed-href "/comments" url {:guid guid :hidden (when-not hidden? "1")})}
-                      (if hidden? "Leave out the hidden replies" "Show the hidden replies")]]
-                    (let [tree  (comments/tree thread {:hidden? hidden?})
-                          names (nostr-comments/names thread)]
-                      (cond
-                        (nil? tree)           [:p.muted "The inspector did not get the root post."]
-                        (not about?)          [:ol.comments (comment-item names tree)]
-                        (seq (:replies tree)) [:ol.comments (map #(comment-item names %) (:replies tree))]
-                        :else                 [:p.muted "The relays have no note about this episode."]))
-                    [:h2 "Report"]
-                    (diagnostics-table (:report thread)))))))
+                    (thread-view thread hidden? (feed-href "/comments" url {:guid guid :hidden (when-not hidden? "1")})))))))
+
+(defn thread-page
+  "The page of the comments below the post that `address` names, from the
+  `thread` that `comments/fetch!` read. It has a form for the address of
+  another post.
+
+  Without a thread, the page tells that the inspector does not know the
+  address, when there is one."
+  [{:keys [address thread hidden?]}]
+  (layout "Thread"
+          [:h1 "The comments below a post"]
+          [:form {:method "get" :action "/thread"}
+           [:input {:type "text" :name "uri" :value (str address) :placeholder "The address of a post" :required true}]
+           " "
+           [:button {:type "submit"} "Read"]]
+          [:p.muted "The address is the web page of a post of Mastodon or of another server of ActivityPub, "
+           "the web page of a post at bsky.app or its at:// URI, "
+           "or the name of a note of Nostr, such as nostr:nevent1… or note1…. "
+           "An id of NIP-73, such as podcast:item:guid:…, gives the notes about an episode."]
+          (cond
+            thread
+            (thread-view thread hidden? (str "/thread?uri=" (http/encode address) (when-not hidden? "&hidden=1")))
+
+            (not (str/blank? (str address)))
+            [:p.error "The inspector does not know this address as the address of a post."])))
 
 (defn error-page
   "The page shown when what `heading` names failed: `subject` is what it was

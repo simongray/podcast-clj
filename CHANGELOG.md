@@ -386,6 +386,14 @@
   `comments.nostr/hiccup` writes Hiccup from them, with the names of the
   profiles and the links of the app. It leaves out the lines that say
   again what the tags of the note tell.
+- The content of a comment as data, for each protocol. `comments/parts`
+  gives it as text, links, mentions, hashtags and custom emoji.
+  `comments/hiccup` gives it as Hiccup, and the app gives the links of
+  the mentions and the hashtags with `:link`. `comments/text` gives it
+  as the plain text that a reader sees. `html/sanitize` takes its tables
+  of tags and attributes as options.
+- The inspector: the thread page reads the comments below any post of
+  ActivityPub, the AT Protocol or Nostr, by the address of the post.
 - The inspector: the player has Play now for each episode, and Remove
   for the episode that plays. It keeps the data of each episode in the
   player state, so an episode that came through a sync plays too.

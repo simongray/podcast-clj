@@ -345,6 +345,35 @@
           (-> (html (page/error-page "No such item in the feed" url (str "No item with guid " guid)))
               (assoc :status 404)))))))
 
+(defn- interact-of
+  "The thread below the post that the address `s` names, as the interact
+  `{:protocol :uri}` that `comments/fetch!` reads. Nil for a text that is
+  no address of a post.
+
+  A person has the address of a web page, so the inspector takes the page
+  of a post at bsky.app and at njump.me too. These are the pages of two
+  web apps that the inspector chose."
+  [s]
+  (let [s (str/trim (str s))
+        [_ profile rkey] (re-matches #"https://bsky\.app/profile/([^/\s?#]+)/post/([^/\s?#]+).*" s)
+        [_ note]         (re-matches #"https://njump\.me/((?:note|nevent)1[a-z0-9]+).*" s)
+        nostr            {:protocol "nostr" :uri (if note (str "nostr:" note) s)}]
+    (cond
+      profile                       {:protocol "atproto" :uri (str "at://" profile "/app.bsky.feed.post/" rkey)}
+      (str/starts-with? s "at://")  {:protocol "atproto" :uri s}
+      (comments/readable? nostr)    nostr
+      (re-find #"^https?://\S+$" s) {:protocol "activitypub" :uri s})))
+
+(defn thread-page
+  "The page of the comments below the post that the `uri` parameter names,
+  for `request`. With the `hidden` parameter, it also shows the replies
+  that the author of the root post hid."
+  [request]
+  (let [{:keys [uri hidden]} (:query-params request)]
+    (html (page/thread-page {:address uri
+                             :hidden? (= "1" hidden)
+                             :thread  (some-> (interact-of uri) thread-of)}))))
+
 (defonce ^{:doc "The corpus feeds parsed and indexed for the search page, nil
   until the first search makes them."}
   corpus-search
@@ -515,6 +544,7 @@
      ["/check" :get check-page :route-name :check]
      ["/item" :get item-page :route-name :item]
      ["/comments" :get comments-page :route-name :comments]
+     ["/thread" :get thread-page :route-name :thread]
      ["/search" :get search-page :route-name :search]
      ["/directory" :get directory-page :route-name :directory]
      ["/podping" :get podping-page :route-name :podping]

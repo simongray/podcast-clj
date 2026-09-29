@@ -53,6 +53,7 @@
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.resolve :as resolve]))
@@ -324,6 +325,98 @@
      (let [children (group-by :in-reply-to (vals comments))
            shown?   (fn [c] (and (:read-at c) (or hidden? (not (:hidden? c)))))]
        (get (nested (levels top children shown?) children authors) root)))))
+
+(defn parts
+  "The parts of the content of `comment`, a comment of `thread`, in their
+  order. Each part is a map with its `:type` and the `:text` that the
+  content shows for it:
+
+      {:type :text :text \"Good episode, \"}
+      {:type :mention :text \"@ann\" :id \"https://example.social/users/ann\"}
+      {:type :hashtag :text \"#podcast\" :tag \"podcast\"}
+      {:type :link :text \"example.org\" :url \"https://example.org/\"}
+      {:type :reference :text \"nevent1qqs9…m9d82\" :uri \"nostr:nevent1…\"}
+      {:type :emoji :text \":blobcat:\" :shortcode \"blobcat\" :url \"https://…\"}
+
+  The `:id` of a mention is the id of an author, as the `:authors` of a
+  thread have it. It is the id of an actor on ActivityPub, a DID on the
+  AT Protocol and a public key on Nostr. A part has a `:url` when the
+  content itself names a web page for it. A reference names an event of
+  Nostr, and an emoji is a custom emoji of ActivityPub.
+
+  The parts are for an app that writes the content in its own way. `text`
+  gives the content as plain text. The reader of each protocol has
+  `parts` for what it keeps of a comment, and its docstring tells more."
+  [{:keys [protocol] :as thread} {:keys [content] :as comment}]
+  (or (case protocol
+        "activitypub" (some-> (::activitypub/source comment) activitypub/parts)
+        "atproto"     (some-> (::atproto/record comment) atproto/parts)
+        "nostr"       (some-> (::nostr-comments/event comment)
+                              (nostr-comments/parts {:names (nostr-comments/names thread)}))
+        nil)
+      (if-let [text (common/first-text (some-> content html/text))]
+        [{:type :text :text text}]
+        [])))
+
+(defn hiccup
+  "The content of `comment`, a comment of `thread`, as Hiccup that a page
+  can show, with `opts`. The result is a sequence of nodes to put inside
+  a parent element, as `[:div (hiccup thread comment)]`.
+
+  `:link` is a function of a part of `parts`, with the `:protocol` of the
+  thread. It gives the URL that a mention, a hashtag or a reference links
+  to, or nil. So the app chooses where they lead, in one function for
+  each protocol:
+
+      (hiccup thread comment
+              {:link (fn [{:keys [type id tag]}]
+                       (case type
+                         :mention (str \"/profiles/\" id)
+                         :hashtag (str \"/tags/\" tag)
+                         nil))})
+
+  For nil, a mention of ActivityPub keeps the link that the post has, and
+  a mention of another protocol has no link. `:emoji? true` shows the
+  custom emoji of ActivityPub as images. `:names` is a map from the ids
+  of profiles of Nostr to names, in the place of the names of the authors
+  of the thread.
+
+  The `:content` of a comment is the same content as HTML, without the
+  links of an app. A comment that an older version of podcast-clj read
+  has only that HTML, and the Hiccup is then made of it."
+  ([thread comment]
+   (hiccup thread comment {}))
+  ([{:keys [protocol] :as thread} {:keys [content] :as comment} {:keys [link] :as opts}]
+   {:pre [(map? opts)]}
+   (let [opts (cond-> opts
+                link (assoc :link #(link (assoc % :protocol protocol))))]
+     (or (case protocol
+           "activitypub" (some-> (::activitypub/source comment) (activitypub/hiccup opts))
+           "atproto"     (some-> (::atproto/record comment) (atproto/hiccup opts))
+           "nostr"       (some-> (::nostr-comments/event comment)
+                                 (nostr-comments/hiccup (merge {:names (nostr-comments/names thread)} opts)))
+           nil)
+         (html/hiccup content)))))
+
+(defn text
+  "The content of `comment`, a comment of `thread`, as plain text: the
+  text that a reader sees in what `hiccup` gives, as `html/text` writes
+  it. A blank line is between two paragraphs.
+
+      (text thread comment)  ; => \"Is this @Ann approved? #podcast\"
+
+  The text is not the text that the author sent. A note of Nostr names a
+  profile as a nostr: URI of 69 characters, and the text has the name of
+  the profile in its place. The text of a post of ActivityPub has no tags
+  of HTML.
+
+  `opts` can give `:links? true`, as `html/text` takes it. Each link then
+  has its URL after it. `opts` can also give the `:names` of `hiccup`."
+  ([thread comment]
+   (text thread comment {}))
+  ([thread comment opts]
+   {:pre [(map? opts)]}
+   (html/text (hiccup thread comment (dissoc opts :link)) (select-keys opts [:links?]))))
 
 (defn ^:no-doc exchange!
   "The exchange of `request`, sent by the `:send` of `opts` with its limits

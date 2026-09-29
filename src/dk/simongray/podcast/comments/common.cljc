@@ -98,22 +98,30 @@
   Each link is made absolute against `base`, marked as the link of a user
   that the app does not vouch for, and left without a target when it is no
   http or https URL. Each image is its alt text, since an image loads when
-  the page does."
-  [nodes base]
-  (letfn [(node [x]
-            (if-not (vector? x)
-              x
-              (let [[tag attrs children] (html/parts x)]
-                (case tag
-                  :img (str (:alt attrs))
-                  :a   (let [target (:href attrs)]
-                         (into [:a (present {:href  (web-url (if (and base target) (http/absolute-url base target) target))
-                                             :title (:title attrs)
-                                             :rel   "nofollow ugc"})]
-                               (map node)
-                               children))
-                  (into [tag attrs] (map node) children)))))]
-    (map node nodes)))
+  the page does.
+
+  `opts` can give two functions. `:a` gets the attributes of a link and
+  its fitted children, and gives the node in the place of the link, or nil
+  for the link as it is. `:text` gets a text, and gives the nodes in its
+  place."
+  ([nodes base]
+   (fit-links nodes base {}))
+  ([nodes base {:keys [a text] :or {a (constantly nil) text vector}}]
+   (letfn [(nodes-of [x]
+             (if-not (vector? x)
+               (text x)
+               (let [[tag attrs children] (html/parts x)
+                     kids (mapcat nodes-of children)]
+                 (case tag
+                   :img (text (str (:alt attrs)))
+                   :a   [(or (a attrs kids)
+                             (let [target (:href attrs)]
+                               (into [:a (present {:href  (web-url (if (and base target) (http/absolute-url base target) target))
+                                                   :title (:title attrs)
+                                                   :rel   "nofollow ugc"})]
+                                     kids)))]
+                   [(into [tag attrs] kids)]))))]
+     (mapcat nodes-of nodes))))
 
 (defn ^:no-doc safe-html
   "The HTML `s` of a post whose URL is `base`, safe for the page of an app
@@ -122,6 +130,43 @@
   [s base]
   (when (and (string? s) (not (str/blank? s)))
     (html/emit (fit-links (html/hiccup s) base))))
+
+(defn ^:no-doc joined
+  "The parts `ps` of a content as a vector. The texts that follow each
+  other are one text, and the texts that are empty are left out."
+  [ps]
+  (reduce (fn [out {:keys [type text] :as p}]
+            (cond
+              (and (= :text type) (= "" text))
+              out
+
+              (and (= :text type) (= :text (:type (peek out))))
+              (update-in out [(dec (count out)) :text] str text)
+
+              :else
+              (conj out p)))
+          []
+          ps))
+
+(defn ^:no-doc user-link
+  "The Hiccup of a link to `url` that a user wrote in a content, with the
+  label `label`. The link is marked as the link of a user that the app
+  does not vouch for. It is the label alone when the URL is no http or
+  https URL with a host."
+  [url label]
+  (if-let [href (web-url url)]
+    [:a {:href href :rel "nofollow ugc"} label]
+    label))
+
+(defn ^:no-doc linked
+  "The Hiccup of the part `part` of a content, with the label `label`: a
+  link to what the `:link` of `opts` gives for the part, or else the
+  label. `:link` is a function of a part, and the app chooses where a
+  mention, a hashtag or a reference leads."
+  [part label {:keys [link]}]
+  (if-let [href (when link (link part))]
+    [:a {:href href} label]
+    label))
 
 (defn ^:no-doc guarded
   "The comment that `(f)` reads of the post `id` at `at`. When the reading

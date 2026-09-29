@@ -900,6 +900,31 @@ can show it as it is. Its links are absolute, and they carry
 replaces each image in the content with its alt text. An image that loads
 with the page tells its server who reads the thread.
 
+The content is also data. `comments/parts` gives it as text, links,
+mentions and hashtags, in one shape for the three protocols. Each part has
+the text that the content shows for it. `comments/hiccup` gives the
+content as Hiccup, and `comments/text` gives it as plain text. The plain
+text is the text of the Hiccup, as a reader sees it. It is not the text
+that the author sent. A note of Nostr names a profile as a `nostr:` URI
+of 69 characters, and the plain text has the name of the profile. An
+app gives it one function, `:link`, which tells where a mention or a
+hashtag leads. So a mention leads to a page of the app, and the three
+protocols need one renderer. Each comment keeps what the renderer reads.
+For ActivityPub, that is the HTML and the tags of the post. For the AT
+Protocol, it is the record of the post, and for Nostr, the event of the
+note.
+
+The three protocols write a mention in three ways. On the AT Protocol, a
+facet marks the bytes of a mention and names the DID, so the parts are
+exact. On Nostr, the text holds the name of the profile as a `nostr:`
+URI. On ActivityPub, the mention is a link in the HTML, and the post
+names the actor in a tag. The link goes to the page of the profile, and
+the tag has the id of the actor, so the two are different URLs. The
+reader matches them by the user name and the server. A link is also a
+mention when it has the class `mention`. No standard defines that class.
+Mastodon writes it, and other server programs follow Mastodon. Such a
+mention can have no id.
+
 The data also records how far the reading went. It holds when `fetch!`
 read each post, the next page of each collection, and the pages that it
 read. A second `fetch!` reads on from where the first stopped. `requests`
@@ -1512,7 +1537,8 @@ against a profile, and the XML written back. Next to the raw fields, it
 shows the resolved properties and their sources. The front page searches the
 directories, and the Podping page reads the chain. The comments page of an
 episode reads its thread. It reads AT Protocol threads from the public
-AppView of Bluesky.
+AppView of Bluesky. The thread page reads the comments below any post, by
+the address of the post.
 
 The queue page has a small player in ClojureScript, over `app.player`. The
 player state is in localStorage, and Replicant renders it into a bar on

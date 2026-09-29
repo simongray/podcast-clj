@@ -54,7 +54,14 @@
             [:img {:alt "pic"}]]
            (html/sanitize (html/parse dirty))))
     (is (= [[:dfn {:title "term"} "x"]]
-           (html/sanitize (html/parse "<dfn title=\"term\" class=\"c\">x</dfn>")))))
+           (html/sanitize (html/parse "<dfn title=\"term\" class=\"c\">x</dfn>"))))
+    (testing "the tables of the caller in the place of the vars"
+      (is (= [[:p {} "Hi " [:a {:class "c"} "bad"] " " "plain"]]
+             (html/sanitize (html/parse "<p id=\"x\">Hi <a href=\"javascript:alert(1)\" class=\"c\">bad</a> <font>plain</font><em>gone</em></p>")
+                            {:allowed-attributes (update html/allowed-attributes :a conj :class)
+                             :dropped-tags       (conj html/dropped-tags :em)})))
+      (is (= ["Hi " [:b {} "there"]]
+             (html/sanitize (html/parse "<p>Hi <b title=\"t\">there</b></p>") {:allowed-tags #{:b}})))))
   (testing "javascript: behind the tabs, line breaks and control characters a browser drops"
     (doseq [href ["java&#9;script:alert(1)" "java&#10;script:alert(1)" "java&#x0D;script:alert(1)"
                   "&#1;javascript:alert(1)" " javascript:alert(1)" "java\tscript:alert(1)"]]

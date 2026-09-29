@@ -396,14 +396,15 @@
                                ["imeta" "url https://example.org/a.png" "m image/png"]]}
           short    #(str (subs % 0 12) "…" (subs % (- (count %) 6)))]
       (is (= [[:p {} "Is this " (str "@" (short ann-name)) " approved, " "@Bob" "? " "#40HPW" " #other"]
-              [:p {} "See " (short quoted) " and " [:a {:href "https://fountain.fm/episode/x"} "https://fountain.fm/episode/x"]]]
+              [:p {} "See " (short quoted) " and "
+               [:a {:href "https://fountain.fm/episode/x" :rel "nofollow ugc"} "https://fountain.fm/episode/x"]]]
              (nostr-comments/hiccup note {:names {bob-key "Bob"}}))
           "no line for the page of the episode, for the media and for the receipt of a payment")
       (is (= [[:p {} "Is this " [:a {:href (str "https://example.org/" ann-name)} "@Ann"] " approved, "
                [:a {:href (str "https://example.org/" bob-name)} "@Bob"] "? "
                [:a {:href "https://example.org/t/40HPW"} "#40HPW"] " #other"]
               [:p {} "See " [:a {:href (str "https://example.org/" quoted)} (short quoted)] " and "
-               [:a {:href "https://fountain.fm/episode/x"} "https://fountain.fm/episode/x"]]]
+               [:a {:href "https://fountain.fm/episode/x" :rel "nofollow ugc"} "https://fountain.fm/episode/x"]]]
              (nostr-comments/hiccup note {:names {ann-key "Ann" bob-key "Bob"}
                                           :link  (fn [{:keys [uri tag]}]
                                                    (str "https://example.org/" (if uri (subs uri 6) (str "t/" tag))))}))

@@ -134,9 +134,9 @@
         (when-not o {:id :comments/malformed :url url})
         (when-not (trusted? o final) {:id :comments/untrusted :url url}))))
 
-(defn- content-of
+(defn- markup-of
   "The language and the content of the ActivityPub object `o`, the content
-  in HTML that `common/safe-html` makes of it.
+  as the HTML that the server of its author wrote.
 
   The language is the one that its contentMap names. Text of another media
   type than HTML, as the Markdown of PeerTube, keeps its line breaks, as
@@ -146,11 +146,199 @@
         [language s] (if (string? (get o "content"))
                        [(when (map? by-language) (first (keys by-language))) (get o "content")]
                        (when (map? by-language) (first (filter (comp string? val) by-language))))]
-    [language (common/safe-html (if (or (contains? #{nil "text/html"} (get o "mediaType"))
-                                        (not (re-find html/markup (str s))))
-                                  s
-                                  (str/replace s #"\r?\n" "<br>"))
-                                (id-of o))]))
+    [language (if (or (contains? #{nil "text/html"} (get o "mediaType"))
+                      (not (re-find html/markup (str s))))
+                s
+                (str/replace s #"\r?\n" "<br>"))]))
+
+(defn- tag-part
+  "What the tag `t` of an ActivityPub object names in its content, as a
+  part: a mention of an actor, a hashtag or a custom emoji. The Activity
+  Vocabulary defines Mention. Mastodon defines Hashtag and Emoji, and
+  other server programs write them too."
+  [t]
+  (let [label (common/first-text (get t "name"))]
+    (case (get t "type")
+      "Mention" (when-let [id (common/web-url (href (get t "href")))]
+                  (common/present {:type :mention :id id :name label}))
+      "Hashtag" (when label
+                  (common/present {:type :hashtag :tag (str/replace label #"^#" "") :url (common/web-url (href (get t "href")))}))
+      "Emoji"   (when-let [url (common/web-url (href (get t "icon")))]
+                  (when label
+                    {:type :emoji :shortcode (str/replace label #"^:|:$" "") :url url}))
+      nil)))
+
+(defn- status-tags
+  "What the `status` of the Mastodon API names in its content, as parts:
+  its mentions, its hashtags and its custom emoji. The API gives the page
+  of a mentioned account, and not its ActivityPub id."
+  [status]
+  (let [named (fn [k] (filter map? (common/values status k)))]
+    (concat (for [{:strs [acct url]} (named "mentions")
+                  :when (common/first-text acct)]
+              (common/present {:type :mention :name (str "@" acct) :url (common/web-url url)}))
+            (for [{:strs [name url]} (named "tags")
+                  :when (common/first-text name)]
+              (common/present {:type :hashtag :tag name :url (common/web-url url)}))
+            (for [{:strs [shortcode url static_url]} (named "emojis")
+                  :let [image (some common/web-url [static_url url])]
+                  :when (and (common/first-text shortcode) image)]
+              {:type :emoji :shortcode shortcode :url image}))))
+
+(defn- source
+  "What `parts` and `hiccup` read of a post: the HTML `markup` of its
+  content, the id `base` of the post, and the parts `tags` that its tags
+  name."
+  [markup base tags]
+  (when (common/first-text markup)
+    (common/present {:html markup :base base :tags (vec tags)})))
+
+(defn- words
+  "The words of the attribute value `s`, in lower case, as a set."
+  [s]
+  (set (remove str/blank? (str/split (str/lower-case (str s)) #"\s+"))))
+
+(defn- label-of
+  "The text of the Hiccup `nodes`, as a reader sees it."
+  [nodes]
+  (apply str (filter string? (tree-seq sequential? seq nodes))))
+
+(defn- account
+  "The user name and the domain in the name `s` of an account, such as
+  @dave or @dave@example.social, in lower case: `[user domain]`. Nil for
+  another text."
+  [s]
+  (when-let [[_ user domain] (re-matches #"@?([^@\s]+)(?:@(\S+))?" (str/lower-case (str s)))]
+    [user domain]))
+
+(defn- link-part
+  "What the link with the attributes `attrs` and the text `label` is in the
+  content of `source`: a mention or a hashtag, as a part, or nil for
+  another link.
+
+  A hashtag starts with a number sign, and the post names it in a tag, or
+  the link has the class hashtag or the rel tag. A mention starts with an
+  at sign, and the post names the account in a tag, or the link has the
+  class mention. No standard defines the classes. Mastodon writes them,
+  and other server programs follow it. The `:id` of a mention is the id of
+  the actor, from the tag of the same user name on the same server."
+  [{:keys [href class rel]} label {:keys [base tags]}]
+  (let [classes  (words class)
+        url      (common/web-url (if (and base href) (http/absolute-url base href) href))
+        of-type  (fn [type] (filter #(= type (:type %)) tags))
+        tag      (when (str/starts-with? label "#") (subs label 1))
+        [user domain] (when (str/starts-with? label "@") (account label))
+        hashtag  (when tag
+                   (first (filter #(= (str/lower-case (:tag %)) (str/lower-case tag)) (of-type :hashtag))))
+        mention  (when user
+                   (first (filter (fn [{:keys [id name] target :url}]
+                                    (let [[u d] (account name)
+                                          host  (http/host (or id target))]
+                                      (and (= u user)
+                                           (or (nil? url)
+                                               (= host (http/host url))
+                                               (and d domain (= d domain))))))
+                                  (of-type :mention))))]
+    (cond
+      (and tag (or hashtag (contains? classes "hashtag") (contains? (words rel) "tag")))
+      (common/present {:type :hashtag :text label :tag tag :url url})
+
+      (and user (or mention (contains? classes "mention")))
+      (common/present {:type :mention :text label :id (:id mention) :url url}))))
+
+(defn- sanitized
+  "The content of `source` as sanitized Hiccup, with the class and the rel
+  of each link, which tell what the link is."
+  [{markup :html}]
+  (let [s (str markup)]
+    (if (re-find html/markup s)
+      (html/sanitize (html/parse s) {:allowed-attributes (update html/allowed-attributes :a conj :class)})
+      (html/hiccup s))))
+
+(defn- with-emoji
+  "The text `s` as the pieces between and at the shortcodes of the custom
+  emoji `emojis`, a map from shortcodes to parts: each piece is a text, or
+  the part of an emoji."
+  [s emojis]
+  (loop [s s found (re-seq #":[A-Za-z0-9_+-]+:" s) out []]
+    (if-let [[match & more] (seq found)]
+      (let [i     (str/index-of s match)
+            emoji (get emojis (subs match 1 (dec (count match))))]
+        (if emoji
+          (recur (subs s (+ i (count match))) more (conj out (subs s 0 i) (assoc emoji :text match)))
+          (recur s more out)))
+      (remove #{""} (conj out s)))))
+
+(defn- emojis-of
+  "The custom emoji of `source`, by shortcode."
+  [{:keys [tags]}]
+  (into {} (keep (fn [{:keys [type shortcode] :as t}] (when (= :emoji type) [shortcode t]))) tags))
+
+(defn parts
+  "The parts of the content of `source`, the source of an ActivityPub
+  comment, in their order. Each part is a map with its `:type` and the
+  `:text` that the post shows for it:
+
+      {:type :text :text \"Good episode, \"}
+      {:type :mention :text \"@dave\" :id \"https://example.social/users/dave\" :url \"https://example.social/@dave\"}
+      {:type :hashtag :text \"#podcast\" :tag \"podcast\" :url \"https://example.social/tags/podcast\"}
+      {:type :link :text \"example.org\" :url \"https://example.org/\"}
+      {:type :emoji :text \":blobcat:\" :shortcode \"blobcat\" :url \"https://example.social/emoji/blobcat.png\"}
+
+  The content of a post is HTML, and the parts are its text in one line
+  of parts. A line break of the text is a line break in a text part, and
+  a blank line comes after a paragraph. `hiccup` keeps the elements of
+  the HTML."
+  [{:keys [base] :as source}]
+  (let [emojis (emojis-of source)
+        pieces (fn [s] (map #(if (string? %) {:type :text :text %} %) (with-emoji s emojis)))
+        flat   (fn flat [x]
+                 (cond
+                   (string? x)
+                   (pieces x)
+
+                   (vector? x)
+                   (let [[tag attrs kids] (html/parts x)
+                         label (label-of kids)
+                         url   (common/web-url (if (and base (:href attrs)) (http/absolute-url base (:href attrs)) (:href attrs)))]
+                     (case tag
+                       :br  [{:type :text :text "\n"}]
+                       :img (pieces (str (:alt attrs)))
+                       :a   [(or (link-part attrs label source)
+                                 (if url {:type :link :text label :url url} {:type :text :text label}))]
+                       (concat (mapcat flat kids)
+                               (cond
+                                 (contains? html/paragraph-tags tag) [{:type :text :text "\n\n"}]
+                                 (contains? html/line-tags tag)      [{:type :text :text "\n"}]))))))
+        joined (common/joined (mapcat flat (sanitized source)))]
+    (cond-> joined
+      (= :text (:type (peek joined))) (-> (update-in [(dec (count joined)) :text] str/trimr)
+                                          common/joined))))
+
+(defn hiccup
+  "The content of `source`, the source of an ActivityPub comment, as
+  sanitized Hiccup, with its links fit as the `:content` of a comment has
+  them. The result is a sequence of nodes to put inside a parent element.
+
+  `:link` in `opts` is a function of a part of `parts`. It gives the URL
+  that a mention or a hashtag links to, or nil for the link that the post
+  has. So a mention leads to a page of the app, and not to the server of
+  the mentioned account. With `:emoji? true`, each custom emoji is an
+  image. The image loads from the server of the author, which then knows
+  who reads the thread."
+  ([source]
+   (hiccup source {}))
+  ([{:keys [base] :as source} {:keys [link emoji?] :as opts}]
+   {:pre [(map? opts)]}
+   (let [emojis (when emoji? (emojis-of source))
+         image  (fn [{:keys [text url]}] [:img {:src url :alt text :title text}])]
+     (apply list (common/fit-links (sanitized source)
+                                   base
+                                   {:a    (fn [attrs kids]
+                                            (when-let [part (link-part attrs (label-of kids) source)]
+                                              (when-let [target (when link (link part))]
+                                                (into [:a {:href target}] kids))))
+                                    :text (fn [s] (map #(if (string? %) % (image %)) (with-emoji s emojis)))})))))
 
 (defn- warning
   "The content warning in the summary `s` of an ActivityPub object, as
@@ -208,9 +396,11 @@
 (defn- object-comment
   "The ActivityPub object `o` as a comment read at `at`."
   [o at]
-  (let [[language content] (content-of o)
-        poll               (object-poll o)]
+  (let [[language markup] (markup-of o)
+        content           (common/safe-html markup (id-of o))
+        poll              (object-poll o)]
     (common/present {:id          (id-of o)
+                     ::source     (source markup (id-of o) (keep tag-part (filter map? (common/values o "tag"))))
                      :url         (web-page o)
                      :author      (attributed o)
                      :in-reply-to (id-of (first (common/values o "inReplyTo")))
@@ -530,6 +720,7 @@
                      :published            (time/parse-date (get status "created_at"))
                      :updated              (time/parse-date (get status "edited_at"))
                      :content              (common/safe-html (get status "content") (get status "uri"))
+                     ::source              (source (get status "content") (get status "uri") (status-tags status))
                      :language             (common/first-text (get status "language"))
                      :summary              (common/first-text (get status "spoiler_text"))
                      :sensitive?           (true? (get status "sensitive"))

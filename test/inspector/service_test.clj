@@ -132,6 +132,8 @@
           (is (= 200 status))
           (is (str/includes? body "Quantum Panhandler"))
           (is (str/includes? body "@cbrooklyn112@mk.spook.social"))
+          (is (re-find #"<div class=\"notes\"><p>" body) "the content of a comment as elements")
+          (is (not (str/includes? body "[:p")) "and not as the text of its Hiccup")
           (is (not (re-find #"href=\"[^\"]*script:" body))))
         (is (str/includes? (:body (get* "/item" "url" "https://example.com/talk.xml" "guid" "t")) "/comments?url=")))
       (testing "an episode whose podcaster wants no comments shown, one with no thread, and no episode"
@@ -140,7 +142,52 @@
           (is (str/includes? body "names no thread"))
           (is (str/includes? body "podcast:item:guid:s") "the notes about the episode on Nostr")
           (is (str/includes? body "The relays have no note about this episode")))
-        (is (= 404 (:status (get* "/comments" "url" "https://example.com/talk.xml" "guid" "nope"))))))))
+        (is (= 404 (:status (get* "/comments" "url" "https://example.com/talk.xml" "guid" "nope")))))
+      (testing "the comments below a post that an address names"
+        (let [{:keys [status body]} (get* "/thread" "uri" root)]
+          (is (= 200 status))
+          (is (str/includes? body "Quantum Panhandler"))
+          (is (str/includes? body "over activitypub"))
+          (is (re-find #"<div class=\"notes\"><p>" body))
+          (is (str/includes? body "/thread?uri=https%3A%2F%2Fpodcastindex.social%2F%40dave%2F117294750060235480&amp;hidden=1")))
+        (let [{:keys [status body]} (get* "/thread")]
+          (is (= 200 status))
+          (is (str/includes? body "The address of a post"))
+          (is (not (str/includes? body "does not know this address"))))
+        (is (str/includes? (:body (get* "/thread" "uri" "not an address")) "does not know this address"))
+        (is (str/includes? (:body (get* "/")) "action=\"/thread\"") "a form on the front page")))))
+
+(deftest the-address-of-a-post
+  (doseq [[address interact]
+          {"https://podcastindex.social/@dave/117294750060235480"
+           {:protocol "activitypub" :uri "https://podcastindex.social/@dave/117294750060235480"}
+
+           " https://bsky.app/profile/atproto.com/post/3msydg6sd7s2d?x=1 "
+           {:protocol "atproto" :uri "at://atproto.com/app.bsky.feed.post/3msydg6sd7s2d"}
+
+           "at://did:plc:ewvi7nxzyoun6zhxrhs64oiz/app.bsky.feed.post/3msydg6sd7s2d"
+           {:protocol "atproto" :uri "at://did:plc:ewvi7nxzyoun6zhxrhs64oiz/app.bsky.feed.post/3msydg6sd7s2d"}
+
+           "nostr:note1tjpa5aa0rhkx6u5fsdye3tt6477eugv389khtmpucfl45aezdumqkkhgwy"
+           {:protocol "nostr" :uri "nostr:note1tjpa5aa0rhkx6u5fsdye3tt6477eugv389khtmpucfl45aezdumqkkhgwy"}
+
+           "note1tjpa5aa0rhkx6u5fsdye3tt6477eugv389khtmpucfl45aezdumqkkhgwy"
+           {:protocol "nostr" :uri "note1tjpa5aa0rhkx6u5fsdye3tt6477eugv389khtmpucfl45aezdumqkkhgwy"}
+
+           "https://njump.me/note1tjpa5aa0rhkx6u5fsdye3tt6477eugv389khtmpucfl45aezdumqkkhgwy"
+           {:protocol "nostr" :uri "nostr:note1tjpa5aa0rhkx6u5fsdye3tt6477eugv389khtmpucfl45aezdumqkkhgwy"}
+
+           "https://njump.me/note1tjpa5aa0rhkx6u5fsdye3tt6477eugv3897htmpucflh5aezdumqxwh3jl"
+           {:protocol "activitypub" :uri "https://njump.me/note1tjpa5aa0rhkx6u5fsdye3tt6477eugv3897htmpucflh5aezdumqxwh3jl"}
+
+           "podcast:item:guid:d98d189b-dc7b-45b1-8720-d4b98690f31f"
+           {:protocol "nostr" :uri "podcast:item:guid:d98d189b-dc7b-45b1-8720-d4b98690f31f"}
+
+           "not an address" nil
+           "javascript:alert(1)" nil
+           "" nil}]
+    (is (= interact (#'service/interact-of address)) (pr-str address)))
+  (is (nil? (#'service/interact-of nil))))
 
 (deftest quotes-and-parameters
   (with-redefs [http/fetch! (fn [url & _]

@@ -427,7 +427,36 @@ If there is no thread, show no comments. `comments/thread` gives nil when
 the podcaster wants no public comments.
 
 The content of a comment is sanitized HTML with absolute links. Render it
-with `html/hiccup`. If a comment has a `:summary` or is `:sensitive?`, show
+with `html/hiccup`. To lead the mentions and the hashtags to pages of your
+app, render the comment with `comments/hiccup`, and give it a function
+for the links:
+
+```clojure
+(comments/hiccup thread comment
+                 {:link (fn [{:keys [type protocol id tag]}]
+                          (case type
+                            :mention (when id (str "/profiles/" protocol "/" (http/encode id)))
+                            :hashtag (str "/tags/" (http/encode tag))
+                            nil))})
+;; => [[:p {} "Good episode, " [:a {:href "/profiles/activitypub/https%3A%2F%2F…"} "@ann"] " " [:a {:href "/tags/podcast"} "#podcast"]]]
+```
+
+The function gets a part of the content. The `:id` of a mention is the id
+of an author of the thread. It is the id of an actor on ActivityPub, a
+DID on the AT Protocol and a public key on Nostr. For nil, a mention of
+ActivityPub keeps the link of its post, and a mention of another protocol
+has no link. `comments/parts` gives the parts themselves, for an app that
+shows no HTML.
+
+`comments/text` gives the content as plain text, for a notification or a
+line in a list. It is the text that a reader sees, with the name of a
+profile in the place of its id:
+
+```clojure
+(comments/text thread comment)  ; => "Is this @Ann approved? 🤣 #podcast"
+```
+
+If a comment has a `:summary` or is `:sensitive?`, show
 it behind a warning. An attachment gives its `:aspect-ratio` for the
 layout. The `:poll` of a comment gives the choices of a poll. On Bluesky,
 the author of the root post can hide replies. `tree` leaves out the hidden
@@ -474,23 +503,19 @@ comments.
 
 The `:content` of a comment from Nostr is HTML, as that of each other
 comment. A mention of a profile is the name of the profile, such as
-`@Ann`. To give the mentions and the hashtags links, write the content
-from the event of the comment, with a function that gives the link of a
-part:
+`@Ann`. `comments/hiccup` gives the mentions, the hashtags and the
+references to other notes the links of your app. A part of Nostr with a
+`:uri` is a mention or a reference, and the URI opens an app of Nostr on
+the device:
 
 ```clojure
-(let [event (::nostr-comments/event comment)]
-  (nostr-comments/hiccup event {:names (nostr-comments/names thread)
-                                :link  (fn [{:keys [uri tag]}]
-                                         (if uri uri (str "https://example.org/tags/" tag)))}))
+(comments/hiccup thread comment {:link (fn [{:keys [uri tag]}]
+                                         (or uri (str "https://example.org/tags/" tag)))})
 ;; => [[:p {} "Is this " [:a {:href "nostr:npub1…"} "@Ann"] " approved? " [:a {:href "https://…"} "#podcast"]]]
 ```
 
-A part with a `:uri` is a mention or a reference to an event, and the
-URI opens an app of Nostr on the device. `nostr/parts` gives the parts
-of a content, for an app that writes them in another way. When a note
-came with a payment, `(::nostr-comments/receipts comment)` has the ids of
-the receipts. Such a note can have no content.
+When a note came with a payment, `(::nostr-comments/receipts comment)`
+has the ids of the receipts. Such a note can have no content.
 
 A relay can send anything, so `fetch!` keeps only the events with a
 signature that is right. The report tells how many events it left out, as

@@ -827,20 +827,23 @@
 
 (deftest the-text-of-a-post
   (let [link (fn [start end uri] {"index" {"byteStart" start "byteEnd" end}
-                                  "features" [{"$type" "app.bsky.richtext.facet#link" "uri" uri}]})]
+                                  "features" [{"$type" "app.bsky.richtext.facet#link" "uri" uri}]})
+        html (fn [text facets] (atproto/post-html {"text" text "facets" facets}))]
     (is (= (str "<p>🔴 LIVE <a href=\"https://stream.place/atproto.com\" rel=\"nofollow ugc\">https://stream.place/atproto.com</a>"
                 " Off Protocol LIVE</p>")
-           (atproto/post-html "🔴 LIVE https://stream.place/atproto.com Off Protocol LIVE"
-                              [(link 10 42 "https://stream.place/atproto.com")]))
+           (html "🔴 LIVE https://stream.place/atproto.com Off Protocol LIVE"
+                 [(link 10 42 "https://stream.place/atproto.com")]))
         "the facets count UTF-8 bytes, ten of them before the link")
-    (is (= "<p>a<br>b &amp; &lt;c&gt;</p>" (atproto/post-html "a\nb & <c>" [(link 0 1 "javascript:alert(1)")]))
+    (is (= "<p>a<br>b &amp; &lt;c&gt;</p>" (html "a\nb & <c>" [(link 0 1 "javascript:alert(1)")]))
         "text is escaped, and a link that is no web page is text")
     (is (= "<p><a href=\"https://a.example\" rel=\"nofollow ugc\">ab</a>cd</p>"
-           (atproto/post-html "abcd" [(link 0 2 "https://a.example") (link 1 3 "https://b.example") (link 2 9 "https://c.example")]))
+           (html "abcd" [(link 0 2 "https://a.example") (link 1 3 "https://b.example") (link 2 9 "https://c.example")]))
         "a facet that overlaps the one before it, or that runs past the text, is left out")
     (is (= "<p><a href=\"https://a.example\" rel=\"nofollow ugc\">ab</a>cd</p>"
-           (atproto/post-html "abcd" [(link 0.0 2.0 "https://a.example")]))
-        "an offset as JSON can write it, 2.0")))
+           (html "abcd" [(link 0.0 2.0 "https://a.example")]))
+        "an offset as JSON can write it, 2.0")
+    (doseq [record [nil {} {"text" nil} {"text" "  "} {"text" 5} "text"]]
+      (is (nil? (atproto/post-html record)) (pr-str record)))))
 
 (deftest an-at-uri
   (is (= {:authority "did:plc:x" :collection "app.bsky.feed.post" :rkey "3k"} (atproto/at-uri "at://did:plc:x/app.bsky.feed.post/3k")))
