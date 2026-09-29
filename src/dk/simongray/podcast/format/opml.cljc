@@ -20,8 +20,8 @@
   URL that ends in .opml, becomes one of the `:includes`, with the `:path`
   of its folders as a subscription has."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.time :as time]
-            [dk.simongray.podcast.xml :as xml]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (def ^:no-doc head-elements
   "The head elements of OPML 2.0 besides the title that a subscription list

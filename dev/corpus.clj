@@ -7,16 +7,16 @@
             [clojure.pprint :as pprint :refer [print-table]]
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.bytes :as bytes]
-            [dk.simongray.podcast.check :as check]
+            [dk.simongray.podcast.directory.podcastindex :as index]
+            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.check :as check]
+            [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.media :as media]
-            [dk.simongray.podcast.feed :as feed]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.feed.validate :as validate]
-            [dk.simongray.podcast.xml :as xml]))
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (def dir
   "Where the named feeds are kept, outside git."

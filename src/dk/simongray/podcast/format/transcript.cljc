@@ -18,9 +18,9 @@
   written as strings, speakers taken from prefixes, an SRT wrapped in HTML,
   a declared type that does not match the file."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.time :as time]
-            [dk.simongray.podcast.xml :as xml]))
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (def formats
   "Transcript format by the mime type `podcast:transcript` gives it."

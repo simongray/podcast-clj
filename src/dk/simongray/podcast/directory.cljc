@@ -24,12 +24,12 @@
   `search!` and `trending!` ask several sources at once and `combine` the
   answers into one entry per show."
   (:require [clojure.string :as str]
-            #?(:clj [dk.simongray.podcast.async :as async])
-            [dk.simongray.podcast.guid :as guid]
+            #?(:clj [dk.simongray.podcast.util.async :as async])
             [dk.simongray.podcast.directory.podcastindex :as index]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def apple-genres
   "The ids of the genres of Apple Podcasts by name, as the genre service

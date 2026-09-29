@@ -14,15 +14,15 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync :as sync]
-            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
-            [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.resolve :as resolve]
-            [dk.simongray.podcast.secret :as secret]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def calls
   "What a backend asks a server. `apis` gives the path of each call."
@@ -95,7 +95,7 @@
   Every call carries the credentials as Basic authentication, and the
   session when there is one: some servers want the one, others the other.
   The password and the session can be hidden texts of
-  `dk.simongray.podcast.secret`. The request has them in its headers, as
+  `dk.simongray.podcast.util.secret`. The request has them in its headers, as
   hidden texts."
   [call root {:keys [api credentials device since body] :or {api :gpodder} :as opts}]
   (let [creds   (if (fn? credentials) (credentials) credentials)

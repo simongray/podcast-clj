@@ -63,8 +63,8 @@ The size of a target is an estimate:
   and nine other vocabularies. `parse`, `emit`, `validate` and the Malli
   schemas all come from one tag registry.
 - The repairs and quirks for malformed feeds, with a report of each.
-- `resolve`: one answer where vocabularies overlap, the listening order,
-  the seasons, and `next-check` for polling.
+- `feed.resolve`: one answer where vocabularies overlap, the listening
+  order, the seasons, and `next-check` for polling.
 - Chapters in JSON and Podlove form, and from the timestamps in show notes.
   Transcripts in five formats, OPML, and the HTML of show notes.
 - The directories Apple Podcasts, fyyd and gpodder.net, and the whole
@@ -112,7 +112,7 @@ find more, or cost less.
 | Private feeds with a user name and a password | Overcast, AntennaPod, gPodder, PinePods | Target | Small | Built: `:credentials` of `podcast/fetch!` |
 | The kind of a redirect: permanent or temporary | AntennaPod, gPodder, the Livewire validator | Target | Small | Built: `:permanent-url` of `podcast/fetch!` |
 | Polite polling: `Retry-After` and `Cache-Control` | gPodder, Overcast | Target | Small | Built: `:not-before` of `podcast/fetch!` |
-| WebSub | Pocket Casts | In part | Small | Built: `websub` |
+| WebSub | Pocket Casts | In part | Small | Built: `updates.websub` |
 
 **Paged feeds.** RFC 5005 lets a host split a long feed into pages. The
 pages link to each other with `atom:link rel="next"`. The feeds of
@@ -267,11 +267,11 @@ stamped entries, like the entries that the state has now.
 
 **Saved filters and playlists.** The criteria of `search/episodes` are data,
 but the app keeps them. Pocket Casts, Overcast, Downcast and PinePods save
-filters as smart playlists. A saved filter is a stamped entry that holds
-the criteria, so it syncs to the other devices. Pocket Casts, Podcast
-Addict, Fountain and Podverse have playlists, and Podcini has several
-queues. podcast-clj has one queue. A playlist is a second map of ranked
-entries, under a name. The code of the queue and of `rank` works for it.
+filters as smart playlists. A saved filter is a stamped entry that holds the
+criteria, so it syncs to the other devices. Pocket Casts, Podcast Addict,
+Fountain and Podverse have playlists, and Podcini has several queues.
+podcast-clj has one queue. A playlist is a second map of ranked entries,
+under a name. The code of the queue and of `util.rank` works for it.
 
 **Statistics.** The state holds the position in each episode, not the time
 that the listener spent. Pocket Casts, AntennaPod and PinePods show the
@@ -339,16 +339,16 @@ own.
 
 | Feature | Who has it | Verdict | Size | Status |
 |---|---|---|---|---|
-| Accessors for `podroll`, `publisher`, `socialInteract`, `soundbite` and `txt` | Pocket Casts, Apple Podcasts, many Podcasting 2.0 apps | Target | Small | Built: `resolve` |
+| Accessors for `podroll`, `publisher`, `socialInteract`, `soundbite` and `txt` | Pocket Casts, Apple Podcasts, many Podcasting 2.0 apps | Target | Small | Built: `feed.resolve` |
 | Charts by category | The Podcast Index | Target | Small | Built: `:category` of `directory/trending!` |
-| Links to apps, and links with a time | Apple Podcasts, Pocket Casts, Spotify, the Podlove Subscribe Button | In part | Small | Built: `links` |
+| Links to apps, and links with a time | Apple Podcasts, Pocket Casts, Spotify, the Podlove Subscribe Button | In part | Small | Built: `directory.links` |
 | Personal recommendations | Apple Podcasts, Overcast, Pocket Casts | Out | | |
 | Search inside the audio of all shows | Castbox, Apple Podcasts, Snipd | Out | | |
 | Discovery through a chat | Spotify, YouTube Music, Castro | Out | | |
 
 **Accessors.** The model reads `podroll`, `publisher`, `socialInteract`,
-`soundbite` and `txt`, but `resolve` has no accessor for them. Apps show
-these tags. Pocket Casts shows the podroll next to similar shows. Apple
+`soundbite` and `txt`, but `feed.resolve` has no accessor for them. Apps
+show these tags. Pocket Casts shows the podroll next to similar shows. Apple
 Podcasts reads `txt` to verify the owner of a show. Accessors can give the
 recommended feeds of the podroll, the publisher feed, the discussion of an
 episode, the soundbites, and the `txt` values by purpose.
@@ -455,7 +455,7 @@ accounts with a payment service.
 
 | Feature | Who has it | Verdict | Size | Status |
 |---|---|---|---|---|
-| Checks of a feed over the network | Cast Feed Validator, Podbase, Livewire, Apple Podcasts | Target | Medium | Built: `check` |
+| Checks of a feed over the network | Cast Feed Validator, Podbase, Livewire, Apple Podcasts | Target | Medium | Built: `feed.check` |
 | OP3: the prefix and the public statistics | Transistor, Captivate, Libsyn, Spreaker, Simplecast, RSS.com, Podhome | Target | Small | Built: `analytics.op3` |
 | Download counts by the rules of the IAB | Hosts with IAB certification, OP3 | In part | Medium | Built: `analytics/downloads` |
 | Paged feeds | Podlove Publisher | Target | Small | Built: `feed/pages` |
@@ -550,8 +550,8 @@ the most for their size, in this order:
 1. The gaps in the fetch: paged feeds, feed discovery, Basic
    authentication, the kind of a redirect, and polite polling. Each is
    small, and every app that polls feeds needs them.
-2. The accessors that `resolve` lacks, and `:skip-outro` in `step`. They
-   finish features that podcast-clj has in part.
+2. The accessors that `feed.resolve` lacks, and `:skip-outro` in `step`.
+   They finish features that podcast-clj has in part.
 3. New entries in the player state: stars, bookmarks, folders, an inbox and
    saved filters. Then playlists and statistics.
 4. Chapters, artwork and duration from media files, and the integrity

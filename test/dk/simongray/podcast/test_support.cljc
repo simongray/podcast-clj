@@ -10,10 +10,10 @@
             #?(:cljs [clojure.test :refer [is async]])
             #?(:clj [dk.simongray.podcast :as podcast])
             [dk.simongray.podcast.app.player :as player]
-            [dk.simongray.podcast.bech32 :as bech32]
-            [dk.simongray.podcast.bytes :as bytes]
-            #?(:clj [dk.simongray.podcast.json :as json])
-            [dk.simongray.podcast.nostr :as nostr])
+            [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.util.bech32 :as bech32]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            #?(:clj [dk.simongray.podcast.util.json :as json]))
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
                    [java.io File InputStream OutputStream]
                    [java.net InetAddress InetSocketAddress ServerSocket Socket]
@@ -144,7 +144,7 @@
     (bytes/add (bytes/view (bytes/length b)) 0 b (bytes/length b))))
 
 (defn fetch-from
-  "A fetch over the bytes `b`, as `dk.simongray.podcast.bytes/read!` takes
+  "A fetch over the bytes `b`, as `dk.simongray.podcast.util.bytes/read!` takes
   it, noting each range in `log`."
   [b log]
   (fn [start end]

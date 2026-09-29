@@ -19,11 +19,11 @@
   own connections. `relays` names the relays that podcast-clj asks when
   nothing names another relay."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.bech32 :as bech32]
-            [dk.simongray.podcast.bytes :as bytes]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.secp256k1 :as secp256k1])
+            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
+            [dk.simongray.podcast.util.bech32 :as bech32]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json])
   #?(:clj (:import [java.net URI]
                    [java.net.http HttpClient WebSocket WebSocket$Listener]
                    [java.time Duration]

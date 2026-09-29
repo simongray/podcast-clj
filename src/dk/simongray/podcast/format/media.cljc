@@ -2,12 +2,12 @@
   "What a media file says about itself, apart from the feed.
 
   A media file gives its duration, its chapters and its artwork. It is an
-  MP3 file (see dk.simongray.podcast.format.mp3 and .id3), or an MP4 or
-  M4A file (see .mp4). `verify!` checks a file against the
+  MP3 file (see dk.simongray.podcast.format.media.mp3 and .id3), or an MP4
+  or M4A file (see .mp4). `verify!` checks a file against the
   podcast:integrity of an alternate enclosure.
 
   `read` takes a view of the parts of the file at hand (see
-  dk.simongray.podcast.bytes). It gives what they say, or the ranges that
+  dk.simongray.podcast.util.bytes). It gives what they say, or the ranges that
   it still needs. `read!` fetches those ranges until the reading is done,
   most often in one or two requests and a few hundred kilobytes. It
   fetches with the HTTP client of podcast-clj on the JVM, with fetch in
@@ -21,14 +21,14 @@
   `:except` in the options leaves out the quirks that it names."
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.async :as async]
-            [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.chapters :as chapters]
-            [dk.simongray.podcast.format.id3 :as id3]
-            [dk.simongray.podcast.format.mp3 :as mp3]
-            [dk.simongray.podcast.format.mp4 :as mp4]
-            [dk.simongray.podcast.http :as http])
+            [dk.simongray.podcast.format.media.id3 :as id3]
+            [dk.simongray.podcast.format.media.mp3 :as mp3]
+            [dk.simongray.podcast.format.media.mp4 :as mp4]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.http :as http])
   #?(:clj (:import [java.security MessageDigest])))
 
 (defn- sniff
@@ -97,7 +97,7 @@
   "What the media file at `url` says about itself, as `read` gives it. On
   the JVM it gives the result, and in ClojureScript a promise of it.
 
-  `dk.simongray.podcast.bytes/read!` fetches the ranges that the reading
+  `dk.simongray.podcast.util.bytes/read!` fetches the ranges that the reading
   needs. `opts` can give `:fetch`, a function as `http/fetcher` makes, for
   an app that fetches its own way. They can also give the `:headers`, the
   `:timeout-seconds` and the `:send` of `http/fetcher`, the `:allow?` of

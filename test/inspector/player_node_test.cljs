@@ -7,7 +7,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing async]]
             [dk.simongray.podcast.app.player :as player]
-            [dk.simongray.podcast.time :as time]
+            [dk.simongray.podcast.util.time :as time]
             [inspector.player :as shell]))
 
 (def page-html

@@ -5,12 +5,12 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.bech32 :as bech32]
-            [dk.simongray.podcast.bytes :as bytes]
-            [dk.simongray.podcast.json :as json]
+            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.nostr :as nostr]
-            [dk.simongray.podcast.secp256k1 :as secp256k1]
-            [dk.simongray.podcast.test-support :refer [fixture run secret-key signed #?(:clj with-relay)]]))
+            [dk.simongray.podcast.test-support :refer [fixture run secret-key signed #?(:clj with-relay)]]
+            [dk.simongray.podcast.util.bech32 :as bech32]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.json :as json]))
 
 (def fountain-note
   "A note about an episode, as the app Fountain wrote it."

@@ -5,8 +5,8 @@
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.test-support :refer [fixture]]
+            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.value :as value]))
 
 (def complex-chapters

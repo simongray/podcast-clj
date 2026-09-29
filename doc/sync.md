@@ -73,11 +73,11 @@ the envelope, the retries and the diagnostics. A new store thus needs only
 two to four functions.
 
 On the JVM, each function returns its value and throws on failure. In
-ClojureScript, each function can return a value or a promise. With `async`,
-the engine and the stores are written once for both platforms. A deferred
-value is a future on the JVM and a promise in ClojureScript. `then` and
-`all` take values and deferred values alike. `attempt` calls a function and
-gives its value or its error as data.
+ClojureScript, each function can return a value or a promise. With
+`util.async`, the engine and the stores are written once for both platforms.
+A deferred value is a future on the JVM and a promise in ClojureScript.
+`then` and `all` take values and deferred values alike. `attempt` calls a
+function and gives its value or its error as data.
 
 A refused write is a value, not an exception. It is a normal result of the
 shared strategy, and each store must signal it in the same way. Errors of
@@ -261,9 +261,9 @@ merged its stamps.
 
 ### The queue as a set of ranked entries
 
-The queue has one entry for each episode, with a rank from `rank`. A rank is
-a base-62 string, and there is always room for another rank between two
-ranks.
+The queue has one entry for each episode, with a rank from `util.rank`. A
+rank is a base-62 string, and there is always room for another rank between
+two ranks.
 
 At the ends of the list, the ranks count. After V come W, X and the other
 digits up to y. Then come the ranks of the next level: z and a number of

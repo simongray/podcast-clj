@@ -20,7 +20,7 @@
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
-            [dk.simongray.podcast.time :as time]
+            [dk.simongray.podcast.util.time :as time]
             [inspector.player.view :as view]
             [replicant.dom :as replicant]))
 

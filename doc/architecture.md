@@ -41,21 +41,23 @@ ecosystem that podcast-clj was written for.
 
 ```
   4  front door   dk.simongray.podcast
-  3  companions   format.*  value  value.*  resolve  check  directory  directory.podcastindex  links  podping  websub  nostr  comments  comments.*  analytics  analytics.*  app.*
+  3  companions   feed.resolve  feed.check  format.*  value  value.*  directory  directory.*  updates.*  nostr  comments  comments.*  analytics  analytics.*  app.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
-  1  vocabulary   spec  quirks
-  0  primitives   xml  xml.jsoup  time  time.rrule  guid  json  http  bytes  bech32  secp256k1  rank  async  diagnostics
+  1  vocabulary   feed.spec  feed.quirks
+  0  primitives   util.*  crypto.*  feed.guid  diagnostics
 ```
 
 A namespace requires only namespaces in its own layer or in a lower layer.
-`spec` knows nothing about parsing, and `feed` knows nothing about HTTP. The
-companion formats need only the primitives and each other, not `feed` or
-`quirks`. What they need of XML, such as the Hiccup accessors and the
-decoding of entities, is in `xml`. `architecture_test.clj` reads the `ns`
-forms and makes sure that these rules hold and that there are no cycles.
+`feed.spec` knows nothing about parsing, and `feed` knows nothing about
+HTTP. The companion formats need only the primitives and each other, not
+`feed` or `feed.quirks`. What they need of XML, such as the Hiccup accessors
+and the decoding of entities, is in `util.xml`. `architecture_test.clj`
+reads the `ns` forms and makes sure that these rules hold and that there
+are no cycles. It also makes sure that each namespace under `util` and
+`crypto` is a primitive, so the name of a namespace shows that layer.
 
-`xml.jsoup`, `app.sync.file` and `app.sync.webdav.server` run only on the
-JVM, and so do some of the functions whose names end in `!`.
+`util.xml.jsoup`, `app.sync.file` and `app.sync.webdav.server` run only on
+the JVM, and so do some of the functions whose names end in `!`.
 
 The inspector is outside the library, in the source path `web/`, with its
 own namespaces, `inspector.*`. The tools for the corpus and for the
@@ -63,27 +65,43 @@ generated reference are in `dev/`. As a result, the jar of podcast-clj does
 not contain Pedestal, and the namespace tree shows what is library and what
 is example.
 
-The names follow the design where one part belongs to another:
+The names follow the design. The root has one name for each subject of
+podcast-clj, and each part is under the subject that it belongs to:
 
-- `xml.jsoup` is under `xml`, and `time.rrule` is under `time`.
-- `feed.coerce`, `feed.validate` and `feed.schema` are under `feed`.
+- `feed` holds the feed. `feed.spec` is the tag registry, and `feed.quirks`
+  holds the accommodations for feeds that break a standard.
   `feed.validate` and `feed.schema` interpret the tag registry for the
   model, and `feed.coerce` holds the value types that the registry uses.
-- The companion formats are under `format`.
+  `feed.guid` gives a feed its identity. `feed.resolve` reads a feed for an
+  app, and `feed.check` checks the files that a feed links to.
+- The companion formats are under `format`. The readers that
+  `format.media` stands on are under it: `format.media.id3`,
+  `format.media.mp3` and `format.media.mp4`.
 - `app` holds what an app keeps (`app.player`), finds (`app.search`),
   downloads (`app.downloads`) and syncs (`app.sync`). The stores are under
   `app.sync`.
 - The Podcast Index client is under `directory`, because the Podcast Index
-  is one of the directories.
+  is one of the directories. `directory.links` writes the links to a show
+  in the directories and in the apps.
+- `updates` holds the two ways to learn that a feed changed:
+  `updates.podping` and `updates.websub`.
 - The readers of ActivityPub, of the AT Protocol and of Nostr are under
   `comments`, with what they share in `comments.common`.
-- The payment of Lightning addresses and the RSS Payment Metadata are under
-  `value`, which holds the payment that they send.
+- The payment of Lightning addresses, the RSS Payment Metadata and the
+  wallets are under `value`, which holds the payment that they send.
 - The client of OP3 is under `analytics`, which counts downloads as OP3
   does.
-- `resolve`, `check`, `links`, `podping`, `websub`, `nostr`, `guid`,
-  `json`, `http`, `bytes`, `bech32`, `secp256k1`, `rank`, `async` and
-  `diagnostics` belong to no group.
+- `util` holds what knows nothing about podcasts: XML, JSON, HTTP, bytes,
+  time, deferred values, ranks, hidden texts and Bech32. `util.xml.jsoup`
+  is under `util.xml`, and `util.time.rrule` is under `util.time`.
+- `crypto` holds the cryptography that podcast-clj has in Clojure:
+  `crypto.secp256k1`, `crypto.chacha20` and `crypto.nip44`.
+- `nostr` and `diagnostics` belong to no group. `nostr` serves the comments
+  and the wallets, and `diagnostics` serves each namespace.
+
+The functions in these documents have the alias of their namespace. The
+alias is the last part of the name: `resolve/title` is in `feed.resolve`,
+and `http/call!` is in `util.http`.
 
 
 ## Why the API is regular
@@ -103,8 +121,8 @@ The [conventions](namespaces.md#conventions) of the API have these reasons:
   lets the player state stamp its writes like a hybrid logical clock (see
   [Syncing](sync.md)).
 - **Requests as maps.** A browser can send a request map with `fetch`, and
-  the tests can run on recorded answers. The JVM client in `http` is one way
-  to send the requests, not the only way.
+  the tests can run on recorded answers. The JVM client in `util.http` is
+  one way to send the requests, not the only way.
 - **A call throws, and a step gives data.** A call has one answer to
   give. Without the answer it has nothing to return, so it throws. A step
   does more than one thing, and a part of it can fail while the rest has
@@ -123,7 +141,7 @@ The [conventions](namespaces.md#conventions) of the API have these reasons:
 
 ## XML as Hiccup
 
-`xml` reads XML into Hiccup and writes Hiccup back as XML:
+`util.xml` reads XML into Hiccup and writes Hiccup back as XML:
 
 ```clojure
 [:podcast/transcript {:url "https://…/ep1.vtt" :type "text/vtt"}]
@@ -172,7 +190,7 @@ function of its own.
 
 ## The tag registry
 
-`spec` describes each element that podcast-clj understands as a map:
+`feed.spec` describes each element that podcast-clj understands as a map:
 
 ```clojure
 {:tag     :podcast/transcript          ; the XML name
@@ -260,8 +278,8 @@ on 2026-09-25, no feed was Atom.
 The model is plain maps with namespaced keys, one namespace for each
 vocabulary. The namespaces keep the vocabularies apart: `:rss/title` and
 `:itunes/title` can both be present, and each keeps what the feed said. The
-model is true to the feed. An app that wants one title uses `resolve` (see
-the next section).
+model is true to the feed. An app that wants one title uses `feed.resolve`
+(see the next section).
 
 Unknown elements stay as Hiccup, and unknown attributes stay as strings. As
 a result, `emit` can write back all that `parse` read, with two exceptions,
@@ -318,10 +336,10 @@ of OP3.
 ## Resolving the vocabularies
 
 The model keeps each vocabulary apart. This is correct for a round trip, but
-an app usually wants one title, one image and one duration. `resolve`
+an app usually wants one title, one image and one duration. `feed.resolve`
 settles the overlaps once, in pure functions over the model. The docstring
-of each accessor gives its rule of precedence. `resolve` stores nothing and
-caches nothing.
+of each accessor gives its rule of precedence. `feed.resolve` stores nothing
+and caches nothing.
 
 Where the specifications let an item inherit from its channel, the accessor
 also takes the feed and the item, and applies the inheritance. People on an
@@ -347,7 +365,7 @@ comes from a default, or from several fields together, has no source.
 
 ## Quirks and reports
 
-`quirks` holds small, named functions in two groups:
+`feed.quirks` holds small, named functions in two groups:
 
 1. **Repairs** of the XML text, for a new parse after the strict parse
    failed. They do these things:
@@ -371,8 +389,8 @@ comes from a default, or from several fields together, has no source.
 and `quirk`.
 
 When a document is still malformed after the repairs, and `org.jsoup/jsoup`
-is on the classpath, `xml.jsoup` reads it with the XML mode of jsoup. This
-mode accepts any input: unquoted attributes, stray angle brackets, and
+is on the classpath, `util.xml.jsoup` reads it with the XML mode of jsoup.
+This mode accepts any input: unquoted attributes, stray angle brackets, and
 unclosed or mismatched tags all give a best-effort tree. The result is the
 same raw Hiccup as that of the strict parser, so all later steps are shared.
 jsoup is optional, and `parse` finds it with `requiring-resolve`. Without
@@ -450,33 +468,32 @@ list and the source agree.
   HTML only when it holds a tag or a comment, so plain text that mentions
   `<show@example.com>` stays text. Hiccup is the center, because a
   Clojure app gives Hiccup directly to its renderer.
-- **Media files** (`format.media`, with `format.id3`, `format.mp3` and
-  `format.mp4`) read what an MP3 or M4A file says about itself: its
-  duration, its chapters and its artwork. The readers follow the standards.
-  For MP3 files, these are ID3v2.2 to 2.4 with the ID3v2 Chapter Frame
-  Addendum, and the MPEG audio frames with a Xing, Info or VBRI header. For
-  M4A files, these are the boxes of ISO/IEC 14496-12, with a QuickTime
-  chapter track or Nero chapters, and the index of a file written in
-  fragments. Each quirk that real files taught the readers has an id, and
-  `:except` leaves it out. Examples are a frame size in the form of the
-  other ID3 version, and junk between the tag and the audio. The chapters
-  have the shape of a JSON chapters document. Each reader keeps its report
-  in the metadata of its result, and the `report` function of its
-  namespace reads it. A reader takes a view of the
-  parts of a file that have arrived (`bytes`). When it needs a part that
-  has not arrived, it throws the ranges that it needs. `bytes/read!`
-  fetches these ranges with the range requests of `http/fetcher`, and
-  reads again. So the readers do no I/O, and one loop fetches with futures
-  on the JVM and with promises in JavaScript. Most files need one or two
-  requests and a few hundred kilobytes. From a server that ignores ranges,
-  the fetcher reads only the start of the file that the reader needs. A
-  host that inserts ads can send a different file to each request, so the
-  duration is that of the file that came. When a request fails, the
-  result of `read!` is the `:error` alone, the diagnostic
-  `:file/unreachable`. `verify!` checks a file against
-  the `podcast:integrity` of an alternate enclosure, by the rules of W3C
-  Subresource Integrity. When it made no check, its verdict has an
-  `:error` that tells why.
+- **Media files** (`format.media`, with `format.media.id3`,
+  `format.media.mp3` and `format.media.mp4`) read what an MP3 or M4A file
+  says about itself: its duration, its chapters and its artwork. The readers
+  follow the standards. For MP3 files, these are ID3v2.2 to 2.4 with the
+  ID3v2 Chapter Frame Addendum, and the MPEG audio frames with a Xing, Info
+  or VBRI header. For M4A files, these are the boxes of ISO/IEC 14496-12,
+  with a QuickTime chapter track or Nero chapters, and the index of a file
+  written in fragments. Each quirk that real files taught the readers has an
+  id, and `:except` leaves it out. Examples are a frame size in the form of
+  the other ID3 version, and junk between the tag and the audio. The
+  chapters have the shape of a JSON chapters document. Each reader keeps its
+  report in the metadata of its result, and the `report` function of its
+  namespace reads it. A reader takes a view of the parts of a file that have
+  arrived (`util.bytes`). When it needs a part that has not arrived, it
+  throws the ranges that it needs. `bytes/read!` fetches these ranges with
+  the range requests of `http/fetcher`, and reads again. So the readers do
+  no I/O, and one loop fetches with futures on the JVM and with promises in
+  JavaScript. Most files need one or two requests and a few hundred
+  kilobytes. From a server that ignores ranges, the fetcher reads only the
+  start of the file that the reader needs. A host that inserts ads can send
+  a different file to each request, so the duration is that of the file that
+  came. When a request fails, the result of `read!` is the `:error` alone,
+  the diagnostic `:file/unreachable`. `verify!` checks a file against the
+  `podcast:integrity` of an alternate enclosure, by the rules of W3C
+  Subresource Integrity. When it made no check, its verdict has an `:error`
+  that tells why.
 - **Images** (`format.image`) reads the header of a PNG, JPEG, GIF or WebP
   image: its type, its size in pixels, its color model and whether it can
   be transparent, and of a JPEG also its coding process and its EXIF
@@ -496,8 +513,8 @@ list and the source agree.
 
 ## Checks over the network
 
-`validate` checks the data of a feed. `check` checks the files that the
-feed links to, over the network: the media files, the images, the
+`feed.validate` checks the data of a feed. `feed.check` checks the files
+that the feed links to, over the network: the media files, the images, the
 transcripts, the chapters files and the feed itself. A host can run it
 before it publishes, and the inspector shows it.
 
@@ -781,9 +798,9 @@ and the four sources above already cover discovery for an app without one.
 header for an instant that the caller gives, so any HTTP client can send
 them. It maps the feed, episode and value objects of the index onto the
 model. As a result, a feed from the index has the same keys as a feed parsed
-from RSS, and `resolve` works on both. What only the index knows is under
-`:index/*`, and the original is under `:index/raw`. The table of endpoints
-follows the OpenAPI description of the API.
+from RSS, and `feed.resolve` works on both. What only the index knows is
+under `:index/*`, and the original is under `:index/raw`. The table of
+endpoints follows the OpenAPI description of the API.
 
 A value time split can point to a remote item. `remote-value` asks for the
 value block of the item first, and then for that of its feed. It takes the
@@ -800,14 +817,14 @@ Podping tells that a feed changed. A host announces the change through
 podping.cloud, which writes a `custom_json` operation to the Hive
 blockchain. Anyone can read the chain.
 
-`podping` has the same shape as the directories. `request` builds the
-JSON-RPC calls of a consumer as request maps. The calls ask for the head of
-the chain, a range of blocks, the operations of one block, and the accounts
-that write podpings. The public nodes allow any origin, so a browser can
-send the requests too. `pings` reads the podpings from the blocks, in both
-forms that a node writes an operation, including the `urls` and
-`feed_update` of the first versions. It takes the medium and the reason from
-the payload, or else from the id.
+`updates.podping` has the same shape as the directories. `request` builds
+the JSON-RPC calls of a consumer as request maps. The calls ask for the head
+of the chain, a range of blocks, the operations of one block, and the
+accounts that write podpings. The public nodes allow any origin, so a
+browser can send the requests too. `pings` reads the podpings from the
+blocks, in both forms that a node writes an operation, including the `urls`
+and `feed_update` of the first versions. It takes the medium and the reason
+from the payload, or else from the id.
 
 Anyone can write a `custom_json`, so `writers` reads which accounts can
 write podpings: the accounts that the `podping` account follows on the
@@ -848,18 +865,18 @@ are the URL of the feed, the `podcast:guid`, the id of Apple Podcasts
 and the id of the Podcast Index. podcast-clj has these keys, so it can
 write the links.
 
-The forms are facts about other products, and they change. So `links`
-holds them as data in `links/apps`, and an app gives a table of its own.
-A form is a vector of texts and keys. It is no text with a syntax of its
-own, so the code has no parser for it. [Services and their
-defaults](services.md#the-links-of-the-apps) has the table with its date
-and its source, and a test keeps the page and the data the same. The
-table leaves out the forms that need an id of the app itself, because
-podcast-clj has no such id.
+The forms are facts about other products, and they change. So
+`directory.links` holds them as data in `links/apps`, and an app gives a
+table of its own. A form is a vector of texts and keys. It is no text with a
+syntax of its own, so the code has no parser for it. [Services and their
+defaults](services.md#the-links-of-the-apps) has the table with its date and
+its source, and a test keeps the page and the data the same. The table
+leaves out the forms that need an id of the app itself, because podcast-clj
+has no such id.
 
 `links/ids` reads the keys from a parsed feed, or from a show of
 `directory`, whose `:directory/sources` has the ids of the directories.
-`links` writes each link that the keys are enough for. A link with the
+`links/links` writes each link that the keys are enough for. A link with the
 scheme of an app opens the app, and works only where the app is. A link
 to a web page works in each browser.
 
@@ -879,9 +896,9 @@ hub calls the subscriber, so a subscriber is a server with a public URL.
 An app on a phone has no such URL, and it reads Podping. A server that
 keeps the feeds of many listeners can use both.
 
-`websub` has the parts of a subscriber. `discover` finds the hubs and the
-topic, which is the URL to subscribe to. It reads the Link headers of the
-answer first, as the Recommendation asks, and then the `atom:link`
+`updates.websub` has the parts of a subscriber. `discover` finds the hubs
+and the topic, which is the URL to subscribe to. It reads the Link headers
+of the answer first, as the Recommendation asks, and then the `atom:link`
 elements of the feed. `podcast/fetch!` gives the result as `:websub`.
 `request` builds the request that subscribes or unsubscribes, and `call!`
 sends it. `handler` is a Ring handler for the callback URL, like the
@@ -1120,10 +1137,10 @@ characters than NIP-01 allows, and the id is then another id.
 
 The signature is a Schnorr signature over the curve secp256k1, as BIP-340
 defines it. The JDK has no such curve, and the Web Crypto API of the
-browsers has none. So `secp256k1` has the arithmetic of the curve, over
-BigInteger on the JVM and BigInt in JavaScript. It passes the test vectors
-of BIP-340 on both platforms. `sign` and `public-key` are there for the
-requests to a wallet. The time that they take depends on the secret key,
+browsers has none. So `crypto.secp256k1` has the arithmetic of the curve,
+over BigInteger on the JVM and BigInt in JavaScript. It passes the test
+vectors of BIP-340 on both platforms. `sign` and `public-key` are there for
+the requests to a wallet. The time that they take depends on the secret key,
 and their docstrings tell so.
 
 A check takes about 1 millisecond on the JVM and in Node, measured on
@@ -1135,7 +1152,7 @@ addition for one digit of six or of nine. The multiples of the generator
 are computed once.
 
 `decode` and `encode` read and write the names of NIP-19, which are
-Bech32. `bech32` is the encoding of BIP-173, with its test vectors.
+Bech32. `util.bech32` is the encoding of BIP-173, with its test vectors.
 podcast-clj reads no name of a secret key.
 
 A relay speaks over a WebSocket. `call!` is one exchange: it opens a
@@ -1160,15 +1177,15 @@ is there before the event goes out, and the exchange ends at the first
 event that comes. The relay tells whether it took the event, and the
 response has that as `:accepted?` or `:refused`.
 
-A request to a wallet is secret, so its content is encrypted. `nip44` has
-the encrypted payloads of NIP-44, in version 2. The two sides share a key,
-which each side gets from its own secret key and the public key of the
+A request to a wallet is secret, so its content is encrypted. `crypto.nip44`
+has the encrypted payloads of NIP-44, in version 2. The two sides share a
+key, which each side gets from its own secret key and the public key of the
 other side. `secp256k1/shared-x` gives the start of that key. ChaCha20
-encrypts the text, and an HMAC tells when somebody changed the payload.
-The Web Crypto API has no ChaCha20, so `chacha20` has the cipher of RFC
+encrypts the text, and an HMAC tells when somebody changed the payload. The
+Web Crypto API has no ChaCha20, so `crypto.chacha20` has the cipher of RFC
 8439 for both platforms. It passes the examples of the RFC, and on the JVM
-the tests compare it with the cipher of the JDK. `nip44` passes the test
-vectors that the authors of NIP-44 publish.
+the tests compare it with the cipher of the JDK. `crypto.nip44` passes the
+test vectors that the authors of NIP-44 publish.
 
 
 ## Value for value
@@ -1289,7 +1306,7 @@ A map that is printed shows each of its values, and a log prints maps. So
 `parse` hides the secret key of a connection with `secret/hide`. `pr`,
 `str` and the pretty printer write a hidden text as `#<secret>`, on both
 platforms, and the reader does not read that text. `nwc/uri` gives the
-text with the secret, for the store of the app. `secret` keeps a text
+text with the secret, for the store of the app. `util.secret` keeps a text
 from a print by accident. A debugger and the console of a browser show
 the fields of an object, so they show the text.
 
@@ -1322,7 +1339,7 @@ The table tells what each party can do to a payment, and what stops it.
 | Who reads the store of the app | Find the URI of a connection | Nothing in podcast-clj. The app keeps the text of `nwc/uri` where it keeps passwords. |
 | Who measures the time of the app | Learn bits of the secret from many signatures | `sign` and `shared-x` do not take constant time. An app signs only when the listener pays. |
 
-The numbers of `secp256k1` are those of the platform, and their
+The numbers of `crypto.secp256k1` are those of the platform, and their
 arithmetic does not take constant time. So an app does not sign for a
 stranger who asks again and again and measures the time.
 
@@ -1449,8 +1466,8 @@ The map holds:
 - the episodes by `[feed-guid item-guid]`, with position, duration and the
   played mark, which `progress` sets within `played-threshold` seconds of
   the end. The app gives another number of seconds as an option.
-- the queue, one entry for each episode, with a rank from `rank` that gives
-  the order, and the playlists, ranked in the same way
+- the queue, one entry for each episode, with a rank from `util.rank` that
+  gives the order, and the playlists, ranked in the same way
 - the inbox and the stars, one entry for each episode, and the saved
   filters, one entry for each name, each with a tombstone for each removal
 - the bookmarks and the clips, one entry for each whole second of an
@@ -1522,8 +1539,8 @@ app that wants the days keeps them on the device.
 item from a map such as `{:season 2 :type "full" :status :unplayed}`.
 `order` makes a sort key from a keyword such as `:newest`. `episodes`
 applies both to one feed, or to a collection of feeds for an inbox of all
-subscriptions. Each criterion reads the model through `resolve`, so it means
-what the accessor means. For example, `:explicit?` inherits from the
+subscriptions. Each criterion reads the model through `feed.resolve`, so it
+means what the accessor means. For example, `:explicit?` inherits from the
 channel, and `:chapters?` counts a chapters file, Podlove chapters and
 timestamps in the notes. The criteria that depend on the listener, `:status`
 and the `:recent` order, take the player state. Because the criteria are
@@ -1624,13 +1641,13 @@ that a sync client mirrors is a complete backend. A store that cannot list
 holds one shared document instead, which each device puts on the condition
 that its version did not change.
 
-`app.sync` requires `app.player` and `async`. `app.sync.store` also requires
-`format.opml`, for the subscription list that it can write. `app.sync.file`,
-`app.sync.webdav` and `app.sync.encrypted` are stores over `app.sync.store`.
-`app.sync.webdav.server` uses the WebDAV store to serve any store over
-WebDAV. `app.sync.gpodder` is a backend over the gpodder API, which keeps a
-model of its own, and `app.sync.gpodder.server` serves that API over a
-state. Only the namespaces under `app.sync` require `app.sync`.
+`app.sync` requires `app.player` and `util.async`. `app.sync.store` also
+requires `format.opml`, for the subscription list that it can write.
+`app.sync.file`, `app.sync.webdav` and `app.sync.encrypted` are stores over
+`app.sync.store`. `app.sync.webdav.server` uses the WebDAV store to serve
+any store over WebDAV. `app.sync.gpodder` is a backend over the gpodder API,
+which keeps a model of its own, and `app.sync.gpodder.server` serves that
+API over a state. Only the namespaces under `app.sync` require `app.sync`.
 
 
 ## Platforms
@@ -1642,8 +1659,8 @@ state. Only the namespaces under `app.sync` require `app.sync`.
 | JSON | `clojure.data.json` | `js/JSON` |
 | SHA-1 (guid, Podcast Index) | `java.security.MessageDigest` | `goog.crypt.Sha1` |
 | Instants | `java.util.Date` | `js/Date` |
-| Deferred values (`async`) | futures | promises |
-| HTTP | `java.net.http`, in `http` | `fetch`, in the functions that send requests |
+| Deferred values (`util.async`) | futures | promises |
+| HTTP | `java.net.http`, in `util.http` | `fetch`, in the functions that send requests |
 | Encryption (`app.sync.encrypted`) | `javax.crypto` | WebCrypto |
 
 The parsers of dates and durations and the UUIDv5 computation are written
@@ -1655,9 +1672,9 @@ The JavaScript adapter uses only the standard DOM API (`parseFromString`,
 works. A browser reports a malformed document with a `parsererror` element.
 Other implementations throw, or return a document without a root.
 podcast-clj turns all three into the same
-`:dk.simongray.podcast.xml/malformed` exception. In Node, the test setup
-installs `@xmldom/xmldom` as `js/DOMParser`, and configures it to throw on
-each error that a browser reports.
+`:dk.simongray.podcast.util.xml/malformed` exception. In Node, the test
+setup installs `@xmldom/xmldom` as `js/DOMParser`, and configures it to
+throw on each error that a browser reports.
 
 Two differences between the platforms shaped the code. First, a DOMParser is
 namespace-aware, and it refuses an undeclared prefix that the JVM parser
@@ -1678,10 +1695,10 @@ credentials of a private feed only at the origin of the URL that the app
 gave. A redirect can move the first page to another origin, and no page
 there gets them.
 
-The HTTP client of `http` follows redirects itself, not through the client
-of the JDK. The JDK sends the `Authorization` header on to another host
-after a redirect. The client of `http` leaves it behind, so the credentials
-of a private feed or a WebDAV store go only to their own origin.
+The HTTP client of `util.http` follows redirects itself, not through the
+client of the JDK. The JDK sends the `Authorization` header on to another
+host after a redirect. The client of `util.http` leaves it behind, so the
+credentials of a private feed or a WebDAV store go only to their own origin.
 
 
 ## The inspector
@@ -1794,7 +1811,7 @@ the JSON of these requests from the body-params interceptor.
   - the registry requires anything
   - a companion format requires more than the primitives and the other
     formats
-  - `xml` requires more than `diagnostics`
+  - `util.xml` requires more than `diagnostics`
 - CI runs two jobs. The first job runs all JVM tests, the Node tests and the
   linter, on current versions of Java and Clojure. The second job runs the
   library tests on Java 11 with Clojure 1.11. `deps.edn` and the pom declare

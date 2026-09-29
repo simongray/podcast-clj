@@ -10,7 +10,7 @@
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.test-support :refer [t2 t3 t4 a phone-state laptop-state #?@(:clj [same?])]]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.time :as time]))
 
 (deftest documents
   (let [s   (phone-state)

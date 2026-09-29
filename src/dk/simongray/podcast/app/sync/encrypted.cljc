@@ -23,8 +23,8 @@
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
             [dk.simongray.podcast.app.sync.store :as store]
-            [dk.simongray.podcast.async :as async]
-            [dk.simongray.podcast.secret :as secret])
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.secret :as secret])
   #?(:clj (:import [java.nio.charset StandardCharsets]
                    [java.security SecureRandom]
                    [java.util Base64]
@@ -85,7 +85,7 @@
 (defn- derive-key
   "The AES key for `passphrase` with `salt` over `iterations` of PBKDF2 with
   HMAC-SHA256. In ClojureScript, it is a promise of the key. The passphrase
-  is a text, or a hidden text of `dk.simongray.podcast.secret`."
+  is a text, or a hidden text of `dk.simongray.podcast.util.secret`."
   [passphrase salt iterations]
   #?(:clj  (let [factory (SecretKeyFactory/getInstance "PBKDF2WithHmacSHA256")
                  text    (secret/reveal passphrase)
@@ -196,7 +196,7 @@
 (defn store
   "The store `inner` with its documents encrypted at rest under the
   `:passphrase` in `opts`, a string or a function of no arguments returning
-  one. The string can be a hidden text of `dk.simongray.podcast.secret`,
+  one. The string can be a hidden text of `dk.simongray.podcast.util.secret`,
   so that the options do not show it when they are printed. `:iterations`
   (default `default-iterations`) derives the key, once
   per salt and iteration count and cached; each store instance seals with

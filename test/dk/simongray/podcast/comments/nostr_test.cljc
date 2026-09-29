@@ -7,13 +7,13 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
-            [dk.simongray.podcast.json :as json]
+            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.nostr :as nostr]
-            [dk.simongray.podcast.secp256k1 :as secp256k1]
-            [dk.simongray.podcast.test-support :refer [fixture run secret-key signed]]))
+            [dk.simongray.podcast.test-support :refer [fixture run secret-key signed]]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.json :as json]))
 
 (def at #inst "2026-09-29T12:00:00Z")
 

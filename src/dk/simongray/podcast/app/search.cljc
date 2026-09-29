@@ -29,11 +29,11 @@
   chapters and hands them to `item-document`."
   (:refer-clojure :exclude [remove])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.resolve :as resolve]))
+            [dk.simongray.podcast.format.transcript :as transcript]))
 
 (def ^:no-doc ligatures
   "Letters that decomposing leaves whole, spelled out when folding."

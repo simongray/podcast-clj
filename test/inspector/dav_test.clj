@@ -10,8 +10,8 @@
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
-            [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.test-support :refer [t1 t2 t3 t4 a same? with-temp-dir]]
+            [dk.simongray.podcast.util.http :as http]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))
 

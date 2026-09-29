@@ -7,11 +7,11 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.opml :as opml]
-            [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 t4 a]]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.time :as time]))
 
 (def b ["feed-a" "a2"])
 (def c ["feed-b" "b1"])

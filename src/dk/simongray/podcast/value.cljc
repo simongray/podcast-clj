@@ -30,10 +30,10 @@
   that writes HTML as text must escape them itself."
   (:require [clojure.set :as set]
             [clojure.string :as str]
-            [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time]))
 
 (defn effective
   "The value block that applies to `item` in `feed`: the item's own when it
@@ -220,7 +220,7 @@
 (defn boostagram
   "The bLIP-10 record of `payment`, which an app attaches to a keysend
   payment as the custom record 7629169. It is a map with the string keys
-  of the record, for `dk.simongray.podcast.json/write-str`.
+  of the record, for `dk.simongray.podcast.util.json/write-str`.
 
   `:position`, seconds into the episode, becomes ts and time. `:action`
   becomes action, boost when it is absent. `:msat` and `:total-msat` become

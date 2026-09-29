@@ -21,9 +21,9 @@
   directly. `sync!` drives any number of them in one step."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [dk.simongray.podcast.app.player :as player]
-            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def version
   "The version of the document format, changed only when the meaning of a

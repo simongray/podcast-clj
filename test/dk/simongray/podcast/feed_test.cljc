@@ -4,10 +4,10 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.feed.validate :as validate]
-            [dk.simongray.podcast.spec :as spec]
             [dk.simongray.podcast.test-support :refer [fixture]]
-            [dk.simongray.podcast.xml :as xml]))
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (def example
   (delay (fixture "feeds/namespace-example.xml")))

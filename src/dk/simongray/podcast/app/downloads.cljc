@@ -31,7 +31,7 @@
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.feed :as feed]
-            [dk.simongray.podcast.resolve :as resolve]))
+            [dk.simongray.podcast.feed.resolve :as resolve]))
 
 (def keeps
   "What the `:keep` of a rule can name. The file of such an episode stays

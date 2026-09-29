@@ -9,10 +9,10 @@
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
-            [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.test-support :refer [with-temp-dir]]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))
 

@@ -13,13 +13,13 @@
   its at URI, from which an app builds a link to the web app of its
   choice."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time]))
 
 (defn at-uri
   "The parts of the at URI `s`, `at://authority/collection/rkey`, as a map

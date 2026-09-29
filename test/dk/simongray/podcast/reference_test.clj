@@ -3,7 +3,7 @@
   catalogue say today. When this fails, run `(reference/write!)` from
   dev/reference.clj and commit the result."
   (:require [clojure.test :refer [deftest is]]
-            [dk.simongray.podcast.spec :as spec]
+            [dk.simongray.podcast.feed.spec :as spec]
             [reference]))
 
 (deftest the-generated-documents-are-current

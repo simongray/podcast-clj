@@ -6,7 +6,7 @@
   app. `parse` reads the URI into a connection. The URI holds a secret
   key, and who has it can spend from the wallet. So an app keeps it as it
   keeps a password, and shows it to nobody. The connection hides the key
-  with `dk.simongray.podcast.secret`, so a connection that is printed
+  with `dk.simongray.podcast.util.secret`, so a connection that is printed
   shows `#<secret>`. `uri` gives the text that an app stores.
 
   A command is data, `{:method :params}`. `pay-invoice` pays the invoice
@@ -27,16 +27,16 @@
   names the commands that it takes in its info event, which `info!`
   reads."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.async :as async]
-            [dk.simongray.podcast.bytes :as bytes]
+            [dk.simongray.podcast.crypto.nip44 :as nip44]
+            [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.nip44 :as nip44]
             [dk.simongray.podcast.nostr :as nostr]
-            [dk.simongray.podcast.secp256k1 :as secp256k1]
-            [dk.simongray.podcast.secret :as secret]
-            [dk.simongray.podcast.time :as time]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]))
 

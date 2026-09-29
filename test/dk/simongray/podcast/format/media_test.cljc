@@ -11,16 +11,16 @@
                       [clojure.test.check.properties :as prop]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
-            [dk.simongray.podcast.async :as async]
-            [dk.simongray.podcast.bytes :as bytes]
-            [dk.simongray.podcast.format.id3 :as id3]
             [dk.simongray.podcast.format.media :as media]
-            [dk.simongray.podcast.format.mp3 :as mp3]
-            [dk.simongray.podcast.format.mp4 :as mp4]
-            #?(:clj [dk.simongray.podcast.http :as http])
+            [dk.simongray.podcast.format.media.id3 :as id3]
+            [dk.simongray.podcast.format.media.mp3 :as mp3]
+            [dk.simongray.podcast.format.media.mp4 :as mp4]
             [dk.simongray.podcast.test-support :refer [ascii be code fetch-from run view
                                                        #?(:clj with-file-server)]]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            #?(:clj [dk.simongray.podcast.util.http :as http])
+            [dk.simongray.podcast.util.time :as time]))
 
 (defn- syncsafe
   [x]

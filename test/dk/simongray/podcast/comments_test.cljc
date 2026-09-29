@@ -13,16 +13,16 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
             [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.test-support :refer [fixture run]]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def mastodon
   "A thread of podcastindex.social, whose root starts a conversation, with
@@ -435,7 +435,7 @@
                   (swap! log conj url)
                   (cond
                     (str/starts-with? url "https://slow.example/")
-                    (throw (ex-info "request timed out" {:type :dk.simongray.podcast.http/timeout}))
+                    (throw (ex-info "request timed out" {:type :dk.simongray.podcast.util.http/timeout}))
 
                     (str/starts-with? url "https://closed.example/")
                     (throw (ex-info "Connection refused" {}))
@@ -532,7 +532,7 @@
   (let [log   (atom [])
         send  (fn [{:keys [url]}]
                 (swap! log conj url)
-                (throw (ex-info "The answer is too large" {:type :dk.simongray.podcast.http/too-large})))
+                (throw (ex-info "The answer is too large" {:type :dk.simongray.podcast.util.http/too-large})))
         fetch #(comments/fetch! % {:send send})]
     (run #(async/then
            (async/then (fetch {:protocol "activitypub" :uri "https://a.example/1"}) fetch)
@@ -552,7 +552,7 @@
         send  (fn [{:keys [url] :as request}]
                 (if @slow?
                   (do (swap! log conj url)
-                      (throw (ex-info "request timed out" {:type :dk.simongray.podcast.http/timeout})))
+                      (throw (ex-info "request timed out" {:type :dk.simongray.podcast.util.http/timeout})))
                   ((server {top {"id" top "type" "Note" "content" "root"}} log) request)))]
     (run #(async/then
            (comments/fetch! {:protocol "activitypub" :uri top} {:send send})

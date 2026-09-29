@@ -12,13 +12,13 @@
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.gpodder :as gpodder]
             [dk.simongray.podcast.app.sync.gpodder.server :as server]
-            [dk.simongray.podcast.async :as async]
-            [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.secret :as secret]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.test-support :refer [fixture run]]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def root "https://gpodder.example.org")
 

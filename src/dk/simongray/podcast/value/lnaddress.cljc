@@ -23,12 +23,12 @@
   an error with any status, and some answer the keysend lookup with a web
   page."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.async :as async]
-            [dk.simongray.podcast.bech32 :as bech32]
-            [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bech32 :as bech32]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.value :as value]))
 
 (def default-limits

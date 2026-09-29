@@ -8,10 +8,10 @@
                       [clojure.test.check.generators :as gen]
                       [clojure.test.check.properties :as prop]])
             [clojure.test :refer [deftest is #?(:cljs async)]]
-            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.format.image :as image]
-            [dk.simongray.podcast.bytes :as bytes]
-            [dk.simongray.podcast.test-support :refer [ascii be fetch-from le run view]]))
+            [dk.simongray.podcast.test-support :refer [ascii be fetch-from le run view]]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bytes :as bytes]))
 
 (def png-signature
   "The eight bytes a PNG image begins with."

@@ -7,8 +7,8 @@
   `markdown` render either shape; `emit` writes Hiccup back as HTML.
   `feed-links` finds the feeds that a web page names."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.xml :as xml]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (def ^:no-doc token-pattern
   "One token of HTML at a time: a script or style element whole, its text

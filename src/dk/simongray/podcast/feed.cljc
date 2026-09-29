@@ -1,6 +1,6 @@
 (ns dk.simongray.podcast.feed
   "The feed model: canonical Hiccup in, maps out, and back again, by
-  interpreting a tag registry, `dk.simongray.podcast.spec/default` unless
+  interpreting a tag registry, `dk.simongray.podcast.feed.spec/default` unless
   the options name another.
 
   A feed is the channel map itself, with items under `:rss/items` and live
@@ -11,13 +11,13 @@
   the report says so. The report is metadata on the result, under
   `:podcast/report`, and `report` reads it."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.secret :as secret]
-            [dk.simongray.podcast.spec :as spec]
-            [dk.simongray.podcast.xml :as xml]))
+            [dk.simongray.podcast.feed.coerce :as coerce]
+            [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.spec :as spec]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.xml :as xml]))
 
 ;; The parse threads a context `ctx`: the `:registry` being interpreted, the
 ;; `:report` accumulator and the `:keys` of the attributes seen, volatiles.
@@ -616,7 +616,7 @@
   "`feed` as the private feed of one subscriber, who has the `token`. The
   host makes the tokens and keeps them, and it serves this feed at a URL
   with the token. The token can be a hidden text of
-  `dk.simongray.podcast.secret`. The feed has it in its URLs, as text.
+  `dk.simongray.podcast.util.secret`. The feed has it in its URLs, as text.
 
   The token goes into the query of each URL of a media file, and of each
   link of the feed to its own documents, so that each request tells its

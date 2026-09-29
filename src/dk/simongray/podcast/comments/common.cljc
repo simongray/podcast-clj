@@ -4,11 +4,11 @@
   safe to show. Also the posts that a thread withholds, and the order of
   the requests by the depth of their posts."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]))
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]))
 
 (defn ^:no-doc present
   "`m` without the entries that say nothing: nil, false, a blank string or

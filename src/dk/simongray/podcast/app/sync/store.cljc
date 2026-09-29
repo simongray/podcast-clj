@@ -29,9 +29,9 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync :as sync]
-            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.format.opml :as opml]))
+            [dk.simongray.podcast.format.opml :as opml]
+            [dk.simongray.podcast.util.async :as async]))
 
 (defn memory
   "A store over the atom `documents` (a fresh one when none is given), name

@@ -27,9 +27,9 @@
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.nostr :as nostr]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def batch-size
   "The most ids or public keys in one filter of a request. The option

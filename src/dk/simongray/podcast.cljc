@@ -5,9 +5,9 @@
   This namespace is the front door; each step behind it is its own namespace
   and can be used alone:
 
-      xml            XML as Hiccup, namespaces resolved by URI
-      quirks         repairs and normalizations for feeds that bend the standards
-      spec           the tag registry every interpreter reads
+      util.xml       XML as Hiccup, namespaces resolved by URI
+      feed.quirks    repairs and normalizations for feeds that bend the standards
+      feed.spec      the tag registry every interpreter reads
       feed           Hiccup to feed maps and back
       feed.validate  the registry-driven validator and its profiles
 
@@ -16,15 +16,16 @@
   report. `parse`, `parse-tree`, `emit` and `fetch!` take `:registry` in
   their options, the tag registry to interpret, so that a vocabulary
   extended with a client's own elements (see
-  `dk.simongray.podcast.spec/registry`) reads and writes like the library's."
+  `dk.simongray.podcast.feed.spec/registry`) reads and writes like the
+  library's."
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
-            [dk.simongray.podcast.quirks :as quirks]
-            [dk.simongray.podcast.xml :as xml]
-            #?@(:clj [[dk.simongray.podcast.async :as async]
-                      [dk.simongray.podcast.http :as http]
-                      [dk.simongray.podcast.resolve :as resolve]
-                      [dk.simongray.podcast.websub :as websub]])))
+            [dk.simongray.podcast.feed.quirks :as quirks]
+            [dk.simongray.podcast.util.xml :as xml]
+            #?@(:clj [[dk.simongray.podcast.feed.resolve :as resolve]
+                      [dk.simongray.podcast.updates.websub :as websub]
+                      [dk.simongray.podcast.util.async :as async]
+                      [dk.simongray.podcast.util.http :as http]])))
 
 (defn- malformed?
   [e]
@@ -34,11 +35,11 @@
   "The raw parser to fall back on when a document is malformed even after
   repair, or nil.
 
-  On the JVM it is `dk.simongray.podcast.xml.jsoup/parse-raw` when
+  On the JVM it is `dk.simongray.podcast.util.xml.jsoup/parse-raw` when
   org.jsoup/jsoup is on the classpath, so adding jsoup to the dependencies
   is all it takes to enable it. ClojureScript has none."
   (delay #?(:clj  (try
-                    (requiring-resolve 'dk.simongray.podcast.xml.jsoup/parse-raw)
+                    (requiring-resolve 'dk.simongray.podcast.util.xml.jsoup/parse-raw)
                     (catch Exception _ nil))
             :cljs nil)))
 
@@ -84,7 +85,7 @@
 (defn parse-tree
   "Parse the RSS document `xml`, a string or, on the JVM, an InputStream or a
   Reader, into canonical Hiccup, normalized by
-  `dk.simongray.podcast.quirks/normalize`. With `:quirks?` in `opts` (the
+  `dk.simongray.podcast.feed.quirks/normalize`. With `:quirks?` in `opts` (the
   default), namespace URI variants are recognized and a document the strict
   parser rejects is repaired and parsed again, leniently as a last resort
   when the platform has a lenient parser; `{:quirks? false}` is the strict

@@ -15,11 +15,11 @@
   `remote-value-requests`, the requests to try in order, or `remote-value`,
   which sends them with a function you supply."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.secret :as secret]
-            [dk.simongray.podcast.time :as time]
-            [dk.simongray.podcast.http :as http]))
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def base-url
   "The root of the URLs of the API. The paths of `endpoints` are below it.
@@ -133,14 +133,18 @@
   The API requires a descriptive User-Agent, and `:user-agent` in the
   credentials replaces that of podcast-clj.
 
-  The secret can be a hidden text of `dk.simongray.podcast.secret`. It is
+  The secret can be a hidden text of `dk.simongray.podcast.util.secret`. It is
   in no header: the API gets the hash, which holds for some minutes. The
   hash is a hidden text, as each Authorization header is."
   [{:keys [key secret user-agent]} seconds]
   {"User-Agent"    (or user-agent http/user-agent)
    "X-Auth-Key"    key
    "X-Auth-Date"   (str seconds)
-   "Authorization" (secret/hide (guid/sha1-hex (str key (secret/reveal secret) seconds)))})
+   "Authorization" (-> (str key (secret/reveal secret) seconds)
+                       bytes/encode
+                       bytes/sha1
+                       bytes/hex
+                       secret/hide)})
 
 (defn request
   "The request map for `endpoint`, a key of `endpoints`, with the query

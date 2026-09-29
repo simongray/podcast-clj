@@ -5,10 +5,10 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.directory :as directory]
-            [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.resolve :as resolve]
-            [dk.simongray.podcast.test-support :refer [fixture]]))
+            [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.test-support :refer [fixture]]
+            [dk.simongray.podcast.util.http :as http]))
 
 (def apple-search
   (fixture "directory/apple-search.json"))

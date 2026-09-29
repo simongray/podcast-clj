@@ -14,8 +14,8 @@
   parsed feed against them tells you where `parse` forgave a value and kept
   it as a string. Enumerations are left as strings, since feeds vary their
   case and the validator judges them case insensitively."
-  (:require [dk.simongray.podcast.spec :as spec]
-            [dk.simongray.podcast.xml :as xml]))
+  (:require [dk.simongray.podcast.feed.spec :as spec]
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (def types
   "The Malli schema for each value type of the registry; strings otherwise."

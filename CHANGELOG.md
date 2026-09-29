@@ -15,10 +15,10 @@
   parser for the last resort.
 - A catalogue of all diagnostics, with level and message. `summarize` groups
   a report by kind.
-- `resolve`: one answer per property where the vocabularies overlap, with
-  the inheritance rules of the specifications. Also `properties`, `sources`,
-  the listening order, `seasons`, `blocked?`, `next-episode` from RFC 5545
-  rules, and `next-check` for polling.
+- `feed.resolve`: one answer per property where the vocabularies overlap,
+  with the inheritance rules of the specifications. Also `properties`,
+  `sources`, the listening order, `seasons`, `blocked?`, `next-episode` from
+  RFC 5545 rules, and `next-check` for polling.
 - Companion formats: JSON chapters, Podlove Simple Chapters, and chapters
   from timestamps in show notes. SRT, WebVTT, JSON, HTML and plain-text
   transcripts. OPML. The `podcast:guid` derivation. Value-for-value
@@ -41,23 +41,27 @@
   full-text index over subscriptions, ranked by BM25, on both platforms.
 - Sync through any document store, with one document per device or one
   shared document. Memory, folder and WebDAV stores, an encrypting wrapper,
-  a WebDAV server for any store, `store/check!`, `sync/next-at`, and `async`
-  for code that runs on both platforms.
+  a WebDAV server for any store, `store/check!`, `sync/next-at`, and
+  `util.async` for code that runs on both platforms.
 - The same code and tests on the JVM, in Node and in a browser. A test of
   the architecture keeps each require pointing down the layers. The
   inspector is a reference web app, with a browser player that syncs through
   its own WebDAV folder.
+- The namespaces are in groups, one for each subject: `feed`, `format`,
+  `value`, `directory`, `updates`, `comments`, `analytics` and `app`. The
+  groups `util` and `crypto` hold what knows nothing about podcasts, and the
+  test of the architecture keeps them so.
 - Payments from the wallet of the listener. `value.nwc` is Nostr Wallet
   Connect, NIP-47: the connection URI, the commands as data, `info!` and
   `ask!`. It pays invoices and keysend payments with the records of
   `value/records`. `value.webln` calls the WebLN provider of a web page.
-  `nip44` has the encrypted payloads of NIP-44, and `chacha20` the cipher
-  of RFC 8439. `nostr/signed` writes an event, and `nostr/call!` gives it
-  to a relay. The inspector has a page for a wallet.
+  `crypto.nip44` has the encrypted payloads of NIP-44, and `crypto.chacha20`
+  the cipher of RFC 8439. `nostr/signed` writes an event, and `nostr/call!`
+  gives it to a relay. The inspector has a page for a wallet.
 - A payment goes out once. A request to a wallet leaves the app only when
   the relay has the subscription for the answer, and it expires. An answer
   tells whether the request went out. `lnaddress/proves?` checks the
-  preimage of a payment against its invoice. `secret` hides a text from
+  preimage of a payment against its invoice. `util.secret` hides a text from
   the printer, and a connection to a wallet hides its secret key.
 - Each function that takes a password, a token, a passphrase or a secret
   key takes a hidden text of `secret/hide` too. `http/split-credentials`
@@ -130,7 +134,7 @@
   longer gets the credentials of a request. A later page of a feed gets
   them only at the origin of the URL that the app gave. The report of a
   feed in pages names each item where the feed has it.
-- `resolve` reads the podroll, the publisher feed, the remote items of
+- `feed.resolve` reads the podroll, the publisher feed, the remote items of
   list and publisher feeds, where the comments on an episode are, the
   soundbites, and the texts of `podcast:txt` by purpose, with
   `ai-content?`. `publisher` also reads a remote item with the medium
@@ -361,24 +365,22 @@
   an empty element. `feed/for-subscriber` makes the private feed of one
   subscriber, with a token on the URLs of the host.
   `feed/update-media-urls` changes the URLs of the media files.
-- WebSub, in the new namespace `websub`: `discover`, `request`, `call!`
-  and `handler`. The handler is a Ring handler for the callback of a
-  subscriber, and it checks the signature of the hub. `publish-request`
-  is for a host.
-  `podcast/fetch!` gives the hubs of a feed as `:websub`, and
-  `resolve/hubs` reads them from the feed. `http/links` reads a Link
-  header, and `http/with-query` adds parameters to a URL.
+- WebSub, in the new namespace `updates.websub`: `discover`, `request`,
+  `call!` and `handler`. The handler is a Ring handler for the callback of a
+  subscriber, and it checks the signature of the hub. `publish-request` is
+  for a host. `podcast/fetch!` gives the hubs of a feed as `:websub`, and
+  `resolve/hubs` reads them from the feed. `http/links` reads a Link header,
+  and `http/with-query` adds parameters to a URL.
 - Charts by category: the `:trending` call of `directory`, and
   `trending!`, take `:category`. Apple Podcasts, the Podcast Index and
   gpodder.net have such a chart, and each reads the category in its own
   way. `directory/apple-genres` has the genres of Apple, and
   `directory.podcastindex/category-filter` checks a name before the
   request, because the index ignores a name that it does not know.
-- Links to apps, in the new namespace `links`. `links/apps` has the
-  forms of the links to a show and an episode in 48 apps and pages.
-  `ids` reads the keys of a show, and `link` and `links` write the
-  links. `at-time` writes the media fragment of a time on the URL of a
-  media file.
+- Links to apps, in the new namespace `directory.links`. `links/apps` has
+  the forms of the links to a show and an episode in 48 apps and pages.
+  `ids` reads the keys of a show, and `link` and `links` write the links.
+  `at-time` writes the media fragment of a time on the URL of a media file.
 - Download rules, in the new namespace `app.downloads`. `plan` gives the
   episodes to download and the files to delete on a device, each with
   its reason. It is a pure function of the player state, the feeds, the
@@ -419,6 +421,6 @@
   signature of an event. `decode` and `encode` read and write the names
   of NIP-19. `call!` is one exchange with a relay over a WebSocket.
   `nostr/relays` names the relays, and `:relays` replaces them.
-- The new namespace `secp256k1` has the Schnorr signatures of BIP-340,
-  and the new namespace `bech32` has the encoding of BIP-173. `bytes` has
-  `hex`, `from-hex` and `sha256`.
+- The new namespace `crypto.secp256k1` has the Schnorr signatures of
+  BIP-340, and the new namespace `util.bech32` has the encoding of BIP-173.
+  `util.bytes` has `hex`, `from-hex`, `sha1` and `sha256`.

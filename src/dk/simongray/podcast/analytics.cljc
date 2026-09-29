@@ -32,9 +32,9 @@
   the keys of these downloads where OP3 tells the same fact."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time]))
 
 (defn threshold
   "The bytes of `file` that a download needs by the rules of the IAB: the

@@ -17,9 +17,9 @@
   side: any store served over WebDAV."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.sync.store :as store]
-            [dk.simongray.podcast.async :as async]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.xml :as xml]))
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (def calls
   "What a store asks a collection: `:list` for the documents in it, `:fetch`,

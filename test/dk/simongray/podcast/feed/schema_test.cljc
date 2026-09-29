@@ -4,7 +4,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.schema :as schema]
-            [dk.simongray.podcast.spec :as spec]))
+            [dk.simongray.podcast.feed.spec :as spec]))
 
 (def schemas
   (schema/schemas))

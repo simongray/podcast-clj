@@ -11,14 +11,14 @@
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.nostr :as nostr]
-            [dk.simongray.podcast.resolve :as resolve]
-            [dk.simongray.podcast.time :as time]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]))
 
 (def css
@@ -158,7 +158,7 @@
 
 (defn- resolved-table
   "A table of the resolved `properties` and their `sources`: what an app
-  reads through dk.simongray.podcast.resolve, and the raw fields each
+  reads through dk.simongray.podcast.feed.resolve, and the raw fields each
   answer came from."
   [properties sources]
   [:table
@@ -180,7 +180,7 @@
 
 (defn- item-row
   "One row of the items table, showing what an app would show: everything
-  here comes through dk.simongray.podcast.resolve."
+  here comes through dk.simongray.podcast.feed.resolve."
   [feed-url feed i item]
   (let [{:keys [url type length]} (resolve/enclosure item)
         alternatives             (count (resolve/enclosures item))
@@ -653,7 +653,7 @@
   [{:keys [pings refused block head writers error]}]
   (layout "Podping"
           [:h1 "Podping"]
-          [:p.muted "The feeds that just announced a change on the Hive blockchain, read by dk.simongray.podcast.podping from the twenty blocks before the head, about a minute of the chain, in one request. A poller keeps the block it reached and asks for the blocks since; a ping counts only when the podping account follows its writer."]
+          [:p.muted "The feeds that just announced a change on the Hive blockchain, read by dk.simongray.podcast.updates.podping from the twenty blocks before the head, about a minute of the chain, in one request. A poller keeps the block it reached and asks for the blocks since; a ping counts only when the podping account follows its writer."]
           [:p.muted (str "Head block " head ", read up to " block "; "
                          (count pings) " pings from the " (count writers) " writers podping follows"
                          (when (seq refused)

@@ -2,7 +2,7 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.spec :as spec]
+            [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.test-support :refer [fixture]]))
 

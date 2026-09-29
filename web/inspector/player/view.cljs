@@ -14,7 +14,7 @@
   `[:audio/time id]`. The shell in inspector.player performs them."
   (:require [cljs.pprint :as pprint]
             [dk.simongray.podcast.app.player :as player]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.time :as time]))
 
 (defn item-href
   "The inspector's page for the `episode`."

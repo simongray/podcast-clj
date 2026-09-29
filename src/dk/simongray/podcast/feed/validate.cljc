@@ -18,9 +18,9 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.coerce :as coerce]
-            [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.spec :as spec]
-            [dk.simongray.podcast.xml :as xml]))
+            [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.spec :as spec]
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (defn- diagnostic
   [id level path message & {:as extra}]

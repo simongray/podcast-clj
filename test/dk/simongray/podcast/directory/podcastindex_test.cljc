@@ -5,9 +5,9 @@
             #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [clojure.test :refer [deftest is testing async]])
             [dk.simongray.podcast.directory.podcastindex :as index]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.resolve :as resolve]
+            [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.test-support :refer [fixture]]
+            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.value :as value]))
 
 (def podcast-body

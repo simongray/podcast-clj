@@ -16,8 +16,8 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync.gpodder :as gpodder]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json])
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json])
   #?(:clj (:import [java.nio.charset StandardCharsets]
                    [java.util Base64]
                    [java.util.concurrent.locks ReentrantLock])))

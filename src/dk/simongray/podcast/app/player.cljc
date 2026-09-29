@@ -36,7 +36,7 @@
   The state is a state-based CRDT. A stamped entry is a last-writer-wins
   register, and a map of entries is an add-and-remove set with
   tombstones. The clock is a max register, and `merge` is the join. The
-  queue ranks its entries with `dk.simongray.podcast.rank`, so that what
+  queue ranks its entries with `dk.simongray.podcast.util.rank`, so that what
   two devices queued while apart both survive. The registry entry of each
   device tells what the device merged. So `compact` can drop the
   tombstones that every device saw. doc/sync.md is the design.
@@ -51,12 +51,12 @@
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.format.chapters :as chapters]
-            [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.rank :as rank]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.rank :as rank]
+            [dk.simongray.podcast.util.time :as time]))
 
 (defn state
   "A fresh player state for the device `device`: a stable id that tells one
@@ -1031,7 +1031,7 @@
   at `path` in `state`, in their order. The queue and each playlist are
   such entries. An episode that is there stays where it is.
 
-  The ranks are those of `dk.simongray.podcast.rank/after`, so the ranks
+  The ranks are those of `dk.simongray.podcast.util.rank/after`, so the ranks
   of many episodes are short."
   [state path ids]
   (let [entries (get-in state path)

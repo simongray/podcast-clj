@@ -19,9 +19,9 @@
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time]))
 
 (defn ^:no-doc id-of
   "The id of `x`, an object or the IRI that names one."

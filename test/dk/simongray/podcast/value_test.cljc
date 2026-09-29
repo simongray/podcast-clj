@@ -12,11 +12,11 @@
                       [clojure.test.check.properties :as prop]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.async :as async]
-            [dk.simongray.podcast.bytes :as bytes]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.test-support :refer [fixture invoice run]]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]))

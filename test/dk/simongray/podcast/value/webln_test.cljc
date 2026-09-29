@@ -4,8 +4,8 @@
   functions."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.json :as json]
             #?(:cljs [dk.simongray.podcast.test-support :refer [invoice run]])
+            [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.webln :as webln]))
 

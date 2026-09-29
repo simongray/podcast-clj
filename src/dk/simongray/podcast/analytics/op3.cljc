@@ -17,14 +17,14 @@
   which are close to those of the IAB."
   (:require [clojure.set :as set]
             [clojure.string :as str]
-            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
-            [dk.simongray.podcast.guid :as guid]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.time :as time]
-            [dk.simongray.podcast.xml :as xml]))
+            [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (def origin
   "The origin of OP3. The functions use it, unless their options give the

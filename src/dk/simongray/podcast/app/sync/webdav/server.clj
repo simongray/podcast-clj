@@ -8,7 +8,7 @@
   such a server leaves the same keys out of its WebDAV store."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
-            [dk.simongray.podcast.http :as http]))
+            [dk.simongray.podcast.util.http :as http]))
 
 (defn- quoted
   [version]

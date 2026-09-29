@@ -18,8 +18,8 @@
   with `report`."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.time :as time]))
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def version
   "The JSON Chapters format version this namespace writes."

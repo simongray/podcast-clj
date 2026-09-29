@@ -17,11 +17,11 @@
   node received."
   (:require [clojure.set :as set]
             [clojure.string :as str]
-            [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.http :as http]
-            [dk.simongray.podcast.json :as json]
-            [dk.simongray.podcast.time :as time]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]))
 
 (def prefix
@@ -39,7 +39,7 @@
 
 (defn record
   "The metadata of `payment` as a map with the string keys of the JSON, for
-  `dk.simongray.podcast.json/write-str`.
+  `dk.simongray.podcast.util.json/write-str`.
 
   `:action` becomes action, boost when it is absent. `:msat` and
   `:total-msat` become value_msat and value_msat_total, and `:sats` and

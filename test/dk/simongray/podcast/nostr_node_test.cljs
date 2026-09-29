@@ -5,9 +5,9 @@
   (:require ["crypto" :as crypto]
             ["http" :as http]
             [clojure.test :refer [deftest is async]]
-            [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.nostr :as nostr]
-            [dk.simongray.podcast.test-support :refer [secret-key signed]]))
+            [dk.simongray.podcast.test-support :refer [secret-key signed]]
+            [dk.simongray.podcast.util.json :as json]))
 
 (defn- frame
   "The frame of a WebSocket for the text `s`, as a server sends it."

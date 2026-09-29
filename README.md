@@ -64,11 +64,11 @@ transcripts the type `application/srt`, and uses the deprecated
 ;; => (:quirk/explicit-value :quirk/transcript-type :quirk/deprecated-images)
 ```
 
-Where several vocabularies give the same property, `resolve` gives one
+Where several vocabularies give the same property, `feed.resolve` gives one
 answer:
 
 ```clojure
-(require '[dk.simongray.podcast.resolve :as resolve])
+(require '[dk.simongray.podcast.feed.resolve :as resolve])
 
 (select-keys (resolve/properties feed) [:title :author :categories])
 ;; => {:title "Podcasting 2.0"

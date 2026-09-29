@@ -8,13 +8,13 @@
   GIF89a, and WebP as RFC 9649 does.
 
   `read` takes a view of the parts of the file at hand (see
-  dk.simongray.podcast.bytes). It gives the header, or the ranges that it
+  dk.simongray.podcast.util.bytes). It gives the header, or the ranges that it
   still needs, as `dk.simongray.podcast.format.media/read` does for media
   files. `read!` fetches them, and `report` gives the diagnostics of a
   reading."
   (:refer-clojure :exclude [read])
-  (:require [dk.simongray.podcast.bytes :as bytes]
-            [dk.simongray.podcast.http :as http]))
+  (:require [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.http :as http]))
 
 (defn ^:no-doc u16le
   "The little-endian 16-bit number at `p` in `view`."
@@ -294,7 +294,7 @@
   "The header of the image at `url`, as `read` gives it. On the JVM it
   gives the result, and in ClojureScript a promise of it.
 
-  `dk.simongray.podcast.bytes/read!` fetches the ranges that the reading
+  `dk.simongray.podcast.util.bytes/read!` fetches the ranges that the reading
   needs, most often the first 64 KB alone. `opts` can give `:fetch`, a
   function as `http/fetcher` makes. They can also give the `:headers`, the
   `:timeout-seconds` and the `:send` of `http/fetcher`, and the `:allow?`

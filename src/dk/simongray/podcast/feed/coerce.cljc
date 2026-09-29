@@ -5,9 +5,9 @@
   value back into its canonical string."
   (:refer-clojure :exclude [format])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.time.rrule :as rrule]
-            [dk.simongray.podcast.time :as time]
-            [dk.simongray.podcast.xml :as xml]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.time.rrule :as rrule]
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (def coerced-types
   "The value types whose model values are not strings, so that a string
