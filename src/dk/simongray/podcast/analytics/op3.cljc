@@ -75,10 +75,12 @@
     [(str/lower-case scheme) tail]))
 
 (defn prefix
-  "The URL `url` with the prefix of OP3 in front, such as
-  https://op3.dev/e/cdn.example.com/episode.mp3, so that OP3 counts the
+  "The URL `url` with the prefix of OP3 in front, so that OP3 counts the
   requests for it. Nil for a URL that OP3 does not take, as `accepts?`
-  tells. A URL that goes through OP3 already stays as it is.
+  tells.
+
+  Such a URL is https://op3.dev/e/cdn.example.com/episode.mp3. A URL that
+  goes through OP3 already stays as it is.
 
   `opts` give the `:podcast-guid` of the show, which helps OP3 find the
   show. For another instance of OP3, they give its `:origin`, and the
@@ -95,9 +97,11 @@
 
 (defn with-prefix
   "`feed` with the prefix of OP3 in front of the URL of each enclosure, and
-  of each source of an alternate enclosure. OP3 counts the requests for
-  both. `prefix` writes each prefix, where OP3 takes the URL. The
-  `:podcast-guid` is that of the feed, unless `opts` give one."
+  of each source of an alternate enclosure.
+
+  OP3 counts the requests for both. `prefix` writes each prefix, where
+  OP3 takes the URL. The `:podcast-guid` is that of the feed, unless
+  `opts` give one."
   ([feed]
    (with-prefix feed {}))
   ([feed opts]
@@ -126,7 +130,7 @@
   2026-09 or 2026-09-26, or a time before now, such as -24h."
   #{:show :downloads :show-download-counts :episode-download-counts :top-apps-for-show})
 
-(defn- base64url
+(defn ^:no-doc base64url
   "The URL `url` in the base64 of URLs, as OP3 takes the URL of a feed."
   [url]
   (-> (http/base64 url) (str/replace "+" "-") (str/replace "/" "_") (str/replace #"=+$" "")))
@@ -136,9 +140,9 @@
   podcast guid, or the URL of its feed."
   [id]
   (cond
-    (guid/guid? id)                      {"podcastGuid" (str/lower-case id)}
-    (re-find #"(?i)^https?://" (str id)) {"feedUrlBase64" (base64url id)}
-    :else                                {"showUuid" id}))
+    (guid/guid? id)    {"podcastGuid" (str/lower-case id)}
+    (http/web-url? id) {"feedUrlBase64" (base64url id)}
+    :else              {"showUuid" id}))
 
 (defn- query
   "The query string of `params`, a map of OP3's names, whose values are
@@ -157,7 +161,7 @@
    (request token endpoint params {}))
   ([token endpoint {:keys [show episodes? start end episode bots? limit continuation-token]} opts]
    (let [[path params] (case endpoint
-                         :show                    [(str "shows/" (http/encode (if (re-find #"(?i)^https?://" (str show)) (base64url show) show)))
+                         :show                    [(str "shows/" (http/encode (if (http/web-url? show) (base64url show) show)))
                                                    {"episodes" (when episodes? "include")}]
                          :downloads               [(str "downloads/show/" (http/encode show))
                                                    {"format" "json" "start" start "end" end "episodeId" episode
@@ -172,7 +176,7 @@
       :url     (str (instance opts) "/api/1/" path (when (seq q) (str "?" q)))
       :headers {"Authorization" (http/authorization {:token token}) "User-Agent" http/user-agent}})))
 
-(defn- record
+(defn ^:no-doc record
   "The JSON object `m` with its fields as keywords in kebab-case, and its
   times as instants."
   [m]
@@ -199,13 +203,14 @@
       :top-apps-for-show       {:show-uuid :app-downloads {app downloads}}
 
   A download has the keys of `dk.simongray.podcast.analytics/downloads`
-  where OP3 tells the same fact: hashedIpAddress is `:ip`, and audienceId
-  is the `:listener`. The keys of a map by show or by app stay text.
+  where OP3 tells the same fact. So hashedIpAddress is `:ip`, and
+  audienceId is the `:listener`. The keys of a map by show or by app stay
+  text.
 
   Throws `::failed` for a body that holds no JSON object."
   [endpoint body]
-  (let [raw (json/parse body)]
-    (when-not (map? raw)
+  (let [raw (json/object body)]
+    (when-not raw
       (throw (ex-info "OP3 answered with no JSON object" {:type ::failed :endpoint endpoint})))
     (case endpoint
       :show                    (cond-> (record raw)
@@ -222,8 +227,9 @@
   "What the answer `body` of OP3 says went wrong: the error or the message
   of its JSON, or the text."
   [body]
-  (let [raw (json/parse body)]
-    (or (when (map? raw) (or (get raw "error") (get raw "message")))
+  (let [raw (json/object body)]
+    (or (get raw "error")
+        (get raw "message")
         (some-> body str str/trim not-empty))))
 
 (defn call!
@@ -249,13 +255,15 @@
                    (cond
                      (= 404 status)                         nil
                      (not (and status (<= 200 status 299))) (throw (failed status (message body)))
-                     (map? (json/parse body))               (response endpoint body)
+                     (json/object body)                     (response endpoint body)
                      :else                                  (throw (failed status "no JSON object"))))))))
 
 (defn downloads!
-  "The downloads of the show that `params` name, as the call :downloads
-  gives them, page after page: `{:downloads [...] :continuation-token}`.
-  On the JVM the downloads, in ClojureScript a promise of them.
+  "The downloads of the show that `params` name, read page after page with
+  the bearer `token`, as `{:downloads [...] :continuation-token}`.
+
+  The call :downloads gives the pages. On the JVM it gives the downloads,
+  and in ClojureScript a promise of them.
 
   A page holds at most `:limit` downloads, 20,000 unless `params` say. The
   fetch stops after `:max-pages` pages, five unless `opts` say. When it
@@ -291,9 +299,18 @@
                        token (assoc :continuation-token token)
                        error (assoc :error error))))))))
 
+(comment
+  (prefix "https://cdn.example.com/episode-54.mp3" {:podcast-guid "917393e3-1b1e-5cef-ace4-edaa54e1f810"})
+  (prefixed? "https://op3.dev/e/cdn.example.com/episode-54.mp3")
+  (accepts? "https://localhost/episode-54.mp3")
+  (with-prefix {:rss/items [{:rss/enclosure {:url "https://cdn.example.com/episode-54.mp3"}}]})
+
+  (request "a-token" :downloads {:show "fb3d03641442410e881acb0562ef27c6" :start "-24h" :limit 10})
+  (response :downloads "{\"rows\": [{\"time\": \"2026-09-26T08:15:02Z\", \"hashedIpAddress\": \"abc\"}]}")
+  #_.)
+
 #?(:clj
    (comment
-     (prefix "https://cdn.example.com/episode-54.mp3" {:podcast-guid "917393e3-1b1e-5cef-ace4-edaa54e1f810"})
      ;; the sample token of the API docs of OP3, for a try
      (call! "preview07ce" :show {:show "917393e3-1b1e-5cef-ace4-edaa54e1f810" :episodes? true})
      (call! "preview07ce" :top-apps-for-show {:show "917393e3-1b1e-5cef-ace4-edaa54e1f810"})

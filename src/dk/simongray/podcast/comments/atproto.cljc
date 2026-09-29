@@ -18,6 +18,7 @@
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.time :as time]))
 
 (defn at-uri
@@ -85,8 +86,8 @@
   [facets n]
   (->> (for [facet (filter map? facets)
              :let  [{:strs [byteStart byteEnd]} (get facet "index")
-                    start (common/whole byteStart)
-                    end   (common/whole byteEnd)
+                    start (json/whole byteStart)
+                    end   (json/whole byteEnd)
                     uri   (some #(when (= "app.bsky.richtext.facet#link" (get % "$type")) (common/web-url (get % "uri")))
                                 (filter map? (common/values facet "features")))]
              :when (and start end uri (<= 0 start) (< start end) (<= end n))]
@@ -141,10 +142,11 @@
       [])))
 
 (defn- post-comment
-  "The AT Protocol post `view` as a comment read at `at`: hidden when it is
-  among the replies that the author of the root `hidden`, and with its
-  replies read when the view gives them, `replies?`."
-  [view hidden replies? at]
+  "The AT Protocol post `view` as a comment read at `at`. It is hidden when
+  it is among the replies that the author of the root hid, the `:hidden`
+  of `opts`. Its replies count as read when the view gives them, which
+  `:replies?` tells."
+  [view at {:keys [hidden replies?]}]
   (let [record  (get view "record")
         labels  (warnings view)
         created (time/parse-date (get record "createdAt"))
@@ -162,7 +164,7 @@
                      :attachments           (embed-attachments (get view "embed"))
                      :hidden?               (contains? hidden (get view "uri"))
                      :read-at               at
-                     ::comments/reply-count (when-let [n (common/whole (get view "replyCount"))] (when (pos? n) n))
+                     ::comments/reply-count (common/dimension (get view "replyCount"))
                      ::comments/collection  (when replies? {:read-at at})})))
 
 (defn- profile-author
@@ -215,7 +217,7 @@
       :else
       (let [replies (get view "replies")
             author  (get post "author")
-            c       (common/guarded uri at #(post-comment post hidden (sequential? replies) at))]
+            c       (common/guarded uri at #(post-comment post at {:hidden hidden :replies? (sequential? replies)}))]
         (reduce #(with-view %1 %2 uri hidden at (inc level))
                 (cond-> (assoc-in thread [:comments uri] c)
                   (string? (get author "did")) (assoc-in [:authors (get author "did")] (profile-author author at)))
@@ -241,9 +243,10 @@
 
 (defn requests
   "The requests that the AT Protocol `thread` needs next, of those whose
-  URLs `ask?` takes. They go to the `:appview` of `opts`, and they ask for
-  no more posts than the `:max-comments` of `opts` allows, counted from
-  the last `resumed`.
+  URLs `ask?` takes.
+
+  They go to the `:appview` of `opts`. They ask for no more posts than
+  the `:max-comments` of `opts` allows, counted from the last `resumed`.
 
   The root post comes first. Then come the posts nearest to it whose
   replies are below the levels that the AppView gives at once."
@@ -297,3 +300,42 @@
         (cond-> read
           (and (get-in read [:comments anchor]) (not (get-in read [:comments anchor ::comments/collection :read-at])))
           (assoc-in [:comments anchor ::comments/collection :read-at] at))))))
+
+(comment
+  (at-uri "at://did:plc:ann/app.bsky.feed.post/1")
+
+  (def sample-thread
+    {:protocol "atproto" :uri "at://did:plc:ann/app.bsky.feed.post/1"})
+
+  (def sample-opts
+    {:appview "https://public.api.bsky.app" :max-comments 100})
+
+  ;; the one request of an unread thread
+  (requests sample-thread sample-opts (constantly true))
+
+  ;; the answer of an AppView: a post, and one reply below it
+  (def sample-answer
+    {"thread" {"post"    {"uri"    "at://did:plc:ann/app.bsky.feed.post/1"
+                          "author" {"did" "did:plc:ann" "handle" "ann.example" "displayName" "Ann"}
+                          "record" {"text" "What did you think?" "createdAt" "2026-09-19T00:22:52Z"}}
+               "replies" [{"post" {"uri"    "at://did:plc:bob/app.bsky.feed.post/2"
+                                   "author" {"did" "did:plc:bob" "handle" "bob.example"}
+                                   "record" {"text"      "A good episode"
+                                             "createdAt" "2026-09-19T01:00:00Z"
+                                             "reply"     {"parent" {"uri" "at://did:plc:ann/app.bsky.feed.post/1"}}}}}]}})
+
+  (def sample-read
+    (with-exchanges sample-thread
+                    [{:request  (first (requests sample-thread sample-opts (constantly true)))
+                      :response {:status 200}
+                      :document sample-answer}]
+                    #inst "2026-09-29T12:00:00Z"))
+
+  (vals (:comments sample-read))
+  (:authors sample-read)
+
+  ;; a facet counts bytes, and marks a link in the text
+  (post-html "See https://example.org"
+             [{"index"    {"byteStart" 4 "byteEnd" 23}
+               "features" [{"$type" "app.bsky.richtext.facet#link" "uri" "https://example.org"}]}])
+  #_.)

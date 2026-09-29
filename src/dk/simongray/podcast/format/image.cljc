@@ -1,19 +1,22 @@
 (ns dk.simongray.podcast.format.image
-  "The header of an image file, which is what a check of artwork needs:
-  its type, its size in pixels, its color model and whether it can be
-  transparent, read from the first bytes without decoding the image. PNG
-  as the W3C PNG specification defines it, JPEG as ITU-T T.81 and JFIF
-  (T.871) do, GIF89a, and WebP as RFC 9649 does.
+  "The header of an image file, which is what a check of artwork needs.
+
+  The header gives the type of the image, its size in pixels, its color
+  model and whether it can be transparent. The reader takes them from the
+  first bytes and does not decode the image. It reads PNG as the W3C PNG
+  specification defines it, JPEG as ITU-T T.81 and JFIF (T.871) do,
+  GIF89a, and WebP as RFC 9649 does.
 
   `read` takes a view of the parts of the file at hand (see
-  dk.simongray.podcast.bytes) and gives the header, or the ranges it still
-  needs, as `dk.simongray.podcast.format.media/read` does for media files;
-  `read!` fetches them."
+  dk.simongray.podcast.bytes). It gives the header, or the ranges that it
+  still needs, as `dk.simongray.podcast.format.media/read` does for media
+  files. `read!` fetches them, and `report` gives the diagnostics of a
+  reading."
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.http :as http]))
 
-(defn- u16le
+(defn ^:no-doc u16le
   "The little-endian 16-bit number at `p` in `view`."
   [view p]
   (+ (bytes/u8 view p) (* 256 (bytes/u8 view (inc p)))))
@@ -23,12 +26,12 @@
   [view p]
   (+ (u16le view p) (* 65536 (bytes/u8 view (+ p 2)))))
 
-(defn- u32le
+(defn ^:no-doc u32le
   "The little-endian 32-bit number at `p` in `view`."
   [view p]
   (+ (u16le view p) (* 65536 (u16le view (+ p 2)))))
 
-(defn- unless-broken
+(defn ^:no-doc unless-broken
   "What `(f)` gives, or nil when it fails for any reason but bytes that the
   view lacks or a file that ends too soon, which it throws on, so that a
   reader can fetch the bytes or report the end."
@@ -72,10 +75,14 @@
            (#{"IDAT" "IEND"} type)           false
            :else                             (recur (+ p 12 n))))))))
 
+(def ^:no-doc png-colors
+  "The color model of each color type of a PNG image."
+  {0 :grayscale 2 :rgb 3 :indexed 4 :grayscale 6 :rgb})
+
 (defn- png
   "The header of the PNG image in `view`, from the IHDR chunk, which comes
   first; `:alpha?` nil when the chunks after it do not read. When the file
-  ends before them, the `:report` says so."
+  ends before them, the report says so."
   [view]
   (bytes/need view 8 33)
   (when (= "IHDR" (bytes/code view 12 4))
@@ -83,12 +90,12 @@
           alpha (if (contains? #{4 6} kind)
                   {:value true}
                   (bytes/part :transparency #(transparent? view kind)))]
-      (cond-> {:type   "image/png"
-               :width  (bytes/u32 view 16)
-               :height (bytes/u32 view 20)
-               :color  (get {0 :grayscale 2 :rgb 3 :indexed 4 :grayscale 6 :rgb} kind)
-               :alpha? (:value alpha)}
-        (:report alpha) (assoc :report (:report alpha))))))
+      (bytes/reported {:type   "image/png"
+                       :width  (bytes/u32 view 16)
+                       :height (bytes/u32 view 20)
+                       :color  (get png-colors kind)
+                       :alpha? (:value alpha)}
+                      (:report alpha)))))
 
 (def ^:no-doc frame-markers
   "The coding process of each JPEG marker that starts a frame, which gives
@@ -121,13 +128,36 @@
                           (let [o (u16* (+ e 8))] (when (and (<= 1 o) (<= o 8)) o)))))
                     (range (or n 0)))))))))
 
+(def ^:no-doc jpeg-colors
+  "The color model of a JPEG image by the number of its components. Three
+  components are YCbCr or RGB, and four are CMYK or YCCK, which is CMYK
+  too."
+  {1 :grayscale 3 :rgb 4 :cmyk})
+
+(defn- jpeg-frame
+  "The header of the JPEG image whose frame header is at `p` in `view`,
+  after the frame marker `marker`, with the EXIF orientation `turned` of
+  the segments before it. A height of 0 is given later, in a DNL segment
+  after the image data, so it is left out."
+  [view p marker turned]
+  (bytes/need view p (+ p 10))
+  (let [height  (bytes/u16 view (+ p 5))
+        process (frame-markers marker)]
+    (cond-> {:type         "image/jpeg"
+             :width        (bytes/u16 view (+ p 7))
+             :color        (get jpeg-colors (bytes/u8 view (+ p 9)))
+             :alpha?       false
+             :process      process
+             :bits         (bytes/u8 view (+ p 4))
+             :progressive? (contains? #{:progressive :progressive-arithmetic} process)}
+      (pos? height) (assoc :height height)
+      turned        (assoc :orientation turned))))
+
 (defn- jpeg
   "The header of the JPEG image in `view`: the frame header of the first
   frame marker, found by walking the segments before it, with the coding
   process, the sample precision in bits and the EXIF orientation; nil when
-  the image data or the end comes first. Three components are YCbCr or
-  RGB, and four are CMYK or YCCK, which is CMYK too. A height of 0 is given
-  later, in a DNL segment after the image data, so it is left out."
+  the image data or the end comes first."
   [view]
   (loop [p 2 turned nil]
     (bytes/need view p (+ p 4))
@@ -140,18 +170,7 @@
         (recur (inc p) turned)
 
         (contains? frame-markers marker)
-        (do (bytes/need view p (+ p 10))
-            (let [height  (bytes/u16 view (+ p 5))
-                  process (frame-markers marker)]
-              (cond-> {:type         "image/jpeg"
-                       :width        (bytes/u16 view (+ p 7))
-                       :color        (get {1 :grayscale 3 :rgb 4 :cmyk} (bytes/u8 view (+ p 9)))
-                       :alpha?       false
-                       :process      process
-                       :bits         (bytes/u8 view (+ p 4))
-                       :progressive? (contains? #{:progressive :progressive-arithmetic} process)}
-                (pos? height) (assoc :height height)
-                turned        (assoc :orientation turned))))
+        (jpeg-frame view p marker turned)
 
         (contains? #{0xD9 0xDA} marker)
         nil
@@ -222,49 +241,94 @@
           (contains? #{"mif1" "msf1"} brand)                      "image/heif"))
       (re-find #"<svg[\s>]" (bytes/code view 0 n))                   "image/svg+xml")))
 
-(defn read
-  "The header of the image whose parts `view` holds: `{:type :width
-  :height :color :alpha?}`, the type a MIME type, the size in pixels, the
-  color model :rgb, :indexed, :grayscale or :cmyk, and whether the image
-  has transparent pixels, nil when that is not known, as of a GIF. A JPEG
-  also gives its coding `:process`, from :baseline, :extended and
-  :progressive to :lossless, :hierarchical, :jpeg-ls and the arithmetic
-  ones, its sample precision in `:bits`, `:progressive?`, and the EXIF
-  `:orientation`, 1 to 8; its height is left out when the image gives it
-  only after its data. An image in a format whose header the reader does
-  not read, such as AVIF, HEIC, SVG, BMP, TIFF or ICO, gives its `:type`
-  alone. Or `{:need [[start end] ...]}`, the ranges that the reading needs
-  and the view lacks. An image that does not read gives a `:report`, as
-  `dk.simongray.podcast.format.media/read` gives one, and its `:type` when
-  its first bytes tell it."
+(defn- read-header
+  "What `read` gives for the image in `view` when the view holds the bytes
+  that the reading needs."
   [view]
-  (bytes/reading
-   #(do (bytes/need view 0 12)
-        (let [type   (bytes/image-type (bytes/slice view 0 (min 12 (or (:total view) 12))))
-              header (case type
-                       "image/png"  (png view)
-                       "image/jpeg" (jpeg view)
-                       "image/gif"  (gif view)
-                       "image/webp" (webp view)
-                       nil)]
-          (or header
-              (when-not type (some->> (other-type view) (hash-map :type)))
-              (cond-> {:report [{:id (if type :file/malformed :file/unknown-format) :level :warning}]}
-                type (assoc :type type)))))))
+  (bytes/need view 0 12)
+  (let [type   (bytes/image-type (bytes/slice view 0 (min 12 (or (:total view) 12))))
+        header (case type
+                 "image/png"  (png view)
+                 "image/jpeg" (jpeg view)
+                 "image/gif"  (gif view)
+                 "image/webp" (webp view)
+                 nil)]
+    (or header
+        (when-not type (some->> (other-type view) (hash-map :type)))
+        (bytes/reported (if type {:type type} {})
+                        [{:id (if type :file/malformed :file/unknown-format) :level :warning}]))))
+
+(defn report
+  "The diagnostics of `image`, which `read` or `read!` gave. Each
+  diagnostic has its message."
+  [image]
+  (bytes/report image))
+
+(defn read
+  "The header of the image whose parts `view` holds, as `{:type :width
+  :height :color :alpha?}`.
+
+  `:type` is a MIME type, and the size is in pixels. `:color` is the
+  color model: :rgb, :indexed, :grayscale or :cmyk. `:alpha?` tells
+  whether the image has transparent pixels. It is nil when the header
+  does not tell, as for a GIF.
+
+  A JPEG also gives its coding `:process`, its sample precision in
+  `:bits`, `:progressive?`, and the EXIF `:orientation`, 1 to 8. The
+  processes go from :baseline, :extended and :progressive to :lossless,
+  :hierarchical, :jpeg-ls and the arithmetic processes. The height of a
+  JPEG is absent when the image gives it only after its data.
+
+  An image in a format whose header the reader does not read gives its
+  `:type` alone. Such formats are AVIF, HEIC, HEIF, SVG, BMP, TIFF and
+  ICO.
+
+  When the view lacks bytes, the result is `{:need [[start end] ...]}`,
+  the ranges that the reading needs. For an image that does not read,
+  `report` tells why, and the result has the `:type` when the first bytes
+  tell it."
+  [view]
+  (bytes/reading #(read-header view)))
 
 (defn read!
-  "The header of the image at `url`, as `read` gives it, fetching by
-  `dk.simongray.podcast.bytes/read!` the ranges that the reading needs,
-  most often the first 64 KB alone: on the JVM the result, in
-  ClojureScript a promise of it. `opts` may give `:fetch`, a function as
-  `http/fetcher` makes, and the `:headers`, `:timeout-seconds` and `:send`
-  of `http/fetcher`.
+  "The header of the image at `url`, as `read` gives it. On the JVM it
+  gives the result, and in ClojureScript a promise of it.
 
-  `opts` also give the limits of `bytes/read!`, with
-  `bytes/default-limits` for those that they do not set, and the `:allow?`
-  of `http/call!`."
+  `dk.simongray.podcast.bytes/read!` fetches the ranges that the reading
+  needs, most often the first 64 KB alone. `opts` can give `:fetch`, a
+  function as `http/fetcher` makes. They can also give the `:headers`, the
+  `:timeout-seconds` and the `:send` of `http/fetcher`, and the `:allow?`
+  of `http/call!`.
+
+  `opts` give the limits of `bytes/read!`, with `bytes/default-limits` for
+  the limits that they do not set."
   ([url]
    (read! url {}))
   ([url {:keys [fetch] :as opts}]
    (let [opts (merge bytes/default-limits opts)]
      (bytes/read! (or fetch (http/fetcher url opts)) read opts))))
+
+(comment
+  ;; the start of a PNG image of 1400 by 1400 pixels in RGB: the
+  ;; signature, the IHDR chunk, and the header of the IDAT chunk
+  (def sample-bytes
+    (bytes/of (concat [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A]
+                      [0 0 0 13 0x49 0x48 0x44 0x52]
+                      [0 0 5 120 0 0 5 120 8 2 0 0 0]
+                      [0 0 0 0]
+                      [0 0 0 0 0x49 0x44 0x41 0x54])))
+
+  (def sample
+    (bytes/add (bytes/view) 0 sample-bytes nil))
+
+  (read sample)
+  (report (read sample))
+
+  ;; the first 20 bytes alone: the reading tells the range that it needs
+  (read (bytes/add (bytes/view) 0 (bytes/copy sample-bytes 0 20) nil))
+
+  ;; a file that is no image
+  (report (read (bytes/add (bytes/view) 0 (bytes/encode "<html>not an image</html>") 25)))
+
+  (read! "https://example.org/artwork.png")
+  #_.)

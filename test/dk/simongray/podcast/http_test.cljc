@@ -444,6 +444,46 @@
            (is (= [0 2000 1000] [(alength ^bytes bytes) start total])
                "a 416 gives no bytes and the size of the file"))))))
 
+(deftest a-fetcher-without-options
+  (is (fn? (http/fetcher "https://example.org/a.mp3"))))
+
+(deftest the-request-after-a-redirect
+  (let [post {:method  :post
+              :url     "https://a.example/x"
+              :headers {"Authorization" "Basic x" "Cookie" "c=1" "Accept" "*/*"}
+              :body    "{}"}
+        there "https://a.example/y"]
+    (testing "a 303, and a 301 or 302 to a POST, turn into a GET without a body"
+      (is (= {:method :get :url there :headers (:headers post) :body nil} (http/redirected post 303 there)))
+      (is (= [:get nil] ((juxt :method :body) (http/redirected post 301 there))))
+      (is (= [:get nil] ((juxt :method :body) (http/redirected post 302 there))))
+      (is (= [:put "{}"] ((juxt :method :body) (http/redirected (assoc post :method :put) 302 there)))))
+    (testing "a 307 and a 308 keep the method and the body"
+      (is (= [:post "{}"] ((juxt :method :body) (http/redirected post 307 there))))
+      (is (= [:post "{}"] ((juxt :method :body) (http/redirected post 308 there)))))
+    (is (= :head (:method (http/redirected (assoc post :method :head) 303 there))) "a HEAD stays a HEAD")
+    (testing "credentials stay behind when the redirect leaves the origin"
+      (is (= {"Accept" "*/*"} (:headers (http/redirected post 307 "https://b.example/x"))))
+      (is (= {"Accept" "*/*"} (:headers (http/redirected post 307 "https://a.example:8443/x"))) "another port")
+      (is (= {"Accept" "*/*"} (:headers (http/redirected post 307 "http://a.example/x"))) "another scheme")
+      (is (= (:headers post) (:headers (http/redirected post 307 "https://A.example:443/x")))
+          "the same origin, written another way"))
+    (is (= 5 (:timeout-seconds (http/redirected (assoc post :timeout-seconds 5) 307 there)))
+        "the rest of the request stays")))
+
+(deftest urls-of-the-web
+  (is (every? http/web-url? ["https://a.example/feed.xml" "HTTP://a.example" "https://user:pass@a.example/x"]))
+  (is (not-any? http/web-url? ["https://" "ftp://a.example/x" "a.example/x" " https://a.example/" "" nil 5
+                               "javascript:alert(1)"])))
+
+(deftest the-body-of-a-ring-request
+  (is (= "" (http/body-text nil 10)))
+  (is (= "hello" (http/body-text "hello" 5)))
+  (is (nil? (http/body-text "hello!" 5)) "more than the limit")
+  #?(:clj (let [stream #(java.io.ByteArrayInputStream. (.getBytes ^String % "UTF-8"))]
+            (is (= "Ærø" (http/body-text (stream "Ærø") 5)) "a stream, read as UTF-8, its limit in bytes")
+            (is (nil? (http/body-text (stream "Ærø") 4))))))
+
 (deftest hosts-on-the-public-internet
   (is (not-any? http/public? ["http://127.0.0.1/" "http://10.1.2.3/" "http://172.16.0.1/" "http://192.168.1.1/"
                               "http://169.254.169.254/latest/meta-data" "http://100.64.0.1/" "http://0.0.0.0/"

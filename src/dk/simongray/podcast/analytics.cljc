@@ -37,14 +37,13 @@
             [dk.simongray.podcast.time :as time]))
 
 (defn threshold
-  "The bytes of a file that a download needs by the rules of the IAB: the
-  header, and one minute of the content. `file` is
-  `{:size :header :duration}`: the size of the file and of its header in
-  bytes, and its duration in seconds. The header of an MP3 file is its ID3
-  tag.
+  "The bytes of `file` that a download needs by the rules of the IAB: the
+  header, and one minute of the content. Nil when the size is not known.
 
-  An episode of one minute or less needs the whole file. So does a file
-  with no duration. Nil when the size is not known."
+  `file` is `{:size :header :duration}`: the size of the file and of its
+  header in bytes, and its duration in seconds. The header of an MP3 file
+  is its ID3 tag. An episode of one minute or less needs the whole file.
+  So does a file with no duration."
   [{:keys [size header duration]}]
   (when (and (number? size) (pos? size))
     (let [header (min size (max 0 (or header 0)))]
@@ -69,9 +68,11 @@
 
 (defn listener-ip
   "The part of the IP address `ip` that tells listeners apart, as the IAB
-  counts them. That is an IPv4 address whole, and the first 64 bits of an
-  IPv6 address, as a prefix such as 2001:db8:1:2::/64. An IPv4 address
-  inside IPv6, as a server writes a client of IPv4, is that IPv4 address.
+  counts them.
+
+  That is an IPv4 address whole, and the first 64 bits of an IPv6 address,
+  as a prefix such as 2001:db8:1:2::/64. An IPv4 address inside IPv6, as a
+  server writes a client of IPv4, is that IPv4 address.
 
   Other text, such as a hash of an address, stays as it is. So a host that
   keeps a hash in place of the address hashes this part."
@@ -103,10 +104,12 @@
       {:id :analytics/unreadable-pattern :file file :name name})))
 
 (defn user-agents
-  "The open list of user agents of the OPAWG, ready for `identify`. `files`
-  maps :bots, :apps, :libraries, :browsers, :devices and :referrers to the
-  JSON of the file of that name, as text or read. The files are in src/ or
-  build/ of https://github.com/opawg/user-agents-v2.
+  "The open list of user agents of the OPAWG from `files`, ready for
+  `identify`.
+
+  `files` maps :bots, :apps, :libraries, :browsers, :devices and
+  :referrers to the JSON of the file of that name, as text or read. The
+  files are in src/ or build/ of https://github.com/opawg/user-agents-v2.
 
   Each entry of a file has a name, a pattern and at times a category. The
   pattern is a regular expression of JavaScript. A pattern that does not
@@ -133,9 +136,11 @@
 
 (defn identify
   "The agent that the header `user-agent` names by the list `user-agents`,
-  with the keys that OP3 gives it: `{:agent-type :agent-name :device-type
-  :device-name}`. With the header `referer` of a request from a browser,
-  also `:referrer-type` and `:referrer-name`.
+  with the keys that OP3 gives it.
+
+  The result is `{:agent-type :agent-name :device-type :device-name}`.
+  With the header `referer` of a request from a browser, it also has
+  `:referrer-type` and `:referrer-name`.
 
   The agent type is the type of the file of the first entry that matches:
   bot, app, library or browser. A library that bots use is bot-library. A
@@ -180,7 +185,7 @@
     (and (contains? #{nil "unknown"} agent-type)
          (boolean (re-find #"(?i)bot|crawler|spider" user-agent)))))
 
-(defn- asked-size
+(defn ^:no-doc asked-size
   "The bytes that the byte ranges `ranges` ask for together, ##Inf for a
   range with no end."
   [ranges]
@@ -359,3 +364,30 @@
                        (sort-by :start counted))
       :dropped   (cond-> dropped
                    (seq short) (assoc :short (reduce + (map :n short))))})))
+
+(comment
+  ;; an episode of 30 minutes: the header, and one minute of the content
+  (threshold {:size 30000000 :header 50000 :duration 1800})
+  (listener-ip "2001:db8:1:2:3:4:5:6")
+
+  (def agents
+    (user-agents {:apps {"entries" [{"name" "Overcast" "pattern" "^Overcast/"}]}
+                  :bots {"entries" [{"name" "Googlebot" "pattern" "Googlebot"}]}}))
+
+  (identify agents "Overcast/3.0 (+http://overcast.fm/; iOS podcast app)")
+
+  ;; two requests of one listener for one file, and the request of a bot
+  (def requests
+    [{:time   #inst "2026-09-26T08:15:02Z" :ip     "203.0.113.5"   :user-agent "Overcast/3.0"
+      :method :get                         :url    "https://cdn.example.com/54.mp3"
+      :status 206                          :range  "bytes=0-"      :bytes      1048576}
+     {:time   #inst "2026-09-26T08:15:09Z" :ip     "203.0.113.5"   :user-agent "Overcast/3.0"
+      :method :get                         :url    "https://cdn.example.com/54.mp3"
+      :status 206                          :range  "bytes=1048576-" :bytes     2000000}
+     {:time   #inst "2026-09-26T09:00:00Z" :ip     "198.51.100.7"  :user-agent "Googlebot/2.1"
+      :method :get                         :url    "https://cdn.example.com/54.mp3"
+      :status 200                          :bytes  30000000}])
+
+  (drop-reason (assoc (peek requests) :agent-type "bot"))
+  (downloads requests {:user-agents agents :threshold (constantly 1000000)})
+  #_.)

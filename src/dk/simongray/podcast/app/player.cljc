@@ -1,9 +1,11 @@
 (ns dk.simongray.podcast.app.player
   "What a podcast player keeps between plays, as plain data with pure
-  operations over it, for any UI to build on: the play queue, listening
-  progress and played marks per episode, subscriptions with their settings,
-  the listener's devices, and a `merge` that reconciles the state of one
-  listener's devices, which is the core of syncing.
+  operations over it, for any UI to build on.
+
+  The state holds the play queue, the progress and the played mark of each
+  episode, the subscriptions with their settings, and the devices of the
+  listener. `merge` reconciles the states of the devices of one listener,
+  which is the core of the sync.
 
   The state is one map:
 
@@ -25,20 +27,24 @@
        :devices       {device-id {:name :platform ... :seen {device-id #inst \"…\"}}}
        :retired       {device-id {}}}
 
-  Every write takes the instant `at` it happens, never reads a clock, and
-  stamps what it changed with the state's `:device` and with `at` as
-  `after` adjusts it. The state is a state-based CRDT: a stamped entry is a
-  last-writer-wins register, a map of them an add-and-remove set with
-  tombstones, the clock a max register, and `merge` the join; the queue
-  ranks its entries with `dk.simongray.podcast.rank`, so that what two
-  devices queued while apart both survive, and each device's registry
-  entry says what it has merged, which lets `compact` drop the tombstones
-  everyone has seen. doc/sync.md is the design. Nothing here stores
-  anything or touches a media element; the app owns those and calls in,
-  and `dk.simongray.podcast.app.sync` carries the state between devices.
+  Each write takes the instant `at` of the write, and reads no clock. It
+  stamps what it changed with the `:device` of the state, and with `at` as
+  `after` adjusts it.
+
+  The state is a state-based CRDT. A stamped entry is a last-writer-wins
+  register, and a map of entries is an add-and-remove set with
+  tombstones. The clock is a max register, and `merge` is the join. The
+  queue ranks its entries with `dk.simongray.podcast.rank`, so that what
+  two devices queued while apart both survive. The registry entry of each
+  device tells what the device merged. So `compact` can drop the
+  tombstones that every device saw. doc/sync.md is the design.
+
+  Nothing here stores data or touches a media element. The app owns
+  those and calls in. `dk.simongray.podcast.app.sync` carries the state
+  between devices.
 
   Identities are those of `dk.simongray.podcast.feed`: a feed by its
-  `podcast:guid`, an episode by `[feed-guid item-guid]`."
+  `podcast:guid`, and an episode by `[feed-guid item-guid]`."
   (:refer-clojure :exclude [merge])
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
@@ -114,10 +120,12 @@
   [(feed/feed-guid feed url) (feed/item-guid item)])
 
 (def default-settings
-  "What a subscription is set to until `configure` says otherwise: whether
-  new episodes join the queue or, failing that, the inbox, the seconds to
-  skip at the start and the end, and the name of the folder the show is
-  in."
+  "The settings of a subscription until `configure` changes them.
+
+  `:auto-queue?` tells whether new episodes join the queue. `:inbox?`
+  tells whether they join the inbox when they do not join the queue.
+  `:skip-intro` and `:skip-outro` are the seconds to skip at the start and
+  at the end. `:folder` is the name of the folder that the show is in."
   {:auto-queue? false :inbox? false :skip-intro 0 :skip-outro 0 :folder nil})
 
 (defn subscribed?
@@ -153,10 +161,12 @@
        (into {} (map (fn [[g e]] [(normal-url (:url e)) g])))))
 
 (defn subscribe
-  "Subscribe to the feed `feed-guid` at `url` with `title` at `at`; the
-  settings of an earlier subscription to it still hold. `:added-at` gives
-  another time the listener subscribed, as an OPML file from another app
-  can, for a subscription that is new."
+  "Subscribe `state` to the feed `feed-guid` at `at`. The map gives the
+  `:url` and the `:title` of the feed.
+
+  The settings of an earlier subscription to the feed still hold. For a
+  subscription that is new, `:added-at` gives another time that the
+  listener subscribed, as an OPML file from another app can."
   [state feed-guid {:keys [url title added-at]} at]
   (write state [:subscriptions feed-guid]
          (fn [sub]
@@ -217,25 +227,29 @@
 
 (defn folders
   "The live subscriptions of `state` by the folder of their settings, as
-  `{folder [feed-guid ...]}`, each folder's shows in the order of their
-  titles and the shows in no folder under nil."
+  `{folder [feed-guid ...]}`.
+
+  The shows of each folder are in the order of their titles. The shows in
+  no folder are under nil."
   [state]
   (reduce (fn [m [feed-guid _]] (update m (:folder (settings state feed-guid)) (fnil conj []) feed-guid))
           {}
           (sort-by (comp str :title val) (subscriptions state))))
 
 (defn rename-folder
-  "Move the shows in the folder `from` to the folder `to` at `at`, or out
-  of any folder when `to` is nil."
+  "Move the shows of `state` in the folder `from` to the folder `to` at
+  `at`. When `to` is nil, the shows go out of all folders."
   [state from to at]
   (if-let [feed-guids (get (folders state) from)]
     (write-each state (for [g feed-guids] [[:settings g :folder] (constantly {:value to})]) at)
     state))
 
 (defn tags
-  "The tags the listener gave the show `feed-guid`, as a sorted set. Unlike
-  its folder, a show can have many tags, and two devices that add
-  different tags at once both keep theirs."
+  "The tags that the listener gave the show `feed-guid` in `state`, as a
+  sorted set.
+
+  A show has one folder, but it can have many tags. Two devices that add
+  different tags at the same time both keep their tags."
   [state feed-guid]
   (into (sorted-set) (keep (fn [[t e]] (when-not (:removed? e) t))) (get-in state [:tags feed-guid])))
 
@@ -256,15 +270,16 @@
     state))
 
 (defn untag
-  "Take the tag `t` off the show `feed-guid` at `at`, leaving a tombstone."
+  "Take the tag `t` off the show `feed-guid` in `state` at `at`, leaving a
+  tombstone."
   [state feed-guid t at]
   (if (contains? (tags state feed-guid) t)
     (write state [:tags feed-guid t] #(assoc % :removed? true) at)
     state))
 
 (defn rename-tag
-  "Give the shows tagged `from` the tag `to` instead at `at`, or take the
-  tag off them when `to` is nil."
+  "Give the shows of `state` with the tag `from` the tag `to` in its place
+  at `at`. When `to` is nil, take the tag off them."
   [state from to at]
   (if-let [feed-guids (get (tagged state) from)]
     (write-each state (for [g feed-guids
@@ -282,11 +297,14 @@
   (into {} (keep (fn [[name e]] (when-not (:removed? e) [name (:criteria e)]))) (:filters state)))
 
 (defn save-filter
-  "Save the `criteria` of `dk.simongray.podcast.app.search/episodes` under
-  `name` at `at`, in place of a filter of that name, so that the other
-  devices have it too. `:player` and `:url` are left out, since they
-  belong to the device. The criteria must be data, since the state is
-  printed as EDN: an order that is a function throws."
+  "Save the `criteria` of `dk.simongray.podcast.app.search/episodes` in
+  `state` under `name` at `at`, so that the other devices have the filter
+  too.
+
+  The criteria replace a filter of that name. `:player` and `:url` are
+  left out, because they belong to the device. The criteria must be data,
+  because the state is printed as EDN. So an order that is a function
+  throws."
   [state name criteria at]
   (let [criteria (dissoc criteria :player :url)]
     (when (some fn? (tree-seq coll? seq criteria))
@@ -294,7 +312,8 @@
     (write state [:filters name] (constantly {:criteria criteria :removed? false}) at)))
 
 (defn remove-filter
-  "Remove the saved filter `name` at `at`, leaving a tombstone."
+  "Remove the saved filter `name` from `state` at `at`, leaving a
+  tombstone."
   [state name at]
   (if (contains? (filters state) name)
     (write state [:filters name] #(assoc % :removed? true) at)
@@ -376,16 +395,20 @@
                  judges))))
 
 (defn compact
-  "Drop from `state` at `at` the tombstones that every live device has
-  merged, by the registry (see `acknowledge`), and that are older than
-  `:keep-for` milliseconds in `opts` (default `default-keep`), a buffer
-  against a device that starts syncing with a state of its own: those of
-  unsubscriptions, of lists no longer followed, of removals from the
-  queue, the playlists and the inbox, and of the tags, stars, bookmarks
-  and saved filters taken away. The played marks and the counts of
-  listening stay, since the listener still sees them, and a
-  device that has stopped syncing holds compaction back until it is
-  retired (see `lagging`).
+  "Drop from `state` at `at` the tombstones that every live device merged,
+  and that are older than the `:keep-for` of `opts`.
+
+  The registry tells what each device merged (see `acknowledge`).
+  `:keep-for` is in milliseconds (default `default-keep`). It is a buffer
+  against a device that starts to sync with a state of its own.
+
+  The tombstones are those of unsubscriptions, of lists that the listener
+  follows no more, and of removals from the queue, the playlists and the
+  inbox. They are also those of the tags, the stars, the bookmarks and the
+  saved filters that the listener took away. The played marks and the
+  counts of listening stay, because the listener still sees them. A device
+  that syncs no more holds back the compaction until it is retired (see
+  `lagging`).
 
   The tombstones of the unsubscriptions stay while the listener follows a
   list. A list can name a show again at any time, and the tombstone tells
@@ -457,7 +480,7 @@
   (and (number? duration) (pos? duration) (number? position)
        (>= position (- duration played-threshold))))
 
-(defn- out-of-inbox
+(defn ^:no-doc out-of-inbox
   "The writes that take the episode `id` out of the inbox of `state`: a
   tombstone when it is there, else none."
   [state id]
@@ -466,10 +489,11 @@
       [[[:inbox id] #(assoc % :removed? true)]])))
 
 (defn progress
-  "Record that the listener is `position` seconds into the episode `id` at
-  `at`, and its `duration` when known; an episode heard to within
-  `played-threshold` seconds of its end counts as played, and leaves the
-  inbox.
+  "Record in `state` that the listener is `position` seconds into the
+  episode `id` at `at`, with its `duration` when that is known.
+
+  An episode that the listener heard to within `played-threshold` seconds
+  of its end counts as played, and it leaves the inbox.
 
   The entry keeps `at` as `:reported-at`, the time on the clock of the
   device. The stamp of the entry can be later than that time, so the
@@ -485,16 +509,16 @@
      (write-each state (into [[[:episodes id] (constantly e)]] (when (:played? e) (out-of-inbox state id))) at))))
 
 (defn mark-played
-  "Mark the episode `id` as played at `at`, which takes it out of the
-  inbox."
+  "Mark the episode `id` in `state` as played at `at`, which takes it out
+  of the inbox."
   [state id at]
   (write-each state (into [[[:episodes id] #(assoc (or % {}) :played? true :played-at (time/date at))]]
                           (out-of-inbox state id))
               at))
 
 (defn mark-unplayed
-  "Mark the episode `id` as not played at `at`, its position back at the
-  start."
+  "Mark the episode `id` in `state` as not played at `at`, with its
+  position back at the start."
   [state id at]
   (write state [:episodes id]
          #(-> (or % {}) (assoc :played? false :position 0 :reported-at (time/date at)) (dissoc :played-at))
@@ -539,14 +563,15 @@
       state)))
 
 (defn listened
-  "The seconds of each show that the listener heard, by feed guid and month
-  in UTC, as `{feed-guid {\"2026-09\" 5400.0}}`: the counts of all devices
-  added up. Each device keeps a count of its own, which only grows, so
-  that no count is lost when two devices count at once; `step` counts at
-  each `:progress`.
+  "The seconds of each show that the listener heard, by feed guid and by
+  month in UTC, as `{feed-guid {\"2026-09\" 5400.0}}`.
 
-  For the counts to be right, the app reports the position at least each
-  30 seconds while an episode plays. See `listening-gap`."
+  The result adds up the counts of all the devices in `state`. Each device
+  keeps a count of its own, which only grows. So no count is lost when two
+  devices count at the same time. `step` counts at each `:progress`.
+
+  For the counts to be right, the app reports the position each 30
+  seconds, or more often, while an episode plays. See `listening-gap`."
   [state]
   (update-vals (:listened state)
                (fn [months] (update-vals months #(reduce + 0 (keep :seconds (vals %)))))))
@@ -562,9 +587,11 @@
       (:skip-intro (settings state feed-guid)))))
 
 (defn outro-start
-  "Where the outro of the episode `id` of `feed-guid` starts: the feed's
-  skip-outro seconds before the end. Nil when the duration is not known,
-  the feed skips no outro, or the outro would be the whole episode."
+  "Where the outro of the episode `id` of `feed-guid` starts in `state`:
+  the skip-outro seconds of the feed before the end.
+
+  Nil when the duration is not known, when the feed skips no outro, or
+  when the outro is as long as the episode."
   [state feed-guid id]
   (let [duration (:duration (episode state id))
         outro    (:skip-outro (settings state feed-guid))]
@@ -579,12 +606,12 @@
        (sort-by (fn [[_ e]] (- (or (some-> (later-inst (:played-at e) (:updated-at e)) inst-ms) 0))))
        (map key)))
 
-(defn- stamp-ms
+(defn ^:no-doc stamp-ms
   "The stamp of the entry `e` in milliseconds, 0 for an entry without one."
   [e]
   (or (some-> (:updated-at e) inst-ms) 0))
 
-(defn- live-by-stamp
+(defn ^:no-doc live-by-stamp
   "The keys of the live entries of the map `entries`, the latest written
   first."
   [entries]
@@ -594,7 +621,7 @@
        (mapv key)))
 
 (defn starred?
-  "Whether the episode `id` is starred."
+  "Whether the episode `id` has a star in `state`."
   [state id]
   (let [e (get-in state [:stars id])]
     (boolean (and e (not (:removed? e))))))
@@ -605,21 +632,21 @@
   (live-by-stamp (:stars state)))
 
 (defn star
-  "Star the episode `id` at `at`, unless it is starred already."
+  "Star the episode `id` in `state` at `at`, unless it has a star."
   [state id at]
   (if (starred? state id)
     state
     (write state [:stars id] (constantly {:removed? false}) at)))
 
 (defn unstar
-  "Take the star off the episode `id` at `at`, leaving a tombstone, so that
-  the removal outlives an older star on another device."
+  "Take the star off the episode `id` in `state` at `at`, leaving a
+  tombstone. So the removal outlives an older star on another device."
   [state id at]
   (if (starred? state id)
     (write state [:stars id] #(assoc % :removed? true) at)
     state))
 
-(defn- second-of
+(defn ^:no-doc second-of
   "The whole second a bookmark at `position` has, nil for a position that
   is not a number of seconds from the start."
   [position]
@@ -627,17 +654,19 @@
     (long position)))
 
 (defn bookmark
-  "Bookmark the episode `id` at `position` seconds at `at`, with `title`,
-  which may be nil. The whole second identifies the bookmark, so another
-  bookmark at the same second replaces its title."
+  "Bookmark the episode `id` in `state` at `position` seconds at `at`,
+  with `title`, which can be nil.
+
+  The whole second identifies the bookmark. So another bookmark at the
+  same second replaces its title."
   [state id position title at]
   (if-let [s (second-of position)]
     (write state [:bookmarks id s] (constantly {:title title :removed? false}) at)
     state))
 
 (defn unbookmark
-  "Remove the bookmark of the episode `id` at `position` seconds at `at`,
-  leaving a tombstone."
+  "Remove the bookmark of the episode `id` at `position` seconds from
+  `state` at `at`, leaving a tombstone."
   [state id position at]
   (let [s (second-of position)
         e (get-in state [:bookmarks id s])]
@@ -646,9 +675,11 @@
       state)))
 
 (defn bookmarks
-  "The bookmarks of `state` as maps with `:id`, `:position` in whole
-  seconds, `:title` and `:updated-at`, the latest written first; with
-  `id`, those of that episode in the order of their positions."
+  "The bookmarks of `state`, the latest written first. With `id`, the
+  bookmarks of that episode, in the order of their positions.
+
+  A bookmark is a map with `:id`, `:position` in whole seconds, `:title`
+  and `:updated-at`."
   ([state]
    (->> (for [[id marks] (:bookmarks state)
               [position e] marks
@@ -661,7 +692,7 @@
         (sort-by :position)
         vec)))
 
-(defn- ranked
+(defn ^:no-doc ranked
   "The live entries of `entries`, a map of ranked entries such as the
   queue, as `[id entry]` in order: by rank, then by stamp and device where
   two devices ranked at once."
@@ -686,8 +717,8 @@
     (boolean (and e (not (:removed? e))))))
 
 (defn in-inbox?
-  "Whether the episode `id` is in the inbox: `refresh` put it there, and
-  the listener has not dismissed, queued or played it."
+  "Whether the episode `id` is in the inbox of `state`. `refresh` put it
+  there, and the listener did not dismiss, queue or play it after that."
   [state id]
   (let [e (get-in state [:inbox id])]
     (boolean (and e (not (:removed? e)) (not (queued? state id)) (not (played? state id))))))
@@ -698,13 +729,14 @@
   (filterv #(in-inbox? state %) (live-by-stamp (:inbox state))))
 
 (defn dismiss
-  "Take the episode `id` out of the inbox at `at`, leaving a tombstone."
+  "Take the episode `id` out of the inbox of `state` at `at`, leaving a
+  tombstone."
   [state id at]
   (if-let [writes (out-of-inbox state id)]
     (write-each state writes at)
     state))
 
-(defn- rank-between
+(defn ^:no-doc rank-between
   "A rank for a place among the ranked `entries`: after the live entry
   `before` and before the live `after`, either nil at an end. Where
   several entries share a rank, the place is after all of them."
@@ -717,7 +749,7 @@
                  first))]
     (rank/between a b)))
 
-(defn- last-rank
+(defn ^:no-doc last-rank
   "The greatest rank among the live `entries`, nil when there is none, found
   in one pass, so that appending many entries in a row sorts nothing."
   [entries]
@@ -725,7 +757,7 @@
              nil
              entries))
 
-(defn- rank-at
+(defn ^:no-doc rank-at
   "The rank that moves the entry `id` to position `index` among the ranked
   `entries`; an index that is not whole counts as the whole number below
   it, and NaN as 0, on both platforms."
@@ -734,23 +766,26 @@
         index  (long (max 0 (min (if (== index index) index 0) (count others))))]
     (rank-between entries (get others (dec index)) (get others index))))
 
-(defn- place
+(defn ^:no-doc place
   "`state` with the episode `id` queued at `rank` at `at`, and out of the
   inbox."
   [state id rank at]
   (write-each state (into [[[:queue id] (constantly {:rank rank :removed? false})]] (out-of-inbox state id)) at))
 
 (defn enqueue
-  "Put the episode `id` at the end of the queue at `at`, unless it is queued
-  already."
+  "Put the episode `id` at the end of the queue of `state` at `at`, unless
+  it is in the queue."
   [state id at]
   (if (queued? state id)
     state
     (place state id (rank/between (last-rank (:queue state)) nil) at)))
 
 (defn play-next
-  "Put the episode `id` right after the current episode at `at`, moving it
-  there when it is queued already; at the front when the queue is empty."
+  "Put the episode `id` right after the current episode of `state` at
+  `at`.
+
+  An episode that is in the queue moves there. With an empty queue, the
+  episode goes to the front."
   [state id at]
   (if (= id (current state))
     state
@@ -766,9 +801,11 @@
     state))
 
 (defn move
-  "Move the queued episode `id` to position `index` of the queue at `at`;
-  an index that is not whole counts as the whole number below it, and NaN
-  as 0, on both platforms."
+  "Move the queued episode `id` to position `index` of the queue of
+  `state` at `at`.
+
+  An index that is not whole counts as the whole number below it, and NaN
+  counts as 0, on both platforms."
   [state id index at]
   (if-not (queued? state id)
     state
@@ -783,15 +820,16 @@
     state))
 
 (defn playlist
-  "The episode ids in the playlist `name` of `state`, in order. A playlist
-  is a list the listener keeps beside the queue, ranked as the queue is;
-  the app plays it by queueing its episodes."
+  "The episode ids in the playlist `name` of `state`, in order.
+
+  A playlist is a list that the listener keeps beside the queue, ranked
+  as the queue is. To play it, the app puts its episodes in the queue."
   [state name]
   (mapv key (ranked (get-in state [:playlists name]))))
 
 (defn playlists
-  "The playlists of `state` by name, as `{name [episode-id ...]}`; a
-  playlist without episodes is none."
+  "The playlists of `state` by name, as `{name [episode-id ...]}`. A
+  playlist without episodes is no playlist."
   [state]
   (into {} (keep (fn [[name entries]] (when-some [ids (not-empty (mapv key (ranked entries)))] [name ids])))
         (:playlists state)))
@@ -821,14 +859,14 @@
     state))
 
 (defn add-to-playlist
-  "Put the episode `id` at the end of the playlist `name` at `at`, unless it
-  is in it already."
+  "Put the episode `id` at the end of the playlist `name` of `state` at
+  `at`, unless the playlist holds it."
   [state name id at]
   (append state [:playlists name] [id] at))
 
 (defn remove-from-playlist
-  "Take the episode `id` out of the playlist `name` at `at`, leaving a
-  tombstone."
+  "Take the episode `id` out of the playlist `name` of `state` at `at`,
+  leaving a tombstone."
   [state name id at]
   (let [e (get-in state [:playlists name id])]
     (if (and e (not (:removed? e)))
@@ -836,8 +874,8 @@
       state)))
 
 (defn move-in-playlist
-  "Move the episode `id` to position `index` of the playlist `name` at
-  `at`, as `move` moves one in the queue."
+  "Move the episode `id` to position `index` of the playlist `name` of
+  `state` at `at`, as `move` moves an episode in the queue."
   [state name id index at]
   (let [entries (get-in state [:playlists name])
         e       (get entries id)]
@@ -846,9 +884,9 @@
       state)))
 
 (defn rename-playlist
-  "Move the episodes of the playlist `from` to the end of the playlist `to`
-  at `at`, in their order. When `to` is nil, take them out, which deletes
-  the playlist.
+  "Move the episodes of the playlist `from` of `state` to the end of the
+  playlist `to` at `at`, in their order. When `to` is nil, take them out,
+  which deletes the playlist.
 
   A playlist `to` that holds episodes keeps them in their places, and an
   episode that both playlists hold stays where `to` has it."
@@ -863,15 +901,23 @@
 
 (defn to-list-feed
   "The playlist `name` of `state` as a list feed of the podcast namespace,
-  for `dk.simongray.podcast/emit`, which Podcasting 2.0 apps that play
-  list feeds can play: a channel of the medium podcastL whose remote items
-  point to the episodes in order, with the URL of each feed the listener
-  subscribes to. `opts` give what RSS 2.0 and the namespace ask of a feed
-  and the playlist does not know: the `:url` the feed is published at,
-  from which its podcast:guid derives, the `:link` of a page about the
-  list, the URL when not given, a `:description`, the name when not given,
-  and another `:medium`, such as mixed. Without a link or a URL, the
-  channel lacks the link that RSS 2.0 requires.
+  for `dk.simongray.podcast/emit`.
+
+  Podcasting 2.0 apps that play list feeds can play it. It is a channel
+  of the medium podcastL. Its remote items point to the episodes in
+  order, each with the URL of its feed when the listener subscribes to
+  that feed.
+
+  `opts` give what RSS 2.0 and the namespace ask of a feed and the
+  playlist does not know:
+
+  - `:url`, where the feed is published, which gives its podcast:guid
+  - `:link`, a page about the list, which is the URL by default
+  - `:description`, which is the name by default
+  - `:medium`, another medium, such as mixed
+
+  Without a link or a URL, the channel lacks the link that RSS 2.0
+  requires.
 
   The URL of a feed goes out without the user name and the password that
   it holds, because a list feed is for other people."
@@ -892,9 +938,11 @@
        url           (assoc :podcast/guid (guid/from-url url))))))
 
 (defn from-list-feed
-  "Add the episodes that the list feed `feed` points to at `at`, each remote
-  item with a feed guid and an item guid, to the end of the playlist
-  `name`, in the order of the feed."
+  "Add the episodes of the list feed `feed` to the end of the playlist
+  `name` of `state` at `at`, in the order of the feed.
+
+  An episode is a remote item of the feed with a feed guid and an item
+  guid."
   [state name feed at]
   (append state
           [:playlists name]
@@ -920,13 +968,17 @@
             (if oldest-first? added (reverse added))))))
 
 (defn refresh
-  "Note a fresh parse `after` of the feed at `url`, previously `before`, at
-  `at`: its new episodes join the end of the queue, oldest first, when the
-  subscription says `:auto-queue?`, and else the inbox when it says
-  `:inbox?`. An episode that the state knows already, as queued, dismissed
-  or played, stays as the listener left it, since another device can have
-  found it first. Returns `{:state ... :added [id ...]}`, with every new
-  episode under `:added`."
+  "Note in `state` a new parse `after` of the feed at `url`, which was
+  `before`, at `at`. Returns `{:state ... :added [id ...]}`, with each new
+  episode under `:added`.
+
+  When the subscription says `:auto-queue?`, the new episodes join the end
+  of the queue, oldest first. When it says `:inbox?` and not
+  `:auto-queue?`, they join the inbox.
+
+  The state knows an episode that is queued, dismissed or played. Such an
+  episode stays as the listener left it, because another device can find
+  it first."
   [state before after url at]
   (let [feed-guid (feed/feed-guid after url)
         added     (new-episodes before after url)
@@ -940,25 +992,29 @@
     {:state state :added added}))
 
 (defn lists
-  "The OPML lists the listener follows, by URL: `{url {:title ... :folder
-  ...}}`, the folder being where the shows that join the list go, nil for
-  none."
+  "The OPML lists that the listener follows in `state`, by URL, as `{url
+  {:title ... :folder ...}}`.
+
+  The folder is where the shows that join the list go, or nil for no
+  folder."
   [state]
   (into {} (keep (fn [[url e]] (when-not (:removed? e) [url (select-keys e [:title :folder])])))
         (:lists state)))
 
 (defn follow-list
-  "Follow the OPML list at `url` at `at`, a list that someone keeps and
-  that changes, as with `type=\"include\"` in OPML, with its `:title` and
-  the `:folder` its shows go into, either of them nil. The app fetches the
-  list and gives each fresh parse to `refresh-list`. Following it again
-  changes the title and the folder."
+  "Follow the OPML list at `url` in `state` at `at`. The map gives its
+  `:title` and the `:folder` that its shows go into, and each can be nil.
+
+  Such a list is one that someone keeps and changes, as with
+  `type=\"include\"` in OPML. The app fetches the list, and gives each new
+  parse to `refresh-list`. To follow the list again changes the title and
+  the folder."
   [state url {:keys [title folder]} at]
   (write state [:lists url] (constantly {:title title :folder folder :removed? false}) at))
 
 (defn unfollow-list
-  "Stop following the OPML list at `url` at `at`, leaving a tombstone; the
-  subscriptions it brought stay."
+  "Stop following the OPML list at `url` in `state` at `at`, leaving a
+  tombstone. The subscriptions that the list brought stay."
   [state url at]
   (if (contains? (lists state) url)
     (write state [:lists url] #(assoc % :removed? true) at)
@@ -998,14 +1054,19 @@
           (update :added conj g)))))
 
 (defn refresh-list
-  "Note a fresh parse `after` of the OPML list at `url`, previously
-  `before`, at `at`: subscribe to the shows that joined the list, into its
-  folder when it has one, unless the state knows them already, as
-  subscribed or unsubscribed. A first parse, without `before`, finds every
-  show joining. Nothing happens for a list the listener does not follow.
-  A show that left the list stays: the app decides by `:left`, the shows
-  that left it and are subscribed. Returns `{:state ... :added [feed-guid
-  ...] :left [feed-guid ...]}`.
+  "Note in `state` a new parse `after` of the OPML list at `url`, which was
+  `before`, at `at`. Returns `{:state ... :added [feed-guid ...] :left
+  [feed-guid ...]}`.
+
+  The state subscribes to the shows that joined the list, in the folder
+  of the list when it has one. It does not subscribe to a show that it
+  knows, as subscribed or unsubscribed. For a first parse, without
+  `before`, each show joined. Nothing changes for a list that the listener
+  does not follow.
+
+  A show that left the list stays. `:left` has the shows that left the
+  list and that the listener subscribes to, and the app decides about
+  them.
 
   The state knows a show by the URL of its feed, whatever its scheme, its
   case and its trailing slashes, and then by its guid."
@@ -1023,11 +1084,16 @@
 
 (defn to-opml
   "The live subscriptions of `state` as a subscription list for
-  `dk.simongray.podcast.format.opml/emit`: the folders by name, then the
-  shows in no folder, titles in order, each outline carrying the feed's
-  guid, its tags as the categories of the outline, and the time the
-  listener subscribed as the time the outline was created; and the lists
-  the listener follows as inclusions, each in its folder."
+  `dk.simongray.podcast.format.opml/emit`.
+
+  The folders come first, by name, and then the shows in no folder. The
+  shows of a folder are in the order of their titles. Each outline has the
+  guid of its feed. It has the tags of the show as its categories, and the
+  time that the listener subscribed as the time of its creation. The
+  lists that the listener follows are inclusions, each in its folder.
+
+  OPML separates the categories of an outline with commas. So `emit`
+  writes a comma in a tag as `_`, and the tag comes back with `_` in it."
   [state]
   (let [subs (subscriptions state)
         ls   (lists state)]
@@ -1082,14 +1148,16 @@
               (reduce #(tag %1 g %2 at) state (when (sequential? category) category)))}))
 
 (defn from-opml
-  "Subscribe at `at` to every feed of the OPML subscription `list` (see
-  `dk.simongray.podcast.format.opml/parse`), titled with the feed's
-  title where the outline gives one apart from its text, put in the folder
-  that holds it, the innermost where folders nest, and tagged with its
-  categories. A new subscription takes the time its outline was created as
-  the time the listener subscribed. The lists the OPML includes are
-  followed, each with its folder, unless the listener follows them
-  already.
+  "Subscribe `state` at `at` to each feed of the OPML subscription `list`,
+  which `dk.simongray.podcast.format.opml/parse` gives.
+
+  A subscription has the title of the feed, where the outline gives one
+  apart from its text. It is in the folder that holds its outline, the
+  innermost where folders nest. It has the categories of the outline as
+  tags. A new subscription takes the time that its outline was created as
+  the time that the listener subscribed. The state follows the lists that
+  the OPML includes, each with its folder, unless the listener follows
+  them.
 
   A feed that `state` has a subscription to, by its URL, keeps the guid of
   that subscription. It also keeps the URL, with the user name and the
@@ -1187,13 +1255,18 @@
     :else                                                             a))
 
 (defn merge
-  "Reconcile the states `a` and `b` of one listener's devices, key by key
-  and by the shape of what is under it: a stamped entry is a
-  last-writer-wins register, the later winning whole, a tombstone included;
-  a map of them merges entry by entry, down through maps of maps; an
-  instant is a max register; anything else is taken from `a`, as is the
-  device. Commutative, associative and idempotent, the join of a
-  state-based CRDT, so safe to apply in any order and any number of times.
+  "Reconcile the states `a` and `b` of the devices of one listener, key by
+  key, by the shape of the value under each key.
+
+  - A stamped entry is a last-writer-wins register. The later entry wins
+    whole, also when it is a tombstone.
+  - A map of entries merges entry by entry, down through maps of maps.
+  - An instant is a max register.
+  - Each other value is the value of `a`, as the device is.
+
+  The merge is commutative, associative and idempotent, because it is the
+  join of a state-based CRDT. So it is safe to apply it in any order and
+  any number of times.
 
   A count of listening is a counter that only grows. Of two counts of one
   device, the merge takes the higher count, whatever their stamps are."
@@ -1384,8 +1457,10 @@
        :effects (cond-> effects (and (not was) (played? state' id)) (conj [:played id]))})))
 
 (defn step
-  "Advance `state` by the player `event` at `at`, returning `{:state ...
-  :effects [...]}`, the effects being what the UI should do next:
+  "Advance `state` by an event of the player at `at`. Returns `{:state ...
+  :effects [...]}`, where the effects tell the UI what to do next.
+
+  The event is `[kind id & args]`:
 
       [:progress id position duration]  records the position, and the seconds heard
                                         since the last report for `listened`; effect
@@ -1398,10 +1473,11 @@
                                         for :forward or :back; effect [:seek id position],
                                         and [:played id] when it now counts as played
 
-  A progress or a skip that moves the position from before `outro-start`
-  to it or past it ends the episode as [:ended id] does, with the effect
-  [:stop id] first and [:played id] when it now counts as played, and no
-  seek. The feed whose settings give the outro is the first part of `id`."
+  A progress or a skip can move the position from before `outro-start` to
+  it or past it. It then ends the episode as [:ended id] does. The effect
+  [:stop id] comes first, then [:played id] when the episode now counts as
+  played, and no seek. The feed whose settings give the outro is the first
+  part of `id`."
   [state [kind id & args] at]
   (case kind
     :skip     (let [[amount] args
@@ -1420,6 +1496,34 @@
     :play     {:state   (place state id (rank-between (:queue state) nil (first (remove #{id} (queue state)))) at)
                :effects []}
     {:state state :effects []}))
+
+(comment
+  (def sample
+    (-> (state "laptop")
+        (subscribe "feed-1" {:url "https://example.org/feed.xml" :title "A show"} #inst "2026-01-01")
+        (configure "feed-1" {:folder "Tech" :skip-outro 30} #inst "2026-01-01")
+        (tag "feed-1" "news" #inst "2026-01-01")
+        (enqueue ["feed-1" "ep-1"] #inst "2026-01-01T01:00:00Z")
+        (add-to-playlist "Road trip" ["feed-1" "ep-2"] #inst "2026-01-01T01:00:00Z")
+        (star ["feed-1" "ep-1"] #inst "2026-01-01T01:00:00Z")
+        (bookmark ["feed-1" "ep-1"] 754 "The answer" #inst "2026-01-01T01:30:00Z")))
+
+  (folders sample)
+  (tagged sample)
+  (playlists sample)
+  (bookmarks sample)
+  (to-opml sample)
+  (to-list-feed sample "Road trip" {:url "https://example.org/road-trip.xml"})
+
+  ;; nil for a state that keeps the rules, and the first rule that it breaks
+  (problem sample)
+  (problem (assoc-in sample [:queue ["feed-1" "ep-1"] :rank] 5))
+
+  ;; a report that moves the position into the outro ends the episode
+  (step (progress sample ["feed-1" "ep-1"] 3500 3600 #inst "2026-01-01T02:00:00Z")
+        [:progress ["feed-1" "ep-1"] 3580 3600]
+        #inst "2026-01-01T02:00:20Z")
+  #_.)
 
 #?(:clj
    (comment

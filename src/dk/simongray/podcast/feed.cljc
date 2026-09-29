@@ -433,10 +433,11 @@
 
 (defn join-pages
   "One feed of `pages`, the parsed pages of a feed that comes in pages, in
-  their order: the channel of the first page with the items of all pages.
-  An item of a later page that an earlier page holds is left out, by
-  `item-guid`, since a feed can gain items while its pages are read. Nil
-  for no pages.
+  their order. Nil for no pages.
+
+  The feed is the channel of the first page, with the items of all the
+  pages. A feed can gain items while its pages are read. So an item of a
+  later page is left out when an earlier page holds it, by `item-guid`.
 
   The report has the diagnostics of the first page. From a later page, it
   has the diagnostics of the items that the feed takes from the page, and

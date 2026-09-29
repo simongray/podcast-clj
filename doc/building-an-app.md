@@ -273,11 +273,15 @@ returns a promise.
 
 ```clojure
 (def file (media/read! (:url (resolve/enclosure item))))
-(:duration file)          ; => 3712.4, in seconds
-(map :id (:report file))  ; => (:mp3/estimated-duration)
+(:duration file)                ; => 3712.4, in seconds
+(map :id (media/report file))   ; => (:mp3/estimated-duration)
 (let [{:keys [type data]} (:artwork file)]
   [:img {:src (bytes/data-url type data)}])
 ```
+
+The report is in the metadata of the result, as the report of a parsed
+feed is. Metadata does not survive printing. So read the report before
+you store the result.
 
 An alternate enclosure can give the hash of its file in
 `podcast:integrity`. `resolve/enclosure` keeps it under `:integrity`, and

@@ -102,7 +102,7 @@
                 :when v]
             [k (if (#{:date-created :date-modified} k) (or (time/parse-rfc2822 v) v) v)]))))
 
-(defn- text-of
+(defn ^:no-doc text-of
   "The OPML text of the value `v`: an instant in the date format of RFC 822,
   categories comma-separated, a comma inside one as an underscore since
   OPML cannot escape it, and anything else as a string."
@@ -136,7 +136,10 @@
 
 (defn emit
   "Write the `subscription-list` (see `parse`) as an OPML 2.0 document, the
-  inclusions after the subscriptions of their folder."
+  inclusions after the subscriptions of their folder.
+
+  OPML separates the categories of an outline with commas, and it cannot
+  escape a comma. So a comma in a category goes out as `_`."
   [subscription-list]
   (let [entries (concat (:subscriptions subscription-list)
                         (map #(assoc % ::include true) (:includes subscription-list)))

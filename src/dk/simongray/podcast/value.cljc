@@ -244,10 +244,12 @@
 
   They are the bLIP-10 record under 7629169, with the name of the
   recipient, and the custom key and value of the recipient. A node that
-  holds many wallets finds the wallet by these. The feed chooses the custom
-  key, so a key below 65536, which the Lightning protocol keeps for itself,
-  is left out, and so is the type of the bLIP-10 record or of the preimage
-  of keysend, 5482373484.
+  holds many wallets finds the wallet by these.
+
+  The feed chooses the custom key. So the records leave out a key below
+  65536, which the Lightning protocol keeps for itself. They also leave
+  out the type of the bLIP-10 record, and the type of the preimage of
+  keysend, 5482373484.
 
   `report` tells when the records leave out the custom key or the custom
   value of the recipient. A payment with such records reaches the node,
@@ -411,7 +413,9 @@
 
 (defn parse-boostagram
   "The payment that the bLIP-10 `record` describes, as `boostagram` takes
-  it. The record is JSON text, or the UTF-8 bytes of that text, as a node
+  it.
+
+  The record is JSON text, or the UTF-8 bytes of that text, as a node
   gives the custom record 7629169. It can also be the JSON object as a map
   with string keys.
 

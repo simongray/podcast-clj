@@ -610,12 +610,12 @@
   [{:keys [url]} feed]
   (if (fn? url) (url feed) url))
 
-(defn- episode-id
+(defn ^:no-doc episode-id
   "The id of `item` of `feed` in the player state, by the context `ctx`."
   [ctx feed item]
   (player/episode-id feed (url-of ctx feed) item))
 
-(defn- entry
+(defn ^:no-doc entry
   "What the player state in `ctx` knows about `item` of `feed`."
   [ctx feed item]
   (player/episode (:player ctx) (episode-id ctx feed item)))
@@ -668,8 +668,8 @@
                   (fn [feed item] (= (boolean v) (player/in-inbox? (:player ctx) (episode-id ctx feed item)))))})
 
 (defn where
-  "The predicate of a feed and one of its items for `criteria`, a map
-  every entry of which must hold:
+  "The predicate of a feed and one of its items for `criteria`. Each entry
+  of the map must hold:
 
       {:season      2                      ; or a set of seasons; see resolve/numbering
        :type        \"full\"                 ; \"full\", \"trailer\" or \"bonus\", or a set
@@ -686,9 +686,9 @@
        :inbox?      true}                   ; in the inbox; false for not
 
   `:status`, `:starred?` and `:inbox?` need the player state under
-  `:player` in `ctx`, and `:url`, a string or a function of the feed, for
-  feeds that declare no podcast:guid, since episodes are identified as the
-  player identifies them. An empty map accepts every item."
+  `:player` in `ctx`. For feeds that declare no podcast:guid, they also
+  need `:url`, a string or a function of the feed. The player names the
+  episodes of such a feed by its URL. An empty map takes each item."
   ([criteria]
    (where criteria {}))
   ([criteria ctx]

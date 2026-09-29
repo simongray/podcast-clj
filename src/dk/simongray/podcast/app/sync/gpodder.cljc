@@ -1,14 +1,16 @@
 (ns dk.simongray.podcast.app.sync.gpodder
-  "The gpodder API as a sync backend: the subscriptions and the episode
-  actions that gpodder.net, the GPodder Sync app for Nextcloud, oPodSync,
-  PinePods and other servers keep for AntennaPod, Kasts and gPodder;
-  doc/sync.md is the design.
+  "The gpodder API as a sync backend, for the subscriptions and the episode
+  actions that a gpodder server keeps.
 
-  `backend` is the one call an app makes. The API names a show by its feed
-  URL and an episode by the URL of its media, and podcast-clj names them by
-  guid, so `identities` gives the ways to name them over the app's parsed
-  feeds. `request` builds each call as a request map and `response` reads
-  the answer, so that the tests run on recorded answers."
+  Such servers are gpodder.net, the GPodder Sync app for Nextcloud,
+  oPodSync and PinePods. They keep the data for apps such as AntennaPod,
+  Kasts and gPodder. doc/sync.md is the design.
+
+  `backend` is the one call that an app makes. The API names a show by its
+  feed URL, and an episode by the URL of its media. podcast-clj names them
+  by guid. So `identities` gives the ways to name them, over the parsed
+  feeds of the app. `request` builds each call as a request map, and
+  `response` reads the answer, so that the tests run on recorded answers."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync :as sync]
@@ -105,11 +107,6 @@
                         (some? body) (assoc "Content-Type" "application/json"))}
       (some? body) (assoc :body (json/write-str body)))))
 
-(defn ^:no-doc web-url?
-  "Whether `s` is an http or https URL."
-  [s]
-  (boolean (and (string? s) (re-find #"(?i)^https?://" s))))
-
 (defn- text
   "The string `v` trimmed; nil for a blank one or anything else."
   [v]
@@ -124,7 +121,7 @@
   (when (and (number? v) (<= 0 v) (< v 1e9))
     v))
 
-(defn- epoch
+(defn ^:no-doc epoch
   "The seconds since the epoch of the timestamp `v` of an answer: a whole
   number, or from some servers a string of digits. Nil for anything else,
   and for a time that a date of JavaScript does not hold."
@@ -175,10 +172,10 @@
       :update-subscriptions  {:timestamp seconds :update-urls [[sent rewritten] …]}
       :update-episodes       the same
 
-  An action is as `read-action` reads it, and a rewritten URL is nil when
-  the server refused the one sent. A status that is not a success throws
-  `::failed` with the `:status`, and so does an answer that is not the JSON
-  object the call expects."
+  An action is as `read-action` reads it. A rewritten URL is nil when the
+  server refused the URL that was sent. A status that is not a success
+  throws `::failed` with the `:status`. So does an answer that is not the
+  JSON object that the call expects."
   [call {:keys [status headers body]}]
   (let [fail (fn [why]
                (throw (ex-info (str "The server answered " status " to " (name call) why)
@@ -194,8 +191,8 @@
         :login         (session headers)
         :register      nil
         :subscriptions (let [m (data)]
-                         {:add       (filterv web-url? (listed (get m "add")))
-                          :remove    (filterv web-url? (listed (get m "remove")))
+                         {:add       (filterv http/web-url? (listed (get m "add")))
+                          :remove    (filterv http/web-url? (listed (get m "remove")))
                           :timestamp (epoch (get m "timestamp"))})
         :episodes      (let [m (data)]
                          {:actions   (into [] (keep read-action) (listed (get m "actions")))
@@ -206,7 +203,7 @@
                               :update-urls (vec (for [pair  (listed (get m "update_urls"))
                                                       :let  [[sent new] (listed pair)]
                                                       :when (string? sent)]
-                                                  [sent (when (web-url? new) new)]))})))))
+                                                  [sent (when (http/web-url? new) new)]))})))))
 
 (defn- indexed
   "The feed `feed` at `url` with its guid, and with the index of its items
@@ -231,10 +228,12 @@
        :episode-id  (fn [podcast-url media-url guid]) ; [feed-guid item-guid]
        :episode-url (fn [[feed-guid item-guid]])}     ; the URL of its media
 
-  Each gives nil for a feed that `feeds` do not hold. An episode is found by
-  its guid, which some servers keep, else by the URL of its media, and when
-  neither finds it, it is named as podcast-clj names one that its feed
-  leaves out. URLs match whatever their scheme, case and trailing slashes.
+  Each function gives nil for a feed that `feeds` do not hold. The guid of
+  an episode finds it, because some servers keep the guid. When the guid
+  does not find it, the URL of its media does. When neither finds it, the
+  episode gets the name that podcast-clj gives an episode that its feed
+  leaves out. URLs match whatever their scheme, their case and their
+  trailing slashes.
 
   The items of a feed are indexed when a lookup first names the feed. An
   app with many feeds keeps the result while its feeds are the same."
@@ -283,7 +282,7 @@
      :episode-url (fn [[_ item :as id]]
                     (if episode-url
                       (episode-url id)
-                      (when (web-url? item) item)))}))
+                      (when (http/web-url? item) item)))}))
 
 (defn ^:no-doc writer
   "The name that writes to a state what the `device` of a gpodder server
@@ -560,14 +559,14 @@
         public  #(first (http/split-credentials %))
         urls    (fn [pred]
                   (distinct (for [[_ e] (changed :subscriptions)
-                                  :when (and (pred e) (web-url? (:url e)))]
+                                  :when (and (pred e) (http/web-url? (:url e)))]
                               (public (:url e)))))
         adds    (vec (urls (complement :removed?)))
         drops   (if pushed (vec (remove (set adds) (urls :removed?))) [])
         told    (for [[[g _ :as id] e] (changed :episodes)
                       :let [podcast (some-> ((:feed-url names) g) public)
                             media   ((:episode-url names) id)]]
-                  (if (and (web-url? podcast) (web-url? media))
+                  (if (and (http/web-url? podcast) (http/web-url? media))
                     {:action (entry-action id e podcast media device {:first? (nil? pushed)})}
                     {:unnamed id}))]
     {:subscriptions (when (or (seq adds) (seq drops)) {"add" adds "remove" drops})
@@ -626,10 +625,12 @@
        :send        f}          ; how to send a request map, in place of http/call!
 
   A pull gives the subscription changes and the episode actions since its
-  cursors as a partial state, and a push sends what devices of podcast-clj
-  wrote since the last push; doc/sync.md tells how each maps. On
-  gpodder.net each device has its own subscriptions, so link the devices
-  of the account there, or give `:device` the id of another app's device."
+  cursors, as a partial state. A push sends what the devices of
+  podcast-clj wrote since the last push. doc/sync.md tells how each maps.
+
+  On gpodder.net, each device has its own subscriptions. So link the
+  devices of the account there, or give `:device` the id of the device of
+  another app."
   ([root]
    (backend root {}))
   ([root {:keys [name device] :or {name (http/host root)} :as opts}]
@@ -648,8 +649,29 @@
               (let [opts (with-device state)]
                 (push! (caller root opts) opts session state ctx)))})))
 
+(comment
+  (request :subscriptions "https://gpodder.net"
+           {:credentials {:username "ann" :password "…"} :device "phone" :since 1727000000})
+
+  (response :subscriptions
+            {:status 200
+             :body   "{\"add\": [\"https://example.org/feed.xml\"], \"remove\": [], \"timestamp\": 1727000100}"})
+
+  ;; an episode action, as a server sends it
+  (read-action {"podcast"   "https://example.org/feed.xml"
+                "episode"   "https://example.org/1.mp3"
+                "action"    "PLAY"
+                "timestamp" "2026-09-29T12:00:00"
+                "position"  120
+                "total"     1800})
+
+  (writer "phone")
+  (device-of "gpodder:phone")
+  #_.)
+
 #?(:clj
    (comment
      ;; TODO: try the backend against a live gpodder.net and a Nextcloud
-     (def b (backend "https://gpodder.net" {:credentials {:username "…" :password "…"}}))
+     (def gpodder-net
+       (backend "https://gpodder.net" {:credentials {:username "…" :password "…"}}))
      #_.))

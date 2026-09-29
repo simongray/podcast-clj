@@ -143,10 +143,13 @@
      (if (some? flag) flag (explicit? feed)))))
 
 (defn txt
-  "The free-form texts of `x` by purpose, from podcast:txt: `{purpose
-  [text ...]}`, each purpose lower-cased and the texts that name none under
-  nil, such as `{\"applepodcastsverify\" [\"05124\"] nil [\"abc\"]}`. An item
-  does not inherit the texts of its feed, except through `ai-content?`."
+  "The free-form texts of `x` by purpose, from podcast:txt, as `{purpose
+  [text ...]}`.
+
+  Each purpose is in lower case, and the texts that name no purpose are
+  under nil. An example is `{\"applepodcastsverify\" [\"05124\"] nil
+  [\"abc\"]}`. An item does not inherit the texts of its feed, except
+  through `ai-content?`."
   [x]
   (let [texts (filter #(let [s (:content %)] (and (string? s) (not (str/blank? s))))
                       (:podcast/txt x))]
@@ -155,8 +158,10 @@
 
 (defn ai-content?
   "Whether AI-generated content went into `x`, as its podcast:txt with the
-  purpose ai-content says; nil when unstated. With `feed` and `item`, the
-  item's answer or, when it has none, the feed's, as for `explicit?`."
+  purpose ai-content tells. Nil when it does not tell.
+
+  With `feed` and `item`, the answer is that of the item. When the item
+  has none, it is that of the feed, as for `explicit?`."
   ([x]
    (case (some-> (first (get (txt x) "ai-content")) str/lower-case)
      "true"  true
@@ -198,12 +203,14 @@
       (:display episode) (assoc :episode-display (:display episode)))))
 
 (defn enclosures
-  "Everything `item` offers to play, most conventional first: the enclosure,
-  then every alternateEnclosure source, then Media RSS contents, in the item
-  or its media:group, as maps with `:url`, `:source` (:enclosure, :alternate
-  or :media) and whatever else was declared: `:type`, `:length`, `:bitrate`,
-  `:title`, `:default`, and the `:integrity` of an alternate, which
-  dk.simongray.podcast.format.media/verify! checks."
+  "All that `item` offers to play, the most conventional first.
+
+  The enclosure comes first, then each source of an alternateEnclosure,
+  then the Media RSS contents of the item and of its media:group. Each is
+  a map with `:url` and `:source`, which is :enclosure, :alternate or
+  :media. It has what else the feed declares: `:type`, `:length`,
+  `:bitrate`, `:title`, `:default`, and the `:integrity` of an alternate.
+  dk.simongray.podcast.format.media/verify! checks the integrity."
   [item]
   (concat
    (when-let [{:keys [url] :as enclosure} (:rss/enclosure item)]
@@ -327,12 +334,14 @@
   (chapters/from-text (description item)))
 
 (defn soundbites
-  "The soundbites of `item`, the parts its creator picked to preview or
-  share it: maps with `:start-time` and `:duration` in seconds and `:title`
-  when it has one, in the order of the feed. The specification leaves the
-  title of one without to the app, such as the title of the item. A
-  soundbite without a start of zero seconds or more, or without a duration
-  above zero, is left out."
+  "The soundbites of `item`, in the order of the feed. They are the parts
+  that its creator selected to preview or share it.
+
+  A soundbite is a map with `:start-time` and `:duration` in seconds, and
+  `:title` when it has one. The specification leaves the title of a
+  soundbite without one to the app, such as the title of the item. A
+  soundbite is left out when it has no start of zero seconds or more, or
+  no duration above zero."
   [item]
   (for [{:keys [start-time duration content]} (:podcast/soundbites item)
         :when (and (number? start-time) (<= 0 start-time)
@@ -382,12 +391,17 @@
 
 (defn social-interacts
   "Where the public comments on `x` are: the root posts of the threads that
-  its podcast:socialInteract elements name, as maps with `:protocol`
-  lower-cased, `:uri`, and `:account-id`, `:account-url` and `:priority`
-  when declared, the lowest priority number first and those without one
-  last. When one of them has the protocol \"disabled\", the podcaster wants
-  no public comments shown, and the answer is `[{:protocol \"disabled\"}]`.
-  With `feed` and `item`, the item's or, when it gives none, the feed's."
+  its podcast:socialInteract elements name.
+
+  Each is a map with `:protocol` in lower case and `:uri`. It has
+  `:account-id`, `:account-url` and `:priority` when the feed declares
+  them. The lowest priority number comes first, and the maps without a
+  priority come last.
+
+  When one of them has the protocol \"disabled\", the podcaster wants no
+  public comments shown. The answer is then `[{:protocol \"disabled\"}]`.
+  With `feed` and `item`, the answer is that of the item. When the item
+  gives none, it is that of the feed."
   ([x]
    (let [interacts (for [{:keys [protocol uri] :as interact} (:podcast/social-interacts x)
                          :let  [protocol (some-> protocol str/lower-case)]
@@ -506,19 +520,26 @@
       (median gaps))))
 
 (defn next-check
-  "When to look at `feed` again for something new, judged at `at`: the next
-  occurrence of its update-frequency rule; else `at` plus its ttl; else `at`
-  plus its syndication period divided by its syndication frequency; else the
-  latest item's date plus the median gap between its recent items, or `at`
-  plus that gap once that time has passed. Items dated after `at` do not
-  count, and the answer is at most a year after `at`, the longest period a
-  feed can name. Nil when the feed is complete, or gives no basis at all:
-  no rule, no ttl, no period, fewer than two dated items and no
-  `:not-before`.
+  "When to look at `feed` again for something new, judged at `at`. Nil when
+  the feed is complete, or when nothing gives a time.
 
-  `opts` may give `:not-before`, the earliest instant the server allows,
-  such as the `:not-before` of `dk.simongray.podcast/fetch!`; the answer is
-  then no earlier."
+  The time is the first of these that the feed gives:
+
+  - the next occurrence of its update-frequency rule
+  - `at` plus its ttl
+  - `at` plus its syndication period divided by its syndication frequency
+  - the date of its latest item plus the median gap between its recent
+    items, or `at` plus that gap when that time is past
+
+  Items dated after `at` do not count. A feed with fewer than two dated
+  items has no gap. The time is at most a year after `at`, the longest
+  period that a feed can name.
+
+  `opts` can give `:not-before`, the earliest instant that the server
+  allows, such as the `:not-before` of `dk.simongray.podcast/fetch!`. The
+  answer is then no earlier than that instant, also when the instant is
+  more than a year after `at`. For a feed that gives no time, the answer
+  is that instant."
   ([feed at]
    (next-check feed at {}))
   ([feed at {:keys [not-before] :as opts}]
@@ -576,43 +597,54 @@
         (:atom/links feed)))
 
 (defn next-page
-  "The URL of the page with the older items of `feed`, when it comes in
-  pages as RFC 5005 defines them: the atom:link rel=next of a paged feed,
-  else the rel=prev-archive of an archived one. It is as the feed writes
-  it, which can be relative to the URL of the page."
+  "The URL of the page with the older items of `feed`, when the feed comes
+  in pages as RFC 5005 defines them.
+
+  It is the atom:link rel=next of a paged feed, or else the
+  rel=prev-archive of an archived feed. It is as the feed writes it, so it
+  can be relative to the URL of the page."
   [feed]
   (let [href (fn [rel] (some #(when (= rel (some-> (:rel %) str/lower-case)) (:href %))
                              (:atom/links feed)))]
     (or (href "next") (href "prev-archive"))))
 
 (defn podroll
-  "The shows `feed` recommends, from its podcast:podroll: remote items with
-  `:feed-guid`, and `:feed-url` and `:title` when declared, in the order of
-  the feed. One that names neither a guid nor a URL is left out. Where the
-  two differ, what the guid leads to wins, since the guid outlives a URL;
-  `directory.podcastindex/remote-item` looks it up."
+  "The shows that `feed` recommends, from its podcast:podroll, in the order
+  of the feed.
+
+  Each is a remote item with `:feed-guid`, and with `:feed-url` and
+  `:title` when the feed declares them. An item that names no guid and no
+  URL is left out. Where the guid and the URL lead to different feeds, the
+  guid wins, because a guid outlives a URL.
+  `directory.podcastindex/remote-item` looks up the guid."
   [feed]
   (filter #(or (:feed-guid %) (:feed-url %))
           (:remote-items (:podcast/podroll feed))))
 
 (defn remote-items
-  "The remote items of the channel of `feed`, in the order of the feed: the
-  entries of a list feed, most often items of other feeds, or the shows of
-  a publisher feed. Maps with `:feed-guid`, and `:feed-url`, `:item-guid`,
-  `:title` and `:medium` when declared; one that names neither a guid nor
-  a URL is left out."
+  "The remote items of the channel of `feed`, in the order of the feed.
+
+  They are the entries of a list feed, most often items of other feeds,
+  or the shows of a publisher feed. Each is a map with `:feed-guid`. It
+  has `:feed-url`, `:item-guid`, `:title` and `:medium` when the feed
+  declares them. An item that names no guid and no URL is left out."
   [feed]
   (filter #(or (:feed-guid %) (:feed-url %))
           (:podcast/remote-items feed)))
 
 (defn publisher
-  "The publisher feed of `feed`: the remote item of its podcast:publisher,
-  with `:feed-guid`, and `:feed-url` and `:title` when declared. Failing
-  that, in a feed that is neither a list nor a publisher feed, a remote
-  item of its channel with the medium publisher, as some feeds write it
-  without the element. Nil when neither names a guid or a URL. The
-  specification asks an app to trust the link only when the `remote-items`
-  of the publisher feed list `feed`."
+  "The publisher feed of `feed`, as a remote item with `:feed-guid`, and
+  with `:feed-url` and `:title` when the feed declares them. Nil when no
+  remote item names a guid or a URL.
+
+  It is the remote item of the podcast:publisher of the feed. Some feeds
+  write the publisher without that element, as a remote item of the
+  channel with the medium publisher. So such an item is the answer when
+  the feed has no podcast:publisher, and is no list feed and no publisher
+  feed.
+
+  The specification asks an app to trust the link only when the
+  `remote-items` of the publisher feed list `feed`."
   [feed]
   (let [item (:remote-item (:podcast/publisher feed))]
     (cond

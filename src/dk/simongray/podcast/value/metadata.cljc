@@ -123,13 +123,14 @@
 
 (defn payment-comment
   "The comment of a payment to a Lightning address that names the metadata
-  of `payment` at `url`: `rss::payment::boost https://… Great episode!`.
-  With `max-length`, the `:comment-length` of the terms of the address, it
-  is that many characters at most, as JavaScript counts them.
+  of `payment` at `url`. Nil when `url` is no http or https URL, or when
+  the comment does not fit without the message.
 
-  The message of the payment is cut to fit, and ends in an ellipsis when
-  it is cut. Nil when `url` is no http or https URL, or when the comment
-  does not fit without the message."
+  The comment is `rss::payment::boost https://… Great episode!`. With
+  `max-length`, it has that many characters at most, as JavaScript counts
+  them. Give the `:comment-length` of the terms of the address. The
+  message of the payment is cut to fit, and it ends in an ellipsis when it
+  is cut."
   ([payment url]
    (payment-comment payment url ##Inf))
   ([{:keys [action message]} url max-length]
@@ -145,11 +146,12 @@
          :else                             (str (str/trimr (value/cut full (dec max-length))) "…"))))))
 
 (defn parse-comment
-  "What the comment `s` of a payment tells about its metadata, `{:action
-  :url :message}`. Nil when `s` does not start with `rss::payment::`. The
-  message is the start of the message of the payment, and the metadata at
-  the URL holds all of it. The text undefined, which Fountain wrote in
-  place of no message, is no message."
+  "What the comment `s` of a payment tells about its metadata, as `{:action
+  :url :message}`. Nil when `s` does not start with `rss::payment::`.
+
+  The message is the start of the message of the payment, and the metadata
+  at the URL holds all of it. Fountain wrote the text undefined in place
+  of no message, so that text is no message."
   [s]
   (when-let [[_ action url message] (when (string? s)
                                       (re-matches #"(?s)rss::payment::(\S*)\s*(\S*)\s*(.*)" (str/trim s)))]
@@ -189,13 +191,35 @@
   ([url]
    (fetch! url {}))
   ([url opts]
-   (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)
-         send (:send opts)]
-     (async/then (async/attempt #(when (http/origin url)
-                                   (send (http/limited (request url) opts))))
+   (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)]
+     (async/then (when (http/origin url)
+                   (http/sent! (:send opts) (request url) opts))
                  (fn [{:keys [value error]}]
                    (let [found (when (map? value) (http/header (:headers value) header-name))]
                      (cond
                        error {:error (diagnostics/describe {:id :value/unreachable :url url :reason (async/explain error)})}
                        found (parse-header found)
                        :else {:error (diagnostics/describe {:id :value/no-metadata :url url :status (:status value)})})))))))
+
+(comment
+  (def sample
+    {:action     :boost
+     :msat       25000
+     :message    "Great episode!"
+     :app-name   "An app"
+     :feed-title "A show"
+     :timestamp  #inst "2026-09-29T12:00:00Z"})
+
+  ;; what the app that pays writes
+  (record sample)
+  (header sample)
+  (payment-comment sample "https://example.org/p/1")
+  (payment-comment sample "https://example.org/p/1" 50)
+
+  ;; what the host that receives the payment reads
+  (parse-comment "rss::payment::boost https://example.org/p/1 Great episode!")
+  (parse-header (header sample))
+  (value/report (parse-header "{\"action\": \"streaming\", \"value_msat\": \"1000\"}"))
+
+  (fetch! "https://example.org/p/1")
+  #_.)

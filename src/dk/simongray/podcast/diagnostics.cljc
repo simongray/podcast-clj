@@ -19,7 +19,7 @@
   "The diagnostics, in the order they tend to arise."
   [;; fetching
    {:id :fetch/page-failed :level :warning
-    :doc "A page of a feed that comes in pages could not be fetched or read, so the items of the pages from there on are missing."}
+    :doc "podcast-clj did not get or read a page of a feed that comes in pages. The feed lacks the items of that page and of the pages after it."}
 
    ;; repairs of the XML text, applied only when the strict parse failed
    {:id :repair/leading-junk :level :warning
@@ -132,47 +132,49 @@
    ;; media files and images: the ID3v2 tags, the MPEG audio frames, the MP4
    ;; boxes and the headers of images
    {:id :id3/frame-size :level :info
-    :doc "An ID3v2 frame gave its size in the form of the other version, a plain number in ID3v2.4 or a syncsafe one in ID3v2.3, and was read in that form."}
+    :doc "An ID3v2 frame gave its size in the form of the other version: a plain number in ID3v2.4, or a syncsafe number in ID3v2.3. podcast-clj read the size in that form."}
+   {:id :id3/text-encoding :level :info
+    :doc "An ID3v2 frame names a text encoding that ID3 does not define. podcast-clj read its text as ISO-8859-1."}
    {:id :id3/utf8-latin1 :level :info
-    :doc "ID3 text declared ISO-8859-1 was UTF-8, and was read as UTF-8."}
+    :doc "An ID3v2 frame declared its text as ISO-8859-1, but the bytes are UTF-8. podcast-clj read the text as UTF-8."}
    {:id :id3/utf16-bom :level :info
-    :doc "ID3 text declared UTF-16 had no byte order mark, and its byte order was taken from where its zero bytes fall."}
+    :doc "An ID3v2 frame declared its text as UTF-16, but the text has no byte order mark. podcast-clj took the byte order from the places of the zero bytes."}
    {:id :id3/image-type :level :info
-    :doc "The type of an ID3 picture was loose, such as JPG or image/jpg, or missing, and was taken from the bytes of the image."}
+    :doc "An ID3 picture gave its type loosely, such as JPG or image/jpg, or gave no type. podcast-clj took the type from the bytes of the image."}
    {:id :id3/chapter-end :level :info
-    :doc "An ID3 chapter ended at or before its start, and its end was left out."}
+    :doc "An ID3 chapter ends at its start or before it. podcast-clj left out the end."}
    {:id :id3/second-tag :level :info
-    :doc "A second ID3v2 tag followed the first, as a writer that adds a tag in front of another leaves it, and was read too."}
+    :doc "A second ID3v2 tag follows the first tag. Some writers add a tag in front of a tag that they leave in place. podcast-clj read the two tags."}
    {:id :id3/skipped-frame :level :info
-    :doc "An ID3v2 frame was compressed or encrypted, and was skipped."}
+    :doc "An ID3v2 frame is compressed or encrypted. podcast-clj did not read it."}
    {:id :id3/malformed :level :warning
-    :doc "An ID3v2 frame could not be read; the frames before it were kept."}
+    :doc "A frame of an ID3v2 tag does not read, so podcast-clj left it out. When the size of the frame does not read, podcast-clj also left out the frames after it."}
    {:id :id3/padding-junk :level :info
-    :doc "Bytes other than zeros lay in the padding after the ID3v2 frames, as a writer that does not clear the padding leaves them, or as a frame of a wrong size makes it seem."}
+    :doc "The padding after the ID3v2 frames holds bytes that are not zeros. A writer did not clear the padding, or a frame gave a wrong size."}
    {:id :mp3/junk-before-audio :level :info
-    :doc "Bytes that are no MPEG audio frame, such as padding that the size of the tag leaves out, lay between the tags and the first frame, and were skipped."}
+    :doc "Bytes that are no MPEG audio frame lie between the tags and the first frame. An example is padding that the size of a tag leaves out. podcast-clj skipped the bytes."}
    {:id :mp3/estimated-duration :level :info
-    :doc "The MP3 file has no Xing, Info or VBRI header, so its duration was estimated from the bitrate of its first frames and its size, which is exact for a constant bitrate."}
+    :doc "The MP3 file has no Xing, Info or VBRI header. podcast-clj estimated the duration from the bitrate of the first frames and the size of the file. The estimate is exact for a constant bitrate."}
    {:id :mp3/no-audio :level :warning
-    :doc "No MPEG audio frame was found after the tags, so the file has no duration."}
+    :doc "podcast-clj found no MPEG audio frame after the tags, so the file has no duration."}
    {:id :mp4/zero-duration :level :info
-    :doc "The movie header of the MP4 file gave no duration, so the duration of its longest track was taken."}
+    :doc "The movie header of the MP4 file gives no duration. podcast-clj took the duration of the longest track."}
    {:id :mp4/fragments-unread :level :info
-    :doc "The MP4 file is written in fragments, and neither an mehd box nor an index at the end of the file gave the duration of all of them, so the file has no duration."}
+    :doc "The MP4 file is in fragments. It has no mehd box, and no index at its end that gives the duration of all the fragments. So the file has no duration."}
    {:id :mp4/no-movie :level :warning
-    :doc "The MP4 file has no movie box, so it gives neither a duration nor chapters."}
+    :doc "The MP4 file has no movie box, so it gives no duration and no chapters."}
    {:id :file/unknown-format :level :warning
-    :doc "The file is in no format that its reader knows, so nothing was read from it: MP3 or MP4 for a media file, and for an image PNG, JPEG, GIF or WebP, whose headers it reads, or AVIF, HEIC, HEIF, SVG, BMP, TIFF or ICO, whose type it knows."}
+    :doc "The file is in no format that its reader knows, so the reader read nothing from it. The reader of media files knows MP3 and MP4. The reader of images reads the headers of PNG, JPEG, GIF and WebP. It knows the types of AVIF, HEIC, HEIF, SVG, BMP, TIFF and ICO."}
    {:id :file/truncated :level :warning
     :doc "The file ends before its structures say that it does."}
    {:id :file/malformed :level :warning
-    :doc "The file could not be read as its format says."}
+    :doc "The file does not read as its format says."}
    {:id :file/incomplete :level :warning
-    :doc "The reading of the file did not get the bytes that it needed, so the file was not read. The bytes did not arrive, or a limit of the reading stopped it."}
+    :doc "The reading of the file did not get the bytes that it needed, so it gave nothing. The bytes did not arrive, or a limit stopped the reading."}
 
    ;; checks over the network of the files a feed links to
    {:id :check/unreachable :level :error
-    :doc "The file could not be fetched: the connection, the TLS handshake or the time allowed failed."}
+    :doc "The check did not get the file. The connection failed, the TLS handshake failed, or the request took too long."}
    {:id :check/status :level :error
     :doc "The server answered the request for the file with a status that is not a success, so a listener does not get the file."}
    {:id :check/downgrade :level :error
@@ -182,23 +184,23 @@
    {:id :check/moved :level :warning
     :doc "The file moved for good, by a redirect with status 301 or 308, so the feed can name its new URL."}
    {:id :check/head :level :error
-    :doc "The server does not answer a HEAD request for the file, which RFC 9110 requires of every general-purpose server, and which directories use to check files."}
+    :doc "The server does not answer a HEAD request for the file. RFC 9110 requires HEAD of each general-purpose server, and directories use it to check files."}
    {:id :check/type :level :warning
     :doc "The server gives the file another media type than the feed declares."}
    {:id :check/length :level :info
     :doc "The size of the file differs from the length that the feed declares. A host that inserts ads sends a file of another size to each request, so the length cannot be exact."}
    {:id :check/ranges :level :warning
-    :doc "The server does not answer a request for a byte range with that range. RFC 9110 makes ranges optional, but says that servers ought to support them when possible, and players need them to seek and to resume. Apple Podcasts requires them."}
+    :doc "The server does not answer a request for a byte range with that range. RFC 9110 makes ranges optional, but it recommends them. Players need ranges to seek and to resume, and Apple Podcasts requires them."}
    {:id :check/format :level :warning
     :doc "The media file is in another format than the type that the feed declares."}
    {:id :check/duration :level :info
     :doc "The duration of the media file differs from the duration that the feed declares by more than 10 seconds and 2 percent. A host that inserts ads can explain it."}
    {:id :check/unread :level :warning
-    :doc "The file came, but reading what it holds failed: a request for more of its bytes failed, or its reader did, so its contents were not checked."}
+    :doc "The file came, but the check did not read what it holds. A request for more of its bytes failed, or its reader failed."}
    {:id :check/integrity :level :error
     :doc "The media file does not match the hash of its podcast:integrity."}
    {:id :check/unverified :level :info
-    :doc "The media file was not checked against its podcast:integrity: a PGP signature needs the key of the publisher, the integrity names no hash that Subresource Integrity knows, or the whole file did not come."}
+    :doc "The check did not compare the media file with its podcast:integrity. A PGP signature needs the key of the publisher. The integrity names no hash that Subresource Integrity knows. Or the whole file did not come."}
    {:id :check/image-type :level :info
     :doc "The server gives the image another media type than its bytes have, such as image/jpg for a JPEG image. Browsers read the type from the bytes of an image."}
    {:id :check/image-size :level :warning
@@ -206,7 +208,7 @@
    {:id :check/artwork-size :level :error
     :doc "The image of an itunes:image is not a square of 1400 to 3000 pixels, as the profile requires."}
    {:id :check/artwork-type :level :error
-    :doc "The image of an itunes:image is neither JPEG nor PNG, as the profile requires, or is a JPEG that apps and browsers do not decode: lossless, hierarchical, arithmetic-coded or JPEG-LS, or with more than 8 bits a sample."}
+    :doc "The image of an itunes:image is not JPEG or PNG, as the profile requires. Or it is a JPEG that apps and browsers do not decode. Such a JPEG is lossless, hierarchical, arithmetic-coded or JPEG-LS, or it has more than 8 bits a sample."}
    {:id :check/artwork-color :level :error
     :doc "The image of an itunes:image is not in RGB colors, as the profile requires."}
    {:id :check/artwork-alpha :level :error
@@ -216,7 +218,7 @@
    {:id :check/last-modified :level :warning
     :doc "The server answers a HEAD request for the artwork without Last-Modified, which the profile asks for."}
    {:id :check/cors :level :warning
-    :doc "The server does not let pages of other sites read the file, by the CORS header Access-Control-Allow-Origin of its answer or of a redirect on the way, so web players cannot show it. The podcast namespace requires CORS for transcripts."}
+    :doc "The server does not let pages of other sites read the file, so web players cannot show it. The CORS header Access-Control-Allow-Origin of the answer, or of a redirect on the way, decides this. The podcast namespace requires CORS for transcripts."}
    {:id :check/empty :level :error
     :doc "The transcript or chapters file holds no segments or chapters in the format that the feed declares."}
    {:id :check/feed-cors :level :info

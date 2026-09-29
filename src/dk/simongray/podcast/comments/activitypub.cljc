@@ -20,6 +20,7 @@
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.time :as time]))
 
 (defn ^:no-doc id-of
@@ -200,7 +201,7 @@
     (common/present {:choices   (vec (for [choice (concat (common/values o "oneOf") several)
                                            :let   [text (common/first-text (get choice "name"))]
                                            :when  text]
-                                       (common/present {:name text :votes (common/whole (get-in choice ["replies" "totalItems"]))})))
+                                       (common/present {:name text :votes (json/whole (get-in choice ["replies" "totalItems"]))})))
                      :multiple? (boolean (seq several))
                      :ends      (time/parse-date (or (get o "endTime") (get o "closed")))})))
 
@@ -263,13 +264,13 @@
   "`thread` with the `items` of a collection page that came from `url`,
   read at `at` as replies to `owner`.
 
-  A public object from the server of `url` is a comment when `objects?`, a
-  post that is not public is withheld, and anything else is a comment to
-  fetch by its id.
+  With `:objects?` in `opts`, a public object from the server of `url` is
+  a comment, and a post that is not public is withheld. Anything else is
+  a comment to fetch by its id.
 
   The `common/limits` of a page, of an id and of a thread apply. The
   thread counts the items that a limit cut, for its report."
-  [thread owner items url at objects?]
+  [thread owner items url at {:keys [objects?]}]
   (let [{:keys [page] longest :id most :thread} common/limits
         full? (fn [thread id]
                 (and (not (contains? (:comments thread) id))
@@ -282,7 +283,7 @@
                   (> (count id) longest)                    (common/truncate thread :id 1)
                   (:read-at (get-in thread [:comments id])) thread
                   (full? thread id)                         (common/truncate thread :thread 1)
-                  (and o (trusted? o url) (public? o))      (with-object thread o url at true)
+                  (and o (trusted? o url) (public? o))      (with-object thread o url at {:nested? true})
                   (and o (trusted? o url))                  (common/withhold thread id)
                   (contains? (:comments thread) id)         thread
                   :else                                     (assoc-in thread [:comments id] {:id id :in-reply-to owner}))))
@@ -294,16 +295,16 @@
   in a document that came from `url`, as far as the document lists it at
   `at`.
 
-  Its items are read with `with-items`, objects among them when
-  `objects?`. The collection is read when the document lists all of it,
-  or else it names the URL of the page to read it from, which must be on
-  the server of `url`."
-  [thread path owner c url at objects?]
+  Its items are read with `with-items`, which takes `opts`. The
+  collection is read when the document lists all of it, or else it names
+  the URL of the page to read it from, which must be on the server of
+  `url`."
+  [thread path owner c url at opts]
   (let [id                              (when (http/same-origin? (id-of c) url) (id-of c))
         {:keys [items next] :as listed} (when (map? c) (listing c))
         next                            (when (http/same-origin? next url) next)]
     (-> thread
-        (with-items owner items url at objects?)
+        (with-items owner items url at opts)
         (assoc-in path (common/present (cond
                                          next                   {:url next}
                                          (and (nil? listed) id) {:url id}
@@ -311,13 +312,14 @@
 
 (defn ^:no-doc with-object
   "`thread` with the ActivityPub object `o`, which came from `url`, as a
-  comment read at `at`, and with the replies that it lists itself: those of
-  an object `nested?` in another document by their ids alone.
+  comment read at `at`, and with the replies that it lists itself. With
+  `:nested?` in `opts`, the object came in another document, and its
+  replies count by their ids alone.
 
   A post replies to what it names itself, whatever a collection that
   listed it said, but a post that is gone keeps the place that the
   collection gave it."
-  [thread o url at nested?]
+  [thread o url at {:keys [nested?]}]
   (let [id (id-of o)]
     (-> thread
         (update-in [:comments id] (fn [listed]
@@ -325,7 +327,7 @@
                                       (cond-> c
                                         (and (:deleted? c) (not (:in-reply-to c)) (:in-reply-to listed))
                                         (assoc :in-reply-to (:in-reply-to listed))))))
-        (with-collection [:comments id ::comments/collection] id (get o "replies") url at (not nested?)))))
+        (with-collection [:comments id ::comments/collection] id (get o "replies") url at {:objects? (not nested?)}))))
 
 (defn next-page
   "The request for the page after the one in `exchange`, an exchange
@@ -358,7 +360,7 @@
                              doc     (when-not problem (common/document-of exchange))]
                          (if-let [problem (or problem (when-not doc {:id :comments/malformed :url url}))]
                            (update-in thread path assoc :error problem)
-                           (with-items thread owner (:items (listing doc)) (or (:url response) url) at true))))
+                           (with-items thread owner (:items (listing doc)) (or (:url response) url) at {:objects? true}))))
                      thread
                      exchanges)
         more (next-page (last exchanges))]
@@ -390,8 +392,8 @@
                           (cond-> (-> thread
                                       (dissoc :error)
                                       (assoc :read-at at :root (id-of o))
-                                      (with-object o final at false))
-                            talk (with-collection [::comments/conversation] (id-of o) talk final at true))))))
+                                      (with-object o final at {}))
+                            talk (with-collection [::comments/conversation] (id-of o) talk final at {:objects? true}))))))
 
 (defn- read-item
   "`thread` with the post `id`, which a collection listed, read at `at` from
@@ -408,11 +410,11 @@
       (#{404 410} status) (update-in thread [:comments id] assoc :deleted? true :read-at at)
       problem             (update-in thread [:comments id] assoc :error problem :read-at at)
       (not (public? o))   (-> thread (update :comments dissoc id) (common/withhold (id-of o)))
-      (= id (id-of o))    (with-object thread o final at false)
+      (= id (id-of o))    (with-object thread o final at {})
       ;; another name of a post that is read already, which reading again
       ;; would list its replies again, and this name with them
       read?               (update thread :comments dissoc id)
-      :else               (with-object (update thread :comments dissoc id) o final at false))))
+      :else               (with-object (update thread :comments dissoc id) o final at {}))))
 
 (defn- read-actor
   "`thread` with its author `id` read at `at` from the `answer` to the
@@ -429,10 +431,12 @@
                                      (assoc (actor-author document at) :id id)))))
 
 (def status-paths
-  "The paths of the pages and of the ActivityPub ids of statuses, on the
-  servers that answer the Mastodon API, as of September 2026. Each is a
-  regular expression of the whole path, and its one group is the id of the
-  status in the API.
+  "The paths of statuses on the servers that answer the Mastodon API, as of
+  September 2026.
+
+  They are the paths of the web pages and of the ActivityPub ids. Each is
+  a regular expression of the whole path, and its one group is the id of
+  the status in the API.
 
   They are the paths of Mastodon, of GoToSocial, of the ActivityPub ids of
   both, and of Pleroma and Akkoma. `requests` reads them, unless its
@@ -509,7 +513,7 @@
   (common/present {:choices   (vec (for [option (common/values poll "options")
                                          :let   [text (common/first-text (get option "title"))]
                                          :when  text]
-                                     (common/present {:name text :votes (common/whole (get option "votes_count"))})))
+                                     (common/present {:name text :votes (json/whole (get option "votes_count"))})))
                    :multiple? (true? (get poll "multiple"))
                    :ends      (time/parse-date (get poll "expires_at"))}))
 
@@ -677,3 +681,39 @@
       :author            (read-actor thread id (answer-of exchange) at)
       (:status :context) (read-api thread kind id (answer-of exchange) at)
       thread)))
+
+(comment
+  (def sample-thread
+    {:protocol "activitypub" :uri "https://example.social/users/ann/statuses/1"})
+
+  ;; the first request of an unread thread: the root post
+  (requests sample-thread {:max-comments 100} (constantly true))
+
+  ;; the root post, which lists one reply by its id
+  (def sample-root
+    {"id"           "https://example.social/users/ann/statuses/1"
+     "type"         "Note"
+     "attributedTo" "https://example.social/users/ann"
+     "to"           ["https://www.w3.org/ns/activitystreams#Public"]
+     "published"    "2026-09-19T00:22:52Z"
+     "content"      "<p>What did you think of the episode?</p>"
+     "replies"      {"id"    "https://example.social/users/ann/statuses/1/replies"
+                     "type"  "Collection"
+                     "first" {"type"  "CollectionPage"
+                              "items" ["https://example.social/users/bob/statuses/2"]}}})
+
+  (def sample-read
+    (with-exchanges sample-thread
+                    [{:request  (first (requests sample-thread {:max-comments 100} (constantly true)))
+                      :response {:status 200 :url (:uri sample-thread)}
+                      :document sample-root}]
+                    #inst "2026-09-29T12:00:00Z"))
+
+  (:comments sample-read)
+
+  ;; what the thread needs next: the reply, and the author of the root
+  (map :url (requests sample-read {:max-comments 100} (constantly true)))
+
+  ;; the server and the id of a status in the Mastodon API
+  (api-status "https://mastodon.social/@ann/112233" status-paths)
+  #_.)

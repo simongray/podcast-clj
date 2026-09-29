@@ -27,12 +27,13 @@
                             :else                      (recur (inc i) 0 false))))))))
 
 (defn read-str
-  "Parse the JSON string `s` into Clojure data with string keys. A byte order
-  mark before the value is skipped, and anything but white space after it
-  is an error, on the JVM as in JavaScript. A value nested deeper than the
-  stack reaches is also an error. On the JVM, so is a number with a run of
-  more than a thousand digits. A hostile server can send either to exhaust a
-  reader."
+  "Parse the JSON string `s` into Clojure data with string keys.
+
+  A byte order mark before the value is skipped. Anything but white space
+  after the value is an error, on the JVM as in JavaScript. A value nested
+  deeper than the stack reaches is also an error. On the JVM, so is a
+  number with a run of more than a thousand digits. A hostile server can
+  send such values to exhaust a reader."
   [s]
   (let [s (cond-> s (str/starts-with? s "\uFEFF") (subs 1))]
     #?(:clj  (let [_ (when (long-digits? s)
@@ -60,6 +61,13 @@
     (catch #?(:clj Exception :cljs :default) _
       nil)))
 
+(defn ^:no-doc object
+  "The JSON object in the string `s`, as `read-str` reads it, or nil when
+  `s` holds no JSON object."
+  [s]
+  (let [x (parse s)]
+    (when (map? x) x)))
+
 (defn ^:no-doc text
   "The JSON value `v` read for a field that holds text: a string as it is, a
   number as its digits, and nil for anything else, such as an object."
@@ -86,3 +94,15 @@
       :cljs (if pretty?
               (js/JSON.stringify (clj->js x) nil 2)
               (js/JSON.stringify (clj->js x))))))
+
+(comment
+  (read-str "{\"title\": \"An episode\", \"duration\": 1800}")
+  (write-str {"title" "An episode" "chapters" [{"startTime" 0}]} {:pretty? true})
+
+  ;; nil for what is no JSON, and for JSON that is no object
+  (parse "<html>")
+  (object "[1, 2]")
+
+  ;; a whole number, as JSON writes one
+  (map whole [3 3.0 3.5 "3" 1e30])
+  #_.)

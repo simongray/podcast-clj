@@ -154,7 +154,7 @@
   (let [reading (fn [fetch-of reader opts]
                   (let [log (atom [])]
                     (async/then (bytes/read! (fetch-of 4000000 log) reader opts)
-                                (fn [r] [(or (:read r) (map :id (:report r))) @log]))))
+                                (fn [r] [(or (:read r) (map :id (bytes/report r))) @log]))))
         whole   (fn [total log]
                   (fn [start end]
                     (swap! log conj [start end])
@@ -195,7 +195,8 @@
                                    [0 0 0 0 0 0 0 0]))
                         0)]
         (is (= version (:version t)))
-        (is (= [] (:report t)))
+        (is (= [] (id3/report t)))
+        (is (= #{:version :start :end :frames} (set (keys t))) "the report is in the metadata")
         (is (= ["An episode" "Host"] (map :text (take 2 (:frames t)))) "ISO-8859-1, and UTF-16 by its byte order mark")
         (is (= "image/jpeg" (:type (id3/artwork (:frames t)))) "the front cover before the icon")
         (is (= 3600.5 (id3/length (:frames t)))))))
@@ -216,7 +217,8 @@
   (testing "a frame too short for its kind is left out, and the rest read"
     (let [t (id3/read (view (tag 3 (frame 3 "CHAP" [0x61 0 1]) (text 3 "TIT2" "Kept"))) 0)]
       (is (= ["Kept"] (map :text (:frames t))))
-      (is (= [:id3/malformed] (map :id (:report t)))))))
+      (is (= [:id3/malformed] (map :id (id3/report t))))
+      (is (every? :message (id3/report t)) "every diagnostic with its message"))))
 
 (deftest id3-chapters
   (let [frames (:frames (id3/read (view (tag 3
@@ -235,15 +237,15 @@
            (map #(dissoc % :img) chs))
         "in the order of the table of contents; what it leaves out comes last, out of it")
     (is (str/starts-with? (:img (first chs)) "data:image/jpeg;base64,"))
-    (is (= [] (id3/chapters-report chs)))))
+    (is (= [] (id3/report chs)))))
 
 (deftest id3-quirks
   (testing "a 2.4 frame whose size is a plain number, as some writers put it"
     (let [big (concat (range 0 256) (range 0 256))
           xs  (tag 4 (frame 4 "PRIV" big :plain) (text 4 "TIT2" "After"))]
       (is (= "After" (:text (second (:frames (id3/read (view xs) 0))))))
-      (is (= [:id3/frame-size] (map :id (:report (id3/read (view xs) 0)))))
-      (is (= [:id3/padding-junk] (map :id (:report (id3/read (view xs) 0 {:except #{:id3/frame-size}}))))
+      (is (= [:id3/frame-size] (map :id (id3/report (id3/read (view xs) 0)))))
+      (is (= [:id3/padding-junk] (map :id (id3/report (id3/read (view xs) 0 {:except #{:id3/frame-size}}))))
           "without the quirk, the frames end where the size leads, which seems padding with junk in it")))
   (testing "text declared ISO-8859-1 whose bytes are UTF-8"
     (let [xs (tag 3 (frame 3 "TIT2" (concat [0] (utf8 "Ærø"))))]
@@ -254,23 +256,30 @@
   (testing "UTF-16 without its byte order mark"
     (let [xs (tag 3 (frame 3 "TIT2" (concat [1] (utf16le "Hi"))))]
       (is (= "Hi" (:text (first (:frames (id3/read (view xs) 0))))))
-      (is (= [:id3/utf16-bom] (map :id (:report (id3/read (view xs) 0)))))
+      (is (= [:id3/utf16-bom] (map :id (id3/report (id3/read (view xs) 0)))))
       (is (not= "Hi" (:text (first (:frames (id3/read (view xs) 0 {:except #{:id3/utf16-bom}})))))
           "big-endian, as Unicode says")))
+  (testing "a text encoding that ID3 does not define"
+    (let [xs (tag 3 (frame 3 "TIT2" (concat [9] (ascii "Hi"))) (text 3 "TALB" "Kept"))]
+      (is (= ["Hi" "Kept"] (map :text (:frames (id3/read (view xs) 0)))) "read as ISO-8859-1")
+      (is (= [[:id3/text-encoding 9]] (map (juxt :id :encoding) (id3/report (id3/read (view xs) 0)))))
+      (let [strict (id3/read (view xs) 0 {:except #{:id3/text-encoding}})]
+        (is (= ["Kept"] (map :text (:frames strict))) "without the quirk, the frame is left out")
+        (is (= [:id3/malformed] (map :id (id3/report strict)))))))
   (testing "a picture type that is loose"
     (doseq [declared ["image/jpg" "JPG" ""]]
       (let [xs (tag 3 (apic 3 declared 3 jpeg))]
         (is (= "image/jpeg" (:type (id3/artwork (:frames (id3/read (view xs) 0))))) declared)
-        (is (= [:id3/image-type] (map :id (:report (id3/read (view xs) 0))))))))
+        (is (= [:id3/image-type] (map :id (id3/report (id3/read (view xs) 0))))))))
   (testing "a chapter that ends before it starts"
     (let [frames (:frames (id3/read (view (tag 3 (chap 3 "c" 216000 190041))) 0))]
       (is (= [{:start-time 216.0}] (id3/chapters frames)))
-      (is (= [:id3/chapter-end] (map :id (id3/chapters-report (id3/chapters frames)))))
+      (is (= [:id3/chapter-end] (map :id (id3/report (id3/chapters frames)))))
       (is (= [{:start-time 216.0 :end-time 190.041}] (id3/chapters frames {:except #{:id3/chapter-end}})))))
   (testing "a second tag right after the first"
     (let [xs (concat (tag 4 (text 4 "TIT2" "New")) (tag 3 (text 3 "TALB" "Old")))]
       (is (= [4 3] (map :version (id3/read-all (view xs) 0))))
-      (is (= [:id3/second-tag] (mapcat #(map :id (:report %)) (id3/read-all (view xs) 0))))
+      (is (= [:id3/second-tag] (mapcat #(map :id (id3/report %)) (id3/read-all (view xs) 0))))
       (is (= [4] (map :version (id3/read-all (view xs) 0 {:except #{:id3/second-tag}})))))))
 
 ;; MPEG audio
@@ -298,7 +307,7 @@
   (testing "the duration from a Xing header"
     (let [r (mp3/read (view (concat (tag 3 (text 3 "TIT2" "T")) (xing-frame 1000) (audio-frame) (audio-frame))))]
       (is (= (/ (* 1000 1152) 44100.0) (:duration r)))
-      (is (= [] (:report r)))))
+      (is (= [] (mp3/report r)))))
   (testing "the duration from a VBRI header"
     (let [vbri (audio-frame (concat (repeat 32 0) (ascii "VBRI") [0 1 0 0 0 0] (be 4 0) (be 4 500)))]
       (is (= (/ (* 500 1152) 44100.0) (:duration (mp3/read (view (concat vbri (audio-frame)))))))))
@@ -306,13 +315,13 @@
     (let [frames (apply concat (repeat 20 (audio-frame)))
           r      (mp3/read (view frames))]
       (is (about= (/ (* 20 1152) 44100.0) (:duration r)))
-      (is (= [:mp3/estimated-duration] (map :id (:report r))))))
+      (is (= [:mp3/estimated-duration] (map :id (mp3/report r))))))
   (testing "bytes between the tag and the first frame, such as padding the size of a tag leaves out"
     (let [xs (concat (tag 3 (text 3 "TIT2" "T")) (repeat 10 0) (xing-frame 1000) (audio-frame) (audio-frame))]
-      (is (= [:mp3/junk-before-audio] (map :id (:report (mp3/read (view xs))))))
+      (is (= [:mp3/junk-before-audio] (map :id (mp3/report (mp3/read (view xs))))))
       (is (about= (/ (* 1000 1152) 44100.0) (:duration (mp3/read (view xs)))))
-      (is (= [:mp3/no-audio] (map :id (:report (mp3/read (view xs) {:except #{:mp3/junk-before-audio}})))))))
-  (is (= [:mp3/no-audio] (map :id (:report (mp3/read (view (repeat 3000 7))))))))
+      (is (= [:mp3/no-audio] (map :id (mp3/report (mp3/read (view xs) {:except #{:mp3/junk-before-audio}})))))))
+  (is (= [:mp3/no-audio] (map :id (mp3/report (mp3/read (view (repeat 3000 7))))))))
 
 ;; MP4
 
@@ -426,7 +435,7 @@
     (let [xs (concat (box "ftyp" (ascii "M4A ") (be 4 0))
                      (box "moov" (mvhd 1000 0) (trak 1 44100 (* 44100 90) "soun")))]
       (is (= 90.0 (:duration (mp4/read (view xs)))))
-      (is (= [:mp4/zero-duration] (map :id (:report (mp4/read (view xs))))))
+      (is (= [:mp4/zero-duration] (map :id (mp4/report (mp4/read (view xs))))))
       (is (not (contains? (mp4/read (view xs) {:except #{:mp4/zero-duration}}) :duration)))
       (is (= 90.0 (:duration (mp4/read (view (concat (box "ftyp" (ascii "M4A ") (be 4 0))
                                                      (box "moov" (mvhd 1000 0xFFFFFFFF) (trak 1 44100 (* 44100 90) "soun")))))))
@@ -439,14 +448,14 @@
       (is (= 3.0 (:duration (mp4/read (view (file :index? true :per-sample? true))))) "with the durations of the samples")
       (let [r (mp4/read (view (file)))]
         (is (not (contains? r :duration)))
-        (is (= [:mp4/fragments-unread] (map :id (:report r))))))))
+        (is (= [:mp4/fragments-unread] (map :id (mp4/report r))))))))
 
 ;; the front
 
 (deftest reading-media
   (is (= :mp3 (:format (media/read (view (concat (tag 3 (text 3 "TIT2" "T")) (xing-frame 10) (audio-frame)))))))
   (is (= :mp4 (:format (media/read (view (chapter-file ["A"] [1000] false))))))
-  (is (= [:file/unknown-format] (map :id (:report (media/read (view (ascii "<html><body>not audio</body></html>")))))))
+  (is (= [:file/unknown-format] (map :id (media/report (media/read (view (ascii "<html><body>not audio</body></html>")))))))
   (testing "a view that lacks bytes gives the ranges it needs"
     (let [b    (bytes/of (chapter-file ["Intro" "Talk"] [60000 90500] true))
           head (bytes/add (bytes/view (bytes/length b)) 0 (bytes/copy b 0 40) (bytes/length b))]
@@ -455,7 +464,7 @@
     (let [r (media/read (view (concat (tag 3 (ctoc 3 "t" ["a"]) (chap 3 "a" 0 5000 (text 3 "TIT2" "A")))
                                       (xing-frame 10) (audio-frame))))]
       (is (= {:version "1.2.0" :chapters [{:start-time 0.0 :end-time 5.0 :title "A"}]} (:chapters r)))))
-  (is (every? :message (:report (media/read (view (ascii "not audio at all"))))) "every diagnostic with its message"))
+  (is (every? :message (media/report (media/read (view (ascii "not audio at all"))))) "every diagnostic with its message"))
 
 #?(:clj
    (deftest reading-media-in-rounds
@@ -467,8 +476,8 @@
        (is (<= (count @log) 3) (pr-str @log)))
      (let [log (atom [])]
        (is (= [:file/incomplete]
-              (map :id (:report (media/read! "https://example.org/a.mp3"
-                                             {:fetch (fn [start end] (swap! log conj [start end]) {:bytes (bytes/of []) :start start})}))))
+              (map :id (media/report (media/read! "https://example.org/a.mp3"
+                                                  {:fetch (fn [start end] (swap! log conj [start end]) {:bytes (bytes/of []) :start start})}))))
            "a range that never comes"))))
 
 #?(:cljs
@@ -582,7 +591,7 @@
 
 (deftest parts-that-do-not-read
   (let [reading (fn [xs] (let [r (media/read (view xs))]
-                           [(:format r) (:duration r) (map (juxt :id :part) (:report r))]))]
+                           [(:format r) (:duration r) (map (juxt :id :part) (media/report r))]))]
     (testing "a chapter track past the end of the file"
       (let [stbl (box "stbl"
                       (box "stts" [0 0 0 0] (be 4 1) (be 4 1) (be 4 1000))
@@ -629,7 +638,7 @@
                   (let [log (atom [])]
                     (async/then (media/read! "https://example.org/a" (assoc opts :fetch (hollow (bytes/of xs) (* 3000 mb) log)))
                                 (fn [r]
-                                  {:report   (map :id (:report r))
+                                  {:report   (map :id (media/report r))
                                    :requests (count @log)
                                    :asked    (reduce + (map (fn [[start end]] (- end start)) @log))}))))]
     (run
@@ -665,7 +674,7 @@
    (defspec any-bytes-give-a-reading 300
      (prop/for-all [xs (gen/one-of [(gen/vector (gen/choose 0 255) 0 600) mangled])]
        (let [r (media/read (view xs))]
-         (and (map? r) (or (:format r) (seq (:report r))))))))
+         (and (map? r) (or (:format r) (seq (media/report r))))))))
 
 (deftest a-file-that-the-app-does-not-allow
   (run #(async/then (async/attempt (fn [] (media/verify! "https://example.org/a.mp3" {:type "sri" :value "sha384-AAAA"}
@@ -673,6 +682,30 @@
                     (fn [{:keys [error]}]
                       (is (= :dk.simongray.podcast.http/refused (:type (ex-data error)))
                           "no request is sent for it, on either platform")))))
+
+(deftest a-file-that-the-app-sends-for
+  (let [file   (bytes/of (ascii "hello"))
+        sha256 "sha256-LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ="
+        sent   (atom [])
+        send   (fn [request]
+                 (swap! sent conj request)
+                 {:status 200 :url (:url request) :headers {} :body file})
+        verify (fn [value opts]
+                 (media/verify! "https://example.org/a.mp3" {:type "sri" :value value} opts))]
+    (run
+     #(async/then (verify sha256 {:send send :allow? (constantly true) :headers {"Accept" "audio/*"}})
+                  (fn [verdict]
+                    (is (= {:valid? true :algorithm "sha256"} verdict))
+                    (is (= [["https://example.org/a.mp3" :bytes 600 {"Accept" "audio/*"} true]]
+                           (map (juxt :url :as :timeout-seconds :headers (comp some? :allow?)) @sent))
+                        "one request for the whole file, through the sender of the app")))
+     #(async/then (verify "sha256-AAAA" {:send send :timeout-seconds 5})
+                  (fn [verdict]
+                    (is (= {:valid? false :algorithm "sha256"} verdict))
+                    (is (= 5 (:timeout-seconds (peek @sent))))))
+     #(async/then (verify sha256 {:send (fn [request] {:status 404 :url (:url request) :headers {}})})
+                  (fn [verdict]
+                    (is (= {:valid? nil :reason "The file answered 404."} verdict)))))))
 
 (deftest subresource-integrity
   (is (= {:algorithm "sha384" :digests #{"abc="}} (media/sri "sha256-xyz= sha384-abc=")) "the strongest wins")

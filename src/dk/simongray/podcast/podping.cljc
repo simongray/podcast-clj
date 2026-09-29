@@ -70,13 +70,13 @@
       :headers {"Content-Type" "application/json" "User-Agent" http/user-agent}
       :body    (json/write-str {"jsonrpc" "2.0" "method" method "params" rpc-params "id" 1})})))
 
-(defn- result
+(defn ^:no-doc result
   "The result in the JSON-RPC `body`: a body that is not JSON, or a node
   that answers with an error, throws."
   [body]
-  (let [raw (json/parse body)]
+  (let [raw (json/object body)]
     (cond
-      (not (map? raw))
+      (nil? raw)
       (throw (ex-info "The node did not answer with JSON"
                       {:type ::malformed :body (subs (str body) 0 (min 200 (count (str body))))}))
 
@@ -115,7 +115,7 @@
     [(str/replace (str (get op "type")) #"_operation$" "") (get op "value")]
     op))
 
-(defn- ping
+(defn ^:no-doc ping
   "The podping in the operation `op` of `block` at `timestamp`, nil when it
   holds none: a custom_json with a podping id and iris (urls in the first
   versions), its medium and reason from the payload or else from the id."

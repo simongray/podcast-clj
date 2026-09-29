@@ -59,10 +59,11 @@
              (.then (js/Promise.resolve (step! initk)) #(more [] %)))))
 
 (defn explain
-  "The message of the failure `e`, an exception or whatever else was
-  thrown, and those of its causes that add to it, since the client of the
-  JDK and the fetch of Node give the reason that a connection failed in a
-  cause: `java.net.ConnectException:
+  "The message of the failure `e`, with the messages of its causes that add
+  to it. `e` is an exception, or another value that was thrown.
+
+  The client of the JDK and the fetch of Node give the reason that a
+  connection failed in a cause. An example is `java.net.ConnectException:
   java.nio.channels.UnresolvedAddressException`."
   [e]
   (->> (iterate #?(:clj ex-cause :cljs #(some-> % .-cause)) e)
@@ -71,3 +72,17 @@
        (map #(or (ex-message %) (str %)))
        dedupe
        (str/join ": ")))
+
+(comment
+  ;; a value, and a deferred value
+  (then 1 inc)
+  (then (attempt #(/ 6 3)) :value)
+  (all [1 (attempt #(throw (ex-info "down" {})))])
+
+  ;; an API that answers in pages, read to its end
+  (iteration {nil {:items [1 2] :next "b"} "b" {:items [3]}}
+             :vf :items
+             :kf :next)
+
+  (explain (ex-info "The request failed" {} (ex-info "Connection refused" {})))
+  #_.)

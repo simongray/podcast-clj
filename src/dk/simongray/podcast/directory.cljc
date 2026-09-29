@@ -150,12 +150,15 @@
       :trending (index/request credentials :podcasts/trending {:max limit :lang language} opts))))
 
 (defn request
-  "The request map for `endpoint` at `source` with `params`, see
-  `endpoints`: `{:method :get :url :headers}`. `source` is a name in
-  `sources`, or an entry of the shape of its entries. `opts` carry the
-  `:credentials` of the Podcast Index, `{:key :secret}`, and the
-  `:auth-date` its requests are signed at, Unix seconds, which `call!`
-  supplies (see `index/request`)."
+  "The request map for `endpoint` at `source` with `params`, as `{:method
+  :get :url :headers}`. `endpoints` tells the endpoints and their
+  parameters.
+
+  `source` is a name in `sources`, or an entry of the shape of its
+  entries. `opts` give the `:credentials` of the Podcast Index, `{:key
+  :secret}`. They also give the `:auth-date` of the signature of its
+  requests, in Unix seconds, which `call!` supplies (see
+  `index/request`)."
   ([source endpoint params]
    (request source endpoint params {}))
   ([source endpoint params {:keys [credentials] :as opts}]
@@ -277,10 +280,12 @@
   (map-indexed (fn [i show] (assoc show :directory/rank (inc i))) shows))
 
 (defn response
-  "The shows in the JSON `body` that `source` answered for `endpoint`, a
-  vector: one for a lookup, in chart order with `:directory/rank` for
-  trending, empty when the body reports a failure. Throws only when the
-  body is not JSON at all. `source` is as `request` takes it, and each
+  "The shows in the JSON `body` that `source` answered for `endpoint`, as
+  a vector. Throws only when the body is no JSON.
+
+  A lookup gives one show. The shows of trending are in the order of the
+  chart, each with its `:directory/rank`. The vector is empty when the
+  body tells of a failure. `source` is as `request` takes it, and each
   show names it under `:directory/source`."
   [source endpoint body]
   (let [{:keys [api id pages]} (entry source)
@@ -362,12 +367,16 @@
 
 #?(:clj
    (defn call!
-     "Send `endpoint` with `params` to `source` with the library's HTTP
-     client and read the shows it answers with; `opts` as for `request`,
-     plus `:timeout-seconds` to wait for an answer (default 15, since a
-     directory that hangs should cost little). A 404 is no shows, and any
-     other status but a success throws `::failed`, so that a refused key
-     is not taken for an empty answer."
+     "Send `endpoint` with `params` to `source` with the HTTP client of
+     podcast-clj, and read the shows in the answer.
+
+     `opts` are those of `request`. They can also give `:timeout-seconds`,
+     the time to wait for an answer. The default is 15, so that a
+     directory that does not answer costs little.
+
+     A 404 is no shows. Each other status that is not a success throws
+     `::failed`, so that a refused key does not look like an empty
+     answer."
      ([source endpoint params]
       (call! source endpoint params {}))
      ([source endpoint params opts]
@@ -393,7 +402,7 @@
        shows)))
 
 #?(:clj
-   (defn- fan-out!
+   (defn ^:no-doc fan-out!
      "Ask every one of `sources` for `endpoint` with `params` at once and
      `combine` what they answer: `{:results [...] :failed {source message}}`,
      a source that fails costing nothing but its absence."
@@ -408,9 +417,12 @@
 
 #?(:clj
    (defn search!
-     "The shows matching the words `q` across the directories, as
-     `{:results [...] :failed {...}}`: one entry per show, the ones most
-     sources agree on first, and what any source that failed said. `opts`:
+     "The shows that match the words `q` across the directories, as
+     `{:results [...] :failed {...}}`.
+
+     The results have one entry for each show, and the shows that the
+     most sources have come first. `:failed` has the message of each
+     source that failed. `opts` are these:
 
          {:sources         [:apple :fyyd]   ; each a name in `sources` or an entry.
                                             ; default: every source without credentials,

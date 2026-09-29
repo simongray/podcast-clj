@@ -7,9 +7,9 @@
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.async :as async]
-            #?(:clj [dk.simongray.podcast.bytes :as bytes])
+            [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.check :as check]
-            [dk.simongray.podcast.test-support :refer [fixture run #?@(:clj [ascii be with-server])]]
+            [dk.simongray.podcast.test-support :refer [ascii fixture run #?@(:clj [be with-server])]]
             [dk.simongray.podcast.time :as time])
   #?(:clj (:import [java.security MessageDigest])))
 
@@ -260,6 +260,32 @@
                     (fn [result]
                       (is (= [[:max-seconds (get (left result) :max-seconds)]] (told result)))
                       (is (< 40 (get (left result) :max-seconds)) "no file starts after the time of the check")))))))
+
+(deftest the-integrity-through-the-sender-of-the-app
+  (let [file (bytes/of (ascii "hello"))
+        alt  "https://a.example/alt.mp3"
+        feed {:rss/items [{:podcast/alternate-enclosures
+                           [{:type      "audio/mpeg"
+                             :integrity {:type "sri" :value "sha256-LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ="}
+                             :sources   [{:uri alt}]}]}]}
+        sent (atom [])
+        send (fn [{:keys [url method range] :as request}]
+               (swap! sent conj request)
+               (cond
+                 (= :head method) {:status 200 :url url :headers {}}
+                 range            {:status 206 :url url :headers {} :body (bytes/of [104 101])
+                                   :content-range {:start 0 :end 1 :total 5}}
+                 :else            {:status 200 :url url :headers {} :body file}))]
+    (run
+     #(async/then (check/feed! feed {:send send :integrity? true :allow? (constantly true)})
+                  (fn [result]
+                    (let [whole (filter (fn [r] (and (not= :head (:method r)) (nil? (:range r)))) @sent)]
+                      (is (= {:valid? true :algorithm "sha256"}
+                             (get-in (first (:files result)) [:facts :integrity])))
+                      (is (= [[alt :bytes true]] (map (juxt :url :as (comp some? :allow?)) whole))
+                          "the whole file came through the sender of the app, with the guard")
+                      (is (nil? (:max-bytes (first whole)))
+                          "the limit of bytes of the check is not the limit of a whole file")))))))
 
 #?(:clj
    (defn- png

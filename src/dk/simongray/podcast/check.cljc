@@ -1,22 +1,26 @@
 (ns dk.simongray.podcast.check
   "Checks over the network of what a feed links to: whether its media
   files, images, transcripts and chapters reach a listener as the feed
-  says they do. `files` lists what a check fetches, and `feed!` fetches it
-  and gives the facts about each file, with the diagnostics they call for.
+  says.
+
+  `files` lists what a check fetches. `feed!` fetches it, and gives the
+  facts about each file with the diagnostics that they call for.
 
   The checks follow the standards first: HTTP as RFC 9110 has it, the
   attributes of RSS 2.0 and of the podcast namespace, and the CORS rules of
-  the Fetch standard, which decide what a web player on another site can
-  read. A profile adds the rules of a directory on top, as
+  the Fetch standard. The CORS rules decide what a web player on another
+  site can read. A profile adds the rules of a directory, as
   `dk.simongray.podcast.feed.validate` does: `:apple` for Apple Podcasts.
 
-  A check moves as few bytes as it can: two bytes of each file, which
-  `dk.simongray.podcast.http/probe!` learns the facts of a file from, and
-  the header of each image. Asked to read, it reads what the media reader
-  needs of each media file, and each transcript and chapters file whole.
-  In a browser, fetch hides most headers of an answer from another site,
-  and fails without a reason where CORS does not allow the page to read,
-  so a check sees most on the JVM or in Node."
+  A check moves as few bytes as it can. It moves two bytes of each file,
+  which `dk.simongray.podcast.http/probe!` learns the facts of a file
+  from, and the header of each image. When the options ask it to read, it
+  reads what the media reader needs of each media file, and each
+  transcript and chapters file whole.
+
+  In a browser, fetch hides most headers of an answer from another site.
+  It also fails without a reason where CORS does not allow the page to
+  read. So a check sees most on the JVM or in Node."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.async :as async]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -32,14 +36,14 @@
   clients reach: Tor's, which RFC 7686 sets aside, I2P's and Lokinet's."
   #{"onion" "i2p" "loki"})
 
-(defn- web-url?
+(defn ^:no-doc web-url?
   "Whether `url` is an http or https URL of a host that any client can
   reach, not one of an overlay network."
   [url]
-  (when-let [[_ host] (re-find #"(?i)^https?://(?:[^/?#@]*@)?([^/?#:]+)" (str url))]
-    (not (contains? overlays (str/lower-case (peek (str/split host #"\.")))))))
+  (and (http/web-url? url)
+       (not (contains? overlays (peek (str/split (http/host url) #"\."))))))
 
-(defn- present
+(defn ^:no-doc present
   "The entries of the map `m` whose values are not nil."
   [m]
   (into {} (remove (comp nil? val)) m))
@@ -52,13 +56,27 @@
                     (map-indexed vector (:rss/items feed)))
     (not= :all n) (take n)))
 
-(defn- image-files
+(defn ^:no-doc image-files
   "The images of `x`, the channel or the item at `path`."
   [x path]
   (for [{:keys [href source] :as image} (resolve/images x)
         :when (web-url? href)]
     {:kind :image :url href :path path
      :declared (assoc (select-keys image [:purpose :width :height :aspect-ratio]) :sources #{source})}))
+
+(defn- alternate-files
+  "The media files of the alternate enclosures of `item`, under `path`.
+
+  A source with a type of its own, such as a torrent, is not the media
+  file. So the length and the integrity of its enclosure are not its own."
+  [item path]
+  (for [[j {:keys [sources type length integrity]}] (map-indexed vector (:podcast/alternate-enclosures item))
+        {:keys [uri content-type]} sources
+        :when (web-url? uri)]
+    {:kind :media :url uri :path (conj path :podcast/alternate-enclosures j)
+     :declared (if content-type
+                 {:type content-type}
+                 (present {:type type :length length :integrity integrity}))}))
 
 (defn- item-files
   "The files of the item `item` at the index `i` of the feed."
@@ -70,15 +88,7 @@
      (when (web-url? url)
        [{:kind :media :url url :path (conj path :rss/enclosure)
          :declared (present {:type type :length length :duration (resolve/duration item)})}])
-     ;; a source with a type of its own, such as a torrent, is not the media
-     ;; file, so the length and integrity of the enclosure are not its own
-     (for [[j {:keys [sources type length integrity]}] (map-indexed vector (:podcast/alternate-enclosures item))
-           {:keys [uri content-type]} sources
-           :when (web-url? uri)]
-       {:kind :media :url uri :path (conj path :podcast/alternate-enclosures j)
-        :declared (if content-type
-                    {:type content-type}
-                    (present {:type type :length length :integrity integrity}))})
+     (alternate-files item path)
      (for [[j {:keys [url type]}] (map-indexed vector (:podcast/transcripts item))
            :when (web-url? url)]
        {:kind :transcript :url url :path (conj path :podcast/transcripts j) :declared (present {:type type})})
@@ -118,17 +128,23 @@
    :max-bytes       (* 32 1024 1024)})
 
 (defn files
-  "The files that a check of `feed` fetches, each a map with its `:kind`
-  (:feed, :media, :image, :transcript or :chapters), its `:url`, the
-  `:path` in the feed of the element that names it, and what the feed
-  `:declared` of it: the type, length and duration of a media file and
-  the integrity of an alternate one, the `:sources` of an image (:itunes,
-  :podcast, :rss and the like) and the purpose and size that its
-  podcast:image gives, and the type of a transcript or chapters. A file
-  that several elements name is checked once, as the first names it.
-  `opts` may give the `:url` of the feed, which is checked too, and how
-  many of the newest `:items` to check the files of (default 10, or
-  :all)."
+  "The files that a check of `feed` fetches, each as a map.
+
+  A file has its `:kind`, its `:url`, the `:path` in the feed of the
+  element that names it, and what the feed `:declared` of it. The kinds
+  are :feed, :media, :image, :transcript and :chapters. What the feed
+  declares depends on the kind:
+
+  - of a media file: the type, the length and the duration, and the
+    integrity of an alternate enclosure
+  - of an image: the `:sources` (:itunes, :podcast, :rss and the like),
+    and the purpose and the size that its podcast:image gives
+  - of a transcript or of chapters: the type
+
+  A file that several elements name is checked one time, as the first
+  element names it. `opts` can give the `:url` of the feed, which is
+  checked too. They can give `:items`, the number of the newest items
+  whose files to check (default 10, or :all)."
   ([feed]
    (files feed {}))
   ([feed opts]
@@ -147,35 +163,32 @@
   site can have, by RFC 6761."
   "https://check.invalid")
 
-(defn- ok?
+(defn ^:no-doc ok?
   "Whether the `answer` has a status of success."
   [{:keys [status]}]
   (and (integer? status) (<= 200 status) (< status 300)))
 
-(defn- attempted
+(defn ^:no-doc attempted
   "The value of the `attempt` of a reading, or its `:error`."
   [{:keys [value error]}]
   (if error {:error (async/explain error)} value))
 
-(defn- facts-of
-  "The facts of the `attempt` of a request, as `http/facts` reads them, or
-  its `:error`."
-  [{:keys [value error]}]
-  (if error {:error (async/explain error)} (http/facts value)))
+(defn ^:no-doc read-facts
+  "The facts of what a reader gave: the value of the `attempt`, with the
+  diagnostics that `report` reads from it as data, or its `:error`. The
+  facts of a check are data that an app keeps, so they hold the report."
+  [attempt report]
+  (let [{:keys [error] :as value} (attempted attempt)]
+    (cond-> value
+      (not error) (assoc :report (report value)))))
 
-(defn- sent!
-  "The attempt of `send` at `request`: `{:value response}` or `{:error}`;
-  deferred."
-  [send request]
-  (async/attempt #(send request)))
-
-(defn- head!
+(defn ^:no-doc head!
   "The facts of the answer to a HEAD request for `url` with `headers`;
   deferred."
   [send url headers]
-  (async/then (sent! send {:method :head :url url :headers headers}) facts-of))
+  (async/then (http/sent! send {:method :head :url url :headers headers}) http/sent-facts))
 
-(defn- probed!
+(defn ^:no-doc probed!
   "The facts that `http/probe!` gives of `url`, asked with `headers`, which
   tell all that a check needs of most files, from two bytes of each;
   deferred."
@@ -201,30 +214,36 @@
   [send opts]
   (assoc (select-keys opts [:timeout-seconds :max-bytes :now]) :send send))
 
+(defn- whole-opts
+  "The options of the fetch of a whole file for its integrity, in the
+  check with `opts`. A whole file takes longer than a part of it, so the
+  fetch takes the time that the check has left. It goes through the
+  `:send` of the app when the app gave one."
+  [{::keys [own-send] :as opts}]
+  (let [left (time-left opts)]
+    (cond-> (select-keys opts [:allow?])
+      left     (assoc :timeout-seconds left)
+      own-send (assoc :send own-send))))
+
 (defn- probe-media!
   "The facts of the media file `file`, as `probed!` gives them, and, as
   `opts` ask, what the file says about itself and whether it has its
-  integrity; deferred. The fetch of a whole file for its integrity takes
-  the time that the check has left."
+  integrity; deferred."
   [send {:keys [url declared]} {:keys [read? integrity?] :as opts}]
   (async/then
    (probed! send url {})
    (fn [{:keys [head get] :as facts}]
      (let [target (or (:url get) (:url head) url)
            stated (http/media-type (:type declared))
-           came?  (contains? #{200 206} (:status get))
-           ;; a whole file takes longer than a request for a part of it
-           left   (time-left opts)
-           whole  (cond-> (select-keys opts [:allow?])
-                    left (assoc :timeout-seconds left))]
+           came?  (contains? #{200 206} (:status get))]
        (async/then
         (async/all [(when (and read? came? (or (nil? stated) (contains? formats stated)))
                       (async/attempt #(media/read! target (reading-opts send opts))))
                     (when (and integrity? came? (:integrity declared))
-                      (async/attempt #(media/verify! target (:integrity declared) whole)))])
+                      (async/attempt #(media/verify! target (:integrity declared) (whole-opts opts))))])
         (fn [[read verified]]
           (cond-> facts
-            read     (assoc :media (-> (attempted read)
+            read     (assoc :media (-> (read-facts read media/report)
                                        (select-keys [:format :duration :report :error])))
             verified (assoc :integrity (attempted verified)))))))))
 
@@ -236,7 +255,7 @@
               (fn [head]
                 (let [target (if (ok? head) (:url head url) url)]
                   (async/then (async/attempt #(image/read! target (reading-opts send opts)))
-                              (fn [read] {:head head :image (attempted read)}))))))
+                              (fn [read] {:head head :image (read-facts read image/report)}))))))
 
 (defn- reading
   "What the transcript or chapters file of `kind` holds, read from its
@@ -263,9 +282,9 @@
     (if-not read?
       (probed! send url headers)
       (async/then (async/all [(head! send url headers)
-                              (sent! send {:url url :headers headers})])
+                              (http/sent! send {:url url :headers headers})])
                   (fn [[head attempt]]
-                    (let [got (facts-of attempt)]
+                    (let [got (http/sent-facts attempt)]
                       (cond-> {:head head :get got}
                         (ok? got) (assoc :read (reading kind (or (get-in attempt [:value :body]) "") (:type declared))))))))))
 
@@ -278,16 +297,19 @@
   (probed! send url (cond-> {"Origin" origin}
                       (::authorization opts) (assoc "Authorization" (::authorization opts)))))
 
+(def ^:no-doc probes
+  "The function that gets the facts of a file, by the kind of the file."
+  {:media      probe-media!
+   :image      probe-image!
+   :transcript probe-text!
+   :chapters   probe-text!
+   :feed       probe-feed!})
+
 (defn- probe!
   "The facts of `file`, by its kind, from the answers that `send` gives;
   deferred, and on a thread of its own on the JVM."
   [send file opts]
-  (async/then (async/attempt #((case (:kind file)
-                                 :media                 probe-media!
-                                 :image                 probe-image!
-                                 (:transcript :chapters) probe-text!
-                                 :feed                  probe-feed!)
-                               send file opts))
+  (async/then (async/attempt #((probes (:kind file)) send file opts))
               attempted))
 
 (defn- in-lanes
@@ -321,10 +343,12 @@
                           (range (count files))))))))
 
 (def profiles
-  "The rules that a check adds for a standard or a directory, under the
-  profile names of `dk.simongray.podcast.feed.validate`: the size, the
-  type, the colors and the file extension of the artwork of an
-  itunes:image, and the levels raised above those of the catalogue.
+  "The rules that a check adds for a standard or a directory, by the
+  profile names of `dk.simongray.podcast.feed.validate`.
+
+  A profile gives the size, the type, the colors and the file extension
+  of the artwork of an itunes:image. It also gives the levels that it
+  raises above the levels of the catalogue.
 
   They are the rules of September 2026. `verdicts`, `report` and `feed!`
   take a profile by its name here, or as a map of rules of this shape."
@@ -336,7 +360,7 @@
                      :extension? true :alpha? false :last-modified? true}
            :levels  {:check/ranges :error}}})
 
-(defn- diagnostic
+(defn ^:no-doc diagnostic
   "The diagnostic `id` about `file`, with the `details`, at the level of
   the catalogue unless the rules of the `profile` raise it."
   [{:keys [url path]} profile id & {:as details}]
@@ -346,12 +370,7 @@
           :path  path}
          (present details)))
 
-(defn- origin-of
-  "The scheme, host and port of `url`, lower-case."
-  [url]
-  (some-> (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*" (str url)) str/lower-case))
-
-(defn- reaching
+(defn ^:no-doc reaching
   "The diagnostics of how the `answer` to a request for `file` reached it,
   or failed to: nil when it came without a detour worth telling. A
   redirect that the client did not follow is a downgrade when it leaves
@@ -376,14 +395,14 @@
       permanent-url
       [(diagnostic file profile :check/moved :moved-to permanent-url)])))
 
-(defn- head-verdict
+(defn ^:no-doc head-verdict
   "The diagnostic of a HEAD request for `file` that did not succeed, when
   the facts hold one."
   [file profile head]
   (when (and head (not (ok? head)))
     [(diagnostic file profile :check/head :status (:status head) :reason (:error head))]))
 
-(defn- passed-on
+(defn ^:no-doc passed-on
   "The diagnostics of the report of a reader of `file` that warn of more
   than a detail."
   [file report]
@@ -391,7 +410,7 @@
         :when (#{:warning :error} (:level d))]
     (merge d (select-keys file [:url :path]))))
 
-(defn- type-verdict
+(defn ^:no-doc type-verdict
   "The diagnostic of a media type that the server gives for `file` other
   than the one the feed declares."
   [file profile served]
@@ -539,6 +558,10 @@
       (nil? process)
       (and (contains? #{:baseline :extended :progressive} process) (= 8 bits))))
 
+(def ^:no-doc extension-types
+  "The MIME type of the image that each file extension of artwork names."
+  {"jpg" "image/jpeg" "jpeg" "image/jpeg" "png" "image/png"})
+
 (defn- artwork-verdicts
   "The diagnostics of the image `file`, an itunes:image, by the artwork
   rules of the `profile`, from the answer to a HEAD request, `head`, and
@@ -558,7 +581,7 @@
        [(diagnostic file profile :check/artwork-color :color color)])
      (when (and (false? alpha?) (:alpha? image))
        [(diagnostic file profile :check/artwork-alpha)])
-     (when (and extension? ext type (not= type (get {"jpg" "image/jpeg" "jpeg" "image/jpeg" "png" "image/png"} ext)))
+     (when (and extension? ext type (not= type (extension-types ext)))
        [(diagnostic file profile :check/artwork-extension :extension ext :type type)])
      (when (and last-modified? (ok? head) (not (:last-modified head)))
        [(diagnostic file profile :check/last-modified)]))))
@@ -598,17 +621,16 @@
   answer that came is one that CORS let through."
   [url {:keys [redirects filtered?] :as answer}]
   (when-not filtered?
-    (let [start (origin-of url)]
-      (loop [[a & more] (conj (vec redirects) answer)
-             tainted?   false]
-        (when a
-          (let [tainted? (or tainted? (not= start (origin-of (:url a))))
-                cors     (:cors a)]
-            (if (or (= "*" cors) (= origin cors) (and tainted? (= "null" cors)))
-              (recur more tainted?)
-              a)))))))
+    (loop [[a & more] (conj (vec redirects) answer)
+           tainted?   false]
+      (when a
+        (let [tainted? (or tainted? (not (http/same-origin? url (:url a))))
+              cors     (:cors a)]
+          (if (or (= "*" cors) (= origin cors) (and tainted? (= "null" cors)))
+            (recur more tainted?)
+            a))))))
 
-(defn- cors-verdict
+(defn ^:no-doc cors-verdict
   "The diagnostic `id` of the answer `get` to a request for `url`, when a
   page of another site may not read it: `:allowed` names the origins that
   the answer that stops it allows, and `:at` the redirect that it is."
@@ -646,31 +668,40 @@
                    (and (ok? head) (or (:etag head) (:last-modified head))))
        [(diagnostic file profile :check/validators)]))))
 
+(def ^:no-doc judges
+  "The function that gives the diagnostics of a file from its facts, by the
+  kind of the file."
+  {:media      media-verdicts
+   :image      image-verdicts
+   :transcript text-verdicts
+   :chapters   text-verdicts
+   :feed       feed-verdicts})
+
 (defn verdicts
-  "The diagnostics that the `facts` about `file`, from `files` and
-  `feed!`, call for, by the standards and by the rules of the `profile`,
-  if any. Each diagnostic has the `:url` of the file and the `:path` of
-  the element that names it.
+  "The diagnostics that the `facts` about `file` call for. `files` gives
+  the file, and `feed!` gives the facts.
+
+  The rules are those of the standards, and those of the `profile` when
+  there is one. Each diagnostic has the `:url` of the file and the `:path`
+  of the element that names it.
 
   `profile` is a name in `profiles`, or a map of rules of the shape of its
   entries."
   [{:keys [kind] :as file} facts profile]
-  (let [rules (if (map? profile) profile (get profiles profile))]
+  (let [rules (if (map? profile) profile (get profiles profile))
+        judge (get judges kind (constantly []))]
     (->> (cond
            (:unchecked facts) []
            (:error facts)     [(diagnostic file rules :check/unreachable :reason (:error facts))]
-           :else              (case kind
-                                :media                  (media-verdicts file rules facts)
-                                :image                  (image-verdicts file rules facts)
-                                (:transcript :chapters) (text-verdicts file rules facts)
-                                :feed                   (feed-verdicts file rules facts)
-                                []))
+           :else              (judge file rules facts))
          (mapv diagnostics/describe))))
 
 (defn report
-  "The diagnostics of the checked `files`, each with its `:facts`, as
-  `feed!` gives them, by the rules of the `profile`, as `verdicts` takes
-  it: one check judged by several profiles, with no request sent again.
+  "The diagnostics of the checked `files`, by the rules of the `profile`.
+
+  Each file has its `:facts`, as `feed!` gives them, and `profile` is
+  what `verdicts` takes. So several profiles can judge one check, and no
+  request goes out again.
 
   The files that a limit of the check left out have no diagnostics of
   their own. One `:check/unchecked` counts them for each limit."
@@ -681,10 +712,12 @@
 
 (defn feed!
   "Check over the network the files that `feed` links to, as `files` lists
-  them: `{:files [...] :report [...]}`, each file with the `:facts` that
-  its answers gave, and the diagnostics of all of them, from `report`.
-  On the JVM the result, in ClojureScript a promise of it. `opts`, with
-  `default-limits` for the limits:
+  them. On the JVM it gives the result, and in ClojureScript a promise of
+  it.
+
+  The result is `{:files [...] :report [...]}`. Each file has the `:facts`
+  that its answers gave. The report has the diagnostics of all the files,
+  from `report`. `opts` are these, with `default-limits` for the limits:
 
       {:url         \"https://…\" ; the URL of the feed, which is checked too
        :credentials {…}         ; of a private feed, as http/fetch! takes them
@@ -703,31 +736,39 @@
        :send        f           ; how to send the requests, in place of http/call!
        :now         f}          ; the time, the clock by default
 
-  The credentials go with the requests for the feed alone, and so do a
-  user name and a password in its URL, which the result names without
-  them. Unless it is asked to read, a check moves two bytes of each file,
-  as `http/probe!` does, and the header of each image. It reads a media
-  file by byte ranges, and only as far as its duration, but it fetches the
-  whole of a file whose integrity it checks, with `http/digest!` on the
-  JVM. The byte ranges of media files and images come by `http/fetcher`.
+  The credentials go with the requests for the feed alone. So do a user
+  name and a password in its URL, and the result names the URL without
+  them.
+
+  Unless `opts` ask it to read, a check moves two bytes of each file, as
+  `http/probe!` does, and the header of each image. It reads a media file
+  by byte ranges, and only as far as its duration. The byte ranges of
+  media files and images come by `http/fetcher`.
 
   Each request carries the `:timeout-seconds`, the `:max-bytes` and the
-  `:allow?`. The request of `http/digest!` does not go through `:send`. It
-  carries the `:allow?`, and it takes the time that the check has left. A
-  server that checks feeds for strangers gives `http/public?` as `:allow?`.
+  `:allow?`. A server that checks feeds for strangers gives `http/public?`
+  as `:allow?`.
+
+  For the integrity of a file, a check fetches the whole file, as
+  `dk.simongray.podcast.format.media/verify!` does. That request carries
+  the `:allow?`, and it takes the time that the check has left. It goes
+  through the `:send` of `opts`. Without a `:send`, the file streams
+  through `http/digest!` on the JVM.
 
   A file that a limit left out has the facts `{:unchecked limit}`, and the
   report counts such files with `:check/unchecked`."
   ([feed]
    (feed! feed {}))
   ([feed opts]
-   (let [{:keys [url credentials profile concurrency send max-files max-seconds now] :as opts}
+   (let [own-send     (:send opts)
+         {:keys [url credentials profile concurrency send max-files max-seconds now] :as opts}
          (merge default-limits
                 {:send http/call! :now #?(:clj #(java.util.Date.) :cljs #(js/Date.))}
                 opts)
          [url in-url] (http/split-credentials url)
          auth         (http/authorization (or credentials in-url))
          opts         (cond-> (assoc opts :url url)
+                        own-send    (assoc ::own-send own-send)
                         auth        (assoc ::authorization auth)
                         max-seconds (assoc ::deadline (+ (inst-ms (now)) (* 1000 max-seconds))))
          found        (files feed opts)
@@ -739,3 +780,30 @@
                                        far)]
                      {:files  checked
                       :report (report checked profile)}))))))
+
+(comment
+  (def feed
+    {:rss/title "A show"
+     :rss/items [{:rss/title           "Episode 1"
+                  :rss/pub-date        #inst "2026-09-01"
+                  :rss/enclosure       {:url "https://example.org/1.mp3" :type "audio/mpeg" :length 1000}
+                  :podcast/transcripts [{:url "https://example.org/1.vtt" :type "text/vtt"}]}]})
+
+  (files feed {:url "https://example.org/feed.xml"})
+
+  ;; what the facts of a file call for, with no request
+  (def media-file
+    {:kind :media :url "https://example.org/1.mp3" :path [:rss/items 0 :rss/enclosure]
+     :declared {:type "audio/mpeg" :length 1000}})
+
+  (def served
+    {:head {:status 200 :type "audio/mpeg" :length 1200}
+     :get  {:status 200 :type "audio/mpeg" :length 1200}})
+
+  (map :id (verdicts media-file served nil))
+  (map (juxt :id :level) (verdicts media-file served :apple))
+  (map :id (report [(assoc media-file :facts {:unchecked :max-files})] nil))
+
+  ;; a check that sends no request: the app sends in its own way
+  (feed! feed {:send (fn [request] {:status 404 :url (:url request) :headers {}})})
+  #_.)

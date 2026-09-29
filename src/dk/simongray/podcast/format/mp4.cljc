@@ -1,24 +1,29 @@
 (ns dk.simongray.podcast.format.mp4
-  "MP4 and M4A files, whose boxes ISO/IEC 14496-12 defines: `read` gives the
-  duration from the movie header, the chapters of a QuickTime chapter track
-  or, failing one, of a Nero chpl box, and the artwork of the covr item of
-  the iTunes metadata. The movie box can come before the media data or
-  after it, so the reading walks the boxes at the top level, and a reader
-  that has only the start of the file learns where to look next (see
-  dk.simongray.podcast.bytes/missing). A file written in fragments gives
-  the duration of all its fragments in its mehd box, or else the reading
-  takes the end of the last fragment that the mfra index at the end of the
-  file lists.
+  "MP4 and M4A files, whose boxes ISO/IEC 14496-12 defines.
+
+  `read` gives the duration from the movie header, the chapters and the
+  artwork. The chapters are those of a QuickTime chapter track, or else
+  those of a Nero chpl box. The artwork is the covr item of the iTunes
+  metadata. `report` gives the diagnostics of the reading.
+
+  The movie box can come before the media data or after it, so the
+  reading walks the boxes at the top level. A reader that has only the
+  start of the file learns where to look next (see
+  dk.simongray.podcast.bytes/missing).
+
+  A file written in fragments gives the duration of all its fragments in
+  its mehd box. Without that box, the reading takes the end of the last
+  fragment that the mfra index at the end of the file lists.
 
   The reading is strict. The quirk `:mp4/zero-duration` takes the duration
-  of the longest track when the movie header gives none, and `:except` in
-  the options leaves it out."
+  of the longest track when the movie header gives none. `:except` in the
+  options leaves it out."
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.bytes :as bytes]))
 
-(defn- box
+(defn ^:no-doc box
   "The box whose header is at `p` in `view`, ending no later than `limit`:
-  `{:type :start :content :end}`; nil when no box fits there."
+  `{:type :start :content :end}`. Nil when no box fits there."
   [view p limit]
   (bytes/need view p (+ p 16))
   (let [size32        (bytes/u32 view p)
@@ -29,7 +34,7 @@
     (when (and (>= size header) (<= (+ p size) limit))
       {:type (bytes/code view (+ p 4) 4) :start p :content (+ p header) :end (+ p size)})))
 
-(defn- children
+(defn ^:no-doc children
   "The boxes in `view` from `p` to `end`."
   [view p end]
   (loop [p p acc []]
@@ -37,7 +42,7 @@
       (recur (:end b) (conj acc b))
       acc)))
 
-(defn- child
+(defn ^:no-doc child
   "The first box of `type` inside the box `parent`, whose own content starts
   `skip` bytes in, past the version and flags of a full box."
   ([view parent type]
@@ -45,7 +50,7 @@
   ([view {:keys [content end]} type skip]
    (some #(when (= type (:type %)) %) (children view (+ content skip) end))))
 
-(defn- at-path
+(defn ^:no-doc at-path
   "The box at the path of `types` under `parent`."
   [view parent & types]
   (reduce (fn [b t] (when b (child view b t))) parent types))
@@ -60,12 +65,12 @@
         (when-let [b (box view p limit)]
           (if (= "moov" (:type b)) b (recur (:end b))))))))
 
-(defn- flags
+(defn ^:no-doc flags
   "The flags of the full box `b`."
   [view {:keys [content]}]
   (bit-and (bytes/u32 view content) 0xFFFFFF))
 
-(defn- versioned
+(defn ^:no-doc versioned
   "The number at `p` in the full box `b`, 64 bits wide in version 1 and 32
   in version 0."
   [view b p]
@@ -73,10 +78,10 @@
     (bytes/u64 view p)
     (bytes/u32 view p)))
 
-(defn- timing
+(defn ^:no-doc timing
   "`[timescale duration]` of the header box `b`, mvhd or mdhd, by its
-  version; the duration nil when all its bits are ones, as a header gives
-  a duration that it does not know."
+  version. The duration is nil when all its bits are ones, as a header
+  gives a duration that it does not know."
   [view {:keys [content] :as b}]
   (let [wide? (= 1 (bytes/u8 view content))
         p     (+ content (if wide? 24 16))
@@ -208,6 +213,19 @@
                  (conj acc (cond-> {:start-time (/ (bytes/u64 view p) 1e7)}
                              (seq title) (assoc :title title)))))))))
 
+(defn- movie-chapters
+  "The chapters of the movie whose tracks are `tracks`: those of its
+  QuickTime chapter track, or else those of the Nero chpl box in its udta
+  box `udta`."
+  [view tracks udta]
+  (or (quicktime-chapters view tracks)
+      (some->> (when udta (child view udta "chpl"))
+               (nero-chapters view))))
+
+(def ^:no-doc image-types
+  "The MIME type of each type of data that a covr item names."
+  {13 "image/jpeg" 14 "image/png" 27 "image/bmp"})
+
 (defn- artwork
   "The artwork of the covr item of the iTunes metadata in the udta box `udta`,
   `{:type :data}`; nil when there is none. The meta box is a full box in
@@ -220,7 +238,7 @@
                  (at-path view ilst "covr" "data"))]
       (when data
         (let [image (bytes/slice view (+ (:content data) 8) (:end data))]
-          {:type (or (get {13 "image/jpeg" 14 "image/png" 27 "image/bmp"} (bit-and (bytes/u32 view (:content data)) 0xFFFFFF))
+          {:type (or (get image-types (bit-and (bytes/u32 view (:content data)) 0xFFFFFF))
                      (bytes/image-type image))
            :data image})))))
 
@@ -323,13 +341,58 @@
                            (/ end (double scale)))]
             (some->> (seq ends) (apply max)))))))
 
+(defn- longest-track
+  "The duration in seconds of the longest of `tracks`. Nil when no track
+  gives a duration."
+  [tracks]
+  (some->> tracks
+           (keep (fn [{[s n] :timing}] (when (and s n (pos? s) (pos? n)) (/ n (double s)))))
+           seq
+           (apply max)))
+
+(defn- read-movie
+  "What `read` gives for the file in `view` whose moov box is `moov`, the
+  quirks of `except` left out."
+  [view moov except]
+  (bytes/need view (:start moov) (:end moov))
+  (let [[scale d] (some->> (child view moov "mvhd") (timing view))
+        boxes     (children view (:content moov) (:end moov))
+        tracks    (mapv #(track view %) (filter #(= "trak" (:type %)) boxes))
+        mvex      (child view moov "mvex")
+        udta      (child view moov "udta")
+        fragments (bytes/part :fragments #(when mvex (fragmented-duration view mvex scale tracks)))
+        chapters  (bytes/part :chapters #(movie-chapters view tracks udta))
+        art       (bytes/part :artwork #(when udta (artwork view udta)))
+        longest   (longest-track tracks)
+        longest?  (and (not mvex) (not (and d (pos? d))) longest
+                       (not (contains? (set except) :mp4/zero-duration)))
+        duration  (cond mvex                                (:value fragments)
+                        longest?                            longest
+                        (and d (pos? d) scale (pos? scale)) (/ d (double scale)))]
+    (bytes/reported
+     (cond-> {}
+       duration                (assoc :duration duration)
+       (seq (:value chapters)) (assoc :chapters (vec (:value chapters)))
+       (:value art)            (assoc :artwork (:value art)))
+     (cond-> (into [] (mapcat :report) [fragments chapters art])
+       longest?                            (conj {:id :mp4/zero-duration :level :info})
+       (and mvex (not (:value fragments))) (conj {:id :mp4/fragments-unread :level :info})))))
+
+(defn report
+  "The diagnostics of `file`, which `read` gave. Each diagnostic has its
+  message."
+  [file]
+  (bytes/report file))
+
 (defn read
-  "The MP4 file in `view`: `{:duration :chapters :artwork}`, the duration in
-  seconds, the chapters with `:start-time`, `:end-time` and `:title`, and
-  the artwork as `{:type :data}`, each left out when the file has none;
-  with the diagnostics of the reading under `:report`. `opts` may give
-  `:except`, the ids of the quirks to leave out. The reading throws for
-  bytes the view lacks (see `dk.simongray.podcast.bytes/missing`).
+  "The MP4 file in `view`, as `{:duration :chapters :artwork}`. A key is
+  absent when the file does not have its value.
+
+  `:duration` is in seconds. Each chapter has `:start-time`, `:end-time`
+  and `:title`, and the artwork is `{:type :data}`. `report` gives the
+  diagnostics of the reading. `opts` can give `:except`, the ids of the
+  quirks to leave out. When the view lacks bytes, the reading throws, and
+  `dk.simongray.podcast.bytes/missing` gives their ranges.
 
   The chapters, the artwork and the index of the fragments are parts that
   the rest can do without. A part that does not read is left out, and the
@@ -339,30 +402,26 @@
   ([view {:keys [except] :as opts}]
    {:pre [(map? opts)]}
    (if-let [moov (movie view)]
-     (let [_          (bytes/need view (:start moov) (:end moov))
-           [scale d]  (some->> (child view moov "mvhd") (timing view))
-           tracks     (mapv #(track view %) (filter #(= "trak" (:type %)) (children view (:content moov) (:end moov))))
-           mvex       (child view moov "mvex")
-           fragments  (bytes/part :fragments
-                                  #(when mvex (fragmented-duration view mvex scale tracks)))
-           fragmented (:value fragments)
-           longest    (some->> tracks
-                               (keep (fn [{[s n] :timing}] (when (and s n (pos? s) (pos? n)) (/ n (double s)))))
-                               seq (apply max))
-           longest?   (and (not mvex) (not (and d (pos? d))) longest
-                           (not (contains? (set except) :mp4/zero-duration)))
-           duration   (cond mvex                                fragmented
-                            longest?                            longest
-                            (and d (pos? d) scale (pos? scale)) (/ d (double scale)))
-           udta       (child view moov "udta")
-           chapters   (bytes/part :chapters #(or (quicktime-chapters view tracks)
-                                                 (some->> (when udta (child view udta "chpl"))
-                                                          (nero-chapters view))))
-           art        (bytes/part :artwork #(when udta (artwork view udta)))]
-       (cond-> {:report (cond-> (into [] (mapcat :report) [fragments chapters art])
-                          longest?                    (conj {:id :mp4/zero-duration :level :info})
-                          (and mvex (not fragmented)) (conj {:id :mp4/fragments-unread :level :info}))}
-         duration                (assoc :duration duration)
-         (seq (:value chapters)) (assoc :chapters (vec (:value chapters)))
-         (:value art)            (assoc :artwork (:value art))))
-     {:report [{:id :mp4/no-movie :level :warning}]})))
+     (read-movie view moov except)
+     (bytes/reported {} [{:id :mp4/no-movie :level :warning}]))))
+
+(comment
+  ;; a movie of 90 seconds: an ftyp box, then a moov box with its mvhd box
+  (def sample-bytes
+    (let [be4  (fn [n] (map #(bit-and (bit-shift-right n %) 0xFF) [24 16 8 0]))
+          code (fn [s] (seq (bytes/encode s)))
+          box  (fn [type content] (concat (be4 (+ 8 (count content))) (code type) content))
+          mvhd (box "mvhd" (concat (be4 0) (be4 0) (be4 0) (be4 1000) (be4 90000) (repeat 80 0)))]
+      (bytes/of (concat (box "ftyp" (concat (code "M4A ") (be4 0)))
+                        (box "moov" mvhd)))))
+
+  (def sample
+    (bytes/add (bytes/view) 0 sample-bytes (bytes/length sample-bytes)))
+
+  (children sample 0 (:total sample))
+  (read sample)
+  (report (read sample))
+
+  ;; the first 40 bytes alone: the reading tells the range that it needs
+  (bytes/reading #(read (bytes/add (bytes/view) 0 (bytes/copy sample-bytes 0 40) nil)))
+  #_.)

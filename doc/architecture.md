@@ -428,7 +428,9 @@ list and the source agree.
   fragments. Each quirk that real files taught the readers has an id, and
   `:except` leaves it out. Examples are a frame size in the form of the
   other ID3 version, and junk between the tag and the audio. The chapters
-  have the shape of a JSON chapters document. A reader takes a view of the
+  have the shape of a JSON chapters document. Each reader keeps its report
+  in the metadata of its result, and the `report` function of its
+  namespace reads it. A reader takes a view of the
   parts of a file that have arrived (`bytes`). When it needs a part that
   has not arrived, it throws the ranges that it needs. `bytes/read!`
   fetches these ranges with the range requests of `http/fetcher`, and
@@ -643,10 +645,14 @@ default, because the app chose the feed. They are `podcast/fetch!`,
 and `http/probe!`. A server that fetches feeds or files for strangers
 gives them `{:allow? http/public?}`.
 
-The guard is an option of its own, and not a property of `:send`. On the
-JVM, the check of an integrity streams the file with `http/digest!`, which
-does not go through `:send`. A `:send` that logs or signs requests keeps
-the guard, because the guard is in each request map.
+The guard is an option of its own, and not a property of `:send`. A
+`:send` that logs or signs requests keeps the guard, because the guard is
+in each request map.
+
+The check of an integrity fetches a whole file. With a `:send` of the app,
+`verify!` and `check/feed!` fetch the file through it, up to the
+`:max-bytes` of `http/call!`. Without a `:send`, the JVM streams the file
+with `http/digest!`, which takes the guard as its option `:allow?`.
 
 
 ## The directories and the Podcast Index

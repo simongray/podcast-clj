@@ -1,22 +1,24 @@
 (ns dk.simongray.podcast.app.sync.gpodder.server
-  "The gpodder API served over a player state, so that AntennaPod, Kasts,
-  gPodder and the other apps of that API sync with a server of the
-  listener: `handler` is a Ring handler for the paths of gpodder.net under
-  /api/2.
+  "The gpodder API served over a player state, so that the apps of that
+  API sync with a server of the listener. Such apps are AntennaPod, Kasts
+  and gPodder. `handler` is a Ring handler for the paths of gpodder.net
+  under /api/2.
 
-  The server is a device of podcast-clj. Its state holds what the apps send,
-  each entry written by the app's device, and a `:step` that the app gives
-  keeps that state in step with the listener's other devices. One listener
-  has one list of subscriptions, as the GPodder Sync app for Nextcloud
-  keeps it, and a change counts from the time it arrived here, so that an
-  action that a device sends late still reaches the others."
+  The server is a device of podcast-clj. Its state holds what the apps
+  send, and the device of the app writes each entry. A `:step` that the
+  app gives keeps that state in step with the other devices of the
+  listener.
+
+  One listener has one list of subscriptions, as the GPodder Sync app for
+  Nextcloud keeps it. A change counts from the time that it arrived here,
+  so that an action that a device sends late still reaches the other
+  devices."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync.gpodder :as gpodder]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json])
-  #?(:clj (:import [java.io InputStream]
-                   [java.nio.charset StandardCharsets]
+  #?(:clj (:import [java.nio.charset StandardCharsets]
                    [java.util Base64]
                    [java.util.concurrent.locks ReentrantLock])))
 
@@ -32,7 +34,7 @@
      ;; random-uuid asks Math.random there
      :cljs (if (exists? js/crypto) (.randomUUID js/crypto) (str (random-uuid)))))
 
-(defn- live
+(defn ^:no-doc live
   "The `sessions` that last at the instant `at`, by id."
   [sessions at]
   (into {} (filter (fn [[_ {:keys [until]}]] (< (inst-ms at) until))) sessions))
@@ -88,7 +90,7 @@
   (if-not since
     {:status 400 :body "The parameter since is missing or not a number"}
     (let [public #(first (http/split-credentials (:url %)))
-          known  (filter (comp gpodder/web-url? :url val) (:subscriptions state))
+          known  (filter (comp http/web-url? :url val) (:subscriptions state))
           urls   (fn [pred]
                    (distinct (for [[g e] known
                                    :when (and (pred e)
@@ -137,7 +139,7 @@
                                      :let  [[p m] (get-in book [:urls id])
                                             p     (or p (some-> ((:feed-url names) g) http/split-credentials first))
                                             m     (or m ((:episode-url names) id))]
-                                     :when (and (gpodder/web-url? p) (gpodder/web-url? m) (or (nil? podcast) (= podcast p)))
+                                     :when (and (http/web-url? p) (http/web-url? m) (or (nil? podcast) (= podcast p)))
                                      :let  [a (gpodder/entry-action id e p m by)]
                                      :when a]
                                  a))
@@ -161,7 +163,7 @@
                        (keep (fn [raw]
                                (let [a (gpodder/read-action raw)]
                                  (when (timed? raw a) a))))
-                       (filter #(and (gpodder/web-url? (:podcast %)) (gpodder/web-url? (:episode %))))
+                       (filter #(and (http/web-url? (:podcast %)) (http/web-url? (:episode %))))
                        (map #(update % :timestamp arrived))
                        (sort-by (comp inst-ms :timestamp)))
           id-of   (fn [{:keys [podcast episode guid]}]
@@ -212,43 +214,72 @@
                  :when (seq k)]
              [k v])))
 
-(defn- body-text
-  "The text of the Ring request `body`, a string, a stream or nothing, when it
-  holds at most `max-bytes`; nil when it holds more."
-  [body max-bytes]
-  (cond
-    (nil? body)    ""
-    (string? body) (when (<= (count body) max-bytes) body)
-    :else          #?(:clj  (let [bytes (.readNBytes ^InputStream body (int (inc max-bytes)))]
-                              (when (<= (alength bytes) max-bytes)
-                                (String. bytes StandardCharsets/UTF_8)))
-                      :cljs nil)))
-
-(defn- put!
+(defn ^:no-doc put!
   "Put the state `s`, which was made from the state `from` of the atom
   `state`, in the atom. When the app changed the atom in between, `s` is
   merged with what the atom holds, so that nothing is lost."
   [state from s]
   (swap! state #(if (identical? % from) s (player/merge s %))))
 
+(defn ^:no-doc ring
+  "The Ring response of `status` with `body` and the headers `more`. A
+  body that is no text goes out as JSON."
+  ([status body]
+   (ring status body nil))
+  ([status body more]
+   (let [type (if (string? body) "text/plain; charset=utf-8" "application/json; charset=utf-8")]
+     {:status  status
+      :headers (merge {"Content-Type" type} more)
+      :body    (if (string? body) body (json/write-str body))})))
+
+(defn- asker
+  "Who sends a request with `headers` at `at`, as `{:who :session}`: the
+  user of the session that its cookie names, or else the user of its
+  Basic credentials, when the server `env` lets them in."
+  [{:keys [book authorized?]} headers at]
+  (let [session (some->> (get headers "cookie") (re-find #"(?:^|;)\s*sessionid=([^;\s]+)") second)]
+    {:session session
+     :who     (or (:user (get (live (:sessions @book) at) session))
+                  (when-let [[user password] (basic (get headers "authorization"))]
+                    (when (authorized? user password) user)))}))
+
+(defn- call
+  "What a call of `routes` takes of `request`, which came at `at`, over
+  the `state` of the server `env`: the state, the book and the names, the
+  time, the parameters, and the JSON of the body."
+  [{:keys [book max-bytes] :as env} request state at]
+  (let [params (query (:query-string request))]
+    {:state   state
+     :book    @book
+     :names   (gpodder/namer env state)
+     :at      at
+     :seconds (quot (inst-ms at) 1000)
+     :params  params
+     :since   (some->> (get params "since") (re-matches #"\d{1,12}") parse-long (* 1000))
+     :json    (some-> (http/body-text (:body request) max-bytes) json/parse)}))
+
+(defn- answered!
+  "The Ring response of `answer`, a call of `routes`, to `request`, which
+  `who` sent at `at`. The call runs once the state is in step, and the
+  state is in step again after the call changed it."
+  [{:keys [state book settle!] :as env} request answer who at]
+  (let [before (settle! at)
+        result (answer (merge who (call env request before at)))]
+    (some->> (:book result) (reset! book))
+    (when-let [s (:state result)]
+      (put! state before s)
+      (settle! at))
+    (ring (:status result) (:body result) (:headers result))))
+
 (defn- respond
   "The Ring response of the server `env` to `request`: the call that its
-  path and method name, answered for the user who logged in, once the
-  state is in step, and the state in step again after the call changed it."
-  [{:keys [state book authorized? max-bytes settle! now] :as env} request]
-  (let [headers (update-keys (:headers request) (comp str/lower-case name))
+  path and method name, answered for the user who logged in."
+  [{:keys [now] :as env} request]
+  (let [headers                 (update-keys (:headers request) (comp str/lower-case name))
         {:keys [parts methods]} (route (or (:path-info request) (:uri request)))
-        answer  (get methods (:request-method request))
-        at      (now)
-        session (some->> (get headers "cookie") (re-find #"(?:^|;)\s*sessionid=([^;\s]+)") second)
-        who     (or (:user (get (live (:sessions @book) at) session))
-                    (when-let [[user password] (basic (get headers "authorization"))]
-                      (when (authorized? user password) user)))
-        ring    (fn [status body & [more]]
-                  {:status  status
-                   :headers (merge {"Content-Type" (if (string? body) "text/plain; charset=utf-8" "application/json; charset=utf-8")}
-                                   more)
-                   :body    (if (string? body) body (json/write-str body))})]
+        answer                  (get methods (:request-method request))
+        at                      (now)
+        {:keys [who] :as from}  (asker env headers at)]
     (cond
       (nil? methods) (ring 404 "Not Found")
       ;; the challenge that gPodder waits for before it sends its credentials
@@ -256,25 +287,7 @@
       (not= (str/lower-case who) (str/lower-case (:user parts)))
       (ring 400 "The user in the path is not the one who logged in")
       (nil? answer)  (ring 405 "Method Not Allowed")
-      :else
-      (let [before (settle! at)
-            params (query (:query-string request))
-            result (answer (assoc parts
-                                  :state   before
-                                  :book    @book
-                                  :names   (gpodder/namer env before)
-                                  :who     who
-                                  :session session
-                                  :at      at
-                                  :seconds (quot (inst-ms at) 1000)
-                                  :params  params
-                                  :since   (some->> (get params "since") (re-matches #"\d{1,12}") parse-long (* 1000))
-                                  :json    (some-> (body-text (:body request) max-bytes) json/parse)))]
-        (some->> (:book result) (reset! book))
-        (when-let [s (:state result)]
-          (put! state before s)
-          (settle! at))
-        (ring (:status result) (:body result) (:headers result))))))
+      :else          (answered! env request answer (merge parts from) at))))
 
 (defn- arrived
   "The `index` of when each entry of the subscriptions and the episodes of
@@ -338,3 +351,25 @@
                 :cljs (fn [f] (f)))]
     (fn [request]
       (one #(respond env request)))))
+
+(comment
+  (route "/api/2/subscriptions/ann/phone.json")
+  (basic "Basic YW5uOnNlY3JldA==")
+  (query "since=1727000000&podcast=https%3A%2F%2Fexample.org%2Ffeed.xml")
+
+  ;; a server over a state with one subscription, and a request of an app
+  (def serve
+    (handler {:state       (atom (player/subscribe (player/state "gpodder-server")
+                                                   "feed-a"
+                                                   {:url "https://example.org/feed.xml" :title "A show"}
+                                                   #inst "2026-09-29T12:00:00Z"))
+              :authorized? (fn [user password] (= ["ann" "secret"] [user password]))}))
+
+  (serve {:request-method :get
+          :uri            "/api/2/subscriptions/ann/phone.json"
+          :query-string   "since=0"
+          :headers        {"authorization" "Basic YW5uOnNlY3JldA=="}})
+
+  ;; no credentials: the challenge that gPodder waits for
+  (serve {:request-method :get :uri "/api/2/devices/ann.json" :headers {}})
+  #_.)

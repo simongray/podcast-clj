@@ -290,11 +290,13 @@
              (map-indexed vector (:rss/items feed))))))
 
 (defn validate
-  "The diagnostics for `feed`: registry checks, RSS 2.0 basics and, when
-  `opts` names a `:profile` from `profiles`, that profile's requirements.
-  `:registry` is the tag registry to check against, `spec/default` unless
-  given. The feed is normalized first, so the shorthand `emit` takes
-  passes here too.
+  "The diagnostics for `feed`: the checks of the registry, the basics of
+  RSS 2.0 and, with a `:profile` in `opts`, the requirements of that
+  profile.
+
+  `:registry` is the tag registry to check against, `spec/default` by
+  default. The feed is normalized first, so the shorthand that `emit`
+  takes passes here too.
 
   The `:profile` is a name in `profiles`, or a map of requirements of the
   shape of its entries."

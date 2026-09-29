@@ -87,11 +87,13 @@
    "Authorization" (guid/sha1-hex (str key secret seconds))})
 
 (defn request
-  "The request map for `endpoint` (a key of `endpoints`) with query
-  `params`, authenticated with `credentials` (`:key`, `:secret`, optional
-  `:user-agent`) at the `:auth-date` in `opts`, Unix seconds, which the
-  API accepts within a few minutes of its own clock; the caller reads the
-  clock, as `call!` does.
+  "The request map for `endpoint`, a key of `endpoints`, with the query
+  `params`, signed with `credentials` at the `:auth-date` of `opts`.
+
+  The credentials are `:key` and `:secret`, and they can give a
+  `:user-agent`. The `:auth-date` is in Unix seconds. The API takes a
+  date within a few minutes of its own clock. The caller reads the clock,
+  as `call!` does.
 
   The request goes to `base-url`, or to the `:base-url` of `opts`."
   [credentials endpoint params {:keys [auth-date] :as opts}]

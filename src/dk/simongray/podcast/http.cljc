@@ -1,21 +1,24 @@
 (ns dk.simongray.podcast.http
-  "Requests as maps and the client that sends them: on the JVM with
-  java.net.http, redirects followed, gzip accepted, conditional requests
-  honoured, and the body decoded by the charset the server or the document
-  declares; in ClojureScript with fetch.
+  "Requests as maps, and the client that sends them.
 
-  A request is `{:method :url :headers :body}`, GET unless `:method` is
-  `:post`, the shape the directories and podping build and any HTTP client
-  can send; `query-string` encodes the parameters of one the same way on
-  both platforms. Responses are plain maps; the `:url` of a response is its
+  On the JVM, the client is java.net.http. It follows redirects, accepts
+  gzip, makes conditional requests, and decodes the body by the charset
+  that the server or the document declares. In ClojureScript, the client
+  is fetch.
+
+  A request is `{:method :url :headers :body}`. It is a GET unless
+  `:method` names another method. The directories and Podping build
+  requests of this shape, and any HTTP client can send them.
+  `query-string` encodes the parameters of a request the same way on both
+  platforms. A response is a plain map. The `:url` of a response is its
   final URL after redirects.
 
-  Requests move no more bytes than their purpose needs: `probe!` learns
-  what a server says about a file from two bytes of it, and `fetcher`
-  fetches a file by byte ranges, for the readers of media files and
-  images."
+  A request moves no more bytes than its purpose needs. `probe!` learns
+  what a server says about a file from two bytes of it. `fetcher` fetches
+  a file by byte ranges, for the readers of media files and images."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.async :as async]
+            [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.time :as time])
   #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream IOException]
                    [java.net IDN InetAddress URI]
@@ -73,13 +76,14 @@
 (defn ^:no-doc base64
   "The UTF-8 bytes of `s` in base64."
   [s]
-  #?(:clj  (.encodeToString (java.util.Base64/getEncoder) (.getBytes ^String s "UTF-8"))
-     :cljs (js/btoa (js/unescape (js/encodeURIComponent s)))))
+  (bytes/base64 (bytes/encode s)))
 
 (defn authorization
-  "The Authorization header for `credentials`, a map or a function of no
-  arguments that returns one: `{:username :password}` for basic
-  authentication, `{:token}` for a bearer token; nil for none."
+  "The Authorization header for `credentials`. Nil for no credentials.
+
+  `credentials` is a map, or a function of no arguments that gives one.
+  The map is `{:username :password}` for basic authentication, or
+  `{:token}` for a bearer token."
   [credentials]
   (let [{:keys [username password token]} (if (fn? credentials) (credentials) credentials)]
     (cond
@@ -94,55 +98,92 @@
   (let [v (get headers (str/lower-case header-name))]
     (if (string? v) v (first v))))
 
-(defn- joined
+(defn ^:no-doc joined
   "All the values of `header-name` in the response headers map `headers`,
   joined by commas as fetch joins them; nil for none."
   [headers header-name]
   (let [v (get headers (str/lower-case header-name))]
     (if (string? v) v (some->> (seq v) (str/join ", ")))))
 
+(defn ^:no-doc seconds
+  "The whole number of seconds that the header value `s` gives. Nil when
+  it gives none."
+  [s]
+  (some->> s str/trim (re-matches #"\d{1,10}") parse-long))
+
+(defn ^:no-doc date-ms
+  "The date that the header value `s` gives, in epoch milliseconds. Nil
+  when it gives none."
+  [s]
+  (some-> s time/parse-rfc2822 inst-ms))
+
+(defn ^:no-doc ours
+  "The time `t` on the clock of the server, as a time on the clock of the
+  client. The response that arrived at `now` names `served` as the time
+  that the server sent it. Without `served`, the clocks count as one."
+  [t now served]
+  (if served (+ now (- t served)) t))
+
+(defn- retry-after
+  "When the Retry-After of `headers` says to ask again, in epoch
+  milliseconds, as `ours` reads a date. Nil when it gives no time."
+  [headers now served]
+  (let [retry (header headers "retry-after")]
+    (or (some->> (seconds retry) (* 1000) (+ now))
+        (some-> (date-ms retry) (ours now served)))))
+
+(defn- fresh-until
+  "When the freshness of the response with `headers` ends, in epoch
+  milliseconds: by its max-age less its Age, or else by its Expires, as
+  `ours` reads a date. Nil when the headers forbid a cache or name no
+  time."
+  [headers now served]
+  (let [age   (* 1000 (or (seconds (header headers "age")) 0))
+        cache (some-> (joined headers "cache-control") str/lower-case)]
+    (when-not (some->> cache (re-find #"no-cache|no-store"))
+      (if-let [max-age (some->> cache (re-find #"max-age=(\d{1,10})") second parse-long)]
+        (- (+ now (* 1000 max-age)) age)
+        (some-> (date-ms (header headers "expires")) (ours now served) (- (if served age 0)))))))
+
 (defn not-before
   "The earliest instant to ask again, by the response `headers` that arrived
-  at `at`: the `Retry-After`, in seconds or as a date; else the end of the
-  freshness that `Cache-Control: max-age` gives, less the `Age`; else the
-  `Expires`. A date counts from the `Date` of the response, as RFC 9111
-  says, so that neither the clock of the server nor a wrong time zone
-  matters; without a `Date`, it counts from `at`. At most an hour after
-  `at`: a feed host can give its feed a freshness of days and still publish
-  within them, and a server set up wrong must not hold the polling back.
-  Nil when the headers name no later time, or forbid a cache. `headers`
-  maps lower-case names to a value or a vector of values, as the responses
-  of `call!` do.
+  at `at`. Nil when the headers name no later time, or forbid a cache.
 
-  A `Retry-After` that does not read counts as none. The values of all the
-  `Cache-Control` headers count, as RFC 9110 joins them."
+  The instant is the first of these that the headers give:
+
+  - the `Retry-After`, in seconds or as a date
+  - the end of the freshness that `Cache-Control: max-age` gives, less
+    the `Age`
+  - the `Expires`
+
+  A date counts from the `Date` of the response, as RFC 9111 says. So
+  the clock of the server and a wrong time zone do not matter. Without a
+  `Date`, a date counts from `at`.
+
+  The instant is at most an hour after `at`. A feed host can give its
+  feed a freshness of days and still publish within them, and a server
+  that is set up wrong must not hold back the polling.
+
+  `headers` maps lower-case names to a value or a vector of values, as
+  the responses of `call!` do. A `Retry-After` that does not read counts
+  as none. The values of all the `Cache-Control` headers count, as RFC
+  9110 joins them."
   [headers at]
-  (let [value   #(header headers %)
-        now     (inst-ms at)
-        seconds (fn [s] (some->> s str/trim (re-matches #"\d{1,10}") parse-long))
-        date    (fn [s] (some-> s time/parse-rfc2822 inst-ms))
-        served  (date (value "date"))
-        ;; a time on the clock of the server, as a time on ours
-        ours    (fn [t] (if served (+ now (- t served)) t))
-        age     (* 1000 (or (seconds (value "age")) 0))
-        cache   (some-> (joined headers "cache-control") str/lower-case)
-        retry   (value "retry-after")
-        until   (or (some->> (seconds retry) (* 1000) (+ now))
-                    (some-> (date retry) ours)
-                    (when-not (some->> cache (re-find #"no-cache|no-store"))
-                      (if-let [max-age (some->> cache (re-find #"max-age=(\d{1,10})") second parse-long)]
-                        (- (+ now (* 1000 max-age)) age)
-                        (some-> (date (value "expires")) ours (- (if served age 0))))))]
+  (let [now    (inst-ms at)
+        served (date-ms (header headers "date"))
+        until  (or (retry-after headers now served)
+                   (fresh-until headers now served))]
     (when (and until (> until now))
       (time/->inst (min until (+ now (* 60 60 1000)))))))
 
 (defn split-credentials
-  "The URL `url` without the user name and password that it holds, as in
-  `https://user:pass@host/feed.xml`, and those as credentials for
-  `authorization`: `[url credentials]`, the credentials nil when it holds
-  none. An app can use it when it adds a feed, to keep the password apart
-  from the address, since an address travels: into OPML, sync documents
-  and messages."
+  "The URL `url` without the user name and the password that it holds, and
+  those as credentials for `authorization`: `[url credentials]`. The
+  credentials are nil when the URL holds none.
+
+  Such a URL is `https://user:pass@host/feed.xml`. An app can use this
+  when it adds a feed, to keep the password apart from the address. An
+  address travels into OPML, sync documents and messages."
   [url]
   (let [[_ scheme authority tail] (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://)([^/?#]*)(.*)" (str url))
         at                        (some-> authority (str/last-index-of "@"))]
@@ -164,13 +205,13 @@
                 (.build)))))
 
 #?(:clj
-   (defn- gzipped?
+   (defn ^:no-doc gzipped?
      "Whether the response with `headers` says that its body is gzipped."
      [headers]
      (= "gzip" (some-> (header headers "content-encoding") str/trim str/lower-case))))
 
 #?(:clj
-   (defn- headers-of
+   (defn ^:no-doc headers-of
      "The headers of `response`, lower-case names to vectors of values."
      [^HttpResponse response]
      (into {} (map (fn [[k v]] [(str/lower-case k) (vec v)]))
@@ -182,7 +223,7 @@
   (* 100 1024 1024))
 
 #?(:clj
-   (defn- pump
+   (defn ^:no-doc pump
      "Read `in` to its end in pieces, handing each to `(f buffer n)`, and
      throw `::too-large` once more than `max-bytes` have arrived; nil
      `max-bytes` reads everything."
@@ -199,7 +240,7 @@
                (recur total))))))))
 
 #?(:clj
-   (defn- read-bounded
+   (defn ^:no-doc read-bounded
      "Read `in` to its end into a byte array, as `pump` reads it."
      ^bytes [^InputStream in max-bytes url]
      (let [out (ByteArrayOutputStream.)]
@@ -219,7 +260,7 @@
               (.setRemoveOnCancelPolicy true)))))
 
 #?(:clj
-   (defn- within
+   (defn ^:no-doc within
      "`(f)`, which reads `in`, but only until the instant `deadline` in epoch
      milliseconds, when the stream is closed and `::timeout` thrown, so that
      a server sending its body slowly holds no thread for longer than that."
@@ -268,7 +309,7 @@
            StandardCharsets/UTF_8)))))
 
 #?(:clj
-   (defn- inflated
+   (defn ^:no-doc inflated
      "The `body` bytes of the response with `headers`, gunzipped when the
      response says so, to at most `max-bytes` (nil for no limit)."
      ^bytes [headers ^bytes body max-bytes]
@@ -278,10 +319,12 @@
 
 #?(:clj
    (defn decode
-     "The `body` bytes of the response with `headers` as a string, gunzipped
-     when the response says so, to at most `max-bytes` (nil for no limit), and
-     decoded by `declared-charset`, a byte order mark dropped, as a browser
-     drops it."
+     "The `body` bytes of the response with `headers` as a string.
+
+     The body is gunzipped when the response says so, to at most
+     `max-bytes` (nil for no limit). It is decoded by the charset that the
+     response declares, or else the XML declaration, or else as UTF-8. A
+     byte order mark is left out, as a browser leaves it out."
      ([headers body]
       (decode headers body nil))
      ([headers ^bytes body max-bytes]
@@ -290,19 +333,24 @@
         (cond-> s (str/starts-with? s "\uFEFF") (subs 1))))))
 
 (defn content-range
-  "The byte range and the size of the whole that the Content-Range header
-  value `s` names, such as `bytes 0-1023/146515`, as `{:start :end :total}`,
-  the total nil when the server does not know it; nil when `s` does not
-  read."
+  "The byte range and the size of the whole file that the Content-Range
+  header value `s` names, as `{:start :end :total}`. Nil when `s` does not
+  read.
+
+  Such a value is `bytes 0-1023/146515`. `:total` is nil when the server
+  does not know the size."
   [s]
   (when-let [[_ start end total] (some->> s (re-matches #"(?i)\s*bytes\s+(\d{1,15})-(\d{1,15})/(\d{1,15}|\*)\s*"))]
     {:start (parse-long start) :end (parse-long end) :total (when (not= "*" total) (parse-long total))}))
 
 (defn byte-ranges
-  "The byte ranges that the Range header value `s` asks for, such as
-  `bytes=0-1023, 5000-`, as RFC 9110 reads them: `[start end]` with the end
-  included or nil for the rest of the file, and `[nil n]` for the last `n`
-  bytes. Nil when `s` does not read, since a server then ignores it."
+  "The byte ranges that the Range header value `s` asks for, as RFC 9110
+  reads them. Nil when `s` does not read, because a server then ignores
+  it.
+
+  Such a value is `bytes=0-1023, 5000-`. A range is `[start end]`, with
+  the end included, or nil for the rest of the file. `[nil n]` is the last
+  `n` bytes."
   [s]
   (when-let [[_ specs] (some->> s (re-matches #"(?i)\s*bytes\s*=\s*(.*)"))]
     (let [ranges (for [spec (map str/trim (str/split specs #","))
@@ -352,12 +400,13 @@
 
 #?(:clj
    (defn legal-url
-     "`url` with every character a URI may not contain, such as a space or a
-     non-ASCII letter, percent-encoded as UTF-8, and so is a bracket in the
-     path, where java.net.URI takes none, and a percent sign that starts no
-     escape. An escape is left as it is, so an already encoded URL comes
-     back unchanged. A host with letters outside ASCII gets the ASCII form
-     of IDNA."
+     "`url` with each character that a URI cannot contain percent-encoded
+     as UTF-8, such as a space or a letter outside ASCII.
+
+     A bracket in the path is encoded too, because java.net.URI takes none
+     there, and so is a percent sign that starts no escape. An escape stays
+     as it is, so an encoded URL comes back unchanged. A host with letters
+     outside ASCII gets the ASCII form of IDNA."
      [^String url]
      (let [[_ head path tail] (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*)?([^?#]*)(.*)" url)]
        (str (encode-illegal (ascii-host (str head)) #{}) (encode-illegal path #{\[ \]}) (encode-illegal tail #{})))))
@@ -375,10 +424,11 @@
        (subs s start end))))
 
 (defn absolute-url
-  "`url` made absolute against `base`, the URL of the document it is in, as
-  a browser does it: a path, a path from the root, a query alone or a URL
-  without a scheme resolves against `base`, and an absolute URL stays as it
-  is. Nil when either does not read as a URL.
+  "`url` made absolute against `base`, the URL of the document that it is
+  in, as a browser does it. Nil when one of them does not read as a URL.
+
+  A path, a path from the root, a query alone or a URL without a scheme
+  resolves against `base`. An absolute URL stays as it is.
 
   `base` is a URL with a scheme that can hold a path, so no `mailto:`. An
   empty `url` names the document itself. A path does not go above the
@@ -466,6 +516,11 @@
   [url]
   (second (origin url)))
 
+(defn ^:no-doc web-url?
+  "Whether `s` is an http or https URL with a host."
+  [s]
+  (boolean (and (string? s) (re-find #"(?i)^https?://" s) (origin s))))
+
 (defn ^:no-doc timeout?
   "Whether the exception `e` from `call!`, or one of its causes, tells that
   the exchange took longer than its time allowed."
@@ -534,44 +589,59 @@
                      (.isSiteLocalAddress a) (.isMulticastAddress a)))
             (if (= 4 (count b)) (public-ipv4? b) (public-ipv6? b))))))
 
+(defn ^:no-doc ipv4
+  "The four numbers of the IPv4 address that the text `s` writes. Nil for
+  anything else."
+  [s]
+  (when-let [[_ & parts] (re-matches #"(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})" s)]
+    (let [ns (mapv parse-long parts)]
+      (when (every? #(<= 0 % 255) ns) ns))))
+
+(defn- words
+  "The 16-bit words of the groups of `part`, a part of the text of an IPv6
+  address. The last group can be an IPv4 address when `end?` says that the
+  part ends the address. Nil when a group does not read."
+  [part end?]
+  (let [gs (if (= "" part) [] (str/split part #":" -1))]
+    (reduce (fn [acc [i g]]
+              (cond
+                (re-matches #"[0-9a-fA-F]{1,4}" g)
+                (conj acc #?(:clj (Long/parseLong g 16) :cljs (js/parseInt g 16)))
+
+                (and end? (= i (dec (count gs))) (str/includes? g "."))
+                (if-let [[a b c d] (ipv4 g)]
+                  (conj acc (+ (* 256 a) b) (+ (* 256 c) d))
+                  (reduced nil))
+
+                :else
+                (reduced nil)))
+            []
+            (map-indexed vector gs))))
+
+(defn- ipv6
+  "The sixteen numbers of the IPv6 address that the text `s` writes,
+  without brackets. Nil for anything else."
+  [s]
+  (let [[head tail] (str/split s #"::" 2)
+        front       (words head (nil? tail))
+        back        (when tail (words tail true))
+        n           (+ (count front) (count back))
+        all         (cond
+                      (or (nil? front) (and tail (nil? back))) nil
+                      tail                                     (when (< n 8) (concat front (repeat (- 8 n) 0) back))
+                      :else                                    (when (= n 8) front))]
+    (when all
+      (vec (mapcat (fn [w] [(quot w 256) (rem w 256)]) all)))))
+
 (defn ^:no-doc ip-address
   "The bytes of the IP address that the text `s` writes, as numbers: four
   for IPv4, and sixteen for IPv6, with or without the brackets that a URL
   puts around it. Nil for anything else, such as a name or a hash."
   [s]
   (when (string? s)
-    (if-let [[_ & parts] (re-matches #"(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})" s)]
-      (let [ns (mapv parse-long parts)]
-        (when (every? #(<= 0 % 255) ns) ns))
-      (when-let [[_ bracketed bare] (re-matches #"\[([0-9a-fA-F:.]+)\]|([0-9a-fA-F.]*:[0-9a-fA-F:.]*)" s)]
-        (let [[head tail] (str/split (or bracketed bare) #"::" 2)
-              ;; the words of the groups of `part`, the last of which can
-              ;; be an IPv4 address when `part` ends the address
-              words       (fn [part end?]
-                            (let [gs (if (= "" part) [] (str/split part #":" -1))]
-                              (reduce (fn [acc [i g]]
-                                        (cond
-                                          (re-matches #"[0-9a-fA-F]{1,4}" g)
-                                          (conj acc #?(:clj (Long/parseLong g 16) :cljs (js/parseInt g 16)))
-
-                                          (and end? (= i (dec (count gs))) (str/includes? g "."))
-                                          (if-let [[a b c d] (ip-address g)]
-                                            (conj acc (+ (* 256 a) b) (+ (* 256 c) d))
-                                            (reduced nil))
-
-                                          :else
-                                          (reduced nil)))
-                                      []
-                                      (map-indexed vector gs))))
-              front       (words head (nil? tail))
-              back        (when tail (words tail true))
-              n           (+ (count front) (count back))
-              all         (cond
-                            (or (nil? front) (and tail (nil? back))) nil
-                            tail                                     (when (< n 8) (concat front (repeat (- 8 n) 0) back))
-                            :else                                    (when (= n 8) front))]
-          (when all
-            (vec (mapcat (fn [w] [(quot w 256) (rem w 256)]) all))))))))
+    (or (ipv4 s)
+        (when-let [[_ bracketed bare] (re-matches #"\[([0-9a-fA-F:.]+)\]|([0-9a-fA-F.]*:[0-9a-fA-F:.]*)" s)]
+          (ipv6 (or bracketed bare))))))
 
 (defn ^:no-doc public-name?
   "Whether the domain name `host` is a name of the public internet. Such a
@@ -585,13 +655,14 @@
 
 (defn public?
   "Whether the host of the http or https URL `url` is on the public
-  internet, and not on the network of the app or of its device.
+  internet. A host on the network of the app or of its device is not.
 
-  On the JVM, every address that the name of the host resolves to must be
-  public, as `public-ipv4?` and `public-ipv6?` tell. A name that does not
-  resolve is not public. The JVM keeps what it resolved for 30 seconds by
-  default, so the request goes to the address that this checked. In
-  ClojureScript, which cannot resolve a name in a browser, the host must
+  On the JVM, each address that the name of the host resolves to must be
+  public. A name that does not resolve is not public. The JVM keeps what
+  it resolved for 30 seconds by default, so the request goes to the
+  address that this function checked.
+
+  ClojureScript cannot resolve a name in a browser. There, the host must
   not be an address that is not public. A name must have a dot in it, and
   it must not be localhost or a name under .localhost, .local, .internal
   or .home.arpa."
@@ -623,23 +694,51 @@
                       (not (and (= "https" from) (= "http" to))))
              target))))))
 
+(defn ^:no-doc refusal
+  "The exception of a request to `url` that an `:allow?` refused."
+  [url]
+  (ex-info (str "The request to " url " is not allowed") {:type ::refused :url url}))
+
+(def ^:no-doc credential-headers
+  "The names of the headers that hold credentials, in lower case."
+  #{"authorization" "cookie" "proxy-authorization"})
+
+(defn ^:no-doc redirected
+  "The request that follows `request` after a redirect of `status` to the
+  URL `target`.
+
+  A 303, or a 301 or 302 to a POST, turns into a GET without a body, as
+  browsers and the JDK do. A HEAD stays a HEAD. Credentials stay behind
+  when the redirect leaves the origin."
+  [{:keys [method url headers body] :as request} status target]
+  (let [get? (or (= 303 status) (and (#{301 302} status) (= :post method)))]
+    (assoc request
+           :url     target
+           :method  (if (and get? (not= :head method)) :get method)
+           :headers (cond->> headers
+                      (not (same-origin? url target))
+                      (into {} (remove (fn [[k _]] (credential-headers (str/lower-case (str k)))))))
+           :body    (when-not get? body))))
+
 #?(:clj
-   (defn- send-following!
-     "Send `method` to `url` with `headers` and `body`, and follow the
+   (defn ^:no-doc send-following!
+     "Send the `request`, `{:method :url :headers :body}`, and follow the
      redirects, five at most, until the instant `deadline` in epoch
-     milliseconds. A 303, or a 301 or 302 to a POST, turns into a GET, as
-     browsers and the JDK do. Credentials stay behind when a redirect leaves
-     the origin, because the JDK would send them on. `allow?` must take the
-     URL of the request and of each redirect, or `::refused` is thrown.
-     Returns the last response, and the redirects before it as `[status url
-     headers]`."
-     [url method headers body deadline allow?]
-     (loop [uri (URI. (legal-url url)) method method headers headers body body chain []]
-       (let [left (- deadline (System/currentTimeMillis))]
+     milliseconds. Each redirect is followed as `redirected` says, because
+     the JDK sends credentials on to another origin.
+
+     `allow?` must take the URL of the request and of each redirect, or
+     `::refused` is thrown. Returns the last response, and the redirects
+     before it as `[status url headers]`."
+     [request deadline allow?]
+     (loop [{:keys [url method headers body] :as request} (update request :url legal-url)
+            chain                                         []]
+       (let [uri  (URI. url)
+             left (- deadline (System/currentTimeMillis))]
          (when-not (pos? left)
            (throw (HttpTimeoutException. (str "request timed out: " uri))))
-         (when-not (allow? (str uri))
-           (throw (ex-info (str "The request to " uri " is not allowed") {:type ::refused :url (str uri)})))
+         (when-not (allow? url)
+           (throw (refusal url)))
          (let [response (.send ^HttpClient @client (java-request uri method headers body left)
                                (HttpResponse$BodyHandlers/ofInputStream))
                status   (.statusCode response)
@@ -647,16 +746,9 @@
                           (redirect-target uri response))]
            (if-not target
              [response chain]
-             (let [get? (or (= 303 status) (and (#{301 302} status) (= :post method)))]
-               (.close ^InputStream (.body response))
-               (recur target
-                      (if (and get? (not= :head method)) :get method)
-                      (cond->> headers
-                        (not (same-origin? (str uri) (str target)))
-                        (into {} (remove (fn [[k _]] (#{"authorization" "cookie" "proxy-authorization"}
-                                                      (str/lower-case (str k)))))))
-                      (when-not get? body)
-                      (conj chain [status (str uri) (headers-of response)])))))))))
+             (do (.close ^InputStream (.body response))
+                 (recur (redirected request status (str target))
+                        (conj chain [status url (headers-of response)])))))))))
 
 #?(:clj
    (defn- permanent-url
@@ -669,7 +761,7 @@
        (when (pos? n)
          (get (conj (mapv second chain) final-url) n)))))
 
-(defn- prefix-length
+(defn ^:no-doc prefix-length
   "How much of the body of an answer of `status` to read when it answers a
   request for the bytes `range`: of a 206, the bytes from the `start` of
   what it sends to the end of the range, since a server can send more than
@@ -690,77 +782,74 @@
         (when (<= n (or max-bytes 0x7FFFFFFF))
           n)))))
 
+#?(:cljs
+   (def ^:no-doc browser?
+     "Whether the code runs in a page or a worker of a browser. There, a
+     header that a request sets makes fetch ask the server for leave first,
+     and a browser names itself."
+     (or (exists? js/document) (exists? js/WorkerGlobalScope))))
+
+(defn- request-headers
+  "The headers of a request of `call!` for the bytes `range`: `headers`,
+  with `user-agent` unless they name another or a browser names itself,
+  and with the Range header. On the JVM, a request for a range asks for
+  bytes that are not gzipped, so that the offsets are those of the file."
+  [headers range]
+  (cond-> (merge #?(:clj  {"User-Agent" user-agent}
+                    :cljs (when-not browser? {"User-Agent" user-agent}))
+                 headers)
+    range (assoc "Range" (str "bytes=" (first range) "-" (second range)))
+    #?@(:clj [range (assoc "Accept-Encoding" "identity")])))
+
 #?(:clj
-   (defn call!
-     "Send the request map `{:method :url :headers :body}` and return
-     `{:status :url :headers :body}`, the body decoded to a string. A GET
-     unless `:method` names another, sent with the `:body` string when there
-     is one; `:timeout-seconds` (default 30) bounds the whole exchange,
-     beyond which the client's HttpTimeoutException is thrown while the
-     headers are awaited and `::timeout` while the body is read;
-     `:max-bytes` (default `default-max-bytes`, nil for no limit) bounds the
-     body, beyond which `::too-large` is thrown. gzip is undone and the URL
-     made legal first (see `legal-url`).
+   (defn- body-bytes
+     "The bytes of the body of `response`, read until `deadline`. The
+     `request` tells how much of the body to read, as `prefix-length` has
+     it."
+     ^bytes [^HttpResponse response {:keys [method url range max-bytes]} deadline]
+     (let [headers (headers-of response)
+           start   (:start (content-range (header headers "content-range")))]
+       (with-open [^InputStream in (.body response)]
+         (let [n (prefix-length (.statusCode response) start (gzipped? headers) range max-bytes)]
+           (cond
+             ;; an answer to HEAD has no content by RFC 9110, though
+             ;; some servers send one over HTTP/2
+             (= :head method) (byte-array 0)
+             n                (within in deadline url #(.readNBytes in (int n)))
+             :else            (read-within in deadline max-bytes url)))))))
 
-     Redirects are followed, five at most and never from https to http, and
-     a redirect to another origin leaves the credentials behind. When the
-     redirects begin with permanent ones, `:permanent-url` is where the URL
-     moved for good, and `:redirects` lists each redirect followed as
-     `[status url headers]`, the URL that answered with it and the headers
-     of its answer.
-
-     `:as :bytes` keeps the body as bytes, gzip undone, for a media file.
-     `:range [start end]` asks for those bytes alone, the end included or
-     nil for the rest, as RFC 9110 has it, and not gzipped, so that the
-     offsets are those of the file; a server that sends them answers 206,
-     and `:content-range` is then what `content-range` reads. A server that
-     does not answers 200 with the whole file. Either way no more is read
-     than up to the end of the range, when it has one. Of another answer,
-     such as the page of a 404, no more is read than the range names.
-
-     `:allow?` is a predicate that must take the URL of the request and of
-     each redirect, as `public?` does, or `::refused` is thrown."
-     [{:keys [method url headers body timeout-seconds max-bytes as range allow?]
-       :or   {timeout-seconds 30 max-bytes default-max-bytes allow? (constantly true)}}]
-     (let [method           (some-> method name str/lower-case keyword)
-           deadline         (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
-           headers          (cond-> (merge {"User-Agent" user-agent} headers)
-                              range (assoc "Range" (str "bytes=" (first range) "-" (second range))
-                                           "Accept-Encoding" "identity"))
-           [response chain] (send-following! url method headers body deadline allow?)
-           status           (.statusCode ^HttpResponse response)
-           found            (headers-of response)
-           received         (content-range (header found "content-range"))
-           ^bytes bytes     (with-open [^InputStream in (.body ^HttpResponse response)]
-                              (let [n (prefix-length status (:start received) (gzipped? found) range max-bytes)]
-                                (cond
-                                  ;; an answer to HEAD has no content by RFC 9110, though
-                                  ;; some servers send one over HTTP/2
-                                  (= :head method) (byte-array 0)
-                                  n                (within in deadline url #(.readNBytes in (int n)))
-                                  :else            (read-within in deadline max-bytes url))))
-           final            (str (.uri ^HttpResponse response))
-           moved            (permanent-url chain final)]
+#?(:clj
+   (defn- java-answer
+     "The response map of `call!` for the `response` of the JDK with the
+     body `bytes`, which came after the redirects `chain`."
+     [^HttpResponse response ^bytes bytes chain {:keys [as max-bytes]}]
+     (let [status   (.statusCode response)
+           headers  (headers-of response)
+           final    (str (.uri response))
+           moved    (permanent-url chain final)
+           received (content-range (header headers "content-range"))]
        (cond-> {:status  status
                 :url     final
-                :headers found
+                :headers headers
                 :body    (when (and (not= 304 status) (pos? (alength bytes)))
                            (if (= :bytes as)
-                             (inflated found bytes max-bytes)
-                             (decode found bytes max-bytes)))}
-         moved        (assoc :permanent-url moved)
-         (seq chain)  (assoc :redirects chain)
-         received     (assoc :content-range received)))))
+                             (inflated headers bytes max-bytes)
+                             (decode headers bytes max-bytes)))}
+         moved       (assoc :permanent-url moved)
+         (seq chain) (assoc :redirects chain)
+         received    (assoc :content-range received)))))
 
 #?(:cljs
    (defn- read-body
-     "A promise of the body of the fetch response `res` from `url` as bytes:
-     its first `n` bytes, the rest left unread, or with `limit?` all of it,
-     rejected with `::too-large` once more than `n` bytes arrive. Nil `n`
-     reads everything."
-     [res n limit? url]
+     "A promise of the body of the fetch response `res` from `url` as
+     bytes. With `:first` in `opts`, it is that many bytes from the start,
+     and the rest is left unread. With `:max-bytes`, it is the whole body,
+     and the promise is rejected with `::too-large` once more bytes
+     arrive. Without both, it is the whole body."
+     [res url {:keys [max-bytes] :as opts}]
      (let [reader (.getReader (.-body res))
-           n      (or n ##Inf)]
+           n      (or (:first opts) max-bytes ##Inf)
+           all?   (nil? (:first opts))]
        (letfn [(join [chunks]
                  (.catch (.cancel reader) (fn [_] nil))
                  (let [size (min n (reduce + (map #(.-length %) chunks)))
@@ -773,12 +862,12 @@
                    out))
                (step [chunks got]
                  (cond
-                   (and limit? (> got n))
+                   (and all? (> got n))
                    (do (.catch (.cancel reader) (fn [_] nil))
                        (throw (ex-info (str "Response body exceeds " n " bytes: " url)
                                        {:type ::too-large :url url :max-bytes n})))
 
-                   (and (not limit?) (>= got n))
+                   (and (not all?) (>= got n))
                    (join chunks)
 
                    :else
@@ -790,73 +879,97 @@
          (js/Promise.resolve (step [] 0))))))
 
 #?(:cljs
-   (def ^:no-doc browser?
-     "Whether the code runs in a page or a worker of a browser. There, a
-     header that a request sets makes fetch ask the server for leave first,
-     and a browser names itself."
-     (or (exists? js/document) (exists? js/WorkerGlobalScope))))
+   (defn- fetch-answer
+     "A promise of the response map of `call!` for the fetch response
+     `res` to the `request`."
+     [res {:keys [method url as range max-bytes]}]
+     (let [status   (.-status res)
+           received (content-range (.get (.-headers res) "content-range"))
+           response (cond-> {:status  status
+                             :url     (.-url res)
+                             :headers (into {} (map (fn [[k v]] [k [v]]))
+                                            (es6-iterator-seq (.entries (.-headers res))))}
+                      received                (assoc :content-range received)
+                      (= "cors" (.-type res)) (assoc :filtered? true))
+           ;; fetch undoes gzip itself, so a prefix is one of the file
+           n        (prefix-length status (:start received) false range max-bytes)]
+       (if (or (= :head method) (nil? (.-body res)))
+         response
+         (.then (read-body res url (if n {:first n} {:max-bytes max-bytes}))
+                (fn [b]
+                  (cond-> response
+                    (pos? (.-length b))
+                    (assoc :body (if (= :bytes as) b (.decode (js/TextDecoder.) b))))))))))
 
-#?(:cljs
-   (defn call!
-     "Send the request map `{:method :url :headers :body}` with fetch, as
-     `call!` sends it on the JVM, and give a promise of `{:status :url
-     :headers :body}`: the body as text in UTF-8, or as bytes with `:as
-     :bytes`, and none for HEAD or when it is empty. `:timeout-seconds`
-     (default 30) bounds the whole exchange, and `:max-bytes` (default
-     `default-max-bytes`, nil for no limit) the body, beyond which
-     `::too-large` is thrown. `:range [start end]` asks for those bytes
-     alone, the end included or nil for the rest, and `:content-range` is
-     what `content-range` reads of a 206; of an answer with more, a 200 with
-     the whole file among them, no more is read than up to the end of the
-     range. Of another answer, such as the page of a 404, no more is read
-     than the range names.
+(defn call!
+  "Send the request map `request`, and give the response as `{:status :url
+  :headers :body}`. On the JVM it gives the response, and in ClojureScript
+  a promise of it.
 
-     fetch follows redirects itself and tells none of them. A browser lets a
-     page read an answer from another site only as far as the CORS headers
-     of the answer allow, and hides the headers that the answer does not
-     expose, Content-Range and ETag among them: `:filtered?` marks such an
-     answer.
+  The request is `{:method :url :headers :body}`. It is a GET unless
+  `:method` names another method, and it goes with the `:body` string when
+  it has one. The body of the response is text, with gzip undone. It is
+  absent for a HEAD request and for an empty body. With `:as :bytes`, the
+  body is bytes, for a media file.
 
-     `:allow?` is a predicate that must take the URL of the request, as
-     `public?` does, or the promise is rejected with `::refused`. fetch
-     follows the redirects, so they are not checked.
+  `:timeout-seconds` (default 30) limits the whole exchange, and
+  `:max-bytes` (default `default-max-bytes`, nil for no limit) limits the
+  body. An exchange that goes beyond a limit throws `::timeout` or
+  `::too-large`. On the JVM, the client of the JDK throws its
+  HttpTimeoutException while it waits for the headers.
 
-     Outside a browser, as in Node, the request names `user-agent` as its
-     User-Agent, unless the `:headers` name another."
-     [{:keys [method url headers body as range timeout-seconds max-bytes allow?]
-       :or   {timeout-seconds 30 max-bytes default-max-bytes allow? (constantly true)}}]
-     (let [method (some-> method name str/lower-case keyword)]
-       (if-not (allow? url)
-         (js/Promise.reject (ex-info (str "The request to " url " is not allowed") {:type ::refused :url url}))
-         (-> (js/fetch url (clj->js (cond-> {:method  (str/upper-case (name (or method :get)))
-                                             :headers (cond-> (merge (when-not browser? {"User-Agent" user-agent}) headers)
-                                                        range (assoc "Range" (str "bytes=" (first range) "-" (second range))))
-                                             :signal  (js/AbortSignal.timeout (* 1000 timeout-seconds))}
-                                      (some? body) (assoc :body body))))
-             (.then (fn [res]
-                      (let [status   (.-status res)
-                            received (content-range (.get (.-headers res) "content-range"))
-                            response (cond-> {:status  status
-                                              :url     (.-url res)
-                                              :headers (into {} (map (fn [[k v]] [k [v]]))
-                                                             (es6-iterator-seq (.entries (.-headers res))))}
-                                       received                (assoc :content-range received)
-                                       (= "cors" (.-type res)) (assoc :filtered? true))
-                            ;; fetch undoes gzip itself, so a prefix is one of the file
-                            n        (prefix-length status (:start received) false range max-bytes)]
-                        (if (or (= :head method) (nil? (.-body res)))
-                          response
-                          (.then (read-body res (or n max-bytes) (nil? n) url)
-                                 (fn [b]
-                                   (cond-> response
-                                     (pos? (.-length b))
-                                     (assoc :body (if (= :bytes as) b (.decode (js/TextDecoder.) b)))))))))))))))
+  `:range [start end]` asks for those bytes alone, the end included, or
+  nil for the rest, as RFC 9110 has it. A server that sends the range
+  answers 206, and `:content-range` is then what `content-range` reads. A
+  server that ignores ranges answers 200 with the whole file. `call!`
+  reads no further than the end of the range, when it has one. From
+  another answer, such as the page of a 404, it reads no more bytes than
+  the range names.
+
+  `:allow?` is a predicate of a URL, as `public?` is. When it refuses the
+  URL of the request, `call!` throws `::refused`.
+
+  On the JVM, `call!` makes the URL legal first (see `legal-url`). It
+  follows redirects, five at most, and never from https to http. A
+  redirect to another origin leaves the credentials behind, and `:allow?`
+  must take the URL of each redirect. `:redirects` lists each redirect as
+  `[status url headers]`: the URL that answered with it, and the headers
+  of its answer. When the redirects begin with permanent ones,
+  `:permanent-url` is where the URL moved for good.
+
+  In ClojureScript, fetch sends the request. fetch follows redirects
+  itself and tells none of them, so `:allow?` does not see them. A
+  browser lets a page read an answer from another site only as far as the
+  CORS headers of the answer allow. It hides the headers that the answer
+  does not expose, Content-Range and ETag among them. `:filtered?` marks
+  such an answer. Outside a browser, as in Node, the request names
+  `user-agent` as its User-Agent, unless the `:headers` name another."
+  [{:keys [method headers timeout-seconds allow?]
+    :or   {timeout-seconds 30 allow? (constantly true)}
+    :as   request}]
+  (let [method  (some-> method name str/lower-case keyword)
+        request (assoc (merge {:max-bytes default-max-bytes} request)
+                       :method  method
+                       :headers (request-headers headers (:range request)))]
+    #?(:clj  (let [deadline         (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
+                   [response chain] (send-following! request deadline allow?)
+                   bytes            (body-bytes response request deadline)]
+               (java-answer response bytes chain request))
+       :cljs (let [{:keys [url body]} request]
+               (if-not (allow? url)
+                 (js/Promise.reject (refusal url))
+                 (-> (js/fetch url (clj->js (cond-> {:method  (str/upper-case (name (or method :get)))
+                                                     :headers (:headers request)
+                                                     :signal  (js/AbortSignal.timeout (* 1000 timeout-seconds))}
+                                              (some? body) (assoc :body body))))
+                     (.then #(fetch-answer % request))))))))
 
 (defn call-public!
   "`call!` for the request map `request` to a host on the public internet,
-  as `public?` tells, and on the JVM for each of its redirects too.
+  as `public?` tells. On the JVM, the host of each redirect must be public
+  too.
 
-  It sends no request to the network of the app or of its device, and
+  It sends no request to the network of the app or of its device. It
   throws `::refused`, or in ClojureScript rejects with it. The functions
   that fetch URLs that strangers choose put the same guard on each
   request, as their `:allow?`."
@@ -865,17 +978,25 @@
 
 #?(:clj
    (defn fetch!
-     "GET the feed at `url` and return `{:status :url :headers :body}` with the
-     body as a decoded string, plus `:etag` and `:last-modified` when present,
-     `:not-before` when the server says how long to wait (see `not-before`),
-     and the `:permanent-url` of `call!`. `opts` may carry an `:etag` and
-     `:last-modified` from an earlier response, sent as If-None-Match and
-     If-Modified-Since, on which a 304 comes back with no body; the
-     `:credentials` of a private feed (see `authorization`); a `:user-agent`
-     to send instead of `user-agent`; and the `:timeout-seconds` and
-     `:max-bytes` of `call!`. A user name and a password in `url` are the
-     credentials when `opts` give none, and the request goes to `url`
-     without them (see `split-credentials`)."
+     "GET the feed at `url`, and give the response as `{:status :url
+     :headers :body}`, the body as text.
+
+     The response also has `:etag` and `:last-modified` when the server
+     gives them, and the `:permanent-url` of `call!`. It has `:not-before`
+     when the server says how long to wait (see `not-before`).
+
+     `opts` can give these:
+
+     - `:etag` and `:last-modified` from an earlier response. They go as
+       If-None-Match and If-Modified-Since, and a 304 then comes back with
+       no body.
+     - `:credentials` of a private feed (see `authorization`)
+     - `:user-agent`, to send in place of `user-agent`
+     - `:timeout-seconds` and `:max-bytes`, as `call!` takes them
+
+     A user name and a password in `url` are the credentials when `opts`
+     give none. The request goes to `url` without them (see
+     `split-credentials`)."
      ([url]
       (fetch! url {}))
      ([url {:keys [etag last-modified credentials user-agent]
@@ -897,20 +1018,22 @@
 
 #?(:clj
    (defn digest!
-     "GET `url` and compute the digests of its body as it streams in, with
-     the MessageDigest `algorithms`, such as SHA-384, keeping none of the
-     body, which can be a large media file: `{:status :url :digests
-     {algorithm bytes}}`, the digests for a 200 alone. `opts` may carry
-     `:headers`, `:timeout-seconds` (default 600), which bounds the whole
-     exchange as for `call!`, and the `:allow?` of `call!`."
+     "GET `url`, and give the digests of its body by the MessageDigest
+     `algorithms`, such as SHA-384: `{:status :url :digests {algorithm
+     bytes}}`. The digests are there for a 200 alone.
+
+     The body streams through the digests, and none of it is kept, so it
+     can be a large media file. `opts` can give `:headers`, and the
+     `:allow?` of `call!`. `:timeout-seconds` (default 600) limits the
+     whole exchange, as for `call!`."
      ([url algorithms]
       (digest! url algorithms {}))
      ([url algorithms {:keys [headers timeout-seconds allow?] :or {timeout-seconds 600 allow? (constantly true)}}]
       (let [deadline      (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
             ;; before the request, since an algorithm that the platform lacks throws
             digests       (into {} (for [a algorithms] [a (MessageDigest/getInstance a)]))
-            [response _]  (send-following! url :get (merge {"User-Agent" user-agent "Accept-Encoding" "identity"} headers)
-                                           nil deadline allow?)
+            headers       (merge {"User-Agent" user-agent "Accept-Encoding" "identity"} headers)
+            [response _]  (send-following! {:url url :method :get :headers headers} deadline allow?)
             status        (.statusCode ^HttpResponse response)]
         (with-open [^InputStream in (.body ^HttpResponse response)]
           (when (= 200 status)
@@ -950,40 +1073,46 @@
 
 (defn fetcher
   "A function that fetches the bytes of the file at `url` by range, as
-  `dk.simongray.podcast.bytes/read!` takes it: of a start and an end, end
-  excluded, it gives `{:bytes :start :total}`, deferred in ClojureScript. A
-  server that ignores ranges sends the file from its start, and only the
-  bytes up to the end are read; one that answers 416, for a range past the
-  end of the file, gives no bytes and the size of the file, so a reader
-  learns that the file is shorter than it says. In a browser it knows the
-  total only when the server exposes Content-Range. An app wraps it to log
-  or keep what it fetches. `opts` can give the `:headers`, the
-  `:timeout-seconds`, the `:max-bytes` and the `:allow?` of the requests,
-  and `:send`, a function that sends a request map as `call!` does and in
-  its place.
+  `dk.simongray.podcast.bytes/read!` takes it.
 
-  The answer of a server that ignores ranges is `:whole?`."
-  [url {:keys [headers send] :or {send call!} :as opts}]
-  (fn [start end]
-    (async/then
-     (send (limited {:url url :headers headers :as :bytes :range [start (dec end)]} opts))
-     (fn [{:keys [status body content-range] :as response}]
-       (let [none #?(:clj (byte-array 0) :cljs (js/Uint8Array. 0))
-             body (or body none)]
-         (case (long status)
-           206 {:bytes body :start (or (:start content-range) start) :total (:total content-range)}
-           200 {:bytes body :start 0 :whole? true
-                :total (whole-size #?(:clj (alength ^bytes body) :cljs (.-length body)) end
-                                   (header (:headers response) "content-length")
-                                   (header (:headers response) "content-encoding"))}
-           ;; the body of a 416 is at most a page about the error
-           416 {:bytes none :start start
-                :total (unsatisfied-total (header (:headers response) "content-range"))}
-           (throw (ex-info (str "The file answered " status ": " url) {:status status :url url}))))))))
+  The function takes a start and an end, end excluded. It gives `{:bytes
+  :start :total}`, deferred in ClojureScript. An app can wrap it to log or
+  keep what it fetches.
+
+  A server that ignores ranges sends the file from its start. The
+  function then reads only the bytes up to the end, and its answer is
+  `:whole?`. A server answers 416 for a range past the end of the file.
+  The function then gives no bytes, and the size of the file, so a reader
+  learns that the file is shorter than it says. In a browser, the function
+  knows the total only when the server exposes Content-Range.
+
+  `opts` can give the `:headers`, the `:timeout-seconds`, the `:max-bytes`
+  and the `:allow?` of the requests. They can also give `:send`, a
+  function that sends a request map as `call!` does and in its place."
+  ([url]
+   (fetcher url {}))
+  ([url {:keys [headers send] :or {send call!} :as opts}]
+   (fn [start end]
+     (async/then
+      (send (limited {:url url :headers headers :as :bytes :range [start (dec end)]} opts))
+      (fn [{:keys [status body content-range] :as response}]
+        (let [body (or body (bytes/of []))]
+          (case (long status)
+            206 {:bytes body :start (or (:start content-range) start) :total (:total content-range)}
+            200 {:bytes body :start 0 :whole? true
+                 :total (whole-size (bytes/length body) end
+                                    (header (:headers response) "content-length")
+                                    (header (:headers response) "content-encoding"))}
+            ;; the body of a 416 is at most a page about the error
+            416 {:bytes (bytes/of []) :start start
+                 :total (unsatisfied-total (header (:headers response) "content-range"))}
+            (throw (ex-info (str "The file answered " status ": " url) {:status status :url url})))))))))
 
 (defn media-type
-  "The media type of the Content-Type value `s`, or of a type attribute,
-  lower-case and without its parameters; nil for none."
+  "The media type of the Content-Type value `s`, or of a type attribute.
+  Nil when `s` names none.
+
+  The media type is in lower case, without its parameters."
   [s]
   (some-> s (str/split #";" 2) first str/trim str/lower-case not-empty))
 
@@ -996,13 +1125,19 @@
 
 (defn facts
   "What the `response` of `call!` tells about its file, as far as it tells
-  it: `{:status :url :redirects :permanent-url :location :type :length
-  :range :encoding :etag :last-modified :cors :filtered?}`, the
-  `media-type`, the length that Content-Length gives, the Content-Range as
-  `content-range` reads it, the Location of a redirect that was not
-  followed, and the origins that Access-Control-Allow-Origin allows to read
-  the answer. Each redirect on the way is `{:status :url :cors}`, the URL
-  that answered with it."
+  it.
+
+  The facts are `{:status :url :redirects :permanent-url :location :type
+  :length :range :encoding :etag :last-modified :cors :filtered?}`:
+
+  - `:type` is the `media-type`, and `:length` is what Content-Length
+    gives.
+  - `:range` is the Content-Range, as `content-range` reads it.
+  - `:location` is the Location of a redirect that was not followed.
+  - `:cors` is the origins that Access-Control-Allow-Origin allows to
+    read the answer.
+  - Each of the `:redirects` on the way is `{:status :url :cors}`, with
+    the URL that answered with it."
   [response]
   (let [h #(header (:headers response) %)]
     (into {} (remove (comp nil? val))
@@ -1023,29 +1158,81 @@
            :cors          (cors (:headers response))
            :filtered?     (:filtered? response)})))
 
+(defn ^:no-doc sent!
+  "The attempt of `send` at `request`, within the limits of `opts` that
+  `limited` names: `{:value response}`, or `{:error e}` when the sending
+  failed; deferred."
+  ([send request]
+   (sent! send request {}))
+  ([send request opts]
+   (async/attempt #(send (limited request opts)))))
+
+(defn ^:no-doc sent-facts
+  "The `facts` of the response of an `attempt` from `sent!`, or `{:error
+  text}` for a request that failed."
+  [{:keys [value error]}]
+  (if error {:error (async/explain error)} (facts value)))
+
 (defn probe!
   "What the server says about the file at `url`, while no more than two
-  bytes of it move: `{:head :get}`, the `facts` of the answers to a HEAD
-  request and to a request for the first two bytes, or `{:error}` for a
-  request that failed. Most servers answer the second with 206 and the
-  size of the whole in Content-Range; one that ignores ranges answers 200,
-  of which two bytes are read. The HEAD request asks for the file as it
-  is, not gzipped, so that its Content-Length is the size of the file. On
-  the JVM the result, in ClojureScript a promise of it. `opts` can give the
-  `:headers` of both requests, such as an Origin to learn about CORS,
-  `:send`, a function that sends a request map as `call!` does and in its
-  place, and the `:timeout-seconds`, the `:max-bytes` and the `:allow?` of
-  the requests."
+  bytes of the file move. On the JVM it gives the result, and in
+  ClojureScript a promise of it.
+
+  The result is `{:head :get}`: the `facts` of the answers to a HEAD
+  request and to a request for the first two bytes. The facts of a request
+  that failed are `{:error text}`.
+
+  Most servers answer the second request with 206, and with the size of
+  the whole file in Content-Range. A server that ignores ranges answers
+  200, and `probe!` reads two bytes of that answer. The HEAD request asks
+  for the file as it is, not gzipped, so that its Content-Length is the
+  size of the file.
+
+  `opts` can give the `:headers` of the two requests, such as an Origin to
+  learn about CORS. They can give the `:timeout-seconds`, the `:max-bytes`
+  and the `:allow?` of the requests. They can also give `:send`, a
+  function that sends a request map as `call!` does and in its place."
   ([url]
    (probe! url {}))
   ([url {:keys [headers send] :or {send call!} :as opts}]
    (let [answer! (fn [request]
-                   (async/then (async/attempt #(send (limited (assoc request :url url) opts)))
-                               (fn [{:keys [value error]}]
-                                 (if error {:error (async/explain error)} (facts value)))))]
+                   (async/then (sent! send (assoc request :url url) opts) sent-facts))]
      (async/then (async/all [(answer! {:method :head :headers (merge {"Accept-Encoding" "identity"} headers)})
                              (answer! {:range [0 1] :as :bytes :headers headers})])
                  (fn [[head got]] {:head head :get got})))))
+
+(defn ^:no-doc body-text
+  "The text of the `body` of a Ring request, which is a string, a stream
+  or nothing. Nil when the body holds more than `max-bytes`, and for a
+  stream in ClojureScript."
+  [body max-bytes]
+  (cond
+    (nil? body)    ""
+    (string? body) (when (<= (count body) max-bytes) body)
+    :else          #?(:clj  (let [bytes (.readNBytes ^InputStream body (int (inc max-bytes)))]
+                              (when (<= (alength bytes) max-bytes)
+                                (String. bytes StandardCharsets/UTF_8)))
+                      :cljs nil)))
+
+(comment
+  (query-string {:q "clojure podcasts" :max 10 :pretty true})
+  (authorization {:username "ann" :password "secret"})
+  (split-credentials "https://ann:secret@example.org/feed.xml")
+  (absolute-url "https://example.org/shows/feed.xml" "../art/cover.png")
+  (origin "HTTPS://Example.org/feed.xml")
+  (byte-ranges "bytes=0-1023, 5000-")
+
+  ;; an hour at most, though the server says a day
+  (not-before {"cache-control" "max-age=86400"} #inst "2026-09-29T12:00:00Z")
+
+  ;; a POST that a 303 turns into a GET, and credentials that stay behind
+  (redirected {:method :post :url "https://a.example/x" :headers {"Authorization" "Basic …"} :body "{}"}
+              303 "https://b.example/y")
+
+  (public? "http://192.168.1.10/feed.xml")
+  (call! {:url "https://example.org/episode.mp3" :range [0 1023] :as :bytes})
+  (probe! "https://example.org/episode.mp3")
+  #_.)
 
 #?(:clj
    (comment

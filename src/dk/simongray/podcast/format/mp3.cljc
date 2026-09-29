@@ -1,17 +1,24 @@
 (ns dk.simongray.podcast.format.mp3
-  "MP3 files: the ID3v2 tags at the start (see
-  dk.simongray.podcast.format.id3) and the MPEG audio frames after them, as
-  ISO/IEC 11172-3 and 13818-3 define the frame header. `read` gives the
-  tags, where the audio starts and its duration, from the Xing or Info
-  header that LAME and most encoders write in the first frame, the VBRI
-  header of the Fraunhofer encoder, or else from the average bitrate of the
-  first frames and the size of the file, which is exact for a constant
-  bitrate.
+  "MP3 files: the ID3v2 tags at the start, and the MPEG audio frames after
+  them.
+
+  dk.simongray.podcast.format.id3 reads the tags. ISO/IEC 11172-3 and
+  13818-3 define the header of a frame. `read` gives the tags, where the
+  audio starts, and its duration. `report` gives the diagnostics of the
+  reading.
+
+  The duration comes from the first of these that the file has:
+
+  - the Xing or Info header, which LAME and most encoders write in the
+    first frame
+  - the VBRI header of the Fraunhofer encoder
+  - the average bitrate of the first frames and the size of the file,
+    which is exact for a constant bitrate
 
   The reading is strict: the audio starts right after the tags. The quirk
   `:mp3/junk-before-audio` skips bytes that are no frame, such as padding
-  that the size of a tag leaves out, and `:except` in the options leaves it
-  out, as it does the quirks of the tags."
+  that the size of a tag leaves out. `:except` in the options leaves out
+  the quirks that it names, those of the tags too."
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.bytes :as bytes]
             [dk.simongray.podcast.format.id3 :as id3]))
@@ -30,9 +37,12 @@
   {1 [44100 48000 32000] 2 [22050 24000 16000] 2.5 [11025 12000 8000]})
 
 (defn frame-header
-  "The MPEG audio frame header at `p` in `view`: `{:version :layer :bitrate
-  :sample-rate :samples :length :mono? :crc?}`, the bitrate in bit/s and
-  the length of the frame in bytes; nil when no valid header is there."
+  "The header of the MPEG audio frame at `p` in `view`. Nil when no valid
+  header is there.
+
+  The header is `{:version :layer :bitrate :sample-rate :samples :length
+  :mono? :crc?}`. The bitrate is in bit/s, and the length of the frame is
+  in bytes."
   [view p]
   (bytes/need view p (+ p 4))
   (let [b1 (bytes/u8 view (inc p))
@@ -133,14 +143,42 @@
           (recur next h' size samples)
           (/ (* 8.0 size (:sample-rate h)) samples))))))
 
+(defn- duration
+  "The duration in seconds of the audio in `view` whose first frame is at
+  `p` with the header `h`. Nil when there is no frame, or when no header
+  counts the frames and the size of the file is not known.
+
+  The report of `ctx` tells when the duration is an estimate."
+  [ctx view p h]
+  (let [frames (when h (frame-count view p h))
+        total  (:total view)]
+    (cond
+      ;; a header that counts no frames knows no duration
+      (and frames (pos? frames))
+      (/ (* frames (:samples h)) (double (:sample-rate h)))
+
+      (and h total)
+      (do (vswap! (:report ctx) conj {:id :mp3/estimated-duration :level :info})
+          (/ (* 8.0 (- total p)) (average-bitrate view p h))))))
+
+(defn report
+  "The diagnostics of `file`, which `read` gave, with those of its tags.
+  Each diagnostic has its message."
+  [file]
+  (bytes/report file))
+
 (defn read
-  "The MP3 file in `view`: `{:tags :audio-start :duration}`, the tags as
-  `id3/read-all` gives them, where the first frame starts, and the duration
-  in seconds, nil when there is no frame or, without a Xing, Info or VBRI
-  header, no known size of the file; with the diagnostics of the reading
-  under `:report`. `opts` may give `:except`, the ids of the quirks to
-  leave out. The reading throws for bytes the view lacks (see
-  `dk.simongray.podcast.bytes/missing`)."
+  "The MP3 file in `view`, as `{:tags :audio-start :duration}`.
+
+  `:tags` are the tags as `id3/read-all` gives them, and `:audio-start` is
+  where the first frame starts. `:duration` is in seconds. It is nil when
+  the file has no frame. It is also nil when the file has no Xing, Info or
+  VBRI header and its size is not known.
+
+  `report` gives the diagnostics of the reading. `opts` can give `:except`,
+  the ids of the quirks to leave out. When the view lacks bytes, the
+  reading throws, and `dk.simongray.podcast.bytes/missing` gives their
+  ranges."
   ([view]
    (read view {}))
   ([view {:keys [except] :as opts}]
@@ -149,17 +187,28 @@
          start  (or (:end (peek tags)) 0)
          ctx    {:except (set except) :report (volatile! [])}
          [p h]  (first-frame ctx view start)
-         frames (when h (frame-count view p h))
-         total  (:total view)]
-     {:tags        tags
-      :audio-start p
-      :duration    (cond
-                     ;; a header that counts no frames knows no duration
-                     (and frames (pos? frames))
-                     (/ (* frames (:samples h)) (double (:sample-rate h)))
+         result {:tags        tags
+                 :audio-start p
+                 :duration    (duration ctx view p h)}]
+     (bytes/reported result (cond-> (into (vec (mapcat id3/report tags)) @(:report ctx))
+                              (nil? h) (conj {:id :mp3/no-audio :level :warning}))))))
 
-                     (and h total)
-                     (do (vswap! (:report ctx) conj {:id :mp3/estimated-duration :level :info})
-                         (/ (* 8.0 (- total p)) (average-bitrate view p h))))
-      :report      (cond-> (into (vec (mapcat :report tags)) @(:report ctx))
-                     (nil? h) (conj {:id :mp3/no-audio :level :warning}))})))
+(comment
+  ;; one MPEG-1 Layer III frame of 128 kbit/s at 44.1 kHz: 417 bytes
+  (def frame
+    (concat [0xFF 0xFB 0x90 0x00] (repeat 413 0)))
+
+  (def sample
+    (id3/view-of (bytes/of (apply concat (repeat 20 frame)))))
+
+  (frame-header sample 0)
+  (read sample)
+  (map :id (report (read sample)))
+
+  ;; bytes that are no frame before the audio, with the quirk and without it
+  (def padded
+    (id3/view-of (bytes/of (concat (repeat 10 0) (apply concat (repeat 20 frame))))))
+
+  (map :id (report (read padded)))
+  (map :id (report (read padded {:except #{:mp3/junk-before-audio}})))
+  #_.)

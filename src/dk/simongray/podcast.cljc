@@ -181,7 +181,8 @@
 
 #?(:clj
    (defn fetch!
-     "Fetch the feed at `url` and parse it, the one step a poller repeats:
+     "Fetch the feed at `url` and parse it, the one step that a poller
+     repeats:
 
          {:status 200 :url \"…\"             ; the final URL, after redirects
           :permanent-url \"…\"               ; when redirects moved it for good
@@ -190,21 +191,27 @@
           :body \"…\" :feed {…} :report [...] ; on a 200: the XML, the feed, its report
           :new-feed-url \"…\"}               ; when the feed declares it has moved
 
-     `opts` may carry the `:etag` and `:last-modified` of the last fetch,
-     which a server answers with a 304 when nothing changed; the
-     `:credentials` of a private feed, `:timeout-seconds`, `:max-bytes`,
-     `:user-agent` and `:allow?` of `http/fetch!`; and the options of
-     `parse`. A user name and a password in `url` are the credentials when
-     `opts` give none, and no URL in the result holds them. It throws as
-     `http/fetch!` and `parse` do. A server that fetches feeds for strangers
-     gives `{:allow? http/public?}`, which sends nothing to its own network.
+     `opts` can give these:
 
-     A feed can come in pages, each naming the next (see
-     `resolve/next-page`). `:max-pages` above 1 fetches that many pages at
-     most and joins them into one feed (see `feed/join-pages`), for the
-     first fetch of a feed with a long past; `:body` stays the XML of the
-     first page. A later page that cannot be read ends the pages, and the
-     report says so."
+     - the `:etag` and the `:last-modified` of the last fetch. A server
+       answers them with a 304 when nothing changed.
+     - the `:credentials` of a private feed
+     - `:timeout-seconds`, `:max-bytes`, `:user-agent` and `:allow?`, as
+       `http/fetch!` takes them
+     - the options of `parse`
+
+     A user name and a password in `url` are the credentials when `opts`
+     give none, and no URL in the result holds them. `fetch!` throws as
+     `http/fetch!` and `parse` do. A server that fetches feeds for
+     strangers gives `{:allow? http/public?}`, which sends nothing to its
+     own network.
+
+     A feed can come in pages, and each page names the next (see
+     `resolve/next-page`). With `:max-pages` above 1, `fetch!` fetches that
+     many pages at most, and joins them into one feed (see
+     `feed/join-pages`). This is for the first fetch of a feed with a long
+     past. `:body` stays the XML of the first page. A later page that does
+     not read ends the pages, and the report tells so."
      ([url]
       (fetch! url {}))
      ([url {:keys [max-pages] :or {max-pages 1} :as opts}]

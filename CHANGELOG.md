@@ -299,3 +299,20 @@
   as data, so the paths of the GPodder Sync app for Nextcloud are now data
   in `gpodder/apis`. `doc/services.md` lists the defaults. `op3/prefix`
   puts one prefix on a URL for an instance of OP3 whose origin has a port.
+- The readers of media files and images keep their report in the metadata
+  of the result, as the readers of feeds do. A result has no `:report`
+  key. `media/report`, `image/report`, `id3/report`, `mp3/report`,
+  `mp4/report` and `bytes/report` read the report. `id3/report` takes the
+  place of `id3/chapters-report`. The facts of `check/feed!` hold the
+  report of a reader as data. A text encoding that ID3 does not define is
+  the quirk `:id3/text-encoding`.
+- `media/verify!` takes `:send`, and `check/feed!` fetches a whole file
+  for its integrity through the `:send` of the app. `http/fetcher` needs
+  no options. A check compares origins as the URL standard does, so
+  `https://a.example:443` and `https://a.example` are one origin. The name
+  of a WebDAV store is the domain of its URL, also when the password holds
+  an `@`.
+- The docstrings of the functions that came with the last features are in
+  short sentences, and so are the messages of the diagnostics of `fetch`,
+  `id3`, `mp3`, `mp4`, `file` and `check`. Each namespace that came with
+  those features has a `comment` block with examples that run.

@@ -14,10 +14,14 @@ follow, and one line for each namespace. The docstrings give the details.
   input is not in the format at all. The functions that write a format, such as `emit` and
   `transcript/emit-vtt`, write its canonical form.
 - **What a reader forgave is in the report.** A parsed feed, transcript or
-  chapters document is clean data. What the reader had to repair or
-  normalize is in the report, a vector of diagnostics in the metadata of the
-  result, under `:podcast/report`. The `report` function of the same
-  namespace reads it.
+  chapters document is clean data. So is what a reader gives of a media
+  file, an image or the record of a payment. What the reader had to repair
+  or normalize is in the report, a vector of diagnostics in the metadata of
+  the result, under `:podcast/report`. The `report` function of the same
+  namespace reads it. Metadata does not survive printing. So data that an
+  app keeps or sends holds its report as data, under `:report`: the result
+  of a step such as `sync!`, a thread of comments, and the facts of a
+  check.
 - **A diagnostic is a map.** It has an `:id`, a `:level` (`:info`,
   `:warning` or `:error`) and a `:message`. Other keys give details, such as
   a `:path` into the data or the `:tag` of an element.

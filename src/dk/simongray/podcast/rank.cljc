@@ -51,13 +51,13 @@
 ;; Before the first rank, 0 is in the place of z, and the numbers count
 ;; down. Each level has 62 times the room of the level before it.
 
-(defn- numbered
+(defn ^:no-doc numbered
   "The first `width` digits of the string `s` as a vector of numbers, with
   a zero for each digit that `s` lacks."
   [s width]
   (vec (take width (concat (map digit s) (repeat 0)))))
 
-(defn- plus
+(defn ^:no-doc plus
   "The digits `ds` of a number, as a vector, with `step` added to the
   number. The step is 1 or -1."
   [ds step]
@@ -69,7 +69,7 @@
         (= d (count digits)) (recur (assoc ds i 0) (dec i))
         :else                (assoc ds i d)))))
 
-(defn- written
+(defn ^:no-doc written
   "The digits `ds` of a number as a string, without the zeros at the end."
   [ds]
   (let [length (count (drop-while zero? (rseq ds)))]

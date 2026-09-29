@@ -94,12 +94,12 @@
   "`thread` as a new reading of it starts. `fetch!` applies it first, and
   an app that sends the `requests` itself does the same.
 
-  A post, an author, a page of replies or a root is unread again, where a
-  failure that can pass with time kept it from the last reading. Such a
-  failure is `:retry?` in the report: the request failed, or the server
-  answered 429 or a status from 500. The thread also notes how many
-  comments it holds, so that `:max-comments` counts the comments of this
-  reading."
+  A failure that can pass with time kept a post, an author, a page of
+  replies or a root from the last reading. Such a part is unread again.
+  The failure is `:retry?` in the report: the request failed, or the
+  server answered 429 or a status from 500. The thread also notes how
+  many comments it holds, so that `:max-comments` counts the comments of
+  this reading."
   [{:keys [protocol] :as thread}]
   (let [thread (case protocol
                  "activitypub" (activitypub/resumed thread)
@@ -230,6 +230,40 @@
                      (when (seq (pending (resumed thread) (assoc opts :max-comments ##Inf) (constantly true)))
                        [{:id :comments/incomplete}])))))))
 
+(defn- levels
+  "The posts of a thread from the post `top` down, level by level, each
+  post once: `[[top] [replies] ...]`, 256 levels at most. `children` gives
+  the replies to a post by its id, and `shown?` tells which replies count."
+  [top children shown?]
+  (loop [levels [[top]] seen #{(:id top)}]
+    (let [below (into [] (comp (mapcat #(get children (:id %))) (filter shown?) (remove #(seen (:id %))))
+                      (peek levels))]
+      (if (or (empty? below) (>= (count levels) 256))
+        levels
+        (recur (conj levels below) (into seen (map :id) below))))))
+
+(defn- oldest-first
+  "The key that puts the comment `c` in its place among replies: by the
+  time of its publication, and a comment without one last."
+  [{:keys [published id]}]
+  [(if published (inst-ms published) ##Inf) id])
+
+(defn- nested
+  "Each post of `levels` with the `:replies` below it and the map of its
+  `:author`, by its id, made from the deepest level up. A deleted post, or
+  a post with an error, is there only when a reply below it is, or when it
+  is the root."
+  [levels children authors]
+  (let [root (:id (ffirst levels))]
+    (reduce (fn [built {:keys [id author deleted? error] :as c}]
+              (let [replies (->> (get children id) (keep #(get built (:id %))) (sort-by oldest-first) vec)]
+                (if (and (not= id root) (or deleted? error) (empty? replies))
+                  built
+                  (assoc built id (cond-> (assoc c :replies replies)
+                                    author (assoc :author (get authors author {:id author})))))))
+            {}
+            (apply concat (rseq levels)))))
+
 (defn tree
   "The comments of `thread` in the shape to show them, with `opts`. Nil
   until `fetch!` reads the root post.
@@ -246,28 +280,8 @@
   ([{:keys [root comments authors]} {:keys [hidden?]}]
    (when-let [top (get comments root)]
      (let [children (group-by :in-reply-to (vals comments))
-           shown?   (fn [c] (and (:read-at c) (or hidden? (not (:hidden? c)))))
-           ;; the posts below the root, level by level, each once
-           levels   (loop [levels [[top]] seen #{root}]
-                      (let [below (into [] (comp (mapcat #(get children (:id %))) (filter shown?) (remove #(seen (:id %))))
-                                        (peek levels))]
-                        (if (or (empty? below) (>= (count levels) 256))
-                          levels
-                          (recur (conj levels below) (into seen (map :id) below)))))
-           order    (fn [{:keys [published id]}] [(if published (inst-ms published) ##Inf) id])
-           ;; each post with the replies below it, from the deepest level up
-           built    (reduce (fn [built level]
-                              (reduce (fn [built {:keys [id author deleted? error] :as c}]
-                                        (let [replies (->> (get children id) (keep #(get built (:id %))) (sort-by order) vec)]
-                                          (if (and (not= id root) (or deleted? error) (empty? replies))
-                                            built
-                                            (assoc built id (cond-> (assoc c :replies replies)
-                                                              author (assoc :author (get authors author {:id author})))))))
-                                      built
-                                      level))
-                            {}
-                            (rseq levels))]
-       (get built root)))))
+           shown?   (fn [c] (and (:read-at c) (or hidden? (not (:hidden? c)))))]
+       (get (nested (levels top children shown?) children authors) root)))))
 
 (defn ^:no-doc exchange!
   "The exchange of `request`, sent by the `:send` of `opts` with its limits
@@ -287,7 +301,7 @@
   (let [left    (when deadline (quot (- deadline (inst-ms (now))) 1000))
         seconds (max 1 (min timeout-seconds (or left timeout-seconds)))
         stays?  #(contains? #{::http/refused ::http/too-large} (:type (ex-data %)))]
-    (async/then (async/attempt #(send (http/limited request (assoc opts :timeout-seconds seconds))))
+    (async/then (http/sent! send request (assoc opts :timeout-seconds seconds))
                 (fn [{:keys [value error]}]
                   (cond
                     error
@@ -389,29 +403,59 @@
                  :now    #?(:clj #(java.util.Date.) :cljs #(js/Date.))}
                 opts)
          opts  (cond-> opts max-seconds (assoc ::deadline (+ (inst-ms (now)) (* 1000 max-seconds))))
+         start (resumed thread)
          batch (fn [thread sent]
                  (when (or (not max-seconds) (< (inst-ms (now)) (::deadline opts)))
                    (seq (take (min (max 1 concurrency) (- max-requests sent)) (requests thread opts)))))
          limit (fn [b sent]
                  (max 1 (min max-pages (quot (- max-requests sent) (count b)))))
-         done  #(assoc % :report (report % opts))]
-     #?(:clj  (loop [thread (resumed thread) sent 0]
-                (if-let [b (batch thread sent)]
-                  (let [round (round! b (limit b sent) opts)]
-                    (recur (with-round thread round (now)) (+ sent (count (apply concat round)))))
-                  (done thread)))
-        :cljs (letfn [(step [thread sent]
-                        (if-let [b (batch thread sent)]
-                          (async/then (round! b (limit b sent) opts)
-                                      #(step (with-round thread % (now)) (+ sent (count (apply concat %)))))
-                          (done thread)))]
-                (js/Promise.resolve (step (resumed thread) 0)))))))
+         ;; the thread after one more round, with the requests that went out
+         ;; so far, or nil when the thread needs no round
+         round (fn [[thread sent]]
+                 (when-let [b (batch thread sent)]
+                   (async/then (round! b (limit b sent) opts)
+                               (fn [exchanges]
+                                 [(with-round thread exchanges (now)) (+ sent (count (apply concat exchanges)))]))))]
+     (async/then (async/iteration round :initk [start 0] :vf first)
+                 (fn [threads]
+                   (let [read (or (peek threads) start)]
+                     (assoc read :report (report read opts))))))))
+
+(comment
+  (def interact
+    {:protocol "activitypub" :uri "https://example.social/users/ann/statuses/1"})
+
+  (readable? interact)
+  (readable? {:protocol "atproto" :uri "at://did:plc:ann/app.bsky.feed.post/1"})
+  (requests interact)
+  (map :id (report {:protocol "nostr" :uri "nostr:note1"}))
+
+  ;; a thread that a fetch read: the root, a reply, and a reply that the
+  ;; author of the root hid
+  (def read-thread
+    (let [at #inst "2026-09-29T12:00:00Z"]
+      (assoc interact
+             :read-at  at
+             :root     "a"
+             :authors  {"ann" {:id "ann" :name "Ann"}}
+             :comments {"a" {:id "a" :author "ann" :read-at at}
+                        "b" {:id "b" :author "bob" :in-reply-to "a" :read-at at}
+                        "c" {:id "c" :author "ann" :in-reply-to "a" :hidden? true :read-at at}})))
+
+  (tree read-thread)
+  (tree read-thread {:hidden? true})
+
+  ;; a fetch that sends no request to the network
+  (fetch! interact {:send (fn [request] {:status 404 :url (:url request) :headers {}})})
+  #_.)
 
 #?(:clj
    (comment
-     (def thread (fetch! {:protocol "activitypub" :uri "https://podcastindex.social/@dave/117294750060235480"}))
-     (:report thread)
-     (tree thread)
+     (def fetched
+       (fetch! {:protocol "activitypub" :uri "https://podcastindex.social/@dave/117294750060235480"}))
+
+     (:report fetched)
+     (tree fetched)
      (fetch! {:protocol "atproto" :uri "at://did:plc:pzznkrzajsaqev3ffamg3jnr/app.bsky.feed.post/3mvzl4tmue22y"}
              {:appview "https://public.api.bsky.app"})
      #_.))

@@ -29,19 +29,13 @@
 (defn ^:no-doc web-url
   "`s` when it is an http or https URL with a host."
   [s]
-  (when (and (string? s) (re-find #"(?i)^https?://" s) (http/origin s))
+  (when (http/web-url? s)
     s))
-
-(defn ^:no-doc whole
-  "`x` when it is a whole number, as JSON writes one: 3, or 3.0."
-  [x]
-  (when (and (number? x) (== x (Math/floor x)) (< (Math/abs (double x)) 9e15))
-    (long x)))
 
 (defn ^:no-doc dimension
   "`x` when it is a whole number above zero, as a size is."
   [x]
-  (when-let [n (whole x)]
+  (when-let [n (json/whole x)]
     (when (pos? n) n)))
 
 (defn ^:no-doc values
@@ -57,8 +51,7 @@
 (defn ^:no-doc document
   "The JSON object in the body of the `response`, or nil."
   [{:keys [body]}]
-  (let [x (json/parse body)]
-    (when (map? x) x)))
+  (json/object body))
 
 (defn ^:no-doc document-of
   "The JSON object that the `exchange`, `{:request :response}`, got in
@@ -183,3 +176,19 @@
   `depth` of the comment that each is `::comments/for`."
   [depth rs]
   (sort-by (fn [{[_ id] ::comments/for :keys [url]}] [(get depth id ##Inf) url]) rs))
+
+(comment
+  (present {:name "Ann" :handle "" :avatar nil :labels #{} :hidden? false})
+
+  ;; a failure that can pass with time is :retry?
+  (failure "https://example.social/1" {:status 429})
+  (failure "https://example.social/1" {:status 404})
+  (failure "https://example.social/1" {:error "Connection refused" :retry? true})
+
+  ;; no handler, a link made absolute, and the alt text of an image
+  (safe-html "<p onclick=\"x()\">Hi <a href=\"/tags/podcast\">#podcast</a><img src=\"x.png\" alt=\"a cat\"></p>"
+             "https://example.social/users/ann/statuses/1")
+
+  (depths {:root     "a"
+           :comments {"a" {:id "a"} "b" {:id "b" :in-reply-to "a"} "c" {:id "c" :in-reply-to "b"}}})
+  #_.)

@@ -1,68 +1,78 @@
 (ns dk.simongray.podcast.format.id3
-  "ID3v2 tags, the metadata at the start of an MP3 file: versions 2.2, 2.3
-  and 2.4 as id3.org specifies them, and the chapters of the ID3v2 Chapter
-  Frame Addendum. `read` gives the frames of the tag at an offset of a byte
-  view (see dk.simongray.podcast.bytes), `read-all` those of the tags that
-  follow each other there, and `chapters`, `artwork` and `length` what an
-  app wants of the frames.
+  "ID3v2 tags, the metadata at the start of an MP3 file.
 
-  A frame is a map with its `:id`: text frames with `:text`, TXXX, WXXX and
-  COMM with a `:description` too, COMM with its `:language`, URL frames
-  with `:url`, APIC and PIC with `:type`, `:picture-type`, `:description`
-  and `:data`, CHAP with `:element-id`, `:start-ms`, `:end-ms` and the
-  `:frames` inside it, CTOC with `:element-id`, `:top-level?`, `:ordered?`,
-  `:children` and `:frames`, and any other frame with its `:size`.
+  The versions are 2.2, 2.3 and 2.4, as id3.org specifies them, with the
+  chapters of the ID3v2 Chapter Frame Addendum. `read` gives the frames of
+  the tag at an offset of a byte view (see dk.simongray.podcast.bytes).
+  `read-all` gives the frames of the tags that follow each other there.
+  `chapters`, `artwork` and `length` give what an app wants of the frames,
+  and `report` gives the diagnostics of a reading.
+
+  A frame is a map with its `:id`. Its other keys are those of its kind:
+
+      a text frame     :text
+      TXXX, WXXX       :description, and :text or :url
+      COMM, USLT       :language, :description and :text
+      a URL frame      :url
+      APIC, PIC        :type, :picture-type, :description and :data
+      CHAP             :element-id, :start-ms, :end-ms and :frames
+      CTOC             :element-id, :top-level?, :ordered?, :children, :frames
+      each other frame :size
 
   The reading is strict. Each accommodation for a tag that breaks the
-  specification is a quirk with an id, which the report records when it
-  applies and which `:except` in the options leaves out:
+  specification is a quirk with an id. The report records a quirk that
+  applies, and `:except` in the options leaves out the quirks that it
+  names:
 
-      :id3/frame-size   a frame size in the form of the other version
-      :id3/utf8-latin1  text declared ISO-8859-1 whose bytes are UTF-8
-      :id3/utf16-bom    UTF-16 text without its byte order mark
-      :id3/image-type   the type of a picture loose, such as JPG, or missing
-      :id3/chapter-end  a chapter end that is not after its start
-      :id3/second-tag   a second tag right after the first"
+      :id3/frame-size    a frame size in the form of the other version
+      :id3/text-encoding a text encoding that ID3 does not define
+      :id3/utf8-latin1   text declared ISO-8859-1 whose bytes are UTF-8
+      :id3/utf16-bom     UTF-16 text without its byte order mark
+      :id3/image-type    the type of a picture loose, such as JPG, or missing
+      :id3/chapter-end   a chapter end that is not after its start
+      :id3/second-tag    a second tag right after the first"
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.bytes :as bytes]))
 
-(defn- diagnostic
+(defn ^:no-doc diagnostic
+  "The diagnostic `id` at `level`, with the details `extra`."
   [id level & {:as extra}]
   (merge {:id id :level level} extra))
 
-(defn- note!
+(defn ^:no-doc note!
   "Record the diagnostic `d` in the report of the reading context `ctx`."
   [ctx d]
   (vswap! (:report ctx) conj d))
 
-(defn- quirk?
+(defn ^:no-doc quirk?
   "Whether the reading context `ctx` makes the quirk `id`."
   [ctx id]
   (not (contains? (:except ctx) id)))
 
-(defn- context
+(defn ^:no-doc context
   "A reading context for `opts`, with an empty report."
   [{:keys [except]}]
   {:except (set except) :report (volatile! [])})
 
-(defn- view-of
+(defn ^:no-doc view-of
   "A view that holds all of the bytes `b`."
   [b]
   (bytes/add (bytes/view (bytes/length b)) 0 b (bytes/length b)))
 
-(defn- syncsafe
-  "The 28-bit number of the four syncsafe bytes at `p` in `view`; nil when a
-  byte has its top bit set, as a syncsafe byte never has."
+(defn ^:no-doc syncsafe
+  "The 28-bit number of the four syncsafe bytes at `p` in `view`. Nil when
+  a byte has its top bit set, as a syncsafe byte never has."
   [view p]
   (let [bs (map #(bytes/u8 view (+ p %)) (range 4))]
     (when (every? #(< % 0x80) bs)
       (reduce #(+ (* 128 %1) %2) 0 bs))))
 
 (defn header
-  "The ID3v2 tag header at `p` in `view`, `{:version :flags :start :end}`,
-  `:end` being where the tag and its footer end; nil when no tag begins
-  there."
+  "The header of the ID3v2 tag at `p` in `view`, as `{:version :flags
+  :start :end}`. Nil when no tag begins there.
+
+  `:end` is where the tag ends, with its footer when it has one."
   [view p]
   (bytes/need view p (+ p 10))
   (let [version (bytes/u8 view (+ p 3))
@@ -74,7 +84,7 @@
        :start   p
        :end     (+ p 10 size (if (and (= 4 version) (bit-test flags 4)) 10 0))})))
 
-(defn- resync
+(defn ^:no-doc resync
   "The bytes `b` with unsynchronisation undone: the zero byte after each
   0xFF removed, into bytes of the same size, of which as many as remain are
   kept."
@@ -93,10 +103,31 @@
   "The text encoding of each encoding byte, and the width of its terminator."
   {0 [:latin1 1] 1 [:utf16 2] 2 [:utf16be 2] 3 [:utf8 1]})
 
-(defn- terminator
+(defn ^:no-doc text-encoding
+  "The text encoding that the first byte of the frame in `view` names, and
+  the width of its terminator: `[encoding width]`. Nil for a frame without
+  bytes.
+
+  By the quirk, a byte that names no encoding of ID3 stands for
+  ISO-8859-1. Without the quirk, the reading throws."
+  [ctx view]
+  (when (pos? (:total view))
+    (let [b (bytes/u8 view 0)]
+      (cond
+        (contains? encodings b)
+        (encodings b)
+
+        (quirk? ctx :id3/text-encoding)
+        (do (note! ctx (diagnostic :id3/text-encoding :info :encoding b))
+            [:latin1 1])
+
+        :else
+        (throw (ex-info "A text encoding that ID3 does not define" {:encoding b}))))))
+
+(defn ^:no-doc terminator
   "Where the text in `view` from `start` ends, before `end`: at the first
-  terminator of `width` zero bytes, aligned for UTF-16; `end` when there is
-  none."
+  terminator of `width` zero bytes, aligned for UTF-16. It is `end` when
+  the text has no terminator."
   [view start end width]
   (loop [p start]
     (cond
@@ -134,7 +165,7 @@
               (bytes/text view start end order))
     (bytes/text view start end encoding)))
 
-(defn- text-at
+(defn ^:no-doc text-at
   "The text in `view` from `start`, in `encoding` with terminators of
   `width` bytes, up to its terminator or `end`, and where what follows it
   starts: `[text next]`."
@@ -167,88 +198,150 @@
 
 (declare frames)
 
-(defn- frame-body
-  "The frame `id` of `version` whose data is all of `view`, read by its
-  kind; the reading throws when the data is too short for its kind."
-  [ctx view version id]
+(defn- user-text
+  "The TXXX frame `id` in `view`: a description, then a text."
+  [ctx view _ id]
+  (let [end                (:total view)
+        [encoding width]   (text-encoding ctx view)
+        [description next] (text-at ctx view 1 end encoding width)]
+    {:id id :description description :text (first (text-at ctx view next end encoding width))}))
+
+(defn- user-url
+  "The WXXX frame `id` in `view`: a description, then a URL."
+  [ctx view _ id]
+  (let [end                (:total view)
+        [encoding width]   (text-encoding ctx view)
+        [description next] (text-at ctx view 1 end encoding width)]
+    {:id id :description description :url (str/trim (first (text-at ctx view next end :latin1 1)))}))
+
+(defn- remark
+  "The COMM or USLT frame `id` in `view`: a language, a description and a
+  text."
+  [ctx view _ id]
+  (let [end                (:total view)
+        [encoding width]   (text-encoding ctx view)
+        [description next] (text-at ctx view 4 end encoding width)]
+    {:id          id
+     :language    (bytes/code view 1 3)
+     :description description
+     :text        (first (text-at ctx view next end encoding width))}))
+
+(def ^:no-doc picture-formats
+  "The MIME type of each image format that a PIC frame of ID3v2.2 names."
+  {"JPG" "image/jpeg" "PNG" "image/png"})
+
+(defn- picture
+  "The APIC or PIC frame `id` in `view`: the type of the image, the type of
+  the picture, a description, and the image or a link to it."
+  [ctx view _ id]
   (let [end              (:total view)
-        [encoding width] (when (pos? end) (get encodings (bytes/u8 view 0) [:latin1 1]))]
-    (cond
-      (#{"TXXX" "TXX"} id)
-      (let [[description next] (text-at ctx view 1 end encoding width)]
-        {:id id :description description :text (first (text-at ctx view next end encoding width))})
+        [encoding width] (text-encoding ctx view)
+        [declared next]  (if (= "PIC" id)
+                           (let [image-format (bytes/code view 1 3)]
+                             [(get picture-formats (str/upper-case image-format) image-format) 4])
+                           (text-at ctx view 1 end :latin1 1))
+        picture-type     (bytes/u8 view next)
+        [description p]  (text-at ctx view (inc next) end encoding width)]
+    (if (= "-->" declared)
+      {:id id :picture-type picture-type :description description :url (bytes/text view p end :latin1)}
+      (let [data (bytes/slice view p end)]
+        {:id           id
+         :type         (image-type ctx declared data)
+         :picture-type picture-type
+         :description  description
+         :data         data}))))
 
-      (#{"WXXX" "WXX"} id)
-      (let [[description next] (text-at ctx view 1 end encoding width)]
-        {:id id :description description :url (str/trim (first (text-at ctx view next end :latin1 1)))})
+(defn- chapter
+  "The CHAP frame `id` of `version` in `view`: an element id, a start and
+  an end in milliseconds, and the frames inside it."
+  [ctx view version id]
+  (let [end  (:total view)
+        stop (terminator view 0 end 1)
+        p    (inc stop)]
+    {:id         id
+     :element-id (bytes/text view 0 stop :latin1)
+     :start-ms   (bytes/u32 view p)
+     :end-ms     (bytes/u32 view (+ p 4))
+     :frames     (frames (assoc ctx :embedded? true) view version (+ p 16) end)}))
 
-      (#{"COMM" "COM" "USLT" "ULT"} id)
-      (let [[description next] (text-at ctx view 4 end encoding width)]
-        {:id id :language (bytes/code view 1 3) :description description
-         :text (first (text-at ctx view next end encoding width))})
+(defn- child-ids
+  "The element ids of the `n` children of a table of contents, in `view`
+  from `p` to `end`, and where they end: `[ids next]`. The reading throws
+  when the table holds fewer than `n`."
+  [view p end n]
+  (loop [p p acc []]
+    (if (= n (count acc))
+      [acc p]
+      (let [s (terminator view p end 1)]
+        (when (>= p end)
+          (throw (ex-info "A table of contents with fewer children than it counts" {})))
+        (recur (inc s) (conj acc (bytes/text view p s :latin1)))))))
 
-      (#{"APIC" "PIC"} id)
-      (let [[declared next] (if (= "PIC" id)
-                              (let [image-format (bytes/code view 1 3)
-                                    mime         {"JPG" "image/jpeg" "PNG" "image/png"}]
-                                [(get mime (str/upper-case image-format) image-format) 4])
-                              (text-at ctx view 1 end :latin1 1))
-            picture-type    (bytes/u8 view next)
-            [description p] (text-at ctx view (inc next) end encoding width)]
-        (if (= "-->" declared)
-          {:id id :picture-type picture-type :description description :url (bytes/text view p end :latin1)}
-          (let [data (bytes/slice view p end)]
-            {:id id :type (image-type ctx declared data) :picture-type picture-type
-             :description description :data data})))
+(defn- contents
+  "The CTOC frame `id` of `version` in `view`: an element id, two flags,
+  the element ids of its children, and the frames inside it."
+  [ctx view version id]
+  (let [end          (:total view)
+        stop         (terminator view 0 end 1)
+        flags        (bytes/u8 view (inc stop))
+        [children p] (child-ids view (+ stop 3) end (bytes/u8 view (+ stop 2)))]
+    {:id         id
+     :element-id (bytes/text view 0 stop :latin1)
+     :top-level? (bit-test flags 1)
+     :ordered?   (bit-test flags 0)
+     :children   children
+     :frames     (frames (assoc ctx :embedded? true) view version p end)}))
 
-      ;; the frames inside a CHAP or CTOC frame are its title and the like;
-      ;; one inside those is not read as a chapter again, so that nesting
-      ;; cannot run deeper than one level
-      (and (= "CHAP" id) (not (:embedded? ctx)))
-      (let [stop (terminator view 0 end 1)
-            p    (inc stop)]
-        {:id         id
-         :element-id (bytes/text view 0 stop :latin1)
-         :start-ms   (bytes/u32 view p)
-         :end-ms     (bytes/u32 view (+ p 4))
-         :frames     (frames (assoc ctx :embedded? true) view version (+ p 16) end)})
+(defn- text-frame
+  "The text frame `id` in `view`: one text, or more for ID3v2.4."
+  [ctx view _ id]
+  (let [[encoding width] (text-encoding ctx view)
+        values           (texts ctx view 1 (:total view) encoding width)]
+    (cond-> {:id id :text (first values)}
+      (next values) (assoc :values values))))
 
-      (and (= "CTOC" id) (not (:embedded? ctx)))
-      (let [stop  (terminator view 0 end 1)
-            flags (bytes/u8 view (inc stop))
-            n     (bytes/u8 view (+ stop 2))
-            [children p] (loop [p (+ stop 3) acc []]
-                           (if (= n (count acc))
-                             [acc p]
-                             (let [s (terminator view p end 1)]
-                               (when (>= p end)
-                                 (throw (ex-info "A table of contents with fewer children than it counts" {})))
-                               (recur (inc s) (conj acc (bytes/text view p s :latin1))))))]
-        {:id         id
-         :element-id (bytes/text view 0 stop :latin1)
-         :top-level? (bit-test flags 1)
-         :ordered?   (bit-test flags 0)
-         :children   children
-         :frames     (frames (assoc ctx :embedded? true) view version p end)})
+(defn- url-frame
+  "The URL frame `id` in `view`."
+  [ctx view _ id]
+  {:id id :url (str/trim (first (text-at ctx view 0 (:total view) :latin1 1)))})
 
-      (re-matches #"T[A-Z0-9]{2,3}" id)
-      (let [values (texts ctx view 1 end encoding width)]
-        (cond-> {:id id :text (first values)}
-          (next values) (assoc :values values)))
+(defn- unread
+  "The frame `id` in `view`, of a kind that the reader does not read, with
+  its size."
+  [_ view _ id]
+  {:id id :size (:total view)})
 
-      (re-matches #"W[A-Z0-9]{2,3}" id)
-      {:id id :url (str/trim (first (text-at ctx view 0 end :latin1 1)))}
+(def ^:no-doc readers
+  "The reader of each frame that has a form of its own, by the id of the
+  frame."
+  {"TXXX" user-text "TXX" user-text
+   "WXXX" user-url "WXX" user-url
+   "COMM" remark "COM" remark "USLT" remark "ULT" remark
+   "APIC" picture "PIC" picture
+   "CHAP" chapter
+   "CTOC" contents})
 
-      :else
-      {:id id :size end})))
+(defn- reader
+  "The function that reads the frame `id` in the reading context `ctx`.
 
-(defn- frame-id?
+  The frames inside a CHAP or CTOC frame are its title and the like. A
+  CHAP or CTOC frame among them is not read as a chapter again, so that
+  the nesting cannot run deeper than one level."
+  [ctx id]
+  (cond
+    (and (:embedded? ctx) (#{"CHAP" "CTOC"} id)) unread
+    (contains? readers id)                       (readers id)
+    (re-matches #"T[A-Z0-9]{2,3}" id)            text-frame
+    (re-matches #"W[A-Z0-9]{2,3}" id)            url-frame
+    :else                                        unread))
+
+(defn ^:no-doc frame-id?
   "Whether `s` is the id of a frame of `version`: three capitals or digits
   for 2.2, four for 2.3 and 2.4."
   [version s]
   (boolean (re-matches (if (= 2 version) #"[A-Z0-9]{3}" #"[A-Z0-9]{4}") s)))
 
-(defn- plausible-end?
+(defn ^:no-doc plausible-end?
   "Whether a frame that ends at `p` in `view` is followed by what may follow
   a frame before `end`: the end, the header of another frame, or padding,
   which is zeros to the end of the tag, of which the first kilobyte is
@@ -274,7 +367,44 @@
                                                            other)
       (and own (<= (+ p 10 own) end))                  own)))
 
-(defn- frames
+(defn- frame-flags
+  "What the flags of the frame of `version` say, whose header is at `p` in
+  `view`: `{:compressed? :encrypted? :grouped? :unsync? :length?}`."
+  [ctx view version p]
+  (let [flags (if (= 2 version) 0 (bytes/u8 view (+ p 9)))]
+    (case version
+      4 {:compressed? (bit-test flags 3)
+         :encrypted?  (bit-test flags 2)
+         :grouped?    (bit-test flags 6)
+         :unsync?     (or (bit-test flags 1) (:unsync-all? ctx))
+         :length?     (bit-test flags 0)}
+      3 {:compressed? (bit-test flags 7)
+         :encrypted?  (bit-test flags 6)
+         :grouped?    (bit-test flags 5)}
+      {})))
+
+(defn- content-start
+  "Where the content of a frame of `version` starts, after its header that
+  ends at `p` and the fields that its `flags` add."
+  [version p {:keys [compressed? encrypted? grouped? length?]}]
+  (+ p
+     (if grouped? 1 0)
+     (if encrypted? 1 0)
+     (if length? 4 0)
+     (if (and compressed? (= 3 version)) 4 0)))
+
+(defn- frame-body
+  "The frame `id` of `version` whose data is the bytes `data`, read by its
+  kind. Nil when the data is too short for its kind, and the report says
+  so, with the offset `p` of the frame."
+  [ctx data version id p]
+  (try
+    ((reader ctx id) ctx (view-of data) version id)
+    (catch #?(:clj Exception :cljs :default) _
+      (note! ctx (diagnostic :id3/malformed :warning :offset p :frame id))
+      nil)))
+
+(defn ^:no-doc frames
   "The frames of `version` in `view` from `p` to `end`, until padding or the
   end. A frame that does not read ends them, and the report says so."
   [ctx view version p end]
@@ -289,25 +419,14 @@
                      (if (= 2 version) (bytes/u24 view (+ p 3)) (frame-size ctx view version p end)))]
           (if (or (nil? size) (> (+ p header size) end))
             (do (note! ctx (diagnostic :id3/malformed :warning :offset p)) acc)
-            (let [flags (if (= 2 version) 0 (bytes/u8 view (+ p 9)))
-                  [compressed? encrypted? grouped? unsync? length?]
-                  (case version
-                    4 [(bit-test flags 3) (bit-test flags 2) (bit-test flags 6)
-                       (or (bit-test flags 1) (:unsync-all? ctx)) (bit-test flags 0)]
-                    3 [(bit-test flags 7) (bit-test flags 6) (bit-test flags 5) false false]
-                    [false false false false false])
-                  start (+ p header (if grouped? 1 0) (if encrypted? 1 0) (if length? 4 0)
-                           (if (and compressed? (= 3 version)) 4 0))
+            (let [{:keys [compressed? encrypted? unsync?] :as flags} (frame-flags ctx view version p)
+                  start (content-start version (+ p header) flags)
                   stop  (+ p header size)]
               (if (or compressed? encrypted? (> start stop))
                 (do (note! ctx (diagnostic :id3/skipped-frame :info :frame id))
                     (recur stop acc))
                 (let [data  (cond-> (bytes/slice view start stop) unsync? resync)
-                      frame (try
-                              (frame-body ctx (view-of data) version id)
-                              (catch #?(:clj Exception :cljs :default) _
-                                (note! ctx (diagnostic :id3/malformed :warning :offset p :frame id))
-                                nil))]
+                      frame (frame-body ctx data version id p)]
                   (recur stop (cond-> acc frame (conj frame))))))))))))
 
 (defn- tag
@@ -334,25 +453,36 @@
                        (note! ctx (diagnostic :id3/malformed :warning :offset start))
                        [])))))
 
+(defn report
+  "The diagnostics of `x`, which is a tag from `read` or the chapters from
+  `chapters`. Each diagnostic has its message."
+  [x]
+  (bytes/report x))
+
 (defn read
-  "The ID3v2 tag at `p` in `view`, `{:version :start :end :frames}`, with
-  the diagnostics of the reading under `:report`; nil when no tag begins
-  there. `opts` may give `:except`, the ids of the quirks to leave out. The
-  view must hold the whole tag, or the reading throws for the bytes it
-  lacks (see `dk.simongray.podcast.bytes/missing`)."
+  "The ID3v2 tag at `p` in `view`, as `{:version :start :end :frames}`. Nil
+  when no tag begins there.
+
+  `report` gives the diagnostics of the reading. `opts` can give `:except`,
+  the ids of the quirks to leave out. The view must hold the whole tag.
+  When it lacks bytes, the reading throws, and
+  `dk.simongray.podcast.bytes/missing` gives their ranges."
   ([view p]
    (read view p {}))
   ([view p opts]
    {:pre [(map? opts)]}
    (when-let [h (header view p)]
-     (let [ctx (context opts)]
-       (assoc (tag ctx view h) :report @(:report ctx))))))
+     (let [ctx    (context opts)
+           result (tag ctx view h)]
+       (bytes/reported result @(:report ctx))))))
 
 (defn read-all
-  "The ID3v2 tag at `p` in `view`, as `read` reads it, and, by the quirk
-  `:id3/second-tag`, the tags that follow it at once, which some writers
-  add in front of a tag they leave in place: `[tag ...]`, empty when no
-  tag begins at `p`."
+  "The ID3v2 tags in `view` from `p` on, each as `read` gives it with
+  `opts`: `[tag ...]`. Empty when no tag begins at `p`.
+
+  Some writers add a tag in front of a tag that they leave in place. The
+  quirk `:id3/second-tag` reads each tag that follows the tag before it
+  at once."
   ([view p]
    (read-all view p {}))
   ([view p opts]
@@ -364,25 +494,31 @@
                                (catch #?(:clj Exception :cljs :default) e
                                  (when (bytes/missing e) (throw e))
                                  nil)))]
-         (recur (conj acc (update more :report conj (diagnostic :id3/second-tag :info :offset p))) (:end more))
+         (recur (conj acc (vary-meta more update :podcast/report conj
+                                     (diagnostic :id3/second-tag :info :offset p)))
+                (:end more))
          acc)))))
 
-(defn- frame
+(defn ^:no-doc frame
   "The first of `frames` with one of the `ids`."
   [frames & ids]
   (some #(when (some #{(:id %)} ids) %) frames))
 
 (defn artwork
-  "The picture of the frames `frames`, the front cover before any other, as
-  `{:type :data :description}`; nil when there is none."
+  "The picture in `frames`, as `{:type :data :description}`. Nil when they
+  hold no picture.
+
+  The front cover comes before each other picture."
   [frames]
   (let [pictures (filter #(and (#{"APIC" "PIC"} (:id %)) (:data %)) frames)]
     (some-> (or (first (filter #(= 3 (:picture-type %)) pictures)) (first pictures))
             (select-keys [:type :data :description]))))
 
 (defn length
-  "The length of the audio in seconds that the TLEN frame of `frames` gives
-  in milliseconds; nil when it gives none that reads."
+  "The length of the audio in seconds, from the TLEN frame in `frames`. Nil
+  when no TLEN frame gives a number.
+
+  The frame gives the length in milliseconds."
   [frames]
   (when-let [s (:text (frame frames "TLEN" "TLE"))]
     (when (re-matches #"\s*\d{1,12}\s*" s)
@@ -412,42 +548,73 @@
       :else
       acc)))
 
+(defn- toc-places
+  "The place of each element id in the top-level table of contents of
+  `frames`, as `{element-id index}`. Nil when the frames hold no table."
+  [frames]
+  (let [tocs (into {} (map (juxt :element-id identity)) (filter #(= "CTOC" (:id %)) frames))
+        top  (or (some #(when (:top-level? %) %) (vals tocs)) (first (vals tocs)))]
+    (when top
+      (into {} (comp (distinct) (map-indexed (fn [i id] [id i]))) (listed top tocs)))))
+
+(defn- chapter-of
+  "The chapter of the CHAP frame `chap`, in the shape of `chapters`.
+  `places` is what `toc-places` gives."
+  [ctx {:keys [element-id start-ms end-ms frames] :as chap} places]
+  (let [title   (:text (frame frames "TIT2"))
+        url     (some #(when (and (re-matches #"W[A-Z0-9]{3}" (:id %)) (not (str/blank? (:url %))))
+                         (:url %))
+                      frames)
+        picture (artwork frames)
+        drop?   (and (<= end-ms start-ms) (quirk? ctx :id3/chapter-end))]
+    (when drop?
+      (note! ctx (diagnostic :id3/chapter-end :info :element-id element-id)))
+    (cond-> {:start-time (/ start-ms 1000.0)}
+      (not drop?)                                       (assoc :end-time (/ end-ms 1000.0))
+      title                                             (assoc :title title)
+      url                                               (assoc :url url)
+      picture                                           (assoc :img (bytes/data-url (:type picture) (:data picture)))
+      (and places (not (contains? places element-id))) (assoc :toc false))))
+
 (defn chapters
-  "The chapters of the frames `frames`, from their CHAP and CTOC frames, as
-  `dk.simongray.podcast.format.chapters` has chapters: maps with
-  `:start-time` and `:end-time` in seconds, and the `:title`, `:url` and
-  `:img` of the frames inside each, the image as a data URL. The top-level
-  table of contents gives the order; a chapter it does not list comes by
-  its start after those it does, with `:toc false`. `opts` may give
-  `:except`, and `chapters-report` gives the quirks applied."
+  "The chapters in `frames`, from their CHAP and CTOC frames, in the shape
+  of `dk.simongray.podcast.format.chapters`.
+
+  Each chapter is a map with `:start-time` and `:end-time` in seconds. It
+  has the `:title`, the `:url` and the `:img` of the frames inside its
+  frame, the image as a data URL. The top-level table of contents gives
+  the order. A chapter that the table does not list comes after the
+  others, by its start, with `:toc false`.
+
+  `opts` can give `:except`, the ids of the quirks to leave out. `report`
+  gives the quirks that applied."
   ([frames]
    (chapters frames {}))
   ([frames opts]
    (let [ctx    (context opts)
-         tocs   (into {} (map (juxt :element-id identity)) (filter #(= "CTOC" (:id %)) frames))
-         top    (or (some #(when (:top-level? %) %) (vals tocs)) (first (vals tocs)))
-         rank   (into {} (comp (distinct) (map-indexed (fn [i id] [id i]))) (when top (listed top tocs)))
-         ->ch   (fn [{:keys [element-id start-ms end-ms frames]}]
-                  (let [title   (:text (frame frames "TIT2"))
-                        url     (some #(when (and (re-matches #"W[A-Z0-9]{3}" (:id %)) (not (str/blank? (:url %))))
-                                         (:url %))
-                                      frames)
-                        picture (artwork frames)
-                        drop?   (and (<= end-ms start-ms) (quirk? ctx :id3/chapter-end))]
-                    (when drop?
-                      (note! ctx (diagnostic :id3/chapter-end :info :element-id element-id)))
-                    (cond-> {:start-time (/ start-ms 1000.0)}
-                      (not drop?)                                 (assoc :end-time (/ end-ms 1000.0))
-                      title                                       (assoc :title title)
-                      url                                         (assoc :url url)
-                      picture                                     (assoc :img (bytes/data-url (:type picture) (:data picture)))
-                      (and top (not (contains? rank element-id))) (assoc :toc false))))]
-     (with-meta (->> (filter #(= "CHAP" (:id %)) frames)
-                     (sort-by (fn [{:keys [element-id start-ms]}] [(get rank element-id ##Inf) start-ms]))
-                     (mapv ->ch))
-       {::report @(:report ctx)}))))
+         places (toc-places frames)
+         result (->> (filter #(= "CHAP" (:id %)) frames)
+                     (sort-by (fn [{:keys [element-id start-ms]}] [(get places element-id ##Inf) start-ms]))
+                     (mapv #(chapter-of ctx % places)))]
+     (bytes/reported result @(:report ctx)))))
 
-(defn chapters-report
-  "The quirks that `chapters` applied to give `result`."
-  [result]
-  (::report (meta result)))
+(comment
+  ;; a tag of ID3v2.4 with a title, TIT2, and a length in milliseconds, TLEN
+  (def sample
+    (view-of (bytes/of (concat [0x49 0x44 0x33 4 0 0 0 0 0 28]
+                               [0x54 0x49 0x54 0x32 0 0 0 3 0 0 3 0x48 0x69]
+                               [0x54 0x4C 0x45 0x4E 0 0 0 5 0 0 0 0x31 0x35 0x30 0x30]))))
+
+  (header sample 0)
+  (read sample 0)
+  (report (read sample 0))
+  (length (:frames (read sample 0)))
+
+  ;; a text encoding that ID3 does not define, with the quirk and without it
+  (def loose
+    (view-of (bytes/of (concat [0x49 0x44 0x33 4 0 0 0 0 0 13]
+                               [0x54 0x49 0x54 0x32 0 0 0 3 0 0 9 0x48 0x69]))))
+
+  (map :id (report (read loose 0)))
+  (map :id (report (read loose 0 {:except #{:id3/text-encoding}})))
+  #_.)

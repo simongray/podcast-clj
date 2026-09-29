@@ -27,7 +27,7 @@ The namespace of an id tells which part of podcast-clj found the problem:
 
 | Id | Level | Meaning |
 |---|---|---|
-| `:fetch/page-failed` | warning | A page of a feed that comes in pages could not be fetched or read, so the items of the pages from there on are missing. |
+| `:fetch/page-failed` | warning | podcast-clj did not get or read a page of a feed that comes in pages. The feed lacks the items of that page and of the pages after it. |
 | `:repair/leading-junk` | warning | Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed. |
 | `:repair/trailing-junk` | warning | Text after the end of the rss element, such as a PHP warning, was removed. |
 | `:repair/control-characters` | warning | Control characters XML forbids, and character references to them, were removed. |
@@ -76,48 +76,49 @@ The namespace of an id tells which part of podcast-clj found the problem:
 | `:chapters/inferred` | info | The chapters were read from timestamps in the show notes rather than from a chapters file. |
 | `:chapters/not-an-object` | warning | The document is not JSON, or not a JSON object, so it holds no chapters. |
 | `:chapters/malformed` | warning | Chapters that are not JSON objects in a list were left out. |
-| `:id3/frame-size` | info | An ID3v2 frame gave its size in the form of the other version, a plain number in ID3v2.4 or a syncsafe one in ID3v2.3, and was read in that form. |
-| `:id3/utf8-latin1` | info | ID3 text declared ISO-8859-1 was UTF-8, and was read as UTF-8. |
-| `:id3/utf16-bom` | info | ID3 text declared UTF-16 had no byte order mark, and its byte order was taken from where its zero bytes fall. |
-| `:id3/image-type` | info | The type of an ID3 picture was loose, such as JPG or image/jpg, or missing, and was taken from the bytes of the image. |
-| `:id3/chapter-end` | info | An ID3 chapter ended at or before its start, and its end was left out. |
-| `:id3/second-tag` | info | A second ID3v2 tag followed the first, as a writer that adds a tag in front of another leaves it, and was read too. |
-| `:id3/skipped-frame` | info | An ID3v2 frame was compressed or encrypted, and was skipped. |
-| `:id3/malformed` | warning | An ID3v2 frame could not be read; the frames before it were kept. |
-| `:id3/padding-junk` | info | Bytes other than zeros lay in the padding after the ID3v2 frames, as a writer that does not clear the padding leaves them, or as a frame of a wrong size makes it seem. |
-| `:mp3/junk-before-audio` | info | Bytes that are no MPEG audio frame, such as padding that the size of the tag leaves out, lay between the tags and the first frame, and were skipped. |
-| `:mp3/estimated-duration` | info | The MP3 file has no Xing, Info or VBRI header, so its duration was estimated from the bitrate of its first frames and its size, which is exact for a constant bitrate. |
-| `:mp3/no-audio` | warning | No MPEG audio frame was found after the tags, so the file has no duration. |
-| `:mp4/zero-duration` | info | The movie header of the MP4 file gave no duration, so the duration of its longest track was taken. |
-| `:mp4/fragments-unread` | info | The MP4 file is written in fragments, and neither an mehd box nor an index at the end of the file gave the duration of all of them, so the file has no duration. |
-| `:mp4/no-movie` | warning | The MP4 file has no movie box, so it gives neither a duration nor chapters. |
-| `:file/unknown-format` | warning | The file is in no format that its reader knows, so nothing was read from it: MP3 or MP4 for a media file, and for an image PNG, JPEG, GIF or WebP, whose headers it reads, or AVIF, HEIC, HEIF, SVG, BMP, TIFF or ICO, whose type it knows. |
+| `:id3/frame-size` | info | An ID3v2 frame gave its size in the form of the other version: a plain number in ID3v2.4, or a syncsafe number in ID3v2.3. podcast-clj read the size in that form. |
+| `:id3/text-encoding` | info | An ID3v2 frame names a text encoding that ID3 does not define. podcast-clj read its text as ISO-8859-1. |
+| `:id3/utf8-latin1` | info | An ID3v2 frame declared its text as ISO-8859-1, but the bytes are UTF-8. podcast-clj read the text as UTF-8. |
+| `:id3/utf16-bom` | info | An ID3v2 frame declared its text as UTF-16, but the text has no byte order mark. podcast-clj took the byte order from the places of the zero bytes. |
+| `:id3/image-type` | info | An ID3 picture gave its type loosely, such as JPG or image/jpg, or gave no type. podcast-clj took the type from the bytes of the image. |
+| `:id3/chapter-end` | info | An ID3 chapter ends at its start or before it. podcast-clj left out the end. |
+| `:id3/second-tag` | info | A second ID3v2 tag follows the first tag. Some writers add a tag in front of a tag that they leave in place. podcast-clj read the two tags. |
+| `:id3/skipped-frame` | info | An ID3v2 frame is compressed or encrypted. podcast-clj did not read it. |
+| `:id3/malformed` | warning | A frame of an ID3v2 tag does not read, so podcast-clj left it out. When the size of the frame does not read, podcast-clj also left out the frames after it. |
+| `:id3/padding-junk` | info | The padding after the ID3v2 frames holds bytes that are not zeros. A writer did not clear the padding, or a frame gave a wrong size. |
+| `:mp3/junk-before-audio` | info | Bytes that are no MPEG audio frame lie between the tags and the first frame. An example is padding that the size of a tag leaves out. podcast-clj skipped the bytes. |
+| `:mp3/estimated-duration` | info | The MP3 file has no Xing, Info or VBRI header. podcast-clj estimated the duration from the bitrate of the first frames and the size of the file. The estimate is exact for a constant bitrate. |
+| `:mp3/no-audio` | warning | podcast-clj found no MPEG audio frame after the tags, so the file has no duration. |
+| `:mp4/zero-duration` | info | The movie header of the MP4 file gives no duration. podcast-clj took the duration of the longest track. |
+| `:mp4/fragments-unread` | info | The MP4 file is in fragments. It has no mehd box, and no index at its end that gives the duration of all the fragments. So the file has no duration. |
+| `:mp4/no-movie` | warning | The MP4 file has no movie box, so it gives no duration and no chapters. |
+| `:file/unknown-format` | warning | The file is in no format that its reader knows, so the reader read nothing from it. The reader of media files knows MP3 and MP4. The reader of images reads the headers of PNG, JPEG, GIF and WebP. It knows the types of AVIF, HEIC, HEIF, SVG, BMP, TIFF and ICO. |
 | `:file/truncated` | warning | The file ends before its structures say that it does. |
-| `:file/malformed` | warning | The file could not be read as its format says. |
-| `:file/incomplete` | warning | The reading of the file did not get the bytes that it needed, so the file was not read. The bytes did not arrive, or a limit of the reading stopped it. |
-| `:check/unreachable` | error | The file could not be fetched: the connection, the TLS handshake or the time allowed failed. |
+| `:file/malformed` | warning | The file does not read as its format says. |
+| `:file/incomplete` | warning | The reading of the file did not get the bytes that it needed, so it gave nothing. The bytes did not arrive, or a limit stopped the reading. |
+| `:check/unreachable` | error | The check did not get the file. The connection failed, the TLS handshake failed, or the request took too long. |
 | `:check/status` | error | The server answered the request for the file with a status that is not a success, so a listener does not get the file. |
 | `:check/downgrade` | error | A redirect leads from https to http, which clients refuse to follow. |
 | `:check/redirects` | warning | The file lies more than five redirects away, more than the check and some clients follow. |
 | `:check/moved` | warning | The file moved for good, by a redirect with status 301 or 308, so the feed can name its new URL. |
-| `:check/head` | error | The server does not answer a HEAD request for the file, which RFC 9110 requires of every general-purpose server, and which directories use to check files. |
+| `:check/head` | error | The server does not answer a HEAD request for the file. RFC 9110 requires HEAD of each general-purpose server, and directories use it to check files. |
 | `:check/type` | warning | The server gives the file another media type than the feed declares. |
 | `:check/length` | info | The size of the file differs from the length that the feed declares. A host that inserts ads sends a file of another size to each request, so the length cannot be exact. |
-| `:check/ranges` | warning | The server does not answer a request for a byte range with that range. RFC 9110 makes ranges optional, but says that servers ought to support them when possible, and players need them to seek and to resume. Apple Podcasts requires them. |
+| `:check/ranges` | warning | The server does not answer a request for a byte range with that range. RFC 9110 makes ranges optional, but it recommends them. Players need ranges to seek and to resume, and Apple Podcasts requires them. |
 | `:check/format` | warning | The media file is in another format than the type that the feed declares. |
 | `:check/duration` | info | The duration of the media file differs from the duration that the feed declares by more than 10 seconds and 2 percent. A host that inserts ads can explain it. |
-| `:check/unread` | warning | The file came, but reading what it holds failed: a request for more of its bytes failed, or its reader did, so its contents were not checked. |
+| `:check/unread` | warning | The file came, but the check did not read what it holds. A request for more of its bytes failed, or its reader failed. |
 | `:check/integrity` | error | The media file does not match the hash of its podcast:integrity. |
-| `:check/unverified` | info | The media file was not checked against its podcast:integrity: a PGP signature needs the key of the publisher, the integrity names no hash that Subresource Integrity knows, or the whole file did not come. |
+| `:check/unverified` | info | The check did not compare the media file with its podcast:integrity. A PGP signature needs the key of the publisher. The integrity names no hash that Subresource Integrity knows. Or the whole file did not come. |
 | `:check/image-type` | info | The server gives the image another media type than its bytes have, such as image/jpg for a JPEG image. Browsers read the type from the bytes of an image. |
 | `:check/image-size` | warning | The size of the image differs from the width, height or aspect ratio that its podcast:image declares. |
 | `:check/artwork-size` | error | The image of an itunes:image is not a square of 1400 to 3000 pixels, as the profile requires. |
-| `:check/artwork-type` | error | The image of an itunes:image is neither JPEG nor PNG, as the profile requires, or is a JPEG that apps and browsers do not decode: lossless, hierarchical, arithmetic-coded or JPEG-LS, or with more than 8 bits a sample. |
+| `:check/artwork-type` | error | The image of an itunes:image is not JPEG or PNG, as the profile requires. Or it is a JPEG that apps and browsers do not decode. Such a JPEG is lossless, hierarchical, arithmetic-coded or JPEG-LS, or it has more than 8 bits a sample. |
 | `:check/artwork-color` | error | The image of an itunes:image is not in RGB colors, as the profile requires. |
 | `:check/artwork-alpha` | error | The image of an itunes:image has an alpha channel or transparency, which the profile does not allow. |
 | `:check/artwork-extension` | warning | The file extension of the URL of an itunes:image does not match the type of its image, as the profile requires. |
 | `:check/last-modified` | warning | The server answers a HEAD request for the artwork without Last-Modified, which the profile asks for. |
-| `:check/cors` | warning | The server does not let pages of other sites read the file, by the CORS header Access-Control-Allow-Origin of its answer or of a redirect on the way, so web players cannot show it. The podcast namespace requires CORS for transcripts. |
+| `:check/cors` | warning | The server does not let pages of other sites read the file, so web players cannot show it. The CORS header Access-Control-Allow-Origin of the answer, or of a redirect on the way, decides this. The podcast namespace requires CORS for transcripts. |
 | `:check/empty` | error | The transcript or chapters file holds no segments or chapters in the format that the feed declares. |
 | `:check/feed-cors` | info | The server does not let pages of other sites read the feed, so a web app cannot read it without a server of its own. |
 | `:check/validators` | info | The server sends the feed without ETag or Last-Modified, so a client cannot ask whether the feed changed, and fetches it whole each time. |

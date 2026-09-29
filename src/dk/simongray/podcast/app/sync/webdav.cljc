@@ -42,10 +42,13 @@
 
 (defn request
   "The request map for `call`, one of `calls`, on the collection at `root`,
-  a URL ending in a slash, for the document `name` where the call takes
-  one. `opts` carry the `:credentials`, the `:body` to put, and for a put
-  `:if-version`: the version the document must still have, or nil for a
-  document that must not be there yet; absent, the put is unconditional."
+  a URL that ends in a slash. `name` is the document, where the call takes
+  one.
+
+  `opts` give the `:credentials`, and the `:body` to put. For a put, they
+  can give `:if-version`, the version that the document must still have.
+  Nil is for a document that must not be there yet. Without
+  `:if-version`, the put has no condition."
   ([call root]
    (request call root nil {}))
   ([call root name]
@@ -138,9 +141,13 @@
                          (fail)))))
 
 (defn- host
-  "The host of the URL `root`, without the credentials a URL can carry."
+  "The host of the URL `root`, as `http/origin` reads it, without the
+  credentials that a URL can carry. It has its port when that is not the
+  port of the scheme."
   [root]
-  (second (re-find #"(?i)^[a-z][a-z0-9+.-]*://(?:[^/@]*@)?([^/]+)" root)))
+  (when-let [[scheme host port] (http/origin root)]
+    (cond-> host
+      (not= port (get {"http" 80 "https" 443} scheme)) (str ":" port))))
 
 (defn- sender
   "What sends a request map for `opts`.

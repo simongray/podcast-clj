@@ -79,9 +79,10 @@
                                       (be 4 100000) (ascii "tEXt") [0 0 0 0])))]
     (is (= ["image/png" 500 400 nil] ((juxt :type :width :height :alpha?) cut))
         "a chunk past the end of the file, which leaves the header as it is")
-    (is (= [[:file/truncated :transparency]] (map (juxt :id :part) (:report cut))))
-    (is (every? :message (:report cut))))
-  (is (= [:file/malformed] (map :id (:report (image/read (view (concat png-signature (png-chunk "tEXt" (repeat 20 0))))))))
+    (is (= [[:file/truncated :transparency]] (map (juxt :id :part) (image/report cut))))
+    (is (every? :message (image/report cut)))
+    (is (not (contains? cut :report)) "the report is in the metadata"))
+  (is (= [:file/malformed] (map :id (image/report (image/read (view (concat png-signature (png-chunk "tEXt" (repeat 20 0))))))))
       "a first chunk that is not IHDR"))
 
 (deftest jpeg-headers
@@ -103,7 +104,7 @@
       "a height that a DNL segment gives later")
   (is (= [800 600] ((juxt :width :height) (image/read (view (concat [0xFF 0xD8 0xFF 0xFF] (drop 2 (jpeg 0xC0 800 600 3)))))))
       "fill bytes before a marker")
-  (is (= [:file/malformed] (map :id (:report (image/read (view (concat [0xFF 0xD8] (segment 0xDA [0]) [0xFF 0xD9]))))))
+  (is (= [:file/malformed] (map :id (image/report (image/read (view (concat [0xFF 0xD8] (segment 0xDA [0]) [0xFF 0xD9]))))))
       "image data before any frame"))
 
 (deftest other-headers
@@ -115,15 +116,15 @@
          (image/read (view (webp "VP8L" (concat [0x2F] (le 4 (+ 1399 (* 1399 16384))) [0 0 0 0]))))))
   (is (= {:type "image/webp" :width 640 :height 480 :color :rgb :alpha? false}
          (image/read (view (webp "VP8 " (concat [0 0 0] [0x9D 0x01 0x2A] (le 2 640) (le 2 480) [0 0]))))))
-  (is (= [:file/malformed] (map :id (:report (image/read (view (concat (ascii "GIF8zz") (le 2 3000) (le 2 2000) [0 0 0]))))))
+  (is (= [:file/malformed] (map :id (image/report (image/read (view (concat (ascii "GIF8zz") (le 2 3000) (le 2 2000) [0 0 0]))))))
       "a GIF of no version")
-  (is (= [:file/malformed] (map :id (:report (image/read (view (webp "VP8 " (concat [0 0 0] [0 0 0] (le 2 640) (le 2 480) [0 0])))))))
+  (is (= [:file/malformed] (map :id (image/report (image/read (view (webp "VP8 " (concat [0 0 0] [0 0 0] (le 2 640) (le 2 480) [0 0])))))))
       "a lossy WebP without its start code")
   (is (= {:type "image/avif"} (image/read (view (concat (be 4 24) (ascii "ftypavif") (be 4 0) (ascii "mif1miaf"))))))
   (is (= {:type "image/svg+xml"} (image/read (view (ascii "<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>")))))
-  (is (= [:file/unknown-format] (map :id (:report (image/read (view (ascii "<html>not an image</html>")))))))
-  (is (= [:file/truncated] (map :id (:report (image/read (view (take 30 (png 1 1 2))))))))
-  (is (= [:file/truncated] (map :id (:report (image/read (view (concat (take 33 (png 1 1 2)) (be 4 0x7FFFFFFF) (ascii "tEXt")))))))
+  (is (= [:file/unknown-format] (map :id (image/report (image/read (view (ascii "<html>not an image</html>")))))))
+  (is (= [:file/truncated] (map :id (image/report (image/read (view (take 30 (png 1 1 2))))))))
+  (is (= [:file/truncated] (map :id (image/report (image/read (view (concat (take 33 (png 1 1 2)) (be 4 0x7FFFFFFF) (ascii "tEXt")))))))
       "a chunk that says it is 2 GB long in a file of 41 bytes"))
 
 (deftest a-png-of-many-chunks
@@ -147,7 +148,7 @@
    (defspec any-bytes-give-a-header-or-a-report 500
      (prop/for-all [xs (gen/one-of [(gen/vector (gen/choose 0 255) 0 300) mangled])]
        (let [r (image/read (view xs))]
-         (and (map? r) (or (:type r) (seq (:report r))))))))
+         (and (map? r) (or (:type r) (seq (image/report r))))))))
 
 (deftest reading-images-in-rounds
   (let [b     (bytes/of (png 1400 1400 2 (png-chunk "iTXt" (repeat 100000 0)) (png-chunk "tRNS" [0 0 0 0 0 0])))

@@ -8,9 +8,7 @@
   such a server leaves the same keys out of its WebDAV store."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
-            [dk.simongray.podcast.http :as http])
-  (:import [java.io InputStream]
-           [java.nio.charset StandardCharsets]))
+            [dk.simongray.podcast.http :as http]))
 
 (defn- quoted
   [version]
@@ -68,17 +66,6 @@
       if-match                              {:if-version (unquoted if-match)}
       (= "*" (get headers "if-none-match")) {:if-version nil}
       :else                                 {})))
-
-(defn- body-text
-  "The text of a Ring request `body`, a string, a stream or nothing, when it
-  holds at most `max-bytes`; nil when it holds more."
-  [body max-bytes]
-  (cond
-    (nil? body)    ""
-    (string? body) (when (<= (count body) max-bytes) body)
-    :else          (let [bytes (.readNBytes ^InputStream body (int (inc max-bytes)))]
-                     (when (<= (alength bytes) max-bytes)
-                       (String. bytes StandardCharsets/UTF_8)))))
 
 (defn- plain-name?
   "Whether `name` is a plain file name: no slash, not `.` or `..`, and no
@@ -146,7 +133,7 @@
   [{:keys [put] :as store} name headers body max-bytes]
   (if name
     (let [current (version-of store name)]
-      (if-let [text (body-text body max-bytes)]
+      (if-let [text (http/body-text body max-bytes)]
         (let [result (put name text (precondition headers current))]
           (if (:conflict? result)
             (plain 412 "Precondition Failed")

@@ -341,7 +341,7 @@
    (.mkdirs media-dir)
    (let [manifest (vec (for [[i {:keys [url] :as e}] (map-indexed vector (first-enclosures n))]
                          (let [parts (atom [])
-                               fetch (http/fetcher url {})
+                               fetch (http/fetcher url)
                                r     (try (media/read! url {:fetch (fn [start end]
                                                                     (let [part (fetch start end)]
                                                                       (swap! parts conj part)
@@ -372,7 +372,7 @@
                r    (media/read view)]]
      {:n n :feed feed :format (:format r) :duration (some-> (:duration r) Math/round) :declared declared
       :chapters (count (:chapters (:chapters r))) :artwork (:type (:artwork r))
-      :report (str/join " " (map (comp name :id) (:report r)))})))
+      :report (str/join " " (map (comp name :id) (media/report r)))})))
 
 (defn check-feeds!
   "Fetch each feed of `feeds` and check the files that it and its newest
