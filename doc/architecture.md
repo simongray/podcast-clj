@@ -1077,12 +1077,14 @@ an episode, and never past its start or its end.
 the app, such as to seek, to stop where the outro starts, or to play the
 next episode. `step` is the only place where behavior is composed, and it is
 short on purpose. At each `:progress`, it adds the seconds heard to a count
-for the show and the month. Each device has a count of its own, which only
-it writes and which only grows, so the counts of two devices that count at
-the same time add up, and none is lost. No standard counts listening, and
-a log of each play, as the gpodder API keeps, grows without end. A count by
-month keeps the document small; an app that wants the days keeps them on
-the device.
+for the show and the month. The seconds are how far the position moved
+since the last report, when that report is a minute old at most. Each
+device has a count of its own. Only that device writes it, and it only
+grows. So the counts of two devices that count at the same time add up,
+and none is lost. The merge takes the higher of two counts of one device.
+No standard counts listening, and a log of each play, as the gpodder API
+keeps, grows without end. A count by month keeps the document small. An
+app that wants the days keeps them on the device.
 
 
 ## Search

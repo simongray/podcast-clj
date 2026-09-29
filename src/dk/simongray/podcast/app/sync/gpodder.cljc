@@ -354,6 +354,17 @@
       (written-by state (or device author) act)
       state)))
 
+(defn- told-at
+  "The instant of what the entry `e` of an episode tells, on the clock of
+  the device that wrote it: the later of its last report and of its mark as
+  played. For an entry with neither, it is the stamp.
+
+  The stamp is no time of the device. After a merge with a device whose
+  clock is fast, each stamp is later than the clock of this device."
+  [{:keys [reported-at played-at updated-at]}]
+  (or (some->> (filter inst? [reported-at played-at]) seq (apply max-key inst-ms))
+      updated-at))
+
 (defn ^:no-doc entry-action
   "The episode action that tells the entry `e` of the episode `id`, sent by
   `device` with the feed URL `podcast` and the media URL `media`; nil when
@@ -362,7 +373,8 @@
   A played episode is a play to its end, as AntennaPod writes it, and an
   episode marked not played is `new`, but not on the first push, `:first?`
   in `opts`. Positions are whole seconds, and a played episode of an
-  unknown duration tells nothing."
+  unknown duration tells nothing. The time of the action is the time of the
+  device that `told-at` gives."
   ([id e podcast media device]
    (entry-action id e podcast media device {}))
   ([id e podcast media device {:keys [first?]}]
@@ -379,7 +391,7 @@
      (when act
        ;; ISO 8601 to the second and without a zone, which every server reads
        (merge act {"podcast" podcast "episode" media "guid" (second id) "device" device
-                   "timestamp" (subs (time/format-iso8601 (:updated-at e)) 0 19)})))))
+                   "timestamp" (subs (time/format-iso8601 (told-at e)) 0 19)})))))
 
 (defn- ahead?
   "Whether the episode action `a` names a time that is more than

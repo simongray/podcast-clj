@@ -427,6 +427,34 @@
     (testing "two devices counting at once lose nothing"
       (let [laptop (:state (player/step (player/merge (player/state "laptop") s1) [:progress id 130 3600] (at 30)))]
         (is (= {g {"2026-10" 40}} (player/listened (player/merge s2 laptop))))))
+    (testing "a state whose clock is ahead of the clock of the device"
+      (let [fast  (player/star (player/state "laptop") ["x" "y"] (at 7200))
+            play  (fn [s] (reduce #(:state (player/step %1 [:progress id (* 10 %2) 3600] (at (* 10 %2)))) s (range 31)))
+            ahead (play (player/merge s0 fast))]
+        (is (= {g {"2026-10" 300}} (player/listened ahead) (player/listened (play s0)))
+            "the time is measured from the last report, and not from its stamp")
+        (is (pos? (compare (:updated-at (player/episode ahead id)) (:reported-at (player/episode ahead id)))))))
+    (testing "a report after a pause"
+      (let [paused (:state (player/step s2 [:progress id 1500 3600] (at 610)))]
+        (is (= (player/listened s2) (player/listened paused))
+            "a move of the position after more than a minute is no listening")
+        (is (= {g {"2026-10" 15}} (player/listened (:state (player/step paused [:progress id 1505 3600] (at 615)))))
+            "and the next report counts from there")
+        (is (= {g {"2026-10" 70}} (player/listened (:state (player/step s2 [:progress id 170 3600] (at (+ 10 player/listening-gap))))))
+            "a report at the end of the gap counts")))
+    (testing "a device that is restored from a backup counts on from the higher count"
+      (let [play     (fn [s from to start]
+                       (reduce #(:state (player/step %1 [:progress id (+ from (* 10 %2)) 3600] (at (+ start (* 10 %2)))))
+                               s
+                               (range (inc (quot (- to from) 10)))))
+            saved    (play s0 0 100 0)
+            went-on  (play saved 100 1000 200)
+            restored (play saved 100 130 5000)
+            both     (player/merge restored went-on)]
+        (is (= [{g {"2026-10" 1000}} {g {"2026-10" 130}}] (map player/listened [went-on restored])))
+        (is (= {g {"2026-10" 1000}} (player/listened both) (player/listened (player/merge went-on restored)))
+            "the count with the later stamp is the lower one here")
+        (is (= {g {"2026-10" 1010}} (player/listened (:state (player/step both [:progress id 140 3600] (at 5040))))))))
     (is (= "the listening of \"feed-a\" is not counted in seconds"
            (player/problem (assoc-in s2 [:listened g "2026-10" "x"] {:seconds "many" :updated-at t1 :device "x"}))))))
 

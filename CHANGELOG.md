@@ -152,6 +152,14 @@
   names a private feed without its user name and password. `step` counts
   the seconds heard of each show by month, one count for each device, and
   `listened` adds them up.
+- The counts of listening measure the time on the clock of the device,
+  which an episode keeps as `:reported-at`. So they also count after a
+  merge with a device whose clock is fast. A move of the position after a
+  pause of more than a minute is no listening, and `player/listening-gap`
+  holds that time. The merge takes the higher of two counts of one device,
+  so a device that is restored from a backup loses no count. A push to a
+  gpodder server sends that time of the device as the time of an action,
+  and not the stamp.
 - The ranks at the ends of a list stay short. `rank/between` counts there,
   in levels that each have 62 times the room of the level before. Ten
   thousand episodes that go to the end of a queue get ranks of five digits

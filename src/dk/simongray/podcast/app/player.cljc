@@ -436,6 +436,12 @@
   "How many seconds before the end of an episode count as having heard it."
   30)
 
+(def listening-gap
+  "How many seconds can pass between two reports of the position of an
+  episode that are one stretch of listening. After a longer time, the
+  listener paused, and `step` counts no listening for that time."
+  60)
+
 (defn episode
   "What `state` knows about the episode `id`, nil when nothing."
   [state id]
@@ -463,11 +469,15 @@
   "Record that the listener is `position` seconds into the episode `id` at
   `at`, and its `duration` when known; an episode heard to within
   `played-threshold` seconds of its end counts as played, and leaves the
-  inbox."
+  inbox.
+
+  The entry keeps `at` as `:reported-at`, the time on the clock of the
+  device. The stamp of the entry can be later than that time, so the
+  counts of listening measure from `:reported-at`."
   ([state id position at]
    (progress state id position nil at))
   ([state id position duration at]
-   (let [e (cond-> (assoc (or (episode state id) {}) :position position)
+   (let [e (cond-> (assoc (or (episode state id) {}) :position position :reported-at (time/date at))
              duration (assoc :duration duration))
          e (if (and (not (:played? e)) (heard-to-the-end? position (:duration e)))
              (assoc e :played? true :played-at (time/date at))
@@ -486,7 +496,9 @@
   "Mark the episode `id` as not played at `at`, its position back at the
   start."
   [state id at]
-  (write state [:episodes id] #(-> (or % {}) (assoc :played? false :position 0) (dissoc :played-at)) at))
+  (write state [:episodes id]
+         #(-> (or % {}) (assoc :played? false :position 0 :reported-at (time/date at)) (dissoc :played-at))
+         at))
 
 (defn skip
   "Move `seconds` forward, or back when negative, in the episode `id` at
@@ -503,16 +515,22 @@
 
 (defn- heard
   "`state` with the seconds that the listener heard of the episode `id`,
-  reported at `position` at `at`, added to this device's count for the
-  show and the month of `at` in UTC: how far the position moved since the
-  episode was last written, at most three times the time that passed,
-  since a move further than playback at three times the speed is a seek."
+  reported at `position` at `at`, added to the count of this device for the
+  show and the month of `at` in UTC.
+
+  The seconds are how far the position moved since the last report. They
+  are three times the time since that report at most, because a move
+  further than playback at three times the speed is a seek. Nothing counts
+  when the last report is more than `listening-gap` seconds old, because
+  the listener paused. The time is measured from the `:reported-at` of the
+  episode, and from its stamp for an entry without one."
   [state id position at]
-  (let [{p0 :position t0 :updated-at} (episode state id)
+  (let [{p0 :position :keys [reported-at updated-at]} (episode state id)
+        t0      (or reported-at updated-at)
         seconds (when (and (number? position) (number? p0) (inst? t0))
                   (let [moved (- position p0)
                         spent (/ (- (inst-ms at) (inst-ms t0)) 1000.0)]
-                    (when (and (pos? moved) (pos? spent))
+                    (when (and (pos? moved) (pos? spent) (<= spent listening-gap))
                       (min moved (* 3 spent)))))]
     (if seconds
       (write state [:listened (first id) (subs (time/format-iso8601 at) 0 7) (:device state)]
@@ -525,7 +543,10 @@
   in UTC, as `{feed-guid {\"2026-09\" 5400.0}}`: the counts of all devices
   added up. Each device keeps a count of its own, which only grows, so
   that no count is lost when two devices count at once; `step` counts at
-  each `:progress`."
+  each `:progress`.
+
+  For the counts to be right, the app reports the position at least each
+  30 seconds while an episode plays. See `listening-gap`."
   [state]
   (update-vals (:listened state)
                (fn [months] (update-vals months #(reduce + 0 (keep :seconds (vals %)))))))
@@ -1139,17 +1160,29 @@
                                a
                                b))))
 
+(defn- higher
+  "Of `a` and `b`, two counts of listening of one device, the count with
+  more seconds. With the same seconds, it is the later of them. A count
+  only grows, so the higher count holds the lower one."
+  [a b]
+  (let [seconds #(let [n (:seconds %)] (if (number? n) n 0))]
+    (cond
+      (> (seconds a) (seconds b)) a
+      (< (seconds a) (seconds b)) b
+      :else                       (later a b))))
+
 (defn- join
   "The merge of the values `a` and `b` under one key of two states, by their
-  shape: stamped entries, the later; maps of anything else, key by key down
-  to the entries; instants, the later; anything else stays `a`'s."
-  [a b]
+  shape: of two stamped entries, the one that `pick` takes; maps of
+  anything else, key by key down to the entries; instants, the later;
+  anything else stays `a`'s."
+  [pick a b]
   (cond
     (nil? a)                                                          b
     (nil? b)                                                          a
-    (and (stamped? a) (stamped? b))                                   (later a b)
-    (and (map? a) (map? b) (not (stamped? a)) (not (stamped? b)))     (merge-with join a b)
-    (and (map? a) (map? b))                                           (later a b)
+    (and (stamped? a) (stamped? b))                                   (pick a b)
+    (and (map? a) (map? b) (not (stamped? a)) (not (stamped? b)))     (merge-with #(join pick %1 %2) a b)
+    (and (map? a) (map? b))                                           (pick a b)
     (and (inst? a) (inst? b))                                         (later-inst a b)
     :else                                                             a))
 
@@ -1160,9 +1193,12 @@
   a map of them merges entry by entry, down through maps of maps; an
   instant is a max register; anything else is taken from `a`, as is the
   device. Commutative, associative and idempotent, the join of a
-  state-based CRDT, so safe to apply in any order and any number of times."
+  state-based CRDT, so safe to apply in any order and any number of times.
+
+  A count of listening is a counter that only grows. Of two counts of one
+  device, the merge takes the higher count, whatever their stamps are."
   [a b]
-  (reduce (fn [m k] (assoc m k (join (get a k) (get b k))))
+  (reduce (fn [m k] (assoc m k (join (if (= :listened k) higher later) (get a k) (get b k))))
           {:device (:device a)}
           (disj (into (set (keys a)) (keys b)) :device)))
 

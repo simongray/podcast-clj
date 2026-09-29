@@ -456,7 +456,10 @@ episodes. Each change syncs to the other devices, as the queue does.
   for other people, so the URL of a private feed goes into it without its
   user name and password.
 - `player/step` counts the seconds that the listener hears of each show,
-  month by month, for statistics and a review of the year.
+  month by month, for statistics and a review of the year. It counts from
+  one report of the position to the next. So report the position at least
+  each 30 seconds while an episode plays. After a minute without a
+  report, `step` takes the time for a pause, and counts nothing.
 
 ```clojure
 (def state (-> state

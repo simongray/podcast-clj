@@ -297,18 +297,26 @@ Each playlist is a set of ranked entries in the same way, under its name.
 
 The seconds that the listener hears are counted for each show, month and
 device. Each count belongs to one device, which alone writes it, and it
-only grows. For this reason, the later of two stamps is also the higher
-count, and a merge by stamp keeps it, as for any other entry. The sum over
-the devices is the total. A count for all devices together would lose the
-seconds of one device when two devices count at the same time.
+only grows. So a count is a counter, and not a register. Of two counts of
+one device, the merge takes the higher count, whatever their stamps are.
+The sum over the devices is the total. A count for all devices together
+loses the seconds of one device when two devices count at the same time.
+
+`step` counts at each report of the position. It measures the time since
+the last report on the clock of the device, which the episode keeps as
+`:reported-at`. The stamp of an entry is not that time. After a merge
+with a device whose clock is fast, each stamp is later than the clock of
+this device. A move of the position counts as listening when the last
+report is a minute old at most. After a longer time, the listener paused.
 
 A count of one month for each show keeps the document small: a listener of
 twenty shows on two devices adds about 500 entries a year. A count for
 each day would add thirty times as many.
 
-A device restored from a backup can write a count lower than the count
-that the other devices hold, with a later stamp. Retire the id of the
-device before the restore, as for compaction.
+A device restored from a backup writes a count lower than the count that
+the other devices hold of it, with a later stamp. The merge keeps the
+higher count, and the device counts on from there after its first sync.
+Only the seconds between the restore and that sync are lost.
 
 ### Settings field by field
 
@@ -481,6 +489,13 @@ the action again, and the action counts when its time is there.
 The backend does not write such an action at the time of the pull. A later
 pull reads the action again. It then writes the action at its own time,
 over what the listener did since.
+
+A push does not send a stamp as the time of an action. It sends the time
+on the clock of the device. That is the time of the last report of the
+position, or the time of the mark as played. The episode entry keeps
+both. A stamp can be hours later than that clock, after a merge with a
+device whose clock is fast. With the stamp as its time, such an action
+names the future for each other device.
 
 A change to the subscriptions carries no time. It counts as made when the
 pull before it saw none. So a change on this device since the last pull wins
