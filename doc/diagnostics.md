@@ -174,6 +174,7 @@ The namespace of an id tells which part of podcast-clj found the problem:
 | `:value/claimed-amount` | warning | The sender claims another amount than the node received. The payment keeps the amount of the node. |
 | `:value/claimed-recipient` | warning | The sender claims that the payment went to another recipient than the one that received it. |
 | `:value/no-metadata` | warning | The comment names no URL of metadata, or the URL answered without the header x-rss-payment. |
+| `:value/custom-record` | error | The records of the payment leave out the custom key and value of the recipient. The key is no number, it is a type that the Lightning protocol keeps for itself, or the value is absent. The payment reaches the node and not the wallet of the recipient. Do not send it. |
 | `:value/not-an-address` | warning | The text is not a Lightning address, user@domain. |
 | `:value/unreachable` | warning | The request failed: the server did not answer. |
 | `:value/lnurl-error` | warning | The service of a Lightning address answered with an error, and told why. |
@@ -184,3 +185,4 @@ The namespace of an id tells which part of podcast-clj found the problem:
 | `:value/no-keysend` | info | The domain of the Lightning address names no node for keysend. Pay it with LNURL-pay. |
 | `:value/insecure` | error | The answer came over plain http, where anyone on the way can change it. Do not pay with it. |
 | `:analytics/unreadable-pattern` | warning | A pattern of the list of user agents does not compile on this platform, so its entry was left out. |
+| `:analytics/unreachable` | warning | OP3 gave no page of downloads: the request failed, or OP3 answered with an error. The result has the downloads of the pages before that page, and its continuation token names that page. |

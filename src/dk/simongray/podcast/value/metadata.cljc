@@ -151,11 +151,11 @@
   the URL holds all of it. The text undefined, which Fountain wrote in
   place of no message, is no message."
   [s]
-  (when (and (string? s) (str/starts-with? (str/triml s) prefix))
-    (let [[_ action url message] (re-matches #"(?s)\s*rss::payment::(\S*)\s*(\S*)\s*(.*)" s)
-          [action]               (value/read-action action)
-          message                (str/trim message)
-          said?                  (not (contains? #{"" "undefined" "null"} message))]
+  (when-let [[_ action url message] (when (string? s)
+                                      (re-matches #"(?s)rss::payment::(\S*)\s*(\S*)\s*(.*)" (str/trim s)))]
+    (let [[action] (value/read-action action)
+          message  (str/trim message)
+          said?    (not (contains? #{"" "undefined" "null"} message))]
       (cond-> {}
         action            (assoc :action action)
         (http/origin url) (assoc :url url)

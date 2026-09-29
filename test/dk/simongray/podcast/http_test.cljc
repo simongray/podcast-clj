@@ -456,7 +456,16 @@
 #?(:cljs
    (deftest names-in-a-browser
      (is (not-any? http/public? ["http://localhost/" "https://printer.local/" "https://wiki.internal/"]))
-     (is (http/public? "https://podcastindex.org/") "a name that JavaScript does not look up")))
+     (is (not-any? http/public? ["http://localhost./" "https://nas.local./" "https://router.home.arpa/"
+                                 "https://nas/" "https://intranet./" "http://127.0.0.1./"])
+         "a name with a dot at its end, and a name without a dot, which is a name of the local network")
+     (is (every? http/public? ["https://podcastindex.org/" "https://podcastindex.org./"])
+         "a name that JavaScript does not look up")))
+
+(deftest names-of-the-public-internet
+  (is (every? http/public-name? ["podcastindex.org" "PodcastIndex.org." "a.b.example"]))
+  (is (not-any? http/public-name? ["localhost" "localhost." "nas" "nas.local" "NAS.Local." "wiki.internal"
+                                   "router.home.arpa" "x.localhost" "" nil])))
 
 #?(:clj
    (deftest refusing-hosts

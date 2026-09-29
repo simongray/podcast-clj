@@ -247,12 +247,20 @@
   holds many wallets finds the wallet by these. The feed chooses the custom
   key, so a key below 65536, which the Lightning protocol keeps for itself,
   is left out, and so is the type of the bLIP-10 record or of the preimage
-  of keysend, 5482373484."
+  of keysend, 5482373484.
+
+  `report` tells when the records leave out the custom key or the custom
+  value of the recipient. A payment with such records reaches the node,
+  and not the wallet. So do not send it."
   [payment {recipient-name :name :keys [custom-key custom-value]}]
-  (let [k (some-> custom-key str str/trim parse-long)]
-    (cond-> {7629169 (json/write-str (boostagram (merge {:recipient-name recipient-name} payment)))}
-      (and k (<= 65536 k) (not (contains? #{7629169 5482373484} k)) (some? custom-value))
-      (assoc k (str custom-value)))))
+  (let [k       (some-> custom-key str str/trim parse-long)
+        custom? (and k (<= 65536 k) (not (contains? #{7629169 5482373484} k)) (some? custom-value))
+        asked?  (or (some? custom-key) (some? custom-value))]
+    (with-meta (cond-> {7629169 (json/write-str (boostagram (merge {:recipient-name recipient-name} payment)))}
+                 custom? (assoc k (str custom-value)))
+      {:podcast/report (if (and asked? (not custom?))
+                         [(diagnostics/describe {:id :value/custom-record :custom-key custom-key :custom-value custom-value})]
+                         [])})))
 
 (def ^:no-doc boostagram-fields
   "The type of each field that bLIP-10 defines: :text, :int, :number, :msat
@@ -291,7 +299,10 @@
   :decimal, as `[value how]`. `how` is :as-text for a number that came as
   text where the format writes a number, :rounded for an amount in
   millisatoshis with a fraction, and :unreadable for a value that is not
-  of the type. Nil and blank text are no value."
+  of the type. Nil and blank text are no value.
+
+  A number below zero is not of its type. The formats have numbers for
+  amounts, positions and ids, and none of these is below zero."
   [type v]
   (let [n     (cond
                 (number? v)                                        v
@@ -301,7 +312,8 @@
     (cond
       (or (nil? v) (and (string? v) (str/blank? v))) [nil]
       (= :text type)                                  (if-some [s (json/text v)] [s] [nil :unreadable])
-      (or (nil? n) (and (#{:int :msat} type) (>= (Math/abs (double n)) 9e15))) [nil :unreadable]
+      (or (nil? n) (neg? n))                          [nil :unreadable]
+      (and (#{:int :msat} type) (>= n 9e15))          [nil :unreadable]
       (== n (Math/floor n))                            [(if (#{:int :msat} type) (long n) n) (when text? :as-text)]
       (= :msat type)                                   [(Math/round (double n)) :rounded]
       (= :int type)                                    [nil :unreadable]

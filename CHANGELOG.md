@@ -250,6 +250,14 @@
   `value.metadata` writes and reads the RSS Payment Metadata of a payment
   to a Lightning address. `value/as-received` puts what a sender claims
   next to what the node received.
+- The readers of payments take what strangers write. The report of
+  `value/records` tells when the records leave out the wallet of the
+  recipient. A number below zero is no amount and no position. An invoice
+  is an invoice only when its data is Bech32, and its amount reads the
+  same on both platforms. A Lightning address has no port, and no name of
+  a local network with a dot at its end. `invoice!` gives the comment that
+  went out. `parse-comment` takes white space of any kind around a
+  comment.
 - `http/call-public!` sends nothing to the network of the app: no request
   to a host whose address is loopback, private, link-local, shared,
   multicast or reserved. On the JVM, it resolves the name and checks every
@@ -268,6 +276,14 @@
 - `analytics.op3` puts the prefix of OP3 on the enclosures of a feed, and
   reads the downloads and counts of a show from the API of OP3. A download
   of OP3 has the keys of a download of `analytics/downloads`.
+- `op3/downloads!` throws nothing for what OP3 or the network does. When a
+  page fails, it gives the pages before that page, the `:error`, and the
+  token of the page that failed. `op3/call!` throws `::failed` for a
+  success that holds no JSON. In `analytics/downloads`, a request with a
+  field of another type is malformed, and the log is read on. Two requests
+  for the same bytes at the end of a file count those bytes once. In
+  ClojureScript, `http/public?` takes no name without a dot, and no name
+  of a local network with a dot at its end.
 - podcast-clj compares the origins of URLs as the URL standard does, on
   both platforms. `http/absolute-url` resolves a URL as a browser does: it
   takes the spaces around a URL, and a path does not go above the root. On

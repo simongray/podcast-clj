@@ -605,8 +605,16 @@ records of `value/records`: the bLIP-10 record, and the custom key and
 value of the recipient.
 
 ```clojure
-(value/records (assoc payment :sats 50) recipient)  ; => {7629169 "{\"action\":\"boost\",…}", 696969 "22"}
+(def records (value/records (assoc payment :sats 50) recipient))
+records                ; => {7629169 "{\"action\":\"boost\",…}", 696969 "22"}
+(value/report records) ; => [], or :value/custom-record
 ```
+
+A node can hold many wallets, and the custom key and value name the
+wallet of the recipient. The feed chooses the key, so `records` leaves out
+a key that the payment cannot carry. The report then has
+`:value/custom-record`, of level `:error`. Do not send such a payment: it
+reaches the node, and not the wallet.
 
 Pay a recipient of type `lnaddress` with an invoice. `lnaddress/invoice!`
 asks the domain of the address for the invoice, and checks its amount.
@@ -616,10 +624,15 @@ Put the metadata of the payment in the comment. Serve the header of
 ```clojure
 (lnaddress/invoice! "ann@getalby.com" 50000
                     {:comment #(metadata/payment-comment payment "https://app.example/payments/1" (:comment-length %))})
-;; => {:invoice "lnbc500n1…" :msat 50000 :network :bitcoin}
+;; => {:invoice "lnbc500n1…" :msat 50000 :network :bitcoin :comment "rss::payment::boost https://…"}
 
 {"x-rss-payment" (metadata/header payment)}  ; the header of the page at that URL
 ```
+
+The invoice has the `:comment` that went out. An address can take a short
+comment only, or none. When the comment does not fit, none goes out, and
+the invoice has no `:comment`. The recipient then does not learn what the
+payment is for, so tell the listener before the payment.
 
 If the domain names a node for keysend, you can pay the address with
 keysend instead. `lnaddress/node!` gives the node as the keys of a
@@ -788,6 +801,12 @@ A download of OP3 has the keys of a download of `analytics/downloads` where
 OP3 tells the same fact, so the same code counts both. When the answer has
 a `:continuation-token`, OP3 has more downloads. Give the token to
 `downloads!` in the parameters to read on.
+
+`downloads!` reads page after page, and a page can fail, for example when
+OP3 answers 429. The answer then has the `:error`, with the downloads of
+the pages before that page. Its token names the page that failed, so the
+next call reads on from there. `call!` throws for an answer that is a
+failure.
 
 
 ## Use another service

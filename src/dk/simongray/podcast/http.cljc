@@ -573,6 +573,16 @@
           (when all
             (vec (mapcat (fn [w] [(quot w 256) (rem w 256)]) all))))))))
 
+(defn ^:no-doc public-name?
+  "Whether the domain name `host` is a name of the public internet. Such a
+  name has a dot in it, and it does not stay on a local network, as
+  localhost, .local, .internal and .home.arpa do. The dot that can end a
+  name does not count."
+  [host]
+  (let [h (str/replace (str/lower-case (str host)) #"\.$" "")]
+    (and (str/includes? h ".")
+         (not (re-find #"(^|\.)(localhost|local|internal|home\.arpa)$" h)))))
+
 (defn public?
   "Whether the host of the http or https URL `url` is on the public
   internet, and not on the network of the app or of its device.
@@ -582,8 +592,9 @@
   resolve is not public. The JVM keeps what it resolved for 30 seconds by
   default, so the request goes to the address that this checked. In
   ClojureScript, which cannot resolve a name in a browser, the host must
-  not be an address that is not public, and not localhost or a name under
-  .localhost, .local or .internal."
+  not be an address that is not public. A name must have a dot in it, and
+  it must not be localhost or a name under .localhost, .local, .internal
+  or .home.arpa."
   [url]
   #?(:clj  (try
              ;; the host as the client of the JDK reads it, which sends the request
@@ -591,12 +602,11 @@
                (boolean (and h (every? public-address? (InetAddress/getAllByName h)))))
              (catch Exception _
                false))
-     :cljs (let [h (some-> (host url) str/lower-case)]
+     :cljs (let [h (some-> (host url) (str/replace #"\.$" ""))]
              (boolean (and h
-                           (not (or (= "localhost" h) (re-find #"\.(localhost|local|internal)$" h)))
                            (if-let [b (ip-address h)]
                              (if (= 4 (count b)) (public-ipv4? b) (public-ipv6? b))
-                             true))))))
+                             (public-name? h)))))))
 
 #?(:clj
    (defn- redirect-target

@@ -337,6 +337,8 @@
     :doc "The sender claims that the payment went to another recipient than the one that received it."}
    {:id :value/no-metadata :level :warning
     :doc "The comment names no URL of metadata, or the URL answered without the header x-rss-payment."}
+   {:id :value/custom-record :level :error
+    :doc "The records of the payment leave out the custom key and value of the recipient. The key is no number, it is a type that the Lightning protocol keeps for itself, or the value is absent. The payment reaches the node and not the wallet of the recipient. Do not send it."}
 
    ;; value: paying a Lightning address
    {:id :value/not-an-address :level :warning
@@ -358,9 +360,11 @@
    {:id :value/insecure :level :error
     :doc "The answer came over plain http, where anyone on the way can change it. Do not pay with it."}
 
-   ;; analytics: reading the list of user agents
+   ;; analytics: reading the list of user agents, and the downloads of OP3
    {:id :analytics/unreadable-pattern :level :warning
-    :doc "A pattern of the list of user agents does not compile on this platform, so its entry was left out."}])
+    :doc "A pattern of the list of user agents does not compile on this platform, so its entry was left out."}
+   {:id :analytics/unreachable :level :warning
+    :doc "OP3 gave no page of downloads: the request failed, or OP3 answered with an error. The result has the downloads of the pages before that page, and its continuation token names that page."}])
 
 (def by-id
   "The catalogue by id."

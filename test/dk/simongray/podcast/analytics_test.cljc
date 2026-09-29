@@ -96,6 +96,9 @@
   (let [reason #(analytics/drop-reason (merge (request overcast "2026-09-21T22:00:00Z") %))]
     (is (nil? (reason {})))
     (is (= [:malformed :malformed :malformed] (map reason [{:time nil} {:url nil} {:ip ""}])))
+    (is (= [:malformed :malformed :malformed :malformed :malformed :malformed]
+           (map reason [{:range [0 1]} {:method 1} {:user-agent 42} {:referer [:a]} {:url 5} {:time "2026-09-21"}]))
+        "a field of another type than its own, as another code writes the range of a request")
     (is (= [:method :method nil] (map reason [{:method :head} {:method nil} {:method "GET"}])))
     (is (= [nil nil nil :status :status] (map reason [{:status 206} {:status nil} {:status 0} {:status 304} {:status 404}]))
         "a prefix service sees no status, and Akamai logs 000 for a 206 that ended early")
@@ -161,7 +164,21 @@
     (is (= [1 {}] (count-of [(ranged "2026-09-21T10:00:01Z" "bytes=0-499999" nil)
                              (ranged "2026-09-21T10:00:02Z" "bytes=-500000" nil)]
                             1000000))
-        "a range from the end of the file counts its bytes")))
+        "a range from the end of the file counts its bytes")
+    (is (= [0 {:short 2}] (count-of [(ranged "2026-09-21T10:00:01Z" "bytes=-500000" nil)
+                                     (ranged "2026-09-21T10:00:02Z" "bytes=-500000" nil)]
+                                    1000000))
+        "the same bytes at the end of the file count once")
+    (is (= [1 {}] (count-of [(ranged "2026-09-21T10:00:01Z" "bytes=-300000" nil)
+                             (ranged "2026-09-21T10:00:02Z" "bytes=-1000000" nil)]
+                            1000000))
+        "and the longest of the ranges from the end holds the others")
+    (testing "one request that does not read leaves the others of the log as they are"
+      (let [result (analytics/downloads [(request apple "2026-09-21T10:00:01Z")
+                                         (assoc (request apple "2026-09-21T11:00:00Z") :range [0 1])
+                                         (assoc (request apple "2026-09-21T12:00:00Z") :user-agent 42)]
+                                        {:user-agents user-agents})]
+        (is (= [1 {:malformed 2}] [(count (:downloads result)) (:dropped result)]))))))
 
 (deftest the-downloads-name-their-agents
   (let [{:keys [downloads dropped]}
@@ -324,4 +341,32 @@
          #(async/then
            (async/attempt (fn [] (op3/call! "test-token" :show {:show show} {:send (fn [_] {:status 429 :body "slow down"})})))
            (fn [{:keys [error]}]
-             (is (= [429 "slow down"] ((juxt :status :message) (ex-data error)))))))))
+             (is (= [429 "slow down"] ((juxt :status :message) (ex-data error))))))
+         #(async/then
+           (async/all (for [answer [{:status 200 :body "<html>Just a moment...</html>"} {:status 204} {:status 200 :body "[1]"}]]
+                        (async/attempt (fn [] (op3/call! "test-token" :show {:show show} {:send (constantly answer)})))))
+           (fn [attempts]
+             (is (= [[::op3/failed 200] [::op3/failed 204] [::op3/failed 200]]
+                    (map (comp (juxt :type :status) ex-data :error) attempts))
+                 "a success that holds no JSON object"))))))
+
+(deftest pages-of-op3-that-fail
+  (let [page  (fn [n] {:status 200
+                       :body   (json/write-str {"rows" [{"url" (str "https://op3.dev/e/" n)}] "continuationToken" (str "t" n)})})
+        calls (atom 0)
+        send  (fn [_]
+                (if (= 3 (swap! calls inc))
+                  {:status 429 :body "{\"error\":\"rate limited\"}"}
+                  (page @calls)))]
+    (run #(async/then
+           (op3/downloads! "test-token" {:show "abc"} {:send send})
+           (fn [{:keys [downloads continuation-token error]}]
+             (is (= ["https://op3.dev/e/1" "https://op3.dev/e/2"] (map :url downloads)) "the pages before the page that failed")
+             (is (= "t2" continuation-token) "the token of the page that failed, to read on from")
+             (is (= {:id :analytics/unreachable :level :warning :status 429} (select-keys error [:id :level :status])))
+             (is (= 3 @calls))))
+         #(async/then
+           (op3/downloads! "test-token" {:show "abc"} {:send (fn [_] (throw (ex-info "Connection refused" {})))})
+           (fn [result]
+             (is (= {:downloads []} (dissoc result :error)) "a first page that fails gives no downloads and no token")
+             (is (= [:analytics/unreachable "Connection refused"] ((juxt :id :reason) (:error result)))))))))

@@ -109,7 +109,11 @@
     (is (= ["feedId" "item_title" "position"] (:keys (second (value/report aliased))))))
   (let [rounded (value/parse-boostagram {"podcast" "P" "value_msat" 94999.9999 "value_msat_total" "100000.4"})]
     (is (= [95000 100000] ((juxt :msat :total-msat) rounded)))
-    (is (= [:value/rounded] (map :id (value/report rounded))))))
+    (is (= [:value/rounded] (map :id (value/report rounded)))))
+  (let [below (value/parse-boostagram {"podcast" "P" "value_msat" -5 "value_msat_total" "-100" "ts" -3 "feedID" -1})]
+    (is (= {:feed-title "P"} below) "an amount, a position or an id below zero is none")
+    (is (= [{:id :value/unreadable :keys ["feedID" "ts" "value_msat" "value_msat_total"]}]
+           (map #(select-keys % [:id :keys]) (value/report below))))))
 
 (deftest what-the-node-received
   (let [claimed (value/parse-boostagram {"podcast" "P" "value_msat" 25000})]
@@ -134,7 +138,16 @@
     (is (= "boost" (get (json/read-str (get (value/records {:msat 1000} {:custom-key "7629169" :custom-value "x"}) 7629169))
                         "action")))
     (is (= [7629169] (keys (value/records {:msat 1000} {:custom-key "5482373484" :custom-value "x"}))))
-    (is (= [7629169] (keys (value/records {:msat 1000} {:custom-key "16" :custom-value "x"}))))))
+    (is (= [7629169] (keys (value/records {:msat 1000} {:custom-key "16" :custom-value "x"})))))
+  (testing "the report tells when the records leave out the wallet of the recipient"
+    (is (= [[] []]
+           (map #(value/report (value/records {:msat 1000} %))
+                [{:name "A" :custom-key "906608" :custom-value "w"} {:name "A"}])))
+    (doseq [recipient [{:custom-key "65535" :custom-value "w"} {:custom-key "0xDD4B0" :custom-value "w"}
+                       {:custom-key "7629169" :custom-value "w"} {:custom-key "906608"} {:custom-value "w"}]]
+      (is (= [[:value/custom-record :error]]
+             (map (juxt :id :level) (value/report (value/records {:msat 1000} recipient))))
+          (pr-str recipient)))))
 
 (def answers
   "The answers of six services about their own addresses, by URL, as they
@@ -175,7 +188,12 @@
     (is (every? nil? (map lnaddress/parse ["@getalby.com" "ann@" "ann@a/b" "an n@a.example" "ann@a@b" nil 42])))
     (is (every? nil? (map lnaddress/parse ["ann@127.0.0.1" "ann@169.254.169.254" "ann@[::1]" "ann@localhost"
                                            "ann@nas.local" "ann@wiki.internal" "ann@router.home.arpa" "ann@intranet"]))
-        "a domain on the internet, since the feed chooses the host that the app asks"))
+        "a domain on the internet, since the feed chooses the host that the app asks")
+    (is (every? nil? (map lnaddress/parse ["ann@localhost." "ann@nas.local." "ann@intranet." "ann@127.0.0.1."
+                                           "ann@example.com:22" "ann@example.com:443" "ann@example.com.."]))
+        "also with a dot at its end, and no port, which a name of the internet does not have")
+    (is (= {:user "ann" :domain "example.com"} (lnaddress/parse "ann@Example.com."))
+        "the dot that can end a name is left out"))
   (is (= "https://getalby.com/.well-known/lnurlp/hello" (:url (lnaddress/lnurlp-request "hello@getalby.com"))))
   (is (= "https://getalby.com/.well-known/keysend/hello" (:url (lnaddress/keysend-request "hello@getalby.com"))))
   (is (= "http://abc.onion/.well-known/lnurlp/ann" (:url (lnaddress/lnurlp-request "ann@abc.onion")))
@@ -211,7 +229,13 @@
             {:network :bitcoin :msat 967878534}
             nil nil nil]
            (map lnaddress/invoice-amount ["lnbc1pvjluezsp5zyg3" "lnbc2500u1pvjluez" "LNTB20M1PVJLUEZ" "lnbc9678785340p1pwmna7l"
-                                          "lnbc2500000001p1pvjluez" "lnBC20m1pvjluez" "an invoice"]))))
+                                          "lnbc2500000001p1pvjluez" "lnBC20m1pvjluez" "an invoice"])))
+    (is (every? nil? (map lnaddress/invoice-amount ["lnbc250n1pvjluez <b>junk</b>" "lnbc250n1pvjluez\n" "lnbc250n1pvjlbez"
+                                                    "lnbc250n1" "lnbc250n1pvjlu" "lnbc0250n1pvjluez" " lnbc250n1pvjluez"]))
+        "the data is six or more characters of Bech32 and nothing else, and no amount starts with a zero")
+    (is (= [{:network :bitcoin :msat 999999999999999} nil]
+           (map lnaddress/invoice-amount ["lnbc9999999999999990p1pvjluez" "lnbc9999999999999999n1pvjluez"]))
+        "an amount of sixteen digits is an amount, or no invoice, and never an invoice of any amount"))
   (let [coinos (terms-of "coinos@coinos.io")]
     (is (= "https://names.coinos.io/lnurlp/coinos/cb?domain=coinos.io&amount=25000&comment=Tak%20%F0%9F%8E%99%EF%B8%8F"
            (:url (lnaddress/invoice-request coinos 25000 "Tak 🎙️")))
@@ -255,9 +279,29 @@
             (lnaddress/invoice! "hello@getalby.com" 25000 {:send (serving {"pr" invoice-25} log) :comment "Great show"})
             (fn [invoice]
               (is (= invoice-25 (:invoice invoice)))
+              (is (= "Great show" (:comment invoice)) "the comment that went out")
               (is (= ["https://getalby.com/.well-known/lnurlp/hello"
                       "https://getalby.com/lnurlp/hello/callback?amount=25000&comment=Great%20show"]
                      @log))))))
+       (fn []
+         (let [log     (atom [])
+               payment {:action :boost :message "Great episode"}
+               fitted  #(metadata/payment-comment payment "https://app.example/payments/1" %)
+               short   (fn [{:keys [url] :as request}]
+                         (if (str/includes? url "/.well-known/")
+                           (update (recorded request) :body #(json/write-str (assoc (json/read-str %) "commentAllowed" 40)))
+                           ((serving {"pr" invoice-25} log) request)))]
+           (async/then
+            (async/all [(lnaddress/invoice! "hello@getalby.com" 25000 {:send short :comment (comp fitted :comment-length)})
+                        (lnaddress/invoice! "hello@getalby.com" 25000 {:send short :comment (apply str (repeat 50 "a"))})])
+            (fn [[none cut]]
+              (is (= invoice-25 (:invoice none)))
+              (is (not (contains? none :comment))
+                  "a comment that does not fit gives no comment, and the invoice shows that none went out")
+              (is (= (apply str (repeat 40 "a")) (:comment cut)) "the comment as the terms cut it")
+              (is (= #{"https://getalby.com/lnurlp/hello/callback?amount=25000"
+                       (str "https://getalby.com/lnurlp/hello/callback?amount=25000&comment=" (apply str (repeat 40 "a")))}
+                     (set @log)))))))
        (fn []
          (let [log (atom [])]
            (async/then
@@ -330,7 +374,15 @@
       (is (= {:action :stream :url url} (metadata/parse-comment (str "rss::payment::stream " url))))
       (is (nil? (metadata/parse-comment "Great episode!")))
       (is (= {:action :stream :url url} (metadata/parse-comment (str "rss::payment::stream " url " undefined")))
-          "Fountain wrote undefined for no message")))
+          "Fountain wrote undefined for no message")
+      (is (= [{:action :boost :url url :message "hi"} {:action :boost :url url :message "hi"} nil nil nil nil]
+             (map metadata/parse-comment [(str (char 0x2003) "rss::payment::boost " url " hi" (char 0x3000))
+                                          (str "\n rss::payment::boost " url " hi ")
+                                          (str "a rss::payment::boost " url)
+                                          (str (char 0x2003))
+                                          ""
+                                          42]))
+          "white space of any kind around the comment, which the payer writes")))
   (is (= "ab" (value/cut "ab🎙️" 3)) "a cut leaves no half of a pair of surrogates"))
 
 (deftest fetching-metadata

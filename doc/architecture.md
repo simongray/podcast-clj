@@ -590,7 +590,8 @@ more often than it must:
   of the page of the metadata, whatever the status of the answer.
 - `analytics.op3/downloads!` reads at most five pages of 20,000 downloads.
   When there are more, it gives the token of the next page, so that the
-  next call reads on from there.
+  next call reads on from there. When a page fails, it gives the pages
+  before that page, the failure, and the token of the page that failed.
 - Every body that the client keeps has a limit of size (`:max-bytes`, 100
   MB by default), and every exchange a limit of time (`:timeout-seconds`),
   on both platforms.
@@ -872,7 +873,10 @@ Podverse writes `streaming` for stream, Fountain writes numbers as text,
 Breez writes the guid of the episode as its itemID, and Alby Hub writes
 `feedId`. The reader takes each of these, and the report tells what it
 forgave. `value/records` gives all the custom records of a payment, with
-the custom key and value of the recipient.
+the custom key and value of the recipient. The feed chooses the custom
+key. So `records` leaves out a key that the Lightning protocol keeps for
+itself. Its report tells so, because the payment then does not reach the
+wallet.
 
 Many wallets cannot send keysend payments. So a recipient can be a
 Lightning address, `user@domain`, as LUD-16 defines it.

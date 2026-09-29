@@ -43,16 +43,16 @@
 
   The domain is a name on the internet: not an address, not a name without
   a dot, and not a name that stays on a local network, such as localhost,
-  .local, .internal or .home.arpa. A feed chooses the address, and so the
-  host that the app asks."
+  .local, .internal or .home.arpa. It has no port, and the dot that can
+  end a name is left out. A feed chooses the address, and so the host that
+  the app asks."
   [s]
   (when (string? s)
-    (when-let [[_ user domain] (re-matches #"([a-z0-9_.+-]+)@([^@\s/?#\\]+)" (str/lower-case (str/trim s)))]
+    (when-let [[_ user domain] (re-matches #"([a-z0-9_.+-]+)@([^@\s/?#\\:]*[^@\s/?#\\:.])\.?" (str/lower-case (str/trim s)))]
       (let [host (http/host (str "https://" domain "/"))]
         (when (and host
-                   (str/includes? host ".")
-                   (not (re-matches #"[0-9.]+|\[.*\]" host))
-                   (not (re-find #"(^|\.)(localhost|local|internal|home\.arpa)$" host)))
+                   (http/public-name? host)
+                   (not (re-matches #"[0-9.]+" host)))
           {:user user :domain domain})))))
 
 (defn- well-known
@@ -164,26 +164,31 @@
   [{:keys [min-msat max-msat]} msat]
   (boolean (and (integer? msat) min-msat max-msat (<= min-msat msat max-msat))))
 
+(defn sent-comment
+  "The comment that goes out with a request to the callback of `terms`:
+  `comment`, cut to the `:comment-length` of the terms. Nil when the terms
+  take no comment, and for a comment that is blank or no text."
+  [{:keys [comment-length]} comment]
+  (when (and (string? comment) (not (str/blank? comment)) (pos? (or comment-length 0)))
+    (value/cut comment comment-length)))
+
 (defn invoice-request
   "The request to the callback of `terms` for an invoice of `msat`
   millisatoshis, with a `comment` when the terms take one.
 
-  The comment is cut to the `:comment-length` of the terms, and left out
-  when they take none. The amount and the comment follow the query that
-  the callback has. Throws when the terms do not take `msat`, as
-  `sendable?` tells."
+  The comment is the text that `sent-comment` gives. The amount and the
+  comment follow the query that the callback has. Throws when the terms do
+  not take `msat`, as `sendable?` tells."
   ([terms msat]
    (invoice-request terms msat nil))
-  ([{:keys [callback comment-length] :as terms} msat comment]
+  ([{:keys [callback] :as terms} msat comment]
    (when-not (sendable? terms msat)
      (throw (ex-info "The address does not take this amount"
                      {:type ::amount :msat msat :min-msat (:min-msat terms) :max-msat (:max-msat terms)})))
-   (let [text (when (and (string? comment) (not (str/blank? comment)) (pos? (or comment-length 0)))
-                (value/cut comment comment-length))]
-     {:method  :get
-      :url     (str callback (if (str/includes? callback "?") "&" "?")
-                    (http/query-string {"amount" msat "comment" text}))
-      :headers {"Accept" "application/json"}})))
+   {:method  :get
+    :url     (str callback (if (str/includes? callback "?") "&" "?")
+                  (http/query-string {"amount" msat "comment" (sent-comment terms comment)}))
+    :headers {"Accept" "application/json"}}))
 
 (def ^:no-doc networks
   "The network of each prefix of a BOLT 11 invoice."
@@ -199,24 +204,26 @@
   before its data: `{:network :bitcoin :msat 250000}`, without `:msat` for
   an invoice of any amount. Nil for text that is no invoice.
 
-  The amount is in millisatoshis. A pico amount must end in 0, as BOLT 11
-  requires. This reads no signature: the wallet checks the invoice when it
-  pays."
+  The amount is in millisatoshis. It starts with no zero, and a pico amount
+  must end in 0, as BOLT 11 requires. After the amount come a 1 and the
+  data, which are six or more characters of Bech32. This reads no
+  signature: the wallet checks the invoice when it pays."
   [invoice]
   (when (and (string? invoice)
              (<= (count invoice) 7089)
              (or (= invoice (str/lower-case invoice)) (= invoice (str/upper-case invoice))))
-    (let [s (str/lower-case invoice)]
-      (when-let [[_ prefix digits unit] (re-matches #"ln(bcrt|bc|tbs|tb|sb)(?:([0-9]{1,16})([munp]?))?"
-                                                    (subs s 0 (max 0 (or (str/last-index-of s "1") 0))))]
-        (let [network (networks prefix)
-              n       (some-> digits parse-long)]
-          (cond
-            (nil? n)     {:network network}
-            (= "p" unit) (when (zero? (rem n 10))
-                           {:network network :msat (quot n 10)})
-            (<= n (quot 9007199254740991 (multipliers unit)))
-            {:network network :msat (* n (multipliers unit))}))))))
+    (when-let [[_ prefix digits unit] (re-matches #"ln(bcrt|bc|tbs|tb|sb)(?:([1-9][0-9]{0,15})([munp]?))?1[02-9ac-hj-np-z]{6,}"
+                                                  (str/lower-case invoice))]
+      (let [network (networks prefix)]
+        (cond
+          (nil? digits) {:network network}
+          ;; a tenth of the amount, from its digits, since JavaScript holds no
+          ;; whole number of sixteen digits
+          (= "p" unit)  (when (str/ends-with? digits "0")
+                          {:network network :msat (parse-long (subs digits 0 (dec (count digits))))})
+          :else         (let [n (parse-long digits)]
+                          (when (and n (<= n (quot 9007199254740991 (multipliers unit))))
+                            {:network network :msat (* n (multipliers unit))})))))))
 
 (defn- success-action
   "The success action `a` of an answer to a request to `callback`, as
@@ -319,6 +326,9 @@
   `:comment` of `opts`. The comment is text, or a function of the terms of
   the address that gives the text. The function fits a comment to the
   `:comment-length` of the terms, as `value.metadata/payment-comment` does.
+  The invoice has the `:comment` that went out, as `sent-comment` cut it.
+  An invoice without one went out with no comment, so the recipient does
+  not learn what the payment is for.
 
   The other options are the limits of `default-limits`, `:allow?`, and
   `:send`, a function that sends a request map in place of `http/call!`.
@@ -345,9 +355,13 @@
 
                                        :else
                                        (let [comment (:comment opts)
-                                             text    (if (fn? comment) (comment offer) comment)]
+                                             text    (if (fn? comment) (comment offer) comment)
+                                             sent    (sent-comment offer text)]
                                          (async/then (exchange! (invoice-request offer msat text) opts)
-                                                     #(if (:error %) % (invoice offer msat %))))))))))))))
+                                                     (fn [response]
+                                                       (let [read (if (:error response) response (invoice offer msat response))]
+                                                         (cond-> read
+                                                           (and sent (not (:error read))) (assoc :comment sent))))))))))))))))
 
 (defn node!
   "The node that pays the Lightning `address` with keysend, as `node` reads

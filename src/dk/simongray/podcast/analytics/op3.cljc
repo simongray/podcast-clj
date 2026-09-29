@@ -18,6 +18,7 @@
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [dk.simongray.podcast.async :as async]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.guid :as guid]
             [dk.simongray.podcast.http :as http]
             [dk.simongray.podcast.json :as json]
@@ -199,11 +200,13 @@
 
   A download has the keys of `dk.simongray.podcast.analytics/downloads`
   where OP3 tells the same fact: hashedIpAddress is `:ip`, and audienceId
-  is the `:listener`. The keys of a map by show or by app stay text."
+  is the `:listener`. The keys of a map by show or by app stay text.
+
+  Throws `::failed` for a body that holds no JSON object."
   [endpoint body]
-  (let [raw (json/read-str body)]
+  (let [raw (json/parse body)]
     (when-not (map? raw)
-      (throw (ex-info "OP3 answered with JSON that is not an object" {:type ::failed :endpoint endpoint})))
+      (throw (ex-info "OP3 answered with no JSON object" {:type ::failed :endpoint endpoint})))
     (case endpoint
       :show                    (cond-> (record raw)
                                  (get raw "episodes") (assoc :episodes (mapv record (get raw "episodes"))))
@@ -231,20 +234,23 @@
   Nil when OP3 has no such show or no data of it. Throws `::failed` with
   the `:status` and the `:message` of any other answer that is not a
   success. Examples are 401 for a token that OP3 does not know, and 429
-  when a caller asks too often. `opts` are the `:origin` of `request`, the
+  when a caller asks too often. A success that holds no JSON object is
+  `::failed` too. `opts` are the `:origin` of `request`, the
   `:timeout-seconds` of each request, and `:send`, a function that sends a
   request map in place of `http/call!`."
   ([token endpoint params]
    (call! token endpoint params {}))
   ([token endpoint params opts]
-   (let [{:keys [send timeout-seconds]} (merge {:send http/call! :timeout-seconds 30} opts)]
+   (let [{:keys [send timeout-seconds]} (merge {:send http/call! :timeout-seconds 30} opts)
+         failed (fn [status said]
+                  (ex-info (str "OP3 answered " status ": " said) {:type ::failed :status status :message said}))]
      (async/then (send (assoc (request token endpoint params opts) :timeout-seconds timeout-seconds))
                  (fn [{:keys [status body]}]
                    (cond
-                     (and status (<= 200 status 299)) (response endpoint body)
-                     (= 404 status)                   nil
-                     :else                            (throw (ex-info (str "OP3 answered " status ": " (message body))
-                                                                      {:type ::failed :status status :message (message body)}))))))))
+                     (= 404 status)                         nil
+                     (not (and status (<= 200 status 299))) (throw (failed status (message body)))
+                     (map? (json/parse body))               (response endpoint body)
+                     :else                                  (throw (failed status "no JSON object"))))))))
 
 (defn downloads!
   "The downloads of the show that `params` name, as the call :downloads
@@ -254,21 +260,36 @@
   A page holds at most `:limit` downloads, 20,000 unless `params` say. The
   fetch stops after `:max-pages` pages, five unless `opts` say. When it
   stops before the end, the continuation token names the next page, and
-  `params` with it read on from there. `opts` as for `call!`."
+  `params` with it read on from there. `opts` as for `call!`.
+
+  This throws nothing for what OP3 or the network does. When the call for
+  a page fails, the result has the `:error` of it, a diagnostic, with the
+  downloads of the pages before that page. The continuation token then
+  names the page that failed."
   ([token params]
    (downloads! token params {}))
   ([token params opts]
    (let [params (merge {:limit 20000} params)
-         pages  (async/iteration (fn [token-of-page]
-                                   (call! token :downloads (cond-> params token-of-page (assoc :continuation-token token-of-page)) opts))
-                                 :kf    :continuation-token
+         page!  (fn [from]
+                  (async/then (async/attempt #(call! token :downloads (cond-> params from (assoc :continuation-token from)) opts))
+                              (fn [{:keys [value error]}]
+                                (if error
+                                  {::from from
+                                   :error (diagnostics/describe {:id     :analytics/unreachable
+                                                                 :status (:status (ex-data error))
+                                                                 :reason (async/explain error)})}
+                                  value))))
+         pages  (async/iteration page!
+                                 :kf    #(when-not (:error %) (:continuation-token %))
                                  :initk (:continuation-token params)
                                  :limit (:max-pages opts 5))]
      (async/then pages
                  (fn [pages]
-                   (let [last-token (:continuation-token (peek pages))]
-                     (cond-> {:downloads (into [] (mapcat :downloads) pages)}
-                       last-token (assoc :continuation-token last-token))))))))
+                   (let [{:keys [error] ::keys [from]} (first (filter :error pages))
+                         token (if error from (:continuation-token (peek pages)))]
+                     (cond-> {:downloads (into [] (comp (remove :error) (mapcat :downloads)) pages)}
+                       token (assoc :continuation-token token)
+                       error (assoc :error error))))))))
 
 #?(:clj
    (comment

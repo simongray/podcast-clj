@@ -186,12 +186,29 @@
   [ranges]
   (reduce + 0 (for [[a b] ranges] (cond (nil? a) b (nil? b) ##Inf :else (inc (- b a))))))
 
+(defn ^:no-doc malformed?
+  "Whether `request` is no request that the rules can read. It has no
+  instant as `:time`, or no text as `:url` or `:ip`. Or a field that it has
+  is of another type than its own: the `:method` a keyword or text, and the
+  `:range`, the `:user-agent` and the `:referer` text."
+  [{:keys [time url ip method range user-agent referer]}]
+  (let [text? #(or (nil? %) (string? %))]
+    (not (and (inst? time)
+              (string? url)
+              (string? ip)
+              (seq ip)
+              (or (nil? method) (keyword? method) (string? method))
+              (text? range)
+              (text? user-agent)
+              (text? referer)))))
+
 (defn drop-reason
   "Why the rules of the IAB leave out `request`, a keyword, or nil when it
   can be part of a download. These are the filters of the first step of
   the guidelines, in the order that `downloads` applies them:
 
-  - :malformed, a request with no instant as `:time`, or no `:url` or `:ip`
+  - :malformed, a request with no instant as `:time`, or no `:url` or
+    `:ip`, or with a field of another type than the type of that field
   - :method, a request that is not GET, since HEAD moves no content
   - :status, an answer that is not 200 or 206, or 000, which Akamai logs
     for a 206 that ended early. A request without a status passes, since
@@ -209,9 +226,9 @@
     lists of the host"
   ([request]
    (drop-reason request {}))
-  ([{:keys [time url ip method status range user-agent] :as request} {:keys [exclude?]}]
+  ([{:keys [method status range user-agent] :as request} {:keys [exclude?]}]
    (cond
-     (not (and (inst? time) (string? url) (string? ip) (seq ip)))  :malformed
+     (malformed? request)                                          :malformed
      (not= "get" (some-> method name str/lower-case))              :method
      (not (contains? #{nil 200 206 0} status))                     :status
      (some-> (http/byte-ranges range) asked-size (<= 2))           :two-bytes
@@ -238,11 +255,12 @@
 
 (defn- held-size
   "The bytes that the byte ranges `ranges` hold together, each byte once:
-  ##Inf when a range has no end. A range from the end of the file counts
-  apart, since its start is not known."
+  ##Inf when a range has no end. The ranges from the end of the file count
+  apart, since their start is not known. They all end where the file ends,
+  so together they hold the bytes of the longest of them."
   [ranges]
   (let [{from-end true from-start false} (group-by (comp nil? first) ranges)]
-    (+ (reduce + 0 (map second from-end))
+    (+ (reduce max 0 (map second from-end))
        (first (reduce (fn [[total reach] [a b]]
                         (cond
                           (nil? b)    (reduced [##Inf reach])
@@ -273,7 +291,8 @@
   (let [known (memoize (fn [ua referer] (identify user-agents ua referer)))]
     (reduce (fn [[kept dropped] request]
               (let [request (cond-> request
-                              user-agents (merge (known (:user-agent request) (:referer request))))]
+                              (and user-agents (not (malformed? request)))
+                              (merge (known (:user-agent request) (:referer request))))]
                 (if-let [reason (drop-reason request opts)]
                   [kept (update dropped reason (fnil inc 0))]
                   [(conj kept request) dropped])))
