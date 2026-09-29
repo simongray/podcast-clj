@@ -118,6 +118,9 @@ A listener can give the address of the website of a show, not of its feed.
 ;; => ({:href "https://example.com/feed.xml" :type "application/rss+xml" :title "The show"})
 ```
 
+Give the address of the page, as here. Each feed is then an http or https
+URL, and the base element of the page counts as in a browser.
+
 A private feed can need a user name and a password, or a token. Give them
 to `fetch!` as `:credentials`, such as `{:username "…" :password "…"}`.
 `fetch!` does not send them on when a redirect leads to another domain.
@@ -212,11 +215,16 @@ feeds, and the new shows in the list become subscriptions.
 ```
 
 `refresh-list` subscribes to a show that joins the list, unless the
-listener subscribed to it or left it before. A show that leaves the list
-stays a subscription, because the listener can like it. `player/to-opml`
-writes the lists that the listener follows as inclusions, the way that
-OPML 2.0 includes one list in another, and `player/from-opml` follows them
-again.
+listener subscribed to it or left it before. It knows a show by the URL of
+its feed, so a show that the listener has under another guid does not come
+in twice. A show that leaves the list stays a subscription, because the
+listener can like it. `player/to-opml` writes the lists that the listener
+follows as inclusions, the way that OPML 2.0 includes one list in another,
+and `player/from-opml` follows them again.
+
+While the listener follows a list, the state keeps the record of each show
+that the listener left. A new device then does not subscribe to such a
+show again.
 
 
 ## Build the show and episode pages
@@ -432,10 +440,15 @@ episodes. Each change syncs to the other devices, as the queue does.
   when the listener queues it, plays it or dismisses it.
 - The listener can star an episode, and bookmark a position in it.
 - A saved filter keeps the criteria of `search/episodes` under a name.
+  Another device can save criteria of a later version of podcast-clj.
+  `search/problem` tells what this version does not know, so ask it before
+  you offer the filter.
 - A playlist is a list of episodes beside the queue, in the order the
   listener gives. Play it by queueing its episodes. `player/to-list-feed`
   writes it as a list feed of the podcast namespace, which Podcasting 2.0
-  apps can play, and `player/from-list-feed` reads one.
+  apps can play, and `player/from-list-feed` reads one. The list feed is
+  for other people, so the URL of a private feed goes into it without its
+  user name and password.
 - `player/step` counts the seconds that the listener hears of each show,
   month by month, for statistics and a review of the year.
 
@@ -459,15 +472,24 @@ episodes. Each change syncs to the other devices, as the queue does.
 (reduce #(player/enqueue %1 %2 now) state (player/playlist state "Road trip"))  ; play it
 (podcast/emit (player/to-list-feed state "Road trip" {:url "https://example.org/road-trip.xml"}))
 
-(let [urls (into {} (for [[_ {:keys [url feed]}] feeds] [feed url]))]  ; for feeds without a podcast:guid
-  (search/episodes (keys urls) (assoc (get (player/filters state) "Starred") :player state :url #(urls %))))
+(let [urls     (into {} (for [[_ {:keys [url feed]}] feeds] [feed url]))  ; for feeds without a podcast:guid
+      criteria (get (player/filters state) "Starred")]
+  (when-not (search/problem criteria)
+    (search/episodes (keys urls) (assoc criteria :player state :url #(urls %)))))
 ```
 
 `player/from-opml` reads the folders, the tags and the dates of
 subscribing back. It also reads the OPML of other apps. Some apps put a
 description in the text of an outline, so it uses the title of the feed
-first. Some apps put the whole list in one folder, so a folder that holds
-every show does not become a folder.
+first. Some apps put the whole list in one folder with the name `feeds`.
+Such a folder does not become a folder. A folder of the listener stays a
+folder, also when it holds every show. [Services and their
+defaults](services.md#the-folder-around-an-opml-list) lists the names, and
+the option `:wrappers` replaces them:
+
+```clojure
+(player/from-opml state (opml/parse opml-text) now {:wrappers #{"feeds" "podcasts"}})
+```
 
 
 ## Sync the devices of a listener

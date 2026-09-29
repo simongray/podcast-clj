@@ -126,10 +126,15 @@
             "a place between distinct ranks is found")
         (is (= [b c e d ["feed-x" "x"]] (player/queue (player/move (player/enqueue both ["feed-x" "x"] t3) ["feed-x" "x"] 3 t3)))
             "a place between two tied ranks is after both of them")))
-    (testing "ranks stay short as a queue grows"
-      (let [long (reduce (fn [s i] (player/enqueue s ["f" (str i)] t0)) (player/state "x") (range 300))]
-        (is (= 300 (count (player/queue long))))
-        (is (<= (apply max (map (comp count :rank) (vals (:queue long)))) 6))))))
+    (testing "ranks stay short as a queue grows, at its end and at its front"
+      (let [long   (reduce (fn [s i] (player/enqueue s ["f" (str i)] t0)) (player/state "x") (range 2000))
+            played (reduce (fn [s i] (:state (player/step s [:play ["g" (str i)]] t0))) long (range 200))
+            digits #(apply max (map (comp count :rank) (vals (:queue %))))]
+        (is (= 2000 (count (player/queue long))))
+        (is (= 3 (digits long)))
+        (is (= (concat (for [i (range 199 -1 -1)] ["g" (str i)]) (for [i (range 2000)] ["f" (str i)]))
+               (player/queue played)))
+        (is (= 3 (digits played)))))))
 
 (deftest preferences-and-settings-field-by-field
   (let [base   (player/subscribe (player/state "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
@@ -165,7 +170,15 @@
     (testing "with auto-queue they join the queue, oldest first"
       (let [{:keys [state]} (player/refresh (player/configure s "feed-a" {:auto-queue? true} t0) before after "https://a/rss" t1)]
         (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (player/queue state)))
-        (is (= [] (player/inbox state)))))
+        (is (= [] (player/inbox state)))
+        (is (= state (:state (player/refresh state after after "https://a/rss" t2))) "a parse with no new episode changes nothing")))
+    (testing "many new episodes join the queue with short ranks"
+      (let [grown {:podcast/guid "feed-a" :rss/items (into (mapv #(item (str "n" %)) (range 3000 0 -1)) (:rss/items before))}
+            s     (-> (player/configure s "feed-a" {:auto-queue? true} t0) (player/enqueue ["feed-b" "b1"] t0))
+            {:keys [state added]} (player/refresh s before grown "https://a/rss" t1)]
+        (is (= 3000 (count added)))
+        (is (= (into [["feed-b" "b1"]] added) (player/queue state)) "after what the queue holds, in their order")
+        (is (= 3 (apply max (map (comp count :rank) (vals (:queue state))))))))
     (testing "else, when the settings ask for it, the inbox, the newest first"
       (let [{:keys [state]} (player/refresh (player/configure s "feed-a" {:inbox? true} t0) before after "https://a/rss" t1)]
         (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (player/inbox state)))
@@ -303,6 +316,40 @@
     (is (= {:state s :added [] :left []} (player/refresh-list s "https://other/list.opml" nil v1 t1))
         "a list the listener does not follow changes nothing")
     (is (= {} (player/lists (player/unfollow-list s url t1))))
+    (testing "the state knows a show by the URL of its feed, under whatever guid"
+      (let [s     (-> (player/state "phone")
+                      (player/subscribe "declared" {:url "https://pc20/rss" :title "PC20"} t0)
+                      (player/subscribe "private" {:url "https://simon:secret@members.example/rss" :title "Members"} t0)
+                      (player/follow-list url {:title "Picks"} t0))
+            twice {:subscriptions [{:text "PC20" :xml-url "http://PC20/rss/"}
+                                   {:text "Members" :xml-url "https://members.example/rss"}
+                                   {:text "New" :xml-url "https://new/rss"}
+                                   {:text "New, again" :xml-url "https://NEW/rss"}]}
+            {:keys [state added left]} (player/refresh-list s url nil twice t1)]
+        (is (= [(g "https://new/rss")] added) "and a show that the list names twice comes in once")
+        (is (= #{"declared" "private" (g "https://new/rss")} (set (keys (player/subscriptions state)))))
+        (is (= "https://simon:secret@members.example/rss" (get-in state [:subscriptions "private" :url]))
+            "a private feed is the feed at its URL without the password, and keeps its own URL")
+        (is (= ["declared" "private" (g "https://new/rss")]
+               (:left (player/refresh-list state url twice {:subscriptions []} t2)))
+            "a show that leaves has the guid that the state knows it by")
+        (is (= [] left))))
+    (testing "a show that the listener left stays left on a device that joins after the compaction"
+      (let [day    (* 24 60 60 1000)
+            far    (time/->inst (+ (inst-ms t4) (* 40 day)))
+            phone  (-> (player/identify (:state r1) {:name "Phone"} t1)
+                       (player/unsubscribe (g "https://pc20/rss") t2))
+            laptop (-> (player/identify (player/state "laptop") {:name "Laptop"} t2)
+                       (player/merge phone)
+                       (player/acknowledge [phone] t3))
+            phone  (player/compact (player/acknowledge (player/merge phone laptop) [laptop] t3) far)
+            tablet (player/merge (player/state "tablet") phone)]
+        (is (:removed? (get-in phone [:subscriptions (g "https://pc20/rss")]))
+            "the tombstone stays while the listener follows a list")
+        (is (= [] (:added (player/refresh-list tablet url nil v1 far))))
+        (is (nil? (get-in (player/compact (player/unfollow-list phone url t4) far {:keep-for 0})
+                          [:subscriptions (g "https://pc20/rss")]))
+            "and it goes when the listener follows none")))
     (testing "in OPML, as an inclusion in the list's folder, and followed again from it"
       (let [xml (opml/emit (player/to-opml (:state r1)))]
         (is (re-find #"<outline text=\"Picks\">\s*<outline type=\"rss\"[^>]*/>\s*<outline type=\"include\" text=\"Picks\" url=\"https://lists.example/picks.opml\"/>" xml))
@@ -322,6 +369,34 @@
     (is (= {"Road trip" [c a b]} (player/playlists (player/rename-playlist s "Drive" "Road trip" t2))) "in the same order")
     (is (= {} (player/playlists (player/rename-playlist s "Drive" nil t2))) "nil deletes it")
     (is (= [] (player/queue s)) "the queue is its own")
+    (testing "into a playlist that holds episodes"
+      (let [d ["feed-b" "b2"]
+            e ["feed-b" "b3"]
+            s (-> s (player/add-to-playlist "Walk" d t1) (player/add-to-playlist "Walk" a t1) (player/add-to-playlist "Walk" e t1))]
+        (is (= {"Walk" [d a e c b]} (player/playlists (player/rename-playlist s "Drive" "Walk" t2)))
+            "at its end, in their order, and an episode that both hold stays where it was")
+        (is (= s (player/rename-playlist s "Drive" "Drive" t2)) "a playlist renamed to its own name is as it was")))
+    (testing "a private feed goes into a list feed without its credentials"
+      (let [s (-> (player/state "phone")
+                  (player/subscribe "feed-p" {:url "https://simon:secret@members.example/rss" :title "Members"} t0)
+                  (player/add-to-playlist "Best" ["feed-p" "p1"] t0))]
+        (is (= [{:feed-guid "feed-p" :item-guid "p1" :feed-url "https://members.example/rss"}]
+               (:podcast/remote-items (player/to-list-feed s "Best"))))))
+    (testing "a list feed that names an episode twice, and one that the playlist holds"
+      (let [feed {:podcast/remote-items [{:feed-guid "feed-a" :item-guid "a2"} {:feed-guid "feed-c" :item-guid "c1"}
+                                         {:feed-guid "feed-c" :item-guid "c1"} {:feed-guid "feed-c"}
+                                         {:feed-guid "feed-c" :item-guid "c2"}]}
+            s'   (player/from-list-feed s "Drive" feed t2)]
+        (is (= [c a b ["feed-c" "c1"] ["feed-c" "c2"]] (player/playlist s' "Drive")))
+        (is (= s' (player/from-list-feed s' "Drive" feed t3)) "and again, nothing changes")))
+    (testing "a long list feed, and the same list feed again with more episodes"
+      (let [feed  (fn [n] {:podcast/remote-items (vec (for [i (range n)] {:feed-guid "feed-l" :item-guid (str i)}))})
+            long  (player/from-list-feed s "Drive" (feed 5000) t2)
+            again (player/from-list-feed long "Drive" (feed 9000) t3)
+            ranks #(map :rank (vals (get-in % [:playlists "Drive"])))]
+        (is (= (into [c a b] (for [i (range 9000)] ["feed-l" (str i)])) (player/playlist again "Drive")))
+        (is (= 5 (apply max (map count (ranks long))) (apply max (map count (ranks again))))
+            "the ranks of many episodes are short")))
     (testing "as a list feed of the podcast namespace, and back"
       (let [feed (player/to-list-feed s "Drive" {:url "https://me.example/drive.xml"})]
         (is (= {:rss/version "2.0" :rss/title "Drive" :rss/description "Drive" :rss/link "https://me.example/drive.xml"
@@ -406,11 +481,42 @@
                                                                    :xml-url "https://podnews.net/rss"}]}
                                                  t0)
                                [:subscriptions "9b024349-ccf0-5f69-a609-6b82873eab3c" :title]))))
-    (testing "a folder around the whole list is a wrapper, not a folder"
-      (let [wrapped (opml/parse "<opml version=\"1.0\"><head><title>Feeds</title></head><body><outline text=\"feeds\">
-                                   <outline type=\"rss\" text=\"A\" xmlUrl=\"https://a/rss\"/>
-                                   <outline type=\"rss\" text=\"B\" xmlUrl=\"https://b/rss\"/></outline></body></opml>")]
-        (is (= [nil] (keys (player/folders (player/from-opml (player/state "x") wrapped t0)))))))))
+    (testing "a folder around the whole list is a wrapper, not a folder, when its name is one that apps write"
+      (let [around  (fn [folder]
+                      (opml/parse (str "<opml version=\"1.0\"><head><title>Feeds</title></head><body><outline text=\"" folder "\">
+                                          <outline type=\"rss\" text=\"A\" xmlUrl=\"https://a/rss\"/>
+                                          <outline type=\"rss\" text=\"B\" xmlUrl=\"https://b/rss\"/></outline></body></opml>")))
+            folders (fn [list opts] (keys (player/folders (player/from-opml (player/state "x") list t0 opts))))]
+        (is (= [nil] (keys (player/folders (player/from-opml (player/state "x") (around "feeds") t0)))))
+        (is (= [nil] (folders (around "Feeds") {})) "in any case")
+        (is (= ["News"] (folders (around "News") {})) "a folder of the listener stays, also when it holds every show")
+        (is (= ["feeds"] (folders (around "feeds") {:wrappers #{}})) "the names are an option")
+        (is (= [nil] (folders (around "Podcasts") {:wrappers #{"podcasts"}})))
+        (is (= [nil] (folders (around "News") {:wrappers (constantly true)})) "and so is a rule for any name")))
+    (testing "the one folder of a listener, with a list in it, comes back as it went out"
+      (let [s    (-> (player/state "phone")
+                     (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+                     (player/subscribe "feed-b" {:url "https://b/rss" :title "B"} t0)
+                     (player/configure "feed-a" {:folder "News"} t0)
+                     (player/configure "feed-b" {:folder "News"} t0)
+                     (player/follow-list "https://l/picks.opml" {:title "Picks" :folder "News"} t0))
+            back (player/from-opml (player/state "laptop") (opml/parse (opml/emit (player/to-opml s))) t1)]
+        (is (= {"News" ["feed-a" "feed-b"]} (player/folders back)))
+        (is (= (player/lists s) (player/lists back)))))
+    (testing "a show that the state has by its URL keeps its guid"
+      (let [s    (-> (player/state "phone")
+                     (player/subscribe "declared" {:url "https://a.example/rss" :title "A"} t0)
+                     (player/subscribe "private" {:url "https://simon:secret@members.example/rss" :title "Members"} t0))
+            list {:subscriptions [{:text "A, again" :xml-url "HTTP://A.example/rss/"}
+                                  {:text "A, from another app" :xml-url "https://a.example/rss" :guid "other"}
+                                  {:text "Members" :xml-url "https://members.example/rss"}
+                                  {:text "B" :xml-url "https://b.example/rss" :guid " "}]}
+            back (player/from-opml s list t1)]
+        (is (= #{"declared" "private" (guid/from-url "https://b.example/rss")} (set (keys (player/subscriptions back))))
+            "whatever the scheme, the case and the trailing slash, and a blank guid is none")
+        (is (= ["https://a.example/rss" "https://simon:secret@members.example/rss"]
+               (map #(get-in back [:subscriptions % :url]) ["declared" "private"]))
+            "and its URL, so a private feed keeps its password")))))
 
 (deftest merging-two-devices
   (let [phone  (-> (player/state "phone")
@@ -467,12 +573,46 @@
                            [{:subscriptions [1 2 3]} #":subscriptions is not a map"]
                            [{:episodes {a "x"}} #"not a map"]
                            [{:queue {a {:rank "V!" :updated-at t0 :device "x"}}} #"not a rank"]
-                           [{:devices {"x" {:seen {"y" 5} :updated-at t0 :device "x"}}} #"seen"]]]
-      (is (re-find found (str (player/problem state))) (pr-str state)))))
+                           [{:playlists {"P" {a {:rank "V!" :updated-at t0 :device "x"}}}} #"the playlist \"P\""]
+                           [{:devices {"x" {:seen {"y" 5} :updated-at t0 :device "x"}}} #"seen"]
+                           [{:lists {"https://l/1.opml" {:updated-at t0 :device "x"} 5 {:updated-at t0 :device "x"}}}
+                            #"the list at 5 is not at a URL"]
+                           [{:bookmarks {a {754.5 {:title "x" :updated-at t0 :device "x"}}}} #"whole number of seconds"]
+                           [{:bookmarks {a {-1 {:title "x" :updated-at t0 :device "x"}}}} #"whole number of seconds"]
+                           [{:filters {"F" {:criteria [:where] :updated-at t0 :device "x"}}} #"criteria of the filter \"F\""]
+                           [{:tags {"feed-a" "Tech"}} #"\[:tags \"feed-a\"\] is not a map"]]]
+      (is (re-find found (str (player/problem state))) (pr-str state))))
+  (testing "an entry without a stamp, which two devices merge to two different states"
+    (let [here  {:device "a" :stars {a {:removed? false}}}
+          there {:device "b" :stars {a {:removed? true}}}]
+      (is (not= (dissoc (player/merge here there) :device) (dissoc (player/merge there here) :device)))
+      (is (= "the entry at [:stars [\"feed-a\" \"a1\"]] is not stamped" (player/problem here)))
+      (doseq [state [{:queue {a {}}} {:settings {"feed-a" {:folder {:value "News"}}}}
+                     {:listened {"feed-a" {"2026-09" {"x" {:seconds 5}}}}} {:retired {"x" {}}}]]
+        (is (re-find #"is not stamped" (str (player/problem state))) (pr-str state)))))
+  (testing "criteria of a later version are no problem of the state"
+    (is (nil? (player/problem {:filters {"F" {:criteria {:where {:rating 5}} :updated-at t0 :device "x"}}})))))
 
 (deftest merging-entries-with-keys-of-any-kind
   (let [s (player/identify (player/state "phone") {:name "Phone" "custom" 1} t0)]
     (is (= s (player/merge s s)) "an entry ties with itself, and its keys still sort")))
+
+(deftest a-tie-between-two-entries
+  (let [saved  (fn [criteria] {:device "p" :filters {"F" {:criteria criteria :removed? false :updated-at t0 :device "p"}}})
+        order  #(get-in (player/merge %1 %2) [:filters "F" :criteria :order])
+        one    (array-map :order :newest :where (array-map :starred? true :status #{:played :unplayed :in-progress}))
+        other  (array-map :where (array-map :status #{:unplayed :in-progress} :starred? false) :order :oldest)
+        turned (fn [m] (into (array-map) (map (fn [[k v]] [k (if (map? v) (into (array-map) (reverse v)) v)])) (reverse m)))]
+    (is (= (turned one) one) "the same criteria, with their keys in another order")
+    (is (= (order (saved one) (saved other))
+           (order (saved other) (saved one))
+           (order (saved (turned one)) (saved (turned other)))
+           (order (saved (turned other)) (saved one)))
+        "the content decides, and not the order of the keys in a map of the entry")
+    (testing "a whole number prints without a fraction on both platforms, so both pick the same entry"
+      (let [rate (fn [v] {:device "p" :preferences {:rate {:value v :updated-at t0 :device "p"}}})]
+        (is (== 1 (:rate (player/preferences (player/merge (rate 1.0) (rate 1.5))))))
+        (is (== 1 (:rate (player/preferences (player/merge (rate 1.5) (rate 1.0))))))))))
 
 (deftest devices-and-the-clock
   (let [s (-> (player/state "phone-id")

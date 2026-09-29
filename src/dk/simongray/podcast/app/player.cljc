@@ -40,8 +40,12 @@
   Identities are those of `dk.simongray.podcast.feed`: a feed by its
   `podcast:guid`, an episode by `[feed-guid item-guid]`."
   (:refer-clojure :exclude [merge])
-  (:require [dk.simongray.podcast.feed :as feed]
+  (:require [clojure.string :as str]
+            [clojure.walk :as walk]
+            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.guid :as guid]
+            [dk.simongray.podcast.http :as http]
+            [dk.simongray.podcast.json :as json]
             [dk.simongray.podcast.rank :as rank]
             [dk.simongray.podcast.time :as time]))
 
@@ -127,6 +131,26 @@
   removed ones left out."
   [state]
   (into {} (remove (comp :removed? val)) (:subscriptions state)))
+
+(defn ^:no-doc normal-url
+  "`url` as a feed or a media file is known by, whatever its scheme, its
+  case and its trailing slashes, and without the user name and the
+  password that it holds."
+  [url]
+  (-> (str url) http/split-credentials first guid/guid-name str/lower-case))
+
+(defn ^:no-doc by-url
+  "The feed guids of the subscriptions of `state`, the removed ones too, by
+  their URLs as `normal-url` gives them.
+
+  Of the subscriptions with one URL, a live one names the feed before a
+  removed one, and then the one that changed last."
+  [state]
+  (->> (:subscriptions state)
+       (filter (comp :url val))
+       (sort-by (fn [[g {:keys [removed? updated-at]}]]
+                  [(if removed? 0 1) (or (some-> updated-at inst-ms) 0) (str g)]))
+       (into {} (map (fn [[g e]] [(normal-url (:url e)) g])))))
 
 (defn subscribe
   "Subscribe to the feed `feed-guid` at `url` with `title` at `at`; the
@@ -361,12 +385,17 @@
   and saved filters taken away. The played marks and the counts of
   listening stay, since the listener still sees them, and a
   device that has stopped syncing holds compaction back until it is
-  retired (see `lagging`)."
+  retired (see `lagging`).
+
+  The tombstones of the unsubscriptions stay while the listener follows a
+  list. A list can name a show again at any time, and the tombstone tells
+  `refresh-list` that the listener left the show."
   ([state at]
    (compact state at {}))
   ([state at {:keys [keep-for] :or {keep-for default-keep} :as opts}]
    {:pre [(map? opts)]}
-   (let [droppable? (fn [e]
+   (let [follows?   (some (complement :removed?) (vals (:lists state)))
+         droppable? (fn [e]
                       (and (:removed? e)
                            (<= (+ (inst-ms (:updated-at e)) keep-for) (inst-ms at))
                            (seen-by-all? state e)))
@@ -379,7 +408,8 @@
                             m))]
      (reduce (fn [s k] (if (map? (get s k)) (update s k sweep) s))
              state
-             [:subscriptions :tags :lists :queue :playlists :inbox :stars :bookmarks :filters]))))
+             (cond->> [:subscriptions :tags :lists :queue :playlists :inbox :stars :bookmarks :filters]
+               follows? (remove #{:subscriptions}))))))
 
 (defn lagging
   "The live devices other than this one that, by their registry entries,
@@ -745,15 +775,35 @@
   (into {} (keep (fn [[name entries]] (when-some [ids (not-empty (mapv key (ranked entries)))] [name ids])))
         (:playlists state)))
 
+(defn ^:no-doc appended
+  "The writes that put the episodes `ids` at the end of the ranked entries
+  at `path` in `state`, in their order. The queue and each playlist are
+  such entries. An episode that is there stays where it is.
+
+  The ranks are those of `dk.simongray.podcast.rank/after`, so the ranks
+  of many episodes are short."
+  [state path ids]
+  (let [entries (get-in state path)
+        held?   (fn [id] (let [e (get entries id)] (and e (not (:removed? e)))))
+        fresh   (remove held? (distinct ids))]
+    (map (fn [id rank] [(conj path id) (constantly {:rank rank :removed? false})])
+         fresh
+         (rank/after (last-rank entries) (count fresh)))))
+
+(defn ^:no-doc append
+  "`state` with the episodes `ids` at the end of the ranked entries at
+  `path` at `at`, as `appended` writes them. With no episode to write, the
+  state is as it was."
+  [state path ids at]
+  (if-let [writes (seq (appended state path ids))]
+    (write-each state writes at)
+    state))
+
 (defn add-to-playlist
   "Put the episode `id` at the end of the playlist `name` at `at`, unless it
   is in it already."
   [state name id at]
-  (let [entries (get-in state [:playlists name])
-        e       (get entries id)]
-    (if (and e (not (:removed? e)))
-      state
-      (write state [:playlists name id] (constantly {:rank (rank/between (last-rank entries) nil) :removed? false}) at))))
+  (append state [:playlists name] [id] at))
 
 (defn remove-from-playlist
   "Take the episode `id` out of the playlist `name` at `at`, leaving a
@@ -775,17 +825,20 @@
       state)))
 
 (defn rename-playlist
-  "Move the episodes of the playlist `from` to the playlist `to` at `at`,
-  in their order, or take them out of it when `to` is nil, which deletes
-  the playlist."
+  "Move the episodes of the playlist `from` to the end of the playlist `to`
+  at `at`, in their order. When `to` is nil, take them out, which deletes
+  the playlist.
+
+  A playlist `to` that holds episodes keeps them in their places, and an
+  episode that both playlists hold stays where `to` has it."
   [state from to at]
-  (if-let [entries (seq (ranked (get-in state [:playlists from])))]
-    (write-each state (for [[id {:keys [rank]}] entries
-                            w (cond-> [[[:playlists from id] #(assoc % :removed? true)]]
-                                to (conj [[:playlists to id] (constantly {:rank rank :removed? false})]))]
-                        w)
-                at)
-    state))
+  (let [ids (playlist state from)]
+    (if (or (empty? ids) (= from to))
+      state
+      (write-each state
+                  (concat (for [id ids] [[:playlists from id] #(assoc % :removed? true)])
+                          (when to (appended state [:playlists to] ids)))
+                  at))))
 
 (defn to-list-feed
   "The playlist `name` of `state` as a list feed of the podcast namespace,
@@ -797,7 +850,10 @@
   from which its podcast:guid derives, the `:link` of a page about the
   list, the URL when not given, a `:description`, the name when not given,
   and another `:medium`, such as mixed. Without a link or a URL, the
-  channel lacks the link that RSS 2.0 requires."
+  channel lacks the link that RSS 2.0 requires.
+
+  The URL of a feed goes out without the user name and the password that
+  it holds, because a list feed is for other people."
   ([state name]
    (to-list-feed state name {}))
   ([state name {:keys [url link description medium] :or {medium "podcastL"} :as opts}]
@@ -808,7 +864,7 @@
               :rss/description      (or description name)
               :podcast/medium       medium
               :podcast/remote-items (vec (for [[feed-guid item-guid] (playlist state name)
-                                               :let [feed-url (get-in subs [feed-guid :url])]]
+                                               :let [[feed-url] (http/split-credentials (get-in subs [feed-guid :url]))]]
                                            (cond-> {:feed-guid feed-guid :item-guid item-guid}
                                              feed-url (assoc :feed-url feed-url))))}
        (or link url) (assoc :rss/link (or link url))
@@ -819,12 +875,12 @@
   item with a feed guid and an item guid, to the end of the playlist
   `name`, in the order of the feed."
   [state name feed at]
-  (reduce (fn [state {:keys [feed-guid item-guid]}]
-            (if (and feed-guid item-guid)
-              (add-to-playlist state name [feed-guid item-guid] at)
-              state))
-          state
-          (:podcast/remote-items feed)))
+  (append state
+          [:playlists name]
+          (for [{:keys [feed-guid item-guid]} (:podcast/remote-items feed)
+                :when (and feed-guid item-guid)]
+            [feed-guid item-guid])
+          at))
 
 (defn new-episodes
   "The ids of the items that the parse `after` of the feed at `url` has and
@@ -857,7 +913,7 @@
         unknown   (remove #(or (played? state %) (contains? (:queue state) %) (contains? (:inbox state) %))
                           added)
         state     (cond
-                    auto-queue? (reduce #(enqueue %1 %2 at) state unknown)
+                    auto-queue? (append state [:queue] unknown at)
                     inbox?      (reduce #(write %1 [:inbox %2] (constantly {:removed? false}) at) state unknown)
                     :else       state)]
     {:state state :added added}))
@@ -887,13 +943,38 @@
     (write state [:lists url] #(assoc % :removed? true) at)
     state))
 
-(defn- listed
-  "The feeds of the OPML subscription `list`, in its order, as `[feed-guid
-  outline]`: the guid the outline carries or the one its URL derives."
+(defn ^:no-doc outlines
+  "The outlines of the OPML subscription `list` that name a feed by its URL,
+  in the order of the list."
   [list]
-  (for [{:keys [xml-url guid] :as outline} (:subscriptions list)
-        :when xml-url]
-    [(or guid (guid/from-url xml-url)) outline]))
+  (filter :xml-url (:subscriptions list)))
+
+(defn ^:no-doc named
+  "The guid that names the feed of the OPML `outline`, for a state whose
+  subscriptions `names` has by URL (see `by-url`).
+
+  It is the guid of the subscription with the URL of the outline. Without
+  such a subscription, it is the guid that the outline carries, else the
+  guid of its URL. So a show that the state knows under one guid does not
+  come in again under another."
+  [names {:keys [xml-url guid]}]
+  (or (get names (normal-url xml-url))
+      (when (string? guid) (not-empty (str/trim guid)))
+      (guid/from-url xml-url)))
+
+(defn- joined
+  "The result `acc` of `refresh-list`, with the show of `outline` subscribed
+  to at `at`, in `folder` when that is not nil. A show that the list had
+  before, in `was`, or that the state knows, changes nothing."
+  [{:keys [state names] :as acc} {:keys [xml-url title text] :as outline} was folder at]
+  (let [g (named names outline)]
+    (if (or (was g) (get-in state [:subscriptions g]))
+      acc
+      (-> acc
+          (assoc :state (cond-> (subscribe state g {:url xml-url :title (or title text)} at)
+                          folder (configure g {:folder folder} at))
+                 :names (assoc names (normal-url xml-url) g))
+          (update :added conj g)))))
 
 (defn refresh-list
   "Note a fresh parse `after` of the OPML list at `url`, previously
@@ -903,22 +984,20 @@
   show joining. Nothing happens for a list the listener does not follow.
   A show that left the list stays: the app decides by `:left`, the shows
   that left it and are subscribed. Returns `{:state ... :added [feed-guid
-  ...] :left [feed-guid ...]}`."
+  ...] :left [feed-guid ...]}`.
+
+  The state knows a show by the URL of its feed, whatever its scheme, its
+  case and its trailing slashes, and then by its guid."
   [state url before after at]
   (if-let [{:keys [folder]} (get (lists state) url)]
-    (let [was    (into #{} (map first) (listed before))
-          now    (listed after)
-          is     (into #{} (map first) now)
-          result (reduce (fn [{:keys [state] :as acc} [g {:keys [xml-url title text]}]]
-                           (if (or (was g) (get-in state [:subscriptions g]))
-                             acc
-                             {:state (cond-> (subscribe state g {:url xml-url :title (or title text)} at)
-                                       folder (configure g {:folder folder} at))
-                              :added (conj (:added acc) g)}))
-                         {:state state :added []}
-                         now)]
-      (assoc result :left (into [] (comp (map first) (distinct) (remove is) (filter #(subscribed? state %)))
-                                (listed before))))
+    (let [names  (by-url state)
+          guids  (fn [list] (map #(named names %) (outlines list)))
+          was    (set (guids before))
+          is     (set (guids after))
+          result (reduce #(joined %1 %2 was folder at) {:state state :names names :added []} (outlines after))]
+      {:state (:state result)
+       :added (:added result)
+       :left  (into [] (comp (distinct) (remove is) (filter #(subscribed? state %))) (guids before))})
     {:state state :added [] :left []}))
 
 (defn to-opml
@@ -946,40 +1025,75 @@
                                          title  (assoc :text title)
                                          folder (assoc :path [folder]))))))))
 
+;; Pocket Casts and Overcast write <outline text="feeds"> around the feeds.
+;; Seen in September 2026, in an export file of each app:
+;; https://github.com/razorgoto/podcast/blob/master/podcasts.opml
+;; https://github.com/vinhnx/podcasts/blob/main/overcast.opml
+(def wrappers
+  "The names, in lower case, of the folder that some apps write around a
+  whole subscription list.
+
+  `from-opml` takes a folder with such a name for no folder, when the
+  folder holds every feed of the list. The `:wrappers` in the options of
+  `from-opml` replace the names."
+  #{"feeds"})
+
+(defn- wrapper
+  "The folder around the whole OPML subscription `list`: the first folder of
+  every feed, when `wrapper?` is true for its name in lower case. Nil when
+  the list has none."
+  [list wrapper?]
+  (let [[folder :as firsts] (map (comp first :path) (outlines list))]
+    (when (and folder (apply = firsts) (wrapper? (str/lower-case (str folder))))
+      folder)))
+
+(defn- imported
+  "The running import `acc` of `from-opml`, with the feed of `outline`
+  subscribed to at `at`, in `folder` when that is not nil, and with its
+  categories as tags."
+  [{:keys [state names]} {:keys [xml-url text title category created] :as outline} folder at]
+  (let [g       (named names outline)
+        known   (when (get names (normal-url xml-url)) (get-in state [:subscriptions g :url]))
+        details {:url (or known xml-url) :title (or title text) :added-at (when (inst? created) created)}]
+    {:names (assoc names (normal-url xml-url) g)
+     :state (as-> (subscribe state g details at) state
+              (if folder (configure state g {:folder folder} at) state)
+              (reduce #(tag %1 g %2 at) state (when (sequential? category) category)))}))
+
 (defn from-opml
   "Subscribe at `at` to every feed of the OPML subscription `list` (see
-  `dk.simongray.podcast.format.opml/parse`), each identified by the guid its
-  outline carries or the one derived from its URL, titled with the feed's
+  `dk.simongray.podcast.format.opml/parse`), titled with the feed's
   title where the outline gives one apart from its text, put in the folder
   that holds it, the innermost where folders nest, and tagged with its
-  categories. A folder that holds every feed is no folder but a wrapper,
-  which some apps write around the whole list. A new subscription takes
-  the time its outline was created as the time the listener subscribed.
-  The lists the OPML includes are followed, each with its folder, unless
-  the listener follows them already."
-  [state list at]
-  (let [feeds   (filter :xml-url (:subscriptions list))
-        firsts  (map (comp first :path) feeds)
-        wrapper (when (and (seq firsts) (apply = firsts)) (first firsts))
-        unwrap  (fn [path] (if (and wrapper (= wrapper (first path))) (rest path) path))
-        state   (reduce (fn [state {:keys [xml-url text title guid path category created]}]
-                          (let [feed-guid (or guid (guid/from-url xml-url))
-                                path      (unwrap path)]
-                            (as-> (subscribe state feed-guid {:url      xml-url
-                                                              :title    (or title text)
-                                                              :added-at (when (inst? created) created)}
-                                             at)
-                                  state
-                              (if (seq path) (configure state feed-guid {:folder (last path)} at) state)
-                              (reduce #(tag %1 feed-guid %2 at) state (when (sequential? category) category)))))
-                        state
-                        feeds)]
-    (reduce (fn [state {:keys [url text path]}]
-              (if (contains? (lists state) url)
-                state
-                (follow-list state url {:title text :folder (last (unwrap path))} at)))
-            state
-            (:includes list))))
+  categories. A new subscription takes the time its outline was created as
+  the time the listener subscribed. The lists the OPML includes are
+  followed, each with its folder, unless the listener follows them
+  already.
+
+  A feed that `state` has a subscription to, by its URL, keeps the guid of
+  that subscription. It also keeps the URL, with the user name and the
+  password that the URL holds. Another feed gets the guid that its outline
+  carries, or the guid of its URL.
+
+  Some apps write one folder around the whole list. A folder that holds
+  every feed is such a wrapper, and no folder, when `wrappers` has its
+  name. The `:wrappers` of `opts` replace those names: a set of names in
+  lower case, or a predicate of a name."
+  ([state list at]
+   (from-opml state list at {}))
+  ([state list at opts]
+   {:pre [(map? opts)]}
+   (let [around (wrapper list (:wrappers opts wrappers))
+         folder (fn [path] (last (if (and around (= around (first path))) (rest path) path)))
+         state  (:state (reduce #(imported %1 %2 (folder (:path %2)) at)
+                                {:state state :names (by-url state)}
+                                (outlines list)))]
+     (reduce (fn [state {:keys [url text path]}]
+               (if (contains? (lists state) url)
+                 state
+                 (follow-list state url {:title text :folder (folder path)} at)))
+             state
+             (:includes list)))))
 
 (defn- key-order
   "The order `printed` puts the keys of an entry in: keywords as `compare`
@@ -990,11 +1104,22 @@
     (compare a b)
     (compare [(if (keyword? a) 0 1) (pr-str a)] [(if (keyword? b) 0 1) (pr-str b)])))
 
+(defn- in-order
+  "The value `x` in the one form that `printed` prints: a map with its keys
+  in order, a set with its members in order, and a whole number without a
+  fraction. A value of another kind is as it is."
+  [x]
+  (cond
+    (map? x)   (into (sorted-map-by key-order) x)
+    (set? x)   (into (sorted-set-by key-order) x)
+    (float? x) (or (json/whole x) x)
+    :else      x))
+
 (defn- printed
-  "The entry `e` printed with its keys in order, the same string for the
-  same entry on either platform."
+  "The entry `e` printed in the one form that `in-order` gives each value
+  in it. The string is the same for the same entry on either platform."
   [e]
-  (pr-str (into (sorted-map-by key-order) e)))
+  (pr-str (walk/postwalk in-order e)))
 
 (defn- later
   "The later of the stamped entries `a` and `b`; on the same instant the
@@ -1042,9 +1167,39 @@
           (disj (into (set (keys a)) (keys b)) :device)))
 
 (def ^:no-doc collections
-  "The keys of a state that hold maps of entries."
-  [:subscriptions :settings :tags :lists :episodes :queue :playlists :inbox :stars :bookmarks
-   :filters :listened :preferences :devices :retired])
+  "The keys of a state that hold maps of entries, in the order that
+  `problem` reads them. Each has the number of keys that name one entry:
+  a bookmark is by episode and then by second, so it has two."
+  [[:subscriptions 1] [:settings 2] [:tags 2] [:lists 1] [:episodes 1] [:queue 1]
+   [:playlists 2] [:inbox 1] [:stars 1] [:bookmarks 2] [:filters 1] [:listened 3]
+   [:preferences 1] [:devices 1] [:retired 1]])
+
+(defn- clock-problem
+  "The clock of `state` when it is not an instant, described."
+  [state]
+  (when-some [clock (:clock state)]
+    (when-not (inst? clock)
+      (str "the clock is " (pr-str clock) ", not an instant"))))
+
+(defn- entry-problem
+  "The first value in `v`, at `path`, that is not a map, or that is an entry
+  without a stamp, described. The entries are `depth` keys below `v`."
+  [path depth v]
+  (cond
+    (not (map? v))     (str "the entry at " (pr-str path) " is not a map")
+    (pos? depth)       (some (fn [[k x]] (entry-problem (conj path k) (dec depth) x)) v)
+    (not (stamped? v)) (str "the entry at " (pr-str path) " is not stamped")))
+
+(defn- collection-problem
+  "The first collection of `state` that is not a map, described, or the
+  first problem that `entry-problem` finds in one."
+  [state]
+  (some (fn [[k depth]]
+          (when-some [entries (get state k)]
+            (if (map? entries)
+              (entry-problem [k] depth entries)
+              (str k " is not a map"))))
+        collections))
 
 (defn- stamp-problem
   "The first stamped entry in `v`, at `path`, whose stamp is not an instant,
@@ -1057,68 +1212,95 @@
     (map? v)     (some (fn [[k x]] (stamp-problem (conj path k) x)) v)
     :else        nil))
 
-(defn- ranked-problem
-  "What in the ranked `entries` of `where`, such as the queue, `ranked`
-  would throw on, described: an entry without a stamp, or a rank that is
-  not a rank; nil when there is none."
-  [where entries]
-  (some (fn [[id {:keys [rank] :as e}]]
-          (cond
-            (not (and (map? e) (stamped? e)))
-            (str "the entry of " (pr-str id) " in " where " is not stamped")
-
-            (and (some? rank) (not (rank/rank? rank)))
-            (str "the rank of " (pr-str id) " in " where " is " (pr-str rank) ", not a rank")))
-        entries))
-
-(defn problem
-  "What in `state`, as another device wrote it, breaks what `merge` and the
-  operations here rely on, described; nil when nothing does. Merged in,
-  such a value would reach every device, and there the first operation to
-  meet it would throw: a clock or a stamp that is not an instant, a
-  collection or an entry that is not a map, an entry of the queue or of a
-  playlist without a stamp or with a rank that is not a rank, a device's
-  record of what it has seen that is not a map of instants, a bookmark
-  that is not at a number of seconds, a tag that is not a string, or a
-  count of listening that is not a number of seconds."
+(defn- rank-problem
+  "The first rank in the queue or in a playlist of `state` that is not a
+  rank, described. `ranked` throws on such a rank."
   [state]
-  (or (when-not (map? state)
-        "the state is not a map")
-      (when-some [clock (:clock state)]
-        (when-not (inst? clock)
-          (str "the clock is " (pr-str clock) ", not an instant")))
-      (some (fn [k]
-              (when-some [entries (get state k)]
-                (if (map? entries)
-                  (some (fn [[id entry]]
-                          (when-not (map? entry)
-                            (str "the entry at " (pr-str [k id]) " is not a map")))
-                        entries)
-                  (str k " is not a map"))))
-            collections)
-      (stamp-problem [] state)
-      (ranked-problem "the queue" (:queue state))
-      (some (fn [[name entries]] (ranked-problem (str "the playlist " (pr-str name)) entries))
-            (:playlists state))
-      (some (fn [[id {:keys [seen]}]]
-              (when (and (some? seen) (not (and (map? seen) (every? inst? (vals seen)))))
-                (str "what device " (pr-str id) " has seen is not a map of instants")))
-            (:devices state))
+  (some (fn [[where entries]]
+          (some (fn [[id {:keys [rank]}]]
+                  (when (and (some? rank) (not (rank/rank? rank)))
+                    (str "the rank of " (pr-str id) " in " where " is " (pr-str rank) ", not a rank")))
+                entries))
+        (cons ["the queue" (:queue state)]
+              (for [[name entries] (:playlists state)]
+                [(str "the playlist " (pr-str name)) entries]))))
+
+(defn- seen-problem
+  "The first device of `state` whose `:seen` is not a map of instants,
+  described."
+  [state]
+  (some (fn [[id {:keys [seen]}]]
+          (when (and (some? seen) (not (and (map? seen) (every? inst? (vals seen)))))
+            (str "what device " (pr-str id) " has seen is not a map of instants")))
+        (:devices state)))
+
+(defn- key-problem
+  "The first key of `state` that is of the wrong kind for its collection,
+  described. A list is at a string, a bookmark is at a whole number of
+  seconds, and a tag is a string."
+  [state]
+  (or (some (fn [url]
+              (when-not (string? url)
+                (str "the list at " (pr-str url) " is not at a URL")))
+            (keys (:lists state)))
       (some (fn [[id marks]]
-              (when-not (every? number? (keys marks))
-                (str "a bookmark of " (pr-str id) " is not at a number of seconds")))
+              (when-not (every? #(and (integer? %) (<= 0 %)) (keys marks))
+                (str "a bookmark of " (pr-str id) " is not at a whole number of seconds")))
             (:bookmarks state))
       (some (fn [[feed-guid ts]]
               (when-not (every? string? (keys ts))
                 (str "a tag of " (pr-str feed-guid) " is not a string")))
-            (:tags state))
-      (some (fn [[feed-guid months]]
-              (when-not (every? (fn [counts]
-                                  (and (map? counts)
-                                       (every? #(and (map? %) (number? (:seconds % 0))) (vals counts))))
-                                (vals months))
-                (str "the listening of " (pr-str feed-guid) " is not counted in seconds")))
-            (:listened state))))
+            (:tags state))))
+
+(defn- count-problem
+  "The first show of `state` with a count of listening that is not a number
+  of seconds, described."
+  [state]
+  (some (fn [[feed-guid months]]
+          (when-not (every? #(number? (:seconds % 0)) (mapcat vals (vals months)))
+            (str "the listening of " (pr-str feed-guid) " is not counted in seconds")))
+        (:listened state)))
+
+(defn- criteria-problem
+  "The first saved filter of `state` whose criteria are not a map,
+  described."
+  [state]
+  (some (fn [[name {:keys [criteria]}]]
+          (when-not (or (nil? criteria) (map? criteria))
+            (str "the criteria of the filter " (pr-str name) " are not a map")))
+        (:filters state)))
+
+(def ^:no-doc checks
+  "The checks of `problem`, in their order. Each is a function of a state
+  that is a map. It describes the first problem of its kind, or it gives
+  nil. A check relies on the checks before it."
+  [clock-problem collection-problem #(stamp-problem [] %) rank-problem seen-problem
+   key-problem count-problem criteria-problem])
+
+(defn problem
+  "What in `state` breaks the rules that `merge` and the operations here
+  rely on, described. Nil when nothing does.
+
+  Another device wrote the state, and a merge sends its values to every
+  device. There the first operation to meet such a value throws, or two
+  devices merge to two different states. These are the rules:
+
+  - The state and its collections are maps, and the clock is an instant.
+  - Each entry of a collection has a stamp, and each stamp is an instant.
+  - Each rank in the queue and in a playlist is a rank.
+  - What a device has seen is a map of instants.
+  - A list is at a URL, a tag is a string, and a bookmark is at a whole
+    number of seconds.
+  - A count of listening is a number of seconds.
+  - The criteria of a saved filter are a map.
+
+  The criteria of a later version of podcast-clj are no problem here.
+  `dk.simongray.podcast.app.search/problem` tells whether this version
+  knows them."
+  [state]
+  (if (map? state)
+    (some #(% state) checks)
+    "the state is not a map"))
 
 (defn- changed-part
   "The part of `v` that is not in `was`, the same place in an earlier

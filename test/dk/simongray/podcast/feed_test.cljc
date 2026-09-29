@@ -205,7 +205,25 @@
     (is (not (contains? (feed/join-pages [(with-meta {:rss/title "Empty"} {:podcast/report []})
                                           (page "Also empty" [] [])])
                         :rss/items))
-        "no items, no key")))
+        "no items, no key")
+    (is (nil? (feed/join-pages [])) "no pages, no feed")
+    (testing "the report names each item where the feed has it"
+      (let [feed (feed/join-pages [(page "First" ["5" "4"] [{:id :a :path [:rss/items 1 :rss/pub-date]}
+                                                          {:id :b :path [:rss/title]}])
+                                   (page "Second" ["4" "3" "2"] [{:id :c :path [:rss/items 0 :rss/pub-date]}
+                                                                {:id :d :path [:rss/items 2 :rss/enclosure :length]}
+                                                                {:id :e :path [:rss/title]}
+                                                                {:id :h :path []}
+                                                                {:id :f}])
+                                   (page "Third" ["1"] [{:id :g :path [:rss/items 0]}])])]
+        (is (= [{:id :a :path [:rss/items 1 :rss/pub-date]}
+                {:id :b :path [:rss/title]}
+                {:id :d :path [:rss/items 3 :rss/enclosure :length]}
+                {:id :f}
+                {:id :g :path [:rss/items 4]}]
+               (feed/report feed))
+            "and it leaves out what is about an item or a channel that the feed does not hold")
+        (is (= ["4" "2" "1"] (map #(:rss/title (get-in feed (take 2 (:path %)))) (filter (comp #{:a :d :g} :id) (feed/report feed)))))))))
 
 (deftest summarizing-diagnostics
   (let [diagnostics [{:id :a :level :warning :message "m" :path [:rss/items 0]}

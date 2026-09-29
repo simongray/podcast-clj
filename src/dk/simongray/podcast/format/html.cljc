@@ -228,29 +228,63 @@
           (apply list (drop 2 (merge-text (peek (:stack state)))))
           (recur (close-top state)))))))
 
+(defn ^:no-doc scheme
+  "The scheme of the URL `s`, in lower case, and nil for a relative URL. The
+  URL is read as a browser reads it: without the tabs and line breaks that
+  it drops anywhere, and without the control characters and spaces that it
+  drops in front. So `java&#9;script:` has the scheme javascript."
+  [s]
+  (let [s (-> (str s)
+              (str/replace #"[\t\n\r]" "")
+              (str/replace #"^[\x00-\x20]+" ""))]
+    (some-> (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*(?=:)" s) str/lower-case)))
+
+(defn ^:no-doc text-of
+  "The value `v` of an attribute when it is text that is not blank. A bare
+  attribute has the value true, and no text."
+  [v]
+  (when (and (string? v) (not (str/blank? v)))
+    v))
+
+(defn- page-base
+  "The URL that the links of a page with the `nodes` are relative to, for a
+  page at `url`, which can be nil. It is the href of the first base element
+  that has one, when that href gives an http or https URL, else `url`."
+  [nodes url]
+  (let [href (some #(when (and (vector? %) (= :base (first %))) (text-of (:href (second %)))) nodes)
+        base (when href (if url (http/absolute-url url href) href))]
+    (if (#{"http" "https"} (scheme base)) base url)))
+
 (defn feed-links
   "The feeds that the web page `s` names, as the RSS autodiscovery spec and
-  the HTML standard define: `{:href :type :title}` for each `link` element
-  with the rel alternate or feed and the type of an RSS or an Atom feed, in
-  the order of the page. With `base`, the URL of the page, each href is
-  made absolute, and one that does not read as a URL is left out. This is
-  how an app finds the feed of a show when the listener gives the address
-  of its website."
+  the HTML standard define them, in the order of the page.
+
+  A feed is `{:href :type :title}`, for each `link` element with the rel
+  alternate or feed and the type of an RSS or an Atom feed. The type is
+  without its parameters. This is how an app finds the feed of a show when
+  the listener gives the address of its website.
+
+  `base` is the URL of the page. With a base, each href is made absolute,
+  and only an http or https URL is a feed. The base element of the page
+  replaces `base`, as in a browser. Without a base, a relative href stays
+  as it is."
   ([s]
    (feed-links s nil))
   ([s base]
-   (for [node  (tree-seq vector? #(drop 2 %) (into [:root {}] (parse s)))
-         :when (and (vector? node) (= :link (first node)))
-         :let  [{:keys [rel type href title]} (second node)
-                rels (set (str/split (str/lower-case (str rel)) #"\s+"))
-                type (some-> type str/trim str/lower-case)]
-         :when (and (or (rels "alternate") (rels "feed"))
-                    (#{"application/rss+xml" "application/atom+xml"} type)
-                    (not (str/blank? href)))
-         :let  [href (if base (http/absolute-url base href) href)]
-         :when href]
-     (cond-> {:href href :type type}
-       (not (str/blank? title)) (assoc :title title)))))
+   (let [nodes (tree-seq vector? #(drop 2 %) (into [:root {}] (parse s)))
+         base  (page-base nodes base)]
+     (for [node  nodes
+           :when (and (vector? node) (= :link (first node)))
+           :let  [{:keys [rel type href title]} (second node)
+                  rels (set (str/split (str/lower-case (str rel)) #"\s+"))
+                  type (http/media-type (text-of type))]
+           :when (and (or (rels "alternate") (rels "feed"))
+                      (#{"application/rss+xml" "application/atom+xml"} type)
+                      (text-of href))
+           :let  [href (if base (http/absolute-url base href) href)]
+           :when (contains? (if base #{"http" "https"} #{nil "http" "https"}) (scheme href))]
+       (cond-> {:href href :type type}
+         (text-of title) (assoc :title title))))))
 
 (def allowed-tags
   "The elements `sanitize` keeps."
@@ -286,16 +320,10 @@
   #{:ul :ol :dl :table :thead :tbody :tfoot :tr})
 
 (defn- safe-url?
-  "Whether the URL `s` is relative or uses a scheme a client may follow,
-  judged as a browser reads it: without the tabs and line breaks it drops
-  anywhere, and the control characters and spaces it drops in front, so
-  that `java&#9;script:` is `javascript:` here too."
+  "Whether the URL `s` is relative, or has a scheme that a client can
+  follow, as a browser reads it (see `scheme`)."
   [s]
-  (let [s (-> (str s)
-              (str/replace #"[\t\n\r]" "")
-              (str/replace #"^[\x00-\x20]+" ""))]
-    (or (not (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:" s))
-        (boolean (re-find #"(?i)^(?:https?|mailto):" s)))))
+  (contains? #{nil "http" "https" "mailto"} (scheme s)))
 
 (defn ^:no-doc parts
   "The tag, the attributes and the children of the Hiccup element `node`,

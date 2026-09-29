@@ -103,14 +103,17 @@
 
 (defn- mirror-opml
   "Put the subscription list of `state` beside the documents of `store` when
-  `opts` ask for it and the subscriptions changed since the cursor `ctx`.
+  `opts` ask for it and the list changed since the cursor `ctx`. The list
+  is what `player/to-opml` gives: the shows with their folders and tags,
+  and the lists that the listener follows.
 
-  Returns the cursor, which remembers the subscriptions last mirrored."
+  Returns the cursor, which remembers the list last mirrored."
   [{:keys [put] :as store} {:keys [opml?]} state ctx]
-  (let [subs (hash (player/subscriptions state))]
-    (if (and opml? (not= subs (:opml ctx)))
-      (async/then (put opml-name (opml/emit (player/to-opml state)) {})
-                  (fn [_] (assoc ctx :opml subs)))
+  (let [list    (when opml? (player/to-opml state))
+        written (hash list)]
+    (if (and opml? (not= written (:opml ctx)))
+      (async/then (put opml-name (opml/emit list) {})
+                  (fn [_] (assoc ctx :opml written)))
       ctx)))
 
 (defn- push-document

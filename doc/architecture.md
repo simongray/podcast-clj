@@ -1046,9 +1046,11 @@ list, the list feed of the medium podcastL, so `to-list-feed` and
 `to-opml` and `from-opml` connect to `format.opml`. They keep the feed
 guid, the folder and the tags of each show, and the time the listener
 subscribed. `from-opml` uses the feed title before the text of an outline,
-which some apps fill with a description, and it takes a folder around the
-whole list for a wrapper, as some apps write one. `skip` moves within an
-episode, and never past its start or its end.
+which some apps fill with a description. Some apps write one folder around
+the whole list. OPML has no mark for such a wrapper, so `from-opml` knows
+it by its name, and the names are an option. A folder of the listener that
+holds every show has another name, and stays a folder. `skip` moves within
+an episode, and never past its start or its end.
 
 `step` is a small reducer over the events of a player: `:progress`,
 `:ended`, `:play` and `:skip`. It returns the new state, and the effects for

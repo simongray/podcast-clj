@@ -121,7 +121,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | Namespace | Contents |
 |---|---|
 | `app.player` | The player state as a CRDT: queue, playlists, inbox, progress, stars, bookmarks, subscriptions with their settings, folders and tags, followed OPML lists, saved filters, counts of listening and devices. `merge`, `compact` and `step`. Playlists as list feeds. |
-| `app.search` | Filters and orders of episodes as data, and a full-text index over subscriptions, ranked by BM25. |
+| `app.search` | Filters and orders of episodes as data, and a full-text index over subscriptions, ranked by BM25. `problem` tells what in the criteria of a saved filter this version does not know. |
 | `app.sync` | The sync between devices: sync documents, `reconcile`, `sync!` over any backends, and `next-at`. |
 | `app.sync.store` | The store contract, `memory`, `backend` over any store, and `check!` to test a store. |
 | `app.sync.file` | JVM. A folder as a store: a folder that a sync client mirrors, or a Git working tree. |
@@ -144,4 +144,4 @@ Each name below is relative to `dk.simongray.podcast`.
 | `http` | Requests as maps, credentials as a header, URLs made absolute, and when a server says to ask again. `call!` sends a request with byte ranges and limits of size and time: on the JVM with redirects that keep the credentials to their origin, and in ClojureScript with fetch. `probe!` learns the facts of a file from two bytes of it, and `fetcher` fetches a file by byte ranges. JVM: `fetch!`, which fetches a feed with conditional requests, and `digest!`, which streams a body through a digest. `public?` tells whether a host is on the public internet, and `call-public!` sends only to such hosts. `byte-ranges` reads a Range header. |
 | `bytes` | Bytes on both platforms, read as numbers and text, and a view of the parts of a file that have arrived, which says what a reader still needs. `read!` fetches it for the reader until it is done, within the limits of bytes, time and rounds of `default-limits`. |
 | `async` | Deferred values: futures on the JVM, and promises in JavaScript. `iteration` reads an API that answers in pages, as `clojure.core/iteration` does, on both platforms. |
-| `rank` | Ranks that always leave room for another rank between two ranks. |
+| `rank` | Ranks that always leave room for another rank between two ranks, and that stay short at the ends of a list. `after` gives the ranks of many items that go to the end at one time. |

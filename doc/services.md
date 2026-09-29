@@ -1,9 +1,9 @@
 # Services and their defaults
 
 podcast-clj knows some services by name: the podcast directories, the
-Podcast Index, Podping, OP3 and the servers of the gpodder API. This page
-lists what podcast-clj knows about each service, and the option that
-replaces it. [Architecture](architecture.md#why-the-api-is-regular) gives
+Podcast Index, Podping, OP3 and the servers of the gpodder API. It also
+knows how some apps write their OPML. This page lists what podcast-clj
+knows about each service, and the option that replaces it. [Architecture](architecture.md#why-the-api-is-regular) gives
 the reason. [How to build a podcast
 app](building-an-app.md#use-another-service) shows the calls.
 
@@ -36,6 +36,7 @@ Each namespace below is relative to `dk.simongray.podcast`.
 | The paths of statuses, for the Mastodon API | `comments.activitypub/status-paths` | `:status-paths` | the paths of four server programs |
 | The requirements of a directory for a feed | `feed.validate/profiles` | `:profile`, as a name or as a map | no profile |
 | The rules of a directory for artwork and media files | `check/profiles` | `:profile`, as a name or as a map | no profile |
+| The folder that an app writes around a whole OPML list | `app.player/wrappers` | `:wrappers`, a set of names or a predicate of a name | `feeds` |
 
 podcast-clj has no default for these services, and the app gives them:
 
@@ -119,6 +120,27 @@ without a user name. It does not take these domains:
 
 Another instance of OP3 can take other URLs. Give its `:origin`, and its
 rules as `:accepts?`.
+
+
+## The folder around an OPML list
+
+Some apps write the whole subscription list inside one outline. That
+outline is a wrapper, and not a folder of the listener. OPML has no mark
+that tells the two apart, so `player/from-opml` reads the name. A folder
+is a wrapper when it holds every feed of the list and `app.player/wrappers`
+has its name. The names are in lower case, and the case of the name in the
+list does not count.
+
+| Name | App that writes it | Seen in September 2026 |
+|---|---|---|
+| `feeds` | Pocket Casts | [an export file](https://github.com/razorgoto/podcast/blob/master/podcasts.opml) |
+| `feeds` | Overcast | [an export file](https://github.com/vinhnx/podcasts/blob/main/overcast.opml) |
+
+A folder with another name stays a folder. So the listener keeps the one
+folder that holds all the shows, and the export of `player/to-opml` comes
+back as it went out. For an app that writes another name, give the names
+as `:wrappers`. `(constantly true)` takes each folder that holds every
+feed for a wrapper.
 
 
 ## The profiles

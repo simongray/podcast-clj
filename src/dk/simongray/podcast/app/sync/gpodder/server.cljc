@@ -94,8 +94,8 @@
                                    :when (and (pred e)
                                               (>= (second (get-in book [:index [:subscriptions g]] [0 0])) since))]
                                (public e))))
-          live?  (into #{} (comp (map val) (remove :removed?) (map (comp gpodder/normal-url public))) known)
-          gone   (remove (comp live? gpodder/normal-url) (urls :removed?))]
+          live?  (into #{} (comp (map val) (remove :removed?) (map (comp player/normal-url public))) known)
+          gone   (remove (comp live? player/normal-url) (urls :removed?))]
       {:status 200
        :body   {"add"       (vec (urls (complement :removed?)))
                 "remove"    (if (zero? since) [] (vec gone))

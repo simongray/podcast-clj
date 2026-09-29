@@ -200,6 +200,27 @@
                  "the cursor follows the documents, not the subscription list")))))))
 
 #?(:clj
+   (deftest the-subscription-list-beside-the-documents
+     (let [documents (atom {})
+           backend   (store/backend (store/memory documents) {:opml? true})
+           mirror    #(get @documents store/opml-name)
+           step      (fn [{:keys [ctx]} state at]
+                       (assoc (sync/sync! state [backend] at {:ctx ctx}) :mirror (:version (mirror))))
+           began     (step nil (phone-state) t2)
+           heard     (step began (player/progress (:state began) a 500 3600 t3) t3)
+           sorted    (step heard
+                           (-> (:state heard)
+                               (player/configure "feed-a" {:folder "News"} t3)
+                               (player/tag "feed-a" "Daily" t3))
+                           t3)
+           followed  (step sorted (player/follow-list (:state sorted) "https://l.example/picks.opml" {:title "Picks"} t4) t4)]
+       (is (= [nil nil nil nil] (map :failed [began heard sorted followed])))
+       (is (= ["1" "1" "2" "3"] (map :mirror [began heard sorted followed]))
+           "written when the folders, the tags or the lists change, and not for a position")
+       (is (re-find #"<outline text=\"News\">\s*<outline[^>]*category=\"Daily\"" (:body (mirror))))
+       (is (str/includes? (:body (mirror)) "type=\"include\"")))))
+
+#?(:clj
    (deftest retiring-and-sharing-a-device
      (let [documents (atom {})
            backend   (store/backend (store/memory documents))

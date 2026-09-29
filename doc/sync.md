@@ -263,8 +263,23 @@ merged its stamps.
 
 The queue has one entry for each episode, with a rank from `rank`. A rank is
 a base-62 string, and there is always room for another rank between two
-ranks. At the ends, a new rank changes by one digit, so a queue that gets a
-thousand appends still has short ranks.
+ranks.
+
+At the ends of the list, the ranks count. After V come W, X and the other
+digits up to y. Then come the ranks of the next level: z and a number of
+two digits, from z01 to zyz. The level after that has zz and a number of
+three digits. Before the first rank, the ranks count down in the same way,
+with 0 in the place of z.
+
+Each level has 62 times the room of the level before it. So ten thousand
+episodes that go to the end of a queue, one at a time, get ranks of five
+digits at most. One million episodes get ranks of seven. A rule that adds
+a digit when the last digit cannot change gives ranks of 165 digits after
+ten thousand episodes.
+
+`rank/after` gives the ranks of many episodes that go to the end at one
+time. Examples are the episodes of a list feed, and the new episodes of a
+show with `:auto-queue?`.
 
 A removal is a tombstone. The order comes from the ranks, and then from the
 stamp and the device when two devices ranked at the same time. Additions on
@@ -321,7 +336,8 @@ episode. `refresh` adds an episode to the queue or the inbox only if the
 state does not know it yet. Otherwise, a device that finds the episode late
 brings back an episode that the listener played or took out on another
 device. `refresh-list` follows the same rule for the shows of a followed
-list.
+list. It knows a show by the URL of its feed, and then by its guid, because
+a list names a show by its URL.
 
 ### Provenance and compaction
 
@@ -359,6 +375,12 @@ sees them. `sync!` compacts at each step, unless its options tell it not
 to. The app merges the result of a step into its current state, and the
 merge keeps what either state holds, the removed tombstones too. For this
 reason, the app compacts after the merge as well.
+
+The tombstones of the unsubscriptions stay while the listener follows a
+list. A feed gives no old episode to a new device, because a first parse
+finds no new episodes. A list is different: a first parse subscribes to
+each show that the state does not know. A new device that reads the list
+needs the tombstone to know that the listener left a show.
 
 A device that stops syncing blocks compaction until the listener retires it,
 and `player/lagging` names such devices for the user interface. A device
@@ -625,8 +647,8 @@ with either strategy. Then they do three quiet rounds: one for the entries
 to reach each device, one for the acknowledgements, and one for the
 compaction that follows. At the end, all states are the same. A second
 property uses one document per device and compaction with no minimum age. At
-its end, all tombstones are gone, and nothing that the listener sees
-changed.
+its end, all tombstones that a compaction drops are gone, and nothing that
+the listener sees changed.
 
 The folder store runs against a temporary directory. The shared strategy
 runs against a memory store that answers with conflicts on cue. The WebDAV

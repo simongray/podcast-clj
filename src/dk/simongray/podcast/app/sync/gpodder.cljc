@@ -208,18 +208,6 @@
                                                       :when (string? sent)]
                                                   [sent (when (web-url? new) new)]))})))))
 
-(defn ^:no-doc normal-url
-  "`url` as a feed or a media file is known by, whatever its scheme, its case
-  and its trailing slashes."
-  [url]
-  (-> (str url)
-      str/trim
-      (str/replace #"(?i)^https?://" "")
-      ;; a match may start only where a run of slashes starts: /+$ alone is
-      ;; tried again from every slash of a long run, quadratically
-      (str/replace #"(^|[^/])/+$" "$1")
-      str/lower-case))
-
 (defn- indexed
   "The feed `feed` at `url` with its guid, and with the index of its items
   as a delay: the items by their guids, and their guids by the URLs of
@@ -232,7 +220,7 @@
               {:items    (into {} items)
                :by-media (into {} (for [[g item] items
                                         {media :url} (resolve/enclosures item)]
-                                    [(normal-url media) g]))}))})
+                                    [(player/normal-url media) g]))}))})
 
 (defn identities
   "The ways to name the shows and episodes of `feeds`, the app's parsed feeds
@@ -252,15 +240,15 @@
   app with many feeds keeps the result while its feeds are the same."
   [feeds]
   (let [known   (map indexed feeds)
-        by-url  (into {} (map (juxt (comp normal-url :url) identity)) known)
+        by-url  (into {} (map (juxt (comp player/normal-url :url) identity)) known)
         by-guid (into {} (map (juxt :guid identity)) known)
         index   #(some-> % :index deref)]
-    {:feed-guid   #(:guid (by-url (normal-url %)))
+    {:feed-guid   #(:guid (by-url (player/normal-url %)))
      :feed-url    #(:url (by-guid %))
      :episode-id  (fn [podcast media guid]
-                    (when-let [{g :guid :as known} (by-url (normal-url podcast))]
+                    (when-let [{g :guid :as known} (by-url (player/normal-url podcast))]
                       (let [{:keys [items by-media]} (index known)]
-                        [g (or (when (contains? items guid) guid) (by-media (normal-url media)) guid media)])))
+                        [g (or (when (contains? items guid) guid) (by-media (player/normal-url media)) guid media)])))
      :episode-url (fn [[feed-guid item-guid]]
                     (when-let [item (get (:items (index (by-guid feed-guid))) item-guid)]
                       (or (:url (:rss/enclosure item)) (:url (resolve/enclosure item)))))}))
@@ -269,31 +257,28 @@
   "The ways to name shows and episodes for `state` that `opts` give, by
   their own keys or by `:identities`, with defaults for those they lack.
 
-  A feed is named by the subscription of `state` with its URL, else as
-  `:feed-guid` or its URL names it. Of the subscriptions with one URL, a
-  live one names the feed before a removed one, and then the one that
-  changed last. An episode is named by `:episode-id`, and without one by
-  the guid of its action, else the URL of its media; with one, an episode
-  of a feed that it does not know stays unnamed.
+  A feed is named by the subscription of `state` with its URL, as
+  `dk.simongray.podcast.app.player/by-url` finds it. Without such a
+  subscription, `:feed-guid` names the feed, else its URL does.
+
+  An episode is named by `:episode-id`. Without that option, the guid of
+  its action names it, else the URL of its media. With the option, an
+  episode of a feed that the option does not know stays unnamed.
 
   The URL of the media of an episode is what `:episode-url` gives. Without
   one, it is the guid of the item when that is a URL."
   [{:keys [identities] :as opts} state]
   (let [{:keys [feed-guid feed-url episode-id episode-url]}
         (merge (when identities (identities)) (select-keys opts [:feed-guid :feed-url :episode-id :episode-url]))
-        subscribed (->> (:subscriptions state)
-                        (filter (comp :url val))
-                        (sort-by (fn [[g {:keys [removed? updated-at]}]]
-                                   [(if removed? 0 1) (or (some-> updated-at inst-ms) 0) (str g)]))
-                        (into {} (map (fn [[g e]] [(normal-url (:url e)) g]))))
+        subscribed (comp (player/by-url state) player/normal-url)
         ;; TODO: a new feed that declares a guid of its own keeps the guid of
         ;; its URL, until the app re-keys its subscription
-        guid-of    #(or (subscribed (normal-url %)) (when feed-guid (feed-guid %)) (guid/from-url %))]
+        guid-of    #(or (subscribed %) (when feed-guid (feed-guid %)) (guid/from-url %))]
     {:feed-guid   guid-of
      :feed-url    #(or (get-in state [:subscriptions % :url]) (when feed-url (feed-url %)))
      :episode-id  (fn [podcast media item]
                     (if episode-id
-                      (some-> (episode-id podcast media item) (update 0 #(or (subscribed (normal-url podcast)) %)))
+                      (some-> (episode-id podcast media item) (update 0 #(or (subscribed podcast) %)))
                       [(guid-of podcast) (or item media)]))
      :episode-url (fn [[_ item :as id]]
                     (if episode-url

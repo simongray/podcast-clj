@@ -139,9 +139,14 @@
    :preferences   (player/preferences state)})
 
 (defn- tombstones
+  "How many tombstones `state` holds that a compaction drops. Those of the
+  unsubscriptions stay while the listener follows a list, so they count
+  only for a listener who follows none."
   [state]
-  (count (filter :removed? (concat (mapcat (comp vals state) [:subscriptions :lists :queue :inbox :stars :filters])
-                                   (mapcat vals (mapcat (comp vals state) [:bookmarks :tags :playlists]))))))
+  (let [flat (cond-> [:lists :queue :inbox :stars :filters]
+               (empty? (player/lists state)) (conj :subscriptions))]
+    (count (filter :removed? (concat (mapcat (comp vals state) flat)
+                                     (mapcat vals (mapcat (comp vals state) [:bookmarks :tags :playlists])))))))
 
 (defspec devices-converge-through-a-folder-of-documents 100
   (prop/for-all [steps schedule]

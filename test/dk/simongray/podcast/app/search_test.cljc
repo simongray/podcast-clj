@@ -119,6 +119,19 @@
   (is (thrown? #?(:clj Exception :cljs js/Error) (search/order :random)))
   (is (thrown? #?(:clj Exception :cljs js/Error) (search/order :recent))))
 
+(deftest criteria-of-another-version
+  (testing "what `episodes` takes is no problem"
+    (doseq [criteria [{} {:where {:status :unplayed :season #{1 2}} :order :newest :limit 20} {:order :recent}]]
+      (is (nil? (search/problem criteria)) (pr-str criteria))))
+  (testing "what it throws for is one, so an app asks before it offers a saved filter"
+    (doseq [[criteria found] [[{:where {:rating 5 :status :played}} #"the criteria :rating are not known"]
+                              [{:order :random} #"the order :random is not known"]
+                              [{:where [:status]} #":where are \[:status\], not a map"]
+                              [{:limit "many"} #"the limit is \"many\", not a number"]
+                              [[:where] #"the criteria are not a map"]]]
+      (is (re-find found (str (search/problem criteria))) (pr-str criteria)))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (titles {:where {:rating 5}})))))
+
 (deftest across-feeds
   (let [other {:rss/title "Other" :podcast/guid "other"
                :rss/items [{:rss/title "Elsewhere" :rss/guid {:content "e"} :rss/pub-date #inst "2026-01-20T00:00:00Z"}]}

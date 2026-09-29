@@ -402,23 +402,51 @@
            :live-items (item-changes (:podcast/live-items before) (:podcast/live-items after))
            :channel-changed? (not= (apply dissoc before churn) (apply dissoc after churn)))))
 
+(defn- page-report
+  "The diagnostics of `page` for the feed that `join-pages` makes. `places`
+  has the index in that feed of each item that the feed takes from the
+  page, by its index in the page.
+
+  A diagnostic of such an item gets the path of the item in the feed. A
+  diagnostic of another part of the page stays when the page is the first
+  one, or when the diagnostic has no path."
+  [page places first?]
+  (keep (fn [{[k i & more] :path :as diagnostic}]
+          (cond
+            (and (= :rss/items k) (some? i))               (when-some [j (places i)]
+                                                             (assoc diagnostic :path (into [k j] more)))
+            (or first? (not (contains? diagnostic :path))) diagnostic))
+        (report page)))
+
+(defn- with-page
+  "The feed `acc` that `join-pages` builds, as `{:items :seen :report
+  :first?}`, with the items of `page` that it does not hold, and with the
+  report of the page."
+  [{:keys [items seen report first?]} page]
+  (let [fresh  (keep-indexed (fn [i item] (when-not (contains? seen (item-guid item)) [i item]))
+                             (:rss/items page))
+        places (into {} (map-indexed (fn [n [i _]] [i (+ (count items) n)])) fresh)]
+    {:items  (into items (map second) fresh)
+     :seen   (into seen (keep (comp item-guid second)) fresh)
+     :report (into report (page-report page places first?))
+     :first? false}))
+
 (defn join-pages
   "One feed of `pages`, the parsed pages of a feed that comes in pages, in
   their order: the channel of the first page with the items of all pages.
   An item of a later page that an earlier page holds is left out, by
-  `item-guid`, since a feed can gain items while its pages are read. The
-  report is the reports of the pages together."
-  [[first-page & more :as pages]]
-  (let [items (:rss/items (reduce (fn [{:keys [seen] :as acc} page]
-                                    (let [fresh (remove #(contains? seen (item-guid %)) (:rss/items page))]
-                                      (-> acc
-                                          (update :rss/items into fresh)
-                                          (update :seen into (keep item-guid fresh)))))
-                                  {:rss/items (vec (:rss/items first-page))
-                                   :seen      (set (keep item-guid (:rss/items first-page)))}
-                                  more))]
-    (vary-meta (cond-> first-page (seq items) (assoc :rss/items items))
-               assoc :podcast/report (into [] (mapcat report) pages))))
+  `item-guid`, since a feed can gain items while its pages are read. Nil
+  for no pages.
+
+  The report has the diagnostics of the first page. From a later page, it
+  has the diagnostics of the items that the feed takes from the page, and
+  the diagnostics without a path. The path of a diagnostic names the item
+  where the feed has it."
+  [pages]
+  (when-let [first-page (first pages)]
+    (let [{:keys [items report]} (reduce with-page {:items [] :seen #{} :report [] :first? true} pages)]
+      (vary-meta (cond-> first-page (seq items) (assoc :rss/items items))
+                 assoc :podcast/report report))))
 
 (comment
   (-> "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">

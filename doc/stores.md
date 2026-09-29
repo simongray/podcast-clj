@@ -98,8 +98,10 @@ Each device writes only its own document, `<device-id>.edn`. One step of
 4. If the merged state is not the state that this device wrote last, put the
    document of this device. No precondition is necessary, because no other
    device writes this document.
-5. If `:opml?` is true and the subscriptions changed, put
-   `subscriptions.opml`.
+5. If `:opml?` is true and the subscription list changed, put
+   `subscriptions.opml`. The list is what `player/to-opml` gives: the
+   shows with their folders and tags, and the lists that the listener
+   follows.
 6. Delete the documents of retired devices.
 
 If the version of the document of this device changed since the last step,
@@ -121,7 +123,7 @@ All devices write one document, `podcast.edn` by default. One step of
 4. If the store refuses the put, fetch the document again, merge it, and put
    again. After three such retries, stop and report `:sync/conflict`.
 5. Unless step 4 stopped, put `subscriptions.opml` if `:opml?` is true and
-   the subscriptions changed.
+   the subscription list changed.
 
 If the document is no longer in the store, the next push writes it again.
 A document of a newer format stays as it is: this device cannot read all

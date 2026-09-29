@@ -775,6 +775,24 @@
          pairs     (if limit (take limit pairs) pairs)]
      (vec (if (map? feed) (map second pairs) (map vec pairs))))))
 
+(defn problem
+  "What in `criteria`, the options of `episodes` as a saved filter has them,
+  this version of podcast-clj does not know, described. Nil when it knows
+  all of them.
+
+  A saved filter comes from a device of the listener, and that device can
+  have a later version of podcast-clj. `episodes` throws for criteria that
+  it does not know. So an app asks here before it offers such a filter."
+  [criteria]
+  (let [{:keys [where order limit]} (when (map? criteria) criteria)
+        unknown (when (map? where) (filter #(not (contains? criterion %)) (keys where)))]
+    (cond
+      (not (map? criteria))                   "the criteria are not a map"
+      (not (or (nil? where) (map? where)))    (str "the criteria under :where are " (pr-str where) ", not a map")
+      (seq unknown)                           (str "the criteria " (str/join ", " (map pr-str unknown)) " are not known")
+      (not (or (nil? order) (orders order)))  (str "the order " (pr-str order) " is not known")
+      (not (or (nil? limit) (number? limit))) (str "the limit is " (pr-str limit) ", not a number"))))
+
 #?(:clj
    (comment
      (require '[dk.simongray.podcast :as podcast])

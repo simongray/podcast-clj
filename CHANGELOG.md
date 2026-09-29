@@ -106,10 +106,12 @@
   `:credentials` of a private feed, or those in its URL. It gives
   `:permanent-url` when permanent redirects moved the feed, and
   `:not-before` when the server asks a client to wait, which `next-check`
-  takes. `html/feed-links` finds the feeds that a web page names. On the
-  JVM, a redirect to another host no longer gets the credentials of a
-  request. A later page of a feed gets them only at the origin of the URL
-  that the app gave.
+  takes. `html/feed-links` finds the feeds that a web page names. With the
+  address of the page, it gives http and https URLs only, and the base
+  element of the page counts. On the JVM, a redirect to another domain no
+  longer gets the credentials of a request. A later page of a feed gets
+  them only at the origin of the URL that the app gave. The report of a
+  feed in pages names each item where the feed has it.
 - `resolve` reads the podroll, the publisher feed, the remote items of
   list and publisher feeds, where the comments on an episode are, the
   soundbites, and the texts of `podcast:txt` by purpose, with
@@ -121,19 +123,43 @@
 - The player state holds an inbox, stars, bookmarks, folders, tags and
   saved filters, and `search` selects by stars and by the inbox. `refresh`
   no longer brings back an episode that the listener played or took out
-  on another device.
+  on another device. `search/problem` tells what in a saved filter this
+  version does not know.
+- `player/problem` also finds an entry without a stamp, and a list that is
+  not at a URL. It finds a bookmark that is not at a whole second, and
+  criteria that are not a map. Two entries with one stamp and one device
+  compare by their content, whatever the order of the keys in their maps
+  and sets.
 - OPML carries the folders, the tags as the categories of an outline, and
   the time the listener subscribed as the time an outline was created.
   `format.opml` reads and writes these, and the dates and owner of a list.
-  `from-opml` takes the feed title before the text of an outline, and a
-  folder around the whole list, as some apps write, is no folder.
+  `from-opml` takes the feed title before the text of an outline. A folder
+  around the whole list is no folder when it has the name that apps give
+  it, `feeds`. `player/wrappers` holds the names, and `:wrappers` replaces
+  them. A folder of the listener that holds every show stays a folder.
+  A backend with `:opml?` writes the list again when a folder, a tag or a
+  followed list changes.
 - A listener can follow an OPML list that someone keeps on the web.
   `refresh-list` subscribes to the shows that join it, and OPML carries
-  the followed lists as inclusions.
+  the followed lists as inclusions. `refresh-list` and `from-opml` know a
+  show by the URL of its feed, so a show does not come in again under
+  another guid. While the listener follows a list, `compact` keeps the
+  tombstones of the unsubscriptions, so a new device leaves those shows
+  alone.
 - Playlists beside the queue, which `to-list-feed` and `from-list-feed`
-  connect to list feeds of the podcast namespace. `step` counts the
-  seconds heard of each show by month, one count for each device, and
+  connect to list feeds of the podcast namespace. `rename-playlist` puts
+  the episodes at the end of a playlist that holds episodes. A list feed
+  names a private feed without its user name and password. `step` counts
+  the seconds heard of each show by month, one count for each device, and
   `listened` adds them up.
+- The ranks at the ends of a list stay short. `rank/between` counts there,
+  in levels that each have 62 times the room of the level before. Ten
+  thousand episodes that go to the end of a queue get ranks of five digits
+  at most. Before, they got ranks of up to 165 digits. An episode that
+  plays at once goes to the front of the queue, and the ranks there count
+  down in the same way. `rank/after` gives the ranks of many items that go
+  to the end at one time. `from-list-feed` and `rename-playlist` use it,
+  and so does `refresh` for the new episodes that go to the queue.
 - `format.media` reads the duration, the chapters and the artwork of MP3
   and M4A files: ID3v2 tags with chapters, MPEG audio frames, and MP4
   boxes with QuickTime or Nero chapters, also in a file written in
