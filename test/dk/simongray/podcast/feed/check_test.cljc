@@ -372,7 +372,8 @@
              (testing "what the files hold, when asked"
                (let [result (check {:read? true :integrity? true})]
                  (is (= #{:check/empty} (found result "/c.json")))
-                 (is (= :mp3 (get-in (first (filter #(= :media (:kind %)) (:files result))) [:facts :media :format])))
+                 (let [media (first (filter #(= (str base "/old.mp3") (:url %)) (:files result)))]
+                   (is (= :mp3 (get-in media [:facts :media :format])) (pr-str (:facts media))))
                  (is (= {:valid? true :algorithm "sha384"}
                         (get-in (first (filter #(= (str base "/v.mp4") (:url %)) (:files result))) [:facts :integrity])))
                  (is (some #(and (= "/t.vtt" (:path %)) (= "GET" (:method %)) (nil? (:range %))) @requests)
