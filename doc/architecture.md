@@ -10,16 +10,18 @@ ecosystem that podcast-clj was written for.
 
 ## Goals
 
-1. **A library, not a framework.** podcast-clj is pure functions over plain
-   Clojure data, with no global state. It does not decide how an app stores
-   data, plays media or draws its user interface.
-2. **All of the feed stack.** podcast-clj reads RSS 2.0, the iTunes
-   namespace, all formalized tags of the `podcast` namespace, and the
-   companion formats. It reads the other namespaces of real feeds (`atom`,
-   `content`, `dc`, `sy`, `media`, `psc`, `rawvoice`, `googleplay`,
-   `spotify`) as far as a podcast app needs them, and it keeps the rest.
-3. **Standards first, quirks apart.** podcast-clj implements each standard
-   as specified. Each accommodation for feeds that break a standard is a
+Six goals guide the design of podcast-clj:
+
+1. **A library, not a framework.** Pure functions over plain Clojure data,
+   with no global state. It does not decide how an app stores data, plays
+   media or draws its user interface.
+2. **All of the feed stack.** It reads RSS 2.0, the iTunes namespace, all
+   formalized tags of the `podcast` namespace, and the companion formats.
+   It reads the other namespaces of real feeds (`atom`, `content`, `dc`,
+   `sy`, `media`, `psc`, `rawvoice`, `googleplay`, `spotify`) as far as a
+   podcast app needs them, and it keeps the rest.
+3. **Standards first, quirks apart.** Each standard is implemented as
+   specified. Each accommodation for feeds that break a standard is a
    named quirk. A quirk can be switched off, and each use of a quirk goes
    into a report. An app can see how far a feed is from the standards, and
    the strict path stays strict.
@@ -27,10 +29,10 @@ ecosystem that podcast-clj was written for.
    platform APIs. The platform APIs are in small adapters, for XML, JSON,
    SHA-1, deferred values, encryption and HTTP. Only the lenient XML parser,
    the folder store and the WebDAV server are for the JVM alone.
-5. **No silent loss of content.** podcast-clj keeps what it does not
-   understand, as Hiccup, so `emit` writes back the elements that `parse`
-   read. When a rule drops something, such as the repeat of an element that
-   the specification allows once, the report tells so. Only comments and
+5. **No silent loss of content.** What it does not understand, it keeps as
+   Hiccup, so `emit` writes back the elements that `parse` read. When a
+   rule drops something, such as the repeat of an element that the
+   specification allows once, the report tells so. Only comments and
    processing instructions go without a report.
 6. **Tests against real feeds.** The inspector and a corpus of real feeds
    test podcast-clj against reality. The fixtures are a conformance suite,

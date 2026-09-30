@@ -1,11 +1,12 @@
 # Namespaces
 
-podcast-clj has one root namespace, `dk.simongray.podcast`, and a namespace
-for each part below it. The parts are in groups, one for each subject:
-`feed`, `format`, `value`, `directory`, `updates`, `comments`, `analytics`
-and `app`. The groups `util` and `crypto` hold what knows nothing about
-podcasts. This page gives the conventions that all namespaces follow, and
-one line for each namespace. The docstrings give the details.
+The root namespace is `dk.simongray.podcast`, and each part of
+podcast-clj is a namespace below it. The parts are in groups, one for
+each subject: `feed`, `format`, `directory`, `updates`, `comments`,
+`analytics`, `app` and `value`. The groups `util` and `crypto` hold what
+knows nothing about podcasts. This page gives the conventions that all
+namespaces follow, and one line for each namespace. The docstrings give
+the details.
 
 
 ## Conventions
@@ -28,7 +29,7 @@ one line for each namespace. The docstrings give the details.
 - **A diagnostic is a map.** It has an `:id`, a `:level` (`:info`,
   `:warning` or `:error`) and a `:message`. Other keys give details, such as
   a `:path` into the data or the `:tag` of an element.
-  [Diagnostics](diagnostics.md) lists all ids. `summarize` groups
+  [Diagnostics](diagnostics.md) lists all ids, and `summarize` groups
   diagnostics by kind.
 - **An accessor of `feed.resolve` gives one answer.** Where vocabularies
   overlap, the docstring of the accessor gives the rule that selects the
@@ -126,16 +127,6 @@ Each name below is relative to `dk.simongray.podcast`.
 | `format.media.mp3` | The MPEG audio frames of an MP3 file, and its duration. |
 | `format.media.mp4` | The boxes of an MP4 or M4A file: its duration, its QuickTime or Nero chapters, and its artwork. |
 
-### Value for value
-
-| Namespace | Contents |
-|---|---|
-| `value` | Value for value: splits, fees, time splits and remote blocks. A payment in one shape: `boostagram` writes the bLIP-10 record of a payment, and `parse-boostagram` reads a record that a node received. `records` gives the custom records of a keysend payment. `as-received` puts a record next to what the node received. |
-| `value.lnaddress` | Lightning addresses: the requests of LNURL-pay and of the keysend lookup, and the readers of their answers. `invoice` checks the amount of an invoice. `invoice!` and `node!` send the requests. `payment-hash` reads the payment hash of an invoice, and `proves?` tells whether a preimage is the proof of its payment. |
-| `value.metadata` | The RSS Payment Metadata: the comment of a payment to a Lightning address, and the header `x-rss-payment` of the URL that the comment names. `fetch!` gets the header. |
-| `value.nwc` | Nostr Wallet Connect, NIP-47: payments from the wallet of the listener. `parse` reads the connection URI. `pay-invoice`, `pay-keysend`, `get-balance` and the other commands are data. `request` writes the event of a command, and `answer` reads the event of the wallet. `info!` reads what the wallet takes, and `ask!` sends a command and gives the answer. |
-| `value.webln` | WebLN, the interface that a wallet gives a web page. `keysend-args` gives the arguments of a keysend payment. ClojureScript: `enable!`, `info!`, `pay-invoice!` and `pay-keysend!` call the provider of the page. |
-
 ### Directories and updates
 
 | Namespace | Contents |
@@ -168,7 +159,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | Namespace | Contents |
 |---|---|
 | `app.show` | One show as a page shows it, in one map. `view` is the feed with its properties, the description as Hiccup and as text, and the episodes in listening order. It has the seasons and the links to the apps. `view!` adds the shows of the podroll as the Podcast Index knows them, and the publisher feed with its shows, when it confirms the show. |
-| `app.library` | The library of a listener: everything that an app keeps, in one map. The player state, the feeds, the OPML lists, the search index, the cursors of the sync and the settings, which each step reads. `subscribe`, `follow`, `refresh!`, `episodes`, `search`, `show`, `episode`, `step`, `sync!` and `plan` compose the namespaces below it. |
+| `app.library` | The library: a listener's subscriptions, feeds, queue and progress in one map, with the OPML lists, the search index, the cursors of the sync and the settings, which each step reads. `subscribe`, `follow`, `refresh!`, `episodes`, `search`, `show`, `episode`, `step`, `sync!` and `plan` compose the namespaces below it. |
 | `app.feeds` | The feeds that an app keeps, by guid. Each has its URL, the validators of the last fetch and the time of the next check. `add` puts a fetched feed in, and `due` gives the feeds to fetch now. `refresh` applies the result of a fetch, and `refresh!` fetches the due feeds. `affected` names the feeds that a Podping concerns. |
 | `app.episode` | One episode as a page shows it, in one map. `view` is the item with its properties, the show notes as Hiccup and as text, and the chapters that the feed holds. It has the links to the apps. `view!` adds the chapters file, the transcript and the media file, each read, and `report` gathers what the reading of each found. |
 | `app.player` | The player state as a CRDT: queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions with their settings, folders and tags, followed OPML lists, saved filters, counts of listening and devices. `merge`, `compact`, `rekey` and `step`. `step` takes the events of a player, with the jumps between chapters and a sleep timer. Playlists as list feeds. |
@@ -182,6 +173,16 @@ Each name below is relative to `dk.simongray.podcast`.
 | `app.sync.encrypted` | Any store, with its documents encrypted at rest. The JVM and WebCrypto open the documents of each other. |
 | `app.sync.gpodder` | The gpodder API as a backend: the subscriptions and the episode actions of gpodder.net, the GPodder Sync app for Nextcloud and other servers. `identities` names the shows and episodes of the app's feeds. |
 | `app.sync.gpodder.server` | The gpodder API served over a player state, as a Ring handler, for AntennaPod, Kasts and gPodder. |
+
+### Value for value
+
+| Namespace | Contents |
+|---|---|
+| `value` | Value for value: splits, fees, time splits and remote blocks. A payment in one shape: `boostagram` writes the bLIP-10 record of a payment, and `parse-boostagram` reads a record that a node received. `records` gives the custom records of a keysend payment. `as-received` puts a record next to what the node received. |
+| `value.lnaddress` | Lightning addresses: the requests of LNURL-pay and of the keysend lookup, and the readers of their answers. `invoice` checks the amount of an invoice. `invoice!` and `node!` send the requests. `payment-hash` reads the payment hash of an invoice, and `proves?` tells whether a preimage is the proof of its payment. |
+| `value.metadata` | The RSS Payment Metadata: the comment of a payment to a Lightning address, and the header `x-rss-payment` of the URL that the comment names. `fetch!` gets the header. |
+| `value.nwc` | Nostr Wallet Connect, NIP-47: payments from the wallet of the listener. `parse` reads the connection URI. `pay-invoice`, `pay-keysend`, `get-balance` and the other commands are data. `request` writes the event of a command, and `answer` reads the event of the wallet. `info!` reads what the wallet takes, and `ask!` sends a command and gives the answer. |
+| `value.webln` | WebLN, the interface that a wallet gives a web page. `keysend-args` gives the arguments of a keysend payment. ClojureScript: `enable!`, `info!`, `pay-invoice!` and `pay-keysend!` call the provider of the page. |
 
 ### Utilities
 

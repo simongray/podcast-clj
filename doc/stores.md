@@ -18,12 +18,12 @@ version token.
  :name   "Nextcloud"}           ; for the user interface and the report
 ```
 
-- `put` refuses the write when `opts` has an `:if-version` that is not the
-  current version of the document. `:if-version nil` means that the document
-  must not exist yet.
-- `put` checks the version and writes as one step. Of two puts with the same
-  `:if-version`, one succeeds. The folder store does this within one
-  process.
+- The function `put` refuses the write when `opts` has an `:if-version`
+  that is not the current version of the document. An `:if-version` of
+  nil means that the document must not exist yet.
+- The function `put` checks the version and writes as one step. Of two
+  puts with the same `:if-version`, one succeeds. The folder store does
+  this within one process.
 - A refused write is the value `{:conflict? true}`, not an exception.
 - On the JVM, each function returns its value and throws an exception on
   failure. In ClojureScript, each function can return a value or a promise.
@@ -32,18 +32,20 @@ version token.
 - A store without `:list` cannot hold one document per device. It holds one
   shared document.
 
-`store/check!` tests a store through this contract, with a probe document.
-It tests a store without `:list` for one shared document, which needs a
-refused stale version. A store without `:delete` keeps the probe document.
+To test a store through this contract, `store/check!` writes a probe
+document. It tests a store without `:list` for one shared document, which
+needs a refused stale version. A store without `:delete` keeps the probe
+document.
 
-Each store namespace has two constructors. `store` makes the store over a
-place. `backend` makes the store and the backend in one call, with the
-options of both.
+Each store namespace has two constructors: `store` makes the store over a
+place, and `backend` makes the store and the backend in one call, with
+the options of both.
 
 
 ## The backend contract
 
-A backend is a map of two functions and a name. `sync!` calls the functions.
+A backend is a map of two functions and a name, and `sync!` calls the
+functions.
 
 ```clojure
 {:pull (fn [state ctx at])  ; {:states [state …] :ctx ctx' :report […] :partial? false}
@@ -51,25 +53,25 @@ A backend is a map of two functions and a name. `sync!` calls the functions.
  :name "gpodder.net"}
 ```
 
-- `pull` returns the states to merge and the cursor for the next step.
-  `:partial? true` means that the states are changes since a cursor, not
-  whole states. `sync!` does not acknowledge partial states.
-- `push` writes the merged state and returns the cursor. `:state` and
-  `:report` are optional. A push returns a `:state` when it learned more
-  while it wrote.
-- `at` is the instant of the step. The functions do not read a clock.
-- The backends of one `sync!` must have different names, because `sync!`
-  keeps the cursors by name. `sync!` throws when two backends have the same
-  name.
+- The function `pull` returns the states to merge and the cursor for the
+  next step. With `:partial? true`, the states are changes since a cursor,
+  not whole states, and `sync!` does not acknowledge them.
+- The function `push` writes the merged state and returns the cursor. The
+  `:state` and the `:report` are optional. A push returns a `:state` when
+  it learned more while it wrote.
+- The `at` is the instant of the step. The functions do not read a clock.
+- The backends of one `sync!` must have different names, because the
+  cursors are kept by name. Two backends with the same name make `sync!`
+  throw.
 
-`store/backend` makes a backend from any store. A service with a model of
+Any store is a backend through `store/backend`. A service with a model of
 its own, such as gpodder, is a backend directly.
 
 
 ## The options of a backend
 
-`store/backend`, and the `backend` function of each store namespace, take
-these options:
+The options of `store/backend`, and of the `backend` function of each
+store namespace:
 
 | Option | Meaning | Default |
 |---|---|---|
@@ -139,13 +141,13 @@ of it, so a put would lose data.
  :report [...]}                ; the diagnostics of the step
 ```
 
-- `:failed` is absent when no backend failed.
+- The `:failed` is absent when no backend failed.
 - If the pull of a backend fails, `sync!` does not push to that backend, and
   its cursor does not change. If a push fails, the backend keeps the cursor
   of its pull.
 - Run one step at a time. A step that overlaps another step can write an
   older state after a newer one.
-- `:state` does not contain what the listener did during the step. Merge it
+- The `:state` does not contain what the listener did during the step. Merge it
   into the current state with `player/merge`, and then compact the result
   with `player/compact`, because the merge brings back the tombstones that
   the step removed. Do not put `:state` in the place of the current state.
@@ -180,14 +182,14 @@ A sync document is an EDN map:
 
 ## The encrypted envelope
 
-`app.sync.encrypted` puts each body into this EDN map:
+The store of `app.sync.encrypted` puts each body into this EDN map:
 
 ```clojure
 {:encrypted 1 :cipher "AES-256-GCM" :kdf "PBKDF2-HMAC-SHA256"
  :iterations 600000 :salt "…" :iv "…" :data "…"}
 ```
 
-- `:salt`, `:iv` and `:data` are base64.
+- The `:salt`, the `:iv` and the `:data` are base64.
 - Each store instance seals with one random salt. Each document gets a new
   IV.
 - The key comes from the passphrase through PBKDF2 with HMAC-SHA256, with
@@ -213,7 +215,7 @@ A sync document is an EDN map:
 | A WebDAV collection | `app.sync.webdav` | both | the ETag |
 | Any store, encrypted | `app.sync.encrypted` | both | the version of the wrapped store |
 
-`app.sync.webdav.server/handler` serves any store over WebDAV, on the JVM:
+On the JVM, `app.sync.webdav.server/handler` serves any store over WebDAV:
 
 - A PROPFIND on the collection at depth 0 gives the collection alone. At
   depth 1, it also lists the documents.
@@ -222,7 +224,7 @@ A sync document is an EDN map:
   not name DELETE. A 405 names the methods of its target in Allow.
 - MKCOL gets 405, because the collection is there.
 - A client of such a server removes the same keys from its WebDAV store, for
-  example `(dissoc (webdav/store url) :list)`. `backend` then uses one
+  example `(dissoc (webdav/store url) :list)`. The backend then uses one
   shared document.
 - A PUT carries at most 32 MB, or the `:max-bytes` of the handler. A larger
   body gets 413.
@@ -240,7 +242,7 @@ A redirect to another host does not get them.
 
 ## The gpodder backend
 
-`app.sync.gpodder/backend` is a backend over the gpodder API, on both
+The backend of `app.sync.gpodder` speaks the gpodder API, on both
 platforms. It takes these options:
 
 | Option | Meaning | Default |
@@ -280,8 +282,8 @@ for the episodes that it could not name by a media URL, and
 An entry that comes from a server has `gpodder:` and the id of a device of
 the server as its `:device`, such as `gpodder:antennapod`.
 
-`app.sync.gpodder.server/handler` serves the API as a Ring handler, on both
-platforms. It answers the login, the devices, the changes to the
+On both platforms, `app.sync.gpodder.server/handler` serves the API as a
+Ring handler. It answers the login, the devices, the changes to the
 subscriptions, and the episode actions, under `/api/2`. It takes the atom
 of the server's state, `:authorized?`, a `:step` that syncs the state, and
 the same ways to name shows and episodes as the backend. A `:step` gives a

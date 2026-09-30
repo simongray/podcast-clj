@@ -15,8 +15,9 @@ io.github.simongray/podcast-clj {:git/sha "…"}
 
 ## The library
 
-An app keeps a library: one map with everything of a listener in it. Make
-one for this device, and subscribe to a show:
+An app keeps a listener's subscriptions, feeds, queue and progress in
+one map, the library. Make one for this device, and subscribe to a
+show:
 
 ```clojure
 (require '[dk.simongray.podcast :as podcast]
@@ -34,10 +35,10 @@ one for this device, and subscribe to a show:
 ;; => ("917393e3-1b1e-5cef-ace4-edaa54e1f810")
 ```
 
-`"laptop"` is the id of this device. Make it once per installation, and
-keep it. `podcast/fetch!` fetched the feed and parsed it. `subscribe` kept
-the feed with the validators of the fetch, added the subscription with its
-settings, and named the show by its guid.
+The id of this device is `"laptop"`. Make it once per installation, and
+keep it. The call of `podcast/fetch!` fetched the feed and parsed it, and
+`subscribe` kept the feed with the validators of the fetch, added the
+subscription with its settings, and named the show by its guid.
 
 The library is EDN. Save it as you save your other values, and read it
 back at the next start.
@@ -63,8 +64,9 @@ show and the guid of the item.
 
 ## A page of an episode
 
-The view of an episode is one map for a page. `episode!` reads the files
-of the episode too: the chapters, the transcript and the media file.
+The view of an episode is one map for a page. With `episode!`, the map
+has what the files of the episode say too: the chapters, the transcript
+and the media file.
 
 ```clojure
 (def page (library/episode! lib id))
@@ -78,13 +80,13 @@ of the episode too: the chapters, the transcript and the media file.
 ```
 
 A file that does not come leaves `:error` in its part, and the call
-throws nothing for what the network does. `library/episode` gives the
-view without the files, for a list.
+throws nothing for what the network does. For a list, `library/episode`
+gives the view without the files.
 
 ## The player
 
 The player state holds the queue and the progress. Your app holds the
-media element, and sends each of its events to `step`. `step` gives the
+media element, and sends each of its events to `step`, which gives the
 new library and the effects that the app must do:
 
 ```clojure
@@ -98,15 +100,15 @@ new library and the effects that the app must do:
 ;; => [[:seek ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"] 784]]
 ```
 
-`(:player lib)` is the player state of `app.player`, and every function of
-that namespace takes it. `enqueue` is one of more than eighty.
+The player state is `(:player lib)`, and every function of `app.player`
+takes it. There are more than eighty, and `enqueue` is one.
 
 ## New episodes
 
-`refresh!` fetches what is due: the feeds, the lists that the listener
-follows, and the feeds of subscriptions that have none. Each fresh feed
-goes to the player, which queues the new episodes of a show with
-`:auto-queue?`.
+A call of `refresh!` fetches what is due: the feeds, the lists that the
+listener follows, and the feeds of subscriptions that have none. Each
+fresh feed goes to the player, which queues the new episodes of a show
+with `:auto-queue?`.
 
 ```clojure
 (def r (library/refresh! lib now))

@@ -1,14 +1,13 @@
 # Services and their defaults
 
-podcast-clj knows some services by name: the podcast directories, the
-Podcast Index, Podping, OP3, the servers of the gpodder API and some
-relays of Nostr. It also
-knows how some apps write their OPML, the forms of the links of the
-apps, and the rules of some apps for downloads. This page lists what
-podcast-clj
-knows about each service, and the option that replaces it. [Architecture](architecture.md#why-the-api-is-regular) gives
-the reason. [How to build a podcast
-app](building-an-app.md#use-another-service) shows the calls.
+Some services are known by name: the podcast directories, the Podcast
+Index, Podping, OP3, the servers of the gpodder API and some relays of
+Nostr. So are the OPML of some apps, the forms of the links of the apps,
+and the rules of some apps for downloads. This page lists what
+podcast-clj knows about each, and the option that replaces it.
+[Architecture](architecture.md#why-the-api-is-regular) gives the reason,
+and [How to build a podcast app](building-an-app.md#use-another-service)
+shows the calls.
 
 Each namespace below is relative to `dk.simongray.podcast`.
 
@@ -45,7 +44,7 @@ Each namespace below is relative to `dk.simongray.podcast`.
 | The rules of a directory for artwork and media files | `check/profiles` | `:profile`, as a name or as a map | no profile |
 | The folder that an app writes around a whole OPML list | `app.player/wrappers` | `:wrappers`, a set of names or a predicate of a name | `feeds` |
 
-podcast-clj has no default for these services, and the app gives them:
+These services have no default, and the app gives them:
 
 - the WebSub hub of a feed, which the feed names
 - the AppView that reads AT Protocol threads, as `:appview`
@@ -67,11 +66,11 @@ and the URLs of the service:
 | `:gpodder` | `:gpodder` | `:root` |
 | `:podcastindex` | `:podcastindex` | `:root`, and `:pages`, the URL of the pages of the shows |
 
-`request`, `response` and `call!` take a source as a name or as an entry.
-The `:sources` of `search!` and `trending!` hold names and entries. The
-`:id` of an entry names the source in `:directory/source`, in
-`:directory/sources` and in `:failed`. An entry without an `:id` has the
-name of its API.
+The functions `request`, `response` and `call!` take a source as a name
+or as an entry, and the `:sources` of `search!` and `trending!` hold
+names and entries. The `:id` of an entry names the source in
+`:directory/source`, in `:directory/sources` and in `:failed`. An entry
+without an `:id` has the name of its API.
 
 
 ### The chart of a category
@@ -96,8 +95,8 @@ such a category, give a map with a category for each source.
 
 ## The gpodder API
 
-`app.sync.gpodder/apis` gives the path of each call. In a path, `{user}` is
-the user name, and `{device}` is the id of the device.
+The paths of the calls are in `app.sync.gpodder/apis`. In a path,
+`{user}` is the user name, and `{device}` is the id of the device.
 
 | Call | `:gpodder` | `:nextcloud` |
 |---|---|---|
@@ -121,8 +120,8 @@ The limits:
 
 ## The statuses of the Mastodon API
 
-`comments/fetch!` reads a thread through the Mastodon API when the server
-of the root post refuses the reader. The URL of the root post must tell
+When the server of the root post refuses the reader, `comments/fetch!`
+reads the thread through the Mastodon API. The URL of the root post must tell
 the id of the status. Each entry of `comments.activitypub/status-paths` is
 a regular expression of the whole path of a URL. Its one group is the id.
 
@@ -136,8 +135,8 @@ a regular expression of the whole path of a URL. Its one group is the id.
 
 ## OP3
 
-`analytics.op3/accepts?` tells whether op3.dev takes a URL behind its
-prefix. OP3 answers a URL that it does not take with an error, so the
+The function `analytics.op3/accepts?` tells whether op3.dev takes a URL
+behind its prefix. OP3 answers a URL that it does not take with an error, so the
 episode does not play. It takes an http or https URL with a path and
 without a user name. It does not take these domains:
 
@@ -152,8 +151,8 @@ rules as `:accepts?`.
 
 ## The links of the apps
 
-`links/apps` holds the forms of the links to a show and to an episode in
-each app. The forms are those of the list [Podcast Platform
+The forms of the links to a show and to an episode in each app are in
+`links/apps`. The forms are those of the list [Podcast Platform
 Links](https://github.com/nathangathright/podcast-platform-links) of
 Nathan Gathright, as the list was on 29 September 2026. The table has
 the forms that hold a key that the app did not make. It leaves out the
@@ -222,18 +221,19 @@ entry of the type page is a web page that leads a listener to the apps.
 | TrueFans | app | `https://truefans.fm/{podcast-guid}` |  |  |
 | YouTube Music | app | `https://music.youtube.com/library/podcasts?addrssfeed={base64url feed-url}` |  |  |
 
-podcast-clj has no form of an app for a link with a time. The apps that
-share an episode at a time put the time on a link with their own id of
-the episode. The research found no page of an app that defines the
-form. A form is data, so an app adds its forms to the table, with a key
-such as `:time` in its ids. `links/at-time` writes the media fragment of
-the W3C on the URL of a media file, which a browser plays from the time.
+No app has a form for a link with a time. The apps that share an
+episode at a time put the time on a link with their own id of the
+episode, and no page of an app defines the form. A form is data, so an
+app adds its forms to the table, with a key such as `:time` in its ids.
+For the URL of a media file, `links/at-time` writes the media fragment
+of the W3C, which a browser plays from the time.
 
 
 ## The relays of Nostr
 
-`comments.nostr/relays` names the relays that `comments/fetch!` asks for
-the comments of Nostr, when the options name no `:relays`. A root that names
+The default relays for the comments of Nostr are in
+`comments.nostr/relays`, and `comments/fetch!` asks them when the
+options name no `:relays`. A root that names
 relays gets its questions to those relays first.
 
 The table tells what each relay answered on 29 September 2026. The
@@ -250,7 +250,7 @@ the app Fountain wrote on that day.
 
 On that day, the relays had notes of kind 1 about episodes, with the id
 of the episode in an `i` tag, as Fountain writes them. They had no comment
-of kind 1111 on an episode, which is the form of NIP-22. podcast-clj asks
+of kind 1111 on an episode, which is the form of NIP-22. The reader asks
 for both.
 
 An app that shows comments chooses its relays. Give them as `:relays`:
@@ -262,10 +262,10 @@ An app that shows comments chooses its relays. Give them as `:relays`:
 
 ## The wallets of the listeners
 
-`value.nwc` follows NIP-47, and `value.webln` follows the guide of WebLN.
-podcast-clj read them on 29 September 2026. No test went to a wallet with
-money, so the table tells what the specifications say, and not what a
-wallet answered.
+The wallets follow NIP-47 in `value.nwc` and the guide of WebLN in
+`value.webln`, as they read on 29 September 2026. No test went to a
+wallet with money, so the table tells what the specifications say, and
+not what a wallet answered.
 
 | Specification | Where | What podcast-clj has of it |
 |---|---|---|
@@ -293,8 +293,8 @@ The options replace what podcast-clj chose:
 ## The rules of the apps for downloads
 
 No standard defines the rules by which an app downloads episodes and
-deletes files. `app.downloads` has the kinds of rule that these apps
-have. The table tells the rules as the help pages of the apps gave them
+deletes files. The rules of `app.downloads` are of the kinds that these
+apps have. The table tells the rules as the help pages of the apps gave them
 on 29 September 2026, and the rule of `app.downloads` for each.
 
 | App | The rule of the app | In `app.downloads` |
@@ -334,8 +334,8 @@ list does not count.
 A folder with another name stays a folder. So the listener keeps the one
 folder that holds all the shows, and the export of `player/to-opml` comes
 back as it went out. For an app that writes another name, give the names
-as `:wrappers`. `(constantly true)` takes each folder that holds every
-feed for a wrapper.
+as `:wrappers`, or `(constantly true)` to take each folder that holds
+every feed for a wrapper.
 
 
 ## The profiles
@@ -351,8 +351,8 @@ diagnostics that the directory changes:
 | `:artwork` | `:sizes`, the least and the greatest width in pixels. `:types`, the media types. `:colors`, the color models. `:extension?`, `:alpha?` and `:last-modified?`. |
 | `:levels` | The level of a diagnostic, by its id |
 
-Both tables have the profiles `:psp-1` and `:apple`. `:psp-1` follows
+Both tables have the profiles `:psp-1` and `:apple`. The first follows
 [PSP-1](https://github.com/Podcast-Standards-Project/PSP-1-Podcast-RSS-Specification)
-of the Podcast Standards Project. `:apple` follows [A Podcaster's Guide to
-RSS](https://help.apple.com/itc/podcasts_connect/#/itcb54353390) of Apple.
-Both are as of 30 September 2026.
+of the Podcast Standards Project, and the second [A Podcaster's Guide to
+RSS](https://help.apple.com/itc/podcasts_connect/#/itcb54353390) of Apple,
+both as of 30 September 2026.

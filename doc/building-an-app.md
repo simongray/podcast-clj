@@ -9,8 +9,8 @@ a working example.
 
 ## Before you start
 
-An app keeps a library, one map with everything of a listener in it, and
-`app.library` keeps it whole:
+An app keeps a listener's subscriptions, feeds, queue and progress in
+one map, the library, and `app.library` keeps it whole:
 
 ```clojure
 (def lib (library/make device-id now {:name "Phone" :settings {:languages ["da" "en"]}}))
@@ -104,8 +104,8 @@ searches the Podcast Index. It combines the results into one entry per show.
 (def url (resolve/self-url (first found)))  ; the URL of the feed
 ```
 
-`directory/trending!` gives the charts of the directories, and the charts
-of one category with `:category`. The category is a name of the
+The function `directory/trending!` gives the charts of the directories, and
+the charts of one category with `:category`. The category is a name of the
 categories of Apple Podcasts, and `directory/apple-genres` has the names:
 
 ```clojure
@@ -155,24 +155,25 @@ state:
 (def feeds (feeds/add {} url r now))  ; the feeds of the app, by guid, with the validators
 ```
 
-`feed/feed-guid` gives the identity of the feed: its `podcast:guid`, or the
-guid that the specification derives from the URL. All ids in the player
-state use this guid. `(:url r)` is the final URL after redirects.
+The function `feed/feed-guid` gives the identity of the feed: its
+`podcast:guid`, or the guid that the specification derives from the URL. All
+ids in the player state use this guid. The `:url` of the result is the final
+URL after redirects.
 
-Some feeds come in pages, and the first page holds only the newest
-episodes. `:max-pages` makes `fetch!` read the older pages too, and join
+Some feeds come in pages, and the first page holds only the newest episodes.
+The option `:max-pages` makes `fetch!` read the older pages too, and join
 them into one feed. Use it on the first fetch. Later fetches need only the
 first page.
 
-`fetch!` throws nothing for what the network or the server does. When the
-request fails, the result has an `:error` and no status. The `:error` is a
-diagnostic, `:fetch/unreachable`, and its `:reason` tells what failed. When
-the server answers 200 with a body that is no feed, the `:error` is
-`:fetch/malformed`, and the result keeps the `:body`. A status such as 404
+A call of `fetch!` throws nothing for what the network or the server does.
+When the request fails, the result has an `:error` and no status. The
+`:error` is a diagnostic, `:fetch/unreachable`, and its `:reason` tells what
+failed. When the server answers 200 with a body that is no feed, the `:error`
+is `:fetch/malformed`, and the result keeps the `:body`. A status such as 404
 is an answer, so the result then has the `:status` and no `:error`.
 
 A listener can give the address of the website of a show, not of its feed.
-`html/feed-links` finds the feeds that the page names:
+The function `html/feed-links` finds the feeds that the page names:
 
 ```clojure
 (html/feed-links (:body (http/fetch! site-url)) site-url)
@@ -182,24 +183,24 @@ A listener can give the address of the website of a show, not of its feed.
 Give the address of the page, as here. Each feed is then an http or https
 URL, and the base element of the page counts as in a browser.
 
-A private feed can need a user name and a password, or a token. Give them
-to `fetch!` as `:credentials`, such as `{:username "…" :password "…"}`.
-`fetch!` does not send them on when a redirect leads to another domain.
-The later pages of a feed get them only at the domain of the address that
-you gave. A private feed with a token in its URL needs no credentials.
+A private feed can need a user name and a password, or a token. Give them to
+`fetch!` as `:credentials`, such as `{:username "…" :password "…"}`. When a
+redirect leads to another domain, `fetch!` does not send them on. The later
+pages of a feed get them only at the domain of the address that you gave. A
+private feed with a token in its URL needs no credentials.
 
 An address can also hold the user name and the password, as in
-`https://user:pass@host/feed.xml`. `fetch!` then sends them as the
+`https://user:pass@host/feed.xml`. Then `fetch!` sends them as the
 credentials, and the URLs in its result do not hold them. Do not keep the
 password in the address that the app stores. The player state syncs to the
-other devices and to the stores, and an address goes into OPML too.
-`http/split-credentials` gives the address and the credentials apart. Keep
-the password in the keychain of the platform.
+other devices and to the stores, and an address goes into OPML too. The
+function `http/split-credentials` gives the address and the credentials
+apart. Keep the password in the keychain of the platform.
 
 While your app holds a password, hide it with `secret/hide`. The printer
 writes a hidden text as `#<secret>`, so a log or a REPL does not show it.
-Each function that takes a password, a token, a passphrase or a secret
-key takes a hidden text too. `split-credentials` gives the password as a
+Each function that takes a password, a token, a passphrase or a secret key
+takes a hidden text too. From `split-credentials`, the password comes as a
 hidden text.
 
 ```clojure
@@ -232,10 +233,10 @@ the feeds that are due, and gives each fresh feed to `player/refresh`.
 The result names the new episodes under `:added` and the feeds that moved
 under `:moved`, with their subscriptions moved too.
 
-Below it, `app.feeds` keeps the feeds of an app in one map, by the guid
-of each feed, with its URL, the validators of the last fetch and the
-time of the next check. `refresh!` fetches the feeds that are due and
-applies each answer: a fresh feed, a 304, a failure, or a move.
+Below it, `app.feeds` keeps the feeds of an app in one map, by the guid of
+each feed, with its URL, the validators of the last fetch and the time of the
+next check. A call of `refresh!` fetches the feeds that are due and applies
+each answer: a fresh feed, a 304, a failure, or a move.
 
 ```clojure
 (def feeds (feeds/add {} url r now))  ; r from podcast/fetch!, as above
@@ -253,12 +254,12 @@ applies each answer: a fresh feed, a 304, a failure, or a move.
   (player/subscribe state guid {:url new-url :title (resolve/title (:feed (get (:feeds step) guid)))} now))
 ```
 
-A fetch sends the validators of the entry. A feed that did not come
-stays as it was, with its failure in the report. Its next check waits
-longer after each failure in a row. The next check of a fetched feed is
-what `resolve/next-check` gives. It is a day when the feed gives no
-time, and a week for a feed that says it is complete. `:cadence` changes
-these waits. `:credentials-of` gives the credentials of a private feed
+A fetch sends the validators of the entry. A feed that did not come stays as
+it was, with its failure in the report. Its next check waits longer after
+each failure in a row. The next check of a fetched feed is what
+`resolve/next-check` gives. It is a day when the feed gives no time, and a
+week for a feed that says it is complete. The option `:cadence` changes these
+waits. The option `:credentials-of` gives the credentials of a private feed
 by its guid, so that no password is in the map that the app stores. In
 ClojureScript, give `:fetch`, a function that fetches through your own
 server. Keep the map as you keep your other values: it is data.
@@ -272,9 +273,9 @@ feed did not change, the server answers 304 and the result has no
 `:feed`.
 
 The server can also say when to ask again, with `Retry-After` or
-`Cache-Control`. The result then has `:not-before`. Give it to
-`next-check`, which then answers no earlier. `:not-before` is at most an
-hour ahead, because a host can publish an episode before the time that its
+`Cache-Control`. The result then has `:not-before`. Give it to `next-check`,
+which then answers no earlier. The `:not-before` is at most an hour ahead,
+because a host can publish an episode before the time that its
 `Cache-Control` names.
 
 ```clojure
@@ -337,10 +338,10 @@ subscription:
 ;; => {:status 202 :url "https://hub.example.org/"}
 ```
 
-`handler` is a Ring handler for the callback. `:wanted?` tells whether
-the server asked for the topic, and `:deliver!` gets each feed that has
-the signature of the secret. Return fast from `:deliver!`, and parse the
-feed after that:
+The function `handler` gives a Ring handler for the callback. The option
+`:wanted?` tells whether the server asked for the topic, and `:deliver!` gets
+each feed that has the signature of the secret. Return fast from `:deliver!`,
+and parse the feed after that:
 
 ```clojure
 (def callback
@@ -381,13 +382,13 @@ own, the subscription moves to it, as `player/rekey` moves it.
       left)))  ; the shows that left the list: they stay subscriptions, so ask the listener
 ```
 
-`refresh-list` subscribes to a show that joins the list, unless the
-listener subscribed to it or left it before. It knows a show by the URL of
-its feed, so a show that the listener has under another guid does not come
+The function `refresh-list` subscribes to a show that joins the list, unless
+the listener subscribed to it or left it before. It knows a show by the URL
+of its feed, so a show that the listener has under another guid does not come
 in twice. A show that leaves the list stays a subscription, because the
-listener can like it. `player/to-opml` writes the lists that the listener
-follows as inclusions, the way that OPML 2.0 includes one list in another,
-and `player/from-opml` follows them again.
+listener can like it. The function `player/to-opml` writes the lists that the
+listener follows as inclusions, the way that OPML 2.0 includes one list in
+another, and `player/from-opml` follows them again.
 
 While the listener follows a list, the state keeps the record of each show
 that the listener left. A new device then does not subscribe to such a
@@ -396,11 +397,11 @@ show again.
 
 ## Build the show and episode pages
 
-`show/view` gives a show as a page shows it, in one map, and
+The function `show/view` gives a show as a page shows it, in one map, and
 `episode/view` gives an episode. Each is the feed or the item with its
-properties merged in, one value for each property, and the other keys
-that a page needs. `episode/view!` reads the files of the episode too:
-the chapters file, the transcript and the media file.
+properties merged in, one value for each property, and the other keys that a
+page needs. With `episode/view!`, the files of the episode are read too: the
+chapters file, the transcript and the media file.
 
 ```clojure
 (def page (show/view show))
@@ -423,24 +424,24 @@ the chapters file, the transcript and the media file.
 (episode/report v)                               ; what the reading of each file found
 ```
 
-The chapters come from the first of four places that has them. The
-places are the chapters file, the Podlove chapters in the feed, the media
-file, and the timestamps in the show notes. `:source` tells which. A file that does not
+The chapters come from the first of four places that has them. The places are
+the chapters file, the Podlove chapters in the feed, the media file, and the
+timestamps in the show notes. The `:source` tells which. A file that does not
 come leaves `:error` in its part, and `view!` throws nothing for what the
-network does. `:except` names what a view leaves out and does not
-compute. A list of episodes needs no notes, no chapters and no links, so
-its rows are `(episode/view show item {:except #{:notes :text :chapters
-:links}})`, at a fiftieth of the cost. In `view!`, `#{:media}` leaves
-the media file unread. The options of the requests are those of
-`http/call!`. `:send` sends the requests in
-its place, for a browser app that fetches through its own server.
+network does. The option `:except` names what a view leaves out and does not
+compute. A list of episodes needs no notes, no chapters and no links, so its
+rows are `(episode/view show item {:except #{:notes :text :chapters
+:links}})`, at a fiftieth of the cost. In `view!`, `#{:media}` leaves the
+media file unread. The options of the requests are those of `http/call!`. The
+option `:send` sends the requests in its place, for a browser app that
+fetches through its own server.
 
-The functions below the views give the same answers, so drop down to
-them when a step is not what the page wants. `resolve/properties` gives
-the properties alone. Where several vocabularies have the same property,
-a rule in the docstring of the accessor selects the value.
-`search/episodes` selects and sorts the items by criteria that are data.
-The criteria can use the progress of the listener.
+The functions below the views give the same answers, so drop down to them
+when a step is not what the page wants. For the properties alone, there is
+`resolve/properties`. Where several vocabularies have the same property, a
+rule in the docstring of the accessor selects the value. The function
+`search/episodes` selects and sorts the items by criteria that are data. The
+criteria can use the progress of the listener.
 
 ```clojure
 (resolve/properties show)
@@ -465,12 +466,12 @@ examples, `fetch-body` is your own HTTP function.
 (chapters/at doc 754)  ; the chapter at 12:34
 ```
 
-The media file also gives its own duration, and it can hold artwork.
-`media/read!` reads them with range requests: most often one or two, and a
+The media file also gives its own duration, and it can hold artwork. A call
+of `media/read!` reads them with range requests: most often one or two, and a
 few hundred kilobytes. A host that inserts ads can send a different file to
 each request. So the duration is that of the file that came, and it can
-differ from the duration in the feed. In ClojureScript, `media/read!`
-returns a promise.
+differ from the duration in the feed. In ClojureScript, `media/read!` returns
+a promise.
 
 ```clojure
 (def file (media/read! (:url (resolve/enclosure item))))
@@ -488,8 +489,8 @@ When the file does not come, the result is `{:error …}`. The `:error` is
 the diagnostic `:file/unreachable`, with the `:reason`, and with the
 `:status` when the server answered with one.
 
-An alternate enclosure can give the hash of its file in
-`podcast:integrity`. `resolve/enclosure` keeps it under `:integrity`, and
+An alternate enclosure can give the hash of its file in `podcast:integrity`.
+The function `resolve/enclosure` keeps it under `:integrity`, and
 `media/verify!` checks the file against it:
 
 ```clojure
@@ -498,12 +499,12 @@ An alternate enclosure can give the hash of its file in
     (media/verify! url integrity)))  ; => {:valid? true :algorithm "sha384"}
 ```
 
-`:valid?` is false for a file that does not match. It is nil when
+The `:valid?` is false for a file that does not match. It is nil when
 `verify!` made no check, and the `:error` of the result then tells why.
 
-`resolve/transcript` selects the transcript that suits the listener: by
-language first, then by timings, then by type. Fetch it, and parse it with
-its type:
+The function `resolve/transcript` selects the transcript that suits the
+listener: by language first, then by timings, then by type. Fetch it, and
+parse it with its type:
 
 ```clojure
 (let [{:keys [url type]} (resolve/transcript show item {:languages ["da" "en"]})]
@@ -511,11 +512,11 @@ its type:
 ```
 
 A show can recommend other shows in its podroll, and name the feed of its
-publisher. `show/view!` gives the shows of the podroll as the Podcast
-Index knows them, when it has the credentials of the index. It gives the
-publisher feed with its shows, and tells whether the publisher confirms
-the show. The specification asks an app to show the other shows of a
-publisher only when its feed lists this show.
+publisher. With the credentials of the index, `show/view!` gives the shows of
+the podroll as the Podcast Index knows them. It gives the publisher feed with
+its shows, and tells whether the publisher confirms the show. The
+specification asks an app to show the other shows of a publisher only when
+its feed lists this show.
 
 ```clojure
 (def page (show/view! show {:index {:key "…" :secret "…"}}))
@@ -525,11 +526,11 @@ publisher only when its feed lists this show.
 ```
 
 Below the view, `resolve/podroll` and `resolve/publisher` give the remote
-items. `podcastindex/remote-item!` finds the feed of a remote item in the
-Podcast Index by its feed guid. `resolve/remote-items` gives the entries
-of a publisher feed or a list feed. `resolve/social-interacts`
-tells where the comments on an episode are, or that the podcaster wants
-no public comments. [Show the comments on an
+items. The function `podcastindex/remote-item!` finds the feed of a remote
+item in the Podcast Index by its feed guid. The entries of a publisher feed
+or a list feed come from `resolve/remote-items`. The function
+`resolve/social-interacts` tells where the comments on an episode are, or
+that the podcaster wants no public comments. [Show the comments on an
 episode](#show-the-comments-on-an-episode) tells how to read them.
 
 ```clojure
@@ -563,8 +564,8 @@ to a post. For a thread on Nostr, you can give the relays to ask.
 (:report thread)        ; => [{:id :comments/withheld :count 1 :level :info …}]
 ```
 
-If there is no thread, show no comments. `comments/thread` gives nil when
-the podcaster wants no public comments.
+If there is no thread, show no comments. When the podcaster wants no public
+comments, `comments/thread` gives nil.
 
 The content of a comment is sanitized HTML with absolute links. Render it
 with `html/hiccup`. To lead the mentions and the hashtags to pages of your
@@ -581,26 +582,25 @@ for the links:
 ;; => [[:p {} "Good episode, " [:a {:href "/profiles/activitypub/https%3A%2F%2F…"} "@ann"] " " [:a {:href "/tags/podcast"} "#podcast"]]]
 ```
 
-The function gets a part of the content. The `:id` of a mention is the id
-of an author of the thread. It is the id of an actor on ActivityPub, a
-DID on the AT Protocol and a public key on Nostr. For nil, a mention of
-ActivityPub keeps the link of its post, and a mention of another protocol
-has no link. `comments/parts` gives the parts themselves, for an app that
-shows no HTML.
+The function gets a part of the content. The `:id` of a mention is the id of
+an author of the thread. It is the id of an actor on ActivityPub, a DID on
+the AT Protocol and a public key on Nostr. For nil, a mention of ActivityPub
+keeps the link of its post, and a mention of another protocol has no link.
+For an app that shows no HTML, `comments/parts` gives the parts themselves.
 
-`comments/text` gives the content as plain text, for a notification or a
-line in a list. It is the text that a reader sees, with the name of a
-profile in the place of its id:
+For a notification or a line in a list, `comments/text` gives the content as
+plain text. It is the text that a reader sees, with the name of a profile in
+the place of its id:
 
 ```clojure
 (comments/text thread comment)  ; => "Is this @Ann approved? 🤣 #podcast"
 ```
 
-If a comment has a `:summary` or is `:sensitive?`, show
-it behind a warning. An attachment gives its `:aspect-ratio` for the
-layout. The `:poll` of a comment gives the choices of a poll. On Bluesky,
-the author of the root post can hide replies. `tree` leaves out the hidden
-replies. To show them, give `tree` the options `{:hidden? true}`.
+If a comment has a `:summary` or is `:sensitive?`, show it behind a warning.
+An attachment gives its `:aspect-ratio` for the layout. The `:poll` of a
+comment gives the choices of a poll. On Bluesky, the author of the root post
+can hide replies. The function `tree` leaves out the hidden replies. To show
+them, give `tree` the options `{:hidden? true}`.
 
 The servers of a thread choose the URLs that `fetch!` fetches. So `fetch!`
 sends nothing to the network of your app, as
@@ -608,12 +608,12 @@ sends nothing to the network of your app, as
 tells. If your app must reach its own network, give `fetch!` the option
 `:allow? (constantly true)`.
 
-Keep the thread with the episode. `fetch!` reads a thread as far as its
-limits allow, and the report tells when it stopped early. By default, it
-reads for one minute at most. To show comments sooner, give it
-`:max-seconds 5`. Show what it read, then fetch the kept thread again to
-read more. Each fetch reads 100 comments more, by default. To see new
-comments, fetch a new thread from `comments/thread`.
+Keep the thread with the episode. A call of `fetch!` reads a thread as far as
+its limits allow, and the report tells when it stopped early. By default, it
+reads for one minute at most. To show comments sooner, give it `:max-seconds
+5`. Show what it read, then fetch the kept thread again to read more. Each
+fetch reads 100 comments more, by default. To see new comments, fetch a new
+thread from `comments/thread`.
 
 A server can fail for a time. The report then has `:comments/incomplete`,
 and the failure has `:retry?`. The next fetch of the kept thread asks that
@@ -621,12 +621,12 @@ server again. A very large thread is cut, and the report tells how many
 replies a limit of size cut, as `:comments/truncated`.
 
 The AT Protocol gives no web page for a post. Link such a post to a web app
-of your choice. Build the link from the DID of the author and the record
-key of the post. `atproto/at-uri` gives both.
+of your choice. Build the link from the DID of the author and the record key
+of the post. The function `atproto/at-uri` gives both.
 
-On Nostr, people also write about an episode that names no thread. Each
-such note names the episode by its guid. `nostr-comments/about` gives the
-thread of these notes, for an episode or for a show:
+On Nostr, people also write about an episode that names no thread. Each such
+note names the episode by its guid. The function `nostr-comments/about` gives
+the thread of these notes, for an episode or for a show:
 
 ```clojure
 (def about (nostr-comments/about show item))
@@ -642,11 +642,11 @@ content. The podcaster did not choose this thread. When
 comments.
 
 The `:content` of a comment from Nostr is HTML, as that of each other
-comment. A mention of a profile is the name of the profile, such as
-`@Ann`. `comments/hiccup` gives the mentions, the hashtags and the
+comment. A mention of a profile is the name of the profile, such as `@Ann`.
+The function `comments/hiccup` gives the mentions, the hashtags and the
 references to other notes the links of your app. A part of Nostr with a
-`:uri` is a mention or a reference, and the URI opens an app of Nostr on
-the device:
+`:uri` is a mention or a reference, and the URI opens an app of Nostr on the
+device:
 
 ```clojure
 (comments/hiccup thread comment {:link (fn [{:keys [uri tag]}]
@@ -688,8 +688,8 @@ AppViews that answer without an account, as of September 2026:
 
 The player state holds the queue and the progress. The app holds the media
 element. Send each event of the media element to `library/step`, or to
-`player/step` below it. `step` returns the new state and the effects that
-the app must do: seek in the media, or play the next episode.
+`player/step` below it. Each returns the new state and the effects that the
+app must do: seek in the media, or play the next episode.
 
 ```clojure
 (def id (player/episode-id show url item))
@@ -703,14 +703,13 @@ the app must do: seek in the media, or play the next episode.
 (player/step playing [:ended id] now)          ; => {:state … :effects [[:play next-id]]}
 ```
 
-`[:play next-id]` comes only when another episode is in the queue.
+The effect `[:play next-id]` comes only when another episode is in the queue.
 
-The settings of the show above have `:skip-outro`, so `step` ends each of
-its episodes 45 seconds before the end. A `:progress` or a `:skip` that
-moves the position into the outro gives `[:stop id]`, then `[:played id]`
-if the episode was not played before, and then the effects of
-`[:ended id]`. `player/outro-start` gives the position where the outro
-starts.
+The settings of the show above have `:skip-outro`, so `step` ends each of its
+episodes 45 seconds before the end. A `:progress` or a `:skip` that moves the
+position into the outro gives `[:stop id]`, then `[:played id]` if the
+episode was not played before, and then the effects of `[:ended id]`. The
+function `player/outro-start` gives the position where the outro starts.
 
 An episode with chapters lets the listener jump between them. Give `step`
 the chapters document of the episode, and the direction:
@@ -720,11 +719,10 @@ the chapters document of the episode, and the direction:
 (player/step playing [:chapter id :previous doc] now)  ; => {:state … :effects [[:seek id 1180]]}
 ```
 
-A jump to the previous chapter goes to the start of the chapter that
-plays. In the first three seconds of a chapter, it goes to the chapter
-before it. A jump does not stop at a chapter that is not in the table of
-contents. `chapters/jump` gives the position alone, for a player that
-does not use `step`.
+A jump to the previous chapter goes to the start of the chapter that plays.
+In the first three seconds of a chapter, it goes to the chapter before it. A
+jump does not stop at a chapter that is not in the table of contents. For a
+player that does not use `step`, `chapters/jump` gives the position alone.
 
 A sleep timer stops the player at the end of an episode. Keep the timer
 beside the state, and give it to each `step`:
@@ -742,8 +740,8 @@ The timer is of one device, so it is not in the state that syncs. A timer
 that counts minutes belongs to the clock of the app.
 
 An episode counts as played when the listener is 30 seconds from its end.
-`step` counts no listening between two reports that are more than 60
-seconds apart. Give `step` other numbers as options:
+Between two reports that are more than 60 seconds apart, `step` counts no
+listening. Give `step` other numbers as options:
 
 ```clojure
 (player/step playing [:progress id 3500 3600] now {:played-threshold 120 :listening-gap 90})
@@ -780,10 +778,10 @@ preference `:downloads`:
 (downloads/problems (downloads/rules state))  ; => nil, this version knows each rule
 ```
 
-`:episodes` has the options of `search/episodes`. The rule above selects
-the newest three episodes of the show that last ten minutes or more and
-do not have the word rerun. `downloads/default-rule` and
-`downloads/default-rules` tell each key of the rules.
+The key `:episodes` has the options of `search/episodes`. The rule above
+selects the newest three episodes of the show that last ten minutes or more
+and do not have the word rerun. The keys of the rules are in
+`downloads/default-rule` and `downloads/default-rules`.
 
 Make a plan after each refresh of the feeds, and when the listener plays
 or queues an episode:
@@ -802,7 +800,7 @@ Then follow the plan:
 - Download each file of `:download`, in its order. Add an entry to the
   list of the files when the download starts, with the time as `:at`.
 - Delete each file of `:delete`. Keep its entry, and set `:removed?` in
-  it. `plan` downloads no episode that has an entry.
+  it. No episode that has an entry is downloaded again.
 - Show the listener what is in `:waiting`. These downloads have no room
   within `:max-episodes` and `:max-bytes`.
 
@@ -818,19 +816,20 @@ one device, give `plan` the rules as an option:
                  :enclosure {:types ["audio/opus" "audio/mpeg"]}})
 ```
 
-`:enclosure` has the options of `resolve/enclosure`, which selects the
-file of an episode. For feeds that declare no podcast:guid, give `:url` as
-a function of the feed, as `search/episodes` takes it.
+The key `:enclosure` has the options of `resolve/enclosure`, which selects
+the file of an episode. For feeds that declare no podcast:guid, give `:url`
+as a function of the feed, as `search/episodes` takes it.
 
-`plan` does not know the network or the battery. The app decides when it
-follows the plan.
+The function `plan` does not know the network or the battery. The app decides
+when it follows the plan.
 
 
 ## Share a show or an episode
 
-A listener shares a show with a person who has another app. `links/links`
-gives the link to the show in each app. `links/ids` reads the keys that
-the links hold from a show of `directory`, or from a parsed feed:
+A listener shares a show with a person who has another app. The function
+`links/links` gives the link to the show in each app. The keys that the links
+hold come from `links/ids`, which reads them from a show of `directory`, or
+from a parsed feed:
 
 ```clojure
 (def keys-of-show (links/ids (first found) item))
@@ -892,14 +891,15 @@ fields.
 The player state also holds how the listener organizes the shows and the
 episodes. Each change syncs to the other devices, as the queue does.
 
-- A folder is a setting of a subscription. `player/folders` groups the
-  shows by folder, and `player/to-opml` writes the folders into the OPML.
-- Tags are the listener's own categories. A show is in one folder at
-  most, but it can have many tags. `player/to-opml` writes them as the
-  categories of the outline, a part of OPML that most apps do not read.
-- The inbox holds the new episodes of a show whose settings have
-  `:inbox?`. `player/refresh` puts them there. An episode leaves the inbox
-  when the listener queues it, plays it or dismisses it.
+- A folder is a setting of a subscription. The shows are grouped by folder
+  with `player/folders`, and `player/to-opml` writes the folders into the
+  OPML.
+- Tags are the listener's own categories. A show is in one folder at most,
+  but it can have many tags. In OPML, `player/to-opml` writes them as the
+  categories of the outline, a part that most apps do not read.
+- The inbox holds the new episodes of a show whose settings have `:inbox?`.
+  They go there through `player/refresh`. An episode leaves the inbox when
+  the listener queues it, plays it or dismisses it.
 - The listener can star an episode, and bookmark a position in it.
 - The listener can rate an episode. The scale is from 1 to 5, unless the
   app gives another scale as `:scale`. Examples are `{:worst 1 :best
@@ -910,23 +910,23 @@ episodes. Each change syncs to the other devices, as the queue does.
 - A clip is a part of an episode, with a start, a duration and a title. It
   has the shape of a `podcast:soundbite`.
 - A saved filter keeps the criteria of `search/episodes` under a name.
-  Another device can save criteria of a later version of podcast-clj.
-  `search/problem` tells what this version does not know, so ask it before
-  you offer the filter.
+  Another device can save criteria of a later version of podcast-clj. Before
+  you offer the filter, ask `search/problem`, which tells what this version
+  does not know.
 - A filter for the episodes of the last week has the criterion `:age`, a
-  number of seconds. `search/episodes` takes the time of now as `:at`.
-  The criteria under `:not` exclude episodes, such as `{:not {:text
+  number of seconds. The function `search/episodes` takes the time of now as
+  `:at`. The criteria under `:not` exclude episodes, such as `{:not {:text
   #{"rerun" "trailer"}}}`.
 - A playlist is a list of episodes beside the queue, in the order the
-  listener gives. Play it by queueing its episodes. `player/to-list-feed`
-  writes it as a list feed of the podcast namespace, which Podcasting 2.0
-  apps can play, and `player/from-list-feed` reads one. The list feed is
-  for other people, so the URL of a private feed goes into it without its
-  user name and password.
-- `player/step` counts the seconds that the listener hears of each show,
-  month by month, for statistics and a review of the year. It counts from
-  one report of the position to the next. So report the position at least
-  each 30 seconds while an episode plays. After a minute without a
+  listener gives. Play it by queueing its episodes. With
+  `player/to-list-feed`, it is a list feed of the podcast namespace, which
+  Podcasting 2.0 apps can play, and `player/from-list-feed` reads one. The
+  list feed is for other people, so the URL of a private feed goes into it
+  without its user name and password.
+- The function `player/step` counts the seconds that the listener hears of
+  each show, month by month, for statistics and a review of the year. It
+  counts from one report of the position to the next. So report the position
+  at least each 30 seconds while an episode plays. After a minute without a
   report, `step` takes the time for a pause, and counts nothing.
 
 ```clojure
@@ -961,12 +961,12 @@ episodes. Each change syncs to the other devices, as the queue does.
     (search/episodes (keys urls) (assoc criteria :player state :url #(urls %) :at now))))
 ```
 
-`player/from-opml` reads the folders, the tags and the dates of
+The function `player/from-opml` reads the folders, the tags and the dates of
 subscribing back. It also reads the OPML of other apps. Some apps put a
 description in the text of an outline, so it uses the title of the feed
-first. Some apps put the whole list in one folder with the name `feeds`.
-Such a folder does not become a folder. A folder of the listener stays a
-folder, also when it holds every show. [Services and their
+first. Some apps put the whole list in one folder with the name `feeds`. Such
+a folder does not become a folder. A folder of the listener stays a folder,
+also when it holds every show. [Services and their
 defaults](services.md#the-folder-around-an-opml-list) lists the names, and
 the option `:wrappers` replaces them:
 
@@ -978,22 +978,22 @@ the option `:wrappers` replaces them:
 ## Sync the devices of a listener
 
 Each device writes its whole state as one document to a store, and reads the
-documents of the other devices. `sync!` does one step: pull, merge and push.
-[Syncing](sync.md) explains why this is safe.
+documents of the other devices. One step of `sync!` is a pull, a merge and a
+push. [Syncing](sync.md) explains why this is safe.
 
 With the library, one call: `(library/sync! lib [cloud folder] now)`. It
-sends the cursors of the last step, and merges what the listener did
-during the step into the result. It compacts, keeps the cursors, and
-tells under `:next-at` when to call again. `library/next-sync` tells the
-same between steps. Below it, the steps by hand:
+sends the cursors of the last step, and merges what the listener did during
+the step into the result. It compacts, keeps the cursors, and tells under
+`:next-at` when to call again. Between steps, `library/next-sync` tells the
+same. Below it, the steps by hand:
 
 1. Find the place for the documents: a WebDAV collection, or a folder that a
    sync client mirrors. [Sync stores and documents](stores.md) gives the
    URLs and paths of some providers.
 2. Test the store with `store/check!`, for example from a button in the
    settings screen.
-3. Make a backend for each place. `webdav/backend` and `file/backend` make
-   the store and the backend in one call.
+3. Make a backend for each place. The functions `webdav/backend` and
+   `file/backend` make the store and the backend in one call.
 4. Call `sync!` when the app starts, when it goes to the background, and
    after a series of changes. Merge the `:state` of the result into the
    state the app has now, which can hold changes from during the step. Then
@@ -1028,8 +1028,8 @@ subscription list stays readable for other apps.
 
 Each step also removes the tombstones that all other devices merged, if they
 are older than 30 days. A device that stopped syncing blocks this removal.
-`player/lagging` shows such devices, and `player/retire` removes a device
-from the sync.
+The function `player/lagging` shows such devices, and `player/retire` removes
+a device from the sync.
 
 ```clojure
 (player/devices state)                   ; the devices of the listener, as they described themselves
@@ -1066,11 +1066,11 @@ this at `/api/2/`.
 
 ## Pay value for value
 
-`resolve/value` gives the value block of an episode. `value/recipients-at`
-gives the recipients at a position in the episode, and `value/payments`
-divides an amount between them. The wallet of the app makes each payment.
-podcast-clj writes what goes with a payment, in one map for each way to
-pay.
+The function `resolve/value` gives the value block of an episode. The
+function `value/recipients-at` gives the recipients at a position in the
+episode, and `value/payments` divides an amount between them. The wallet of
+the app makes each payment. What goes with a payment is one map for each way
+to pay.
 
 ```clojure
 (def block (resolve/value show item))
@@ -1096,10 +1096,11 @@ a key that the payment cannot carry. The report then has
 `:value/custom-record`, of level `:error`. Do not send such a payment: it
 reaches the node, and not the wallet.
 
-Pay a recipient of type `lnaddress` with an invoice. `lnaddress/invoice!`
-asks the domain of the address for the invoice, and checks its amount.
-Put the metadata of the payment in the comment. Serve the header of
-`metadata/header` at a URL of your app, and name that URL in the comment.
+Pay a recipient of type `lnaddress` with an invoice. A call of
+`lnaddress/invoice!` asks the domain of the address for the invoice, and
+checks its amount. Put the metadata of the payment in the comment. Serve the
+header of `metadata/header` at a URL of your app, and name that URL in the
+comment.
 
 ```clojure
 (lnaddress/invoice! "ann@getalby.com" 50000
@@ -1114,10 +1115,10 @@ comment only, or none. When the comment does not fit, none goes out, and
 the invoice has no `:comment`. The recipient then does not learn what the
 payment is for, so tell the listener before the payment.
 
-If the domain names a node for keysend, you can pay the address with
-keysend instead. `lnaddress/node!` gives the node as the keys of a
-recipient of type `node`. Keep the node for a while, as the podcast
-namespace asks.
+If the domain names a node for keysend, you can pay the address with keysend
+instead. A call of `lnaddress/node!` gives the node as the keys of a
+recipient of type `node`. Keep the node for a while, as the podcast namespace
+asks.
 
 ```clojure
 (merge recipient (lnaddress/node! (:address recipient)))  ; => {:type "node" :address "03…" :custom-key "696969" …}
@@ -1132,9 +1133,9 @@ so the name of the sender and the message are public too.
 ### Pay from the wallet of the listener
 
 A listener with a wallet of their own gives your app a connection URI of
-Nostr Wallet Connect. The wallet makes the URI, often with a budget.
-`nwc/parse` reads it. The URI holds a secret key, and who has it can spend
-from the wallet. Keep it as you keep a password, and show it to nobody.
+Nostr Wallet Connect. The wallet makes the URI, often with a budget. The
+function `nwc/parse` reads it. The URI holds a secret key, and who has it can
+spend from the wallet. Keep it as you keep a password, and show it to nobody.
 
 ```clojure
 (def connection (nwc/parse "nostr+walletconnect://b889…?relay=wss%3A%2F%2Frelay.example&secret=…"))
@@ -1193,9 +1194,9 @@ Keep the money of the listener safe:
 - Tell the listener to give the connection a budget in the wallet. The
   budget is the most that a lost secret costs.
 
-In a browser, a wallet can give the page a WebLN provider, as the
-extension Alby does. `value.webln` calls it, in ClojureScript. The wallet
-asks the listener before each payment.
+In a browser, a wallet can give the page a WebLN provider, as the extension
+Alby does. In ClojureScript, `value.webln` calls it. The wallet asks the
+listener before each payment.
 
 ```clojure
 (webln/pay-keysend! (assoc payment :sats 50) recipient)  ; a promise of {:preimage "…" :sats 50}
@@ -1239,15 +1240,15 @@ does. They are what the sender wrote, and HTML in them must not run.
 
 ## Check the files that a feed links to
 
-A host checks a feed before it publishes, and an app can check a feed that
-a podcaster submits. `check/feed!` fetches the files that the feed and its
-newest items link to, and tells whether they reach a listener as the feed
-says: the media files, the images, the transcripts and the chapters files.
-Give it the URL of the feed to check the feed too, and a profile to add
-the rules of PSP-1 or Apple Podcasts. It sends a HEAD request for each
-file, asks for two bytes of each file but the images, and reads the header
-of each image. `:read? true` also reads what the files hold: the format and
-duration of each media file, as far as its duration, and each transcript
+A host checks a feed before it publishes, and an app can check a feed that a
+podcaster submits. A call of `check/feed!` fetches the files that the feed
+and its newest items link to, and tells whether they reach a listener as the
+feed says: the media files, the images, the transcripts and the chapters
+files. Give it the URL of the feed to check the feed too, and a profile to
+add the rules of PSP-1 or Apple Podcasts. It sends a HEAD request for each
+file, asks for two bytes of each file but the images, and reads the header of
+each image. With `:read? true`, it also reads what the files hold: the format
+and duration of each media file, as far as its duration, and each transcript
 and chapters file whole.
 
 ```clojure
@@ -1265,17 +1266,17 @@ and chapters file whole.
 ```
 
 A feed names the files of its check, so a check has limits. They are 500
-files, ten minutes, and 32 MB of each file that it reads.
-`check/default-limits` holds them, and the options of `feed!` set each of
-them. A file that a limit left out has the facts `{:unchecked …}`, and the
-report counts such files with `:check/unchecked`. If your server checks
-feeds that strangers submit, give `feed!` the option
-`:allow? http/public?`. It then sends no request to your own network.
+files, ten minutes, and 32 MB of each file that it reads. The limits are in
+`check/default-limits`, and the options of `feed!` set each of them. A file
+that a limit left out has the facts `{:unchecked …}`, and the report counts
+such files with `:check/unchecked`. If your server checks feeds that
+strangers submit, give `feed!` the option `:allow? http/public?`. It then
+sends no request to your own network.
 
 Each diagnostic has the `:url` of the file and the `:path` of the element
-that names it. `check/verdicts` gives the diagnostics of facts that the app
-gathered itself. `http/probe!` gives the same facts of any file, such as
-the size of an episode before the app downloads it:
+that names it. The function `check/verdicts` gives the diagnostics of facts
+that the app gathered itself. A call of `http/probe!` gives the same facts of
+any file, such as the size of an episode before the app downloads it:
 
 ```clojure
 (get-in (http/probe! (:url (resolve/enclosure item))) [:get :range :total])  ; => 43200000
@@ -1321,19 +1322,19 @@ calculates. Then count the downloads, the listeners and the apps:
 (frequencies (map :agent-name (:downloads result)))     ; the apps
 ```
 
-`data-center?` is a predicate of a request. Build it from your lists of the
-addresses of data centers, VPNs and known bots, as the guidelines of the
+Here `data-center?` is a predicate of a request. Build it from your lists of
+the addresses of data centers, VPNs and known bots, as the guidelines of the
 IAB ask. The guidelines also ask a host to leave out the addresses with too
 many downloads. Remove them from the downloads by a rule that you state. A
-window is a calendar day in UTC. For the 24 hours from the first request of
-a listener, give `:window :rolling`.
+window is a calendar day in UTC. For the 24 hours from the first request of a
+listener, give `:window :rolling`.
 
 
 ## Measure the downloads with OP3
 
 OP3 counts the downloads of a show when its feed puts the prefix of OP3 in
-front of each enclosure. `op3/with-prefix` puts the prefix on the
-enclosures of a feed:
+front of each enclosure. The function `op3/with-prefix` puts the prefix on
+the enclosures of a feed:
 
 ```clojure
 (podcast/emit (op3/with-prefix feed))
@@ -1360,18 +1361,19 @@ OP3 tells the same fact, so the same code counts both. When the answer has
 a `:continuation-token`, OP3 has more downloads. Give the token to
 `downloads!` in the parameters to read on.
 
-`downloads!` reads page after page, and a page can fail, for example when
-OP3 answers 429. The answer then has the `:error`, with the downloads of
-the pages before that page. Its token names the page that failed, so the
-next call reads on from there. `call!` throws for an answer that is a
-failure.
+A call of `downloads!` reads page after page, and a page can fail, for
+example when OP3 answers 429. The answer then has the `:error`, with the
+downloads of the pages before that page. Its token names the page that
+failed, so the next call reads on from there. For an answer that is a
+failure, `call!` throws.
 
 
 ## Serve the feed of a show
 
-This section is for a host. `podcast/emit` writes a feed. A long feed is
-slow to fetch, so serve it in more than one document. `feed/pages` makes
-the documents, with the links between them that RFC 5005 defines:
+This section is for a host. A feed is written by `podcast/emit`. A long feed
+is slow to fetch, so serve it in more than one document. The function
+`feed/pages` makes the documents, with the links between them that RFC 5005
+defines:
 
 ```clojure
 (def documents (feed/pages feed {:kind :archived :page-size 100}))
@@ -1397,8 +1399,9 @@ each change:
 ```
 
 A private feed has a token for each subscriber. Make the tokens and keep
-them, and check the token of each request for a feed or a media file.
-`feed/for-subscriber` writes the token into the URLs of one subscriber:
+them, and check the token of each request for a feed or a media file. The
+function `feed/for-subscriber` writes the token into the URLs of one
+subscriber:
 
 ```clojure
 (def private (feed/for-subscriber feed "k3J9x2"))
@@ -1407,14 +1410,14 @@ them, and check the token of each request for a feed or a media file.
 (feed/pages private)                                 ; the pages have the token too
 ```
 
-The options give another name for the parameter, or a function that puts
-the token in the path. `op3/with-prefix` comes after `for-subscriber`,
-because the prefix goes in front of the whole URL.
+The options give another name for the parameter, or a function that puts the
+token in the path. The call of `op3/with-prefix` comes after
+`for-subscriber`, because the prefix goes in front of the whole URL.
 
 
 ## Use another service
 
-podcast-clj knows the addresses and the rules of some services. Each is a
+The addresses and the rules of some services are known by name. Each is a
 default, and an option replaces it. [Services and their
 defaults](services.md) lists them all.
 
@@ -1437,7 +1440,8 @@ To use another instance of a service, give its address:
 ```
 
 To sync with a server whose gpodder API has other paths, give the paths as
-`:api`. `{user}` is the user name, and `{device}` is the id of the device:
+`:api`. In a path, `{user}` is the user name, and `{device}` is the id of the
+device:
 
 ```clojure
 (gpodder/backend "https://sync.example.org"
@@ -1461,7 +1465,7 @@ give the rules as the profile:
 
 ## What the app does itself
 
-podcast-clj does not do these tasks. The app does them:
+These tasks stay with the app:
 
 - Store the values that [Before you start](#before-you-start) lists.
 - Fetch feeds and query directories in a browser, where each server decides
