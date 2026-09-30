@@ -357,8 +357,9 @@
   of the artwork of an itunes:image. It also gives the levels that it
   raises above the levels of the catalogue.
 
-  They are the rules of September 2026. `verdicts`, `report` and `feed!`
-  take a profile by its name here, or as a map of rules of this shape."
+  They are the rules of PSP-1 and of A Podcaster's Guide to RSS of Apple,
+  as of September 2026. `verdicts`, `report` and `feed!` take a profile by
+  its name here, or as a map of rules of this shape."
   {:psp-1 {:name    "Podcast Standards Project PSP-1"
            :artwork {:sizes [1400 3000] :types #{"image/jpeg" "image/png"} :colors #{:rgb :indexed}
                      :extension? true}}
@@ -434,7 +435,8 @@
 (defn- length-verdict
   "The diagnostic of a media `file` whose size, as the answers `get` and
   `head` give it, differs from the length that the feed declares. A length
-  of 0 says that the feed does not know it, as the RSS Profile has it."
+  of 0 says that the feed does not know it, as the RSS Best Practices
+  Profile, section 4.1.1.20.5, has it."
   [{:keys [declared] :as file} profile get head]
   (let [length (:length declared)
         served (or (get-in get [:range :total])
@@ -619,7 +621,7 @@
 (defn- barrier
   "The first answer on the way to the `answer` to a request for `url`, the
   redirects and the answer itself, that does not let a page of another
-  site read on, by the CORS rules of the Fetch standard, which a browser
+  site read on, by the CORS check of the Fetch standard, which a browser
   applies to each; nil when none stops it. An answer lets the page read
   when it allows any origin, or the origin of the check, which no site has,
   so that the server allows whatever origin it gets. After a redirect to

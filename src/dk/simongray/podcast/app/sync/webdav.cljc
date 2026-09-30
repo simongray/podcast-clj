@@ -1,10 +1,11 @@
 (ns dk.simongray.podcast.app.sync.webdav
-  "A WebDAV collection as a document store, which is what Nextcloud,
-  ownCloud, Seafile, Synology, Box, Fastmail and a Hetzner storage box
-  serve. GET, PUT, DELETE and a PROPFIND at depth one do it, with the ETag
-  as the version, `If-Match` making a put conditional and `If-None-Match: *`
-  asking for a document not there yet; HEAD when a server answers a put
-  without an ETag, and MKCOL when the collection is not there.
+  "A WebDAV collection (RFC 4918) as a document store, which is what
+  Nextcloud, ownCloud, Seafile, Synology, Box, Fastmail and a Hetzner
+  storage box serve. GET, PUT, DELETE and a PROPFIND at depth one do it,
+  with the ETag as the version, `If-Match` making a put conditional and
+  `If-None-Match: *` asking for a document not there yet; HEAD when a
+  server answers a put without an ETag, and MKCOL when the collection is
+  not there.
 
   `backend` is the one call an app makes, the collection's URL and the
   credentials in, a backend for `dk.simongray.podcast.app.sync/sync!` out;
@@ -27,6 +28,7 @@
   `:make-collection` for the collection itself."
   #{:list :fetch :put :delete :head :make-collection})
 
+;; RFC 4918, section 9.1
 (def ^:no-doc propfind-body
   "The properties a listing asks for: the ETag and whether an entry is a
   collection."
@@ -40,6 +42,7 @@
     (str/ends-with? name ".opml") "text/x-opml; charset=utf-8"
     :else                         "application/octet-stream"))
 
+;; RFC 9110, sections 13.1.1 (If-Match) and 13.1.2 (If-None-Match: *)
 (defn request
   "The request map for `call`, one of `calls`, on the collection at `root`,
   a URL that ends in a slash. `name` is the document, where the call takes
@@ -100,6 +103,8 @@
      :etag        (some #(some-> (xml/element % :d/getetag) xml/text str/trim not-empty) props)
      :collection? (boolean (some #(some-> (xml/element % :d/resourcetype) (xml/element :d/collection)) props))}))
 
+;; RFC 4918, sections 9.1.1 (207), 9.3.1 (405 for MKCOL) and 9.7.1 (409
+;; for a put without its collection)
 (defn response
   "What the answer `{:status :headers :body}` to `call` says. `:list`: the
   documents as `[{:name :version} …]`, none for a collection not there yet;

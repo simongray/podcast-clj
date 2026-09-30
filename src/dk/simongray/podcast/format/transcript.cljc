@@ -22,6 +22,8 @@
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.xml :as xml]))
 
+;; podcast:transcript names five types. application/srt is of Apple's
+;; guide, and text/srt is in feeds.
 (def formats
   "Transcript format by the mime type `podcast:transcript` gives it."
   {"text/vtt"             :vtt

@@ -367,14 +367,14 @@
 
 (defn item-guid
   "The identity of `item`: its `<guid>`, or failing that its enclosure URL, as
-  the namespace recommendations say."
+  A Podcaster's Guide to RSS of Apple has it."
   [item]
   (or (not-empty (:content (:rss/guid item)))
       (:url (:rss/enclosure item))))
 
 (defn feed-guid
   "The identity of `feed`: its declared `podcast:guid`, or the one the
-  specification derives from `url` when it declares none."
+  podcast namespace derives from `url` when it declares none."
   [feed url]
   (or (not-empty (:podcast/guid feed))
       (when url (guid/from-url url))))

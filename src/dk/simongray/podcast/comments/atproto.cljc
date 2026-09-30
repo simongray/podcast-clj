@@ -48,6 +48,8 @@
    :headers       {"Accept" "application/json"}
    ::comments/for [:thread uri]})
 
+;; AT Protocol, Labels. The values are those of the lexicon
+;; com.atproto.label.defs, as of 2026-09-30.
 (defn ^:no-doc labels
   "The labels that apply to the AT Protocol post `view`: those of the post
   and those of the account of its author, without the labels that are

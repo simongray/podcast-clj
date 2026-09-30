@@ -1,6 +1,6 @@
 (ns dk.simongray.podcast.util.json
-  "The JSON adapter: strings in, plain data with string keys out, and back,
-  on both platforms."
+  "The JSON adapter (RFC 8259): strings in, plain data with string keys out,
+  and back, on both platforms."
   (:require #?(:clj [clojure.data.json :as json])
             [clojure.string :as str])
   #?(:clj (:import [java.io PushbackReader StringReader])))

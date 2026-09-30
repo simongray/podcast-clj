@@ -137,15 +137,15 @@
      :cljs (.getRandomValues js/crypto (js/Uint8Array. n))))
 
 (defn base64
-  "The bytes `b` in base64, as RFC 4648 defines it and data URLs and SRI use
-  it."
+  "The bytes `b` in base64, as RFC 4648, section 4, defines it and data URLs
+  and SRI use it."
   [b]
   #?(:clj  (.encodeToString (Base64/getEncoder) ^bytes b)
      :cljs (js/btoa (binary-string b))))
 
 (defn from-base64
-  "The bytes that the base64 text `s` names, with its padding, as RFC 4648
-  defines it. Nil for a text that is not base64."
+  "The bytes that the base64 text `s` names, with its padding, as RFC 4648,
+  section 4, defines it. Nil for a text that is not base64."
   [s]
   (when (and (string? s)
              (zero? (mod (count s) 4))
@@ -156,6 +156,7 @@
       (catch #?(:clj IllegalArgumentException :cljs :default) _
         nil))))
 
+;; RFC 2397, section 3
 (defn data-url
   "The bytes `b` of the MIME type `type` as a data URL, which a browser shows
   as an image source."
@@ -186,6 +187,7 @@
   #?(:clj  (.getBytes ^String s StandardCharsets/UTF_8)
      :cljs (.encode (js/TextEncoder.) s)))
 
+;; RFC 3629, section 3
 (defn utf8?
   "Whether the bytes `b` from `start` to `end` are UTF-8 with one or more
   characters outside ASCII.
@@ -206,6 +208,7 @@
           (recur (+ i n 1) true)
           :else             false)))))
 
+;; WHATWG MIME Sniffing Standard, section 6.1
 (def ^:no-doc image-signatures
   "The MIME type of an image by the bytes it begins with, nil standing for
   any byte."

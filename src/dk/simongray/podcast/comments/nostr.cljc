@@ -198,7 +198,8 @@
   a diagnostic without its level. Nil when nothing did.
 
   A relay closes a subscription with a reason, whose first word NIP-01
-  defines. A relay that wants to know the reader gives auth-required or
+  defines, and NIP-42 for auth-required. A relay that wants to know the
+  reader gives auth-required or
   restricted, and podcast-clj has no key to tell it. A failure is
   `:retry?` when it can pass with time."
   [url {:keys [error closed timeout? events] :as response}]
@@ -421,6 +422,7 @@
         (when (and external (some #{external} (nostr/tag-values event "i")))
           external))))
 
+;; NIP-36 (content-warning); NIP-32 (the l tag of ISO-639-1)
 (defn- note-comment
   "The note or the comment `event` as a comment read at `at`, in reply to
   `in-reply-to`, with the names `names` of profiles in its content.
@@ -446,6 +448,7 @@
                      ::mentions   (mentions event)
                      ::receipts   (receipts event)})))
 
+;; NIP-01 (kind 0: name, picture); NIP-24 (display_name)
 (defn- profile-author
   "The event `event` of kind 0 as an author read at `at`: the name and
   the picture of its content, and the public key as its handle, in the

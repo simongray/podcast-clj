@@ -34,7 +34,8 @@
 (def default-limits
   "The limits of `invoice!` and `node!` that their options do not set. They
   are the seconds that each request can take, and the size of an answer in
-  bytes. The terms of an address can hold an image of about 136 kilobytes."
+  bytes. The terms of an address can hold an image of about 136 kilobytes,
+  by LUD-06."
   {:timeout-seconds 10
    :max-bytes       (* 256 1024)})
 
@@ -163,6 +164,7 @@
   [{:keys [min-msat max-msat]} msat]
   (boolean (and (integer? msat) min-msat max-msat (<= min-msat msat max-msat))))
 
+;; LUD-12
 (defn sent-comment
   "The comment that goes out with a request to the callback of `terms`:
   `comment`, cut to the `:comment-length` of the terms. Nil when the terms
@@ -196,7 +198,8 @@
   7089)
 
 (def ^:no-doc networks
-  "The network of each prefix of a BOLT 11 invoice."
+  "The network of each prefix of a BOLT 11 invoice (part Human-Readable
+  Part), and sb, which btcd has for its simnet."
   {"bc" :bitcoin "tb" :testnet "tbs" :signet "bcrt" :regtest "sb" :simnet})
 
 (def ^:no-doc multipliers

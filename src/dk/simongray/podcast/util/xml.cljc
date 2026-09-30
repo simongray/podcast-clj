@@ -178,7 +178,7 @@
           "le" 8804 "ge" 8805 "hearts" 9829}))
 
 (def xml-entities
-  "The five entities XML predefines."
+  "The five entities XML predefines (XML 1.0, section 4.6)."
   #{"amp" "lt" "gt" "quot" "apos"})
 
 (defn- code-point->str
@@ -445,6 +445,7 @@
              [{} problems]
              attrs))
 
+;; Namespaces in XML 1.0, section 6.1
 (defn- resolve-element
   "Resolve `[tag attrs & children]` in `scope`, prefix to `[uri alias]`;
   returns `[element problems]`. The alias of a declared URI is looked up
@@ -505,7 +506,7 @@
   (:xml/namespaces (meta tree)))
 
 (def illegal-characters
-  "The characters XML 1.0 forbids anywhere, as a pattern."
+  "The characters XML 1.0 forbids anywhere (section 2.2), as a pattern."
   #"[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]")
 
 (defn ^:no-doc legal?
@@ -549,6 +550,7 @@
             false
             (recur (inc i))))))))
 
+;; XML 1.0, section 2.11
 (defn- escape-legal-text
   "Escape the legal string `s` for a text node; `s` itself when nothing
   needs escaping. A carriage return becomes a character reference, the only
@@ -562,6 +564,7 @@
         (str/replace "\r" "&#13;"))
     s))
 
+;; XML 1.0, section 3.3.3
 (defn- escape-attr
   "Escape `s` for an attribute value, where a parser also normalizes
   newlines and tabs to spaces unless they are character references."

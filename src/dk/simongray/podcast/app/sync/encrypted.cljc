@@ -37,8 +37,8 @@
 
 (def default-iterations
   "The PBKDF2 iterations a key is derived with unless told otherwise: what
-  OWASP recommends for HMAC-SHA256, about half a second on a phone once
-  per salt."
+  the Password Storage Cheat Sheet of OWASP recommends for HMAC-SHA256, as
+  of September 2026, about half a second on a phone once per salt."
   600000)
 
 (def max-iterations
@@ -82,6 +82,7 @@
   #?(:clj  (String. ^bytes bytes StandardCharsets/UTF_8)
      :cljs (.decode (js/TextDecoder.) bytes)))
 
+;; RFC 8018, section 5.2
 (defn- derive-key
   "The AES key for `passphrase` with `salt` over `iterations` of PBKDF2 with
   HMAC-SHA256. In ClojureScript, it is a promise of the key. The passphrase

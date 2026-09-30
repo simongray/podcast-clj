@@ -109,6 +109,7 @@
   [s]
   (-> (base64 s) (str/replace "+" "-") (str/replace "/" "_") (str/replace #"=+$" "")))
 
+;; RFC 7617, section 2 (Basic); RFC 6750, section 2.1 (Bearer)
 (defn authorization
   "The Authorization header for `credentials`. Nil for no credentials.
 
@@ -208,6 +209,7 @@
   [t now served]
   (if served (+ now (- t served)) t))
 
+;; RFC 9110, section 10.2.3
 (defn- retry-after
   "When the Retry-After of `headers` says to ask again, in epoch
   milliseconds, as `ours` reads a date. Nil when it gives no time."
@@ -216,6 +218,7 @@
     (or (some->> (seconds retry) (* 1000) (+ now))
         (some-> (date-ms retry) (ours now served)))))
 
+;; RFC 9111, section 4.2.1
 (defn- fresh-until
   "When the freshness of the response with `headers` ends, in epoch
   milliseconds: by its max-age less its Age, or else by its Expires, as
@@ -240,9 +243,9 @@
     the `Age`
   - the `Expires`
 
-  A date counts from the `Date` of the response, as RFC 9111 says. So
-  the clock of the server and a wrong time zone do not matter. Without a
-  `Date`, a date counts from `at`.
+  A date counts from the `Date` of the response, as RFC 9111, section
+  4.2.1, says. So the clock of the server and a wrong time zone do not
+  matter. Without a `Date`, a date counts from `at`.
 
   The instant is at most an hour after `at`. A feed host can give its
   feed a freshness of days and still publish within them, and a server
@@ -251,7 +254,7 @@
   `headers` maps lower-case names to a value or a vector of values, as
   the responses of `call!` do. A `Retry-After` that does not read counts
   as none. The values of all the `Cache-Control` headers count, as RFC
-  9110 joins them."
+  9110, section 5.3, joins them."
   [headers at]
   (let [now    (inst-ms at)
         served (date-ms (header headers "date"))
@@ -419,6 +422,7 @@
             s    (String. body ^Charset (declared-charset headers body))]
         (cond-> s (str/starts-with? s "\uFEFF") (subs 1))))))
 
+;; RFC 9110, section 14.4
 (defn content-range
   "The byte range and the size of the whole file that the Content-Range
   header value `s` names, as `{:start :end :total}`. Nil when `s` does not
@@ -431,9 +435,9 @@
     {:start (parse-long start) :end (parse-long end) :total (when (not= "*" total) (parse-long total))}))
 
 (defn byte-ranges
-  "The byte ranges that the Range header value `s` asks for, as RFC 9110
-  reads them. Nil when `s` does not read, because a server then ignores
-  it.
+  "The byte ranges that the Range header value `s` asks for, as RFC 9110,
+  section 14.1.2, reads them. Nil when `s` does not read, because a server
+  then ignores it.
 
   Such a value is `bytes=0-1023, 5000-`. A range is `[start end]`, with
   the end included, or nil for the rest of the file. `[nil n]` is the last
@@ -453,7 +457,8 @@
 
 (def ^:no-doc legal-url-characters
   "The ASCII characters a URI may contain as they are: RFC 3986's unreserved
-  and reserved sets, plus the percent sign of an escape."
+  and reserved sets (sections 2.3 and 2.2), plus the percent sign of an
+  escape."
   (set "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%"))
 
 #?(:clj
@@ -627,6 +632,8 @@
   (let [o (origin a)]
     (and (some? o) (= o (origin b)))))
 
+;; IANA IPv4 Special-Purpose Address Registry (RFC 6890), as of 2025-10-09:
+;; the blocks that are not globally reachable, and multicast
 (defn ^:no-doc public-ipv4?
   "Whether the IPv4 address of the four numbers `a`, `b`, `c` and `d` is on
   the public internet: not in this network, private, shared, loopback,
@@ -640,30 +647,41 @@
            (and (= 169 a) (= 254 b))
            (and (= 172 a) (<= 16 b 31))
            (and (= 192 a) (= 0 b) (contains? #{0 2} c))
+           (and (= 192 a) (= 88 b) (= 99 c))
            (and (= 192 a) (= 168 b))
            (and (= 198 a) (contains? #{18 19} b))
            (and (= 198 a) (= 51 b) (= 100 c))
            (and (= 203 a) (= 0 b) (= 113 c))
            (<= 224 a))))
 
+;; IANA IPv6 Special-Purpose Address Registry (RFC 6890), as of 2025-10-09:
+;; the blocks that are not globally reachable, and multicast
 (defn ^:no-doc public-ipv6?
   "Whether the IPv6 address of the sixteen numbers `b` is on the public
   internet: not unspecified, loopback, unique local, link-local, site-local
-  or multicast, nor kept for documentation, discard or Teredo, and not an
-  address that holds an IPv4 address that is not public."
+  or multicast, nor kept for documentation, benchmarks, discard, segment
+  routing or Teredo, and not an address that holds an IPv4 address that is
+  not public."
   [b]
   (let [word     #(+ (* 256 (nth b %)) (nth b (inc %)))
         ipv4-at  #(public-ipv4? (subvec b % (+ % 4)))
-        zeros?   #(every? zero? (subvec b 0 %))]
+        zeros?   #(every? zero? (subvec b 0 %))
+        nat64?   (and (= 0x64 (word 0)) (= 0xff9b (word 2)))]
     (cond
       (zeros? 15)                                               false
       (zeros? 12)                                               (ipv4-at 12)
       (and (zeros? 10) (= 0xffff (word 10)))                    (ipv4-at 12)
-      (and (= 0x64 (word 0)) (= 0xff9b (word 2)))               (ipv4-at 12)
+      ;; 64:ff9b::/96 holds an IPv4 address, 64:ff9b:1::/48 is for local use
+      (and nat64? (= 0 (word 4) (word 6) (word 8) (word 10)))   (ipv4-at 12)
+      nat64?                                                    false
       (= 0x2002 (word 0))                                       (ipv4-at 2)
       (and (= 0x2001 (word 0)) (= 0 (word 2)))                  false
+      (and (= 0x2001 (word 0)) (= 2 (word 2)) (= 0 (word 4)))   false
       (and (= 0x2001 (word 0)) (= 0xdb8 (word 2)))              false
-      (and (= 0x100 (word 0)) (= 0 (word 2) (word 4) (word 6))) false
+      (and (= 0x3fff (word 0)) (< (nth b 2) 0x10))              false
+      (= 0x5f00 (word 0))                                       false
+      (and (= 0x100 (word 0)) (= 0 (word 2) (word 4))
+           (<= (word 6) 1))                                     false
       (= 0xfc (bit-and 0xfe (nth b 0)))                         false
       (and (= 0xfe (nth b 0)) (<= 0x80 (nth b 1)))              false
       (= 0xff (nth b 0))                                        false
@@ -733,6 +751,8 @@
         (when-let [[_ bracketed bare] (re-matches #"\[([0-9a-fA-F:.]+)\]|([0-9a-fA-F.]*:[0-9a-fA-F:.]*)" s)]
           (ipv6 (or bracketed bare))))))
 
+;; RFC 6761, section 6.3 (localhost); RFC 6762, section 3 (.local);
+;; RFC 8375 (.home.arpa)
 (defn ^:no-doc public-name?
   "Whether the domain name `host` is a name of the public internet. Such a
   name has a dot in it, and it does not stay on a local network, as
@@ -793,6 +813,7 @@
   "The names of the headers that hold credentials, in lower case."
   #{"authorization" "cookie" "proxy-authorization"})
 
+;; RFC 9110, section 15.4
 (defn ^:no-doc redirected
   "The request that follows `request` after a redirect of `status` to the
   URL `target`.
@@ -902,8 +923,8 @@
        (with-open [^InputStream in (.body response)]
          (let [n (prefix-length (.statusCode response) start (gzipped? headers) range max-bytes)]
            (cond
-             ;; an answer to HEAD has no content by RFC 9110, though
-             ;; some servers send one over HTTP/2
+             ;; an answer to HEAD has no content by RFC 9110, section
+             ;; 9.3.2, though some servers send one over HTTP/2
              (= :head method) (byte-array 0)
              n                (within in deadline url #(.readNBytes in (int n)))
              :else            (read-within in deadline max-bytes url)))))))
@@ -1011,7 +1032,8 @@
   HttpTimeoutException while it waits for the headers.
 
   `:range [start end]` asks for those bytes alone, the end included, or
-  nil for the rest, as RFC 9110 has it. A server that sends the range
+  nil for the rest, as RFC 9110, section 14.1.2, has it. A server that
+  sends the range
   answers 206, and `:content-range` is then what `content-range` reads. A
   server that ignores ranges answers 200 with the whole file. `call!`
   reads no further than the end of the range, when it has one. From
@@ -1152,8 +1174,8 @@
 
 (defn- unsatisfied-total
   "The size of the whole file that the Content-Range value `s` of an answer
-  of 416 gives, `bytes */length`, as RFC 9110 has it; nil when it gives
-  none."
+  of 416 gives, `bytes */length`, as RFC 9110, section 14.4, has it; nil
+  when it gives none."
   [s]
   (some->> s (re-matches #"(?i)\s*bytes\s+\*/(\d{1,15})\s*") second parse-long))
 

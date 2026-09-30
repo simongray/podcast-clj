@@ -270,7 +270,8 @@
   #{"text/vtt" "application/x-subrip" "application/srt" "text/srt" "application/json"})
 
 (defn- language-tag
-  "The primary subtag of the language `s`: \"en\" for \"en-US\"."
+  "The primary subtag of the language `s` (RFC 5646, section 2.2.1): \"en\"
+  for \"en-US\"."
   [s]
   (first (str/split (str/lower-case (str s)) #"[-_]")))
 
@@ -338,7 +339,7 @@
   that its creator selected to preview or share it.
 
   A soundbite is a map with `:start-time` and `:duration` in seconds, and
-  `:title` when it has one. The specification leaves the title of a
+  `:title` when it has one. The podcast namespace leaves the title of a
   soundbite without one to the app, such as the title of the item. A
   soundbite is left out when it has no start of zero seconds or more, or
   no duration above zero."
@@ -351,9 +352,9 @@
 
 (defn people
   "The people credited on `x`, roles and groups lower-cased with the
-  specification's defaults filled in: `{:name :role :group :img :href}`.
+  defaults of podcast:person filled in: `{:name :role :group :img :href}`.
   With `feed` and `item`, the item's people replace the feed's entirely when
-  the item names any, as the specification says."
+  the item names any, as podcast:person says."
   ([x]
    (for [{:keys [content role group img href]} (:podcast/people x)]
      (cond-> {:name  content
@@ -608,7 +609,7 @@
 
 (defn next-page
   "The URL of the page with the older items of `feed`, when the feed comes
-  in pages as RFC 5005 defines them.
+  in pages as RFC 5005, sections 3 and 4, defines them.
 
   It is the atom:link rel=next of a paged feed, or else the
   rel=prev-archive of an archived feed. It is as the feed writes it, so it
@@ -653,8 +654,9 @@
   the feed has no podcast:publisher, and is no list feed and no publisher
   feed.
 
-  The specification asks an app to trust the link only when the
-  `remote-items` of the publisher feed list `feed`."
+  The podcast namespace (The Publisher Medium) asks for links both ways:
+  an app trusts the link only when the `remote-items` of the publisher
+  feed list `feed`."
   [feed]
   (let [item (:remote-item (:podcast/publisher feed))]
     (cond
@@ -718,6 +720,7 @@
   [feed item]
   ((if (serial? feed) serial-key episodic-key) item))
 
+;; Apple, A Podcaster's Guide to RSS: itunes:type and itunes:episodeType
 (defn episodes
   "The items of `feed` in listening order, as Apple Podcasts presents them:
   newest first with the trailers ahead for an episodic show, the default;

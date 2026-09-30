@@ -9,6 +9,8 @@
   calendar arithmetic here."
   (:require [clojure.string :as str]))
 
+;; days_from_civil and civil_from_days of Howard Hinnant, in
+;; chrono-Compatible Low-Level Date Algorithms
 (defn ^:no-doc days-from-civil
   "The number of days from 1970-01-01 to the date `y`-`m`-`d`."
   [y m d]
@@ -96,7 +98,8 @@
    "hst" -600 "hdt" -540 "akst" -540 "akdt" -480 "nzst" 720 "nzdt" 780})
 
 (def ^:no-doc rfc2822-strict-pattern
-  "The format RFC 2822 actually allows for a feed date, weekday included."
+  "The RFC 2822 date in the narrow form that the examples of RSS 2.0 have,
+  weekday included."
   #"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}(?::\d{2})? (?:[+-]\d{4}|GMT|UT)")
 
 (def ^:no-doc rfc2822-lenient-pattern
@@ -107,6 +110,7 @@
   quadratically."
   #"(?i)^\s*(?:[a-z]{3,9}\.?,?\s+)?(\d{1,2})(?:st|nd|rd|th)?[\s-]+([a-z]{3,9})\.?,?[\s-]+(\d{2,4})(?:[\s,T]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:\s*([a-z]{1,5}|[+-]\d{1,2}:?\d{2}|(?:gmt|utc)[+-]\d{1,2}:?\d{2}))?\s*$")
 
+;; RFC 5322, section 4.3: a zone that is not known reads as -0000
 (defn- parse-zone
   "The offset in minutes east of UTC named by `s`, 0 when there is none. A
   zone name the table lacks reads as UTC too, as a missing zone does, so
@@ -126,13 +130,16 @@
             0)))))
 
 (defn- expand-year
-  "Two-digit years as RFC 2822 reads them: 00-49 are 2000s, 50-99 are 1900s."
+  "Two- and three-digit years as RFC 5322, section 4.3, reads them: 00-49
+  are 2000s, the others count from 1900."
   [y]
   (cond
-    (< y 50) (+ y 2000)
-    (< y 100) (+ y 1900)
-    :else y))
+    (< y 50)   (+ y 2000)
+    (< y 1000) (+ y 1900)
+    :else      y))
 
+;; RFC 5322, sections 3.3 and 4.3, which replaced RFC 2822. RSS 2.0 names
+;; RFC 822, section 5.
 (defn parse-rfc2822
   "Parse the RFC 2822 date `s` into an instant, forgiving the deviations feeds
   are known for: missing weekday, full month names, two-digit years, zone
@@ -160,6 +167,7 @@
   `rfc2822-lenient-pattern`, the spaces before the zone belong to its group."
   #"^\s*(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?(?:\s*(Z|z|[+-]\d{2}:?\d{2}))?)?\s*$")
 
+;; RFC 3339, section 5.6, and the forms of ISO 8601 in its appendix A
 (defn parse-iso8601
   "Parse the ISO 8601 date or date-time `s` into an instant, or nil, as for a
   day or a time that does not exist. A missing zone is read as UTC."

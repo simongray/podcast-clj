@@ -97,7 +97,8 @@
       s)))
 
 (defn ^:no-doc legal-code-point?
-  "Whether XML 1.0 allows the character with the code point `n`."
+  "Whether XML 1.0, section 2.2, allows the character with the code point
+  `n`."
   [n]
   (or (= n 9) (= n 10) (= n 13) (<= 0x20 n 0xD7FF) (<= 0xE000 n 0xFFFD) (<= 0x10000 n 0x10FFFF)))
 
@@ -274,8 +275,8 @@
         element))))
 
 (defn- href->url
-  "The `element` with an href attribute renamed to the url the specification
-  asks for, when it has no url of its own."
+  "The `element` with an href attribute renamed to the url the podcast
+  namespace asks for, when it has no url of its own."
   [[tag attrs :as element]]
   (if (and (contains? attrs :href) (not (contains? attrs :url)))
     (into [tag (-> attrs (dissoc :href) (assoc :url (:href attrs)))] (xml/children element))
@@ -297,7 +298,7 @@
 
 (defn- podcast-category->itunes
   "The `channel` with the podcast:category elements Wavlake writes on its
-  music feeds, which the specification does not define but which mirror
+  music feeds, which the podcast namespace does not define but which mirror
   itunes:category in every way, read as itunes:category when the channel
   has none of the standard ones."
   [channel]
@@ -323,6 +324,7 @@
    "text"             "text/plain"
    "text/text"        "text/plain"})
 
+;; HTML Standard, "Parsing a srcset attribute"
 (defn- srcset-candidates
   "The `[url descriptor]` pairs of the srcset `s`, read as a browser reads
   them: a URL runs to white space, and only commas at its end end it, so

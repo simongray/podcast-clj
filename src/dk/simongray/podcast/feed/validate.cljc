@@ -251,8 +251,9 @@
   A requirement is a model key, or a vector of a key and a predicate on its
   value with a description.
 
-  They are the requirements of September 2026. `validate` takes a profile
-  by its name here, or as a map of requirements of this shape."
+  They are the requirements of PSP-1 and of A Podcaster's Guide to RSS of
+  Apple, as of September 2026. `validate` takes a profile by its name
+  here, or as a map of requirements of this shape."
   {:psp-1 {:name    "Podcast Standards Project PSP-1"
            :channel {:required    [[:atom/links #(some (comp #{"self"} :rel) %) "atom:link rel=self"]
                                    :rss/title :rss/description :rss/link :rss/language
@@ -265,8 +266,8 @@
            :channel {:required    [:rss/title :rss/description :itunes/image :rss/language
                                    :itunes/categories :itunes/explicit]
                      :recommended [:itunes/author :rss/link]}
-           :item    {:required    [:rss/title :rss/enclosure]
-                     :recommended [:rss/guid :rss/pub-date :rss/description :itunes/duration
+           :item    {:required    [:rss/title :rss/enclosure :rss/guid]
+                     :recommended [:rss/pub-date :rss/description :itunes/duration
                                    :rss/link :itunes/image :itunes/explicit]}}})
 
 (defn- requirement-diagnostics

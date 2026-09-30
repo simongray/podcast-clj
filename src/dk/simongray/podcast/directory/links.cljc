@@ -191,8 +191,8 @@
   feed names its URL in its atom:link rel=self. `opts` give the URL of a
   feed without such a link as `:url`.
 
-  The podcast:guid is that of the feed, or else the guid that the
-  specification derives from the URL, as `feed/feed-guid` gives it. The
+  The podcast:guid is that of the feed, or else the guid that the podcast
+  namespace derives from the URL, as `feed/feed-guid` gives it. The
   Podcast Index derives the same guid for a feed that declares none."
   ([show]
    (ids show nil {}))

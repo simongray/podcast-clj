@@ -31,6 +31,7 @@
   #?(:clj  (BigInteger. ^String s 16)
      :cljs (js/BigInt (str "0x" s))))
 
+;; BIP-340, part Specification: the constants p, n and G
 (def ^:no-doc p
   "The size of the field of secp256k1."
   (big "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f"))
@@ -107,8 +108,8 @@
   (big (str/join (repeat 64 "f"))))
 
 (def ^:no-doc overflow
-  "What 2^256 is in the field: 2^32 + 977. SEC 2 gives the size of the
-  field as 2^256 less this number, in its section 2.4.1."
+  "What 2^256 is in the field: 2^32 + 977. The size of the field, `p`, is
+  2^256 less this number."
   (big "1000003d1"))
 
 (def ^:no-doc shift

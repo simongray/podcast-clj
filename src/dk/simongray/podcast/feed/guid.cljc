@@ -8,8 +8,8 @@
   "ead4c236-bf58-58c6-a2c6-a6b28d128cb6")
 
 (defn uuid-v5
-  "The name-based UUID (RFC 4122 version 5) of the string `name` in the UUID
-  namespace `ns`, as a lowercase string."
+  "The name-based UUID (RFC 4122, section 4.3) of the string `name` in the
+  UUID namespace `ns`, as a lowercase string."
   [ns name]
   (let [h (bytes/sha1 (bytes/join [(bytes/from-hex (str/replace ns "-" "")) (bytes/encode name)]))
         h (-> (mapv #(bytes/at h %) (range 16))
@@ -20,8 +20,8 @@
          (subs s 16 20) "-" (subs s 20 32))))
 
 (defn guid-name
-  "The feed `url` as the specification seeds the guid with: without its scheme
-  and without trailing slashes."
+  "The feed `url` as the podcast namespace seeds a podcast:guid with: without
+  its scheme and without trailing slashes."
   [url]
   (-> url
       str/trim

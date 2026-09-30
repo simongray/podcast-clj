@@ -22,6 +22,14 @@
     (is (= #inst "2026-09-25T01:00:00Z" (time/parse-rfc2822 "25 Sep 26 03:00 +0200")))
     (is (= #inst "2026-09-25T00:00:00Z" (time/parse-rfc2822 "Friday, 25 September 2026")))
     (is (= #inst "2026-09-25T16:42:40Z" (time/parse-rfc2822 "Fri, 25 Sep 2026 16:42:40"))))
+  (testing "a year of two or three digits, as section 4.3 of RFC 5322 reads it"
+    (is (= #inst "2049-01-01T00:00:00Z" (time/parse-rfc2822 "01 Jan 49 00:00 GMT")))
+    (is (= #inst "1950-01-01T00:00:00Z" (time/parse-rfc2822 "01 Jan 50 00:00 GMT")))
+    (is (= #inst "1999-01-01T00:00:00Z" (time/parse-rfc2822 "01 Jan 99 00:00 GMT")))
+    (is (= #inst "2026-09-25T00:00:00Z" (time/parse-rfc2822 "25 Sep 126 00:00 GMT"))
+        "the year that a program writes when it counts from 1900")
+    (is (= #inst "1970-01-01T00:00:00Z" (time/parse-rfc2822 "01 Jan 1970 00:00 GMT"))
+        "a year of four digits is the year"))
   (testing "garbage"
     (is (nil? (time/parse-rfc2822 "yesterday")))
     (is (nil? (time/parse-rfc2822 "")))))

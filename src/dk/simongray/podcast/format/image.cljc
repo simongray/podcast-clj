@@ -4,8 +4,9 @@
   The header gives the type of the image, its size in pixels, its color
   model and whether it can be transparent. The reader takes them from the
   first bytes and does not decode the image. It reads PNG as the W3C PNG
-  specification defines it, JPEG as ITU-T T.81 and JFIF (T.871) do,
-  GIF89a, and WebP as RFC 9649 does.
+  specification defines it, JPEG as ITU-T T.81 does, GIF87a and GIF89a,
+  and WebP as RFC 9649 does, with the frame header of VP8 from RFC 6386,
+  section 9.1.
 
   `read` takes a view of the parts of the file at hand (see
   dk.simongray.podcast.util.bytes). It gives the header, or the ranges that it
@@ -75,6 +76,7 @@
            (#{"IDAT" "IEND"} type)           false
            :else                             (recur (+ p 12 n))))))))
 
+;; PNG (Third Edition), section 11.2.1
 (def ^:no-doc png-colors
   "The color model of each color type of a PNG image."
   {0 :grayscale 2 :rgb 3 :indexed 4 :grayscale 6 :rgb})

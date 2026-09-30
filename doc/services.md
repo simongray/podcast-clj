@@ -351,4 +351,8 @@ diagnostics that the directory changes:
 | `:artwork` | `:sizes`, the least and the greatest width in pixels. `:types`, the media types. `:colors`, the color models. `:extension?`, `:alpha?` and `:last-modified?`. |
 | `:levels` | The level of a diagnostic, by its id |
 
-Both tables have the profiles `:psp-1` and `:apple`.
+Both tables have the profiles `:psp-1` and `:apple`. `:psp-1` follows
+[PSP-1](https://github.com/Podcast-Standards-Project/PSP-1-Podcast-RSS-Specification)
+of the Podcast Standards Project. `:apple` follows [A Podcaster's Guide to
+RSS](https://help.apple.com/itc/podcasts_connect/#/itcb54353390) of Apple.
+Both are as of 30 September 2026.

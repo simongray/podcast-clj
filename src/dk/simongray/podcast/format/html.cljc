@@ -42,18 +42,21 @@
   or none."
   #"([^\s\"'=<>/]+)(?:\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+)))?")
 
+;; HTML Standard, "Elements": the void elements, and param of older pages
 (def ^:no-doc void-elements
   "Elements that never have content or an end tag."
   #{"area" "base" "br" "col" "embed" "hr" "img" "input" "link" "meta" "param"
     "source" "track" "wbr"})
 
+;; HTML Standard, "Optional tags", as of 2026-09-29
 (def ^:no-doc block-elements
   "Elements whose start tag closes an open paragraph, as HTML defines."
-  #{"address" "article" "aside" "blockquote" "details" "div" "dl" "fieldset"
-    "figcaption" "figure" "footer" "form" "h1" "h2" "h3" "h4" "h5" "h6"
-    "header" "hgroup" "hr" "main" "menu" "nav" "ol" "p" "pre" "section"
-    "table" "ul"})
+  #{"address" "article" "aside" "blockquote" "details" "dialog" "div" "dl"
+    "fieldset" "figcaption" "figure" "footer" "form" "h1" "h2" "h3" "h4" "h5"
+    "h6" "header" "hgroup" "hr" "main" "menu" "nav" "ol" "p" "pre" "search"
+    "section" "table" "ul"})
 
+;; HTML Standard, "Optional tags"
 (def ^:no-doc implied-end
   "Elements whose start tag closes an open element of the listed kinds, and
   the ancestors that bound the search: a new li closes an open li, but not

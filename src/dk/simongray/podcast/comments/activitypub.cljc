@@ -38,6 +38,7 @@
     (map? x)        (href (or (get x "href") (get x "url")))
     (sequential? x) (some href x)))
 
+;; ActivityPub, section 3.2
 (defn ^:no-doc document-request
   "The request for the ActivityPub document at `url`, `for` what it asks."
   [url for]
@@ -84,6 +85,7 @@
        (let [author (attributed o)]
          (or (nil? author) (http/same-origin? author url)))))
 
+;; ActivityPub, section 5.6
 (defn ^:no-doc public?
   "Whether the ActivityPub object `o` is for anyone to see: the Public
   collection is among its recipients, or it names no recipients at all, as
@@ -93,6 +95,8 @@
     (or (empty? recipients)
         (boolean (some #{"https://www.w3.org/ns/activitystreams#Public" "as:Public" "Public"} recipients)))))
 
+;; Activity Vocabulary, sections 2 (collections), 3.1 (activities) and 3.2
+;; (actors): the types that are no post
 (defn ^:no-doc post-of
   "The post in the ActivityPub document `doc`: the object itself, or the
   object of the Create activity that it is. Nil for an actor, a

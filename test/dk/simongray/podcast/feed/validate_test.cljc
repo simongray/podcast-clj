@@ -65,7 +65,12 @@
         (is (= [:atom/links] (:path (first (filter (comp #{:validate/profile-required} :id) v)))))
         (is (= 3 (:validate/profile-recommended (ids v))))))
     (testing "and against Apple"
-      (is (validate/valid? f {:profile :apple})))
+      (is (validate/valid? f {:profile :apple}))
+      (is (= [[:rss/items 0 :rss/guid]]
+             (->> (validate/validate (update-in f [:rss/items 0] dissoc :rss/guid) {:profile :apple})
+                  (filter (comp #{:validate/profile-required} :id))
+                  (map :path)))
+          "Apple requires the guid of an episode"))
     (testing "and against the requirements that an app gives"
       (let [own {:name    "A directory of our own"
                  :channel {:required [:podcast/guid :itunes/new-feed-url] :recommended [:podcast/locked]}

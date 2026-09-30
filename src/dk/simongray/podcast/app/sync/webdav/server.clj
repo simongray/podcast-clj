@@ -1,6 +1,6 @@
 (ns dk.simongray.podcast.app.sync.webdav.server
-  "Any document store served over WebDAV, for a Clojure backend whose
-  browser clients sync through their own origin: `handler` is a Ring
+  "Any document store served over WebDAV (RFC 4918), for a Clojure backend
+  whose browser clients sync through their own origin: `handler` is a Ring
   handler answering GET, HEAD, PUT, DELETE and a PROPFIND at depth zero or
   one, with ETags and the preconditions, and OPTIONS and MKCOL so that a
   client can ask. A store without `:list` is served without the listing of
@@ -53,6 +53,7 @@
   []
   (plain 405 "Method Not Allowed"))
 
+;; RFC 9110, sections 13.1.1 and 13.1.2
 (defn- precondition
   "What the If-Match or If-None-Match of the request `headers`, by their
   lower-case names, asks of a put of a document whose version is `current`,

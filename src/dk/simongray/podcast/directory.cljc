@@ -278,7 +278,7 @@
 
 (defn- with-feed-url
   "`show` with `feed-url` as its self link and, unless it declares one, the
-  guid the specification derives from the URL."
+  guid the podcast namespace derives from the URL."
   [show feed-url]
   (if (str/blank? (str feed-url))
     show

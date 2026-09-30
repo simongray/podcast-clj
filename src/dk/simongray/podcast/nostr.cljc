@@ -168,6 +168,8 @@
   of the name."
   {"npub" :npub "note" :note "nprofile" :nprofile "nevent" :nevent "naddr" :naddr})
 
+;; NIP-19, part "Shareable identifiers with extra metadata": the types 0
+;; (the thing), 1 (a relay), 2 (the author) and 3 (the kind)
 (defn- fields
   "The fields of the bytes `b` of a name with extra data, as `[type
   bytes]` in their order: a byte for the type, a byte for the length, and

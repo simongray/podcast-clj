@@ -39,6 +39,7 @@
   "Letters that decomposing leaves whole, spelled out when folding."
   {\æ "ae" \ø "o" \œ "oe" \ß "ss" \ð "d" \þ "th" \ł "l" \đ "d" \ħ "h" \ı "i" \ŋ "n" \ŧ "t"})
 
+;; Unicode, Blocks.txt: the five blocks of combining marks
 (def ^:no-doc marks
   "The combining marks that decomposing a letter with diacritics leaves
   after it."
@@ -322,6 +323,7 @@
   {:title 3 :show 2 :author 2 :people 2 :chapters 2 :keywords 2
    :categories 1 :description 1 :transcript 1})
 
+;; k1, b and idf are those of BM25Similarity of Lucene
 (def ^{:no-doc true :const true} k1
   "BM25's saturation: how soon repeating a term stops counting."
   1.2)

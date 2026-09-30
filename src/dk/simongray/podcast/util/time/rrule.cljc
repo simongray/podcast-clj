@@ -1,8 +1,8 @@
 (ns dk.simongray.podcast.util.time.rrule
-  "RFC 5545 recurrence rules, as the rrule of `podcast:updateFrequency`
-  carries them: parsed into a map of their parts, written back as a rule
-  string, and evaluated into the instants they produce, from the calendar
-  arithmetic of dk.simongray.podcast.util.time.
+  "RFC 5545 recurrence rules (section 3.3.10), as the rrule of
+  `podcast:updateFrequency` carries them: parsed into a map of their parts,
+  written back as a rule string, and evaluated into the instants they
+  produce, from the calendar arithmetic of dk.simongray.podcast.util.time.
 
       (parse \"FREQ=WEEKLY;BYDAY=MO,WE\")
       ;; => {:freq \"WEEKLY\" :byday [\"MO\" \"WE\"]}
@@ -142,6 +142,7 @@
   (let [[_ ordinal code] (re-matches byday-pattern s)]
     [(some-> ordinal parse-long) (weekday-numbers code)]))
 
+;; RFC 5545, section 3.3.10, note 1 of its table: BYDAY limits BYMONTHDAY
 (defn- month-days
   "The days of the month `y`-`m` that `rule` selects: BYMONTHDAY, negative
   from the end, intersected with BYDAY when both are given; BYDAY alone, with
@@ -250,6 +251,8 @@
                      (time/days-from-civil y m d))))
          (filter #(>= % day0)))))
 
+;; RFC 5545, section 3.8.5.3: a start that the rule does not select gives
+;; an undefined result. Here it is left out.
 (defn occurrences
   "The instants the recurrence rule `rule` (see `parse`) produces from the
   instant `start`, in order, as a lazy sequence: `start`'s time of day on

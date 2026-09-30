@@ -22,7 +22,8 @@
             [dk.simongray.podcast.util.time :as time]))
 
 (def version
-  "The JSON Chapters format version this namespace writes."
+  "The JSON Chapters format version this namespace writes: version 1.2 of
+  15 April 2021."
   "1.2.0")
 
 (def ^:no-doc document-keys

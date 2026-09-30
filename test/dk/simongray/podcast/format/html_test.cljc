@@ -18,6 +18,9 @@
   (testing "unclosed paragraphs and list items close where HTML says"
     (is (= [[:p {} "a"] [:p {} "b"] [:div {} "c"]]
            (html/parse "<p>a<p>b<div>c")))
+    (is (= [[:p {} "a"] [:search {} "b"] [:p {} "c"] [:dialog {} "d"]]
+           (html/parse "<p>a<search>b</search><p>c<dialog>d</dialog>"))
+        "the two elements that came to the list of HTML last")
     (is (= [[:ul {} [:li {} "one"] [:li {} "two" [:ul {} [:li {} "nested"]]] [:li {} "three"]]]
            (html/parse "<ul><li>one<li>two<ul><li>nested</ul><li>three</ul>"))))
   (testing "misnested inline elements close through the nearest match"

@@ -3,7 +3,8 @@
   them.
 
   dk.simongray.podcast.format.media.id3 reads the tags. ISO/IEC 11172-3 and
-  13818-3 define the header of a frame. `read` gives the tags, where the
+  13818-3 define the header of a frame, and MPEG 2.5, which the reader
+  takes too, is in neither. `read` gives the tags, where the
   audio starts, and its duration. `report` gives the diagnostics of the
   reading.
 

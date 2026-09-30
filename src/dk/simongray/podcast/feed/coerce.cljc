@@ -56,8 +56,9 @@
       ::invalid)))
 
 (defn- read-geo
-  "A geo URI, \"geo:30.2672,-97.7431[,altitude][;u=uncertainty]\", as a map;
-  nil when a part does not read."
+  "A geo URI (RFC 5870, section 3.3),
+  \"geo:30.2672,-97.7431[,altitude][;u=uncertainty]\", as a map; nil when a
+  part does not read."
   [s]
   (when-let [[_ lat lon alt u] (re-matches #"(?i)\s*geo:([+-]?\d+(?:\.\d+)?),\s*([+-]?\d+(?:\.\d+)?)(?:,\s*([+-]?\d+(?:\.\d+)?))?(?:;u=(\d+(?:\.\d+)?))?\s*"
                                            (str s))]
@@ -68,7 +69,7 @@
         m))))
 
 (defn- read-osm
-  "An OpenStreetMap reference, \"R113314\" or \"W5013364#3\", as a map; nil
+  "The osm of a podcast:location, \"R113314\" or \"W5013364#3\", as a map; nil
   when a number in it does not read or is 0, which OpenStreetMap never
   gives."
   [s]

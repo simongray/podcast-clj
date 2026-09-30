@@ -424,3 +424,9 @@
 - The new namespace `crypto.secp256k1` has the Schnorr signatures of
   BIP-340, and the new namespace `util.bech32` has the encoding of BIP-173.
   `util.bytes` has `hex`, `from-hex`, `sha1` and `sha256`.
+- The code names the standard and its section where it follows a rule
+  that the code does not explain. Four things changed on the way. A year
+  of three digits in a date reads as RFC 5322 has it. `http/public?` knows
+  the blocks that the registries of IANA have as of October 2025. The
+  profile `:apple` requires the guid of an episode. The HTML reader closes
+  a paragraph before `dialog` and `search`.

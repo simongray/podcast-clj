@@ -39,6 +39,7 @@
   "The list variants of `mediums`, plus the mixed list."
   (into #{"mixed"} (map #(str % "L")) mediums))
 
+;; socialprotocols.txt of the podcast namespace, as of 2026-09-30
 (def social-protocols
   "The protocols podcast:socialInteract may name."
   #{"disabled" "activitypub" "twitter" "lightning" "atproto" "hive" "matrix" "nostr"})
@@ -59,6 +60,7 @@
   "The kinds of address a podcast:valueRecipient may have."
   #{"node" "lnaddress" "wallet"})
 
+;; serviceslugs.txt of the podcast namespace, as of 2026-09-30
 (def service-slugs
   "Platform slugs used by podcast:block."
   #{"acast" "amazon" "anchor" "apple" "audible" "audioboom" "backtracks"
@@ -76,6 +78,7 @@
   #{"text/plain" "text/html" "text/vtt" "application/json" "application/x-subrip"
     "application/srt" "text/srt"})
 
+;; taxonomy.json of the podcast namespace, as of 2026-09-30
 (def taxonomy
   "The Podcast Taxonomy Project's groups and the roles in each, lower-cased,
   which podcast:person draws from."

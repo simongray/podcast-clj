@@ -577,7 +577,12 @@
                               "http://[::ffff:127.0.0.1]/" "http://[64:ff9b::7f00:1]/" "http://[2002:a00:1::1]/"
                               "http://localhost:8080/" "not a url"])
       "loopback, private, link-local, shared, multicast and local addresses, and IPv6 that holds them")
-  (is (every? http/public? ["http://8.8.8.8/" "https://[2606:4700:4700::1111]/"])))
+  (is (not-any? http/public? ["http://192.88.99.2/" "http://[64:ff9b:1:a00:1::]/" "http://[64:ff9b:2::808:808]/"
+                              "http://[100:0:0:1::1]/" "http://[2001:2::1]/" "http://[3fff::1]/"
+                              "http://[3fff:fff::1]/" "http://[5f00::1]/"])
+      "the blocks that the registries of IANA got after 2015")
+  (is (every? http/public? ["http://8.8.8.8/" "https://[2606:4700:4700::1111]/" "http://[64:ff9b::808:808]/"
+                            "http://[3fff:1000::1]/" "http://[2001:4:112::1]/"])))
 
 #?(:cljs
    (deftest names-in-a-browser

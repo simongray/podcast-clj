@@ -69,6 +69,8 @@
             split))
         (:time-splits block)))
 
+;; podcast:valueTimeSplit: remotePercentage is 100 and remoteStartTime is 0
+;; when the split has none
 (defn recipients-at
   "Who is paid `seconds` into playback of media governed by `block`, as
   `{:recipients [...]}`: the block's own recipients, or inside a time split
@@ -122,7 +124,8 @@
 
 (defn payments
   "Divide `amount` (an integer count of the smallest unit, e.g. sats) among
-  `recipients` the way the specification prescribes: each fee recipient
+  `recipients` the way the podcast:value specification prescribes, in its
+  part Payment calculation: each fee recipient
   takes its split as a percentage off the top, and the rest is shared among
   the others by their splits. Returns `[{:recipient r :amount n} ...]` with
   whole-unit amounts; a rounding remainder goes to the largest share. A
@@ -247,7 +250,7 @@
   holds many wallets finds the wallet by these.
 
   The feed chooses the custom key. So the records leave out a key below
-  65536, which the Lightning protocol keeps for itself. They also leave
+  65536, which BOLT 1 keeps for the Lightning protocol. They also leave
   out the type of the bLIP-10 record, and the type of the preimage of
   keysend, 5482373484.
 
