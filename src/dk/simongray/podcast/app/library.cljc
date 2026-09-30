@@ -8,11 +8,14 @@
   `app.player`.
 
       {:device   \"…\"                ; the id of this device
-       :player   {…}                ; the player state
+       :player   {…}                ; the player state, a CRDT
        :feeds    {guid {…}}         ; the feeds, as app.feeds keeps them
        :lists    {url {…}}          ; the OPML lists, with the validators of their fetch
        :index    {…}                ; the search index, with :search? in the settings
-       :sync     {:ctx {…} …}       ; the cursors of the last sync
+       :sync     {:ctx {…} …}       ; the cursors of the last sync, and its report
+       :refresh  {:added […] …}     ; the last refresh: the new episodes, the moves, the report
+       :effects  [[:seek id 784]]   ; the effects of the last step, for the app to do
+       :sleep    {:episodes 1}      ; the sleep timer of this device, when set
        :settings {…}}               ; given once to `make`
 
   `subscribe` and `follow` put a fetched feed or list in. `refresh!`
@@ -21,6 +24,23 @@
   selects episodes across the shows, `show` and `episode` give the views
   of `app.show` and `app.episode`, `step` takes the events of a player,
   `sync!` keeps the devices in step, and `plan` gives the downloads.
+
+  Most apps keep the library in an atom, and `swap!` it with the
+  functions of this namespace and of `app.player`. Every step gives the
+  library, with what it did in it: `:effects` after `step`, `:refresh`
+  after `refresh!` and `:sync` after `sync!`. The steps `refresh!` and
+  `sync!` fetch, so put what they give back with `reset!`, and in
+  ClojureScript after the promise.
+
+  The player state under `:player` is not a map to `assoc` into. It is a
+  CRDT, so that `player/merge` joins the states of the devices without
+  conflict. Each write stamps what it changed with the time and the
+  device, and a removal is a tombstone. Change it with the functions of
+  `app.player`, e.g. `(swap! lib update :player player/enqueue id now)`.
+  An entry put in by hand has no stamp, which `player/problem` names,
+  and a `dissoc` comes back at the next sync. The other keys are plain
+  data, e.g. `(swap! lib assoc :sleep {:episodes 1})` sets the sleep
+  timer.
 
   The settings are the options that the steps take, given once:
 
@@ -298,17 +318,17 @@
   lists, whose new shows become subscriptions; the feeds of the
   subscriptions that have none; and the feeds that are due, as
   `app.feeds/refresh!` fetches them, each fresh feed given to
-  `player/refresh`. On the JVM the map, in ClojureScript a promise of
-  it.
+  `player/refresh`. The library, with the step under `:refresh`. On the
+  JVM the library, in ClojureScript a promise of it.
 
-      {:library …
-       :added   [[feed-guid item-guid] …]   ; the new episodes, as player/refresh found them
-       :moved   {feed-guid \"https://…\"}    ; the feeds that moved, their subscriptions moved too
-       :report  [...]}                     ; the fetches that failed, and why
+      {:at     now
+       :added  [[feed-guid item-guid] …]   ; the new episodes, as player/refresh found them
+       :moved  {feed-guid \"https://…\"}    ; the feeds that moved, their subscriptions moved too
+       :report [...]}                     ; the fetches that failed, and why
 
-  `refresh!` throws nothing for what the network or a server does. `opts`
-  are the settings, for this call, and `:guids`, the feeds to fetch in
-  the place of those that are due, as after a Podping:
+  The step throws nothing for what the network or a server does. The
+  `opts` are the settings, for this call, and `:guids`, the feeds to
+  fetch in the place of those that are due, as after a Podping:
   `(app.feeds/affected (:feeds library) pings)`."
   ([library now]
    (refresh! library now {}))
@@ -321,8 +341,11 @@
                                (fn [{library :library report-new :report}]
                                  (async/then (feeds/refresh! (:feeds library) now (select-keys opts [:guids :fetch :credentials-of :parallel :cadence :timeout-seconds :max-bytes :user-agent :allow?]))
                                              (fn [step]
-                                               (-> (applied library step now)
-                                                   (assoc :report (-> [] (into report) (into report-new) (into (:report step))))))))))))))
+                                               (let [{:keys [library added moved]} (applied library step now)]
+                                                 (assoc library :refresh {:at     now
+                                                                          :added  added
+                                                                          :moved  moved
+                                                                          :report (-> [] (into report) (into report-new) (into (:report step)))})))))))))))
 
 (defn episode-id
   "The identity of the episode `item` of `feed` in `library`, `[feed-guid
@@ -408,32 +431,36 @@
    (some-> (:index library) (search/query q opts))))
 
 (defn step
-  "`library` after the player event `event` at `now`, as `player/step`
-  takes it, with the `:effects` that the app must do, and the `:sleep`
-  timer for the next step: `{:library :effects :sleep}`. `opts` are those
-  of `player/step`."
+  "The library after the player event `event` at `now`, as `player/step`
+  takes it: `library` with the new player state, the `:effects` that the
+  app must do, and the `:sleep` timer of this device that is left. The
+  `opts` are those of `player/step`, over the `:sleep` of the library."
   ([library event now]
    (step library event now {}))
   ([library event now opts]
-   (let [{:keys [state] :as result} (player/step (:player library) event now opts)]
-     (-> result
-         (dissoc :state)
-         (assoc :library (assoc library :player state))))))
+   (let [opts (merge (select-keys library [:sleep]) opts)
+         {:keys [state effects sleep]} (player/step (:player library) event now opts)]
+     (cond-> (assoc (dissoc library :sleep) :player state :effects effects)
+       sleep (assoc :sleep sleep)))))
 
 (defn sync!
   "One step of keeping the devices of the listener in step through
   `backends`, at `now`, as `sync/sync!` does it: the cursors of the last
   step go with it, what the listener did during the step is merged into
   the result, the tombstones are compacted, and the cursors are kept for
-  the next step. On the JVM the map, in ClojureScript a promise of it.
+  the next step. The `library`, with the step under `:sync`, and
+  `next-sync` tells when to sync again. On the JVM the library, in
+  ClojureScript a promise of it.
 
-      {:library …
-       :next-at #inst \"…\"   ; when to sync again, as sync/next-at says
-       :failed  {…}          ; the backends that failed, when any did
-       :report  [...]}
+      {:ctx      {…}         ; the cursors of the stores, for the next step
+       :at       now
+       :clock    #inst \"…\"   ; the clock of the player state after the step
+       :failures 0           ; the steps in a row that failed
+       :failed   {…}         ; the backends that failed, when any did
+       :report   [...]}
 
-  `opts` are those of `sync/sync!`, but for `:ctx`, which the library
-  keeps."
+  The `opts` are those of `sync/sync!`, but for `:ctx`, which the
+  library keeps."
   ([library backends now]
    (sync! library backends now {}))
   ([library backends now opts]
@@ -442,14 +469,11 @@
      (async/then (sync/sync! before backends now (assoc opts :ctx (get-in library [:sync :ctx])))
                  (fn [{:keys [state ctx failed report]}]
                    (let [player   (-> before (player/merge state) (player/compact now))
-                         failures (if (seq failed) (inc (get-in library [:sync :failures] 0)) 0)
-                         last     {:at now :changed? (not= (:clock before) (:clock player)) :failures failures}]
-                     (cond-> {:library (assoc library
-                                              :player player
-                                              :sync {:ctx ctx :at now :clock (:clock player) :failures failures})
-                              :next-at (sync/next-at last now)
-                              :report  report}
-                       (seq failed) (assoc :failed failed))))))))
+                         failures (if (seq failed) (inc (get-in library [:sync :failures] 0)) 0)]
+                     (assoc library
+                            :player player
+                            :sync (cond-> {:ctx ctx :at now :clock (:clock player) :failures failures :report report}
+                                    (seq failed) (assoc :failed failed)))))))))
 
 (defn next-sync
   "When `library` is due to sync again, at `now`, as `sync/next-at` says:
@@ -485,7 +509,7 @@
      (select-keys (show lib (first (keys (subscriptions lib)))) [:title :author])
 
      ;; the new episodes since the last fetch, and the moves
-     (select-keys (refresh! lib (java.util.Date.)) [:added :moved :report])
+     (:refresh (refresh! lib (java.util.Date.)))
 
      ;; the newest episode, played a minute in
      (def id (let [[feed item] (first (episodes lib {:order :newest :limit 1}))]

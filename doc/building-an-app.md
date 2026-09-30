@@ -13,17 +13,34 @@ An app keeps a listener's subscriptions, feeds, queue and progress in
 one map, the library, and `app.library` keeps it whole:
 
 ```clojure
-(def lib (library/make device-id now {:name "Phone" :settings {:languages ["da" "en"]}}))
-(def lib (library/subscribe lib url (podcast/fetch! url {:max-pages 20}) now))
-(library/refresh! lib now)                          ; => {:library … :added [id …] :moved {} :report []}
-(library/episodes lib {:where {:status :unplayed}})  ; the episodes across the shows
-(library/step lib [:progress id 1234 3600] now)     ; => {:library … :effects [[:seek id 1264]]}
-(library/sync! lib [cloud] now)                     ; => {:library … :next-at #inst "…"}
-(:player lib)                                       ; the player state, for every function of app.player
+(def lib (atom (library/make device-id now {:name "Phone" :settings {:languages ["da" "en"]}})))
+(swap! lib library/subscribe url (podcast/fetch! url {:max-pages 20}) now)
+(reset! lib (library/refresh! @lib now))              ; the feeds that are due
+(:refresh @lib)                                       ; => {:at … :added [id …] :moved {} :report []}
+(library/episodes @lib {:where {:status :unplayed}})  ; the episodes across the shows
+(:effects (swap! lib library/step [:progress id 1234 3600] now))  ; => [[:seek id 1264]]
+(reset! lib (library/sync! @lib [cloud] now))         ; the other devices
+(:player @lib)                                        ; the player state, for every function of app.player
 ```
 
+Most apps keep the library in an atom, and `swap!` it with the functions
+of `app.library` and `app.player`. Every step gives the library with what
+it did in it: `:effects` after `step`, `:refresh` after `refresh!`, and
+`:sync` after `sync!`. The steps `refresh!` and `sync!` fetch, so put
+what they give back with `reset!`, and in ClojureScript after the
+promise.
+
+The player state under `:player` is not a plain map to `assoc` into. It
+is a CRDT, so that `player/merge` joins the states of the devices
+without conflict. Each write stamps what it changed with the time and
+the device, and a removal is a tombstone. Change it with the functions of
+`app.player`, e.g. `(swap! lib update :player player/enqueue id now)`. An
+entry put in by hand has no stamp, which `player/problem` names, and a
+`dissoc` comes back at the next sync. [Syncing](sync.md) explains the
+CRDT.
+
 The library holds these values, each a value of another namespace, e.g.
-`(:player lib)` is a player state that every function of `app.player`
+`(:player @lib)` is a player state that every function of `app.player`
 takes. Each section below starts with the call of the library, and then
 shows the functions below it.
 
@@ -36,7 +53,11 @@ shows the functions below it.
   the same way
 - `:index`, the search index of `app.search`, when the settings say
   `:search? true`
-- `:sync`, the cursors that `sync!` returns
+- `:sync`, the last step of `sync!`: its cursors, and its report
+- `:refresh`, the last step of `refresh!`: the new episodes, the feeds
+  that moved, and its report
+- `:effects`, the effects of the last `step`, for the app to do
+- `:sleep`, the sleep timer of this device, when one is set
 - `:settings`, given once to `make`: the options that every step reads
 
 The files on the device are the app's, and `plan` takes them. All of it
@@ -133,8 +154,8 @@ decides if a web page can send the request.
 
 ## Subscribe to a show
 
-With the library, one call: `(library/subscribe lib url (podcast/fetch!
-url {:max-pages 20}) now {:auto-queue? true})`. It keeps the feed with its
+With the library, one call: `(swap! lib library/subscribe url
+(podcast/fetch! url {:max-pages 20}) now {:auto-queue? true})`. It keeps the feed with its
 validators, adds the subscription with its settings, and indexes the
 feed when the library searches. Below it, fetch the feed, keep the
 validators for the next fetch, and add the subscription to the player
@@ -220,11 +241,12 @@ to `podcast/parse`.
 
 ## Keep the feeds current
 
-With the library, one call: `(library/refresh! lib now)`. It fetches the
-lists that are due, the feeds of the subscriptions that have none, and
-the feeds that are due, and gives each fresh feed to `player/refresh`.
-The result names the new episodes under `:added` and the feeds that moved
-under `:moved`, with their subscriptions moved too.
+With the library, one call: `(reset! lib (library/refresh! @lib now))`.
+It fetches the lists that are due, the feeds of the subscriptions that
+have none, and the feeds that are due, and gives each fresh feed to
+`player/refresh`. The step is under `:refresh` in the library: the new
+episodes under `:added`, the feeds that moved under `:moved`, with their
+subscriptions moved too, and the fetches that failed under `:report`.
 
 Below it, `app.feeds` keeps the feeds of an app in one map, by the guid of
 each feed. An entry has the URL, the validators of the last fetch and the
@@ -337,8 +359,8 @@ shows of a network or the picks of a critic. A listener can follow such a
 list. The app then fetches the list from time to time, as it fetches the
 feeds, and the new shows in the list become subscriptions.
 
-With the library: `(library/follow lib list-url (opml/parse body) now {:title
-"Picks" :folder "Picks"})`. Then `library/refresh!` fetches the list again
+With the library: `(swap! lib library/follow list-url (opml/parse body) now
+{:title "Picks" :folder "Picks"})`. Then `library/refresh!` fetches the list again
 after a day, and the feeds of the shows that it brought. A list names a show
 by its URL. When the feed then declares a guid of its own, the subscription
 moves to it, as `player/rekey` moves it.
@@ -945,11 +967,11 @@ Each device writes its whole state as one document to a store, and reads the
 documents of the other devices. One step of `sync!` is a pull, a merge and a
 push. [Syncing](sync.md) explains why this is safe.
 
-With the library, one call: `(library/sync! lib [cloud folder] now)`. It
-sends the cursors of the last step, and merges what the listener did during
-the step into the result. It compacts, keeps the cursors, and tells under
-`:next-at` when to call again. Between steps, `library/next-sync` tells the
-same. Below it, the steps by hand:
+With the library, one call: `(reset! lib (library/sync! @lib [cloud
+folder] now))`. It sends the cursors of the last step, and merges what the
+listener did during the step into the result. It compacts, and keeps the
+cursors and the report of the step under `:sync`. `library/next-sync`
+tells when to call again. Below it, the steps by hand:
 
 1. Find the place for the documents: a WebDAV collection, or a folder that a
    sync client mirrors. [Sync stores and documents](stores.md) gives the

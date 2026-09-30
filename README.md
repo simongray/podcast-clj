@@ -93,12 +93,12 @@ With `org.jsoup/jsoup` on the classpath, podcast-clj on the JVM also reads
 feeds that are not well-formed XML.
 
 
-An app in twelve lines
-----------------------
+An app in fourteen lines
+------------------------
 
 An app keeps a listener's subscriptions, feeds, queue and progress in
-one map, the library. Each step of the app is one call, and each call
-gives data:
+one map, the library, in an atom. Each step of the app is one call, and
+a step that changes the library gives it back with what it did in it:
 
 ```clojure
 (require '[dk.simongray.podcast.app.library :as library]
@@ -106,17 +106,23 @@ gives data:
 
 (def now (java.util.Date.))
 (def url "https://feeds.podcastindex.org/pc20.xml")
-(def lib (-> (library/make "laptop" now {:name "Laptop"})
-             (library/subscribe url (podcast/fetch! url) now {:auto-queue? true})))
-(def id (let [[show item] (first (library/episodes lib {:order :newest}))]
-          (library/episode-id lib show item)))
+(def lib (atom (library/make "laptop" now {:name "Laptop"})))
+(swap! lib library/subscribe url (podcast/fetch! url) now {:auto-queue? true})
+(def id (let [[show item] (first (library/episodes @lib {:order :newest}))]
+          (library/episode-id @lib show item)))
 
-(library/episode! lib id)                        ; a page: the notes, the chapters, the transcript
-(library/step lib [:progress id 754 3600] now)   ; => {:library … :effects [...]}
-(library/refresh! lib now)                       ; => {:library … :added [id …] :report []}
-(library/sync! lib [(file/backend "/Users/simon/Dropbox/Podcasts")] now)  ; the other devices
-(:player lib)                                    ; the player state, for every function of app.player
+(library/episode! @lib id)                                       ; a page: the notes, the chapters, the transcript
+(:effects (swap! lib library/step [:progress id 754 3600] now))  ; => [], or what the media element must do
+(reset! lib (library/refresh! @lib now))                         ; the feeds that are due
+(:added (:refresh @lib))                                         ; => [id …], the new episodes
+(reset! lib (library/sync! @lib [(file/backend "/Users/simon/Dropbox/Podcasts")] now))  ; the other devices
+(:player @lib)                                                   ; the player state, for every function of app.player
 ```
+
+The player state under `:player` is a CRDT, so that the devices of a
+listener merge without conflict. Each write stamps what it changed with
+the time and the device, and a removal is a tombstone. Change it with
+the functions of `app.player`, not with `assoc`.
 
 [Quickstart](doc/quickstart.md) runs these lines one by one, and [How to
 build a podcast app](doc/building-an-app.md) tells what each call does,

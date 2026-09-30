@@ -220,7 +220,7 @@ of the merge must cover it.
 | Feature | Who has it | Verdict | Size | Status |
 |---|---|---|---|---|
 | Skip the outro | Pocket Casts, Castro | Target | Small | Built: `player/step`, `player/outro-start` |
-| Stop at the end of the episode, or after some episodes | AntennaPod, and the sleep timer of nearly all apps | In part | Small | Built: `:sleep` of `player/step` |
+| Stop at the end of the episode, or after some episodes | AntennaPod, and the sleep timer of nearly all apps | In part | Small | Built: `:sleep` of `player/step`, and of the library |
 | Chapter navigation | Pocket Casts, Overcast, Apple Podcasts, Castro, Fountain | Target | Small | Built: `player/step`, `chapters/jump` |
 | Starred episodes | Pocket Casts, Castro, Podbean | Target | Small | Built: `player/star` |
 | Bookmarks and notes | Pocket Casts, Podcast Addict, Player FM, Podcini | Target | Small | Built: `player/bookmark` |

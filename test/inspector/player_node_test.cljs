@@ -104,11 +104,10 @@
         (is (= [a b] (player/queue (get-in merged [:library :player]))))
         (is (= {a {:title "A"} b {:title "B"}} (:titles merged)))))
     (testing "a sync step gives the page the library of the result, and the state of the step"
-      (let [result {:library (:library other) :failed nil :report []}
-            synced (shell/with-synced mine result (t 40))]
+      (let [synced (shell/with-synced mine (assoc (:library other) :sync {:at (t 40) :report []}))]
         (is (= [b] (player/queue (get-in synced [:library :player]))))
         (is (false? (:syncing? synced)))
-        (is (= {:at (t 40) :failed nil :report []} (:synced synced)))))
+        (is (= {:at (t 40) :report []} (:synced synced)))))
     (testing "a state saved before the library is read into one"
       (let [old {:player (player/enqueue (player/state "old-browser") a (t 0)) :sync-ctx {"inspector" {}} :titles {a {:title "A"}}}
             new (shell/with-other-tab mine (#'shell/upgraded old))]

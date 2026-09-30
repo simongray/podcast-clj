@@ -119,7 +119,7 @@
     (run
      (fn []
        (async/then (library/refresh! lib later {:fetch fetch :send send})
-                   (fn [{lib' :library :keys [added moved report]}]
+                   (fn [{{:keys [added moved report]} :refresh :as lib'}]
                      (testing "the list asked with its validators, and unchanged"
                        (is (some #(= ["https://example.org/picks.opml" nil] %) @asked))
                        (is (= (at (* 2 86400)) (get-in lib' [:lists "https://example.org/picks.opml" :next-check]))))
@@ -140,7 +140,7 @@
        (reset! asked [])
        (async/then (library/refresh! lib later {:fetch (fn [url _] (throw (ex-info "down" {:url url})))
                                                 :send  (fn [_] (throw (ex-info "down" {})))})
-                   (fn [{lib' :library :keys [added report]}]
+                   (fn [{{:keys [added report]} :refresh :as lib'}]
                      (testing "nothing comes: the library stays, and the report says why"
                        (is (= [] added))
                        (is (= #{:fetch/unreachable} (set (map :id report))))
@@ -161,12 +161,18 @@
       (is (= 3 (count (library/episodes played {:where {:status :unplayed}})))))))
 
 (deftest the-events-of-the-player
-  (let [id  [guid "https://example.com/ep0003"]
-        lib (update library :player player/enqueue id now)
-        {:keys [library effects]} (library/step lib [:progress id 100 3600] now)]
-    (is (= [] effects))
-    (is (= 100 (player/resume-position (:player library) guid id)))
-    (is (= [[:seek id 130]] (:effects (library/step library [:skip id :forward] now))))))
+  (let [id      [guid "https://example.com/ep0003"]
+        lib     (update library :player player/enqueue id now)
+        stepped (library/step lib [:progress id 100 3600] now)]
+    (is (= [] (:effects stepped)))
+    (is (= 100 (player/resume-position (:player stepped) guid id)))
+    (is (= [[:seek id 130]] (:effects (library/step stepped [:skip id :forward] now))))
+    (testing "the sleep timer of the device lives in the library"
+      (let [timed (assoc stepped :sleep {:episodes 2})
+            spent (library/step (assoc timed :sleep {:episodes 1}) [:ended id] now)]
+        (is (= {:episodes 1} (:sleep (library/step timed [:ended id] now))) "one episode less to go")
+        (is (= [[:stop id]] (:effects spent)))
+        (is (not (contains? spent :sleep)) "the last episode ended: the timer is gone")))))
 
 (deftest keeping-two-devices-in-step
   (let [documents (atom {})
@@ -176,16 +182,15 @@
     (run
      (fn []
        (async/then (library/sync! library [backend] (at 10))
-                   (fn [{lib :library :keys [next-at failed report]}]
+                   (fn [{{:keys [failed report]} :sync :as lib}]
                      (is (nil? failed))
                      (is (= [] report))
                      (is (= 1 (count @documents)) "the phone wrote its document")
                      (is (map? (get-in lib [:sync :ctx])))
                      (is (= (at 10) (get-in lib [:sync :at])))
-                     (is (= (at (+ 10 900)) next-at) "idle: nothing changed since")
-                     (is (= (at (+ 10 900)) (library/next-sync lib (at 10))))
+                     (is (= (at (+ 10 900)) (library/next-sync lib (at 10))) "idle: nothing changed since")
                      (async/then (library/sync! laptop [backend] (at 20))
-                                 (fn [{lib :library}]
+                                 (fn [lib]
                                    (testing "the laptop learns the subscription of the phone"
                                      (is (= 2 (count (library/subscriptions lib))))
                                      (is (nil? (:feed (get (library/subscriptions lib) guid))) "a feed to fetch at the next refresh!"))))))))))

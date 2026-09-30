@@ -29,10 +29,10 @@
   "dk.simongray.podcast.app.player")
 
 (defonce ^{:doc "The whole state of the page: `:library` (the library of the
-  listener, with the player state under `:player`), `:titles` by episode
-  id, the sleep timer under `:sleep`, and what the audio element last
-  reported. The player state holds the data of the episodes too, under
-  `:inspector/episodes`, for the other devices."}
+  listener, with the player state under `:player` and the sleep timer
+  under `:sleep`), `:titles` by episode id, and what the audio element
+  last reported. The player state holds the data of the episodes too,
+  under `:inspector/episodes`, for the other devices."}
   app
   (atom nil))
 
@@ -93,11 +93,11 @@
       (update :titles merge (:titles other))))
 
 (defn with-synced
-  "The page `state` with the `result` of `library/sync!` at `at`: the
-  library of the result, which has what the listener did during the step
-  merged in and the tombstones compacted."
-  [state {:keys [library failed report]} at]
-  (assoc state :library library :syncing? false :synced {:at at :failed failed :report report}))
+  "The page `state` with `library`, the library that `library/sync!` gave:
+  it has what the listener did during the step merged in, the tombstones
+  compacted, and the step under `:sync`, which the queue page shows."
+  [state library]
+  (assoc state :library library :syncing? false :synced (select-keys (:sync library) [:at :failed :report])))
 
 (defn- save!
   [state]
@@ -117,7 +117,7 @@
   []
   (swap! app assoc :syncing? true)
   (-> (library/sync! (:library @app) [(backend)] (now))
-      (.then (fn [result] (swap! app with-synced result (now))))
+      (.then (fn [library] (swap! app with-synced library)))
       (.catch (fn [e]
                 (swap! app assoc :syncing? false
                        :synced {:at (now) :failed {"inspector" (str e)} :report []})))))
@@ -136,13 +136,17 @@
       nil)))
 
 (defn dispatch!
-  "Run the player `event` through the library, with the sleep timer of the
-  page, and perform its effects. The timer that is left is the timer of
-  the page from then on."
+  "Run the player `event` through the library, and perform its effects."
   [event]
-  (let [{:keys [library effects sleep]} (library/step (:library @app) event (now) (select-keys @app [:sleep]))]
-    (swap! app assoc :library library :sleep sleep)
-    (perform! effects)))
+  (perform! (get-in (swap! app update :library library/step event (now)) [:library :effects])))
+
+(defn- timed
+  "The `library` with its sleep timer set to `n` episodes, or without one
+  when `n` is nil."
+  [library n]
+  (if n
+    (assoc library :sleep {:episodes n})
+    (dissoc library :sleep)))
 
 (defn operate!
   "Apply the player operation `f` to the player state of the library,
@@ -184,7 +188,7 @@
     :play         (play! (first args))
     :skip         (let [[id amount] args] (skip! id amount))
     :ended        (dispatch! event)
-    :sleep        (swap! app assoc :sleep (when-let [n (first args)] {:episodes n}))
+    :sleep        (swap! app update :library timed (first args))
     :play-next    (operate! player/play-next (first args))
     :dequeue      (operate! player/dequeue (first args))
     :prefer       (when-let [n (parse-long (.. e -target -value))]
@@ -227,10 +231,11 @@
           (.catch #(swap! app assoc :error (str %)))))))
 
 (defn- shown
-  "The page state as the view reads it: with the player state of the
-  library under `:player`."
+  "The page state as the view reads it: with the player state and the
+  sleep timer of the library under `:player` and `:sleep`."
   [state]
-  (assoc state :player (get-in state [:library :player])))
+  (let [{:keys [player sleep]} (:library state)]
+    (assoc state :player player :sleep sleep)))
 
 (defn- render!
   "Render the bar, and the queue page too when `page?`."

@@ -477,10 +477,14 @@
   `refresh!` fetches what is due and applies it, the feeds to the player
   and the lists to the subscriptions. `episodes`, `search`, `show`,
   `episode`, `step`, `sync!` and `plan` compose the namespaces below it.
-  The browser player of the inspector keeps a library now. New in
+  Every step gives the library with what it did in it: `:effects` after
+  `step`, `:refresh` after `refresh!` and `:sync` after `sync!`. An app
+  keeps the library in an atom and `swap!`s it. The sleep timer
+  of the device is the `:sleep` of the library. The browser player of the
+  inspector keeps a library now. New in
   `app.player`: `rekey` moves a subscription that a list or another app
   named by the guid of its URL to the guid that the feed declares.
-- The docs start with the library. The README has an app in ten lines,
+- The docs start with the library. The README has an app in fourteen lines,
   the new Quickstart page runs an app in thirty lines at a REPL, and each
   section of the guide that the library covers opens with its one call
   and then shows the functions below it. `library/episode-id` gives the
