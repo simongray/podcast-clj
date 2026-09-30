@@ -22,8 +22,10 @@ one map, the library, and `app.library` keeps it whole:
 (:player lib)                                       ; the player state, for every function of app.player
 ```
 
-The library holds these values, and each is what its own namespace gives,
-so the sections below say what a step of the library does with them:
+The library holds these values. Each of them is a value of another
+namespace, e.g. `(:player lib)` is a player state that every function of
+`app.player` takes, so the sections below say what a step of the library
+does with them, and then what the functions below it do:
 
 - `:player`, the player state of `app.player`: the subscriptions, the
   queue, and the progress in each episode
@@ -672,9 +674,9 @@ of a note, which an app of Nostr on the device opens:
 ;; => "nostr:nevent1…"
 ```
 
-Without `:relays`, `fetch!` asks the relays of `comments.nostr/relays`. [Services
-and their defaults](services.md#the-relays-of-nostr) tells what they
-answered.
+Without `:relays`, `fetch!` asks the relays of `comments.nostr/relays`.
+[Services and their defaults](services.md#the-relays-of-nostr) tells what
+they answered.
 
 AppViews that answer without an account, as of September 2026:
 

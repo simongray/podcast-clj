@@ -78,16 +78,16 @@ The size of a target is an estimate:
 - Sync through any document store, with memory, folder, WebDAV and
   encrypted stores, and a WebDAV server.
 
-podcast-clj reads all of the `podcast` namespace: the 28 tags and the 3
-child tags that the namespace marks as formalized. It also reads the changes
-of 2024 to 2026, such as the `rel` and `country` of `podcast:location` and
-the `course` medium. The open proposals are in [Proposals to
+The parser reads all of the `podcast` namespace: the 28 tags and the 3 child
+tags that the namespace marks as formalized. It also reads the changes of
+2024 to 2026, such as the `rel` and `country` of `podcast:location` and the
+`course` medium. The open proposals are in [Proposals to
 follow](#proposals-to-follow).
 
-The Podcast Index lists 66 podcast players, with the Podcasting 2.0
-features of each. The most common features are search (46 players),
-transcripts (39), chapters (38), funding (25) and the podcast guid (20).
-podcast-clj reads the data of all of them.
+The Podcast Index lists 66 podcast players, with the Podcasting 2.0 features
+of each. The most common features are search (46 players), transcripts (39),
+chapters (38), funding (25) and the podcast guid (20). The parser reads the
+data of all of them.
 
 Many typical features of apps need no change in podcast-clj:
 
@@ -114,14 +114,12 @@ find more, or cost less.
 | Polite polling: `Retry-After` and `Cache-Control` | gPodder, Overcast | Target | Small | Built: `:not-before` of `podcast/fetch!` |
 | WebSub | Pocket Casts | In part | Small | Built: `updates.websub` |
 
-**Paged feeds.** RFC 5005 lets a host split a long feed into pages. The
-pages link to each other with `atom:link rel="next"`. The feeds of
-SoundCloud and Audioboom have such links. podcast-clj reads the links, but
-it does not fetch the next page. A function can follow the links and merge
-the items of all pages. It stops at a page with no new items. The element
-`fh:complete` marks a feed that holds all its items, so there is no page to
-follow. RFC 5005 also defines archived feeds, but the research found no app
-that follows them.
+**Paged feeds.** RFC 5005 lets a host split a long feed into pages. The pages
+link to each other with `atom:link rel="next"`. The feeds of SoundCloud and
+Audioboom have such links. The parser reads the links, but `fetch!` does not fetch the next page. A function can follow the links and merge the items of all pages. It
+stops at a page with no new items. The element `fh:complete` marks a feed
+that holds all its items, so there is no page to follow. RFC 5005 also
+defines archived feeds, but the research found no app that follows them.
 
 **Feed discovery.** A listener often knows the address of the website of a
 show, not of its feed. A web page names its feeds with `<link
@@ -134,12 +132,12 @@ the page.
 podcast-clj fetches them as other feeds. Some feeds need HTTP Basic
 authentication instead. Overcast reads the user name and the password from
 the URL. AntennaPod, gPodder and PinePods ask the listener for them.
-`fetch!` sends no credentials. It can take `:credentials`, as the WebDAV
+No credentials go with `fetch!`. It can take `:credentials`, as the WebDAV
 store does.
 
-**The kind of a redirect.** A host that moves a feed answers with a
-permanent redirect, 301 or 308. An app changes the stored URL only on a
-permanent redirect, as AntennaPod does. `fetch!` gives the final URL, but
+**The kind of a redirect.** A host that moves a feed answers with a permanent
+redirect, 301 or 308. An app changes the stored URL only on a permanent
+redirect, as AntennaPod does. The result of `fetch!` gives the final URL, but
 not the kind of redirect. The JVM client keeps the chain of responses, so
 `fetch!` can tell if all steps were permanent.
 
@@ -147,16 +145,14 @@ not the kind of redirect. The JVM client keeps the chain of responses, so
 `Retry-After` header. A server also says how long a response stays fresh,
 with `Cache-Control: max-age`. gPodder obeys `Retry-After`, and Overcast
 obeys the standard caching headers. A study of server logs from 2024 found
-that many clients poll more often after a 429 or a 503. `next-check` reads
-only the feed. It can also read these headers from the last response.
+that many clients poll more often after a 429 or a 503. The function `next-check` reads only the feed. It can also read these headers from the last response.
 
 **WebSub.** Many hosts name a WebSub hub in their feeds. Among them are
 Buzzsprout, Transistor, Captivate, RSS.com and Spotify for Creators. The hub
-pushes each change to its subscribers, and Pocket Casts added WebSub in
-April 2024. A subscriber must give the hub a public callback URL, so it
-needs a server. podcast-clj can find the hub in a feed and build the
-request that subscribes. Podping gives the same signal without a server,
-and podcast-clj reads Podping already.
+pushes each change to its subscribers, and Pocket Casts added WebSub in April
+2024. A subscriber must give the hub a public callback URL, so it needs a
+server. A function can find the hub in a feed and build the request that subscribes. Podping gives the same signal without a server, and podcast-clj
+reads Podping already.
 
 
 ## Media files
@@ -199,22 +195,20 @@ Livewire validator reports redirects, CORS headers and the size of the
 feed. Browser players need CORS headers on transcript and chapter files
 too.
 
-`validate` checks only the data of the feed. A `check!` in the style of
+The validator checks only the data of the feed. A `check!` in the style of
 `store/check!` can send the requests and give each check as data. The size
 and the color type of an image are in its first bytes, so the artwork check
 needs no image library. The inspector can show the result.
 
 **Integrity.** `podcast:integrity` gives an SRI hash or a PGP signature for
-an alternate enclosure. podcast-clj reads it, as several other libraries
-do, but the research found no app that checks it. A check of the SRI form
-computes SHA-256, SHA-384 or SHA-512 over the downloaded bytes, and
-compares the result with the hash. The JVM has `MessageDigest`, and
-browsers have WebCrypto, which podcast-clj uses already for encryption.
+an alternate enclosure. The parser reads it, as several other libraries do, but the research found no app that checks it. A check of the SRI form computes
+SHA-256, SHA-384 or SHA-512 over the downloaded bytes, and compares the
+result with the hash. The JVM has `MessageDigest`, and browsers have
+WebCrypto, which podcast-clj uses already for encryption.
 
-**Audio processing.** Silence trimming, voice boost, loudness
-normalization, an equalizer and a mono mix change the audio signal. They
-belong to the media engine of the player. podcast-clj stops at the data
-about the audio.
+**Audio processing.** Silence trimming, voice boost, loudness normalization,
+an equalizer and a mono mix change the audio signal. They belong to the media
+engine of the player. The data about the audio is where podcast-clj stops.
 
 
 ## The player state
@@ -240,19 +234,19 @@ of the merge must cover it.
 | Clips | Pocket Casts, Spotify, Fountain, Podverse | In part | Small | Built: `player/clip` |
 
 **Skip the outro.** The settings of a show have `:skip-outro`, but `step`
-does not act on it. Pocket Casts and Castro skip the outro of a show.
-`step` can end the episode when the position reaches the duration less the
-outro.
+does not act on it. Pocket Casts and Castro skip the outro of a show. The
+reducer `step` can end the episode when the position reaches the duration
+less the outro.
 
 **The end of an episode.** Nearly every app has a sleep timer, and the
 clock that runs it belongs to the app. Two kinds of timer depend on the
 queue: stop at the end of this episode, and stop after some episodes.
-AntennaPod has the second kind. `step` can support both kinds. At the end
+AntennaPod has the second kind. Both kinds fit `step`. At the end
 of an episode, it then gives a stop effect in place of `[:play next-id]`.
 
-**Chapter navigation.** Apps jump to the next or the previous chapter.
-`chapters/at` and `chapters/with-end-times` give the data. `step` can take
-an event with the chapters of the episode, and give a seek effect.
+**Chapter navigation.** Apps jump to the next or the previous chapter. The
+data comes from `chapters/at` and `chapters/with-end-times`. An event with
+the chapters of the episode can go to `step`, which gives a seek effect.
 
 **Stars, bookmarks, folders, an inbox and ratings.** These are small
 stamped entries, like the entries that the state has now.
@@ -263,31 +257,31 @@ stamped entries, like the entries that the state has now.
 - Pocket Casts, Castro, Podbean and Player FM put shows in folders. A
   folder can go into OPML and come back, because OPML has folders.
 - Castro, AntennaPod and Spotify collect new episodes in an inbox.
-  `player/new-episodes` finds them already.
+  They are what `player/new-episodes` finds already.
 
 **Saved filters and playlists.** The criteria of `search/episodes` are data,
 but the app keeps them. Pocket Casts, Overcast, Downcast and PinePods save
 filters as smart playlists. A saved filter is a stamped entry that holds the
 criteria, so it syncs to the other devices. Pocket Casts, Podcast Addict,
 Fountain and Podverse have playlists, and Podcini has several queues.
-podcast-clj has one queue. A playlist is a second map of ranked entries,
+There is one queue. A playlist is a second map of ranked entries,
 under a name. The code of the queue and of `util.rank` works for it.
 
 **Statistics.** The state holds the position in each episode, not the time
-that the listener spent. Pocket Casts, AntennaPod and PinePods show the
-time for each show and month. Pocket Casts, AntennaPod and Spotify also
-give a year in review. A count of the seconds heard, for each day, show and
-device, is a grow-only counter. A grow-only counter is a CRDT of its own,
-so the statistics sync like the rest of the state. `step` can add to the
-count at each `:progress` event.
+that the listener spent. Pocket Casts, AntennaPod and PinePods show the time
+for each show and month. Pocket Casts, AntennaPod and Spotify also give a
+year in review. A count of the seconds heard, for each day, show and device,
+is a grow-only counter. A grow-only counter is a CRDT of its own, so the
+statistics sync like the rest of the state. Each `:progress` event can add to
+the count in `step`.
 
-**Download rules.** Apps download new episodes by rules for each show. A
-rule sets the number of episodes, words to include or exclude, a minimum
-duration or a limit on the space. Apps also delete played episodes. Apple
-Podcasts, Pocket Casts, AntennaPod and PinePods have such rules. The
-decision is a pure function of the state, the feeds and the rules.
-podcast-clj can give the episodes to download and the episodes to delete.
-The app downloads, deletes and checks the network.
+**Download rules.** Apps download new episodes by rules for each show. A rule
+sets the number of episodes, words to include or exclude, a minimum duration
+or a limit on the space. Apps also delete played episodes. Apple Podcasts,
+Pocket Casts, AntennaPod and PinePods have such rules. The decision is a pure
+function of the state, the feeds and the rules. The episodes to download and
+the episodes to delete can come from a pure function. The app downloads,
+deletes and checks the network.
 
 **Clips.** A clip is a part of an episode, with a start, an end and a
 title. Pocket Casts, Spotify, Fountain and Podverse share clips. A clip has
@@ -363,7 +357,7 @@ of link, and a list from the community gives the forms of 45 apps. The
 Podlove Subscribe Button offers a choice of apps in the same way. These
 forms are facts about other products. They belong in a dated table in the
 docs, like the table of store providers in [Sync stores and
-documents](stores.md). podcast-clj can supply the stable parts: the guids of
+documents](stores.md). The stable parts can come from podcast-clj: the guids of
 the feed and the item, the Podcast Index id, and the time.
 
 **Out.** Personal recommendations need the listening data of many
@@ -396,8 +390,8 @@ key pair of the app.
 
 **Nostr.** Fountain shows Nostr posts about an episode as comments. NIP-73
 gives the ids of podcasts and episodes, from their guids. Nostr needs
-WebSocket connections to relays, which the app holds. podcast-clj can build
-the filters and read the events.
+WebSocket connections to relays, which the app holds. The filters can be
+built and the events read here.
 
 **Out.** Public ratings and reviews, polls, comments inside one platform,
 and the activity of friends need a service with accounts.
@@ -405,8 +399,9 @@ and the activity of friends need a service with accounts.
 
 ## Value for value
 
-podcast-clj computes the share of each recipient and writes the boostagram
-record. It does not pay. These features are the steps around the payment.
+The namespace `value` computes the share of each recipient and writes the
+boostagram record. It does not pay. These features are the steps around the
+payment.
 
 | Feature | Who has it | Verdict | Size | Status |
 |---|---|---|---|---|
@@ -438,13 +433,11 @@ LNURL-pay. The comment of the payment holds `rss::payment::` with an
 action, a URL and a message. The URL answers with the details in an
 `x-rss-payment` header. BoostBox stores such metadata, and Helipad and
 Castamatic read it. BoostBox is a small server in Clojure, with the MIT
-license. podcast-clj can write and read this metadata, as it writes the
-bLIP-10 record.
+license. A function can write and read this metadata, as one writes the bLIP-10 record.
 
-**Received boostagrams.** A host reads what the listeners sent. Helipad
-reads an LND node, and stores the boosts and their messages. podcast-clj
-can read a bLIP-10 record or payment metadata into a map. The connection to
-the node belongs to the host.
+**Received boostagrams.** A host reads what the listeners sent. Helipad reads
+an LND node, and stores the boosts and their messages. A reader can take a bLIP-10 record or payment metadata into a map. The connection to the node belongs
+to the host.
 
 **Out.** Fountain takes card payments, and the namespace has proposals for
 payments through Stripe (#781) and in ERC-20 tokens (#768). These need
@@ -465,13 +458,13 @@ accounts with a payment service.
 **Checks over the network.** [Media files](#media-files) describes them.
 The same checks help a host before it publishes.
 
-**OP3.** OP3 is a free and open-source service that counts downloads
-through a prefix. A host puts `https://op3.dev/e/` in front of each
-enclosure URL, and each show gets a public page of statistics. The API at
-`https://op3.dev/api/1` gives the downloads of each show and episode, and
-the top apps. Each call needs a bearer token. A client of this API is
-request maps and readers of the responses, like the directories. `emit` can
-add the prefix to each enclosure.
+**OP3.** OP3 is a free and open-source service that counts downloads through
+a prefix. A host puts `https://op3.dev/e/` in front of each enclosure URL,
+and each show gets a public page of statistics. The API at
+`https://op3.dev/api/1` gives the downloads of each show and episode, and the
+top apps. Each call needs a bearer token. A client of this API is request
+maps and readers of the responses, like the directories. The prefix can go on
+each enclosure before `emit`.
 
 **Download counts.** Version 2.2 of the Podcast Measurement Technical
 Guidelines of the IAB Tech Lab defines a download. A download is a file
@@ -482,12 +475,12 @@ count. A pure function over request records can apply these rules. The host
 collects the records, and the lists of bots and data centers are external
 data. A draft of version 2.3 adds video in RSS and analytics prefixes.
 
-**Paged feeds.** Podlove Publisher writes paged feeds. `emit` can write the
-pages of a long feed, with the links that RFC 5005 defines.
+**Paged feeds.** Podlove Publisher writes paged feeds. The pages of a long
+feed can be written, with the links that RFC 5005 defines.
 
 **Private feeds.** Buzzsprout, Transistor, Captivate and Castos give each
-subscriber a feed with a token in its URL. `emit` can write a feed for each
-subscriber. The host serves the feeds and keeps the tokens.
+subscriber a feed with a token in its URL. A feed for each subscriber can be
+written. The host serves the feeds and keeps the tokens.
 
 **Out.** Dynamic ad insertion, ad marketplaces, IAB certification,
 generated transcripts and show notes, audio cleanup, video with HLS, and
@@ -496,12 +489,12 @@ websites are services that a host runs.
 
 ## Proposals to follow
 
-The namespace has more than 30 open proposals. podcast-clj keeps the
-elements that it does not know under `:xml/unknown`. An app can also add a
-proposal to the registry as data. For these reasons, podcast-clj needs no
-change until the namespace formalizes a proposal. The plan for phase 8 names
-`podcast:follow` (#609) as its next tag. These recent proposals are the
-most relevant to apps:
+The namespace has more than 30 open proposals. The parser keeps the elements
+that it does not know under `:xml/unknown`. An app can also add a proposal to
+the registry as data. For these reasons, podcast-clj needs no change until
+the namespace formalizes a proposal. The plan for phase 8 names
+`podcast:follow` (#609) as its next tag. These recent proposals are the most
+relevant to apps:
 
 - `socialAccount` (#784): the profiles of the show on social platforms.
 - `sortOrder` (#747): an order of episodes that the creator names.
@@ -572,51 +565,77 @@ the most for their size, in this order:
 **Specifications**
 
 - The podcast namespace: <https://github.com/Podcastindex-org/podcast-namespace>
-- Its discussions, by number: <https://github.com/Podcastindex-org/podcast-namespace/discussions>
-- `podcast:integrity`: <https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/tags/integrity.md>
-- `podcast:socialInteract`: <https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/tags/social-interact.md>
-- `podcast:value`: <https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/tags/value.md>
-- RSS Payment Metadata: <https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/examples/value/metadata.md>
-- bLIP-10, the boostagram record: <https://github.com/lightning/blips/blob/master/blip-0010.md>
-- NIP-73 and NIP-22 of Nostr: <https://github.com/nostr-protocol/nips/blob/master/73.md>, <https://github.com/nostr-protocol/nips/blob/master/22.md>
+- Its discussions, by number:
+  <https://github.com/Podcastindex-org/podcast-namespace/discussions>
+- `podcast:integrity`:
+  <https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/tags/integrity.md>
+- `podcast:socialInteract`:
+  <https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/tags/social-interact.md>
+- `podcast:value`:
+  <https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/tags/value.md>
+- RSS Payment Metadata:
+  <https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/examples/value/metadata.md>
+- bLIP-10, the boostagram record:
+  <https://github.com/lightning/blips/blob/master/blip-0010.md>
+- NIP-73 and NIP-22 of Nostr:
+  <https://github.com/nostr-protocol/nips/blob/master/73.md>,
+  <https://github.com/nostr-protocol/nips/blob/master/22.md>
 - The Podcasting 2.0 apps: <https://podcastindex.org/apps>
 - The Podcast Index API: <https://podcastindex-org.github.io/docs-api/>
-- PSP-1: <https://github.com/Podcast-Standards-Project/PSP-1-Podcast-RSS-Specification>
+- PSP-1:
+  <https://github.com/Podcast-Standards-Project/PSP-1-Podcast-RSS-Specification>
 - RFC 5005, feed paging and archiving: <https://www.rfc-editor.org/rfc/rfc5005>
 - RSS autodiscovery: <https://www.rssboard.org/rss-autodiscovery>
-- The HTML standard on `rel="alternate"`: <https://html.spec.whatwg.org/multipage/links.html#rel-alternate>
+- The HTML standard on `rel="alternate"`:
+  <https://html.spec.whatwg.org/multipage/links.html#rel-alternate>
 - WebSub: <https://www.w3.org/TR/websub/>
 - Subresource Integrity: <https://www.w3.org/TR/2016/REC-SRI-20160623/>
-- The ID3v2 chapter frames, a mirror: <https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2-chapters-1.0.html>
+- The ID3v2 chapter frames, a mirror:
+  <https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2-chapters-1.0.html>
 - The Xing and LAME header: <http://gabriel.mp3-tech.org/mp3infotag.html>
-- The QuickTime movie header and chapter tracks: <https://developer.apple.com/documentation/quicktime-file-format/movie_header_atom>, <https://developer.apple.com/documentation/quicktime-file-format/track_reference_type_atom>
-- The IAB Podcast Measurement Technical Guidelines: <https://iabtechlab.com/standards/podcast-measurement-guidelines/>
+- The QuickTime movie header and chapter tracks:
+  <https://developer.apple.com/documentation/quicktime-file-format/movie_header_atom>,
+  <https://developer.apple.com/documentation/quicktime-file-format/track_reference_type_atom>
+- The IAB Podcast Measurement Technical Guidelines:
+  <https://iabtechlab.com/standards/podcast-measurement-guidelines/>
 - OP3: <https://op3.dev/setup>, <https://op3.dev/api/docs>
 
 **Apps**
 
-- Apple Podcasts, chapters: <https://podcasters.apple.com/support/5482-using-chapters-on-apple-podcasts>
-- Apple Podcasts, requirements: <https://podcasters.apple.com/support/823-podcast-requirements>
+- Apple Podcasts, chapters:
+  <https://podcasters.apple.com/support/5482-using-chapters-on-apple-podcasts>
+- Apple Podcasts, requirements:
+  <https://podcasters.apple.com/support/823-podcast-requirements>
 - Overcast, for podcasters: <https://overcast.fm/podcasterinfo>
-- Pocket Casts, WebSub and Podping: <https://blog.pocketcasts.com/2024/04/26/websub-and-podping-support/>
-- Pocket Casts, skip intro and outro: <https://support.pocketcasts.com/knowledge-base/auto-skipping/>
-- Pocket Casts, statistics: <https://support.pocketcasts.com/knowledge-base/listening-stats/>
-- Pocket Casts, Playback 2025: <https://blog.pocketcasts.com/2025/12/10/pocket-casts-playback-2025-is-here/>
-- Pocket Casts, recommendations: <https://blog.pocketcasts.com/2025/05/29/recommendations/>
-- Pocket Casts, private feeds: <https://support.pocketcasts.com/knowledge-base/private-or-members-only-feeds/>
+- Pocket Casts, WebSub and Podping:
+  <https://blog.pocketcasts.com/2024/04/26/websub-and-podping-support/>
+- Pocket Casts, skip intro and outro:
+  <https://support.pocketcasts.com/knowledge-base/auto-skipping/>
+- Pocket Casts, statistics:
+  <https://support.pocketcasts.com/knowledge-base/listening-stats/>
+- Pocket Casts, Playback 2025:
+  <https://blog.pocketcasts.com/2025/12/10/pocket-casts-playback-2025-is-here/>
+- Pocket Casts, recommendations:
+  <https://blog.pocketcasts.com/2025/05/29/recommendations/>
+- Pocket Casts, private feeds:
+  <https://support.pocketcasts.com/knowledge-base/private-or-members-only-feeds/>
 - Castro: <https://castro.fm/>
 - Fountain, changelog: <https://fountain.fm/changelog>
 - Fountain 1.4, wallets: <https://blog.fountain.fm/p/1-4>
 - Castamatic, NWC: <https://castamatic.com/blog/2026/02/21/nwc/>
 - Snipd: <https://www.snipd.com/all-features>
-- Spotify, clips: <https://newsroom.spotify.com/2026-05-27/podcast-clips-save-share-moments/>
+- Spotify, clips:
+  <https://newsroom.spotify.com/2026-05-27/podcast-clips-save-share-moments/>
 
 **Open-source apps and servers**
 
 - AntennaPod: <https://antennapod.org/documentation/>
-- AntennaPod, the parser: <https://github.com/AntennaPod/AntennaPod/tree/develop/parser>
-- AntennaPod, Echo: <https://github.com/AntennaPod/AntennaPod/tree/develop/ui/echo>
-- AntennaPod, comments link: <https://github.com/AntennaPod/AntennaPod/pull/7127>
+- AntennaPod, the parser:
+  <https://github.com/AntennaPod/AntennaPod/tree/develop/parser>
+- AntennaPod, Echo:
+  <https://github.com/AntennaPod/AntennaPod/tree/develop/ui/echo>
+- AntennaPod, comments link:
+  <https://github.com/AntennaPod/AntennaPod/pull/7127>
 - gPodder: <https://github.com/gpodder/gpodder>
 - podcastparser: <https://github.com/gpodder/podcastparser>
 - Kasts: <https://apps.kde.org/kasts/>
@@ -625,22 +644,26 @@ the most for their size, in this order:
 - PinePods: <https://github.com/madeofpendletonwool/PinePods>
 - Castopod: <https://docs.castopod.org/main/en/>
 - Podlove: <https://docs.podlove.org/>, <https://podlove.org/paged-feeds/>
-- Podlove Subscribe Button: <https://github.com/podlove/podlove-subscribe-button>
+- Podlove Subscribe Button:
+  <https://github.com/podlove/podlove-subscribe-button>
 
 **Sync**
 
-- The gpodder.net API: <https://gpoddernet.readthedocs.io/en/latest/api/index.html>
+- The gpodder.net API:
+  <https://gpoddernet.readthedocs.io/en/latest/api/index.html>
 - gpodder.net: <https://gpodder.net/>
 - GPodder Sync for Nextcloud: <https://github.com/thrillfall/nextcloud-gpodder>
 - oPodSync: <https://fossil.kd2.org/opodsync/>
 - gpodder2go: <https://github.com/oxtyped/gpodder2go>
-- The servers that AntennaPod lists: <https://antennapod.org/documentation/general/synchronization>
+- The servers that AntennaPod lists:
+  <https://antennapod.org/documentation/general/synchronization>
 - The Open Podcast API: <https://openpodcastapi.org/about/>
 - The draft for episodes: <https://github.com/OpenPodcastAPI/api-specs/pull/95>
 
 **Hosts and validators**
 
-- The IAB list of compliant companies: <https://iabtechlab.com/compliance-programs/compliant-companies/>
+- The IAB list of compliant companies:
+  <https://iabtechlab.com/compliance-programs/compliant-companies/>
 - Buzzsprout: <https://www.buzzsprout.com/features>
 - Transistor: <https://transistor.fm/features/>
 - Captivate: <https://www.captivate.fm/features>
@@ -648,7 +671,8 @@ the most for their size, in this order:
 - Cast Feed Validator: <https://www.castfeedvalidator.com/about.php>
 - Podbase: <https://podba.se/validate/>
 - Livewire validator: <https://validator.livewire.io/>
-- Apple Podcasts, validation: <https://podcasters.apple.com/support/829-validate-your-podcast>
+- Apple Podcasts, validation:
+  <https://podcasters.apple.com/support/829-validate-your-podcast>
 
 **Libraries**
 
@@ -662,7 +686,8 @@ the most for their size, in this order:
 - TagLib: <https://github.com/taglib/taglib>
 - Alby lightning-tools: <https://github.com/getAlby/js-lightning-tools>
 - WebLN: <https://www.webln.guide>
-- Links to podcast apps: <https://github.com/nathangathright/podcast-platform-links>
+- Links to podcast apps:
+  <https://github.com/nathangathright/podcast-platform-links>
 
 **Value for value**
 
@@ -671,4 +696,5 @@ the most for their size, in this order:
 
 **Polling**
 
-- A study of how feed readers poll: <https://www.earth.org.uk/RSS-efficiency.html>
+- A study of how feed readers poll:
+  <https://www.earth.org.uk/RSS-efficiency.html>
