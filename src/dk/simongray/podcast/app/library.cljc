@@ -324,6 +324,14 @@
                                                (-> (applied library step now)
                                                    (assoc :report (-> [] (into report) (into report-new) (into (:report step))))))))))))))
 
+(defn episode-id
+  "The identity of the episode `item` of `feed` in `library`, `[feed-guid
+  item-guid]`, as `player/episode-id` gives it with the URL of the feed:
+  what `episode`, `step` and the player take, for a pair that `episodes`
+  gives."
+  [library feed item]
+  (player/episode-id feed (get (urls library) feed) item))
+
 (defn- item-of
   "The feed and the item of `library` with the identity `id`, `[feed-guid
   item-guid]`, as `[entry item]`; nil when the library has neither."
@@ -481,7 +489,7 @@
 
      ;; the newest episode, played a minute in
      (def id (let [[feed item] (first (episodes lib {:order :newest :limit 1}))]
-               (player/episode-id feed (get (urls lib) feed) item)))
+               (episode-id lib feed item)))
      (:effects (step lib [:progress id 60 3600] now))
      (select-keys (episode! lib id) [:title :duration :chapters])
      #_.))

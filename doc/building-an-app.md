@@ -2,8 +2,9 @@
 
 This guide shows the functions that a podcast app calls, in the order that a
 listener meets them. It assumes that you know Clojure and the basics of
-podcast feeds. The inspector in `web/` does the same steps, and you can read
-its code as a working example.
+podcast feeds. [Quickstart](quickstart.md) runs the first steps at a REPL.
+The inspector in `web/` does the same steps, and you can read its code as
+a working example.
 
 
 ## Before you start

@@ -480,3 +480,8 @@
   The browser player of the inspector keeps a library now. New in
   `app.player`: `rekey` moves a subscription that a list or another app
   named by the guid of its URL to the guid that the feed declares.
+- The docs start with the library. The README has an app in ten lines,
+  the new Quickstart page runs an app in thirty lines at a REPL, and each
+  section of the guide that the library covers opens with its one call
+  and then shows the functions below it. `library/episode-id` gives the
+  identity of a `[show item]` pair.

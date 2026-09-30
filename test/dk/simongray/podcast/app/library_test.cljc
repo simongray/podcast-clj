@@ -152,6 +152,9 @@
   (let [lib (library/subscribe library other-url {:status 200 :url other-url :feed other} now)]
     (is (= 4 (count (library/episodes lib))))
     (is (= #{"Other" "Podcasting 2.0 Namespace Example"} (set (map (comp :rss/title first) (library/episodes lib)))))
+    (is (= ["0ther-guid" "o1"] (let [[feed item] (first (filter #(= "Other" (:rss/title (first %))) (library/episodes lib)))]
+                                 (library/episode-id lib feed item)))
+        "the identity of a pair, for the player and the views")
     (is (= 2 (count (library/episodes lib {:limit 2}))))
     (let [id     [guid "https://example.com/ep0003"]
           played (update lib :player player/mark-played id now)]

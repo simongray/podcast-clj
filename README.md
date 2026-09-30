@@ -87,9 +87,39 @@ With `org.jsoup/jsoup` on the classpath, podcast-clj on the JVM can also
 read feeds that are not well-formed XML.
 
 
+An app in ten lines
+-------------------
+
+An app keeps a library: one map with everything of a listener in it.
+Each step of the app is one call, and each call gives data:
+
+```clojure
+(require '[dk.simongray.podcast.app.library :as library]
+         '[dk.simongray.podcast.app.sync.file :as file])
+
+(def now (java.util.Date.))
+(def url "https://feeds.podcastindex.org/pc20.xml")
+(def lib (-> (library/make "laptop" now {:name "Laptop"})
+             (library/subscribe url (podcast/fetch! url) now {:auto-queue? true})))
+
+(library/episodes lib {:order :newest :limit 3})   ; [show item] pairs, across the shows
+(library/episode! lib id)                            ; a page: the notes, the chapters, the transcript
+(library/step lib [:progress id 754 3600] now)       ; => {:library … :effects [...]}
+(library/refresh! lib now)                           ; => {:library … :added [id …] :report []}
+(library/sync! lib [(file/backend "/Users/simon/Dropbox/Podcasts")] now)  ; the other devices
+(:player lib)                                        ; the player state, for every function of app.player
+```
+
+[Quickstart](doc/quickstart.md) runs these lines one by one. [How to
+build a podcast app](doc/building-an-app.md) tells what each call does,
+and what to call when a step is not what your app wants.
+
+
 Documentation
 -------------
 
+- [Quickstart](doc/quickstart.md): a podcast app in thirty lines, at a
+  REPL.
 - [How to build a podcast app](doc/building-an-app.md): the functions that
   an app calls, from finding a show to syncing devices.
 - [Namespaces](doc/namespaces.md): the conventions of the API, and what each
