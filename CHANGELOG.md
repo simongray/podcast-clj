@@ -430,3 +430,8 @@
   the blocks that the registries of IANA have as of October 2025. The
   profile `:apple` requires the guid of an episode. The HTML reader closes
   a paragraph before `dialog` and `search`.
+- On the JVM, `nostr/call!` sends the event of a request from the thread
+  of the call, after the send of the request is complete. Before, it sent
+  the event from the listener of the WebSocket. That send failed without a
+  word when the relay answered before the JDK completed the first send. A
+  command to a wallet then ended as `:value/wallet-silent`.

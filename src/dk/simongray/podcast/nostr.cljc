@@ -474,36 +474,40 @@
 #?(:clj
    (defn- listener
      "The listener of a WebSocket that reads the messages of a relay into
-     the atom `answer` within `limits`, and gives the answer to the promise
-     `done` when the exchange ends. `later` is the message that goes out
-     when the relay has the subscription, or nil."
-     [answer done later {:keys [max-bytes] :as limits}]
-     (let [partial (StringBuilder.)]
+     the atom `answer` within `limits`. It gives `:ready` to the promise
+     `ready` when the event of the exchange is due, and the answer to the
+     promise `done` when the exchange ends.
+
+     The thread of `exchange` sends the event. A send from the listener
+     fails with `Send pending` while the send of the first message is not
+     complete, and the JDK clears that only after the message went out."
+     [answer ready done {:keys [max-bytes] :as limits}]
+     (let [partial (StringBuilder.)
+           end     (fn [result]
+                     (deliver ready :done)
+                     (deliver done result))]
        (reify WebSocket$Listener
          (onOpen [_ socket]
            (.request ^WebSocket socket 1))
          (onText [_ socket data last?]
            (.append partial ^CharSequence data)
            (when (and max-bytes (> (.length partial) (long max-bytes)))
-             (deliver done (swap! answer assoc :done? true :truncated :max-bytes)))
+             (end (swap! answer assoc :done? true :truncated :max-bytes)))
            (when last?
              (let [text (str partial)]
                (.setLength partial 0)
                (let [read (swap! answer received text limits)]
-                 (when (and later (due? read))
-                   ;; noted before it goes out: an event that failed on its
-                   ;; way counts as one that went out
-                   (swap! answer assoc :sent? true)
-                   (.sendText ^WebSocket socket later true))
+                 (when (due? read)
+                   (deliver ready :ready))
                  (when (:done? read)
-                   (deliver done @answer)))))
+                   (end @answer)))))
            (.request ^WebSocket socket 1)
            nil)
          (onClose [_ _ _ _]
-           (deliver done @answer)
+           (end @answer)
            nil)
          (onError [_ _ e]
-           (deliver done (if (seq (:events @answer)) @answer {:error e})))))))
+           (end (if (seq (:events @answer)) @answer {:error e})))))))
 
 #?(:clj
    (defn- hang-up
@@ -537,21 +541,31 @@
      "The answer of the relay at `url` to the messages `messages` of
      `opening`, within `limits`, over a WebSocket of the JDK."
      [url messages {:keys [timeout-seconds] :as limits}]
-     (let [answer (atom {})
-           done   (promise)
-           socket (try
-                    (-> (.newWebSocketBuilder ^HttpClient @http/client)
-                        (.connectTimeout (Duration/ofSeconds timeout-seconds))
-                        (.header "User-Agent" http/user-agent)
-                        (.buildAsync (URI. url) (listener answer done (:later messages) limits))
-                        (.get timeout-seconds TimeUnit/SECONDS))
-                    (catch Exception e
-                      (throw (failure url "The relay gave no connection" e {}))))]
+     (let [answer   (atom {})
+           ready    (promise)
+           done     (promise)
+           socket   (try
+                      (-> (.newWebSocketBuilder ^HttpClient @http/client)
+                          (.connectTimeout (Duration/ofSeconds timeout-seconds))
+                          (.header "User-Agent" http/user-agent)
+                          (.buildAsync (URI. url) (listener answer ready done limits))
+                          (.get timeout-seconds TimeUnit/SECONDS))
+                      (catch Exception e
+                        (throw (failure url "The relay gave no connection" e {}))))
+           deadline (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
+           left     #(max 0 (- deadline (System/currentTimeMillis)))
+           send!    (fn [text]
+                      (.get (.sendText ^WebSocket socket text true) (left) TimeUnit/MILLISECONDS))]
        (try
          (when (:sent? messages)
            (swap! answer assoc :sent? true))
-         (.get (.sendText ^WebSocket socket (:first messages) true) timeout-seconds TimeUnit/SECONDS)
-         (let [result (deref done (* 1000 timeout-seconds) ::timeout)]
+         (send! (:first messages))
+         (when (and (:later messages) (= :ready (deref ready (left) ::timeout)))
+           ;; noted before it goes out: an event that failed on its way
+           ;; counts as one that went out
+           (swap! answer assoc :sent? true)
+           (send! (:later messages)))
+         (let [result (deref done (left) ::timeout)]
            (cond
              (= ::timeout result) (assoc @answer :timeout? true)
              (:error result)      (throw (failure url "The connection to the relay failed" (:error result) @answer))

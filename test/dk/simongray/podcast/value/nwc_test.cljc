@@ -441,12 +441,15 @@
        (with-relay answer log
          (fn [url]
            (let [connection (assoc connection :relays ["ws://127.0.0.1:1" url])
-                 opts       {:allow? (constantly true) :timeout-seconds 5}]
+                 opts       {:allow? (constantly true) :timeout-seconds 5}
+                 balance    (nwc/ask! connection (nwc/get-balance) opts)
+                 paid       (nwc/ask! connection (nwc/pay-keysend {:sats 50 :message "Hi"} recipient) opts)]
              (is (= {:method "get_balance" :msat 21000}
-                    (select-keys (nwc/ask! connection (nwc/get-balance) opts) [:method :msat])))
+                    (select-keys balance [:method :msat]))
+                 (pr-str balance))
              (is (= {:method "pay_keysend" :preimage (:address recipient) :fees-msat 0}
-                    (select-keys (nwc/ask! connection (nwc/pay-keysend {:sats 50 :message "Hi"} recipient) opts)
-                                 [:method :preimage :fees-msat])))
+                    (select-keys paid [:method :preimage :fees-msat]))
+                 (pr-str paid))
              (is (= :value/wallet-unreachable
                     (:id (:error (nwc/ask! connection (nwc/get-balance) {:timeout-seconds 5}))))
                  "the relays on the own network get nothing, unless the app allows them")))))))
