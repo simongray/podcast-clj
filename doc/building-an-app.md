@@ -22,10 +22,10 @@ one map, the library, and `app.library` keeps it whole:
 (:player lib)                                       ; the player state, for every function of app.player
 ```
 
-The library holds these values. Each of them is a value of another
-namespace, e.g. `(:player lib)` is a player state that every function of
-`app.player` takes, so the sections below say what a step of the library
-does with them, and then what the functions below it do:
+The library holds these values, each a value of another namespace, e.g.
+`(:player lib)` is a player state that every function of `app.player`
+takes. Each section below starts with the call of the library, and then
+shows the functions below it.
 
 - `:player`, the player state of `app.player`: the subscriptions, the
   queue, and the progress in each episode
@@ -39,8 +39,8 @@ does with them, and then what the functions below it do:
 - `:sync`, the cursors that `sync!` returns
 - `:settings`, given once to `make`: the options that every step reads
 
-The files on the device, by episode, are the app's, and `plan` takes them.
-All of these values are EDN. The app decides where to store the library.
+The files on the device are the app's, and `plan` takes them. All of it
+is EDN, and the app decides where to store it.
 
 The examples use these aliases:
 
@@ -182,8 +182,7 @@ The function `html/feed-links` finds the feeds that the page names:
 ;; => ({:href "https://example.com/feed.xml" :type "application/rss+xml" :title "The show"})
 ```
 
-Give the address of the page, as here. Each feed is then an http or https
-URL, and the base element of the page counts as in a browser.
+Give the address of the page, so that the links resolve as in a browser.
 
 A private feed can need a user name and a password, or a token. Give them to
 `fetch!` as `:credentials`, such as `{:username "…" :password "…"}`. When a
@@ -211,16 +210,8 @@ creds                                     ; => {:username "simon", :password #<s
 (podcast/fetch! url {:credentials creds})
 ```
 
-A request map hides its credentials too. The headers Authorization and
-Cookie are hidden texts, and `http/call!` reads them when it sends the
-request. If another HTTP client sends your requests, take each request
-through `http/revealed` first.
-
-```clojure
-(def request (webdav/request :list cloud-root nil {:credentials creds}))
-request                               ; => {:method :propfind … :headers {"Authorization" #<secret> …}}
-(my-client/send (http/revealed request))
-```
+A request map hides its credentials too, and `http/revealed` gives their
+texts to another HTTP client.
 
 In a browser, `fetch!` does not exist, and few feed servers accept requests
 from other origins. Get the XML through your own server, and give the string
@@ -236,9 +227,9 @@ The result names the new episodes under `:added` and the feeds that moved
 under `:moved`, with their subscriptions moved too.
 
 Below it, `app.feeds` keeps the feeds of an app in one map, by the guid of
-each feed, with its URL, the validators of the last fetch and the time of the
-next check. A call of `refresh!` fetches the feeds that are due and applies
-each answer: a fresh feed, a 304, a failure, or a move.
+each feed. An entry has the URL, the validators of the last fetch and the
+time of the next check. A call of `refresh!` fetches the feeds that are due
+and applies each answer: a fresh feed, a 304, a failure, or a move.
 
 ```clojure
 (def feeds (feeds/add {} url r now))  ; r from podcast/fetch!, as above
@@ -266,35 +257,15 @@ by its guid, so that no password is in the map that the app stores. In
 ClojureScript, give `:fetch`, a function that fetches through your own
 server. Keep the map as you keep your other values: it is data.
 
-Below the step, `resolve/next-check` tells when to fetch a feed again.
-It uses the update-frequency rule of the feed, its `ttl`, its
-syndication period, or the interval between its recent episodes. It
-ignores episodes dated in the future, and it never waits more than a
-year. Send the validators of the last fetch with the next fetch. If the
-feed did not change, the server answers 304 and the result has no
-`:feed`.
-
-The server can also say when to ask again, with `Retry-After` or
-`Cache-Control`. The result then has `:not-before`. Give it to `next-check`,
-which then answers no earlier. The `:not-before` is at most an hour ahead,
-because a host can publish an episode before the time that its
-`Cache-Control` names.
-
-```clojure
-(let [{:keys [etag last-modified]} (feeds guid)
-      r2 (podcast/fetch! url {:etag etag :last-modified last-modified})]
-  (resolve/next-check show now {:not-before (:not-before r2)})  ; => #inst "…", or nil for a complete feed
-  (when-let [fresh (:feed r2)]  ; absent on a 304
-    (let [{:keys [state added]} (player/refresh state show fresh url now)]
-      (podcast/report fresh)   ; what podcast-clj had to repair or normalize
-      (:new-feed-url r2)       ; if present, change the URL of the subscription
-      (:permanent-url r2)      ; if present, the feed moved for good: change the URL too
-      added)))                 ; the ids of the new episodes, oldest first
-```
-
-A permanent redirect, 301 or 308, moves a feed for good, and
-`:permanent-url` gives the new URL. A temporary redirect does not change
-the URL of the subscription.
+Below the step, `resolve/next-check` tells when to fetch a feed again. It
+reads the update-frequency rule of the feed, its `ttl`, its syndication
+period, or the interval between its recent episodes, and it never waits more
+than a year. A fetch with the validators of the last one gets a 304 when the
+feed did not change. The server can say when to ask again, with `Retry-After`
+or `Cache-Control`, and the result then has `:not-before`, at most an hour
+ahead. A permanent redirect, 301 or 308, moves a feed for good, and
+`:permanent-url` gives the new URL. A temporary redirect does not change the
+URL of the subscription.
 
 A private feed can move to another domain. When the app changes the URL of
 the subscription, the credentials go to the new domain at each fetch from
@@ -366,11 +337,11 @@ shows of a network or the picks of a critic. A listener can follow such a
 list. The app then fetches the list from time to time, as it fetches the
 feeds, and the new shows in the list become subscriptions.
 
-With the library: `(library/follow lib list-url (opml/parse body) now
-{:title "Picks" :folder "Picks"})`, and `library/refresh!` fetches the
-list again after a day, and the feeds of the shows that it brought. A
-list names a show by its URL. When the feed then declares a guid of its
-own, the subscription moves to it, as `player/rekey` moves it.
+With the library: `(library/follow lib list-url (opml/parse body) now {:title
+"Picks" :folder "Picks"})`. Then `library/refresh!` fetches the list again
+after a day, and the feeds of the shows that it brought. A list names a show
+by its URL. When the feed then declares a guid of its own, the subscription
+moves to it, as `player/rekey` moves it.
 
 ```clojure
 (def list-url "https://example.org/picks.opml")
@@ -660,14 +631,12 @@ When a note came with a payment, `(::nostr-comments/receipts comment)`
 has the ids of the receipts. Such a note can have no content.
 
 A relay can send anything, so `fetch!` keeps only the events with a
-signature that is right. The report tells how many events it left out, as
-`:comments/unverified`. The check of a signature takes about 1
-millisecond, so a thread of 500 notes takes about half a second. In a
-browser, the page waits during the checks of one answer of a relay.
+signature that is right, and the report counts the others as
+`:comments/unverified`.
 
-Nostr gives no web page for a note. The handle of an author is the public
-key, in the form `npub1…`. For a link, `nostr/uri` gives the `nostr:` URI
-of a note, which an app of Nostr on the device opens:
+Nostr gives no web page for a note, and the handle of an author is the
+public key, `npub1…`. For a link, `nostr/uri` gives the `nostr:` URI of a
+note, which an app of Nostr on the device opens:
 
 ```clojure
 (nostr/uri {:type :nevent :id (:id comment) :relays ["wss://relay.fountain.fm"]})
@@ -676,14 +645,7 @@ of a note, which an app of Nostr on the device opens:
 
 Without `:relays`, `fetch!` asks the relays of `comments.nostr/relays`.
 [Services and their defaults](services.md#the-relays-of-nostr) tells what
-they answered.
-
-AppViews that answer without an account, as of September 2026:
-
-| AppView | URL |
-|---|---|
-| Bluesky | `https://public.api.bsky.app` |
-| Blacksky | `https://api.blacksky.community` |
+they answered, and names the AppViews that answer without an account.
 
 
 ## Play episodes
@@ -709,7 +671,7 @@ The effect `[:play next-id]` comes only when another episode is in the queue.
 
 The settings of the show above have `:skip-outro`, so `step` ends each of its
 episodes 45 seconds before the end. A `:progress` or a `:skip` that moves the
-position into the outro gives `[:stop id]`, then `[:played id]` if the
+position into the outro gives `[:stop id]`. Then comes `[:played id]` if the
 episode was not played before, and then the effects of `[:ended id]`. The
 function `player/outro-start` gives the position where the outro starts.
 
@@ -1059,8 +1021,8 @@ the backend a function that looks them up in the parsed feeds of the app:
 ```
 
 A subscription that another app added can name a feed that this app has not
-fetched yet. Fetch the feed, and the next step applies the actions that wait
-for it. For the GPodder Sync app of a Nextcloud, give `:api :nextcloud`.
+fetched yet. Fetch the feed, as `library/refresh!` does, and the next step
+applies the actions that wait for it. For the GPodder Sync app of a Nextcloud, give `:api :nextcloud`.
 To let such apps sync with your own Clojure server, mount
 `dk.simongray.podcast.app.sync.gpodder.server/handler`. The inspector does
 this at `/api/2/`.
@@ -1244,14 +1206,14 @@ does. They are what the sender wrote, and HTML in them must not run.
 
 A host checks a feed before it publishes, and an app can check a feed that a
 podcaster submits. A call of `check/feed!` fetches the files that the feed
-and its newest items link to, and tells whether they reach a listener as the
-feed says: the media files, the images, the transcripts and the chapters
-files. Give it the URL of the feed to check the feed too, and a profile to
-add the rules of PSP-1 or Apple Podcasts. It sends a HEAD request for each
-file, asks for two bytes of each file but the images, and reads the header of
-each image. With `:read? true`, it also reads what the files hold: the format
-and duration of each media file, as far as its duration, and each transcript
-and chapters file whole.
+and its newest items link to: the media files, the images, the transcripts
+and the chapters files. It tells whether they reach a listener as the feed
+says. Give it the URL of the feed to check the feed too, and a profile to add
+the rules of PSP-1 or Apple Podcasts. It sends a HEAD request for each file,
+asks for two bytes of each file but the images, and reads the header of each
+image. With `:read? true`, it also reads what the files hold: the format and
+duration of each media file, as far as its duration, and each transcript and
+chapters file whole.
 
 ```clojure
 (def result (check/feed! show {:url "https://example.com/feed.xml" :items 10 :profile :apple}))
@@ -1329,7 +1291,8 @@ the addresses of data centers, VPNs and known bots, as the guidelines of the
 IAB ask. The guidelines also ask a host to leave out the addresses with too
 many downloads. Remove them from the downloads by a rule that you state. A
 window is a calendar day in UTC. For the 24 hours from the first request of a
-listener, give `:window :rolling`.
+listener, give `:window :rolling`, and for the 24 hours from the last
+request, `:extending`.
 
 
 ## Measure the downloads with OP3

@@ -47,7 +47,9 @@ Each namespace below is relative to `dk.simongray.podcast`.
 These services have no default, and the app gives them:
 
 - the WebSub hub of a feed, which the feed names
-- the AppView that reads AT Protocol threads, as `:appview`
+- the AppView that reads AT Protocol threads, as `:appview`. As of
+  September 2026, `https://public.api.bsky.app` of Bluesky and
+  `https://api.blacksky.community` of Blacksky answer without an account.
 - the root of a gpodder server, and the URL of a WebDAV collection.
   [Sync stores and documents](stores.md) lists some of them.
 - the list of user agents of the OPAWG, which `analytics/user-agents` reads
