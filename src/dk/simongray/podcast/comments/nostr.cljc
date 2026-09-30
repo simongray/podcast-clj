@@ -20,16 +20,22 @@
   count.
 
   The relays are those that the root names, and then the `:relays` of the
-  options, or `nostr/relays`. Each relay gets the same questions, and an
-  event that two relays give is one comment."
+  options, or `relays`. Each relay gets the same questions, and an event
+  that two relays give is one comment."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.nostr :as nostr]
             [dk.simongray.podcast.util.time :as time]))
+
+(def relays
+  "The relays that podcast-clj asks for comments when neither the root of
+  a thread nor the options name a relay. doc/services.md tells when each
+  relay answered."
+  ["wss://relay.fountain.fm" "wss://relay.damus.io" "wss://relay.primal.net"])
 
 (def batch-size
   "The most ids or public keys in one filter of a request. The option
@@ -84,10 +90,10 @@
 (defn ^:no-doc relays-of
   "The relays that the reading of `thread` asks with `opts`: those that
   the name of its root gives, and then the `:relays` of `opts`, or
-  `nostr/relays`."
-  [{:keys [uri]} {:keys [relays]}]
+  `relays`."
+  [{:keys [uri]} opts]
   (vec (distinct (concat (:relays (root-of uri))
-                         (keep nostr/relay-url (or relays nostr/relays))))))
+                         (keep nostr/relay-url (or (:relays opts) relays))))))
 
 (defn readable?
   "Whether the thread of `interact` is one that `requests` reads with

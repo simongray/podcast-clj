@@ -54,9 +54,9 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.nostr :as nostr]))
 
 (def protocols
   "The protocols of podcast:socialInteract whose threads `fetch!` reads."
@@ -502,7 +502,7 @@
 
       {:appview         \"https://…\"  ; to read AT Protocol threads from
        :status-paths    [#\"…\"]       ; in place of activitypub/status-paths
-       :relays          [\"wss://…\"]  ; to read Nostr threads from, in place of nostr/relays
+       :relays          [\"wss://…\"]  ; to read Nostr threads from, in place of comments.nostr/relays
        :max-comments    100          ; ask for no more posts after this many in a fetch
        :max-requests    300          ; start no round after this many
        :max-seconds     60           ; start no request after this long

@@ -73,11 +73,11 @@ The examples use these aliases:
          '[dk.simongray.podcast.format.media :as media]
          '[dk.simongray.podcast.format.opml :as opml]
          '[dk.simongray.podcast.format.transcript :as transcript]
-         '[dk.simongray.podcast.nostr :as nostr]
          '[dk.simongray.podcast.updates.podping :as podping]
          '[dk.simongray.podcast.updates.websub :as websub]
          '[dk.simongray.podcast.util.bytes :as bytes]
          '[dk.simongray.podcast.util.http :as http]
+         '[dk.simongray.podcast.util.nostr :as nostr]
          '[dk.simongray.podcast.value :as value]
          '[dk.simongray.podcast.value.lnaddress :as lnaddress]
          '[dk.simongray.podcast.value.metadata :as metadata])
@@ -672,7 +672,7 @@ of a note, which an app of Nostr on the device opens:
 ;; => "nostr:nevent1…"
 ```
 
-Without `:relays`, `fetch!` asks the relays of `nostr/relays`. [Services
+Without `:relays`, `fetch!` asks the relays of `comments.nostr/relays`. [Services
 and their defaults](services.md#the-relays-of-nostr) tells what they
 answered.
 

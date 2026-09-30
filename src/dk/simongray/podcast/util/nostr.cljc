@@ -1,7 +1,9 @@
-(ns dk.simongray.podcast.nostr
-  "Nostr, as far as a podcast app reads it. The namespace has events and
-  their signatures, the names that a person reads, the filters and the
-  messages of a relay, and one exchange with a relay.
+(ns dk.simongray.podcast.util.nostr
+  "The Nostr protocol, which the comments of `comments.nostr` and the
+  wallets of `value.nwc` speak. The namespace has events and their
+  signatures, the names that a person reads, the filters and the messages
+  of a relay, and one exchange with a relay. It knows nothing about
+  podcasts.
 
   An event is the JSON object of NIP-01 as plain data with string keys, as
   a relay gives it. `verified?` tells whether an event has the id and the
@@ -16,8 +18,7 @@
   A relay speaks over a WebSocket. `call!` opens one, asks for the events
   of some filters, reads them until the relay has no more, and closes it.
   `received` is the pure step of that reading, for an app that holds its
-  own connections. `relays` names the relays that podcast-clj asks when
-  nothing names another relay."
+  own connections."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bech32 :as bech32]
@@ -28,11 +29,6 @@
                    [java.net.http HttpClient WebSocket WebSocket$Listener]
                    [java.time Duration]
                    [java.util.concurrent TimeUnit])))
-
-(def relays
-  "The relays that podcast-clj asks when the options of a function name
-  no `:relays`. doc/services.md tells when each relay answered."
-  ["wss://relay.fountain.fm" "wss://relay.damus.io" "wss://relay.primal.net"])
 
 (def default-limits
   "The limits of `call!` that its request does not set. `:max-events` is
@@ -688,6 +684,6 @@
 
 #?(:clj
    (comment
-     (call! {:url (first relays) :filters [about-episode] :timeout-seconds 10})
+     (call! {:url "wss://relay.damus.io" :filters [about-episode] :timeout-seconds 10})
      (map verified? (:events *1))
      #_.))

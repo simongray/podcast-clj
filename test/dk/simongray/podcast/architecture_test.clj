@@ -18,7 +18,7 @@
   views of an app, the only namespaces that require the root namespace."
   {"diagnostics" 0 "feed.guid" 0
    "util.async" 0 "util.bech32" 0 "util.bytes" 0 "util.http" 0 "util.json" 0 "util.rank" 0
-   "util.secret" 0 "util.time" 0 "util.time.rrule" 0 "util.xml" 0 "util.xml.jsoup" 0
+   "util.nostr" 0 "util.secret" 0 "util.time" 0 "util.time.rrule" 0 "util.xml" 0 "util.xml.jsoup" 0
    "crypto.chacha20" 0 "crypto.nip44" 0 "crypto.secp256k1" 0
    "feed.spec" 1 "feed.quirks" 1
    "feed" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
@@ -32,7 +32,7 @@
    "directory" 3 "directory.podcastindex" 3 "directory.links" 3
    "updates.podping" 3 "updates.websub" 3
    "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3
-   "comments.nostr" 3 "nostr" 3
+   "comments.nostr" 3
    "analytics" 3 "analytics.op3" 3
    "" 4
    "app.episode" 5 "app.show" 5 "app.feeds" 5 "app.library" 5})

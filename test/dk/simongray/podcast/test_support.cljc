@@ -10,10 +10,10 @@
             #?(:cljs [clojure.test :refer [is async]])
             #?(:clj [dk.simongray.podcast :as podcast])
             [dk.simongray.podcast.app.player :as player]
-            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.util.bech32 :as bech32]
             [dk.simongray.podcast.util.bytes :as bytes]
-            #?(:clj [dk.simongray.podcast.util.json :as json]))
+            #?(:clj [dk.simongray.podcast.util.json :as json])
+            [dk.simongray.podcast.util.nostr :as nostr])
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
                    [java.io File InputStream OutputStream]
                    [java.net InetAddress InetSocketAddress ServerSocket Socket]

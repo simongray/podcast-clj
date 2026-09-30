@@ -15,9 +15,9 @@
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.nostr :as nostr]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]))
 

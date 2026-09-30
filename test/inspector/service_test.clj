@@ -8,10 +8,10 @@
             [dk.simongray.podcast.crypto.nip44 :as nip44]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.feed.check :as check]
-            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.test-support :refer [secret-key with-relay]]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.nostr :as nostr]
             [dk.simongray.podcast.value.nwc :as nwc]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))

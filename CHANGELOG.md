@@ -485,3 +485,7 @@
   section of the guide that the library covers opens with its one call
   and then shows the functions below it. `library/episode-id` gives the
   identity of a `[show item]` pair.
+- The Nostr protocol is `util.nostr`, beside `util.http`. It knows
+  nothing about podcasts, and two subjects speak it: the comments of
+  `comments.nostr` and the wallets of `value.nwc`. The three relays that
+  the comments ask by default are `comments.nostr/relays`.

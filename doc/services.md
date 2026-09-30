@@ -35,7 +35,7 @@ Each namespace below is relative to `dk.simongray.podcast`.
 | The request that tells a WebSub hub of a change | `websub/publish-form` | `:form` | the fields `hub.mode=publish` and `hub.url` |
 | The genres of Apple Podcasts, for the chart of a category | `directory/apple-genres` | the `:genres` of a source | 110 genres |
 | The forms of the links of the apps | `links/apps` | `:apps` | 48 apps and pages |
-| The relays of Nostr | `nostr/relays` | `:relays` | three public relays |
+| The relays of Nostr | `comments.nostr/relays` | `:relays` | three public relays |
 | The instance of OP3 | `analytics.op3/origin` | `:origin` | `https://op3.dev` |
 | The URLs that OP3 takes behind its prefix | `analytics.op3/accepts?` | `:accepts?`, a predicate of a URL | the rules of op3.dev |
 | The paths of the gpodder API | `app.sync.gpodder/apis` | `:api`, as a name or as a map of paths | `:gpodder` |
@@ -232,15 +232,15 @@ the W3C on the URL of a media file, which a browser plays from the time.
 
 ## The relays of Nostr
 
-`nostr/relays` names the relays that `comments/fetch!` asks for the
-comments of Nostr, when the options name no `:relays`. A root that names
+`comments.nostr/relays` names the relays that `comments/fetch!` asks for
+the comments of Nostr, when the options name no `:relays`. A root that names
 relays gets its questions to those relays first.
 
 The table tells what each relay answered on 29 September 2026. The
 question was for the notes about one episode, by its id of NIP-73, which
 the app Fountain wrote on that day.
 
-| Relay | In `nostr/relays` | The answer |
+| Relay | In `comments.nostr/relays` | The answer |
 |---|---|---|
 | `wss://relay.fountain.fm` | yes | Three notes about the episode. It gives no answer to a filter that names only the kind 1111. It does not read a filter of the tags `I` and `E`. |
 | `wss://relay.damus.io` | yes | No note about the episode, and notes about other episodes |

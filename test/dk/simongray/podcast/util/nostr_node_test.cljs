@@ -1,13 +1,13 @@
-(ns dk.simongray.podcast.nostr-node-test
+(ns dk.simongray.podcast.util.nostr-node-test
   "An exchange with a relay on localhost, over the WebSocket of the
   platform. Node only: the relay is a server of Node that speaks the
   frames of RFC 6455."
   (:require ["crypto" :as crypto]
             ["http" :as http]
             [clojure.test :refer [deftest is async]]
-            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.test-support :refer [secret-key signed]]
-            [dk.simongray.podcast.util.json :as json]))
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.nostr :as nostr]))
 
 (defn- frame
   "The frame of a WebSocket for the text `s`, as a server sends it."

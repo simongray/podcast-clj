@@ -42,7 +42,7 @@ ecosystem that podcast-clj was written for.
 ```
   5  views        app.show  app.episode  app.feeds  app.library
   4  root         dk.simongray.podcast
-  3  companions   feed.resolve  feed.check  format.*  value  value.*  directory  directory.*  updates.*  nostr  comments  comments.*  analytics  analytics.*  app.*
+  3  companions   feed.resolve  feed.check  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  app.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.quirks
   0  primitives   util.*  crypto.*  feed.guid  diagnostics
@@ -102,12 +102,12 @@ podcast-clj, and each part is under the subject that it belongs to:
 - The client of OP3 is under `analytics`, which counts downloads as OP3
   does.
 - `util` holds what knows nothing about podcasts: XML, JSON, HTTP, bytes,
-  time, deferred values, ranks, hidden texts and Bech32. `util.xml.jsoup`
+  time, deferred values, ranks, hidden texts, Bech32 and the Nostr
+  protocol, which `comments.nostr` and `value.nwc` speak. `util.xml.jsoup`
   is under `util.xml`, and `util.time.rrule` is under `util.time`.
 - `crypto` holds the cryptography that podcast-clj has in Clojure:
   `crypto.secp256k1`, `crypto.chacha20` and `crypto.nip44`.
-- `nostr` and `diagnostics` belong to no group. `nostr` serves the comments
-  and the wallets, and `diagnostics` serves each namespace.
+- `diagnostics` belongs to no group, because it serves each namespace.
 
 The functions in these documents have the alias of their namespace. The
 alias is the last part of the name: `resolve/title` is in `feed.resolve`,
@@ -1134,8 +1134,8 @@ Nostr sign their own events, and one note is a recording of a relay.
 
 ## Nostr
 
-`nostr` holds what a podcast app needs of Nostr, under the comments and
-the wallets. Nostr has no servers that own data. Each event is a JSON
+`util.nostr` holds the protocol, which the comments and the wallets
+speak. It knows nothing about podcasts. Nostr has no servers that own data. Each event is a JSON
 object with the public key and the signature of its author, and relays
 pass the events on.
 
@@ -1175,7 +1175,7 @@ that holds its connections open. The guard of
 [Requests that strangers choose](#requests-that-strangers-choose) applies
 to a relay too, because a name of NIP-19 can name any relay.
 
-`nostr/relays` names three public relays, and
+`comments.nostr/relays` names three public relays, and
 [Services and their defaults](services.md#the-relays-of-nostr) tells when
 they answered. The relays are a choice of the app, so `:relays` replaces
 them.

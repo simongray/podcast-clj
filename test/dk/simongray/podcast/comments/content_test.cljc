@@ -12,10 +12,10 @@
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.test-support :refer [fixture run secret-key signed]]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.json :as json]))
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.nostr :as nostr]))
 
 (def mastodon
   "A thread of podcastindex.social, with replies from Misskey and another
