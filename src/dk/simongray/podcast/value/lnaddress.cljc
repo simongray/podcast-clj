@@ -42,7 +42,8 @@
 (defn parse
   "The parts of the Lightning address `s`, `{:user :domain}`, in lower case.
   Nil when `s` is not one. A user name holds the letters a to z, the digits
-  and `-_.+`, as LUD-16 allows.
+  and `-_.+`, as LUD-16 allows. `@domain` is short for `_@domain`, the
+  default identifier of the domain, as LUD-16 has it.
 
   The domain is a name on the public internet. It is no IP address, and it
   has a dot in it. It is no name that stays on a local network, such as
@@ -51,12 +52,12 @@
   domain that the app asks."
   [s]
   (when (string? s)
-    (when-let [[_ user domain] (re-matches #"([a-z0-9_.+-]+)@([^@\s/?#\\:]*[^@\s/?#\\:.])\.?" (str/lower-case (str/trim s)))]
+    (when-let [[_ user domain] (re-matches #"([a-z0-9_.+-]*)@([^@\s/?#\\:]*[^@\s/?#\\:.])\.?" (str/lower-case (str/trim s)))]
       (let [host (http/host (str "https://" domain "/"))]
         (when (and host
                    (http/public-name? host)
                    (not (re-matches #"[0-9.]+" host)))
-          {:user user :domain domain})))))
+          {:user (if (= "" user) "_" user) :domain domain})))))
 
 (defn ^:no-doc well-known
   "The URL of the well-known answer of `kind` about the parts of an

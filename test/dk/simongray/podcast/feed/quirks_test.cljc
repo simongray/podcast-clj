@@ -82,7 +82,10 @@
 
 (deftest numeric-references-a-string-cannot-hold
   (is (= "&#1114112; &#x110000; &#99999999999999999999; A"
-         (xml/decode-entities "&#1114112; &#x110000; &#99999999999999999999; &#65;"))))
+         (xml/decode-entities "&#1114112; &#x110000; &#99999999999999999999; &#65;")))
+  (is (= "&#0; &#xD800; &#xDFFF; A ퟿ "
+         (xml/decode-entities "&#0; &#xD800; &#xDFFF; &#X41; &#xD7FF; &#xE000;"))
+      "zero and a surrogate are no characters, and a capital X reads as in HTML"))
 
 (deftest leaving-rules-out
   (testing "repair skips the repairs it is told to"

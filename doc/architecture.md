@@ -1434,8 +1434,8 @@ same code. Each call needs the token of an API key. OP3 makes a key only
 for a person who passes a check for humans, so podcast-clj cannot make
 one. The token goes in a header and not in the URL, since logs keep URLs.
 
-The tests run on the worked examples of the guidelines, version 2.2 and the
-draft of version 2.3. They also run on entries of the list of user agents,
+The tests run on the worked examples of the guidelines, version 2.2 and
+version 2.3. They also run on entries of the list of user agents,
 and on the answers that OP3 gave about the show Podcasting 2.0. A check of
 the whole list in September 2026 found that each example of an agent or a
 referrer names its own entry.

@@ -1,7 +1,8 @@
 (ns dk.simongray.podcast.analytics
   "The downloads of episodes, counted by the rules of the IAB Tech Lab from
   the requests that a podcast host logs. The rules are those of the Podcast
-  Measurement Technical Guidelines, version 2.2.
+  Measurement Technical Guidelines, version 2.3 of September 2026. They
+  count the episodes of video too, when a feed delivers them as files.
 
   A request is a map of one line of the log of a server:
 
@@ -280,13 +281,17 @@
   [url]
   (first (str/split url #"[?#]" 2)))
 
+;; IAB guidelines 2.3, section 5.5.1: the calendar day, the "first touch"
+;; and the "last touch" rolling windows
 (defn- same-window?
-  "Whether the request at `ms` falls in the window of `window` that opened
-  at `start`, both in milliseconds since the epoch."
-  [window start ms]
+  "Whether the request at `ms`, in milliseconds since the epoch, falls in
+  the window `w` of the kind `window`: the day of its `:start`, the 24
+  hours from its `:start`, or the 24 hours from its `:last` request."
+  [window {:keys [start last]} ms]
   (case window
-    :day     (= (first (time/split-ms start)) (first (time/split-ms ms)))
-    :rolling (< ms (+ start 86400000))))
+    :day       (= (first (time/split-ms start)) (first (time/split-ms ms)))
+    :rolling   (< ms (+ start 86400000))
+    :extending (< ms (+ last 86400000))))
 
 (defn- judged
   "The requests of `requests` that can be part of a download, and the count
@@ -307,16 +312,17 @@
 (defn- windows
   "The windows of `requests`: for each listener, file and window, its first
   request, the byte ranges that its requests hold, and their number. `file`
-  gives the file of a request, and `window` is :day or :rolling."
+  gives the file of a request, and `window` is :day, :rolling or
+  :extending."
   [requests file window]
   (let [step          (fn [[open closed] {:keys [ip user-agent] :as request}]
                         (let [listener [(listener-ip ip) user-agent]
                               k        (conj listener (file request))
                               ms       (inst-ms (:time request))
                               w        (get open k)]
-                          (if (and w (same-window? window (:start w) ms))
-                            [(assoc open k (-> w (update :ranges into (held request)) (update :n inc))) closed]
-                            [(assoc open k {:first-request request :start ms :ranges (held request) :n 1
+                          (if (and w (same-window? window w ms))
+                            [(assoc open k (-> w (update :ranges into (held request)) (update :n inc) (assoc :last ms))) closed]
+                            [(assoc open k {:first-request request :start ms :last ms :ranges (held request) :n 1
                                             :listener listener :file (peek k)})
                              (cond-> closed w (conj w))])))
         [open closed] (reduce step [{} []] (sort-by (comp inst-ms :time) requests))]
@@ -339,12 +345,14 @@
        :exclude?    f                   ; of a request: the addresses to leave out
        :threshold   f                   ; of a file: the bytes that a download needs
        :file        f                   ; of a request: the file that it asks for
-       :window      :day}               ; or :rolling
+       :window      :day}               ; or :rolling, or :extending
 
   A window is a day in UTC. With `:rolling`, a window is the 24 hours
-  from the first request of a listener for a file. The file of a request
-  is its URL without the query. `:threshold` can be a map of files to
-  bytes. For a file with no threshold, any request that passes the filters
+  from the first request of a listener for a file. With `:extending`, it
+  is the 24 hours from the last request, so each request extends it.
+  These are the three windows of the guidelines. The file of a request is
+  its URL without the query. `:threshold` can be a map of files to bytes.
+  For a file with no threshold, any request that passes the filters
   counts.
 
   The requests of a listener hold the bytes that their ranges ask for, cut
@@ -353,7 +361,7 @@
   ([requests]
    (downloads requests {}))
   ([requests {:keys [threshold file window] :or {file (comp file-url :url) window :day} :as opts}]
-   (when-not (contains? #{:day :rolling} window)
+   (when-not (contains? #{:day :rolling :extending} window)
      (throw (ex-info (str "A window that downloads does not know: " window) {:window window})))
    (let [[kept dropped]             (judged requests opts)
          enough?                    (fn [{:keys [ranges] :as w}]

@@ -160,7 +160,7 @@
   (let [[timing & payload] (if (re-find timing-pattern (first lines)) lines (rest lines))]
     (when-let [[_ from to] (some->> timing (re-find timing-pattern))]
       (let [text            (str/join "\n" payload)
-            voice           (second (re-find #"<v(?:\.[^\s<>]*)?\s+([^<>]+)>" text))
+            voice           (some-> (re-find #"<v(?:\.[^\s<>]*)?\s+([^<>]+)>" text) second xml/decode-entities)
             plain           (xml/decode-entities (str/trim (strip-tags text)))
             [prefixed body] (if voice [nil plain] (speaker-prefix stats plain))
             speaker         (or voice prefixed)]
@@ -179,6 +179,13 @@
     (with-report {:format :vtt :segments segments}
       (prefix-diagnostics (:prefixes @stats 0)))))
 
+;; WebVTT, section 4.2.2: cue text has no & or <, and the annotation of a
+;; voice span no & or >, so those go as the character references of HTML
+(defn- vtt-text
+  "The text `s` as the payload of a cue writes it."
+  [s]
+  (str/escape s {\& "&amp;" \< "&lt;" \> "&gt;"}))
+
 (defn emit-vtt
   "Write `transcript` as WebVTT, speakers as `<v>` voice spans; segments
   without a start time are left out."
@@ -189,7 +196,7 @@
                        (timed-segments transcript)]
                    (str (time/format-timestamp start) " --> "
                         (time/format-timestamp (or end start)) "\n"
-                        (when speaker (str "<v " speaker ">")) (cue-body body))))
+                        (when speaker (str "<v " (vtt-text speaker) ">")) (vtt-text (cue-body body)))))
        "\n"))
 
 (defn parse-json

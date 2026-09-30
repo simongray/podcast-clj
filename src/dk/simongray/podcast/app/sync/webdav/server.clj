@@ -2,10 +2,11 @@
   "Any document store served over WebDAV (RFC 4918), for a Clojure backend
   whose browser clients sync through their own origin: `handler` is a Ring
   handler answering GET, HEAD, PUT, DELETE and a PROPFIND at depth zero or
-  one, with ETags and the preconditions, and OPTIONS and MKCOL so that a
-  client can ask. A store without `:list` is served without the listing of
-  the collection, and one without `:delete` without DELETE; a client of
-  such a server leaves the same keys out of its WebDAV store."
+  one, with ETags and the preconditions, and OPTIONS so that a client can
+  ask. MKCOL gets 405, because the collection is there. A store without
+  `:list` is served without the listing of the collection, and one without
+  `:delete` without DELETE; a client of such a server leaves the same keys
+  out of its WebDAV store."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
             [dk.simongray.podcast.util.http :as http]))
@@ -15,9 +16,20 @@
   (str "\"" version "\""))
 
 (defn- unquoted
-  "The version in the ETag `etag`, its quotes and a weak marker removed."
+  "The version in the ETag `etag`, its quotes removed."
   [etag]
-  (some-> etag str/trim (str/replace #"^W/" "") (str/replace #"^\"|\"$" "")))
+  (some-> etag str/trim (str/replace #"^\"|\"$" "")))
+
+;; RFC 9110, section 8.8.3.2: a weak tag never matches in the strong
+;; comparison that If-Match uses
+(defn- strong-versions
+  "The versions of the strong entity tags in the header value `s`, a list
+  of tags."
+  [s]
+  (->> (str/split s #",")
+       (map str/trim)
+       (remove #(str/starts-with? % "W/"))
+       (map unquoted)))
 
 (defn- escape
   [s]
@@ -49,9 +61,21 @@
   []
   (plain 404 "Not Found"))
 
+(defn- allow
+  "The methods that `store` answers for a document, or for the collection
+  when `document?` is false, as an Allow header value: DELETE only when
+  the store can delete."
+  [{:keys [delete]} document?]
+  (if document?
+    (str "OPTIONS, GET, HEAD, PUT, " (when delete "DELETE, ") "PROPFIND")
+    "OPTIONS, PROPFIND"))
+
+;; RFC 9110, section 15.5.6
 (defn- not-allowed
-  []
-  (plain 405 "Method Not Allowed"))
+  "405 for the document `name` of `store`, or for the collection when
+  `name` is nil, with the methods that the target answers."
+  [store name]
+  (assoc-in (plain 405 "Method Not Allowed") [:headers "Allow"] (allow store (some? name))))
 
 ;; RFC 9110, sections 13.1.1 and 13.1.2
 (defn- precondition
@@ -59,12 +83,15 @@
   lower-case names, asks of a put of a document whose version is `current`,
   nil when it is not there, as the `:if-version` a store takes: absent for
   none. If-Match: * asks for the current version, or for one no document
-  has when there is none."
+  has when there is none. `:failed` when If-Match lists no strong tag,
+  which no version matches."
   [headers current]
   (let [if-match (some-> (get headers "if-match") str/trim)]
     (cond
       (= "*" if-match)                      {:if-version (or current "*")}
-      if-match                              {:if-version (unquoted if-match)}
+      if-match                              (if-let [versions (seq (strong-versions if-match))]
+                                              {:if-version (or (some #{current} versions) (first versions))}
+                                              :failed)
       (= "*" (get headers "if-none-match")) {:if-version nil}
       :else                                 {})))
 
@@ -86,13 +113,15 @@
     (:version (fetch name))))
 
 (defn- options
-  "The methods the handler answers for `store`, DELETE only when it can
-  delete."
-  [{:keys [delete] :as store}]
+  "The methods the handler answers for the documents of `store`, whatever
+  the target: a client asks the collection what it can do with them."
+  [store]
   {:status  200
-   :headers {"DAV" "1" "Allow" (str "OPTIONS, GET, HEAD, PUT, " (when delete "DELETE, ") "PROPFIND, MKCOL")}
+   :headers {"DAV" "1" "Allow" (allow store true)}
    :body    ""})
 
+;; RFC 4918, sections 9.1 (no Depth is infinity, which is depth 1 here,
+;; because the collection holds no collection) and 9.1.1 (403)
 (defn- propfind
   "The multistatus of `store` for the document `name`, or for the collection
   at `base` when there is none, at `depth`.
@@ -115,16 +144,16 @@
                          (entry (str base (http/encode name)) version))))
 
     :else
-    (plain 405 "The collection cannot be listed")))
+    (plain 403 "The collection cannot be listed")))
 
 (defn- get-document
   "The document `name` with its ETag, the body left out for a `head?`."
-  [{:keys [fetch]} name head?]
+  [{:keys [fetch] :as store} name head?]
   (if-let [{:keys [body version]} (when name (fetch name))]
     {:status  200
      :headers {"ETag" (quoted version) "Content-Type" (webdav/content-type name)}
      :body    (if head? "" body)}
-    (if name (not-found) (not-allowed))))
+    (if name (not-found) (not-allowed store nil))))
 
 (defn- put-document
   "The document `name` written from the request `body`, at most `max-bytes`,
@@ -133,31 +162,32 @@
   large."
   [{:keys [put] :as store} name headers body max-bytes]
   (if name
-    (let [current (version-of store name)]
-      (if-let [text (http/body-text body max-bytes)]
-        (let [result (put name text (precondition headers current))]
-          (if (:conflict? result)
-            (plain 412 "Precondition Failed")
-            {:status (if current 204 201) :headers {"ETag" (quoted (:version result))} :body ""}))
-        (plain 413 (str "A document holds at most " max-bytes " bytes"))))
-    (not-allowed)))
+    (let [current (version-of store name)
+          asked   (precondition headers current)
+          text    (http/body-text body max-bytes)
+          result  (when (and text (not= :failed asked)) (put name text asked))]
+      (cond
+        (nil? text)                             (plain 413 (str "A document holds at most " max-bytes " bytes"))
+        (or (= :failed asked) (:conflict? result)) (plain 412 "Precondition Failed")
+        :else                                   {:status (if current 204 201) :headers {"ETag" (quoted (:version result))} :body ""}))
+    (not-allowed store nil)))
 
 (defn- delete-document
   "The document `name` deleted from `store`: 204, or 404 when it is not
   there, or 405 when the store cannot delete."
   [{:keys [delete] :as store} name]
   (cond
-    (not delete)                       (not-allowed)
+    (not delete)                       (not-allowed store name)
     (and name (version-of store name)) (do (delete name)
                                            {:status 204 :headers {} :body ""})
     :else                              (not-found)))
 
+;; RFC 4918, section 9.3.1: MKCOL is for an unmapped URL, and the
+;; collection is there
 (defn- make-collection
-  "The collection itself acknowledged, a collection within it refused."
-  [name]
-  (if name
-    (not-allowed)
-    {:status 201 :headers {} :body ""}))
+  "MKCOL refused, on the collection itself and within it."
+  [store name]
+  (not-allowed store name))
 
 (defn handler
   "A Ring handler serving `store` over WebDAV under `base`, the path of the
@@ -192,8 +222,8 @@
                  (:get :head) (get-document store name (= :head request-method))
                  :put         (put-document store name headers body max-bytes)
                  :delete      (delete-document store name)
-                 :mkcol       (make-collection name)
-                 (not-allowed))))
+                 :mkcol       (make-collection store name)
+                 (not-allowed store name))))
            ;; a malformed escape in the path, or a name the store's
            ;; filesystem cannot take
            (catch IllegalArgumentException _

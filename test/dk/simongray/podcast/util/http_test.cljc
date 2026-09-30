@@ -177,6 +177,11 @@
     (testing "Retry-After, in seconds or as a date"
       (is (= #inst "2026-09-27T12:02:00Z" (http/not-before {"retry-after" ["120"]} at)))
       (is (= #inst "2026-09-27T12:40:00Z" (http/not-before {"retry-after" "Sun, 27 Sep 2026 12:40:00 GMT"} at))))
+    (testing "the three forms of a date of HTTP"
+      (doseq [date ["Sun, 27 Sep 2026 12:40:00 GMT" "Sunday, 27-Sep-26 12:40:00 GMT" "Sun Sep 27 12:40:00 2026"]]
+        (is (= #inst "2026-09-27T12:40:00Z" (http/not-before {"retry-after" [date]} at)) date))
+      (is (= #inst "2026-09-06T12:40:00Z" (http/not-before {"retry-after" ["Sun Sep  6 12:40:00 2026"]} #inst "2026-09-06T12:00:00Z"))
+          "a day of one digit has a space before it"))
     (testing "the freshness of Cache-Control, less the age, else Expires"
       (is (= #inst "2026-09-27T12:08:20Z" (http/not-before {"cache-control" ["public, max-age=600"] "age" ["100"]} at)))
       (is (= #inst "2026-09-27T12:30:00Z" (http/not-before {"expires" ["Sun, 27 Sep 2026 12:30:00 GMT"]} at))))
@@ -238,9 +243,16 @@
          (is (= xml (http/decode {} latin))))
        (testing "the Content-Type header wins over the declaration"
          (is (not= xml (http/decode {"content-type" ["text/xml; charset=UTF-8"]} latin))))
+       (testing "a byte order mark wins over the header, as RFC 7303 has it"
+         (let [utf-16 (.getBytes (str "﻿" xml) "UTF-16LE")
+               utf-8  (.getBytes (str "﻿" xml) "UTF-8")]
+           (is (= xml (http/decode {"content-type" ["text/xml; charset=ISO-8859-1"]} utf-16)))
+           (is (= xml (http/decode {"content-type" ["text/xml; charset=ISO-8859-1"]} utf-8)))
+           (is (= xml (http/decode {} (.getBytes (str "﻿" xml) "UTF-16BE"))))))
        (testing "gzip is undone before decoding, however the header spells it"
          (is (= xml (http/decode {"content-encoding" ["gzip"]} (gzip latin))))
-         (is (= xml (http/decode {"content-encoding" ["GZIP"]} (gzip latin)))))
+         (is (= xml (http/decode {"content-encoding" ["GZIP"]} (gzip latin))))
+         (is (= xml (http/decode {"content-encoding" ["x-gzip"]} (gzip latin)))))
        (testing "an unknown charset falls back to UTF-8"
          (is (= "<a>x</a>" (http/decode {"content-type" ["text/xml; charset=nonsense"]} (.getBytes "<a>x</a>" "UTF-8"))))))))
 

@@ -196,11 +196,17 @@
   [s]
   (some->> s str/trim (re-matches #"\d{1,10}") parse-long))
 
+;; RFC 9110, section 5.6.7: of the three forms of a date, asctime has no
+;; zone and is UTC
 (defn ^:no-doc date-ms
   "The date that the header value `s` gives, in epoch milliseconds. Nil
   when it gives none."
   [s]
-  (some-> s time/parse-rfc2822 inst-ms))
+  (let [asctime (some->> s (re-matches #"\s*[A-Za-z]{3} ([A-Za-z]{3}) +(\d{1,2}) (\d{2}:\d{2}:\d{2}) (\d{4})\s*"))
+        s       (if-let [[_ month day clock year] asctime]
+                  (str day " " month " " year " " clock " GMT")
+                  s)]
+    (some-> s time/parse-rfc2822 inst-ms)))
 
 (defn ^:no-doc ours
   "The time `t` on the clock of the server, as a time on the clock of the
@@ -294,11 +300,12 @@
                 (.connectTimeout (Duration/ofSeconds 15))
                 (.build)))))
 
+;; RFC 9110, section 8.4.1.3: x-gzip is gzip
 #?(:clj
    (defn ^:no-doc gzipped?
      "Whether the response with `headers` says that its body is gzipped."
      [headers]
-     (= "gzip" (some-> (header headers "content-encoding") str/trim str/lower-case))))
+     (contains? #{"gzip" "x-gzip"} (some-> (header headers "content-encoding") str/trim str/lower-case))))
 
 #?(:clj
    (defn ^:no-doc headers-of
@@ -384,19 +391,33 @@
        (read-bounded in max-bytes url))))
 
 #?(:clj
+   (defn- bom-charset
+     "The charset that the byte order mark at the start of `body` names, nil
+     when there is none."
+     [^bytes body]
+     (let [at (fn [i] (when (< i (alength body)) (bit-and (aget body i) 0xff)))]
+       (cond
+         (and (= 0xef (at 0)) (= 0xbb (at 1)) (= 0xbf (at 2))) StandardCharsets/UTF_8
+         (and (= 0xfe (at 0)) (= 0xff (at 1)))                 StandardCharsets/UTF_16BE
+         (and (= 0xff (at 0)) (= 0xfe (at 1)))                 StandardCharsets/UTF_16LE))))
+
+;; RFC 7303, section 3.2
+#?(:clj
    (defn- declared-charset
-     "The charset a response declares, in its Content-Type header or, failing
-     that, in the XML declaration at the start of `body`; UTF-8 otherwise."
+     "The charset a response declares: by the byte order mark of `body`,
+     else its Content-Type header, else the XML declaration at the start
+     of the body. UTF-8 when none of them names one."
      [headers ^bytes body]
      (let [content-type (or (header headers "content-type") "")
            head         (String. body 0 (min 200 (alength body)) StandardCharsets/ISO_8859_1)
            name         (or (second (re-find #"(?i)charset=\"?([\w.:-]+)" content-type))
                             (second (re-find #"(?i)<\?xml[^>]*encoding=[\"']([\w.:-]+)" head))
                             "UTF-8")]
-       (try
-         (Charset/forName name)
-         (catch Exception _
-           StandardCharsets/UTF_8)))))
+       (or (bom-charset body)
+           (try
+             (Charset/forName name)
+             (catch Exception _
+               StandardCharsets/UTF_8))))))
 
 #?(:clj
    (defn ^:no-doc inflated

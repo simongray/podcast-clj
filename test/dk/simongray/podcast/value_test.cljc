@@ -185,7 +185,10 @@
   (testing "the parts of an address"
     (is (= {:user "hello" :domain "getalby.com"} (lnaddress/parse " Hello@GetAlby.com ")))
     (is (= {:user "ann+podcast" :domain "bücher.example"} (lnaddress/parse "ann+podcast@bücher.example")))
-    (is (every? nil? (map lnaddress/parse ["@getalby.com" "ann@" "ann@a/b" "an n@a.example" "ann@a@b" nil 42])))
+    (is (= {:user "_" :domain "getalby.com"} (lnaddress/parse "@getalby.com"))
+        "the default identifier of a domain, as LUD-16 has it")
+    (is (= "https://getalby.com/.well-known/lnurlp/_" (:url (lnaddress/lnurlp-request "@getalby.com"))))
+    (is (every? nil? (map lnaddress/parse ["ann@" "ann@a/b" "an n@a.example" "ann@a@b" "@" nil 42])))
     (is (every? nil? (map lnaddress/parse ["ann@127.0.0.1" "ann@169.254.169.254" "ann@[::1]" "ann@localhost"
                                            "ann@nas.local" "ann@wiki.internal" "ann@router.home.arpa" "ann@intranet"]))
         "a domain on the internet, since the feed chooses the host that the app asks")

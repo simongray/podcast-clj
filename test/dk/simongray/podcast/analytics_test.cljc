@@ -126,14 +126,17 @@
                ["203.0.113.5" "D/1"] ["203.0.113.5" "E/1"] ["203.0.113.5" "F/1"]}
              (set (map :listener (:downloads result)))))
       (is (= {} (:dropped result)))))
-  (testing "the draft 2.3: the windows of one listener, Monday 22:00 to Wednesday 23:15"
+  (testing "2.3, section 5.5.1: the three windows of one listener, Monday 22:00 to Wednesday 23:15"
     (let [requests (map #(request overcast %) ["2026-09-21T22:00:00Z" "2026-09-22T03:00:00Z"
                                                "2026-09-22T22:15:00Z" "2026-09-23T23:15:00Z"])
           times    (fn [opts] (map #(time/format-iso8601 (:time %)) (:downloads (analytics/downloads requests opts))))]
       (is (= ["2026-09-21T22:00:00Z" "2026-09-22T03:00:00Z" "2026-09-23T23:15:00Z"] (times {}))
           "calendar days in UTC")
       (is (= ["2026-09-21T22:00:00Z" "2026-09-22T22:15:00Z" "2026-09-23T23:15:00Z"] (times {:window :rolling}))
-          "24 hours from the first request")))
+          "24 hours from the first request")
+      (is (= ["2026-09-21T22:00:00Z" "2026-09-23T23:15:00Z"] (times {:window :extending}))
+          "24 hours from the last request")
+      (is (thrown? #?(:clj Exception :cljs js/Error) (times {:window :week})))))
   (testing "a listener of IPv6 moves inside its /64"
     (is (= 1 (count (:downloads (analytics/downloads [(request overcast "2026-09-21T10:00:00Z" :ip "2001:db8:1:2::10")
                                                       (request overcast "2026-09-21T11:00:00Z" :ip "2001:db8:1:2::77")])))))))

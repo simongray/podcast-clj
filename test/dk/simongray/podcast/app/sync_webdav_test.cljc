@@ -158,6 +158,8 @@
          (is (= "1" (get-in (handler (ring :options "/dav/")) [:headers "DAV"])))
          (is (str/includes? (get-in (handler (ring :options "/dav/")) [:headers "Allow"]) "DELETE"))
          (is (= 405 (:status (handler (ring :get "/dav/")))))
+         (is (= "OPTIONS, PROPFIND" (get-in (handler (ring :get "/dav/")) [:headers "Allow"]))
+             "a 405 names the methods of the target, as RFC 9110 asks")
          (is (= 404 (:status (handler (ring :get "/elsewhere"))))))
        (testing "a document put, listed, fetched and deleted, the name decoded"
          (let [{:keys [status headers]} (handler (ring :put "/dav/phone%201.edn" :body "{:version 1 :state {}}"))]
@@ -172,8 +174,12 @@
            (is (= [{:name "phone 1.edn" :version "\"1\""}]
                   (webdav/response :list (update (handler (ring :propfind "/dav/")) :headers #(into {} (map (fn [[k v]] [(str/lower-case k) [v]])) %)))))
            (is (= 412 (:status (handler (ring :put "/dav/phone%201.edn" :body "x" :headers {"If-Match" "\"stale\""})))))
+           (is (= 412 (:status (handler (ring :put "/dav/phone%201.edn" :body "x" :headers {"If-Match" "W/\"1\""}))))
+               "a weak tag never matches: If-Match uses the strong comparison")
            (is (= 412 (:status (handler (ring :put "/dav/phone%201.edn" :body "x" :headers {"if-none-match" "*"})))))
-           (is (= 204 (:status (handler (ring :put "/dav/phone%201.edn" :body "{}" :headers {"If-Match" "\"1\""})))))
+           (is (= 204 (:status (handler (ring :put "/dav/phone%201.edn" :body "{}" :headers {"If-Match" "\"stale\", \"1\""}))))
+               "one tag of a list matches")
+           (is (= 204 (:status (handler (ring :put "/dav/phone%201.edn" :body "{}" :headers {"If-Match" "\"2\""})))))
            (is (= 204 (:status (handler (ring :delete "/dav/phone%201.edn")))))
            (is (= 404 (:status (handler (ring :delete "/dav/phone%201.edn")))))
            (is (= 404 (:status (handler (ring :get "/dav/phone%201.edn")))))))
@@ -182,8 +188,9 @@
          (is (= 400 (:status (handler (ring :put "/dav/%2e%2e" :body "x")))) "nor . or ..")
          (is (= 400 (:status (handler (ring :put "/dav/x%00.edn" :body "x")))) "nor a control character")
          (is (= 405 (:status (handler (ring :lock "/dav/x.edn")))))
+         (is (= "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND" (get-in (handler (ring :lock "/dav/x.edn")) [:headers "Allow"])))
          (is (= 405 (:status (handler (ring :mkcol "/dav/sub")))))
-         (is (= 201 (:status (handler (ring :mkcol "/dav/"))))))
+         (is (= 405 (:status (handler (ring :mkcol "/dav/")))) "the collection is there, and MKCOL is for an unmapped URL"))
        (testing "a percent sign that starts no escape is part of the name"
          (is (= 404 (:status (handler (ring :get "/dav/100%.edn")))))))
      (testing "If-Match: *, and the size of a put"
@@ -213,10 +220,11 @@
          (let [{:keys [status body]} (handler (ring :propfind "/dav/" :headers {"Depth" "0"}))]
            (is (= 207 status))
            (is (not (str/includes? body "podcast.edn"))))
-         (is (= 405 (:status (handler (ring :propfind "/dav/" :headers {"Depth" "1"})))))
-         (is (= 405 (:status (handler (ring :propfind "/dav/"))))))
+         (is (= 403 (:status (handler (ring :propfind "/dav/" :headers {"Depth" "1"})))))
+         (is (= 403 (:status (handler (ring :propfind "/dav/")))) "no Depth is infinity"))
        (testing "no DELETE, and OPTIONS says so"
          (is (= 405 (:status (handler (ring :delete "/dav/podcast.edn")))))
+         (is (= "OPTIONS, GET, HEAD, PUT, PROPFIND" (get-in (handler (ring :delete "/dav/podcast.edn")) [:headers "Allow"])))
          (is (= ["podcast.edn"] (keys @documents)))
          (is (not (str/includes? (get-in (handler (ring :options "/dav/")) [:headers "Allow"]) "DELETE")))))))
 

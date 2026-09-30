@@ -218,8 +218,9 @@ A sync document is an EDN map:
 - A PROPFIND on the collection at depth 0 gives the collection alone. At
   depth 1, it also lists the documents.
 - If the store has no `:list`, a PROPFIND that lists the collection gets
-  405. If the store has no `:delete`, a DELETE gets 405, and OPTIONS does
-  not name DELETE.
+  403. If the store has no `:delete`, a DELETE gets 405, and OPTIONS does
+  not name DELETE. A 405 names the methods of its target in Allow.
+- MKCOL gets 405, because the collection is there.
 - A client of such a server removes the same keys from its WebDAV store, for
   example `(dissoc (webdav/store url) :list)`. `backend` then uses one
   shared document.

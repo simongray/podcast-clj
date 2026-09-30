@@ -188,13 +188,13 @@
 
 (defn ^:no-doc code-point
   "The code point of the numeric reference `ref`, `#65` or `#x41`; nil when
-  it is not one a string can hold."
+  it is not one a string can hold: zero, a surrogate, or past U+10FFFF."
   [ref]
   (let [n (if (re-find #"^#[xX]" ref)
             #?(:clj  (try (Long/parseLong (subs ref 2) 16) (catch Exception _ nil))
                :cljs (js/parseInt (subs ref 2) 16))
             (parse-long (subs ref 1)))]
-    (when (and n (<= 0 n 0x10FFFF))
+    (when (and n (or (<= 1 n 0xD7FF) (<= 0xE000 n 0x10FFFF)))
       n)))
 
 (defn decode-entities
@@ -308,7 +308,7 @@
                            (.getAttributeValue r i)]))
                   (into (for [i (range (.getNamespaceCount r))]
                           [(qname "xmlns" (.getNamespacePrefix r i))
-                           (.getNamespaceURI r i)])))])
+                           (.getNamespaceURI r (int i))])))])
      :cljs (let [attrs (.-attributes x)]
              [(.-nodeName x)
               (into {} (for [i (range (.-length attrs))

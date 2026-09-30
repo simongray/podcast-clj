@@ -75,7 +75,7 @@
     (is (= 405 (:status (call :put "/dav/" :body "x"))))
     (is (= 405 (:status (call :lock "/dav/phone.edn"))))
     (is (= 400 (:status (call :put "/dav/.hidden" :body "x"))) "a hidden file is not a document")
-    (is (= 201 (:status (call :mkcol "/dav/"))))
+    (is (= 405 (:status (call :mkcol "/dav/"))) "the collection is there")
     (is (= 405 (:status (call :mkcol "/dav/sub"))) "no collections within the folder")))
 
 (defn- through-the-inspector

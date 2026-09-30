@@ -435,3 +435,15 @@
   the event from the listener of the WebSocket. That send failed without a
   word when the relay answered before the JDK completed the first send. A
   command to a wallet then ended as `:value/wallet-silent`.
+- Eight things that the pass over the standards found. The WebDAV server
+  answers 405 to MKCOL, because the collection is there, and names the
+  methods of the target in Allow. It answers 403 for a listing that the
+  store cannot give. A weak ETag in If-Match never matches. The WebVTT
+  writer writes `&`, `<` and `>` as character references, and the reader
+  decodes them in the name of a voice. `http/decode` reads the charset
+  from a byte order mark first, as RFC 7303 has it, and takes `x-gzip`
+  for gzip. A date of HTTP in the asctime form reads. A character
+  reference to zero or to a surrogate is kept as text. `analytics` follows
+  version 2.3 of the guidelines of the IAB, with the window `:extending`.
+  `lnaddress/parse` reads `@domain` as the default identifier `_@domain`
+  of LUD-16.

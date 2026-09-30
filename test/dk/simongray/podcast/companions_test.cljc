@@ -1,6 +1,7 @@
 (ns dk.simongray.podcast.companions-test
   "Chapters, transcripts, OPML, value blocks and query-string encoding."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.opml :as opml]
@@ -222,6 +223,11 @@
   (testing "a blank line in a body is no end of the cue it is written as"
     (doseq [emit [transcript/emit-srt transcript/emit-vtt]]
       (is (= ["one\ntwo"] (map :body (:segments (transcript/parse (emit {:segments [{:start 1 :end 2 :body "one\n\ntwo"}]}))))))))
+  (testing "an ampersand and the signs of a tag in a cue of WebVTT go as character references"
+    (let [segment {:start 1 :end 2 :speaker "R&D <team>" :body "a < b & c > d"}
+          written (transcript/emit-vtt {:segments [segment]})]
+      (is (str/includes? written "<v R&amp;D &lt;team&gt;>a &lt; b &amp; c &gt; d"))
+      (is (= [segment] (:segments (transcript/parse written))))))
   (testing "text that only looks like JSON is read as text, and a byte order mark is no text"
     (doseq [type [nil "text/plain"]]
       (let [t (transcript/parse "{Intro music}\n\nHost: Welcome." type)]
