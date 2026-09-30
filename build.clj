@@ -48,7 +48,7 @@
                             :connection          "scm:git:git://github.com/simongray/podcast-clj.git"
                             :developerConnection "scm:git:ssh://git@github.com/simongray/podcast-clj.git"
                             :tag                 (str "v" version)}
-                :pom-data  [[:description "Podcast feeds as Clojure data: RSS 2.0, the iTunes namespace and the Podcasting 2.0 namespace, with the companion formats and the Podcast Index API."]
+                :pom-data  [[:description "A Clojure(Script) library for writing podcast software."]
                             [:url scm-url]
                             [:licenses
                              [:license
