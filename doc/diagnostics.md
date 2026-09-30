@@ -34,6 +34,7 @@ A function that sends requests gives a failure as a diagnostic too, under the
 | `:fetch/unreachable` | warning | podcast-clj did not get the feed. The connection failed, the request took too long, the answer was too large, or the guard of the request refused the URL. |
 | `:fetch/malformed` | warning | The server answered with a body that is no RSS feed. The body is no XML, or its root element is not rss. |
 | `:fetch/page-failed` | warning | podcast-clj did not get or read a page of a feed that comes in pages. The feed lacks the items of that page and of the pages after it. |
+| `:fetch/status` | warning | The server answered the request for the feed with a status that is not a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row. |
 | `:repair/leading-junk` | warning | Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed. |
 | `:repair/trailing-junk` | warning | Text after the end of the rss element, such as a PHP warning, was removed. |
 | `:repair/control-characters` | warning | Control characters XML forbids, and character references to them, were removed. |

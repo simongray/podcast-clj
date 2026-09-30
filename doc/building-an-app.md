@@ -12,8 +12,8 @@ An app keeps these values between runs:
 
 - the player state of `app.player`: the subscriptions, the queue, and the
   progress in each episode
-- the parsed feeds, by feed guid, each with its URL and the validators of
-  the last fetch
+- the feeds of `app.feeds`: the parsed feeds, by feed guid, each with its
+  URL, the validators of the last fetch and the time of the next check
 - the parsed OPML lists that the listener follows, by URL, in the same way
 - the search index of `app.search`, if the app searches
 - the list of the files on the device, by episode, if the app downloads
@@ -29,6 +29,7 @@ The examples use these aliases:
          '[dk.simongray.podcast.analytics.op3 :as op3]
          '[dk.simongray.podcast.app.downloads :as downloads]
          '[dk.simongray.podcast.app.episode :as episode]
+         '[dk.simongray.podcast.app.feeds :as feeds]
          '[dk.simongray.podcast.app.player :as player]
          '[dk.simongray.podcast.app.search :as search]
          '[dk.simongray.podcast.app.show :as show]
@@ -127,7 +128,7 @@ subscription to the player state:
       (player/subscribe guid {:url url :title (resolve/title show)} now)
       (player/configure guid {:auto-queue? true :skip-intro 20 :skip-outro 45} now)))
 
-(def feeds {guid {:url url :feed show :etag (:etag r) :last-modified (:last-modified r)}})
+(def feeds (feeds/add {} url r now))  ; the feeds of the app, by guid, with the validators
 ```
 
 `feed/feed-guid` gives the identity of the feed: its `podcast:guid`, or the
@@ -201,12 +202,44 @@ to `podcast/parse`.
 
 ## Keep the feeds current
 
-`resolve/next-check` tells when to fetch a feed again. It uses the
-update-frequency rule of the feed, its `ttl`, its syndication period, or the
-interval between its recent episodes. It ignores episodes dated in the
-future, and it never waits more than a year. Send the validators of the
-last fetch with the next fetch. If the feed did not change, the server
-answers 304 and the result has no `:feed`.
+`app.feeds` keeps the feeds of an app in one map, by the guid of each
+feed, with its URL, the validators of the last fetch and the time of the
+next check. `refresh!` fetches the feeds that are due and applies each
+answer: a fresh feed, a 304, a failure, or a move.
+
+```clojure
+(def feeds (feeds/add {} url r now))  ; r from podcast/fetch!, as above
+(feeds/due feeds now)                  ; => (guid …), the feeds to fetch now
+
+(def step (feeds/refresh! feeds now))
+;; => {:feeds   {…}                 ; the map, each fetched entry updated
+;;     :changed [guid …]            ; the feeds that gave a fresh feed
+;;     :moved   {guid "https://…"}  ; the feeds that moved for good
+;;     :report  [...]}              ; the fetches that failed, and why
+
+(doseq [guid (:changed step)]
+  (player/refresh state (:feed (feeds guid)) (:feed (get (:feeds step) guid)) url now))
+(doseq [[guid new-url] (:moved step)]
+  (player/subscribe state guid {:url new-url :title (resolve/title (:feed (get (:feeds step) guid)))} now))
+```
+
+A fetch sends the validators of the entry. A feed that did not come
+stays as it was, with its failure in the report. Its next check waits
+longer after each failure in a row. The next check of a fetched feed is
+what `resolve/next-check` gives. It is a day when the feed gives no
+time, and a week for a feed that says it is complete. `:cadence` changes
+these waits. `:credentials-of` gives the credentials of a private feed
+by its guid, so that no password is in the map that the app stores. In
+ClojureScript, give `:fetch`, a function that fetches through your own
+server. Keep the map as you keep your other values: it is data.
+
+Below the step, `resolve/next-check` tells when to fetch a feed again.
+It uses the update-frequency rule of the feed, its `ttl`, its
+syndication period, or the interval between its recent episodes. It
+ignores episodes dated in the future, and it never waits more than a
+year. Send the validators of the last fetch with the next fetch. If the
+feed did not change, the server answers 304 and the result has no
+`:feed`.
 
 The server can also say when to ask again, with `Retry-After` or
 `Cache-Control`. The result then has `:not-before`. Give it to
@@ -249,8 +282,11 @@ of writers. Every few seconds, ask for the blocks after that block:
 ```clojure
 (def polled (podping/poll! nil))                                         ; start at the head of the chain
 (def polled (podping/poll! (:block polled) {:writers (:writers polled)}))  ; the pings since then
+(feeds/affected feeds (:pings polled))                                   ; => (guid …), fetch these now
+(feeds/refresh! feeds now {:guids (feeds/affected feeds (:pings polled))})
+
 (podping/affected (:pings polled) (map :url (vals (player/subscriptions state))))
-;; => ("https://feeds.podcastindex.org/pc20.xml")                         ; fetch these now
+;; => ("https://feeds.podcastindex.org/pc20.xml")                         ; the same, by URL
 ```
 
 When no node of the chain answers, the result of `poll!` has an `:error`,

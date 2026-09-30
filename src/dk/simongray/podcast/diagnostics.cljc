@@ -25,6 +25,8 @@
     :doc "The server answered with a body that is no RSS feed. The body is no XML, or its root element is not rss."}
    {:id :fetch/page-failed :level :warning
     :doc "podcast-clj did not get or read a page of a feed that comes in pages. The feed lacks the items of that page and of the pages after it."}
+   {:id :fetch/status :level :warning
+    :doc "The server answered the request for the feed with a status that is not a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row."}
 
    ;; repairs of the XML text, applied only when the strict parse failed
    {:id :repair/leading-junk :level :warning

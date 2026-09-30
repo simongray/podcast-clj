@@ -462,3 +462,11 @@
   and does not compute, for a list of episodes. `chapters/from-lines`
   reads the timestamps out of the lines of the text of the notes, so that
   the view and `from-text` parse the notes once.
+- `app.feeds`, the feeds that an app keeps, in one map by guid, and the
+  step that keeps them current. `add` puts a fetched feed in with the
+  validators of its fetch and the time of its next check. `due` names the
+  feeds to fetch now, and `refresh!` fetches them and applies each answer.
+  An answer is a fresh feed, a 304, a move, or a failure, after which the
+  next check waits longer. `affected` names the feeds that a Podping concerns. The
+  new diagnostic `:fetch/status` is a feed that answered with a status
+  that is not a success.
