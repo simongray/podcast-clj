@@ -143,7 +143,7 @@
                                     (str/includes? url "/lookup")           {:status 200 :body apple-lookup}
                                     (str/includes? url "/api/2/tag/")       {:status 200 :body gpodder-toplist}
                                     :else                                   {:status 500 :body ""}))]
-         (let [{:keys [results failed]} (directory/trending! {:category "Technology" :country "dk" :limit 2})]
+         (let [{:keys [results failed]} (directory/fetch-chart! {:category "Technology" :country "dk" :limit 2})]
            (is (= {:fyyd "fyyd has no chart by category"} failed) "a source without such a chart tells so")
            (is (some #(str/includes? % "genre=1318") @asked))
            (is (some #(str/includes? % "lookup?id=1745048921%2C1701616757") @asked)

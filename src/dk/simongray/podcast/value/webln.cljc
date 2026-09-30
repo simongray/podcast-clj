@@ -89,13 +89,13 @@
       (called! opts (constantly nil) (constantly {:enabled? true})))))
 
 #?(:cljs
-   (defn info!
+   (defn get-info!
      "What the wallet of the listener tells of itself: a promise of
      `{:alias :public-key :methods}`, as far as the wallet gives them, or of
      `{:error diagnostic}`. `:methods` names the methods of WebLN that the
      wallet has, such as keysend. `opts` are those of `enable!`."
      ([]
-      (info! {}))
+      (get-info! {}))
      ([opts]
       {:pre [(map? opts)]}
       (called! opts
@@ -115,7 +115,7 @@
      `:proven?` tells whether the preimage is the proof of the invoice, as
      `lnaddress/proves?` tells. When it is false, the wallet tells that it
      paid, and it gave no proof. Do not pay again then, because the wallet
-     can have paid. `value.lnaddress/invoice!` gives the invoice of a
+     can have paid. `value.lnaddress/request-invoice!` gives the invoice of a
      Lightning address."
      ([invoice]
       (pay-invoice! invoice {}))

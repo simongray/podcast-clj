@@ -2,9 +2,10 @@
   "One show as a page shows it, in one map. `view` is what the feed says
   of the show: the feed, its properties as `feed.resolve` answers them,
   the description as Hiccup and as text, the episodes in listening order,
-  the seasons, and the links to the apps. `view!` adds what the network
-  says: the shows of the podroll as the Podcast Index knows them, and the
-  publisher feed with its shows, when it confirms the show.
+  the seasons, and the links to the apps. `fetch-linked-shows!` fetches
+  the shows that the feed links to, the shows of the podroll as the
+  Podcast Index knows them and the publisher feed with its shows, when
+  it confirms the show, for a page to merge into the view.
 
   A page reads one map. The functions below the view give the same
   answers, so an app drops down to them when a step is not what it wants.
@@ -21,8 +22,9 @@
             [dk.simongray.podcast.util.http :as http]))
 
 (def default-limits
-  "The limits of `view!` that its options do not set: the seconds that a
-  request can take, and the most bytes of a publisher feed."
+  "The limits of `fetch-linked-shows!` that its options do not set: the
+  seconds that a request can take, and the most bytes of a publisher
+  feed."
   {:timeout-seconds 15
    :max-bytes       (* 16 1024 1024)})
 
@@ -109,43 +111,45 @@
                                              :shows      shows
                                              :confirmed? (boolean (some #(= guid (:feed-guid %)) shows))))))))))))
 
-(defn view!
-  "The `view` of the feed `show`, with what the network says of it. On
-  the JVM the map, in ClojureScript a promise of it.
+(defn fetch-linked-shows!
+  "Fetch the shows that the `view` of a show links to, for a page to
+  merge into the view. On the JVM the map, in ClojureScript a promise
+  of it.
 
   - `:podroll` has each recommended show with `:show`, the show as the
     Podcast Index knows it, when `opts` give the `:index` credentials and
     the index knows the show. The Podcast Index is one of the directories,
-    so the show has the keys of `dk.simongray.podcast.directory`.
+    so the show has the keys of `dk.simongray.podcast.directory`. Without
+    the credentials, nothing is asked, and the page keeps the podroll of
+    the view.
   - `:publisher` has the `:feed` of the publisher, its `:shows`, and
     `:confirmed?`, which tells whether the publisher feed lists this show.
     The podcast namespace asks an app to show the other shows of a
     publisher only when it does. With `:error` when the feed did not
     come.
 
-  `view!` throws nothing for what the network or a server does. `opts`
-  are those of `view`, and of the requests: `:send`, a function that
-  sends a request map in the place of `http/call!`, `:allow?`, a
-  predicate of a URL, and the `:timeout-seconds` and `:max-bytes` of
-  `default-limits`. `:index` gives the credentials of the Podcast Index,
-  and `:now` a function that gives the instant of now, to sign them. In
-  `:except`, `:podroll` and `:publisher` leave those unasked."
-  ([show]
-   (view! show {}))
-  ([show {:keys [except] :or {except #{}} :as opts}]
+  The step throws nothing for what the network or a server does. The
+  `opts` are those of the requests: `:send`, a function that sends a
+  request map in the place of `http/call!`, `:allow?`, a predicate of a
+  URL, and the `:timeout-seconds` and `:max-bytes` of `default-limits`.
+  `:index` gives the credentials of the Podcast Index, and `:now` a
+  function that gives the instant of now, to sign them. In `:except`,
+  `:podroll` and `:publisher` leave those unasked."
+  ([view]
+   (fetch-linked-shows! view {}))
+  ([view {:keys [except] :or {except #{}} :as opts}]
    {:pre [(map? opts)]}
    (let [opts    (merge default-limits
                         {:send http/call!
                          :now  #?(:clj #(java.util.Date.) :cljs #(js/Date.))}
                         opts)
-         wanted? (complement except)
-         v       (view show opts)]
+         wanted? (complement except)]
      (async/then (async/all [(when (and (wanted? :podroll) (:index opts))
-                               (async/all (map #(known-show! % opts) (:podroll v))))
-                             (when (and (wanted? :publisher) (:feed-url (:publisher v)))
-                               (publisher-feed! (:publisher v) v opts))])
+                               (async/all (map #(known-show! % opts) (:podroll view))))
+                             (when (and (wanted? :publisher) (:feed-url (:publisher view)))
+                               (publisher-feed! (:publisher view) view opts))])
                  (fn [[podroll publisher]]
-                   (cond-> v
+                   (cond-> {}
                      (seq podroll) (assoc :podroll (vec podroll))
                      publisher     (assoc :publisher publisher)))))))
 
@@ -158,6 +162,7 @@
 
   ;; the podroll as the index knows it, with the credentials of the index
   (def credentials {:key "…" :secret "…"})
-  (map (juxt :title (comp :rss/title :show)) (:podroll (view! show {:index credentials})))
-  (:confirmed? (:publisher (view! show)))
+  (map (juxt :title (comp :rss/title :show)) (:podroll (fetch-linked-shows! (view show) {:index credentials})))
+  (:confirmed? (:publisher (fetch-linked-shows! (view show))))
+  (keys (merge (view show) (fetch-linked-shows! (view show))))  ; the page
   #_.)

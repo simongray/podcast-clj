@@ -58,9 +58,9 @@
                              (.init Cipher/ENCRYPT_MODE (SecretKeySpec. key "ChaCha20") (ChaCha20ParameterSpec. nonce (int counter))))
                            data))]
        (doseq [i (range 60)]
-         (let [key     (bytes/random! 32)
-               nonce   (bytes/random! 12)
-               data    (bytes/random! (* 11 i))
+         (let [key     (bytes/generate! 32)
+               nonce   (bytes/generate! 12)
+               data    (bytes/generate! (* 11 i))
                counter (* 1000 i)]
            (is (Arrays/equals ^bytes (jdk key nonce counter data)
                               ^bytes (chacha20/encrypt key nonce data {:counter counter}))

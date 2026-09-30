@@ -10,7 +10,7 @@
   shows `#<secret>`. `uri` gives the text that an app stores.
 
   A command is data, `{:method :params}`. `pay-invoice` pays the invoice
-  of a Lightning address, which `value.lnaddress/invoice!` gives.
+  of a Lightning address, which `value.lnaddress/request-invoice!` gives.
   `pay-keysend` pays a node, with the records of `value/records`.
   `get-balance`, `get-info`, `make-invoice` and `lookup-invoice` are the
   other commands of NIP-47.
@@ -24,7 +24,7 @@
 
   NIP-47 has the commands of invoices. The command of keysend is in the
   extension NWC-04, in the repository nostr-wallet-connect/nwc. A wallet
-  names the commands that it takes in its info event, which `info!`
+  names the commands that it takes in its info event, which `fetch-info!`
   reads."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.crypto.nip44 :as nip44]
@@ -47,7 +47,7 @@
   {:info 13194 :request 23194 :response 23195})
 
 (def default-limits
-  "The limits of `ask!` and `info!` that their options do not set. A
+  "The limits of `ask!` and `fetch-info!` that their options do not set. A
   payment over Lightning can take a minute, so the wallet has
   `:timeout-seconds` to answer. The request of a command expires after
   that time."
@@ -255,7 +255,7 @@
   - `:expires-at`, the instant after which the wallet does not do the
     command. It is optional.
 
-  `(bytes/hex (bytes/random! 32))` gives such bytes, new for each
+  `(bytes/hex (bytes/generate! 32))` gives such bytes, new for each
   request."
   [{:keys [wallet] :as connection} {:keys [method params] :as command} {:keys [at nonce aux expires-at] :as opts}]
   {:pre [(connection? connection) (string? method) (map? params) (inst? at)]}
@@ -457,17 +457,17 @@
     (failure {:id :value/wallet-unreachable :relays tried})))
 
 (defn- prepared
-  "`opts` of `ask!` and `info!` over their defaults: the limits, the send
+  "`opts` of `ask!` and `fetch-info!` over their defaults: the limits, the send
   function, the guard of the relays, the clock and the random bytes."
   [opts]
   (merge default-limits
          {:send   nostr/call!
           :allow? nostr/public?
           :now    #?(:clj #(java.util.Date.) :cljs #(js/Date.))
-          :random bytes/random!}
+          :random bytes/generate!}
          opts))
 
-(defn info!
+(defn fetch-info!
   "What the wallet of `connection` tells of itself, as `info` reads its
   info event, or `{:error diagnostic}`. On the JVM the map, in
   ClojureScript a promise of it.
@@ -479,7 +479,7 @@
   `opts` are those of `ask!`. An app asks once for each connection, and
   gives the info to `ask!` as `:info`."
   ([connection]
-   (info! connection {}))
+   (fetch-info! connection {}))
   ([{:keys [wallet relays] :as connection} opts]
    {:pre [(connection? connection) (map? opts)]}
    (let [opts  (prepared opts)
@@ -564,7 +564,7 @@
 
   `opts`:
 
-  - `:info`, what `info!` gave for the connection. Without it, `ask!` asks
+  - `:info`, what `fetch-info!` gave for the connection. Without it, `ask!` asks
     the relays for the info event first. A wallet that does not take the
     command gives `:value/wallet-unsupported`, and no request goes out.
   - `:timeout-seconds`, in the place of that of `default-limits`
@@ -577,13 +577,13 @@
     needs `(constantly true)`.
   - `:now`, a function that gives the instant of now, and `:random`, a
     function that gives a number of random bytes. They are the clock and
-    `bytes/random!`."
+    `bytes/generate!`."
   ([connection command]
    (ask! connection command {}))
   ([{:keys [wallet relays] :as connection} command opts]
    {:pre [(connection? connection) (map? opts) (string? (:method command))]}
    (let [{:keys [now random timeout-seconds] :as opts} (prepared opts)
-         known (if (contains? opts :info) (:info opts) (info! connection opts))]
+         known (if (contains? opts :info) (:info opts) (fetch-info! connection opts))]
      (async/then known
                  (fn [info]
                    (let [info    (when-not (= :value/no-wallet-info (:id (:error info))) info)
@@ -628,8 +628,8 @@
   ;; the event of a command: the relay sees the kind and the tags, and not
   ;; the command
   (-> (request connection (get-balance) {:at    #inst "2026-09-29T12:00:00Z"
-                                         :nonce (bytes/hex (bytes/random! 32))
-                                         :aux   (bytes/hex (bytes/random! 32))})
+                                         :nonce (bytes/hex (bytes/generate! 32))
+                                         :aux   (bytes/hex (bytes/generate! 32))})
       (select-keys ["kind" "tags" "pubkey"]))
 
   (info {"content" "pay_invoice get_balance" "tags" [["encryption" "nip44_v2 nip04"]]})

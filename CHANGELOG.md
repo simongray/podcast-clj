@@ -29,7 +29,7 @@
 - The directories Apple Podcasts, fyyd, gpodder.net and the Podcast Index,
   with one shape for all results. Requests are maps, signed at a time that
   the caller gives. `combine` gives one entry per show. `search!` and
-  `trending!` on the JVM.
+  `fetch-chart!` on the JVM.
 - Podping: Hive calls as request maps, pings read from blocks, writers
   verified, `poll!` for a poller, and `notify-request` for a host.
 - The player state as a state-based CRDT: a ranked queue, progress and
@@ -52,7 +52,7 @@
   groups `util` and `crypto` hold what knows nothing about podcasts, and the
   test of the architecture keeps them so.
 - Payments from the wallet of the listener. `value.nwc` is Nostr Wallet
-  Connect, NIP-47: the connection URI, the commands as data, `info!` and
+  Connect, NIP-47: the connection URI, the commands as data, `fetch-info!` and
   `ask!`. It pays invoices and keysend payments with the records of
   `value/records`. `value.webln` calls the WebLN provider of a web page.
   `crypto.nip44` has the encrypted payloads of NIP-44, and `crypto.chacha20`
@@ -197,7 +197,7 @@
   and `verify!` checks a file against its `podcast:integrity`, which
   `resolve/enclosures` now keeps. On the JVM, `http/call!` asks for byte
   ranges, and `http/digest!` streams a body through a digest.
-- `check/feed!` checks over the network the files that a feed links to:
+- `check/check-files!` checks over the network the files that a feed links to:
   HEAD and byte ranges, types and lengths, the headers of images, and
   CORS for transcripts and chapters, at each redirect on the way. The
   rules follow RFC 9110, RSS 2.0, the podcast namespace and the Fetch
@@ -277,7 +277,7 @@
   recipient. A number below zero is no amount and no position. An invoice
   is an invoice only when its data is Bech32, and its amount reads the
   same on both platforms. A Lightning address has no port, and no name of
-  a local network with a dot at its end. `invoice!` gives the comment that
+  a local network with a dot at its end. `request-invoice!` gives the comment that
   went out. `parse-comment` takes white space of any kind around a
   comment.
 - `http/call-public!` sends nothing to the network of the app: no request
@@ -286,7 +286,7 @@
   redirect. Its guard is `http/public?`, which `http/call!` takes as
   `:allow?`. Each function that fetches what a feed or a stranger names
   takes `:allow?`, and puts it on each request. It is `http/public?` by
-  default in `comments/fetch!`, `value.lnaddress/invoice!` and `node!`,
+  default in `comments/fetch!`, `value.lnaddress/request-invoice!` and `fetch-node!`,
   and `value.metadata/fetch!`, since strangers choose their URLs.
 - `analytics/downloads` counts the downloads of episodes from the requests
   that a host logs, by the rules of the IAB Tech Lab, version 2.2. It
@@ -298,7 +298,7 @@
 - `analytics.op3` puts the prefix of OP3 on the enclosures of a feed, and
   reads the downloads and counts of a show from the API of OP3. A download
   of OP3 has the keys of a download of `analytics/downloads`.
-- `op3/downloads!` throws nothing for what OP3 or the network does. When a
+- `op3/fetch-downloads!` throws nothing for what OP3 or the network does. When a
   page fails, it gives the pages before that page, the `:error`, and the
   token of the page that failed. `op3/call!` throws `::failed` for a
   success that holds no JSON. In `analytics/downloads`, a request with a
@@ -325,10 +325,10 @@
   of the result, as the readers of feeds do. A result has no `:report`
   key. `media/report`, `image/report`, `id3/report`, `mp3/report`,
   `mp4/report` and `bytes/report` read the report. `id3/report` takes the
-  place of `id3/chapters-report`. The facts of `check/feed!` hold the
+  place of `id3/chapters-report`. The facts of `check/check-files!` hold the
   report of a reader as data. A text encoding that ID3 does not define is
   the quirk `:id3/text-encoding`.
-- `media/verify!` takes `:send`, and `check/feed!` fetches a whole file
+- `media/verify!` takes `:send`, and `check/check-files!` fetches a whole file
   for its integrity through the `:send` of the app. `http/fetcher` needs
   no options. A check compares origins as the URL standard does, so
   `https://a.example:443` and `https://a.example` are one origin. The name
@@ -345,7 +345,7 @@
   `:file/unreachable`, `:file/unverifiable` or `:podping/unavailable`.
   `poll!` keeps the pings that it read before the failure. `verify!` gives
   no `:reason`, and the `:error` of its verdict tells why it made no
-  check. The `:error` in the facts of `http/probe!` and of `check/feed!`
+  check. The `:error` in the facts of `http/probe!` and of `check/check-files!`
   is a diagnostic too, not a text. The function that `http/fetcher` makes
   throws `::failed` with the `:status`.
   [Namespaces](doc/namespaces.md#conventions) has the rule.
@@ -372,7 +372,7 @@
   `resolve/hubs` reads them from the feed. `http/links` reads a Link header,
   and `http/with-query` adds parameters to a URL.
 - Charts by category: the `:trending` call of `directory`, and
-  `trending!`, take `:category`. Apple Podcasts, the Podcast Index and
+  `fetch-chart!`, take `:category`. Apple Podcasts, the Podcast Index and
   gpodder.net have such a chart, and each reads the category in its own
   way. `directory/apple-genres` has the genres of Apple, and
   `directory.podcastindex/category-filter` checks a name before the
@@ -450,14 +450,14 @@
 - The views, one map for a page of an app. `show/view`
   gives a show in one map: the feed with its properties, the description
   as Hiccup and as text, and the episodes in listening order. It has the
-  seasons and the links to the apps. `show/view!` adds the shows of the podroll as the
+  seasons and the links to the apps. `show/fetch-linked-shows!` fetches the shows of the podroll as the
   Podcast Index knows them, and the publisher feed, with whether it
   confirms the show. `episode/view` gives an episode in one map, and
-  `episode/view!` reads its chapters file, its transcript and its media
+  `episode/read-files!` reads its chapters file, its transcript and its media
   file. The chapters come from the first of four places that has them,
   and `:source` tells which. Each file that did not come has `:error`, and
   `episode/report` gathers what the reading of each found. The item page
-  of the inspector is one call of `episode/view!` now, and it shows what
+  of the inspector is `episode/view` with `episode/read-files!` merged in now, and it shows what
   the media file says of itself. `:except` names what a view leaves out
   and does not compute, for a list of episodes. `chapters/from-lines`
   reads the timestamps out of the lines of the text of the notes, so that
@@ -494,3 +494,14 @@
   nothing about podcasts, and two subjects speak it: the comments of
   `comments.nostr` and the wallets of `value.nwc`. The three relays that
   the comments ask by default are `comments.nostr/relays`.
+- A function that touches the network or a device is named by its verb,
+  and by its object when the namespace does not give it. So
+  `check/check-files!`, `op3/fetch-downloads!`, `directory/fetch-chart!`,
+  `podcastindex/fetch-remote-item!` and `fetch-remote-value!`,
+  `lnaddress/request-invoice!` and `fetch-node!`, `nwc/fetch-info!`,
+  `webln/get-info!` and `bytes/generate!`. A `!` function gives what its
+  verb produced, never a view with more in it. The step
+  `episode/read-files!` gives what the files of an episode say, and
+  `show/fetch-linked-shows!` the shows that a feed links to, for a page
+  to merge into the view. `library/read-files!` and
+  `library/fetch-linked-shows!` do the same by id.

@@ -127,12 +127,12 @@ searches the Podcast Index. It combines the results into one entry per show.
 (def url (resolve/self-url (first found)))  ; the URL of the feed
 ```
 
-The function `directory/trending!` gives the charts of the directories, and
+The function `directory/fetch-chart!` gives the charts of the directories, and
 the charts of one category with `:category`. The category is a name of the
 categories of Apple Podcasts, and `directory/apple-genres` has the names:
 
 ```clojure
-(def chart (directory/trending! {:category "Technology" :country "dk" :limit 10}))
+(def chart (directory/fetch-chart! {:category "Technology" :country "dk" :limit 10}))
 (map resolve/title (:results chart))
 (:failed chart)  ; => {:fyyd "fyyd has no chart by category"}
 ```
@@ -143,7 +143,7 @@ the second level, such as Tech News. For such a category, give a map
 with a category for each source:
 
 ```clojure
-(directory/trending! {:category {:apple "Tech News" :podcastindex "Technology,News"}
+(directory/fetch-chart! {:category {:apple "Tech News" :podcastindex "Technology,News"}
                       :credentials credentials})
 ```
 
@@ -397,8 +397,9 @@ show again.
 The function `show/view` gives a show as a page shows it, in one map, and
 `episode/view` gives an episode. Each is the feed or the item with its
 properties merged in, one value for each property, and the other keys that a
-page needs. With `episode/view!`, the files of the episode are read too: the
-chapters file, the transcript and the media file.
+page needs. The step `episode/read-files!` reads the files of the episode:
+the chapters file, the transcript and the media file. It gives what they
+say, for the page to merge in.
 
 ```clojure
 (def page (show/view show))
@@ -409,26 +410,29 @@ chapters file, the transcript and the media file.
 (:links page)     ; the links to the show in the apps
 
 (def item (first (:episodes page)))
-(def v (episode/view! show item {:languages ["da" "en"]}))
+(def view (episode/view show item {:languages ["da" "en"]}))
 ;; => {:title "…" :published #inst "…" :duration 3712.4 :numbering {:type "full" :season 2 :episode 3}
-;;     :enclosure {:url "…" :type "audio/mpeg"} :notes ([:p {} "…"]) :people [...] :links [...]
-;;     :chapters   {:source :file :url "…" :document {:chapters [...]}}
+;;     :enclosure {:url "…" :type "audio/mpeg"} :notes ([:p {} "…"]) :people [...] :links [...] …}
+(def files (episode/read-files! view))
+;; => {:chapters   {:source :file :url "…" :document {:chapters [...]}}
 ;;     :transcript {:url "…" :type "text/vtt" :document {:segments [...]}}
-;;     :media      {:url "…" :duration 3712.4 :artwork {:type "image/jpeg" :data …}} …}
+;;     :media      {:url "…" :duration 3712.4 :artwork {:type "image/jpeg" :data …}}
+;;     :duration   3712.4}
+(def v (merge view files))                       ; the page
 
 (chapters/at (:document (:chapters v)) 754)      ; the chapter at 12:34
 (transcript/at (:document (:transcript v)) 754)  ; the segment at 12:34
-(episode/report v)                               ; what the reading of each file found
+(episode/report files)                           ; what the reading of each file found
 ```
 
 The chapters come from the first of four places that has them. The places are
 the chapters file, the Podlove chapters in the feed, the media file, and the
 timestamps in the show notes. The `:source` tells which. A file that does not
-come leaves `:error` in its part, and `view!` throws nothing for what the
+come leaves `:error` in its part, and `read-files!` throws nothing for what the
 network does. The option `:except` names what a view leaves out and does not
 compute. A list of episodes needs no notes, no chapters and no links, so its
 rows are `(episode/view show item {:except #{:notes :text :chapters
-:links}})`, at a fiftieth of the cost. In `view!`, `#{:media}` leaves the
+:links}})`, at a fiftieth of the cost. In `read-files!`, `#{:media}` leaves the
 media file unread. The options of the requests are those of `http/call!`. The
 option `:send` sends the requests in its place, for a browser app that
 fetches through its own server.
@@ -452,7 +456,7 @@ criteria can use the listener's progress.
 [:div.notes (html/hiccup (resolve/description item))]  ; the show notes, sanitized, as Hiccup
 ```
 
-The four places of the chapters, in the order of `view!`. In these
+The four places of the chapters, in the order of `read-files!`. In these
 examples, `fetch-body` is your own HTTP function.
 
 ```clojure
@@ -509,21 +513,23 @@ parse it with its type:
 ```
 
 A show can recommend other shows in its podroll, and name the feed of its
-publisher. With the credentials of the index, `show/view!` gives the shows of
-the podroll as the Podcast Index knows them. It gives the publisher feed with
-its shows, and tells whether the publisher confirms the show. The
-specification asks an app to show the other shows of a publisher only when
-its feed lists this show.
+publisher. The step `show/fetch-linked-shows!` fetches the shows that the
+feed links to: with the credentials of the index, the shows of the podroll
+as the Podcast Index knows them, and the publisher feed with its shows, and
+whether the publisher confirms the show. The specification asks an app to
+show the other shows of a publisher only when its feed lists this show.
 
 ```clojure
-(def page (show/view! show {:index {:key "…" :secret "…"}}))
-(map (juxt :title (comp :rss/title :show)) (:podroll page))  ; each with :show when the index knows it
-(:confirmed? (:publisher page))                               ; true when the publisher feed lists this show
-(:shows (:publisher page))                                     ; the remote items of the publisher feed
+(def view (show/view show))
+(def linked (show/fetch-linked-shows! view {:index {:key "…" :secret "…"}}))
+(map (juxt :title (comp :rss/title :show)) (:podroll linked))  ; each with :show when the index knows it
+(:confirmed? (:publisher linked))                               ; true when the publisher feed lists this show
+(:shows (:publisher linked))                                     ; the remote items of the publisher feed
+(def page (merge view linked))
 ```
 
 Below the view, `resolve/podroll` and `resolve/publisher` give the remote
-items. The function `podcastindex/remote-item!` finds the feed of a remote
+items. The function `podcastindex/fetch-remote-item!` finds the feed of a remote
 item in the Podcast Index by its feed guid. The entries of a publisher feed
 or a list feed come from `resolve/remote-items`. The function
 `resolve/social-interacts` tells where the comments on an episode are, or
@@ -532,7 +538,7 @@ episode](#show-the-comments-on-an-episode) tells how to read them.
 
 ```clojure
 (resolve/podroll show)  ; => ({:feed-guid "917393e3-…" :feed-url "https://…" :title "…"} …)
-(podcastindex/remote-item! {:key "…" :secret "…"} (first (resolve/podroll show)))  ; => {:feed {…}}
+(podcastindex/fetch-remote-item! {:key "…" :secret "…"} (first (resolve/podroll show)))  ; => {:feed {…}}
 
 (def label (:feed (podcast/fetch! (:feed-url (resolve/publisher show)))))
 (resolve/remote-items label)  ; => ({:feed-guid "…" :feed-url "https://…" :medium "podcast"} …)
@@ -1085,13 +1091,13 @@ a key that the payment cannot carry. The report then has
 reaches the node, and not the wallet.
 
 Pay a recipient of type `lnaddress` with an invoice. A call of
-`lnaddress/invoice!` asks the domain of the address for the invoice, and
+`lnaddress/request-invoice!` asks the domain of the address for the invoice, and
 checks its amount. Put the metadata of the payment in the comment. Serve the
 header of `metadata/header` at a URL of your own, and name that URL in the
 comment.
 
 ```clojure
-(lnaddress/invoice! "ann@getalby.com" 50000
+(lnaddress/request-invoice! "ann@getalby.com" 50000
                     {:comment #(metadata/payment-comment payment "https://app.example/payments/1" (:comment-length %))})
 ;; => {:invoice "lnbc500n1…" :msat 50000 :network :bitcoin :comment "rss::payment::boost https://…"}
 
@@ -1104,17 +1110,17 @@ the invoice has no `:comment`. The recipient then does not learn what the
 payment is for, so tell the listener before the payment.
 
 If the domain names a node for keysend, you can pay the address with keysend
-instead. A call of `lnaddress/node!` gives the node as the keys of a
+instead. A call of `lnaddress/fetch-node!` gives the node as the keys of a
 recipient of type `node`. Keep the node for a while, as the podcast namespace
 asks.
 
 ```clojure
-(merge recipient (lnaddress/node! (:address recipient)))  ; => {:type "node" :address "03…" :custom-key "696969" …}
+(merge recipient (lnaddress/fetch-node! (:address recipient)))  ; => {:type "node" :address "03…" :custom-key "696969" …}
 ```
 
 If an answer holds `:error`, do not pay. An invoice for another amount is
 an error of level `:error`, and so is an answer that came over plain http.
-The feeds choose the domains that `invoice!` and `node!` ask, so they send
+The feeds choose the domains that `request-invoice!` and `fetch-node!` ask, so they send
 nothing to your app's network. The page of the metadata is public,
 so the name of the sender and the message are public too.
 
@@ -1129,7 +1135,7 @@ spend from the wallet. Keep it as you keep a password, and show it to nobody.
 (def connection (nwc/parse "nostr+walletconnect://b889…?relay=wss%3A%2F%2Frelay.example&secret=…"))
 connection                         ; => {:wallet "b889…" :relays ["wss://relay.example"] :secret #<secret>}
 (nwc/uri connection)               ; the text with the secret, for your app's store
-(def info (nwc/info! connection))  ; => {:methods ["pay_invoice" "pay_keysend" …] :encryption ["nip44_v2"]}
+(def info (nwc/fetch-info! connection))  ; => {:methods ["pay_invoice" "pay_keysend" …] :encryption ["nip44_v2"]}
 ```
 
 Ask for the info once, and give it to each `ask!` as `:info`. Pay a node
@@ -1229,7 +1235,7 @@ does. They are what the sender wrote, and HTML in them must not run.
 ## Check the files that a feed links to
 
 A host checks a feed before it publishes, and an app can check a feed that a
-podcaster submits. A call of `check/feed!` fetches the files that the feed
+podcaster submits. A call of `check/check-files!` fetches the files that the feed
 and its newest items link to: the media files, the images, the transcripts
 and the chapters files. It tells whether they reach a listener as the feed
 says. Give it the URL of the feed to check the feed too, and a profile to add
@@ -1240,7 +1246,7 @@ duration of each media file, as far as its duration, and each transcript and
 chapters file whole.
 
 ```clojure
-(def result (check/feed! show {:url "https://example.com/feed.xml" :items 10 :profile :apple}))
+(def result (check/check-files! show {:url "https://example.com/feed.xml" :items 10 :profile :apple}))
 
 (podcast/summarize (:report result))
 ;; => ({:id :check/cors :level :warning :count 10 :message "The server does not let pages of other sites read the file, …"}
@@ -1255,10 +1261,10 @@ chapters file whole.
 
 A feed names the files of its check, so a check has limits. They are 500
 files, ten minutes, and 32 MB of each file that it reads. The limits are in
-`check/default-limits`, and the options of `feed!` set each of them. A file
+`check/default-limits`, and the options of `check-files!` set each of them. A file
 that a limit left out has the facts `{:unchecked …}`, and the report counts
 such files with `:check/unchecked`. If your server checks feeds that
-strangers submit, give `feed!` the option `:allow? http/public?`. It then
+strangers submit, give `check-files!` the option `:allow? http/public?`. It then
 sends no request to your own network.
 
 Each diagnostic has the `:url` of the file and the `:path` of the element
@@ -1341,16 +1347,16 @@ downloads:
 (op3/call! token :episode-download-counts {:show (:show-uuid show)})
 ;; => {:episodes [{:item-guid "PC20-272" :downloads1 998 :downloads-all 1168 …} …] …}
 
-(def month (op3/downloads! token {:show (:show-uuid show) :start "2026-09" :end "2026-10"}))
+(def month (op3/fetch-downloads! token {:show (:show-uuid show) :start "2026-09" :end "2026-10"}))
 (frequencies (map :agent-name (:downloads month)))
 ```
 
 A download of OP3 has the keys of a download of `analytics/downloads` where
 OP3 tells the same fact, so the same code counts both. When the answer has
 a `:continuation-token`, OP3 has more downloads. Give the token to
-`downloads!` in the parameters to read on.
+`fetch-downloads!` in the parameters to read on.
 
-A call of `downloads!` reads page after page, and a page can fail, for
+A call of `fetch-downloads!` reads page after page, and a page can fail, for
 example when OP3 answers 429. The answer then has the `:error`, with the
 downloads of the pages before that page. Its token names the page that
 failed, so the next call reads on from there. For an answer that is a
@@ -1448,7 +1454,7 @@ give the rules as the profile:
 ```clojure
 (def wide (assoc-in (:apple check/profiles) [:artwork :sizes] [1400 4000]))
 
-(check/feed! feed {:url url :profile wide})
+(check/check-files! feed {:url url :profile wide})
 ```
 
 

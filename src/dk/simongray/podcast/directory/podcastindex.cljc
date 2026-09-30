@@ -8,7 +8,7 @@
   feed or an episode from the index carries the same keys as one parsed
   from RSS, plus what only the index knows under `:index/*`. The key and
   secret never leave the caller's process, and nothing here reads a clock
-  but `call!`, `remote-value!` and `remote-item!`, which send with the
+  but `call!`, `fetch-remote-value!` and `fetch-remote-item!`, which send with the
   library's own HTTP client.
 
   The remote items that value time splits point at are resolved with
@@ -418,21 +418,21 @@
                   (.then response))))))
 
 #?(:clj
-   (defn remote-value!
+   (defn fetch-remote-value!
      "`remote-value` of `remote-item` for `credentials`, sent with
      `http/call!` and signed now. `opts` give the `:base-url` of `request`."
      ([credentials remote-item]
-      (remote-value! credentials remote-item {}))
+      (fetch-remote-value! credentials remote-item {}))
      ([credentials remote-item opts]
       (remote-value credentials remote-item http/call! (assoc opts :auth-date (now-seconds))))))
 
 #?(:clj
-   (defn remote-item!
+   (defn fetch-remote-item!
      "What `remote-item` points at for `credentials`, as the function
      `remote-item` gives it, sent with `http/call!` and signed now. `opts`
      give the `:base-url` of `request`."
      ([credentials remote-item]
-      (remote-item! credentials remote-item {}))
+      (fetch-remote-item! credentials remote-item {}))
      ([credentials remote-item opts]
       (remote-item credentials remote-item http/call! (assoc opts :auth-date (now-seconds))))))
 

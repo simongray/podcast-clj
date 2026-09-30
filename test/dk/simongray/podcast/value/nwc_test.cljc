@@ -395,15 +395,15 @@
                            (is (= "0123" (:preimage read)))
                            (is (= [:info :info :event] (map second (sent))))))))
          (fn []
-           (async/then (nwc/info! connection (merge ask-opts {:send (service log {"wss://relay.one" :empty "wss://relay.two" :empty} paid)}))
+           (async/then (nwc/fetch-info! connection (merge ask-opts {:send (service log {"wss://relay.one" :empty "wss://relay.two" :empty} paid)}))
                        (fn [read]
                          (is (= {:id :value/no-wallet-info :level :info} (select-keys (:error read) [:id :level]))))))
          (fn []
-           (async/then (nwc/info! connection (merge ask-opts {:send (service log {"wss://relay.one" :down "wss://relay.two" :down} paid)}))
+           (async/then (nwc/fetch-info! connection (merge ask-opts {:send (service log {"wss://relay.one" :down "wss://relay.two" :down} paid)}))
                        (fn [read]
                          (is (= :value/wallet-unreachable (:id (:error read)))))))
          (fn []
-           (async/then (nwc/info! connection (merge ask-opts {:send (service log {"wss://relay.one" :empty} paid)}))
+           (async/then (nwc/fetch-info! connection (merge ask-opts {:send (service log {"wss://relay.one" :empty} paid)}))
                        (fn [read]
                          (is (= {:methods ["pay_invoice" "pay_keysend" "get_balance"] :encryption ["nip44_v2" "nip04"] :extensions ["04"]}
                                 read)

@@ -3,7 +3,7 @@
   files, images, transcripts and chapters reach a listener as the feed
   says.
 
-  `files` lists what a check fetches. `feed!` fetches it, and gives the
+  `files` lists what a check fetches. `check-files!` fetches it, and gives the
   facts about each file with the diagnostics that they call for.
 
   The checks follow the standards first: HTTP as RFC 9110 has it, the
@@ -113,7 +113,7 @@
                  files)))
 
 (def default-limits
-  "The limits of `feed!` that its options do not set.
+  "The limits of `check-files!` that its options do not set.
 
   A check looks at the files of the `:items` newest items, `:max-files`
   files at most, and at `:concurrency` files at a time. It starts no file
@@ -358,7 +358,7 @@
   raises above the levels of the catalogue.
 
   They are the rules of PSP-1 and of A Podcaster's Guide to RSS of Apple,
-  as of September 2026. `verdicts`, `report` and `feed!` take a profile by
+  as of September 2026. `verdicts`, `report` and `check-files!` take a profile by
   its name here, or as a map of rules of this shape."
   {:psp-1 {:name    "Podcast Standards Project PSP-1"
            :artwork {:sizes [1400 3000] :types #{"image/jpeg" "image/png"} :colors #{:rgb :indexed}
@@ -688,7 +688,7 @@
 
 (defn verdicts
   "The diagnostics that the `facts` about `file` call for. `files` gives
-  the file, and `feed!` gives the facts.
+  the file, and `check-files!` gives the facts.
 
   The rules are those of the standards, and those of the `profile` when
   there is one. Each diagnostic has the `:url` of the file and the `:path`
@@ -708,7 +708,7 @@
 (defn report
   "The diagnostics of the checked `files`, by the rules of the `profile`.
 
-  Each file has its `:facts`, as `feed!` gives them, and `profile` is
+  Each file has its `:facts`, as `check-files!` gives them, and `profile` is
   what `verdicts` takes. So several profiles can judge one check, and no
   request goes out again.
 
@@ -719,7 +719,7 @@
         (for [[limit n] (frequencies (keep (comp :unchecked :facts) files))]
           (diagnostics/describe {:id :check/unchecked :level :warning :limit limit :count n}))))
 
-(defn feed!
+(defn check-files!
   "Check over the network the files that `feed` links to, as `files` lists
   them. On the JVM it gives the result, and in ClojureScript a promise of
   it.
@@ -767,7 +767,7 @@
   A file that a limit left out has the facts `{:unchecked limit}`, and the
   report counts such files with `:check/unchecked`."
   ([feed]
-   (feed! feed {}))
+   (check-files! feed {}))
   ([feed opts]
    (let [own-send     (:send opts)
          {:keys [url credentials profile concurrency send max-files max-seconds now] :as opts}
@@ -814,5 +814,5 @@
   (map :id (report [(assoc media-file :facts {:unchecked :max-files})] nil))
 
   ;; a check that sends no request: the app sends in its own way
-  (feed! feed {:send (fn [request] {:status 404 :url (:url request) :headers {}})})
+  (check-files! feed {:send (fn [request] {:status 404 :url (:url request) :headers {}})})
   #_.)

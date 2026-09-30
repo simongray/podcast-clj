@@ -127,9 +127,9 @@
      :cljs (js/Uint8Array.from (.getHmac (goog.crypt.Hmac. (goog.crypt.Sha256.) (js/Array.from key) 64)
                                          (js/Array.from message)))))
 
-(defn random!
-  "`n` bytes that nobody can guess, from the generator of the platform for
-  keys."
+(defn generate!
+  "Generate `n` bytes that nobody can guess, from the generator of the
+  platform for keys."
   [n]
   #?(:clj  (let [b (byte-array n)]
              (.nextBytes (SecureRandom.) b)

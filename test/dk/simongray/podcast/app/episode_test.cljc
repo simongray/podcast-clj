@@ -71,22 +71,21 @@
   (let [log (atom [])]
     (run
      (fn []
-       (async/then (episode/view! show item {:send (answering {} log) :except #{:chapters :transcript :media}})
-                   (fn [v]
+       (async/then (episode/read-files! (episode/view show item) {:send (answering {} log) :except #{:chapters :transcript :media}})
+                   (fn [files]
                      (is (= [] @log) "no file is asked for")
-                     (is (nil? (:chapters v)))
-                     (is (= "text/vtt" (:type (:transcript v))) "the reference that the feed names stays")
-                     (is (nil? (:document (:transcript v))))
-                     (is (nil? (:media v)))))))))
+                     (is (= {} files) "nothing to merge into the view")))))))
 
 (deftest what-the-files-say
   (let [log     (atom [])
         answers {"https://example.com/ep3_chapters.json" {:status 200 :body chapters-json}
                  "https://example.com/episode1/transcript.vtt" {:status 200 :body vtt}
-                 "https://example.com/file-03.mp3" {:status 200 :body (bytes/of (repeat 64 0))}}]
+                 "https://example.com/file-03.mp3" {:status 200 :body (bytes/of (repeat 64 0))}}
+        page    (fn [view opts]
+                  (async/then (episode/read-files! view opts) #(merge view %)))]
     (run
      (fn []
-       (async/then (episode/view! show item {:send (answering answers log) :languages ["es"]})
+       (async/then (page (episode/view show item {:languages ["es"]}) {:send (answering answers log)})
                    (fn [v]
                      (testing "the chapters file, the transcript and the media file"
                        (is (= [:file "https://example.com/ep3_chapters.json" ["Intro" "News"]]
@@ -99,7 +98,7 @@
                        (is (= [[:media :file/unknown-format]] (map (juxt :part :id) (episode/report v))))
                        (is (= 3 (count (distinct @log))) "one request for each file")))))
      (fn []
-       (async/then (episode/view! show item {:send (answering answers log) :except #{:media} :transcript-types ["text/plain"]})
+       (async/then (page (episode/view show item {:transcript-types ["text/plain"]}) {:send (answering answers log) :except #{:media}})
                    (fn [v]
                      (testing "without the media file"
                        (is (nil? (:media v)))
@@ -113,8 +112,8 @@
         timed    (assoc item :rss/description "00:00 Intro\n12:30 News")
         gone     {"https://example.com/ep3_chapters.json" {:status 404 :body ""}}
          source  (fn [item answers]
-                   (async/then (episode/view! show item {:send (answering answers log) :except #{:media}})
-                               (fn [v] [(:source (:chapters v)) (map :id (:report (:chapters v))) (:id (:error (:chapters v)))])))]
+                   (async/then (episode/read-files! (episode/view show item) {:send (answering answers log) :except #{:media}})
+                               (fn [files] [(:source (:chapters files)) (map :id (:report (:chapters files))) (:id (:error (:chapters files)))])))]
     (run
      (fn []
        (async/then (source embedded {"https://example.com/ep3_chapters.json" {:status 200 :body chapters-json}})

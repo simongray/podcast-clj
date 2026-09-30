@@ -52,6 +52,6 @@
       (is (true? (bytes/same? b (bytes/from-base64 (bytes/base64 b))))))))
 
 (deftest bytes-that-nobody-can-guess
-  (is (= 32 (bytes/length (bytes/random! 32))))
-  (is (= 0 (bytes/length (bytes/random! 0))))
-  (is (= 20 (count (distinct (repeatedly 20 #(bytes/hex (bytes/random! 16))))))))
+  (is (= 32 (bytes/length (bytes/generate! 32))))
+  (is (= 0 (bytes/length (bytes/generate! 0))))
+  (is (= 20 (count (distinct (repeatedly 20 #(bytes/hex (bytes/generate! 16))))))))

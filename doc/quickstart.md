@@ -70,12 +70,12 @@ show and the guid of the item.
 
 ## A page of an episode
 
-The view of an episode is one map for a page. With `episode!`, the map
-has what the files of the episode say too: the chapters, the transcript
-and the media file.
+The view of an episode is one map for a page. The step `read-files!`
+reads what the files of the episode say: the chapters, the transcript
+and the media file. A page is the two merged:
 
 ```clojure
-(def page (library/episode! @lib id))
+(def page (merge (library/episode @lib id) (library/read-files! @lib id)))
 
 (select-keys page [:title :duration])
 ;; => {:title "Episode 272: \"Is this Y'all?\"" :duration 5501.208}
@@ -85,9 +85,9 @@ and the media file.
 (count (:segments (:document (:transcript page))))  ; => 1481
 ```
 
-A file that does not come leaves `:error` in its part, and the call
+A file that does not come leaves `:error` in its part, and the step
 throws nothing for what the network does. For a list, `library/episode`
-gives the view without the files.
+alone gives the view, without the files.
 
 ## The player
 

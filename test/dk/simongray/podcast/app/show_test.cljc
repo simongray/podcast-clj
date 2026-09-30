@@ -62,7 +62,7 @@
                  [#"publisherexample"                {:status 200 :body publisher-feed}]]]
     (run
      (fn []
-       (async/then (show/view! feed {:send (answering answers log) :index credentials :now (constantly #inst "2026-09-30T12:00:00Z")})
+       (async/then (show/fetch-linked-shows! (show/view feed) {:send (answering answers log) :index credentials :now (constantly #inst "2026-09-30T12:00:00Z")})
                    (fn [v]
                      (testing "the podroll as the index knows it"
                        (is (= [true false] (map (comp some? :show) (:podroll v))) "the second guid is unknown to the index")
@@ -75,14 +75,14 @@
                        (is (nil? (:error (:publisher v)))))
                      (is (= 3 (count @log)) "two lookups and the publisher feed"))))
      (fn []
-       (async/then (show/view! feed {:send (answering [[#"publisherexample" {:status 404 :body ""}]] log)})
+       (async/then (show/fetch-linked-shows! (show/view feed) {:send (answering [[#"publisherexample" {:status 404 :body ""}]] log)})
                    (fn [v]
-                     (testing "without credentials the podroll is as the feed names it, and a publisher feed that is gone has :error"
-                       (is (= [nil nil] (map :show (:podroll v))))
+                     (testing "without credentials the podroll is not asked, and a publisher feed that is gone has :error"
+                       (is (nil? (:podroll v)) "the page keeps the podroll of the view")
                        (is (= [:fetch/unreachable 404] ((juxt :id :status) (:error (:publisher v)))))
                        (is (nil? (:confirmed? (:publisher v))))))))
      (fn []
        (let [other (str/replace publisher-feed (:podcast/guid feed) "11111111-2222-3333-4444-555555555555")]
-         (async/then (show/view! feed {:send (answering [[#"publisherexample" {:status 200 :body other}]] log)})
+         (async/then (show/fetch-linked-shows! (show/view feed) {:send (answering [[#"publisherexample" {:status 200 :body other}]] log)})
                      (fn [v]
                        (is (false? (:confirmed? (:publisher v))) "a publisher feed that does not list the show"))))))))

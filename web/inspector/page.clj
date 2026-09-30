@@ -374,7 +374,7 @@
 
 (defn check-page
   "The check over the network of `feed`, fetched from `url`, against
-  `profile`: the diagnostics of `result`, from `check/feed!`, and the
+  `profile`: the diagnostics of `result`, from `check/check-files!`, and the
   files it fetched, of the newest `items`, with their integrity when
   `integrity?`."
   [{:keys [url feed profile items integrity? result]}]
@@ -428,7 +428,7 @@
 
 (defn- chapters-section
   "The chapters of the view of an episode: `{:source :url :document
-  :report}`, as `episode/view!` chose them among the file, the embedded
+  :report}`, as `episode/read-files!` chose them among the file, the embedded
   ones, the media file and the timestamps of the show notes."
   [{:keys [chapters]}]
   (let [{:keys [source document report]} chapters]
@@ -538,8 +538,8 @@
 
 (defn item-page
   "The page for one `item` of `feed` at `url`, from its `view` as
-  `episode/view!` gives it, with the `remotes` of its time splits as the
-  service resolved them."
+  `episode/view` gives it with what `episode/read-files!` read merged
+  in, and the `remotes` of its time splits as the service resolved them."
   [{:keys [url feed item view remotes]}]
   (let [{:keys [title guid numbering published duration explicit? people artwork notes enclosures value]} view
         into-player (fn [mode] (str "/queue?add=" (http/encode url) "&guid=" (http/encode guid) "&mode=" mode))]

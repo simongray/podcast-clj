@@ -307,7 +307,7 @@
   (run (fn []
          (let [log (atom [])]
            (async/then
-            (lnaddress/invoice! "hello@getalby.com" 25000 {:send (serving {"pr" invoice-25} log) :comment "Great show"})
+            (lnaddress/request-invoice! "hello@getalby.com" 25000 {:send (serving {"pr" invoice-25} log) :comment "Great show"})
             (fn [invoice]
               (is (= invoice-25 (:invoice invoice)))
               (is (= "Great show" (:comment invoice)) "the comment that went out")
@@ -323,8 +323,8 @@
                            (update (recorded request) :body #(json/write-str (assoc (json/read-str %) "commentAllowed" 40)))
                            ((serving {"pr" invoice-25} log) request)))]
            (async/then
-            (async/all [(lnaddress/invoice! "hello@getalby.com" 25000 {:send short :comment (comp fitted :comment-length)})
-                        (lnaddress/invoice! "hello@getalby.com" 25000 {:send short :comment (apply str (repeat 50 "a"))})])
+            (async/all [(lnaddress/request-invoice! "hello@getalby.com" 25000 {:send short :comment (comp fitted :comment-length)})
+                        (lnaddress/request-invoice! "hello@getalby.com" 25000 {:send short :comment (apply str (repeat 50 "a"))})])
             (fn [[none cut]]
               (is (= invoice-25 (:invoice none)))
               (is (not (contains? none :comment))
@@ -336,20 +336,20 @@
        (fn []
          (let [log (atom [])]
            (async/then
-            (lnaddress/invoice! "hello@getalby.com" 500 {:send (serving {"pr" invoice-25} log)})
+            (lnaddress/request-invoice! "hello@getalby.com" 500 {:send (serving {"pr" invoice-25} log)})
             (fn [{:keys [error]}]
               (is (= [:value/amount-out-of-range 1000] ((juxt :id :min-msat) error)))
               (is (= 1 (count @log)) "no invoice is asked for")))))
        #(async/then
-         (lnaddress/invoice! "hello@getalby.com" 25000 {:send (fn [_] (throw (ex-info "Connection refused" {})))})
+         (lnaddress/request-invoice! "hello@getalby.com" 25000 {:send (fn [_] (throw (ex-info "Connection refused" {})))})
          (fn [{:keys [error]}]
            (is (= [:value/unreachable "Connection refused"] ((juxt :id :reason) error)))))
        #(async/then
-         (lnaddress/invoice! "not an address" 25000 {:send (fn [_] (throw (ex-info "sent" {})))})
+         (lnaddress/request-invoice! "not an address" 25000 {:send (fn [_] (throw (ex-info "sent" {})))})
          (fn [{:keys [error]}]
            (is (= :value/not-an-address (:id error)))))
        #(async/then
-         (lnaddress/node! "fountain@fountain.fm" {:send recorded})
+         (lnaddress/fetch-node! "fountain@fountain.fm" {:send recorded})
          (fn [node]
            (is (= ["03b6f613e88bd874177c28c6ad83b3baba43c4c656f56be1f8df84669556054b79" "906608"]
                   ((juxt :address :custom-key) node)))))
@@ -357,8 +357,8 @@
          (let [asked (atom [])
                send  (fn [request] (swap! asked conj request) (recorded request))]
            (async/then
-            (async/all [(lnaddress/node! "fountain@fountain.fm" {:send send})
-                        (lnaddress/node! "fountain@fountain.fm" {:send send :allow? any? :max-bytes 1000})])
+            (async/all [(lnaddress/fetch-node! "fountain@fountain.fm" {:send send})
+                        (lnaddress/fetch-node! "fountain@fountain.fm" {:send send :allow? any? :max-bytes 1000})])
             (fn [_]
               (is (= #{[10 262144 http/public?] [10 1000 any?]}
                      (set (map (juxt :timeout-seconds :max-bytes :allow?) @asked)))

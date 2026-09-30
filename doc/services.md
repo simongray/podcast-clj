@@ -69,7 +69,7 @@ and the URLs of the service:
 | `:podcastindex` | `:podcastindex` | `:root`, and `:pages`, the URL of the pages of the shows |
 
 The functions `request`, `response` and `call!` take a source as a name
-or as an entry, and the `:sources` of `search!` and `trending!` hold
+or as an entry, and the `:sources` of `search!` and `fetch-chart!` hold
 names and entries. The `:id` of an entry names the source in
 `:directory/source`, in `:directory/sources` and in `:failed`. An entry
 without an `:id` has the name of its API.

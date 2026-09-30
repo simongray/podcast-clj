@@ -22,7 +22,9 @@
   fetches what is due and applies it: the feeds to the player, the lists
   to the subscriptions, and the feeds of new subscriptions. `episodes`
   selects episodes across the shows, `show` and `episode` give the views
-  of `app.show` and `app.episode`, `step` takes the events of a player,
+  of `app.show` and `app.episode`, `fetch-linked-shows!` and
+  `read-files!` what the network adds to them, `step` takes the events
+  of a player,
   `sync!` keeps the devices in step, and `plan` gives the downloads.
 
   Most apps keep the library in an atom, and `swap!` it with the
@@ -385,16 +387,18 @@
    (when-let [{:keys [feed url]} (get-in library [:feeds guid])]
      (show/view feed (assoc opts :url url)))))
 
-(defn show!
-  "The view of the show `guid` of `library` with what the network says,
-  as `app.show/view!` gives it, with the settings of the library; nil
-  when the library has no such feed. `opts` are those of `app.show/view!`,
-  for this call."
+(defn fetch-linked-shows!
+  "Fetch the shows that the show `guid` of `library` links to, as
+  `app.show/fetch-linked-shows!` gives them, with the settings of the
+  library, for a page to merge into `show`; nil when the library has no
+  such feed. The `opts` are those of `app.show/fetch-linked-shows!`, for
+  this call."
   ([library guid]
-   (show! library guid {}))
+   (fetch-linked-shows! library guid {}))
   ([library guid opts]
    (when-let [{:keys [feed url]} (get-in library [:feeds guid])]
-     (show/view! feed (assoc (options library opts) :url url)))))
+     (show/fetch-linked-shows! (show/view feed {:url url :except #{:notes :text :episodes :seasons :links}})
+                               (options library opts)))))
 
 (defn episode
   "The view of the episode `id` of `library`, `[feed-guid item-guid]`, as
@@ -407,16 +411,18 @@
    (when-let [[{:keys [feed url]} item] (item-of library id)]
      (episode/view feed item (assoc (options library opts) :url url)))))
 
-(defn episode!
-  "The view of the episode `id` of `library` with what its files say, as
-  `app.episode/view!` gives it, with the settings of the library; nil when
-  the library has no such episode. `opts` are those of
-  `app.episode/view!`, for this call."
+(defn read-files!
+  "Read the files of the episode `id` of `library`, as
+  `app.episode/read-files!` gives what they say, with the settings of
+  the library, for a page to merge into `episode`; nil when the library
+  has no such episode. The `opts` are those of `app.episode/read-files!`,
+  for this call."
   ([library id]
-   (episode! library id {}))
+   (read-files! library id {}))
   ([library id opts]
    (when-let [[{:keys [feed url]} item] (item-of library id)]
-     (episode/view! feed item (assoc (options library opts) :url url)))))
+     (episode/read-files! (episode/view feed item (assoc (options library opts) :url url :except #{:notes :text :links}))
+                          (options library opts)))))
 
 (defn episodes
   "The episodes of the shows of `library` that `opts` select, in the
@@ -527,5 +533,5 @@
      (def id (let [[feed item] (first (episodes lib {:order :newest :limit 1}))]
                (episode-id lib feed item)))
      (:effects (step lib [:progress id 60 3600] now))
-     (select-keys (episode! lib id) [:title :duration :chapters])
+     (select-keys (merge (episode lib id) (read-files! lib id)) [:title :duration :chapters])
      #_.))

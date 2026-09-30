@@ -307,7 +307,7 @@
         opts {:send (op3-send log)}
         show "fb3d03641442410e881acb0562ef27c6"]
     (run #(async/then
-           (op3/downloads! "test-token" {:show show :start "2026-09-26" :end "2026-09-27" :limit 3} opts)
+           (op3/fetch-downloads! "test-token" {:show show :start "2026-09-26" :end "2026-09-27" :limit 3} opts)
            (fn [{:keys [downloads continuation-token]}]
              (is (= 5 (count downloads)) "two pages")
              (is (nil? continuation-token) "the second page is the last")
@@ -322,12 +322,12 @@
              (is (= {"Overcast" 1 "Pocket Casts" 1 "Godcaster" 1 "stagefright" 1 "Podcast Addict" 1}
                     (frequencies (map :agent-name downloads))))))
          #(async/then
-           (op3/downloads! "test-token" {:show show :start "2026-09-26" :end "2026-09-27" :limit 3} (assoc opts :max-pages 1))
+           (op3/fetch-downloads! "test-token" {:show show :start "2026-09-26" :end "2026-09-27" :limit 3} (assoc opts :max-pages 1))
            (fn [{:keys [downloads continuation-token] :as page}]
              (is (= 3 (count downloads)))
              (is (= "DHcEEyZ5U3eGd4tsvCJpAhbtvg1k8jRuqiG4nUpxK2Fu5zGt" continuation-token)
                  "the token of the next page, to read on from")
-             (async/then (op3/downloads! "test-token" {:show show :start "2026-09-26" :end "2026-09-27" :limit 3
+             (async/then (op3/fetch-downloads! "test-token" {:show show :start "2026-09-26" :end "2026-09-27" :limit 3
                                                        :continuation-token (:continuation-token page)}
                                          opts)
                          (fn [{:keys [downloads]}]
@@ -365,14 +365,14 @@
                   {:status 429 :body "{\"error\":\"rate limited\"}"}
                   (page @calls)))]
     (run #(async/then
-           (op3/downloads! "test-token" {:show "abc"} {:send send})
+           (op3/fetch-downloads! "test-token" {:show "abc"} {:send send})
            (fn [{:keys [downloads continuation-token error]}]
              (is (= ["https://op3.dev/e/1" "https://op3.dev/e/2"] (map :url downloads)) "the pages before the page that failed")
              (is (= "t2" continuation-token) "the token of the page that failed, to read on from")
              (is (= {:id :analytics/unreachable :level :warning :status 429} (select-keys error [:id :level :status])))
              (is (= 3 @calls))))
          #(async/then
-           (op3/downloads! "test-token" {:show "abc"} {:send (fn [_] (throw (ex-info "Connection refused" {})))})
+           (op3/fetch-downloads! "test-token" {:show "abc"} {:send (fn [_] (throw (ex-info "Connection refused" {})))})
            (fn [result]
              (is (= {:downloads []} (dissoc result :error)) "a first page that fails gives no downloads and no token")
              (is (= [:analytics/unreachable "Connection refused"] ((juxt :id :reason) (:error result)))))))))

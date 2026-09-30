@@ -187,7 +187,7 @@
                     (fn [_]
                       {:at    now
                        :feed  feed
-                       :value (check/feed! feed {:url url :items items :read? true :integrity? integrity?})})))))
+                       :value (check/check-files! feed {:url url :items items :read? true :integrity? integrity?})})))))
 
 (defn check-page
   "The check over the network of the files that the feed named by the `url`
@@ -245,18 +245,20 @@
   (when index-credentials
     (into {} (for [{:keys [remote-item]} (:time-splits block)
                    :when remote-item]
-               [remote-item (try (index/remote-value! index-credentials remote-item)
+               [remote-item (try (index/fetch-remote-value! index-credentials remote-item)
                                  (catch Exception _ nil))]))))
 
 (defn- episode-view
-  "The view of `item` in `feed` at `url`, with its files read, as
-  `episode/view!` gives it; kept for `cache-seconds`, since the files
-  are fetched to make it."
+  "The view of `item` in `feed` at `url`, with what its files say merged
+  in, as `episode/view` and `episode/read-files!` give it; kept for
+  `cache-seconds`, since the files are fetched to make it."
   [feed url item]
   (let [now (System/currentTimeMillis)]
     (:value (cached [:episode url (feed/item-guid item)]
                     #(< (- now (:at %)) (* 1000 cache-seconds))
-                    (fn [_] {:at now :value (episode/view! feed item {:url url})})))))
+                    (fn [_]
+                      (let [view (episode/view feed item {:url url})]
+                        {:at now :value (merge view (episode/read-files! view))}))))))
 
 (defn- remotes
   "The remote value blocks that the time splits of `block` point at, as
@@ -385,7 +387,7 @@
   (let [opts    (assoc wallet-opts :info (when-not (:error info) info))
         keysend (when (= "node" type) (nwc/pay-keysend payment recipient))
         invoice (when (= "lnaddress" type)
-                  (lnaddress/invoice! address (* 1000 (:sats payment)) {:comment (:message payment)}))]
+                  (lnaddress/request-invoice! address (* 1000 (:sats payment)) {:comment (:message payment)}))]
     (cond
       (seq (value/report keysend)) {:error (first (value/report keysend))}
       keysend                      (nwc/ask! connection keysend opts)
@@ -431,7 +433,7 @@
 (defn- new-token!
   "A token for a wallet form. The inspector keeps 500 tokens at most."
   []
-  (let [token (bytes/hex (bytes/random! 16))]
+  (let [token (bytes/hex (bytes/generate! 16))]
     (swap! wallet-tokens #(conj (if (< (count %) 500) % #{}) token))
     token))
 
@@ -467,7 +469,7 @@
         fresh?     (and pays? (used-token! token))]
     (try
       (let [episode (episode-of url guid)
-            info    (some-> connection (nwc/info! wallet-opts))
+            info    (some-> connection (nwc/fetch-info! wallet-opts))
             boost   (when (and fresh? episode)
                       {:sats sats :payments (boosted connection info episode sats message)})]
         (html (page/wallet-page
@@ -550,7 +552,7 @@
                (not (str/blank? category)) (assoc :category category))]
     (try
       (let [answer (if (str/blank? q)
-                     (directory/trending! opts)
+                     (directory/fetch-chart! opts)
                      (directory/search! q opts))]
         (html (page/directory-page (assoc answer :q q :country (:country opts) :category (:category opts)))))
       (catch Throwable e

@@ -18,7 +18,7 @@
   The app pays that recipient with keysend and the records of
   `value/records`.
 
-  `invoice!` and `node!` send the requests themselves. A reader decides on
+  `request-invoice!` and `fetch-node!` send the requests themselves. A reader decides on
   the JSON of an answer, not on its status, as LUD-01 asks. Services answer
   an error with any status, and some answer the keysend lookup with a web
   page."
@@ -32,7 +32,7 @@
             [dk.simongray.podcast.value :as value]))
 
 (def default-limits
-  "The limits of `invoice!` and `node!` that their options do not set. They
+  "The limits of `request-invoice!` and `fetch-node!` that their options do not set. They
   are the seconds that each request can take, and the size of an answer in
   bytes. The terms of an address can hold an image of about 136 kilobytes,
   by LUD-06."
@@ -407,7 +407,7 @@
                     (cond-> read
                       (and sent (not (:error read))) (assoc :comment sent)))))))
 
-(defn invoice!
+(defn request-invoice!
   "An invoice from the Lightning `address` for `msat` millisatoshis, as
   `invoice` reads it, or `{:error diagnostic}`. On the JVM the map, in
   ClojureScript a promise of it.
@@ -427,7 +427,7 @@
   `http/call!` then sends nothing to the network of the app. An app that
   must reach its own network gives `(constantly true)` as `:allow?`."
   ([address msat]
-   (invoice! address msat {}))
+   (request-invoice! address msat {}))
   ([address msat {:keys [comment] :as opts}]
    (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)]
      (async/then (asked! (lnurlp-request address) address terms opts)
@@ -445,12 +445,12 @@
                      :else
                      (invoiced! offer msat (if (fn? comment) (comment offer) comment) opts)))))))
 
-(defn node!
+(defn fetch-node!
   "The node that pays the Lightning `address` with keysend, as `node` reads
   it, or `{:error diagnostic}`. On the JVM the map, in ClojureScript a
-  promise of it. `opts` are those of `invoice!`, but the comment."
+  promise of it. `opts` are those of `request-invoice!`, but the comment."
   ([address]
-   (node! address {}))
+   (fetch-node! address {}))
   ([address opts]
    (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)]
      (asked! (keysend-request address) address node opts))))
@@ -484,6 +484,6 @@
                                   "pubkey"     (apply str "02" (repeat 64 "a"))
                                   "customData" [{"customKey" "696969" "customValue" "1"}]})})
 
-  (invoice! "ann@example.org" 25000 {:comment "Thanks!"})
-  (node! "ann@example.org")
+  (request-invoice! "ann@example.org" 25000 {:comment "Thanks!"})
+  (fetch-node! "ann@example.org")
   #_.)

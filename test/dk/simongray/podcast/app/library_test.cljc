@@ -83,6 +83,19 @@
       (is (= "text/vtt" (:type (:transcript (library/episode library id)))) "the languages of the settings choose the Spanish one")
       (is (= "text/plain" (:type (:transcript (library/episode library id {:languages ["en"] :transcript-types ["text/plain"]})))))
       (is (nil? (library/episode library [guid "nope"])))))
+  (testing "what the network adds to the views, asked with the settings of the library"
+    (let [down (fn [_] (throw (ex-info "down" {})))]
+      (run
+       (fn []
+         (async/then (library/read-files! library [guid "https://example.com/ep0003"] {:send down :except #{:media}})
+                     (fn [files]
+                       (is (= [:chapters :transcript] (sort (keys files))) "the chapters file and the Spanish transcript, each asked")
+                       (is (= :file/unreachable (:id (:error (:transcript files))))))))
+       (fn []
+         (async/then (library/fetch-linked-shows! library guid {:send down})
+                     (fn [linked]
+                       (is (= [:publisher] (keys linked)) "no credentials of the index: the publisher feed alone")
+                       (is (= :fetch/unreachable (:id (:error (:publisher linked)))))))))))
   (testing "unsubscribing"
     (let [lib (library/unsubscribe library guid now)]
       (is (= {} (library/subscriptions lib)))

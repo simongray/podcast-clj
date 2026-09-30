@@ -44,6 +44,14 @@ the details.
   All other functions take the time as an argument. For example, each write
   to the player state takes the instant of the write, and a Podcast Index
   request takes the instant to sign.
+- **A `!` function is named by its verb, and gives what the verb
+  produced.** The verb stands alone when the namespace names its object:
+  `podcast/fetch!`, `media/read!`, `library/sync!`. It takes the object
+  otherwise: `episode/read-files!`, `op3/fetch-downloads!`,
+  `check/check-files!`. What it gives is what the verb produced, never
+  the value of a pure function with more in it. So the app merges:
+  `(merge (library/episode lib id) (library/read-files! lib id))` is a
+  page.
 - **A call throws, and a step gives data.** A call sends one request and
   gives the answer. The calls are the functions with the name `call!`, the
   functions of a store, `http/fetch!`, `http/digest!`, and the function
@@ -110,7 +118,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `feed.schema` | Malli schemas of the model, generated from the tag registry. Malli is not a dependency. |
 | `feed.guid` | The `podcast:guid`, a UUID of version 5: `from-url` gives the guid of a feed URL, and `guid?` tells whether a text is one. |
 | `feed.resolve` | One answer where the vocabularies overlap. `properties` gives all answers at once, and `sources` tells where they came from. Also the listening order of the episodes, `blocked?` and `next-check`. |
-| `feed.check` | Checks over the network of the files a feed links to: media files, images, transcripts, chapters and the feed itself, by the standards and by the profiles of PSP-1 and Apple Podcasts. `files`, `verdicts` and `report` are pure, and `feed!` sends the requests: two bytes of most files and the header of each image, unless it is asked to read them. `default-limits` holds its limits of files, time and bytes. |
+| `feed.check` | Checks over the network of the files a feed links to: media files, images, transcripts, chapters and the feed itself, by the standards and by the profiles of PSP-1 and Apple Podcasts. `files`, `verdicts` and `report` are pure, and `check-files!` sends the requests: two bytes of most files and the header of each image, unless it is asked to read them. `default-limits` holds its limits of files, time and bytes. |
 | `diagnostics` | Every diagnostic id, with its level and meaning. |
 
 ### Formats
@@ -131,8 +139,8 @@ Each name below is relative to `dk.simongray.podcast`.
 
 | Namespace | Contents |
 |---|---|
-| `directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results, and their charts, also for one category. JVM: `call!`, `search!` and `trending!`. |
-| `directory.podcastindex` | The Podcast Index API: authenticated requests, responses mapped onto the model, and remote items resolved. `categories` and `category-filter` name its categories. JVM: `remote-value!` and `remote-item!`. |
+| `directory` | Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results, and their charts, also for one category. JVM: `call!`, `search!` and `fetch-chart!`. |
+| `directory.podcastindex` | The Podcast Index API: authenticated requests, responses mapped onto the model, and remote items resolved. `categories` and `category-filter` name its categories. JVM: `fetch-remote-value!` and `fetch-remote-item!`. |
 | `directory.links` | Links to a show and to an episode in the apps of listeners, from a table of the forms of 48 apps and pages. `ids` reads the keys of a show, and `links` writes the links. `at-time` writes the media fragment of a time on the URL of a media file. |
 | `updates.podping` | Podping: calls to the Hive chain as request maps, pings read from blocks, and writers verified. JVM: `poll!`. `notify-request` is for a host. |
 | `updates.websub` | WebSub, for a server that a hub sends the feeds to. `discover` finds the hubs of a feed, `request` and `call!` subscribe, and `handler` is a Ring handler for the callback, which checks the signature of the hub. `publish-request` is for a host. |
@@ -152,16 +160,16 @@ Each name below is relative to `dk.simongray.podcast`.
 | Namespace | Contents |
 |---|---|
 | `analytics` | The downloads of episodes, counted from the requests that a host logs, by the rules of the IAB. `downloads` gives the downloads, and why the other requests do not count. `threshold` gives the bytes of one minute of a file, and `listener-ip` the part of an address that counts. `user-agents` reads the open list of user agents of the OPAWG, and `identify` names the app, the device and the bots by it. |
-| `analytics.op3` | OP3, a free service that counts downloads through a prefix. `prefix` and `with-prefix` put its prefix on the URLs of enclosures. `request`, `response`, `call!` and `downloads!` use its API: the downloads of a show, the counts of shows and episodes, and the apps of the listeners. |
+| `analytics.op3` | OP3, a free service that counts downloads through a prefix. `prefix` and `with-prefix` put its prefix on the URLs of enclosures. `request`, `response`, `call!` and `fetch-downloads!` use its API: the downloads of a show, the counts of shows and episodes, and the apps of the listeners. |
 
 ### Apps
 
 | Namespace | Contents |
 |---|---|
-| `app.show` | One show as a page shows it, in one map. `view` is the feed with its properties, the description as Hiccup and as text, and the episodes in listening order. It has the seasons and the links to the apps. `view!` adds the shows of the podroll as the Podcast Index knows them, and the publisher feed with its shows, when it confirms the show. |
+| `app.show` | One show as a page shows it, in one map. `view` is the feed with its properties, the description as Hiccup and as text, and the episodes in listening order. It has the seasons and the links to the apps. `fetch-linked-shows!` fetches the shows of the podroll as the Podcast Index knows them, and the publisher feed with its shows, when it confirms the show. A page merges them in. |
 | `app.library` | The library: a listener's subscriptions, feeds, queue and progress in one map, with the OPML lists, the search index, the cursors of the sync and the settings, which each step reads. `subscribe`, `follow`, `refresh!`, `episodes`, `search`, `show`, `episode`, `step`, `sync!` and `plan` compose the namespaces below it. |
 | `app.feeds` | The feeds that an app keeps, by guid. Each has its URL, the validators of the last fetch and the time of the next check. `add` puts a fetched feed in, and `due` gives the feeds to fetch now. `refresh` applies the result of a fetch, and `refresh!` fetches the due feeds. `affected` names the feeds that a Podping concerns. |
-| `app.episode` | One episode as a page shows it, in one map. `view` is the item with its properties, the show notes as Hiccup and as text, and the chapters that the feed holds. It has the links to the apps. `view!` adds the chapters file, the transcript and the media file, each read, and `report` gathers what the reading of each found. |
+| `app.episode` | One episode as a page shows it, in one map. `view` is the item with its properties, the show notes as Hiccup and as text, and the chapters that the feed holds. It has the links to the apps. `read-files!` reads the chapters file, the transcript and the media file, for a page to merge in. The function `report` gathers what the reading of each found. |
 | `app.player` | The player state as a CRDT: queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions with their settings, folders and tags, followed OPML lists, saved filters, counts of listening and devices. `merge`, `compact`, `rekey` and `step`. `step` takes the events of a player, with the jumps between chapters and a sleep timer. Playlists as list feeds. |
 | `app.search` | Filters and orders of episodes as data, and a full-text index over subscriptions, ranked by BM25. `problem` tells what in the criteria of a saved filter this version does not know. |
 | `app.downloads` | The episodes to download and the files to delete on a device, by the listener's rules. `plan` is a pure function of the player state, the feeds, the files of the device and the rules. A rule selects its episodes with the options of `search/episodes`. `rules` reads the rules from the player state, and `problems` tells what in them this version does not know. |
@@ -179,10 +187,10 @@ Each name below is relative to `dk.simongray.podcast`.
 | Namespace | Contents |
 |---|---|
 | `value` | Value for value: splits, fees, time splits and remote blocks. A payment in one shape: `boostagram` writes the bLIP-10 record of a payment, and `parse-boostagram` reads a record that a node received. `records` gives the custom records of a keysend payment. `as-received` puts a record next to what the node received. |
-| `value.lnaddress` | Lightning addresses: the requests of LNURL-pay and of the keysend lookup, and the readers of their answers. `invoice` checks the amount of an invoice. `invoice!` and `node!` send the requests. `payment-hash` reads the payment hash of an invoice, and `proves?` tells whether a preimage is the proof of its payment. |
+| `value.lnaddress` | Lightning addresses: the requests of LNURL-pay and of the keysend lookup, and the readers of their answers. `invoice` checks the amount of an invoice. `request-invoice!` and `fetch-node!` send the requests. `payment-hash` reads the payment hash of an invoice, and `proves?` tells whether a preimage is the proof of its payment. |
 | `value.metadata` | The RSS Payment Metadata: the comment of a payment to a Lightning address, and the header `x-rss-payment` of the URL that the comment names. `fetch!` gets the header. |
-| `value.nwc` | Nostr Wallet Connect, NIP-47: payments from the listener's wallet. `parse` reads the connection URI. `pay-invoice`, `pay-keysend`, `get-balance` and the other commands are data. `request` writes the event of a command, and `answer` reads the event of the wallet. `info!` reads what the wallet takes, and `ask!` sends a command and gives the answer. |
-| `value.webln` | WebLN, the interface that a wallet gives a web page. `keysend-args` gives the arguments of a keysend payment. ClojureScript: `enable!`, `info!`, `pay-invoice!` and `pay-keysend!` call the provider of the page. |
+| `value.nwc` | Nostr Wallet Connect, NIP-47: payments from the listener's wallet. `parse` reads the connection URI. `pay-invoice`, `pay-keysend`, `get-balance` and the other commands are data. `request` writes the event of a command, and `answer` reads the event of the wallet. `fetch-info!` reads what the wallet takes, and `ask!` sends a command and gives the answer. |
+| `value.webln` | WebLN, the interface that a wallet gives a web page. `keysend-args` gives the arguments of a keysend payment. ClojureScript: `enable!`, `get-info!`, `pay-invoice!` and `pay-keysend!` call the provider of the page. |
 
 ### Utilities
 
@@ -194,7 +202,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `util.time` | Dates, durations and timestamps. |
 | `util.time.rrule` | RFC 5545 recurrence rules: parse, write and evaluate. |
 | `util.http` | Requests as maps, credentials as a hidden header, URLs made absolute, and when a server says to ask again. `revealed` gives a request with the texts of its hidden headers, for another client. `call!` sends a request with byte ranges and limits of size and time: on the JVM with redirects that keep the credentials to their origin, and in ClojureScript with fetch. `probe!` learns the facts of a file from two bytes of it, and `fetcher` fetches a file by byte ranges. JVM: `fetch!`, which fetches a feed with conditional requests, and `digest!`, which streams a body through a digest. `public?` tells whether a host is on the public internet, and `call-public!` sends only to such hosts. `byte-ranges` reads a Range header, `links` reads a Link header, and `with-query` adds parameters to a URL. |
-| `util.bytes` | Bytes on both platforms, read as numbers and text, and a view of the parts of a file that have arrived, which says what a reader still needs. `read!` fetches it for the reader until it is done, within the limits of bytes, time and rounds of `default-limits`. `hex`, `from-hex`, `sha1` and `sha256`. `join`, `same?`, `hmac-sha256`, `from-base64` and `random!` are for the encryption. |
+| `util.bytes` | Bytes on both platforms, read as numbers and text, and a view of the parts of a file that have arrived, which says what a reader still needs. `read!` fetches it for the reader until it is done, within the limits of bytes, time and rounds of `default-limits`. `hex`, `from-hex`, `sha1` and `sha256`. `join`, `same?`, `hmac-sha256`, `from-base64` and `generate!` are for the encryption. |
 | `util.async` | Deferred values: futures on the JVM, and promises in JavaScript. `iteration` reads an API that answers in pages, as `clojure.core/iteration` does, on both platforms. |
 | `util.nostr` | The Nostr protocol, which `comments.nostr` and `value.nwc` speak. Events with their ids and signatures (`verified?`), and the names of NIP-19 (`decode`, `encode`, `uri`). `parts` gives the content of an event as text, mentions, references, links and hashtags. The filters and the messages of a relay, and `call!`, one exchange with a relay over a WebSocket. `received` is the pure step of the exchange. `signed` writes the app's own event, and `call!` gives it to a relay as `:event`. |
 | `util.secret` | Texts that do not show when they are printed: `hide`, `reveal` and `hidden?`. The printer writes a hidden text as `#<secret>`. Each function that takes a password, a token, a passphrase or a secret key takes a hidden text. |

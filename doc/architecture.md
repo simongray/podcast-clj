@@ -532,7 +532,7 @@ media files, the images, the transcripts, the chapters files and the feed
 itself. A host can run it before it publishes, and the inspector shows it.
 
 The function `check/files` lists what a check fetches: the files of the feed
-and of its newest items, each once. The step `check/feed!` sends the requests
+and of its newest items, each once. The step `check/check-files!` sends the requests
 and keeps the facts of each answer. The function `check/verdicts` turns the
 facts of a file into diagnostics. Both `files` and `verdicts` are pure, so
 the tests give them feeds and facts written by hand, with no network. A check
@@ -592,7 +592,7 @@ the files of hosts that insert ads differ from the feed by some percent,
 because each request gets another file, so these diagnostics are only info.
 Five hosts serve transcripts or chapters without CORS.
 
-In ClojureScript, `feed!` sends with fetch. Node can check any server. A
+In ClojureScript, `check-files!` sends with fetch. Node can check any server. A
 browser fails without a reason where CORS does not allow the page to read,
 and hides the headers that an answer does not expose, such as
 Content-Range and ETag. The facts mark such an answer `:filtered?`, and the
@@ -635,7 +635,7 @@ often than they must:
   names the files of its check, so a check looks at 500 files at most, and it
   starts no file after ten minutes. The report counts the files that it left
   out. These numbers are in `check/default-limits`, and the options of
-  `feed!` set each of them.
+  `check-files!` set each of them.
 - The step `comments/fetch!` reads a thread of comments in rounds of four
   requests, and it reads the posts nearest the root post first. It asks for
   no more posts when it has 100 from this fetch, and it starts no round after
@@ -650,12 +650,12 @@ often than they must:
   of replies gives 1,000 items, and an id has 2,048 characters. A thread
   holds 10,000 comments, and the replies of an AT Protocol thread go 64
   levels down. The report counts the replies that such a limit cut.
-- Two requests go out for an invoice from `value.lnaddress/invoice!`, and one
-  from `node!`. An answer is 256 KB at most, since the terms of an address
+- Two requests go out for an invoice from `value.lnaddress/request-invoice!`, and one
+  from `fetch-node!`. An answer is 256 KB at most, since the terms of an address
   can hold an image. The podcast namespace asks apps to keep the node of an
   address for a while. The step `value.metadata/fetch!` reads two bytes of
   the page of the metadata, whatever the status of the answer.
-- The step `analytics.op3/downloads!` reads at most five pages of 20,000
+- The step `analytics.op3/fetch-downloads!` reads at most five pages of 20,000
   downloads. When there are more, it gives the token of the next page, so
   that the next call reads on from there. When a page fails, it gives the
   pages before that page, the failure, and the token of the page that failed.
@@ -683,7 +683,7 @@ requests takes it as an option, and puts it on each request map. Both
 app's own `:send` gets the same request maps, so it can ask too.
 
 The functions that fetch these URLs have `http/public?` as their `:allow?` by
-default: `comments/fetch!`, `value.lnaddress/invoice!` and `node!`, and
+default: `comments/fetch!`, `value.lnaddress/request-invoice!` and `fetch-node!`, and
 `value.metadata/fetch!`. The guard `public?` takes no host whose address is
 loopback, private, link-local, shared, multicast or reserved, as the IANA
 registry of special addresses lists them. It also refuses an IPv6 address
@@ -707,7 +707,7 @@ functions a `:send` of its own.
 An app that must reach its own network gives `(constantly true)` as
 `:allow?`. The functions that fetch what a feed names have no guard by
 default, because the app chose the feed. They are `podcast/fetch!`,
-`check/feed!`, `format.media/read!` and `verify!`, `format.image/read!`
+`check/check-files!`, `format.media/read!` and `verify!`, `format.image/read!`
 and `http/probe!`. A server that fetches feeds or files for strangers
 gives them `{:allow? http/public?}`.
 
@@ -716,7 +716,7 @@ The guard is an option of its own, and not a property of `:send`. A
 in each request map.
 
 The check of an integrity fetches a whole file. With the app's own `:send`,
-`verify!` and `check/feed!` fetch the file through it, up to the `:max-bytes`
+`verify!` and `check/check-files!` fetch the file through it, up to the `:max-bytes`
 of `http/call!`. Without a `:send`, the JVM streams the file with
 `http/digest!`, which takes the guard as its option `:allow?`.
 
@@ -786,7 +786,7 @@ its page, counts, a chart rank and the raw record.
 One entry per show comes from `combine`, over the answers of several sources.
 It fills the record of the first source from the later ones, and
 `:directory/sources` names each source with its id. In this way, a chart
-entry gets the URL of its feed. On the JVM, `search!` and `trending!` ask all
+entry gets the URL of its feed. On the JVM, `search!` and `fetch-chart!` ask all
 sources at the same time. A source that fails becomes an entry under
 `:failed`, not an exception.
 
@@ -1246,7 +1246,7 @@ of one satoshi with the URL of the metadata of a large payment. So
 `value/as-received` takes the amount from the node, and reports a claim
 that differs from what the node received.
 
-The feeds choose the domains that `invoice!` and `node!` ask, and the
+The feeds choose the domains that `request-invoice!` and `fetch-node!` ask, and the
 senders choose the URLs of metadata that a host reads. So these functions
 send nothing to the app's network either. A Lightning address must
 name a domain, not an address or a local name. An answer that came over
@@ -1425,7 +1425,7 @@ file. So the counts of OP3 and of `downloads` for one show differ a little.
 The API of OP3 gives the downloads of a show one by one, with the app and the
 device of each. It also gives the counts of the show and of its episodes, and
 the apps of its listeners. The calls are maps from `analytics.op3`, and
-`downloads!` reads the pages of downloads with `async/iteration`. A download
+`fetch-downloads!` reads the pages of downloads with `async/iteration`. A download
 of OP3 has the keys of a download of `downloads` where OP3 tells the same
 fact. So an app counts both with the same code. Each call needs the token of
 an API key. OP3 makes a key only for a person who passes a check for humans,
@@ -1722,7 +1722,7 @@ as the post of a form, uses it for that request, and keeps it nowhere.
 A form that pays has a token, and a token pays once. So a browser that
 sends the form again pays nothing.
 
-The item page of an episode is one call of `episode/view!`. The queue
+The item page of an episode is `episode/view` with `episode/read-files!` merged in. The queue
 page has a small player in ClojureScript, over `app.library`. The library
 is in localStorage, and Replicant renders its player state into a bar on
 every page. The audio element reports its position through `step`, and the effects

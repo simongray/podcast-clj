@@ -121,8 +121,8 @@
 
   `event` has its kind and its time, in seconds. Its tags and its content
   are empty when it has none. `aux` is hexadecimal text of 32 bytes that
-  nobody can guess, new for each signature, as `(bytes/hex (bytes/random!
-  32))` gives them.
+  nobody can guess, new for each signature, as `(bytes/hex
+  (bytes/generate! 32))` gives them.
 
   The time that `signed` takes depends on the secret key, as the time of
   `secp256k1/sign` does."

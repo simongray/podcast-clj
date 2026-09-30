@@ -2,8 +2,9 @@
   "One episode as a page shows it, in one map. `view` is what the feed
   says of the episode: the item, its properties as `feed.resolve` answers
   them, the show notes as Hiccup and as text, the chapters that the feed
-  itself holds, and the links to the apps. `view!` adds what the files of
-  the episode say: the chapters file, the transcript and the media file.
+  itself holds, and the links to the apps. `read-files!` reads what the
+  files of the episode say, the chapters file, the transcript and the
+  media file, for a page to merge into the view.
 
   A page reads one map. The functions below the view give the same
   answers, so an app drops down to them when a step is not what it wants.
@@ -24,8 +25,8 @@
             [dk.simongray.podcast.util.http :as http]))
 
 (def default-limits
-  "The limits of `view!` that its options do not set: the seconds that a
-  request can take, and the most bytes of a chapters file or a
+  "The limits of `read-files!` that its options do not set: the seconds
+  that a request can take, and the most bytes of a chapters file or a
   transcript."
   {:timeout-seconds 15
    :max-bytes       (* 16 1024 1024)})
@@ -68,7 +69,8 @@
   - `:notes`, the show notes as Hiccup, and `:text`, as plain text
   - `:chapters`, `{:source :document}`, the chapters that the feed itself
     holds: `:embedded`, else `:inferred` from the timestamps of the show
-    notes. `:chapters-url` names a chapters file, which `view!` reads.
+    notes. `:chapters-url` names a chapters file, which `read-files!`
+    reads.
   - `:links`, the links to the episode in the apps, as `links/links`
     gives them
 
@@ -169,9 +171,10 @@
       own                                       (from own)
       failed                                    file)))
 
-(defn view!
-  "The `view` of the episode `item` of the feed `show`, with what its
-  files say. On the JVM the map, in ClojureScript a promise of it.
+(defn read-files!
+  "Read the files of the episode `view`: what they say, for a page to
+  merge into the view. On the JVM the map, in ClojureScript a promise
+  of it.
 
   - `:chapters` is `{:source :url :document :report}`: the chapters file
     when it came, else the embedded chapters, else the chapters of the
@@ -184,45 +187,45 @@
     `:error` when the file did not come.
   - `:media` is what `media/read!` gives of the media file: its
     `:duration`, its `:artwork` and its `:report`, or `:error`. The
-    `:duration` of the view is then that of the file, which is what a
-    listener gets, and can differ from what the feed says.
+    `:duration` is then that of the file, which is what a listener gets,
+    and can differ from what the feed says.
 
-  `view!` throws nothing for what the network or a server does. Each part
-  that did not come has `:error`, a diagnostic with the `:reason`.
+  The step throws nothing for what the network or a server does. Each
+  part that did not come has `:error`, a diagnostic with the `:reason`.
   `report` gathers the reports of all the parts.
 
-  `opts` are those of `view`, and of the requests: `:send`, a function
-  that sends a request map in the place of `http/call!`, `:allow?`, a
-  predicate of a URL, `:headers`, and the `:timeout-seconds` and
-  `:max-bytes` of `default-limits`. In `:except`, `:chapters`,
-  `:transcript` and `:media` leave those files unread: a page that needs
-  no duration of the file and no artwork from it gives `#{:media}`."
-  ([show item]
-   (view! show item {}))
-  ([show item {:keys [except] :or {except #{}} :as opts}]
+  The `opts` are those of the requests: `:send`, a function that sends
+  a request map in the place of `http/call!`, `:allow?`, a predicate of
+  a URL, `:headers`, and the `:timeout-seconds` and `:max-bytes` of
+  `default-limits`. In `:except`, `:chapters`, `:transcript` and
+  `:media` leave those files unread: a page that needs no duration of
+  the file and no artwork from it gives `#{:media}`."
+  ([view]
+   (read-files! view {}))
+  ([view {:keys [except] :or {except #{}} :as opts}]
    {:pre [(map? opts)]}
    (let [opts    (merge default-limits {:send http/call!} opts)
          wanted? (complement except)
-         v       (view show item opts)
-         own     (:chapters v)
-         url     (:url (:enclosure v))]
-     (async/then (async/all [(when-let [chapters-url (and (wanted? :chapters) (:chapters-url v))] (chapters-file! chapters-url opts))
-                             (when-let [ref (and (wanted? :transcript) (:transcript v))] (transcript-file! ref opts))
+         own     (:chapters view)
+         url     (:url (:enclosure view))]
+     (async/then (async/all [(when-let [chapters-url (and (wanted? :chapters) (:chapters-url view))] (chapters-file! chapters-url opts))
+                             (when-let [ref (and (wanted? :transcript) (:transcript view))] (transcript-file! ref opts))
                              (when (and (wanted? :media) url) (media-file! url opts))])
                  (fn [[file transcript media]]
                    (let [chapters (best-chapters file own media)]
-                     (cond-> v
-                       chapters            (assoc :chapters chapters)
-                       transcript          (assoc :transcript transcript)
-                       media               (assoc :media media)
-                       (:duration media)   (assoc :duration (:duration media)))))))))
+                     (cond-> {}
+                       chapters          (assoc :chapters chapters)
+                       transcript        (assoc :transcript transcript)
+                       media             (assoc :media media)
+                       (:duration media) (assoc :duration (:duration media)))))))))
 
 (defn report
-  "The diagnostics of all the parts of `view`, each with the `:part` that
-  it is about: `:chapters`, `:transcript` or `:media`."
-  [view]
+  "The diagnostics of all the parts of `files`, as `read-files!` gives
+  them or a page has them merged in, each with the `:part` that it is
+  about: `:chapters`, `:transcript` or `:media`."
+  [files]
   (vec (for [part [:chapters :transcript :media]
-             :let [{:keys [report error]} (get view part)]
+             :let [{:keys [report error]} (get files part)]
              diagnostic (cond-> (vec report) error (conj error))]
          (assoc diagnostic :part part))))
 
@@ -234,10 +237,12 @@
   (select-keys (view show item) [:title :published :duration :enclosure :transcript :chapters-url :links])
   (:source (:chapters (view show item)))
 
-  ;; the files of the episode, read
-  (def v (view! show item {:languages ["da" "en"]}))
-  (:source (:chapters v))
-  (count (:segments (:document (:transcript v))))
-  (:duration (:media v))
-  (report v)
+  ;; the files of the episode, read, and the page
+  (def v (view show item {:languages ["da" "en"]}))
+  (def files (read-files! v))
+  (:source (:chapters files))
+  (count (:segments (:document (:transcript files))))
+  (:duration (:media files))
+  (report files)
+  (keys (merge v files))
   #_.)

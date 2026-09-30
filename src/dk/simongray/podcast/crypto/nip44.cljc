@@ -157,7 +157,7 @@
   `opts` or of `default-limits`.
 
   The nonce is 32 bytes that nobody can guess, new for each payload, as
-  `(bytes/hex (bytes/random! 32))` gives them. The section Encryption of
+  `(bytes/hex (bytes/generate! 32))` gives them. The section Encryption of
   NIP-44 defines the steps."
   ([plaintext conversation-key nonce]
    (encrypt plaintext conversation-key nonce {}))
@@ -225,5 +225,5 @@
   (decrypt payload "c41c775356fd92eadc63ff5a0dc1da211b268cbea22316767095b2871ea1412d")
 
   ;; a new nonce for each payload
-  (encrypt "a" (conversation-key ann (secp256k1/public-key bob)) (bytes/hex (bytes/random! 32)))
+  (encrypt "a" (conversation-key ann (secp256k1/public-key bob)) (bytes/hex (bytes/generate! 32)))
   #_.)

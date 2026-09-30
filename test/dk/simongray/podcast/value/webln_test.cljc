@@ -83,7 +83,7 @@
                          (is (= {:preimage preimage :proven? true} proven) "the preimage is the proof of the invoice")
                          (is (= {:preimage preimage :proven? false} other) "the preimage of another invoice")))))
             (fn []
-              (.then (webln/info! {:provider wallet})
+              (.then (webln/get-info! {:provider wallet})
                      #(is (= {:alias "Ann's wallet" :public-key "03ab" :methods ["keysend" "sendPayment"]} %))))
             (fn []
               (.then (webln/enable! {:provider wallet})

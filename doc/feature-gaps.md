@@ -165,9 +165,9 @@ the listener.
 | Chapters inside MP3 and M4A files | Apple Podcasts, Overcast, Pocket Casts, AntennaPod, Kasts | Target | Medium | Built: `format.media/read!` |
 | Artwork inside MP3 files | The libraries mutagen, music-metadata and TagLib | Target | Small | Built: `format.media/read!` |
 | The duration, from the media file | The libraries podgen and music-metadata | Target | Medium | Built: `format.media/read!` |
-| Checks of media delivery: HEAD, byte ranges, length, type | Rules of Apple Podcasts. Cast Feed Validator, Podbase | Target | Medium | Built: `check/feed!` |
-| Checks of artwork: size, format, color | Rules of Apple Podcasts. Cast Feed Validator, Podbase | Target | Small | Built: `check/feed!`, `format.image` |
-| CORS on transcript and chapter files | podcast-partytime | Target | Small | Built: `check/feed!` |
+| Checks of media delivery: HEAD, byte ranges, length, type | Rules of Apple Podcasts. Cast Feed Validator, Podbase | Target | Medium | Built: `check/check-files!` |
+| Checks of artwork: size, format, color | Rules of Apple Podcasts. Cast Feed Validator, Podbase | Target | Small | Built: `check/check-files!`, `format.image` |
+| CORS on transcript and chapter files | podcast-partytime | Target | Small | Built: `check/check-files!` |
 | A check of `podcast:integrity` | No app found | Target | Small | Built: `format.media/verify!` |
 | Silence trimming, voice boost, loudness, equalizer | Overcast, Pocket Casts, Castro, AntennaPod, Podcast Addict | Out | | |
 
@@ -334,7 +334,7 @@ own.
 | Feature | Who has it | Verdict | Size | Status |
 |---|---|---|---|---|
 | Accessors for `podroll`, `publisher`, `socialInteract`, `soundbite` and `txt` | Pocket Casts, Apple Podcasts, many Podcasting 2.0 apps | Target | Small | Built: `feed.resolve` |
-| Charts by category | The Podcast Index | Target | Small | Built: `:category` of `directory/trending!` |
+| Charts by category | The Podcast Index | Target | Small | Built: `:category` of `directory/fetch-chart!` |
 | Links to apps, and links with a time | Apple Podcasts, Pocket Casts, Spotify, the Podlove Subscribe Button | In part | Small | Built: `directory.links` |
 | Personal recommendations | Apple Podcasts, Overcast, Pocket Casts | Out | | |
 | Search inside the audio of all shows | Castbox, Apple Podcasts, Snipd | Out | | |
@@ -349,7 +349,7 @@ episode, the soundbites, and the `txt` values by purpose.
 
 **Charts by category.** The Podcast Index takes a category for its trending
 shows. The Podcast Index client of podcast-clj can send it, but
-`directory/trending!` has no option for a category.
+`directory/fetch-chart!` has no option for a category.
 
 **Links to apps.** Apps share a link that opens an episode at a time.
 Apple Podcasts, Pocket Casts and Spotify do this. Each app has its own form

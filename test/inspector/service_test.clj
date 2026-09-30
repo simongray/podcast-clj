@@ -96,7 +96,7 @@
                {:kind :image :url "javascript:alert(1)" :path [] :declared {:sources #{:itunes}}
                 :facts {:head {:status 200 :type "image/png"} :image {:type "image/png" :width 1000 :height 1000 :color :rgb}}}]]
     (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})
-                  check/feed! (fn [_ opts]
+                  check/check-files! (fn [_ opts]
                                 (swap! runs conj opts)
                                 {:files files :report (check/report files (:profile opts))})]
       (let [{:keys [status body]} (get* "/check" "url" "https://example.com/check.xml" "items" "3")]

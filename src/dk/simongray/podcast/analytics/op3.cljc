@@ -7,7 +7,7 @@
   `with-prefix` write the prefix. The API gives the downloads of a show,
   the counts of the show and of its episodes, and the apps of the
   listeners. `request` builds a call of the API as a map, and `response`
-  reads the answer. `call!` and `downloads!` send the calls. Each call
+  reads the answer. `call!` and `fetch-downloads!` send the calls. Each call
   needs the token of an API key from https://op3.dev/api/keys.
 
   A download of OP3 has the keys of the downloads of
@@ -247,7 +247,7 @@
                      (json/object body)                     (response endpoint body)
                      :else                                  (throw (failed status "no JSON object"))))))))
 
-(defn downloads!
+(defn fetch-downloads!
   "The downloads of the show that `params` name, read page after page with
   the bearer `token`, as `{:downloads [...] :continuation-token}`.
 
@@ -264,7 +264,7 @@
   downloads of the pages before that page. The continuation token then
   names the page that failed."
   ([token params]
-   (downloads! token params {}))
+   (fetch-downloads! token params {}))
   ([token params opts]
    (let [params (merge {:limit 20000} params)
          page!  (fn [from]
@@ -303,5 +303,5 @@
      ;; the sample token of the API docs of OP3, for a try
      (call! "preview07ce" :show {:show "917393e3-1b1e-5cef-ace4-edaa54e1f810" :episodes? true})
      (call! "preview07ce" :top-apps-for-show {:show "917393e3-1b1e-5cef-ace4-edaa54e1f810"})
-     (downloads! "preview07ce" {:show "fb3d03641442410e881acb0562ef27c6" :start "-24h" :limit 10} {:max-pages 2})
+     (fetch-downloads! "preview07ce" {:show "fb3d03641442410e881acb0562ef27c6" :start "-24h" :limit 10} {:max-pages 2})
      #_.))

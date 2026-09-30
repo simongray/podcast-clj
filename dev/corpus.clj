@@ -375,7 +375,7 @@
 
 (defn check-feeds!
   "Fetch each feed of `feeds` and check the files that it and its newest
-  `items` link to over the network, as `check/feed!` does with `opts`, the
+  `items` link to over the network, as `check/check-files!` does with `opts`, the
   feed at the URL that the corpus lists, so that its redirects count:
   `[{:name :files :report}]`, or `{:name :error}` for a feed that could not
   be fetched."
@@ -384,7 +384,7 @@
    (vec (pmap (fn [[name url]]
                 (let [{:keys [feed status error]} (podcast/fetch! url)]
                   (if feed
-                    (let [{:keys [files report]} (check/feed! feed (assoc opts :url url))]
+                    (let [{:keys [files report]} (check/check-files! feed (assoc opts :url url))]
                       {:name name :files (count files) :report report})
                     {:name name :error (or (:reason error) (str "HTTP " status))})))
               (sort feeds)))))

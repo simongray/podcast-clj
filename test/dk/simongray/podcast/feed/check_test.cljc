@@ -262,7 +262,7 @@
         left  (fn [result] (frequencies (map (comp :unchecked :facts) (:files result))))
         told  (fn [result] (map (juxt :limit :count) (filter #(= :check/unchecked (:id %)) (:report result))))]
     (run
-     #(async/then (check/feed! feed {:send send :max-files 10 :allow? (constantly true)})
+     #(async/then (check/check-files! feed {:send send :max-files 10 :allow? (constantly true)})
                   (fn [result]
                     (is (= 51 (count (:files result))) "every file that the feed names")
                     (is (= {nil 10 :max-files 41} (left result)))
@@ -272,7 +272,7 @@
                            (set (map (juxt :timeout-seconds :max-bytes (comp some? :allow?)) @sent)))
                         "each request carries the limits and the guard")))
      #(let [ms (atom 0)]
-        (async/then (check/feed! feed {:send        send
+        (async/then (check/check-files! feed {:send        send
                                        :concurrency 1
                                        :max-seconds 10
                                        :now         (fn [] (time/->inst (swap! ms + 1000)))})
@@ -296,7 +296,7 @@
                                    :content-range {:start 0 :end 1 :total 5}}
                  :else            {:status 200 :url url :headers {} :body file}))]
     (run
-     #(async/then (check/feed! feed {:send send :integrity? true :allow? (constantly true)})
+     #(async/then (check/check-files! feed {:send send :integrity? true :allow? (constantly true)})
                   (fn [result]
                     (let [whole (filter (fn [r] (and (not= :head (:method r)) (nil? (:range r)))) @sent)]
                       (is (= {:valid? true :algorithm "sha256"}
@@ -352,7 +352,7 @@
                                          :podcast/alternate-enclosures [{:type "video/mp4" :length 200
                                                                          :integrity {:type "sri" :value (sri video)}
                                                                          :sources [{:uri (str base "/v.mp4")}]}]}]}
-                 check (fn [opts] (check/feed! feed (merge {:url (str base "/feed.xml") :profile :apple} opts)))
+                 check (fn [opts] (check/check-files! feed (merge {:url (str base "/feed.xml") :profile :apple} opts)))
                  found (fn [result path] (set (map :id (filter #(= (str base path) (:url %)) (:report result)))))]
              (testing "two bytes of each file, and the header of the image"
                (let [result (check {})]
@@ -393,7 +393,7 @@
                      "and no request for the whole file")))
              (reset! requests [])
              (testing "a private feed, whose credentials go to it alone"
-               (let [result (check/feed! {:rss/items []} {:url (str (str/replace base "http://" "http://user:pw@") "/feed.xml")})]
+               (let [result (check/check-files! {:rss/items []} {:url (str (str/replace base "http://" "http://user:pw@") "/feed.xml")})]
                  (is (= [(str base "/feed.xml")] (map :url (:files result))) "the URL without them")
                  (is (= #{"/feed.xml"} (set (keep #(when (:authorization %) (:path %)) @requests))))))))))))
 
@@ -410,7 +410,7 @@
                                      :podcast/chapters    {:url "https://a/c.json" :type "application/json+chapters"}}]}]
          ;; the global fetch, as http/call! finds it
          (set! (.-fetch js/globalThis) (fn [url _] (js/Promise.resolve ((responses url)))))
-         (-> (check/feed! feed {:read? true})
+         (-> (check/check-files! feed {:read? true})
              (.then (fn [{:keys [files report]}]
                       (is (= [:transcript :chapters] (map :kind files)))
                       (is (= [1 1] (map #(get-in % [:facts :read :count]) files)))

@@ -21,7 +21,7 @@
   by words, `:lookup` one show by the source's id, `:trending` the
   source's chart. Apple, fyyd and gpodder.net need no credentials; the
   Podcast Index takes its under `:credentials` in the options. On the JVM,
-  `search!` and `trending!` ask several sources at once and `combine` the
+  `search!` and `fetch-chart!` ask several sources at once and `combine` the
   answers into one entry per show."
   (:require [clojure.string :as str]
             #?(:clj [dk.simongray.podcast.util.async :as async])
@@ -554,7 +554,7 @@
         (update answer :results #(vec (sort-by (fn [show] (- (count (:directory/sources show)))) %)))))))
 
 #?(:clj
-   (defn trending!
+   (defn fetch-chart!
      "The charts of the directories combined, as `search!` returns them,
      in the order that the sources list them. `opts` are those of
      `search!`.
@@ -563,7 +563,7 @@
      `endpoints` tells. A source that has no chart of the category is in
      `:failed`, with the reason."
      ([]
-      (trending! {}))
+      (fetch-chart! {}))
      ([opts]
       {:pre [(map? opts)]}
       (fan-out! (or (:sources opts) (default-sources opts))
@@ -576,5 +576,5 @@
      (request :apple :search {:q "podcasting 2.0" :limit 3})
      (call! :fyyd :search {:q "podcasting 2.0" :limit 3})
      (:results (search! "podcasting 2.0" {:limit 3}))
-     (map :rss/title (:results (trending! {:country "dk" :limit 5})))
+     (map :rss/title (:results (fetch-chart! {:country "dk" :limit 5})))
      #_.))

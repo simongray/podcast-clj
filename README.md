@@ -34,8 +34,9 @@ What it covers:
 
 The library is decomplected. Everything is data, each namespace stands
 on its own, and only the functions whose names end in `!` touch the
-network. The high-level functions compose the low-level ones, so you can
-drop down at any point.
+network. Each of them is named by its verb, and gives what the verb
+produced, for the app to merge in. The high-level functions compose the
+low-level ones, so you can drop down at any point.
 
 
 Feeds as data
@@ -111,7 +112,7 @@ a step that changes the library gives it back with what it did in it:
 (def id (let [[show item] (first (library/episodes @lib {:order :newest}))]
           (library/episode-id @lib show item)))
 
-(library/episode! @lib id)                                       ; a page: the notes, the chapters, the transcript
+(merge (library/episode @lib id) (library/read-files! @lib id))  ; a page: the notes, the chapters, the transcript
 (:effects (swap! lib library/step [:progress id 754 3600] now))  ; => [], or what the media element must do
 (reset! lib (library/refresh! @lib now))                         ; the feeds that are due
 (:added (:refresh @lib))                                         ; => [id …], the new episodes
