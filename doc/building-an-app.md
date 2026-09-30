@@ -8,18 +8,36 @@ its code as a working example.
 
 ## Before you start
 
-An app keeps these values between runs:
+An app keeps a library, one map with everything of a listener in it, and
+`app.library` keeps it whole:
 
-- the player state of `app.player`: the subscriptions, the queue, and the
-  progress in each episode
-- the feeds of `app.feeds`: the parsed feeds, by feed guid, each with its
-  URL, the validators of the last fetch and the time of the next check
-- the parsed OPML lists that the listener follows, by URL, in the same way
-- the search index of `app.search`, if the app searches
-- the list of the files on the device, by episode, if the app downloads
-- the sync cursors that `sync!` returns, if the app syncs
+```clojure
+(def lib (library/make device-id now {:name "Phone" :settings {:languages ["da" "en"]}}))
+(def lib (library/subscribe lib url (podcast/fetch! url {:max-pages 20}) now))
+(library/refresh! lib now)                          ; => {:library … :added [id …] :moved {} :report []}
+(library/episodes lib {:where {:status :unplayed}})  ; the episodes across the shows
+(library/step lib [:progress id 1234 3600] now)     ; => {:library … :effects [[:seek id 1264]]}
+(library/sync! lib [cloud] now)                     ; => {:library … :next-at #inst "…"}
+(:player lib)                                       ; the player state, for every function of app.player
+```
 
-All of these values are EDN. The app decides where to store them.
+The library holds these values, and each is what its own namespace gives,
+so the sections below say what a step of the library does with them:
+
+- `:player`, the player state of `app.player`: the subscriptions, the
+  queue, and the progress in each episode
+- `:feeds`, the feeds of `app.feeds`: the parsed feeds, by feed guid,
+  each with its URL, the validators of the last fetch and the time of the
+  next check
+- `:lists`, the parsed OPML lists that the listener follows, by URL, in
+  the same way
+- `:index`, the search index of `app.search`, when the settings say
+  `:search? true`
+- `:sync`, the cursors that `sync!` returns
+- `:settings`, given once to `make`: the options that every step reads
+
+The files on the device, by episode, are the app's, and `plan` takes them.
+All of these values are EDN. The app decides where to store the library.
 
 The examples use these aliases:
 
@@ -30,6 +48,7 @@ The examples use these aliases:
          '[dk.simongray.podcast.app.downloads :as downloads]
          '[dk.simongray.podcast.app.episode :as episode]
          '[dk.simongray.podcast.app.feeds :as feeds]
+         '[dk.simongray.podcast.app.library :as library]
          '[dk.simongray.podcast.app.player :as player]
          '[dk.simongray.podcast.app.search :as search]
          '[dk.simongray.podcast.app.show :as show]
@@ -111,8 +130,12 @@ decides if a web page can send the request.
 
 ## Subscribe to a show
 
-Fetch the feed, keep the validators for the next fetch, and add the
-subscription to the player state:
+With the library, one call: `(library/subscribe lib url (podcast/fetch!
+url {:max-pages 20}) now {:auto-queue? true})`. It keeps the feed with its
+validators, adds the subscription with its settings, and indexes the
+feed when the library searches. Below it, fetch the feed, keep the
+validators for the next fetch, and add the subscription to the player
+state:
 
 ```clojure
 (def r (podcast/fetch! url {:max-pages 20}))  ; {:status 200 :feed … :etag … :last-modified … :url …}
@@ -202,10 +225,16 @@ to `podcast/parse`.
 
 ## Keep the feeds current
 
-`app.feeds` keeps the feeds of an app in one map, by the guid of each
-feed, with its URL, the validators of the last fetch and the time of the
-next check. `refresh!` fetches the feeds that are due and applies each
-answer: a fresh feed, a 304, a failure, or a move.
+With the library, one call: `(library/refresh! lib now)`. It fetches the
+lists that are due, the feeds of the subscriptions that have none, and
+the feeds that are due, and gives each fresh feed to `player/refresh`.
+The result names the new episodes under `:added` and the feeds that moved
+under `:moved`, with their subscriptions moved too.
+
+Below it, `app.feeds` keeps the feeds of an app in one map, by the guid
+of each feed, with its URL, the validators of the last fetch and the
+time of the next check. `refresh!` fetches the feeds that are due and
+applies each answer: a fresh feed, a 304, a failure, or a move.
 
 ```clojure
 (def feeds (feeds/add {} url r now))  ; r from podcast/fetch!, as above
@@ -332,6 +361,12 @@ Someone can keep a list of shows as an OPML file on the web, such as the
 shows of a network or the picks of a critic. A listener can follow such a
 list. The app then fetches the list from time to time, as it fetches the
 feeds, and the new shows in the list become subscriptions.
+
+With the library: `(library/follow lib list-url (opml/parse body) now
+{:title "Picks" :folder "Picks"})`, and `library/refresh!` fetches the
+list again after a day, and the feeds of the shows that it brought. A
+list names a show by its URL. When the feed then declares a guid of its
+own, the subscription moves to it, as `player/rekey` moves it.
 
 ```clojure
 (def list-url "https://example.org/picks.opml")
@@ -651,9 +686,9 @@ AppViews that answer without an account, as of September 2026:
 ## Play episodes
 
 The player state holds the queue and the progress. The app holds the media
-element. Send each event of the media element to `player/step`. `step`
-returns the new state and the effects that the app must do: seek in the
-media, or play the next episode.
+element. Send each event of the media element to `library/step`, or to
+`player/step` below it. `step` returns the new state and the effects that
+the app must do: seek in the media, or play the next episode.
 
 ```clojure
 (def id (player/episode-id show url item))
@@ -720,9 +755,9 @@ The browser player of the inspector is a working example, in
 
 ## Download episodes
 
-`downloads/plan` tells which episodes to download and which files to
-delete. The app downloads and deletes the files, and it keeps the list of
-the files on the device.
+`library/plan`, and `downloads/plan` below it, tells which episodes to
+download and which files to delete. The app downloads and deletes the
+files, and it keeps the list of the files on the device.
 
 Keep the rules in the player state, so that they sync. The rule of a show
 is the setting `:downloads`, and the rules of the listener are the
@@ -828,10 +863,17 @@ the two times:
 
 ## Search the episodes
 
-The search index is a value that you build from the feeds. When a feed
-changes, build the index again, or use `search/add` and `search/remove`. To
-make a transcript searchable, give it to `search/item-document`. In a
-browser with little memory, index fewer fields.
+With `:search? true` in its settings, the library keeps the index, adds
+each feed that comes and removes each that goes, and `library/search`
+asks it. The index of a show of 200 episodes is two megabytes, and it
+takes a fifth of a second to build. So a phone with many shows leaves it
+off.
+
+Below it, the search index is a value that you build from the feeds. When
+a feed changes, build the index again, or use `search/add` and
+`search/remove`. To make a transcript searchable, give it to
+`search/item-document`. In a browser with little memory, index fewer
+fields.
 
 ```clojure
 (def idx (search/index (for [[_ {:keys [url feed]}] feeds
@@ -937,6 +979,12 @@ the option `:wrappers` replaces them:
 Each device writes its whole state as one document to a store, and reads the
 documents of the other devices. `sync!` does one step: pull, merge and push.
 [Syncing](sync.md) explains why this is safe.
+
+With the library, one call: `(library/sync! lib [cloud folder] now)`. It
+sends the cursors of the last step, and merges what the listener did
+during the step into the result. It compacts, keeps the cursors, and
+tells under `:next-at` when to call again. `library/next-sync` tells the
+same between steps. Below it, the steps by hand:
 
 1. Find the place for the documents: a WebDAV collection, or a folder that a
    sync client mirrors. [Sync stores and documents](stores.md) gives the

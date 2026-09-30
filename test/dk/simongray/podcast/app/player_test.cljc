@@ -33,7 +33,22 @@
         (is (player/subscribed? back "feed-a"))
         (is (= 20 (:skip-intro (player/settings back "feed-a"))))
         (is (= t3 (get-in back [:subscriptions "feed-a" :added-at])))))
-    (is (= s (player/configure s "feed-b" {:rate 2.0} t1)) "settings for an unknown feed change nothing")))
+    (is (= s (player/configure s "feed-b" {:rate 2.0} t1)) "settings for an unknown feed change nothing")
+    (testing "a subscription known by the guid of its URL moves to the guid that the feed declares"
+      (let [tagged (player/tag s "feed-a" "tech" t1)
+            moved  (player/rekey tagged "feed-a" "declared" t2)
+            other  (-> (player/state "laptop")
+                       (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0))]
+        (is (= ["declared"] (keys (player/subscriptions moved))))
+        (is (= {:url "https://a/rss" :title "A" :added-at t0} (select-keys (get (player/subscriptions moved) "declared") [:url :title :added-at])))
+        (is (not (player/subscribed? moved "feed-a")))
+        (is (contains? (:subscriptions moved) "feed-a") "a tombstone")
+        (is (= (player/settings tagged "feed-a") (player/settings moved "declared")))
+        (is (= #{"tech"} (player/tags moved "declared")))
+        (is (= "declared" (get (player/by-url moved) (player/normal-url "https://a/rss"))) "the live one names the URL")
+        (is (= ["declared"] (keys (player/subscriptions (player/merge other moved)))) "the other device learns the move")
+        (is (= s (player/rekey s "feed-a" "feed-a" t2)) "the same guid changes nothing")
+        (is (= s (player/rekey s "feed-b" "declared" t2)) "no subscription, nothing to move")))))
 
 (deftest progress-and-played
   (let [s (-> (player/state "phone")

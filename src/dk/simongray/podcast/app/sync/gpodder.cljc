@@ -275,8 +275,9 @@
   (let [{:keys [feed-guid feed-url episode-id episode-url]}
         (merge (when identities (identities)) (select-keys opts [:feed-guid :feed-url :episode-id :episode-url]))
         subscribed (comp (player/by-url state) player/normal-url)
-        ;; TODO: a new feed that declares a guid of its own keeps the guid of
-        ;; its URL, until the app re-keys its subscription
+        ;; a new feed that declares a guid of its own keeps the guid of its
+        ;; URL until player/rekey moves the subscription, which app.library
+        ;; does when it fetches the feed
         guid-of    #(or (subscribed %) (when feed-guid (feed-guid %)) (guid/from-url %))]
     {:feed-guid   guid-of
      :feed-url    #(or (get-in state [:subscriptions % :url]) (when feed-url (feed-url %)))

@@ -40,7 +40,7 @@ ecosystem that podcast-clj was written for.
 ## Layers
 
 ```
-  5  views        app.show  app.episode  app.feeds
+  5  views        app.show  app.episode  app.feeds  app.library
   4  root         dk.simongray.podcast
   3  companions   feed.resolve  feed.check  format.*  value  value.*  directory  directory.*  updates.*  nostr  comments  comments.*  analytics  analytics.*  app.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
@@ -50,12 +50,14 @@ ecosystem that podcast-clj was written for.
 
 A namespace requires only namespaces in its own layer or in a lower layer.
 `feed.spec` knows nothing about parsing, and `feed` knows nothing about
-HTTP. The views, `app.show`, `app.episode` and `app.feeds`, are the
-only namespaces that require the root namespace, `dk.simongray.podcast`.
-A view of a show fetches and parses the feed of its publisher, and the
-feeds of an app are fetched with `fetch!`. A view gives the data of the
-functions that it calls. So an app reads one map, and calls those
-functions itself when a step is not what it wants.
+HTTP. The views, `app.show`, `app.episode`, `app.feeds` and
+`app.library`, are the only namespaces that require the root namespace,
+`dk.simongray.podcast`. A view of a show fetches and parses the feed of
+its publisher, and the feeds of an app are fetched with `fetch!`. A view
+gives the data of the functions that it calls. So an app reads one map,
+and calls those functions itself when a step is not what it wants. The
+library is the whole of what an app keeps, in one map, and each of its
+parts is what its own namespace gives.
 The companion formats need only the primitives and each other, not
 `feed` or `feed.quirks`. What they need of XML, such as the Hiccup accessors
 and the decoding of entities, is in `util.xml`. `architecture_test.clj`
@@ -86,8 +88,8 @@ podcast-clj, and each part is under the subject that it belongs to:
   `format.media.mp3` and `format.media.mp4`.
 - `app` holds what an app keeps (`app.player`), finds (`app.search`),
   downloads (`app.downloads`), syncs (`app.sync`), shows (`app.show`
-  and `app.episode`) and keeps current (`app.feeds`). The stores are
-  under `app.sync`.
+  and `app.episode`) and keeps current (`app.feeds`), and all of it in
+  one map (`app.library`). The stores are under `app.sync`.
 - The Podcast Index client is under `directory`, because the Podcast Index
   is one of the directories. `directory.links` writes the links to a show
   in the directories and in the apps.

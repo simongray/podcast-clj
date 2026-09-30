@@ -1,0 +1,196 @@
+(ns dk.simongray.podcast.app.library-test
+  "The library of a listener: subscribing, following a list, the step that
+  fetches what is due through stand-ins, the views, the episodes across
+  shows, the events of the player, the sync between two devices and the
+  downloads."
+  (:require #?(:cljs [dk.simongray.podcast.test-setup])
+            [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.app.library :as library]
+            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.format.opml :as opml]
+            [dk.simongray.podcast.test-support :refer [fixture run]]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.time :as time]))
+
+(def now #inst "2026-09-30T12:00:00Z")
+
+(defn- at
+  [seconds]
+  (time/->inst (+ (inst-ms now) (* 1000 seconds))))
+
+(def url "https://example.com/feed.xml")
+
+(def show
+  (podcast/parse (fixture "feeds/namespace-example.xml")))
+
+(def guid (:podcast/guid show))
+
+(def fresh
+  {:status 200 :url url :feed show :etag "\"v1\""})
+
+(def other-url "https://example.org/other.xml")
+
+(def other
+  "Another show, with one episode."
+  (-> show
+      (assoc :podcast/guid "0ther-guid" :rss/title "Other")
+      (update :rss/items (fn [items] [(assoc (first items) :rss/guid {:content "o1"} :rss/title "Other one")]))))
+
+(def library
+  (-> (library/make "phone" now {:name "Phone" :settings {:languages ["es"]}})
+      (library/subscribe url fresh now {:auto-queue? true})))
+
+(def picks
+  "An OPML list with the other show."
+  (opml/parse (str "<opml version=\"2.0\"><head><title>Picks</title></head><body>"
+                   "<outline type=\"rss\" text=\"Other\" xmlUrl=\"" other-url "\"/>"
+                   "</body></opml>")))
+
+(deftest a-fresh-library
+  (let [lib (library/make "phone" now {:name "Phone" :platform "ios"})]
+    (is (= "phone" (:device lib)))
+    (is (= {:name "Phone" :platform "ios"} (dissoc (get (player/devices (:player lib)) "phone") :updated-at :device)))
+    (is (nil? (:index lib)) "no index unless the settings say so")
+    (is (= {} (:feeds lib)))
+    (is (= library/default-settings (:settings lib)))
+    (is (some? (:index (library/make "phone" now {:settings {:search? true}}))))
+    (is (= now (library/next-sync lib now)) "due at once before the first sync")))
+
+(deftest subscribing
+  (testing "the feed, the subscription and its settings"
+    (is (= [url "\"v1\""] ((juxt :url :etag) (get-in library [:feeds guid]))))
+    (is (= show (get-in library [:feeds guid :feed])))
+    (let [subs (library/subscriptions library)]
+      (is (= [guid] (keys subs)))
+      (is (= "Podcasting 2.0 Namespace Example" (:title (subs guid))))
+      (is (true? (:auto-queue? (:settings (subs guid)))))
+      (is (= show (:feed (subs guid))))))
+  (testing "the views of the library"
+    (is (= "Podcasting 2.0 Namespace Example" (:title (library/show library guid))))
+    (is (= 3 (count (:episodes (library/show library guid)))))
+    (is (nil? (library/show library "nope")))
+    (let [id [guid "https://example.com/ep0003"]]
+      (is (= "Episode 3 - The Future" (:title (library/episode library id))))
+      (is (= "text/vtt" (:type (:transcript (library/episode library id)))) "the languages of the settings choose the Spanish one")
+      (is (= "text/plain" (:type (:transcript (library/episode library id {:languages ["en"] :transcript-types ["text/plain"]})))))
+      (is (nil? (library/episode library [guid "nope"])))))
+  (testing "unsubscribing"
+    (let [lib (library/unsubscribe library guid now)]
+      (is (= {} (library/subscriptions lib)))
+      (is (= {} (:feeds lib)))
+      (is (false? (player/subscribed? (:player lib) guid))))))
+
+(deftest the-search-index
+  (let [lib (-> (library/make "phone" now {:settings {:search? true}})
+                (library/subscribe url fresh now))]
+    (is (= 4 (count (:docs (:index lib)))) "the show and its three episodes")
+    (is (= [guid "https://example.com/ep0003"] (:id (first (library/search lib "future")))))
+    (is (= 0 (count (:docs (:index (library/unsubscribe lib guid now))))))
+    (is (nil? (library/search library "future")) "no index, no search")))
+
+(deftest following-a-list
+  (let [lib (library/follow library "https://example.org/picks.opml" picks now {:title "Picks" :folder "Picks" :etag "\"p1\""})]
+    (is (= {"https://example.org/picks.opml" {:title "Picks" :folder "Picks"}} (player/lists (:player lib))))
+    (is (= "\"p1\"" (get-in lib [:lists "https://example.org/picks.opml" :etag])))
+    (is (= (at 86400) (get-in lib [:lists "https://example.org/picks.opml" :next-check])))
+    (is (= 2 (count (library/subscriptions lib))) "the show of the list joined")
+    (is (nil? (:feed (get (library/subscriptions lib) (player/normal-url other-url)))) "not fetched yet")
+    (let [gone (library/unfollow lib "https://example.org/picks.opml" now)]
+      (is (= {} (player/lists (:player gone))))
+      (is (= {} (:lists gone)))
+      (is (= 2 (count (library/subscriptions gone))) "the subscriptions stay"))))
+
+(deftest the-step-that-fetches-what-is-due
+  (let [lib     (library/follow library "https://example.org/picks.opml" picks now {:title "Picks" :folder "Picks"})
+        later   (at 86400)
+        asked   (atom [])
+        newer   (update show :rss/items conj (assoc (first (:rss/items show)) :rss/guid {:content "new"} :rss/title "New one" :rss/pub-date #inst "2026-09-30T00:00:00Z"))
+        fetch   (fn [url _]
+                  (swap! asked conj url)
+                  (case url
+                    "https://example.com/feed.xml" {:status 200 :url url :feed newer :etag "\"v2\"" :permanent-url "https://example.com/moved.xml"}
+                    "https://example.org/other.xml" {:status 200 :url url :feed other}
+                    (throw (ex-info "no route" {:url url}))))
+        send    (fn [{:keys [url headers]}]
+                  (swap! asked conj [url (get headers "If-None-Match")])
+                  {:status 304 :headers {} :body ""})]
+    (run
+     (fn []
+       (async/then (library/refresh! lib later {:fetch fetch :send send})
+                   (fn [{lib' :library :keys [added moved report]}]
+                     (testing "the list asked with its validators, and unchanged"
+                       (is (some #(= ["https://example.org/picks.opml" nil] %) @asked))
+                       (is (= (at (* 2 86400)) (get-in lib' [:lists "https://example.org/picks.opml" :next-check]))))
+                     (testing "the feed of the new subscription fetched and kept, under the guid that it declares"
+                       (is (= "Other" (:rss/title (:feed (get (library/subscriptions lib') "0ther-guid")))))
+                       (is (= #{guid "0ther-guid"} (set (keys (library/subscriptions lib')))) "the guid of the URL is gone")
+                       (is (= "Picks" (:folder (:settings (get (library/subscriptions lib') "0ther-guid")))) "the folder of the list moved with it")
+                       (is (= 2 (count (:feeds lib')))))
+                     (testing "the due feed fetched, its new episode found and queued, and its move applied"
+                       (is (= [[guid "new"]] added))
+                       (is (= [[guid "new"]] (player/queue (:player lib'))) "auto-queue")
+                       (is (= {guid "https://example.com/moved.xml"} moved))
+                       (is (= "https://example.com/moved.xml" (:url (get (library/subscriptions lib') guid))))
+                       (is (= "https://example.com/moved.xml" (get-in lib' [:feeds guid :url])))
+                       (is (= "\"v2\"" (get-in lib' [:feeds guid :etag]))))
+                     (is (= [] report)))))
+     (fn []
+       (reset! asked [])
+       (async/then (library/refresh! lib later {:fetch (fn [url _] (throw (ex-info "down" {:url url})))
+                                                :send  (fn [_] (throw (ex-info "down" {})))})
+                   (fn [{lib' :library :keys [added report]}]
+                     (testing "nothing comes: the library stays, and the report says why"
+                       (is (= [] added))
+                       (is (= #{:fetch/unreachable} (set (map :id report))))
+                       (is (= 3 (count report)) "the list, the new subscription and the due feed")
+                       (is (= show (get-in lib' [:feeds guid :feed])))
+                       (is (= 1 (:failures (get-in lib' [:feeds guid])))))))))))
+
+(deftest the-episodes-across-the-shows
+  (let [lib (library/subscribe library other-url {:status 200 :url other-url :feed other} now)]
+    (is (= 4 (count (library/episodes lib))))
+    (is (= #{"Other" "Podcasting 2.0 Namespace Example"} (set (map (comp :rss/title first) (library/episodes lib)))))
+    (is (= 2 (count (library/episodes lib {:limit 2}))))
+    (let [id     [guid "https://example.com/ep0003"]
+          played (update lib :player player/mark-played id now)]
+      (is (= 3 (count (library/episodes played {:where {:status :unplayed}})))))))
+
+(deftest the-events-of-the-player
+  (let [id  [guid "https://example.com/ep0003"]
+        lib (update library :player player/enqueue id now)
+        {:keys [library effects]} (library/step lib [:progress id 100 3600] now)]
+    (is (= [] effects))
+    (is (= 100 (player/resume-position (:player library) guid id)))
+    (is (= [[:seek id 130]] (:effects (library/step library [:skip id :forward] now))))))
+
+(deftest keeping-two-devices-in-step
+  (let [documents (atom {})
+        backend   (store/backend (store/memory documents) {:app "test"})
+        laptop    (-> (library/make "laptop" now {:name "Laptop"})
+                      (library/subscribe other-url {:status 200 :url other-url :feed other} now))]
+    (run
+     (fn []
+       (async/then (library/sync! library [backend] (at 10))
+                   (fn [{lib :library :keys [next-at failed report]}]
+                     (is (nil? failed))
+                     (is (= [] report))
+                     (is (= 1 (count @documents)) "the phone wrote its document")
+                     (is (map? (get-in lib [:sync :ctx])))
+                     (is (= (at 10) (get-in lib [:sync :at])))
+                     (is (= (at (+ 10 900)) next-at) "idle: nothing changed since")
+                     (is (= (at (+ 10 900)) (library/next-sync lib (at 10))))
+                     (async/then (library/sync! laptop [backend] (at 20))
+                                 (fn [{lib :library}]
+                                   (testing "the laptop learns the subscription of the phone"
+                                     (is (= 2 (count (library/subscriptions lib))))
+                                     (is (nil? (:feed (get (library/subscriptions lib) guid))) "a feed to fetch at the next refresh!"))))))))))
+
+(deftest the-downloads
+  (let [id  [guid "https://example.com/ep0003"]
+        lib (-> library
+                (update :player player/enqueue id now)
+                (update :player player/prefer {:downloads {:queue 1}} now))]
+    (is (= [[id :queue]] (map (juxt :id :reason) (:download (library/plan lib {} now)))))
+    (is (= [] (:download (library/plan lib {id {:bytes 1 :at now}} now))) "a file that the device has")))

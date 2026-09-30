@@ -1,23 +1,23 @@
 (ns inspector.player
-  "The inspector's player, in the browser. The player state of
-  dk.simongray.podcast.app.player lives here, kept in localStorage;
-  inspector.player.view renders it through Replicant; an
-  audio element plays the current episode and reports back through
-  `player/step`, whose effects seek or stop the audio, or start the next
-  episode.
+  "The inspector's player, in the browser. A library of
+  dk.simongray.podcast.app.library lives here, kept in localStorage, with
+  the player state in it; inspector.player.view renders it through
+  Replicant; an audio element plays the current episode and reports back
+  through `library/step`, whose effects seek or stop the audio, or start
+  the next episode.
   The server only supplies episode data, at /episode.edn.
 
   The player sits in a bar on every page. Clicking a link fetches the next
   page and swaps only the content below the bar, so that playback survives
   moving between pages; the queue page is the detailed view of the same
   state, and syncs it on request through the inspector's own WebDAV folder
-  at /dav/, with the library's WebDAV store over fetch.
+  at /dav/, with `library/sync!` over the WebDAV store over fetch.
 
   Built by `clojure -M:cljs compile player` and served at /js/player.js."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
+            [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.player :as player]
-            [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
             [dk.simongray.podcast.util.time :as time]
@@ -28,10 +28,11 @@
   "Where the state lives between visits."
   "dk.simongray.podcast.app.player")
 
-(defonce ^{:doc "The whole state of the page: `:player` (the library's state),
-  `:titles` by episode id, the sleep timer under `:sleep`, and what the
-  audio element last reported. The player state holds the data of the
-  episodes too, under `:inspector/episodes`, for the other devices."}
+(defonce ^{:doc "The whole state of the page: `:library` (the library of the
+  listener, with the player state under `:player`), `:titles` by episode
+  id, the sleep timer under `:sleep`, and what the audio element last
+  reported. The player state holds the data of the episodes too, under
+  `:inspector/episodes`, for the other devices."}
   app
   (atom nil))
 
@@ -54,16 +55,25 @@
   "A state for this browser, under an id of its own, so that its documents
   never meet another device's."
   []
-  {:player (-> (player/state (str (random-uuid)))
-               (player/identify {:name "browser"} (now)))
-   :titles {}})
+  {:library (library/make (str (random-uuid)) (now) {:name "browser"})
+   :titles  {}})
+
+(defn- upgraded
+  "The saved state `state` in the shape of today: one saved before the
+  library, with `:player` and `:sync-ctx` beside each other, gets a
+  library around them."
+  [{:keys [player sync-ctx] :as state}]
+  (if (and player (not (:library state)))
+    (-> (dissoc state :player :sync-ctx)
+        (assoc :library (assoc (library/make (:device player) (now)) :player player :sync {:ctx sync-ctx})))
+    state))
 
 (defn- read-state
   "The state saved as the string `s`; nil when there is none, or it does not
   read."
   [s]
   (try
-    (some-> s reader/read-string)
+    (some-> s reader/read-string upgraded)
     (catch :default _ nil)))
 
 (defn- load-state
@@ -79,23 +89,20 @@
   titles of both. The sync cursors stay this tab's."
   [state other]
   (-> state
-      (update :player player/merge (:player other))
+      (update-in [:library :player] player/merge (get-in other [:library :player]))
       (update :titles merge (:titles other))))
 
 (defn with-synced
-  "The page `state` with the `result` of a sync step at `at`: its player
-  state merged into the one the page has now, which can hold changes from
-  during the step, and compacted as the step compacted, since the merge
-  brings back the tombstones the step dropped."
-  [state {:keys [ctx failed report] :as result} at]
-  (-> state
-      (update :player #(player/compact (player/merge % (:state result)) at))
-      (assoc :sync-ctx ctx :syncing? false :synced {:at at :failed failed :report report})))
+  "The page `state` with the `result` of `library/sync!` at `at`: the
+  library of the result, which has what the listener did during the step
+  merged in and the tombstones compacted."
+  [state {:keys [library failed report]} at]
+  (assoc state :library library :syncing? false :synced {:at at :failed failed :report report}))
 
 (defn- save!
   [state]
   (try
-    (.setItem js/localStorage storage-key (pr-str (select-keys state [:player :titles :sync-ctx])))
+    (.setItem js/localStorage storage-key (pr-str (select-keys state [:library :titles])))
     (catch :default _ nil)))
 
 (defn- backend
@@ -109,7 +116,7 @@
   the inspector's folder; the result is shown on the queue page."
   []
   (swap! app assoc :syncing? true)
-  (-> (sync/sync! (:player @app) [(backend)] (now) {:ctx (:sync-ctx @app)})
+  (-> (library/sync! (:library @app) [(backend)] (now))
       (.then (fn [result] (swap! app with-synced result (now))))
       (.catch (fn [e]
                 (swap! app assoc :syncing? false
@@ -133,14 +140,15 @@
   page, and perform its effects. The timer that is left is the timer of
   the page from then on."
   [event]
-  (let [{:keys [state effects sleep]} (player/step (:player @app) event (now) (select-keys @app [:sleep]))]
-    (swap! app assoc :player state :sleep sleep)
+  (let [{:keys [library effects sleep]} (library/step (:library @app) event (now) (select-keys @app [:sleep]))]
+    (swap! app assoc :library library :sleep sleep)
     (perform! effects)))
 
 (defn operate!
-  "Apply the player operation `f` to the state, with `args` and the time."
+  "Apply the player operation `f` to the player state of the library,
+  with `args` and the time."
   [f & args]
-  (swap! app update :player #(apply f % (concat args [(now)]))))
+  (swap! app update-in [:library :player] #(apply f % (concat args [(now)]))))
 
 (defn- play!
   "Make the episode `id` the current one, at the front of the queue, and
@@ -218,14 +226,20 @@
           (.then (fn [edn] (add! (reader/read-string edn) mode)))
           (.catch #(swap! app assoc :error (str %)))))))
 
+(defn- shown
+  "The page state as the view reads it: with the player state of the
+  library under `:player`."
+  [state]
+  (assoc state :player (get-in state [:library :player])))
+
 (defn- render!
   "Render the bar, and the queue page too when `page?`."
   [page?]
   (when-let [bar (js/document.getElementById "player-bar")]
-    (replicant/render bar (view/bar @app)))
+    (replicant/render bar (view/bar (shown @app))))
   (when page?
     (when-let [el (js/document.getElementById "app")]
-      (replicant/render el (view/page @app)))))
+      (replicant/render el (view/page (shown @app))))))
 
 (defn- same-origin?
   [href]
@@ -308,7 +322,7 @@
                      (fn [e]
                        (when (= storage-key (.-key e))
                          (when-let [other (read-state (.-newValue e))]
-                           (when-not (player/problem (:player other))
+                           (when-not (player/problem (get-in other [:library :player]))
                              (swap! app with-other-tab other)))))))
 
 (defn ^:export init
@@ -320,7 +334,7 @@
   (save! @app)
   (replicant/set-dispatch! (fn [{:replicant/keys [dom-event]} event] (handle! event dom-event)))
   (add-watch app ::render (fn [_ _ old new]
-                            (let [kept [:player :titles :sync-ctx]]
+                            (let [kept [:library :titles]]
                               (when (not= (select-keys old kept) (select-keys new kept))
                                 (save! new)))
                             ;; the audio reports its time four times a second,

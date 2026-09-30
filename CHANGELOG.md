@@ -470,3 +470,13 @@
   next check waits longer. `affected` names the feeds that a Podping concerns. The
   new diagnostic `:fetch/status` is a feed that answered with a status
   that is not a success.
+- `app.library`, the library of a listener: everything that an app keeps,
+  in one map. It holds the player state, the feeds, the OPML lists, the
+  search index, the cursors of the sync and the settings, which every
+  step reads. `subscribe` and `follow` put a fetched feed or list in.
+  `refresh!` fetches what is due and applies it, the feeds to the player
+  and the lists to the subscriptions. `episodes`, `search`, `show`,
+  `episode`, `step`, `sync!` and `plan` compose the namespaces below it.
+  The browser player of the inspector keeps a library now. New in
+  `app.player`: `rekey` moves a subscription that a list or another app
+  named by the guid of its URL to the guid that the feed declares.

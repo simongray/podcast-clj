@@ -6,6 +6,7 @@
   (:require ["jsdom" :as jsdom]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing async]]
+            [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.util.time :as time]
             [inspector.player :as shell]))
@@ -60,8 +61,8 @@
          (testing "the state is kept in localStorage, with the data of the episode for the other devices"
            (is (str/includes? (str (.getItem js/localStorage shell/storage-key)) "\"a\""))
            (is (= "https://x/a.mp3"
-                  (get-in (:player @shell/app) [:inspector/episodes ["feed" "a"] :value :enclosure])))
-           (is (nil? (player/problem (:player @shell/app)))))
+                  (get-in @shell/app [:library :player :inspector/episodes ["feed" "a"] :value :enclosure])))
+           (is (nil? (player/problem (get-in @shell/app [:library :player])))))
          (testing "the audio element's reports show on the bar"
            (set! (.-currentTime audio) 100)
            (.dispatchEvent audio (js/Event. "timeupdate"))
@@ -77,17 +78,17 @@
              (.dispatchEvent input (js/Event. "change" #js {:bubbles true}))
              (is (str/includes? (.-textContent bar) "−20s"))))
          (testing "what another tab saves is merged in"
-           (let [other {:player (player/enqueue (:player @shell/app) ["feed" "b"] (js/Date.))
-                        :titles {["feed" "b"] (assoc episode :id ["feed" "b"] :title "From the other tab")}}]
+           (let [other {:library (update (:library @shell/app) :player player/enqueue ["feed" "b"] (js/Date.))
+                        :titles  {["feed" "b"] (assoc episode :id ["feed" "b"] :title "From the other tab")}}]
              (.dispatchEvent js/window (new (.-StorageEvent js/window) "storage"
                                             #js {:key shell/storage-key :newValue (pr-str other)}))
              (is (str/includes? (.-textContent app) "From the other tab"))
              (is (str/includes? (.-textContent bar) "First") "this tab's episode plays on")))
          (testing "a click on Play now makes a queued episode the current one"
            (.click (first (filter #(= "Play now" (.-textContent %)) (buttons app))))
-           (is (= ["feed" "b"] (player/current (:player @shell/app))))
+           (is (= ["feed" "b"] (player/current (get-in @shell/app [:library :player]))))
            (is (str/includes? (.-textContent bar) "From the other tab"))
-           (is (= [["feed" "b"] ["feed" "a"]] (player/queue (:player @shell/app))) "and the other waits")))
+           (is (= [["feed" "b"] ["feed" "a"]] (player/queue (get-in @shell/app [:library :player]))) "and the other waits")))
        (done))
      100)))
 
@@ -95,18 +96,22 @@
   (let [t      #(time/->inst (+ (inst-ms #inst "2026-01-01T00:00:00Z") (* % 24 60 60 1000)))
         a      ["feed" "a"]
         b      ["feed" "b"]
-        mine   {:player (player/enqueue (player/state "browser") a (t 0)) :titles {a {:title "A"}}}
-        other  {:player (player/enqueue (player/state "browser") b (t 1)) :titles {b {:title "B"}}}]
+        page   (fn [device id at] {:library (update (library/make device (t 0)) :player player/enqueue id at) :titles {}})
+        mine   (assoc-in (page "browser" a (t 0)) [:titles a] {:title "A"})
+        other  (assoc-in (page "browser" b (t 1)) [:titles b] {:title "B"})]
     (testing "another tab's state joins this one's, titles and all"
       (let [merged (shell/with-other-tab mine other)]
-        (is (= [a b] (player/queue (:player merged))))
+        (is (= [a b] (player/queue (get-in merged [:library :player]))))
         (is (= {a {:title "A"} b {:title "B"}} (:titles merged)))))
-    (testing "a sync step keeps what the listener did during it, and the tombstones it dropped stay dropped"
-      (let [phone  (-> (player/state "phone") (player/enqueue a (t 1)) (player/dequeue a (t 2)))
-            laptop (player/acknowledge (player/merge (player/state "laptop") phone) [phone] (t 3))
-            phone  (player/acknowledge (player/merge phone laptop) [laptop] (t 3))
-            result {:state (player/compact phone (t 40)) :ctx {"inspector" {}} :report []}
-            synced (shell/with-synced {:player (player/enqueue phone b (t 40)) :titles {}} result (t 40))]
-        (is (= [b] (player/queue (:player synced))))
-        (is (not (contains? (:queue (:player synced)) a)))
-        (is (= {"inspector" {}} (:sync-ctx synced)))))))
+    (testing "a sync step gives the page the library of the result, and the state of the step"
+      (let [result {:library (:library other) :failed nil :report []}
+            synced (shell/with-synced mine result (t 40))]
+        (is (= [b] (player/queue (get-in synced [:library :player]))))
+        (is (false? (:syncing? synced)))
+        (is (= {:at (t 40) :failed nil :report []} (:synced synced)))))
+    (testing "a state saved before the library is read into one"
+      (let [old {:player (player/enqueue (player/state "old-browser") a (t 0)) :sync-ctx {"inspector" {}} :titles {a {:title "A"}}}
+            new (shell/with-other-tab mine (#'shell/upgraded old))]
+        (is (= [a] (player/queue (get-in new [:library :player]))))
+        (is (= {"inspector" {}} (get-in (#'shell/upgraded old) [:library :sync :ctx])))
+        (is (= "old-browser" (get-in (#'shell/upgraded old) [:library :device])) "the device of the player stays")))))

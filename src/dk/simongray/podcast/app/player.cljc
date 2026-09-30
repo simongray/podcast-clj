@@ -190,6 +190,28 @@
   [entries]
   (into {} (map (fn [[k e]] [k (:value e)])) entries))
 
+(declare tags)
+
+(defn rekey
+  "`state` with the subscription `feed-guid` known as `new-guid` from `at`.
+  A list or another app names a show by the guid of its URL, and the
+  feed, once fetched, can declare a guid of its own. The subscription,
+  its settings and its tags move to the new guid, and a tombstone stays
+  under the old one. Nothing changes when the guids are the same, or
+  when there is no live subscription."
+  [state feed-guid new-guid at]
+  (if (or (= feed-guid new-guid) (not (subscribed? state feed-guid)))
+    state
+    (let [sub (get-in state [:subscriptions feed-guid])]
+      (write-each state
+                  (concat [[[:subscriptions new-guid] (constantly (select-keys sub [:url :title :added-at :removed?]))]
+                           [[:subscriptions feed-guid] #(assoc % :removed? true)]]
+                          (for [[k v] (values (get-in state [:settings feed-guid]))]
+                            [[:settings new-guid k] (constantly {:value v})])
+                          (for [t (tags state feed-guid)]
+                            [[:tags new-guid t] (constantly {:removed? false})]))
+                  at))))
+
 (defn settings
   "The settings of the subscription `feed-guid`, `default-settings` filled
   in."
