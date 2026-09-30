@@ -15,9 +15,8 @@ wins. A generative test shows that the merge is commutative, associative and
 idempotent. A merge with these three properties is a join, so a backend never
 has to resolve a conflict. It only has to hold documents.
 
-This keeps the backends simple. Each kind of place needs only one short
-namespace. Examples are a synced folder, a WebDAV server, a Git repository,
-and a service with its own protocol.
+Each kind of place needs only one short namespace: a synced folder, a
+WebDAV server, a Git repository, or a service with its own protocol.
 
 
 ## Three kinds of backend
@@ -101,9 +100,6 @@ The reasons come from this problem:
 - Configuration and behavior stay apart. The argument of the constructor is
   the EDN that an app stores, and the store is the value that the app uses.
 
-Nothing is lost for later. When type-based dispatch becomes necessary, a
-protocol can be extended to maps, with no change to the existing stores.
-
 Each store namespace has the same two functions. In each, `store` makes the
 store over a place, and `backend` makes the backend in one call, with the
 options of both. The places themselves are facts about other products, such
@@ -115,9 +111,9 @@ The function `store/check!` tests any store through the contract. It lists
 the store, writes a probe document, puts it again with a stale version, reads
 it back and removes it. It reports the result as data, for a settings screen.
 For a store that cannot list, it tests what one shared document needs: a
-refused stale version. Because `check!` uses only the contract, it also works
-for future stores. A Clojure server becomes a sync server with two lines of
-code, because `app.sync.webdav.server/handler` serves any store over WebDAV.
+refused stale version. A Clojure server becomes a sync server with two lines
+of code, because `app.sync.webdav.server/handler` serves any store over
+WebDAV.
 
 
 ## The engine
@@ -175,9 +171,7 @@ The version of the format changes only when the meaning of an existing key
 changes. New keys need no new version, because a reader merges keys that it
 does not know by the shape of their values. As a result, an app can add
 entries of its own, and podcast-clj can grow the state without a flag day.
-When a version 2 comes, a reader will convert version 1 with a pure
-function. It leaves out a version that is newer than its own, and reports
-it.
+A reader leaves out a version that is newer than its own, and reports it.
 
 A document takes a few hundred bytes for each subscription and about two
 hundred bytes for each episode entry. Ten thousand episodes take a few
@@ -266,17 +260,10 @@ The queue has one entry for each episode, with a rank from `util.rank`. A
 rank is a base-62 string, and there is always room for another rank between
 two ranks.
 
-At the ends of the list, the ranks count. After V come W, X and the other
-digits up to y. Then come the ranks of the next level: z and a number of
-two digits, from z01 to zyz. The level after that has zz and a number of
-three digits. Before the first rank, the ranks count down in the same way,
-with 0 in the place of z.
-
-Each level has 62 times the room of the level before it. So ten thousand
-episodes that go to the end of a queue, one at a time, get ranks of five
-digits at most. One million episodes get ranks of seven. A rule that adds
-a digit when the last digit cannot change gives ranks of 165 digits after
-ten thousand episodes.
+At the ends of the list, the ranks count in levels, and each level has 62
+times the room of the level before it. So ten thousand episodes that go to
+the end of a queue, one at a time, get ranks of five digits at most, and one
+million get ranks of seven.
 
 The function `rank/after` gives the ranks of many episodes that go to the end
 at one time. Examples are the episodes of a list feed, and the new episodes
@@ -633,8 +620,6 @@ The interfaces are sufficient for backends that nobody planned:
 - A database keeps the documents as rows.
 - A key-value service without a listing uses the shared strategy.
 
-None of them needs a change to podcast-clj.
-
 
 ## Credentials and privacy
 
@@ -650,8 +635,7 @@ what it stores. The encrypting wrapper, `app.sync.encrypted`, is the
 extension that the map-of-functions contract was chosen for. It uses
 AES-256-GCM, with a key that PBKDF2 derives from a passphrase. On the JVM it
 uses `javax.crypto`, and in a browser it uses WebCrypto, which is
-asynchronous. The promise convention of the stores covers this. The wrapper
-works over any store, including stores that do not exist yet.
+asynchronous. The promise convention of the stores covers this.
 
 Each encrypted document is an envelope that carries the salt, the IV and the
 iteration count that sealed it. There is no key file to lose, and the key is
@@ -682,7 +666,7 @@ store runs against recorded answers, PROPFIND included, with a live call in
 a comment block. The WebDAV folder of the inspector is tested through
 Pedestal, like the other routes. It is also a real WebDAV server for the
 test of the WebDAV store in `test/inspector/`, where Pedestal is available.
-The library tests stay on the minimum Clojure version. The encrypted tests
+The encrypted tests
 hold an envelope sealed on each platform, and open it on the other platform.
 
 The gpodder client reads recorded answers in the shapes of gpodder.net and

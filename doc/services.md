@@ -234,9 +234,9 @@ of the W3C, which a browser plays from the time.
 ## The relays of Nostr
 
 The default relays for the comments of Nostr are in
-`comments.nostr/relays`, and `comments/fetch!` asks them when the
-options name no `:relays`. A root that names
-relays gets its questions to those relays first.
+`comments.nostr/relays`, and `comments/fetch!` asks them when the options
+name no `:relays`. A root that names relays gets its questions to those
+relays first.
 
 The table tells what each relay answered on 29 September 2026. The
 question was for the notes about one episode, by its id of NIP-73, which

@@ -150,7 +150,7 @@ of it, so a put would lose data.
 - The `:state` does not contain what the listener did during the step. Merge it
   into the current state with `player/merge`, and then compact the result
   with `player/compact`, because the merge brings back the tombstones that
-  the step removed. Do not put `:state` in the place of the current state.
+  the step removed.
 - On the JVM, `sync!` returns the map. In ClojureScript, it returns a
   promise of the map.
 - The options of `sync!` are `:ctx`, the cursors of the last step, and
