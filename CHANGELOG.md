@@ -473,7 +473,8 @@
 - `app.library`, the library of a listener: everything that an app keeps,
   in one map. It holds the player state, the feeds, the OPML lists, the
   search index, the cursors of the sync and the settings, which every
-  step reads. `subscribe` and `follow` put a fetched feed or list in.
+  step reads. `subscribe` and `follow` put a fetched feed or list in,
+  and `subscribe` takes a parsed feed too, without validators.
   `refresh!` fetches what is due and applies it, the feeds to the player
   and the lists to the subscriptions. `episodes`, `search`, `show`,
   `episode`, `step`, `sync!` and `plan` compose the namespaces below it.

@@ -60,14 +60,14 @@
   URL of the feed when it moved."
   [old url result now cadence]
   (let [{:keys [feed status etag last-modified not-before websub permanent-url new-feed-url]} result]
-    (-> (dissoc old :etag :last-modified :websub)
+    (-> (dissoc old :etag :last-modified :websub :status)
         (assoc :url (or permanent-url new-feed-url url)
                :feed feed
                :fetched-at now
                :next-check (check-at feed now not-before cadence)
-               :failures 0
-               :status status)
+               :failures 0)
         (cond->
+          status        (assoc :status status)
           etag          (assoc :etag etag)
           last-modified (assoc :last-modified last-modified)
           websub        (assoc :websub websub)))))

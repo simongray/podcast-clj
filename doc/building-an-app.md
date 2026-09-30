@@ -157,7 +157,9 @@ decides if a web page can send the request.
 With the library, one call: `(swap! lib library/subscribe url
 (podcast/fetch! url {:max-pages 20}) now {:auto-queue? true})`. It keeps the feed with its
 validators, adds the subscription with its settings, and indexes the
-feed when the library searches. Below it, fetch the feed, keep the
+feed when the library searches. A parsed feed works in the place of the
+fetch, e.g. one read from a file, and the entry then has no validators
+for the next fetch. Below it, fetch the feed, keep the
 validators for the next fetch, and add the subscription to the player
 state:
 

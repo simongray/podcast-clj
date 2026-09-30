@@ -129,18 +129,30 @@
       (assoc library :index (reduce search/add (unindexed index guid) (when feed (documents feed url)))))
     library))
 
+(defn- fetch-result
+  "The `x` given to `subscribe` as the result of a fetch: itself, or a
+  parsed feed, whose keys are namespaced, as the result of a fetch
+  without validators."
+  [x]
+  (if (some #(and (keyword? %) (namespace %)) (keys x))
+    {:feed x}
+    x))
+
 (defn subscribe
-  "`library` subscribed to the feed that `result`, the result of
-  `dk.simongray.podcast/fetch!` from `url`, gave at `now`: the feed kept
-  as `app.feeds/add` keeps it, the subscription in the player state, and
-  the feed indexed when the library searches. `opts` are the settings of
-  the subscription, as `player/configure` takes them."
-  ([library url result now]
-   (subscribe library url result now {}))
-  ([library url result now opts]
-   {:pre [(map? (:feed result)) (map? opts)]}
-   (let [feed (:feed result)
-         guid (feed/feed-guid feed url)]
+  "The `library` subscribed to the feed that `fetched` gave at `now`: the
+  feed kept as `app.feeds/add` keeps it, the subscription in the player
+  state, and the feed indexed when the library searches. The `fetched`
+  is the result of `dk.simongray.podcast/fetch!` from `url`, or the
+  parsed feed from there, which then has no validators for the next
+  fetch. The `opts` are the settings of the subscription, as
+  `player/configure` takes them."
+  ([library url fetched now]
+   (subscribe library url fetched now {}))
+  ([library url fetched now opts]
+   {:pre [(map? (:feed (fetch-result fetched))) (map? opts)]}
+   (let [result (fetch-result fetched)
+         feed   (:feed result)
+         guid   (feed/feed-guid feed url)]
      (-> library
          (update :feeds feeds/add url result now (:cadence (:settings library) {}))
          (update :player player/subscribe guid {:url url :title (resolve/title feed)} now)

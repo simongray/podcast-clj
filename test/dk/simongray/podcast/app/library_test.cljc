@@ -67,6 +67,13 @@
       (is (= "Podcasting 2.0 Namespace Example" (:title (subs guid))))
       (is (true? (:auto-queue? (:settings (subs guid)))))
       (is (= show (:feed (subs guid))))))
+  (testing "a parsed feed in the place of the fetch"
+    (let [lib (library/subscribe (library/make "phone" now) url show now)]
+      (is (= show (get-in lib [:feeds guid :feed])))
+      (is (nil? (get-in lib [:feeds guid :etag])) "no validators")
+      (is (= [guid] (keys (library/subscriptions lib))))))
+  (testing "a fetch that gave no feed"
+    (is (thrown? #?(:clj Throwable :cljs js/Error) (library/subscribe library url {:status 404 :url url} now))))
   (testing "the views of the library"
     (is (= "Podcasting 2.0 Namespace Example" (:title (library/show library guid))))
     (is (= 3 (count (:episodes (library/show library guid)))))
