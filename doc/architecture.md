@@ -501,12 +501,9 @@ list and the source agree.
   ranges that it needs. The reader `bytes/read!` fetches these ranges with
   the range requests of `http/fetcher`, and reads again. So the readers do no
   I/O, and one loop fetches with futures on the JVM and with promises in
-  JavaScript. Most files need one or two requests and a few hundred
-  kilobytes. From a server that ignores ranges, the fetcher reads only the
-  start of the file that the reader needs. A host that inserts ads can send a
-  different file to each request, so the duration is that of the file that
-  came. When a request fails, the result of `read!` is the `:error` alone,
-  the diagnostic `:file/unreachable`. The step `verify!` checks a file
+  JavaScript. A host that inserts ads can send a different file to each
+  request, so the duration is that of the file that came. The step
+  `verify!` checks a file
   against the `podcast:integrity` of an alternate enclosure, by the rules of
   W3C Subresource Integrity. When it made no check, its verdict has an
   `:error` that tells why.
@@ -592,8 +589,8 @@ In September 2026, a check of the 28 feeds of the corpus, two items each,
 with the Apple profile, found two errors, both artwork with transparency.
 Every host answered HEAD and byte ranges. The lengths and the durations of
 the files of hosts that insert ads differ from the feed by some percent,
-because each request gets another file, so these diagnostics are only
-info. Five hosts serve transcripts or chapters without CORS.
+because each request gets another file, so these diagnostics are only info.
+Five hosts serve transcripts or chapters without CORS.
 
 In ClojureScript, `feed!` sends with fetch. Node can check any server. A
 browser fails without a reason where CORS does not allow the page to read,
@@ -682,8 +679,8 @@ holds routers, other services, and the metadata of a cloud server.
 
 The guard is `:allow?`, a predicate of a URL. Each function that sends
 requests takes it as an option, and puts it on each request map. Both
-`http/call!` and `http/digest!` ask it about the URL of the request. A
-`:send` of the app gets the same request maps, so it can ask too.
+`http/call!` and `http/digest!` ask it about the URL of the request. The
+app's own `:send` gets the same request maps, so it can ask too.
 
 The functions that fetch these URLs have `http/public?` as their `:allow?` by
 default: `comments/fetch!`, `value.lnaddress/invoice!` and `node!`, and
@@ -693,7 +690,7 @@ registry of special addresses lists them. It also refuses an IPv6 address
 that holds such an IPv4 address. With this guard, `http/call!` is
 `http/call-public!`.
 
-On the JVM, `http/public?` resolves the name of the host and checks every
+On the JVM, `http/public?` resolves the host's name and checks every
 address that the name resolves to. The sender `http/call!` checks the URL of
 each redirect in the same way, with its option `:allow?`. The JVM keeps what
 it resolved for 30 seconds by default, so the request goes to the address
@@ -718,18 +715,17 @@ The guard is an option of its own, and not a property of `:send`. A
 `:send` that logs or signs requests keeps the guard, because the guard is
 in each request map.
 
-The check of an integrity fetches a whole file. With a `:send` of the app,
-`verify!` and `check/feed!` fetch the file through it, up to the
-`:max-bytes` of `http/call!`. Without a `:send`, the JVM streams the file
-with `http/digest!`, which takes the guard as its option `:allow?`.
+The check of an integrity fetches a whole file. With the app's own `:send`,
+`verify!` and `check/feed!` fetch the file through it, up to the `:max-bytes`
+of `http/call!`. Without a `:send`, the JVM streams the file with
+`http/digest!`, which takes the guard as its option `:allow?`.
 
 
 ## Secrets
 
-An app holds secrets of the listener. Examples are the password of a
-private feed, the token of a service, and the key of a wallet. An app
-also prints its data, to a log and at a REPL, and a printed map shows
-each of its values.
+An app holds the listener's secrets. Examples are the password of a private
+feed, the token of a service, and the key of a wallet. An app also prints its
+data, to a log and at a REPL, and a printed map shows each of its values.
 
 A text wrapped by `secret/hide` prints as `#<secret>`. `pr`, `str` and the
 pretty printer do so on both platforms, and so does `JSON.stringify` in
@@ -866,7 +862,7 @@ from is the last of those blocks.
 The functions `pinged?` and `affected` compare URLs the way that
 `podcast:guid` does. For example, a ping for `http://…/feed/` matches a
 subscription stored as `https://…/feed`. For the host there is
-`notify-request`: one GET to podping.cloud with the token of the host.
+`notify-request`: one GET to podping.cloud with the host's token.
 
 The Podping page of the inspector reads the last twenty blocks live. The
 tests run on recorded answers, with a node that fails when the test tells it
@@ -985,7 +981,7 @@ text of the Hiccup, as a reader sees it. It is not the text that the author
 sent. A note of Nostr names a profile as a `nostr:` URI of 69 characters, and
 the plain text has the name of the profile. An app gives it one function,
 `:link`, which tells where a mention or a hashtag leads. So a mention leads
-to a page of the app, and the three protocols need one renderer. Each comment
+to a page in the app, and the three protocols need one renderer. Each comment
 keeps what the renderer reads. For ActivityPub, that is the HTML and the tags
 of the post. For the AT Protocol, it is the record of the post, and for
 Nostr, the event of the note.
@@ -1050,7 +1046,7 @@ A post is for everyone when its recipients include the Public collection, or
 when it names no recipients. The reader leaves out all other posts.
 
 The servers of a thread choose the URLs that `fetch!` fetches. So it sends
-nothing to the network of the app, as
+nothing to the app's network, as
 [Requests that strangers choose](#requests-that-strangers-choose) tells.
 
 Some servers answer only signed requests. Mastodon sends no CORS headers
@@ -1154,13 +1150,9 @@ BIP-340 on both platforms. For the requests to a wallet there are `sign` and
 `public-key`. The time that they take depends on the secret key, and their
 docstrings tell so.
 
-A check takes about 1 millisecond on the JVM and in Node, measured on
-2026-09-29. It is most of the time that the reading of a thread takes,
-so three things keep it short. The size of the field is 2^256 less a
-small number. So a product folds its high bits into its low bits, and
-needs no division. A number is read as digits with signs, which need an
-addition for one digit of six or of nine. The multiples of the generator
-are computed once.
+A check takes about a millisecond, on the JVM and in Node, and it is most
+of the time that the reading of a thread takes. The arithmetic is tuned
+for the curve, and the comments in `crypto.secp256k1` say how.
 
 The functions `decode` and `encode` read and write the names of NIP-19, which
 are Bech32. The encoding of BIP-173 is `util.bech32`, with its test vectors.
@@ -1178,7 +1170,7 @@ name of NIP-19 can name any relay.
 
 The default `comments.nostr/relays` names three public relays, and [Services
 and their defaults](services.md#the-relays-of-nostr) tells when they
-answered. The relays are a choice of the app, so `:relays` replaces them.
+answered. The app chooses the relays, so `:relays` replaces them.
 
 An app also writes events, for its requests to a wallet. The function
 `signed` gives an event the public key of its author, its id and its
@@ -1203,7 +1195,7 @@ that the authors of NIP-44 publish.
 A listener can pay a show while they listen, and send a message with the
 payment. The `podcast:value` block of a feed names the recipients and their
 splits. The namespace `value` divides an amount between them, and a wallet
-pays. It is the wallet of the app, or the wallet of the listener, which
+pays. It is the app's wallet, or the listener's wallet, which
 podcast-clj asks through Nostr Wallet Connect or WebLN. It writes and reads
 what goes with a payment, and asks Lightning addresses for invoices.
 
@@ -1256,7 +1248,7 @@ that differs from what the node received.
 
 The feeds choose the domains that `invoice!` and `node!` ask, and the
 senders choose the URLs of metadata that a host reads. So these functions
-send nothing to the network of the app either. A Lightning address must
+send nothing to the app's network either. A Lightning address must
 name a domain, not an address or a local name. An answer that came over
 plain http is an error, since anyone on the way can change its invoice or
 its node. A feed chooses the custom key of a recipient. That key cannot
@@ -1267,7 +1259,7 @@ The tests run on the records of the bLIP-10 document and on the examples
 of BOLT 11. They also run on the answers that six services gave about their
 own addresses.
 
-### The wallet of the listener
+### The listener's wallet
 
 A listener can pay from the own wallet. Nostr Wallet Connect, which NIP-47
 defines, takes the commands of an app to a wallet over a relay of Nostr. The
@@ -1303,18 +1295,18 @@ bLIP-10 record tells the amount that goes out. The custom records of WebLN
 are text, and those of Nostr Wallet Connect are hexadecimal. Both come from
 `value/records`.
 
-The connection URI is a secret of the listener, and podcast-clj keeps it
-in no place. An app keeps it as it keeps a password. A URI can also come
-from a stranger, and it names the relays. So `ask!` sends nothing to the
-network of the app, unless the app allows it with `:allow?`.
+The connection URI is the listener's secret, and podcast-clj keeps it in no
+place. An app keeps it as it keeps a password. A URI can also come from a
+stranger, and it names the relays. So `ask!` sends nothing to the app's
+network, unless the app allows it with `:allow?`.
 
 A map that is printed shows each of its values, and a log prints maps. So
 `parse` hides the secret key of a connection with `secret/hide`. `pr`, `str`
 and the pretty printer write a hidden text as `#<secret>`, on both platforms,
 and the reader does not read that text. The text with the secret, for the
-store of the app, comes from `nwc/uri`. The namespace `util.secret` keeps a
-text from a print by accident. A debugger and the console of a browser show
-the fields of an object, so they show the text.
+app's store, comes from `nwc/uri`. The namespace `util.secret` keeps a text
+from a print by accident. A debugger and the console of a browser show the
+fields of an object, so they show the text.
 
 The preimage of a payment is its proof. The recipient gives it to the wallet
 when the payment arrives, and its SHA-256 is the payment hash of the invoice.
@@ -1338,12 +1330,12 @@ The table tells what each party can do to a payment, and what stops it.
 | A feed | Put a custom record in the place of the record of the payment | `value/records` leaves out the types that the Lightning protocol keeps. |
 | A feed | Make a command too large, with a long title | `:value/command-too-large`, and no request goes out. |
 | The service of a Lightning address | Give an invoice for a higher amount | `lnaddress/invoice` checks the amount: `:value/wrong-amount`. |
-| Who writes a connection URI | Name a relay on the network of the app | `:allow?` is `nostr/public?`. |
+| Who writes a connection URI | Name a relay on the app's network | `:allow?` is `nostr/public?`. |
 | Who writes a connection URI | Name a Lightning address of their own as `:lud16` | The app asks the listener before it uses the address. |
 | A wallet | Tell that it paid, without a payment | A result without a preimage is no payment. For an invoice, `ask!` checks the preimage against the payment hash of the invoice, and the answer has `:proven?`. A keysend payment has no such proof. |
-| Who reads the logs of the app | Find the secret of a connection | podcast-clj puts the secret in no event, no diagnostic and no exception. A connection hides its secret, so a connection that is printed shows `#<secret>`. |
-| Who reads the store of the app | Find the URI of a connection | Nothing in podcast-clj. The app keeps the text of `nwc/uri` where it keeps passwords. |
-| Who measures the time of the app | Learn bits of the secret from many signatures | `sign` and `shared-x` do not take constant time. An app signs only when the listener pays. |
+| Who reads the app's logs | Find the secret of a connection | podcast-clj puts the secret in no event, no diagnostic and no exception. A connection hides its secret, so a connection that is printed shows `#<secret>`. |
+| Who reads the app's store | Find the URI of a connection | Nothing in podcast-clj. The app keeps the text of `nwc/uri` where it keeps passwords. |
+| Who times the app | Learn bits of the secret from many signatures | `sign` and `shared-x` do not take constant time. An app signs only when the listener pays. |
 
 The numbers of `crypto.secp256k1` are those of the platform, and their
 arithmetic does not take constant time. So an app does not sign for a
@@ -1479,9 +1471,9 @@ The map holds:
   episode, and a clip in the shape of a `podcast:soundbite`
 - the ratings, one entry for each episode, a number with its scale
 - the counts of listening, one for each show, month and device
-- the preferences of the listener, such as the skip amounts and the playback
+- the listener's preferences, such as the skip amounts and the playback
   rate, one entry for each field
-- the device registry, with an entry for each device of the listener
+- the device registry, with an entry for each of the listener's devices
 
 The function `merge` reconciles two states entry by entry, and the later
 entry wins. The merge is commutative, associative and idempotent, and a
@@ -1506,33 +1498,38 @@ subscribed. The feed title comes before the text of an outline in
 `from-opml`, because some apps fill the text with a description. Some apps
 write one folder around the whole list. OPML has no mark for such a wrapper,
 so `from-opml` knows it by its name, and the names are an option. A folder of
-the listener that holds every show has another name, and stays a folder. A
-`skip` moves within an episode, and never past its start or its end.
+the listener that holds every show has another name, and stays a folder.
 
 The reducer `step` is small, over the events of a player: `:progress`,
 `:ended`, `:play`, `:skip` and `:chapter`. It returns the new state, and the
 effects for the app, such as to seek, to stop where the outro starts, or to
 play the next episode. It is the only place where behavior is composed, and
-it is short on purpose. A jump to a chapter is a skip to the position that
-`chapters/jump` gives, so the rules of a skip are its rules too. The sleep
-timer counts the episodes that end. It is an option of `step` and a part of
-its result, not a part of the state. A timer of one device has no place in a
-document that every device gets. A timer that counts minutes needs a clock,
-and the clock is of the app. No standard has a scale for the ratings of a
-listener, and apps have stars, points and thumbs. So the scale is an option
-of the app, and `rating-scale` is the default, from 1 to 5. An entry holds
-its rating with the worst and the best rating of its scale, as a Rating of
-schema.org does. So a rating reads in each scale, as far on the way from the
-worst to the best. At each `:progress`, `step` adds the seconds heard to a
-count for the show and the month. The seconds are how far the position moved
-since the last report, when that report is a minute old at most. The minute
-is `listening-gap`, and the app gives another time as an option. Each device
-has a count of its own. Only that device writes it, and it only grows. So the
-counts of two devices that count at the same time add up, and none is lost.
-The merge takes the higher of two counts of one device. No standard counts
+it is short on purpose. A `skip` moves within an episode, and never past its
+start or its end. A jump to a chapter is a skip to the position that
+`chapters/jump` gives, so the rules of a skip are its rules too.
+
+The sleep timer counts the episodes that end. It is an option of `step` and a
+part of its result, not a part of the state. A timer of one device has no
+place in a document that every device gets. A timer that counts minutes needs
+a clock, and the app has the clock.
+
+No standard has a scale for the ratings of a listener, and apps have stars,
+points and thumbs. So the scale is an option that the app gives, and
+`rating-scale` is the default, from 1 to 5. An entry holds its rating with
+the worst and the best rating of its scale, as a Rating of schema.org does.
+So a rating reads in each scale, as far on the way from the worst to the
+best.
+
+At each `:progress`, `step` adds the seconds heard to a count for the show
+and the month. The seconds are how far the position moved since the last
+report, when that report is a minute old at most. The minute is
+`listening-gap`, and the app gives another time as an option. Each device
+has a count of its own, which only that device writes, and which only grows.
+So the counts of two devices that count at the same time add up, and the
+merge takes the higher of two counts of one device. No standard counts
 listening, and a log of each play, as the gpodder API keeps, grows without
-end. A count by month keeps the document small. An app that wants the days
-keeps them on the device.
+end. A count by month keeps the document small, and an app that wants the
+days keeps them on the device.
 
 
 ## Search
@@ -1619,7 +1616,7 @@ criterion of a filter is a criterion of a rule. A number of episodes is
 `:text` under `:not`.
 
 The rules are data in the player state. The rule of a show is the setting
-`:downloads` of its subscription, and the rules of the listener are the
+`:downloads` of its subscription, and the listener's rules are the
 preference `:downloads`. They sync as the other settings do. A phone and
 a desktop often need different limits, so `plan` also takes the rules as
 an option.
@@ -1725,9 +1722,10 @@ as the post of a form, uses it for that request, and keeps it nowhere.
 A form that pays has a token, and a token pays once. So a browser that
 sends the form again pays nothing.
 
-The queue page has a small player in ClojureScript, over `app.player`. The
-player state is in localStorage, and Replicant renders it into a bar on every
-page. The audio element reports its position through `step`, and the effects
+The item page of an episode is one call of `episode/view!`. The queue
+page has a small player in ClojureScript, over `app.library`. The library
+is in localStorage, and Replicant renders its player state into a bar on
+every page. The audio element reports its position through `step`, and the effects
 of `step` seek or stop the audio element, or start the next episode. The
 player also writes the data of each episode into the player state, as entries
 of its own under `:inspector/episodes`. The function `player/write` stamps

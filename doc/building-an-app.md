@@ -154,7 +154,7 @@ state:
       (player/subscribe guid {:url url :title (resolve/title show)} now)
       (player/configure guid {:auto-queue? true :skip-intro 20 :skip-outro 45} now)))
 
-(def feeds (feeds/add {} url r now))  ; the feeds of the app, by guid, with the validators
+(def feeds (feeds/add {} url r now))  ; the app's feeds, by guid, with the validators
 ```
 
 The function `feed/feed-guid` gives the identity of the feed: its
@@ -414,7 +414,7 @@ when a step is not what the page wants. For the properties alone, there is
 `resolve/properties`. Where several vocabularies have the same property, a
 rule in the docstring of the accessor selects the value. The function
 `search/episodes` selects and sorts the items by criteria that are data. The
-criteria can use the progress of the listener.
+criteria can use the listener's progress.
 
 ```clojure
 (resolve/properties show)
@@ -576,7 +576,7 @@ can hide replies. The function `tree` leaves out the hidden replies. To show
 them, give `tree` the options `{:hidden? true}`.
 
 The servers of a thread choose the URLs that `fetch!` fetches. So `fetch!`
-sends nothing to the network of your app, as
+sends nothing to your app's network, as
 [Requests that strangers choose](architecture.md#requests-that-strangers-choose)
 tells. If your app must reach its own network, give `fetch!` the option
 `:allow? (constantly true)`.
@@ -617,7 +617,7 @@ comments.
 The `:content` of a comment from Nostr is HTML, as that of each other
 comment. A mention of a profile is the name of the profile, such as `@Ann`.
 The function `comments/hiccup` gives the mentions, the hashtags and the
-references to other notes the links of your app. A part of Nostr with a
+references to other notes your app's links. A part of Nostr with a
 `:uri` is a mention or a reference, and the URI opens an app of Nostr on the
 device:
 
@@ -700,8 +700,8 @@ beside the state, and give it to each `step`:
 ;; => {:state … :effects [[:stop next-id]]}, and no timer
 ```
 
-The timer is of one device, so it is not in the state that syncs. A timer
-that counts minutes belongs to the clock of the app.
+The timer belongs to one device, so it is not in the state that syncs. A
+timer that counts minutes belongs to the app's clock.
 
 An episode counts as played when the listener is 30 seconds from its end.
 Between two reports that are more than 60 seconds apart, `step` counts no
@@ -723,7 +723,7 @@ download and which files to delete. The app downloads and deletes the
 files, and it keeps the list of the files on the device.
 
 Keep the rules in the player state, so that they sync. The rule of a show
-is the setting `:downloads`, and the rules of the listener are the
+is the setting `:downloads`, and the listener's rules are the
 preference `:downloads`:
 
 ```clojure
@@ -771,7 +771,7 @@ Then follow the plan:
 Set `:keep?` in the entry of a file that the listener asked for. No rule
 deletes such a file. To download an episode again, remove its entry.
 
-The rules in the state are for each device of the listener. For rules of
+The rules in the state are for each of the listener's devices. For rules of
 one device, give `plan` the rules as an option:
 
 ```clojure
@@ -869,7 +869,7 @@ episodes. Each change syncs to the other devices, as the queue does.
   app gives another scale as `:scale`. Examples are `{:worst 1 :best
   100}`, and `{:worst 0 :best 1}` for a thumb down and a thumb up. The
   state keeps the scale with each rating. So `(player/rating state id
-  {:scale …})` gives a rating from another app in the scale of your app.
+  {:scale …})` gives a rating from another app in your app's scale.
   The criterion `:rating` of `search/episodes` takes a range of ratings.
 - A clip is a part of an episode, with a start, a duration and a title. It
   has the shape of a `podcast:soundbite`.
@@ -929,7 +929,7 @@ The function `player/from-opml` reads the folders, the tags and the dates of
 subscribing back. It also reads the OPML of other apps. Some apps put a
 description in the text of an outline, so it uses the title of the feed
 first. Some apps put the whole list in one folder with the name `feeds`. Such
-a folder does not become a folder. A folder of the listener stays a folder,
+a folder does not become a folder. The listener's own folder stays a folder,
 also when it holds every show. [Services and their
 defaults](services.md#the-folder-around-an-opml-list) lists the names, and
 the option `:wrappers` replaces them:
@@ -996,7 +996,7 @@ The function `player/lagging` shows such devices, and `player/retire` removes
 a device from the sync.
 
 ```clojure
-(player/devices state)                   ; the devices of the listener, as they described themselves
+(player/devices state)                   ; the listener's devices, as they described themselves
 (player/lagging state)                   ; => {old-tablet-id #inst "…"}: a device that blocks compaction
 (player/retire state lost-phone-id now)  ; the next syncs delete its document
 
@@ -1012,10 +1012,10 @@ gives the contract: a map of two to four functions.
 
 To keep in step with AntennaPod, Kasts and other apps of the gpodder API,
 add a gpodder server as a backend. The API names episodes by URL, so give
-the backend a function that looks them up in the parsed feeds of the app:
+the backend a function that looks them up in the app's parsed feeds:
 
 ```clojure
-(def feeds (atom {}))  ; the parsed feeds of the app, by URL
+(def feeds (atom {}))  ; the app's parsed feeds, by URL
 (def pods (gpodder/backend "https://gpodder.net" {:credentials creds :identities #(gpodder/identities @feeds)}))
 (sync/sync! state [cloud pods] now)  ; the subscriptions and the positions of the other apps, merged
 ```
@@ -1063,7 +1063,7 @@ reaches the node, and not the wallet.
 Pay a recipient of type `lnaddress` with an invoice. A call of
 `lnaddress/invoice!` asks the domain of the address for the invoice, and
 checks its amount. Put the metadata of the payment in the comment. Serve the
-header of `metadata/header` at a URL of your app, and name that URL in the
+header of `metadata/header` at a URL of your own, and name that URL in the
 comment.
 
 ```clojure
@@ -1091,10 +1091,10 @@ asks.
 If an answer holds `:error`, do not pay. An invoice for another amount is
 an error of level `:error`, and so is an answer that came over plain http.
 The feeds choose the domains that `invoice!` and `node!` ask, so they send
-nothing to the network of your app. The page of the metadata is public,
+nothing to your app's network. The page of the metadata is public,
 so the name of the sender and the message are public too.
 
-### Pay from the wallet of the listener
+### Pay from the listener's wallet
 
 A listener with a wallet of their own gives your app a connection URI of
 Nostr Wallet Connect. The wallet makes the URI, often with a budget. The
@@ -1104,7 +1104,7 @@ spend from the wallet. Keep it as you keep a password, and show it to nobody.
 ```clojure
 (def connection (nwc/parse "nostr+walletconnect://b889…?relay=wss%3A%2F%2Frelay.example&secret=…"))
 connection                         ; => {:wallet "b889…" :relays ["wss://relay.example"] :secret #<secret>}
-(nwc/uri connection)               ; the text with the secret, for the store of your app
+(nwc/uri connection)               ; the text with the secret, for your app's store
 (def info (nwc/info! connection))  ; => {:methods ["pay_invoice" "pay_keysend" …] :encryption ["nip44_v2"]}
 ```
 
@@ -1133,7 +1133,7 @@ whether a payment went out:
 | Error | Did the request go out? | What to do |
 |---|---|---|
 | `:value/wallet-unsupported` | No | Pay in another way. The wallet does not take the command. |
-| `:value/command-too-large` | No | Cut the message of the listener. A feed can also have a title that is too long. |
+| `:value/command-too-large` | No | Cut the listener's message. A feed can also have a title that is too long. |
 | `:value/wallet-unreachable` | No | Ask again later. No relay took the request. |
 | `:value/wallet-refused` | Yes | Show the `:reason`. The wallet did not pay, and `:code` tells why. |
 | `:value/wallet-silent` | Yes | Wait until `:expires-at`. Then ask with `nwc/lookup-invoice`. |
@@ -1141,10 +1141,10 @@ whether a payment went out:
 
 Do not send a payment again after `:value/wallet-silent`. The wallet can
 still pay until the request expires, which is after `:timeout-seconds`.
-Wait some time more, because the clocks of your app and the wallet
+Wait some time more, because your app's clocks and the wallet
 differ.
 
-Keep the money of the listener safe:
+Keep the listener's money safe:
 
 - Store the text of `nwc/uri` where your app stores passwords. A
   connection hides its secret, so a connection in a log shows `#<secret>`.

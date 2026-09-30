@@ -387,7 +387,7 @@
    {:id :value/wallet-unsupported :level :warning
     :doc "The wallet does not take the command. Its `:methods` do not name the `:method` of the command, or its `:encryption` has no NIP-44 version 2, which is the encryption that podcast-clj writes. No request went out."}
    {:id :value/command-too-large :level :warning
-    :doc "The command has more bytes than a request to a wallet holds, which is 65,535 bytes. The record of a payment has the titles of the show and the episode, and the message of the listener. No request went out."}
+    :doc "The command has more bytes than a request to a wallet holds, which is 65,535 bytes. The record of a payment has the titles of the show and the episode, and the listener's message. No request went out."}
    {:id :value/wallet-unreachable :level :warning
     :doc "No relay of the connection took the request. Each relay gave no connection, refused the subscription, or refused the event, and `:relays` tells why. The request reached no wallet, so the app can ask again."}
    {:id :value/wallet-silent :level :error

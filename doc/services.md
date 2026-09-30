@@ -295,11 +295,11 @@ The options replace what podcast-clj chose:
 ## The rules of the apps for downloads
 
 No standard defines the rules by which an app downloads episodes and
-deletes files. The rules of `app.downloads` are of the kinds that these
+deletes files. The namespace `app.downloads` has the kinds of rule that these
 apps have. The table tells the rules as the help pages of the apps gave them
 on 29 September 2026, and the rule of `app.downloads` for each.
 
-| App | The rule of the app | In `app.downloads` |
+| App | The app's rule | In `app.downloads` |
 |---|---|---|
 | [Apple Podcasts](https://support.apple.com/en-us/102243) | Automatic downloads of a number of episodes, or of the episodes of a time | `:limit` and `:age` of `:episodes` |
 | Apple Podcasts | No automatic downloads for one show | `:download?` of the rule of the show |
@@ -321,12 +321,12 @@ until the listener gives a rule.
 
 ## The folder around an OPML list
 
-Some apps write the whole subscription list inside one outline. That
-outline is a wrapper, and not a folder of the listener. OPML has no mark
-that tells the two apart, so `player/from-opml` reads the name. A folder
-is a wrapper when it holds every feed of the list and `app.player/wrappers`
-has its name. The names are in lower case, and the case of the name in the
-list does not count.
+Some apps write the whole subscription list inside one outline. That outline
+is a wrapper, and not the listener's own folder. OPML has no mark that tells
+the two apart, so `player/from-opml` reads the name. A folder is a wrapper
+when it holds every feed of the list and `app.player/wrappers` has its name.
+The names are in lower case, and the case of the name in the list does not
+count.
 
 | Name | App that writes it | Seen in September 2026 |
 |---|---|---|

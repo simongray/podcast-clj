@@ -152,7 +152,7 @@ when a file watcher or a push from a service tells that the store changed.
 The app runs one step at a time, because a step that overlaps another can
 write an older state after a newer one. A file watcher also reports the
 writes of the step itself, so the app lets such a call wait until the step
-ends. The function `next-at` gives the timer of the app a policy: soon after
+ends. The function `next-at` gives the app's timer a policy: soon after
 a change, later when nothing changed, and with longer waits after failures.
 
 
@@ -346,7 +346,7 @@ ratings that two devices give an episode, the later rating wins. An entry
 holds the scale of its rating. Two apps of one listener can have two
 scales, and a number alone does not tell its scale.
 
-The sleep timer is not in the state. It is of one device and of one
+The sleep timer is not in the state. It belongs to one device and one
 evening, so `step` takes it as an option and gives back what is left of
 it.
 
@@ -564,11 +564,11 @@ URL for each request.
 
 The backend names a show by the subscription in the state that has its URL,
 whatever the scheme, the case and the trailing slashes. Failing that, it uses
-the guid that the feed declares, from the feeds of the app. Failing that, it
+the guid that the feed declares, from the app's feeds. Failing that, it
 uses the guid that the URL gives (`guid/from-url`). It names an episode by
 the guid of its item. AntennaPod, Kasts and the Nextcloud app send this guid
 with each action, and AntennaPod matches the actions that it receives by it.
-Without a guid, the backend looks up the media URL in the feeds of the app.
+Without a guid, the backend looks up the media URL in the app's feeds.
 The function `identities` makes these lookups over the parsed feeds of the
 app. The feeds change, so the backend takes a function that makes them again
 at each step. It indexes the items of a feed only when a lookup names the
@@ -586,7 +586,7 @@ cursor, and the action waits only once.
 ### The server
 
 The server is a device of podcast-clj. The app gives it a state and a step
-that syncs the state with the other devices of the listener, through any
+that syncs the state with the listener's other devices, through any
 backend. The server runs the step before it tells what changed, and after it
 applies what a device sent. It keeps one list of subscriptions for all
 devices, as the Nextcloud app does.

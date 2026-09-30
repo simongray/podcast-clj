@@ -78,7 +78,7 @@ store namespace:
 | `:strategy` | `:per-device` or `:shared` | `:per-device` if the store has `:list`, else `:shared` |
 | `:direction` | `:both`, `:pull` (read only) or `:push` (write only) | `:both` |
 | `:opml?` | Write `subscriptions.opml` next to the documents | `false` |
-| `:app` | The name of the app, written into each document | none |
+| `:app` | The app's name, written into each document | none |
 | `:name` | The name of the backend | the name of the store |
 | `:document` | The name of the shared document | `"podcast.edn"` |
 
@@ -251,7 +251,7 @@ platforms. It takes these options:
 | `:api` | `:gpodder` for the paths of gpodder.net under `/api/2`, `:nextcloud` for those of the GPodder Sync app, or a map of the paths of another server. [Services and their defaults](services.md#the-gpodder-api) gives the paths. | `:gpodder` |
 | `:device` | The id of the device on the server | the device of the state |
 | `:caption`, `:type` | What the server shows for the device. The type is desktop, laptop, mobile, server, tablet or other. | `"podcast-clj"`, `"other"` |
-| `:identities` | A function of no arguments that gives the ways to name shows and episodes, as `identities` makes them over the feeds of the app | none |
+| `:identities` | A function of no arguments that gives the ways to name shows and episodes, as `identities` makes them over the app's feeds | none |
 | `:feed-guid`, `:feed-url`, `:episode-id`, `:episode-url` | Each of those ways by itself | none |
 | `:name` | The name of the backend | the domain of the server |
 | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | The limits of the server and of the cursor, see [Services and their defaults](services.md#the-gpodder-api) | 1000, 10, 100 and 500 |

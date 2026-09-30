@@ -385,8 +385,8 @@ comments from other apps. AntennaPod only opens the link in a browser.
 An ActivityPub thread is a tree of JSON documents over HTTP. An AT Protocol
 thread, from Bluesky, comes from one call to a public API. Both fit the
 request maps of podcast-clj. A reader can give the comments of both in one
-shape. Some ActivityPub servers answer only signed requests, which need a
-key pair of the app.
+shape. Some ActivityPub servers answer only signed requests, which need the
+app's key pair.
 
 **Nostr.** Fountain shows Nostr posts about an episode as comments. NIP-73
 gives the ids of podcasts and episodes, from their guids. Nostr needs
@@ -406,7 +406,7 @@ payment.
 | Feature | Who has it | Verdict | Size | Status |
 |---|---|---|---|---|
 | Lightning addresses: LNURL-pay and the keysend lookup | Fountain, Castamatic, Breez, the library lightning-tools | In part | Medium | Built: `value.lnaddress` |
-| Payment through the wallet of the listener: NWC, WebLN | Fountain, Castamatic, Podverse on the web | In part | Medium | Built: `value.nwc`, `value.webln` |
+| Payment through the listener's wallet: NWC, WebLN | Fountain, Castamatic, Podverse on the web | In part | Medium | Built: `value.nwc`, `value.webln` |
 | RSS Payment Metadata | Fountain, Castamatic, Helipad, BoostBox | Target | Small | Built: `value.metadata` |
 | Received boostagrams | Helipad, BoostBox | In part | Small | Built: `value/parse-boostagram` |
 | Card payments and other payment types | Fountain, and two open proposals | Out | | |
@@ -420,11 +420,11 @@ lightning-tools sends these requests. They fit podcast-clj as maps. The
 wallet pays the invoice.
 
 **Wallets.** Fountain has a wallet of its own. Castamatic and Fountain also
-pay from the wallet of the listener, through Nostr Wallet Connect (NWC).
+pay from the listener's wallet, through Nostr Wallet Connect (NWC).
 Podverse on the web pays through WebLN, which a browser extension such as
 Alby supplies. A ClojureScript adapter can call `webln.keysend` with the
 boostagram record. NWC sends its requests over a Nostr relay, so it needs a
-WebSocket connection and a key of the app.
+WebSocket connection and the app's key.
 
 **Payment metadata.** Several large wallets cannot send keysend payments.
 The "RSS Payment Metadata" document of the namespace describes another
