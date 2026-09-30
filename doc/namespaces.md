@@ -91,7 +91,7 @@ one line for each namespace. The docstrings give the details.
 
 Each name below is relative to `dk.simongray.podcast`.
 
-### The front door
+### The root namespace
 
 | Namespace | Contents |
 |---|---|
@@ -168,6 +168,8 @@ Each name below is relative to `dk.simongray.podcast`.
 
 | Namespace | Contents |
 |---|---|
+| `app.show` | One show as a page shows it, in one map. `view` is the feed with its properties, the description as Hiccup and as text, and the episodes in listening order. It has the seasons and the links to the apps. `view!` adds the shows of the podroll as the Podcast Index knows them, and the publisher feed with its shows, when it confirms the show. |
+| `app.episode` | One episode as a page shows it, in one map. `view` is the item with its properties, the show notes as Hiccup and as text, and the chapters that the feed holds. It has the links to the apps. `view!` adds the chapters file, the transcript and the media file, each read, and `report` gathers what the reading of each found. |
 | `app.player` | The player state as a CRDT: queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions with their settings, folders and tags, followed OPML lists, saved filters, counts of listening and devices. `merge`, `compact` and `step`. `step` takes the events of a player, with the jumps between chapters and a sleep timer. Playlists as list feeds. |
 | `app.search` | Filters and orders of episodes as data, and a full-text index over subscriptions, ranked by BM25. `problem` tells what in the criteria of a saved filter this version does not know. |
 | `app.downloads` | The episodes to download and the files to delete on a device, by the rules of the listener. `plan` is a pure function of the player state, the feeds, the files of the device and the rules. A rule selects its episodes with the options of `search/episodes`. `rules` reads the rules from the player state, and `problems` tells what in them this version does not know. |

@@ -15,8 +15,8 @@
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]))
@@ -412,36 +412,40 @@
              [:thead [:tr [:th "Kind"] [:th "File"] [:th "Answer"] [:th "Type"] [:th "Holds"] [:th "Findings"]]]
              [:tbody (map #(file-row (by-url (:url %)) %) files)]])))
 
-(defn- companion-status
-  "A line about a fetched companion file: `{:url :status :error :parsed}`."
-  [{:keys [url status error]} label]
-  [:p.muted label " " [:a {:href (link url)} url]
-   (when status (str " · HTTP " status))
-   (when error [:span.error (str " · " error)])])
+(defn- part-status
+  "A line about a part of the view that came from a file: its `url`, and
+  the `error` when the file did not come."
+  [{:keys [url error]} label]
+  [:p.muted label " " (when url [:a {:href (link url)} url])
+   (when error [:span.error (str " · " (:message error) (when (:status error) (str " HTTP " (:status error))))])])
+
+(def chapter-sources
+  "What the page says of each source of chapters."
+  {:file     "JSON chapters file:"
+   :embedded "Embedded Podlove chapters."
+   :media    "Read from the media file:"
+   :inferred "Read from the timestamps in the show notes; the feed offers no chapters."})
 
 (defn- chapters-section
-  "The chapters of an item: the JSON file when it was fetched and parsed,
-  the embedded Podlove chapters otherwise, and failing both the timestamps
-  read out of the show notes."
-  [{:keys [chapters embedded inferred]}]
-  (let [doc (or (:parsed chapters) embedded inferred)]
+  "The chapters of the view of an episode: `{:source :url :document
+  :report}`, as `episode/view!` chose them among the file, the embedded
+  ones, the media file and the timestamps of the show notes."
+  [{:keys [chapters]}]
+  (let [{:keys [source document report]} chapters]
     (list
      [:h2 "Chapters"]
-     (when chapters (companion-status chapters "JSON chapters file:"))
-     (when embedded [:p.muted "Embedded Podlove chapters present."])
-     (when (and inferred (= doc inferred))
-       [:p.muted "Read from the timestamps in the show notes; the feed offers no chapters."])
-     (if-not doc
+     (when source (part-status chapters (chapter-sources source)))
+     (if-not document
        [:p.muted "None."]
        (list
-        [:p.muted (str (count (:chapters doc)) " chapters, format version " (:version doc)
-                       (when (some :location (:chapters doc)) ", with locations"))]
-        (when (seq (chapters/report doc))
-          (diagnostics-table (chapters/report doc)))
+        [:p.muted (str (count (:chapters document)) " chapters, format version " (:version document)
+                       (when (some :location (:chapters document)) ", with locations"))]
+        (when (seq report)
+          (diagnostics-table report))
         [:table
          [:thead [:tr [:th "Start"] [:th "Title"] [:th "Links"]]]
          [:tbody
-          (for [{:keys [start-time title url img toc location]} (chapters/sorted doc)]
+          (for [{:keys [start-time title url img toc location]} (chapters/sorted document)]
             [:tr
              [:td (when (number? start-time) (time/format-clock start-time))]
              [:td (or title [:span.muted "(silent chapter)"])
@@ -450,23 +454,24 @@
              [:td (when url [:a {:href (link url)} "link"]) " " (when img [:a {:href (link img)} "image"])]])]])))))
 
 (defn- transcript-section
-  "The transcript chosen for an item, fetched and parsed, with its report."
+  "The transcript of the view of an episode: the chosen reference with its
+  `:document` and its `:report`, or its `:error`."
   [{:keys [transcript]}]
   (list
    [:h2 "Transcript"]
    (if-not transcript
      [:p.muted "None."]
-     (let [{:keys [ref parsed]} transcript
-           segments (:segments parsed)
+     (let [{:keys [type language document report]} transcript
+           segments (:segments document)
            speakers (distinct (keep :speaker segments))]
        (list
-        (companion-status transcript (str "Chosen " (:type ref) (when (:language ref) (str ", " (:language ref))) ":"))
-        (when parsed
+        (part-status transcript (str "Chosen " type (when language (str ", " language)) ":"))
+        (when document
           (list
-           [:p.muted (str (count segments) " segments · format " (name (:format parsed))
+           [:p.muted (str (count segments) " segments · format " (name (:format document))
                           (when (seq speakers) (str " · speakers: " (str/join ", " (take 8 speakers)))))]
-           (when (seq (transcript/report parsed))
-             (diagnostics-table (transcript/report parsed)))
+           (when (seq report)
+             (diagnostics-table report))
            [:table
             [:tbody
              (for [{:keys [start end speaker body]} (take 40 segments)]
@@ -476,6 +481,22 @@
                 [:td (when speaker [:strong (str speaker ": ")]) body]])]]
            (when (> (count segments) 40)
              [:p.muted (str "Showing the first 40 of " (count segments) " segments.")]))))))))
+
+(defn- media-file-section
+  "What the media file of the view of an episode says of itself: its
+  duration and its artwork, as `media/read!` read them, with the report."
+  [{:keys [media]}]
+  (when media
+    (let [{:keys [duration artwork report error]} media]
+      (list
+       [:h2 "Media file"]
+       (part-status media "Read by range requests:")
+       (when-not error
+         [:p.muted (str/join " · " (remove nil? [(when duration (str "duration " (time/format-clock duration)))
+                                                 (when artwork (str "artwork " (:type artwork) ", " (size-str (bytes/length (:data artwork)))))
+                                                 (when-not (or duration artwork) "nothing read")]))])
+       (when (seq report)
+         (diagnostics-table report))))))
 
 (defn- payments-table
   [recipients]
@@ -504,8 +525,8 @@
        :else                   [:p.muted "Set PODCASTINDEX_API_KEY and PODCASTINDEX_API_SECRET to resolve the remote item through the Podcast Index."]))))
 
 (defn- value-section
-  [feed item companions]
-  (when-let [block (resolve/value feed item)]
+  [{:keys [value]} remotes]
+  (when-let [block value]
     (list
      [:h2 "Value"]
      [:p.muted (str (:type block) " / " (:method block)
@@ -513,44 +534,44 @@
                     (when (seq (:time-splits block)) (str " · " (count (:time-splits block)) " time splits")))]
      (payments-table (:recipients block))
      (for [split (sort-by :start-time (filter (comp number? :start-time) (:time-splits block)))]
-       (time-split-section block companions split)))))
+       (time-split-section block remotes split)))))
 
 (defn item-page
-  "The page for one `item` of `feed` at `url`, with its `companions` as
-  fetched by the service: `{:chapters {...} :embedded doc :transcript {...}}`."
-  [{:keys [url feed item companions]}]
-  (let [numbering (resolve/numbering item)
-        guid      (feed/item-guid item)
+  "The page for one `item` of `feed` at `url`, from its `view` as
+  `episode/view!` gives it, with the `remotes` of its time splits as the
+  service resolved them."
+  [{:keys [url feed item view remotes]}]
+  (let [{:keys [title guid numbering published duration explicit? people artwork notes enclosures value]} view
         into-player (fn [mode] (str "/queue?add=" (http/encode url) "&guid=" (http/encode guid) "&mode=" mode))]
-    (layout (or (resolve/title item) "(untitled)")
+    (layout (or title "(untitled)")
             [:p [:a {:href (feed-href "/feed" url)} "← " (or (resolve/title feed) url)]]
             [:header
-             (when-let [img (resolve/artwork feed item)]
-               [:img {:src img :alt ""}])
+             (when artwork
+               [:img {:src artwork :alt ""}])
              [:div
-              [:h1 (or (resolve/title item) "(untitled)")]
+              [:h1 (or title "(untitled)")]
               [:div.muted
                (when-let [n (not-empty (numbering-str numbering))] (str n " · "))
-               (inst-str (resolve/published item))
-               (when-let [d (resolve/duration item)] (str " · " (time/format-clock d)))
-               (when (resolve/explicit? feed item) " · explicit")]
-              [:div.muted "guid " [:code (feed/item-guid item)]]
-              (when-let [people (seq (resolve/people feed item))]
+               (inst-str published)
+               (when duration (str " · " (time/format-clock duration)))
+               (when explicit? " · explicit")]
+              [:div.muted "guid " [:code guid]]
+              (when (seq people)
                 [:div.muted (str/join " · " (map #(str (:role %) ": " (:name %)) people))])
               [:div
                [:a.badge {:href (into-player "now")} "Play now"]
                [:a.badge {:href (into-player "last")} "Add to queue"]
                [:a.badge {:href (into-player "next")} "Play next"]
                [:a.badge {:href (feed-href "/comments" url {:guid guid})} "Comments"]
-               (when (resolve/value feed item)
+               (when value
                  [:a.badge {:href (feed-href "/wallet" url {:guid guid})} "Boost"])]]]
             [:h2 "Description"]
-            [:div.notes (html/hiccup (resolve/description item))]
+            [:div.notes notes]
             [:h2 "Media"]
             [:table
              [:thead [:tr [:th "Source"] [:th "Type"] [:th "URL"] [:th "Details"]]]
              [:tbody
-              (for [{:keys [source type url length bitrate title default]} (resolve/enclosures item)
+              (for [{:keys [source type url length bitrate title default]} enclosures
                     :let [details [(when (number? length) (str (quot length 1000000) " MB"))
                                    (when bitrate (str bitrate " b/s"))
                                    title]]]
@@ -559,9 +580,10 @@
                  [:td type]
                  [:td [:a {:href (link url)} url]]
                  [:td (str/join " · " (remove nil? details))]])]]
-            (chapters-section companions)
-            (transcript-section companions)
-            (value-section feed item companions)
+            (media-file-section view)
+            (chapters-section view)
+            (transcript-section view)
+            (value-section view remotes)
             [:h2 "Resolved"]
             [:p.muted "What an app shows for this episode, inherited from the show where the item says nothing, and the fields each answer was read from."]
             (resolved-table (resolve/properties feed item) (resolve/sources feed item))

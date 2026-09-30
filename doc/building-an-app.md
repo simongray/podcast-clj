@@ -28,8 +28,10 @@ The examples use these aliases:
          '[dk.simongray.podcast.analytics :as analytics]
          '[dk.simongray.podcast.analytics.op3 :as op3]
          '[dk.simongray.podcast.app.downloads :as downloads]
+         '[dk.simongray.podcast.app.episode :as episode]
          '[dk.simongray.podcast.app.player :as player]
          '[dk.simongray.podcast.app.search :as search]
+         '[dk.simongray.podcast.app.show :as show]
          '[dk.simongray.podcast.app.sync :as sync]
          '[dk.simongray.podcast.app.sync.encrypted :as encrypted]
          '[dk.simongray.podcast.app.sync.file :as file]
@@ -322,11 +324,51 @@ show again.
 
 ## Build the show and episode pages
 
-`resolve/properties` gives one value for each property of a show or of an
-episode. Where several vocabularies have the same property, a rule in the
-docstring of the accessor selects the value. `search/episodes` selects and
-sorts the items by criteria that are data. The criteria can use the progress
-of the listener.
+`show/view` gives a show as a page shows it, in one map, and
+`episode/view` gives an episode. Each is the feed or the item with its
+properties merged in, one value for each property, and the other keys
+that a page needs. `episode/view!` reads the files of the episode too:
+the chapters file, the transcript and the media file.
+
+```clojure
+(def page (show/view show))
+(select-keys page [:title :author :artwork :categories :medium :guid])
+(:notes page)     ; the description, sanitized, as Hiccup
+(:episodes page)  ; the items in listening order
+(:seasons page)   ; the items by season
+(:links page)     ; the links to the show in the apps
+
+(def item (first (:episodes page)))
+(def v (episode/view! show item {:languages ["da" "en"]}))
+;; => {:title "…" :published #inst "…" :duration 3712.4 :numbering {:type "full" :season 2 :episode 3}
+;;     :enclosure {:url "…" :type "audio/mpeg"} :notes ([:p {} "…"]) :people [...] :links [...]
+;;     :chapters   {:source :file :url "…" :document {:chapters [...]}}
+;;     :transcript {:url "…" :type "text/vtt" :document {:segments [...]}}
+;;     :media      {:url "…" :duration 3712.4 :artwork {:type "image/jpeg" :data …}} …}
+
+(chapters/at (:document (:chapters v)) 754)      ; the chapter at 12:34
+(transcript/at (:document (:transcript v)) 754)  ; the segment at 12:34
+(episode/report v)                               ; what the reading of each file found
+```
+
+The chapters come from the first of four places that has them. The
+places are the chapters file, the Podlove chapters in the feed, the media
+file, and the timestamps in the show notes. `:source` tells which. A file that does not
+come leaves `:error` in its part, and `view!` throws nothing for what the
+network does. `:except` names what a view leaves out and does not
+compute. A list of episodes needs no notes, no chapters and no links, so
+its rows are `(episode/view show item {:except #{:notes :text :chapters
+:links}})`, at a fiftieth of the cost. In `view!`, `#{:media}` leaves
+the media file unread. The options of the requests are those of
+`http/call!`. `:send` sends the requests in
+its place, for a browser app that fetches through its own server.
+
+The functions below the views give the same answers, so drop down to
+them when a step is not what the page wants. `resolve/properties` gives
+the properties alone. Where several vocabularies have the same property,
+a rule in the docstring of the accessor selects the value.
+`search/episodes` selects and sorts the items by criteria that are data.
+The criteria can use the progress of the listener.
 
 ```clojure
 (resolve/properties show)
@@ -335,19 +377,13 @@ of the listener.
 (search/episodes show {:where {:status :unplayed} :order :listening :player state :url url})
 (search/episodes show {:where {:season 2 :type "full"} :order :newest})
 
-(def item (first (resolve/episodes show)))
 (resolve/properties show item)
-;; => {:title "…" :published #inst "…" :duration 3600 :numbering {:type "full" :season 2 :episode 3}
-;;     :enclosure {:url "…" :type "audio/mpeg"} :transcript {:url "…" :type "text/vtt"} :people [...] …}
 (merge item (resolve/properties show item))  ; the raw fields and the resolved values together
-
 [:div.notes (html/hiccup (resolve/description item))]  ; the show notes, sanitized, as Hiccup
 ```
 
-An episode can have chapters in four places: a linked chapters file,
-Podlove chapters in the feed, the media file itself, or timestamps in the
-show notes. Try them in this order. In these examples, `fetch-body` is your
-own HTTP function.
+The four places of the chapters, in the order of `view!`. In these
+examples, `fetch-body` is your own HTTP function.
 
 ```clojure
 (def doc (or (some-> (resolve/chapters-url item) fetch-body chapters/parse-json)
@@ -374,7 +410,7 @@ returns a promise.
 
 The report is in the metadata of the result, as the report of a parsed
 feed is. Metadata does not survive printing. So read the report before
-you store the result.
+you store the result. The views keep the report of each part as data.
 
 When the file does not come, the result is `{:error …}`. The `:error` is
 the diagnostic `:file/unreachable`, with the `:reason`, and with the
@@ -403,16 +439,26 @@ its type:
 ```
 
 A show can recommend other shows in its podroll, and name the feed of its
-publisher. `resolve/podroll` and `resolve/publisher` give these as remote
+publisher. `show/view!` gives the shows of the podroll as the Podcast
+Index knows them, when it has the credentials of the index. It gives the
+publisher feed with its shows, and tells whether the publisher confirms
+the show. The specification asks an app to show the other shows of a
+publisher only when its feed lists this show.
+
+```clojure
+(def page (show/view! show {:index {:key "…" :secret "…"}}))
+(map (juxt :title (comp :rss/title :show)) (:podroll page))  ; each with :show when the index knows it
+(:confirmed? (:publisher page))                               ; true when the publisher feed lists this show
+(:shows (:publisher page))                                     ; the remote items of the publisher feed
+```
+
+Below the view, `resolve/podroll` and `resolve/publisher` give the remote
 items. `podcastindex/remote-item!` finds the feed of a remote item in the
-Podcast Index, by its feed guid. The publisher feed lists the shows of the
-publisher as remote items too, and a list feed lists episodes or songs of
-other feeds in the same way. `resolve/remote-items` gives them. Show the
-other shows of a publisher only if its feed lists this show, as the
-specification asks. `resolve/social-interacts` tells where the comments on
-an episode are, or that the podcaster wants no public comments. [Show the
-comments on an episode](#show-the-comments-on-an-episode) tells how to read
-them.
+Podcast Index by its feed guid. `resolve/remote-items` gives the entries
+of a publisher feed or a list feed. `resolve/social-interacts`
+tells where the comments on an episode are, or that the podcaster wants
+no public comments. [Show the comments on an
+episode](#show-the-comments-on-an-episode) tells how to read them.
 
 ```clojure
 (resolve/podroll show)  ; => ({:feed-guid "917393e3-…" :feed-url "https://…" :title "…"} …)
@@ -420,7 +466,6 @@ them.
 
 (def label (:feed (podcast/fetch! (:feed-url (resolve/publisher show)))))
 (resolve/remote-items label)  ; => ({:feed-guid "…" :feed-url "https://…" :medium "podcast"} …)
-(some #(= guid (:feed-guid %)) (resolve/remote-items label))  ; true when the publisher confirms the show
 
 (resolve/social-interacts show item)  ; => ({:protocol "activitypub" :uri "https://…" :priority 1} …)
 (resolve/soundbites item)             ; => ({:start-time 73 :duration 60 :title "…"} …), parts for a preview

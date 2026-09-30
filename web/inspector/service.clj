@@ -6,6 +6,7 @@
             [clojure.pprint :as pprint]
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.app.sync :as sync]
@@ -22,8 +23,6 @@
             [dk.simongray.podcast.feed.check :as check]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.validate :as validate]
-            [dk.simongray.podcast.format.chapters :as chapters]
-            [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
@@ -46,7 +45,7 @@
 (defn corpus
   "The corpus feeds on disk as `[name url]`, the URL being the local route."
   []
-  (->> (when (.isDirectory corpus-dir) (.listFiles corpus-dir))
+  (->> (when (.isDirectory ^java.io.File corpus-dir) (.listFiles ^java.io.File corpus-dir))
        (filter #(str/ends-with? (.getName ^java.io.File %) ".xml"))
        (map #(str/replace (.getName ^java.io.File %) #"\.xml$" ""))
        sort
@@ -228,17 +227,6 @@
   (feed-page (assoc-in request [:query-params :url]
                        (str "corpus/" (get-in request [:path-params :name])))))
 
-(defn- companion
-  "Fetch the companion file at `url` and read its body with `read`, as
-  `{:url :status :parsed}` or `{:url :status :error}`; never throws. `kind`
-  tells the readings of one URL apart."
-  [kind url read]
-  (try
-    (let [{:keys [status value]} (fetch kind url read)]
-      {:url url :status status :parsed value})
-    (catch Exception e
-      {:url url :status (:status (ex-data e)) :error (or (ex-message e) (str e))})))
-
 (def index-credentials
   "Podcast Index API credentials from the environment, when the inspector
   is to resolve remote value splits: PODCASTINDEX_API_KEY and
@@ -260,43 +248,35 @@
                [remote-item (try (index/remote-value! index-credentials remote-item)
                                  (catch Exception _ nil))]))))
 
-(defn- companions
-  "The chapters and the chosen transcript of `item`, fetched and parsed,
-  and the remote value blocks its time splits point at when the index can
-  be asked."
-  [feed item]
-  (let [transcript-ref (resolve/transcript item)
-        block          (resolve/value feed item)]
-    (cond-> {}
-      (seq (:time-splits block))
-      (assoc :remote-values (remote-values block) :index? (some? index-credentials))
-      (resolve/chapters-url item)
-      (assoc :chapters (companion :chapters (resolve/chapters-url item) chapters/parse-json))
+(defn- episode-view
+  "The view of `item` in `feed` at `url`, with its files read, as
+  `episode/view!` gives it; kept for `cache-seconds`, since the files
+  are fetched to make it."
+  [feed url item]
+  (let [now (System/currentTimeMillis)]
+    (:value (cached [:episode url (feed/item-guid item)]
+                    #(< (- now (:at %)) (* 1000 cache-seconds))
+                    (fn [_] {:at now :value (episode/view! feed item {:url url})})))))
 
-      (resolve/embedded-chapters item)
-      (assoc :embedded (resolve/embedded-chapters item))
-
-      (and (not (resolve/chapters-url item))
-           (not (resolve/embedded-chapters item))
-           (resolve/inferred-chapters item))
-      (assoc :inferred (resolve/inferred-chapters item))
-
-      transcript-ref
-      (assoc :transcript
-             (-> (companion [:transcript (:type transcript-ref)] (:url transcript-ref)
-                            #(transcript/parse % (:type transcript-ref)))
-                 (assoc :ref transcript-ref))))))
+(defn- remotes
+  "The remote value blocks that the time splits of `block` point at, as
+  `remote-values` resolves them, and whether the index can be asked."
+  [block]
+  (when (seq (:time-splits block))
+    {:remote-values (remote-values block) :index? (some? index-credentials)}))
 
 (defn item-page
   "One item of the feed named by `url`, found by the `guid` parameter, with
-  its chapters, transcript and value block fetched and rendered."
+  its chapters, transcript, media file and value block fetched and
+  rendered."
   [request]
   (with-feed request
-    (fn [{:keys [feed] :as loaded}]
+    (fn [{:keys [feed url] :as loaded}]
       (let [guid (get-in request [:query-params :guid])
             item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
         (if item
-          (html (page/item-page (assoc loaded :item item :companions (companions feed item))))
+          (let [view (episode-view feed url item)]
+            (html (page/item-page (assoc loaded :item item :view view :remotes (remotes (:value view))))))
           (-> (html (page/error-page "No such item in the feed" (:url loaded) (str "No item with guid " guid)))
               (assoc :status 404)))))))
 

@@ -227,20 +227,22 @@
       (when-let [seconds (time/parse-clock timestamp)]
         {:start-time seconds :title title}))))
 
-(defn from-text
-  "The chapters listed as timestamps in the show notes `s`, HTML or plain
-  text, as a chapters map, or nil when they list none. A line per chapter,
-  \"12:34 The topic\" in any of the ways notes write it, with the time first
-  or, when no line starts with one, last, as in \"The topic (12:34)\"; two
-  such lines make a list when the time comes first, three in rising order
-  when it comes last. The report says the chapters were inferred."
-  [s]
-  ;; notes with no digit, colon and two digits in a row, a colon reference
-  ;; counted, hold no time, and most notes have none, so they skip the parse;
-  ;; the patterns' optional parts meet around runs of spaces, over which they
-  ;; would backtrack quadratically, so each run is one space first
-  (when (and s (re-find #"\d(?::|&#0*58;|&#[xX]0*3[aA];|&colon;)\d\d" s))
-    (let [lines    (map #(str/replace % #"\s+" " ") (str/split-lines (html/text (html/hiccup s))))
+(defn from-lines
+  "The chapters listed as timestamps in `lines`, the lines of the plain
+  text of show notes, as a chapters map, or nil when they list none. A
+  line per chapter, \"12:34 The topic\" in any of the ways notes write it,
+  with the time first or, when no line starts with one, last, as in \"The
+  topic (12:34)\"; two such lines make a list when the time comes first,
+  three in rising order when it comes last. The report says the chapters
+  were inferred.
+
+  `from-text` reads the lines out of the notes. A view that has the text
+  of the notes already gives its lines here, and parses the notes once."
+  [lines]
+  ;; the patterns' optional parts meet around runs of spaces, over which
+  ;; they would backtrack quadratically, so each run is one space first
+  (when (some #(re-find #"\d:\d\d" %) lines)
+    (let [lines    (map #(str/replace % #"\s+" " ") lines)
           leading  (keep #(line-chapter timestamp-first true %) lines)
           trailing (keep #(line-chapter timestamp-last false %) lines)
           chapters (cond
@@ -254,6 +256,16 @@
           {:podcast/report [(diagnostic :chapters/inferred :info
                                         (str (count chapters) " chapters were read from timestamps in the show notes")
                                         :count (count chapters))]})))))
+
+(defn from-text
+  "The chapters listed as timestamps in the show notes `s`, HTML or plain
+  text, as `from-lines` reads them from the lines of the plain text of
+  the notes."
+  [s]
+  ;; notes with no digit, colon and two digits in a row, a colon reference
+  ;; counted, hold no time, and most notes have none, so they skip the parse
+  (when (and s (re-find #"\d(?::|&#0*58;|&#[xX]0*3[aA];|&colon;)\d\d" s))
+    (from-lines (str/split-lines (html/text (html/hiccup s))))))
 
 (defn sorted
   "The chapters of `doc` that have a start time, in order of it."

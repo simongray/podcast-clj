@@ -40,7 +40,8 @@ ecosystem that podcast-clj was written for.
 ## Layers
 
 ```
-  4  front door   dk.simongray.podcast
+  5  views        app.show  app.episode
+  4  root         dk.simongray.podcast
   3  companions   feed.resolve  feed.check  format.*  value  value.*  directory  directory.*  updates.*  nostr  comments  comments.*  analytics  analytics.*  app.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.quirks
@@ -49,7 +50,12 @@ ecosystem that podcast-clj was written for.
 
 A namespace requires only namespaces in its own layer or in a lower layer.
 `feed.spec` knows nothing about parsing, and `feed` knows nothing about
-HTTP. The companion formats need only the primitives and each other, not
+HTTP. The views, `app.show` and `app.episode`, are the only namespaces
+that require the root namespace, `dk.simongray.podcast`: a view of a show
+fetches and parses the feed of its publisher, and `parse` is there. A
+view gives the data of the functions that it calls. So an app reads one
+map, and calls those functions itself when a step is not what it wants.
+The companion formats need only the primitives and each other, not
 `feed` or `feed.quirks`. What they need of XML, such as the Hiccup accessors
 and the decoding of entities, is in `util.xml`. `architecture_test.clj`
 reads the `ns` forms and makes sure that these rules hold and that there
@@ -78,8 +84,8 @@ podcast-clj, and each part is under the subject that it belongs to:
   `format.media` stands on are under it: `format.media.id3`,
   `format.media.mp3` and `format.media.mp4`.
 - `app` holds what an app keeps (`app.player`), finds (`app.search`),
-  downloads (`app.downloads`) and syncs (`app.sync`). The stores are under
-  `app.sync`.
+  downloads (`app.downloads`), syncs (`app.sync`) and shows (`app.show`
+  and `app.episode`). The stores are under `app.sync`.
 - The Podcast Index client is under `directory`, because the Podcast Index
   is one of the directories. `directory.links` writes the links to a show
   in the directories and in the apps.
@@ -409,7 +415,7 @@ leaves out the repairs and quirks that it names. The yes/no rule comes from
 the registry in use, so an app's own yes/no elements get it too.
 
 The report is a vector of diagnostics in the metadata of the result, under
-`:podcast/report`. Each layer reports only what it did. The front door joins
+`:podcast/report`. Each layer reports only what it did. The root namespace joins
 the reports in order: namespace resolution and the quirks on the tree first,
 then the mapping to the model. Metadata does not survive printing, transit
 or `into {}`. An app that stores a parsed feed must store the report next to
@@ -948,11 +954,11 @@ podcast-clj can read. `fetch!` adds the id of the root post, the comments
 by id, and their authors by id. Each comment names the post that it
 replies to. `tree` makes the tree from these names.
 
-`comments` is the front door. It sends each call to the reader of the
-protocol of the thread: `comments.activitypub`, `comments.atproto` or
-`comments.nostr`. The readers share the functions of `comments.common`. They cannot use
-functions of `comments`, because `comments` requires them, and a cycle of
-requires does not load. The keys that record the reading are in the
+`comments` is the one namespace that an app calls. It sends each call to
+the reader of the protocol of the thread: `comments.activitypub`,
+`comments.atproto` or `comments.nostr`. The readers share the functions
+of `comments.common`. They cannot use functions of `comments`, because
+`comments` requires them, and a cycle of requires does not load. The keys that record the reading are in the
 namespace `comments`. The readers write them through an `:as-alias`, which
 loads nothing.
 
@@ -1682,7 +1688,7 @@ accepts. The repair that declares prefixes is for this case. Second,
 `str/replace-first` in ClojureScript does not take a replacement function
 the way that Clojure does, so the repairs do not use it.
 
-On the JVM, the front door adds `fetch!`, the step that a poller repeats. It
+On the JVM, the root namespace adds `fetch!`, the step that a poller repeats. It
 sends the conditional headers, and returns a parsed feed or a 304, with the
 validators for the next fetch and the XML itself. The URL in the result is
 the final URL after redirects. If the feed declares a new URL,

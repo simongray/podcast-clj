@@ -2,8 +2,8 @@
   "Podcast feeds as data: RSS 2.0, the iTunes namespace and the podcast
   namespace of Podcasting 2.0, parsed leniently and emitted by the book.
 
-  This namespace is the front door; each step behind it is its own namespace
-  and can be used alone:
+  This is the root namespace. Each step of its work is its own namespace,
+  which an app can use alone:
 
       util.xml       XML as Hiccup, namespaces resolved by URI
       feed.quirks    repairs and normalizations for feeds that bend the standards

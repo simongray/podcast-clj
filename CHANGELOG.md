@@ -447,3 +447,18 @@
   version 2.3 of the guidelines of the IAB, with the window `:extending`.
   `lnaddress/parse` reads `@domain` as the default identifier `_@domain`
   of LUD-16.
+- The views, one map for a page of an app. `show/view`
+  gives a show in one map: the feed with its properties, the description
+  as Hiccup and as text, and the episodes in listening order. It has the
+  seasons and the links to the apps. `show/view!` adds the shows of the podroll as the
+  Podcast Index knows them, and the publisher feed, with whether it
+  confirms the show. `episode/view` gives an episode in one map, and
+  `episode/view!` reads its chapters file, its transcript and its media
+  file. The chapters come from the first of four places that has them,
+  and `:source` tells which. Each file that did not come has `:error`, and
+  `episode/report` gathers what the reading of each found. The item page
+  of the inspector is one call of `episode/view!` now, and it shows what
+  the media file says of itself. `:except` names what a view leaves out
+  and does not compute, for a list of episodes. `chapters/from-lines`
+  reads the timestamps out of the lines of the text of the notes, so that
+  the view and `from-text` parse the notes once.

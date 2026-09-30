@@ -14,7 +14,8 @@
 (def layers
   "The layer of each namespace, by its name under `prefix`: the primitives,
   the vocabulary, the feed model with its interpreters, the companions with
-  the formats, the app and the directories, and the front door."
+  the formats, the app and the directories, the root namespace, and the
+  views of an app, the only namespaces that require the root namespace."
   {"diagnostics" 0 "feed.guid" 0
    "util.async" 0 "util.bech32" 0 "util.bytes" 0 "util.http" 0 "util.json" 0 "util.rank" 0
    "util.secret" 0 "util.time" 0 "util.time.rrule" 0 "util.xml" 0 "util.xml.jsoup" 0
@@ -33,11 +34,12 @@
    "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3
    "comments.nostr" 3 "nostr" 3
    "analytics" 3 "analytics.op3" 3
-   "" 4})
+   "" 4
+   "app.episode" 5 "app.show" 5})
 
 (defn- short-name
   "The name of `ns` under `prefix`: \"util.xml\" for
-  dk.simongray.podcast.util.xml, \"\" for the front door."
+  dk.simongray.podcast.util.xml, \"\" for the root namespace."
   [ns]
   (str/replace (str ns) (re-pattern (str "^" (java.util.regex.Pattern/quote prefix) "\\.?")) ""))
 

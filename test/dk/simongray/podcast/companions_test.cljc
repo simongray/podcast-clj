@@ -127,6 +127,12 @@
   (testing "plain text with the time last, three lines rising"
     (is (= ["Intro" "The news" "Wrap-up"]
            (map :title (:chapters (chapters/from-text "Intro - 0:00\nThe news (5:12)\nWrap-up 1:02:03\n"))))))
+  (testing "the lines of the text, for a caller that parsed the notes already"
+    (is (= (chapters/from-text "<ul><li>00:00 Intro</li><li>05:12 The news</li></ul>")
+           (chapters/from-lines ["Intro" "" "- 00:00 Intro" "- 05:12 The news"])))
+    (is (= [{:id :chapters/inferred :level :info :count 2}]
+           (map #(dissoc % :message) (chapters/report (chapters/from-lines ["00:00 Intro" "05:12 The news"])))))
+    (is (nil? (chapters/from-lines ["Recorded at ten." "No times here."]))))
   (testing "one timestamp is not a list, nor is a mention of the clock"
     (is (nil? (chapters/from-text "<p>Recorded at 10:30. Runtime 45:00.</p>")))
     (is (nil? (chapters/from-text "00:00 Intro")))

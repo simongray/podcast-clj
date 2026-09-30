@@ -1,5 +1,5 @@
 (ns dk.simongray.podcast.fetch-test
-  "The front door's fetch!: from a URL to a parsed feed in one step, with the
+  "The fetch! of the root namespace: from a URL to a parsed feed in one step, with the
   conditional headers, the moved-feed hints, the pages of a paged feed, the
   credentials of a private one and the server's word on when to ask again,
   against a server on localhost."
