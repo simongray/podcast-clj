@@ -1,4 +1,4 @@
-# Quickstart: a podcast app in thirty lines
+# Quickstart: a podcast app at a REPL
 
 This page takes you from a feed URL to a queue, a page of an episode, a
 player and a sync, at a REPL on the JVM. Each step is one call of
@@ -106,8 +106,8 @@ library with the effects that the app must do under `:effects`:
 ;; => [[:seek ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"] 784]]
 ```
 
-The player state is `(:player @lib)`, and every function of `app.player`
-takes it. There are more than eighty, and `enqueue` is one.
+The player state is `(:player @lib)`. Every function of `app.player`
+takes it, and `enqueue` is one of them.
 
 ## New episodes
 

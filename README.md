@@ -94,8 +94,8 @@ With `org.jsoup/jsoup` on the classpath, podcast-clj on the JVM also reads
 feeds that are not well-formed XML.
 
 
-An app in fourteen lines
-------------------------
+An app in a few lines
+---------------------
 
 An app keeps a listener's subscriptions, feeds, queue and progress in
 one map, the library, in an atom. Each step of the app is one call, and
@@ -135,8 +135,8 @@ Documentation
 
 To learn, and to do:
 
-- [Quickstart](doc/quickstart.md): a podcast app in thirty lines, at a
-  REPL.
+- [Quickstart](doc/quickstart.md): a podcast app at a REPL, step by
+  step.
 - [How to build a podcast app](doc/building-an-app.md): every step of an
   app, from finding a show to syncing devices.
 
