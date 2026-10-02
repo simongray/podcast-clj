@@ -47,6 +47,7 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]))
 
@@ -70,7 +71,7 @@
          settings    (merge default-settings settings)]
      {:device   device
       :player   (cond-> (player/state device)
-                  (seq description) (player/identify description now))
+                  (seq description) (crdt/identify description now))
       :feeds    {}
       :lists    {}
       :index    (when (:search? settings) (search/index))

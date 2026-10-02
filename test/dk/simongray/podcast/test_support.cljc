@@ -12,6 +12,7 @@
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.util.bech32 :as bech32]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.crdt :as crdt]
             #?(:clj [dk.simongray.podcast.util.json :as json])
             [dk.simongray.podcast.util.nostr :as nostr])
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
@@ -71,7 +72,7 @@
   and was 100 seconds into `a` at `t1`."
   []
   (-> (player/state "phone")
-      (player/identify {:name "Phone"} t0)
+      (crdt/identify {:name "Phone"} t0)
       (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
       (player/progress a 100 3600 t1)))
 

@@ -5,7 +5,8 @@
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.app.downloads :as downloads]
-            [dk.simongray.podcast.app.player :as player]))
+            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.util.crdt :as crdt]))
 
 (def day (* 24 60 60))
 
@@ -127,12 +128,12 @@
       (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (ids (:download (plan late {})))))))
   (testing "the inbox, and an episode that the listener dismissed"
     (let [state (-> (with-rules subscribed {} {"feed-a" {:download? true :episodes {:where {:inbox? true}}}})
-                    (player/write [:inbox ["feed-a" "a4"]] (constantly {:removed? false}) (at 22))
-                    (player/write [:inbox ["feed-a" "a3"]] (constantly {:removed? false}) (at 15)))]
+                    (crdt/write [:inbox ["feed-a" "a4"]] (constantly {:removed? false}) (at 22))
+                    (crdt/write [:inbox ["feed-a" "a3"]] (constantly {:removed? false}) (at 15)))]
       (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (ids (:download (plan state {})))))
       (is (= [["feed-a" "a3"]] (ids (:download (plan (player/dismiss state ["feed-a" "a4"] (at 23)) {}))))))
     (let [state (-> (with-rules subscribed {} {"feed-a" {:download? true :episodes {:limit 1}}})
-                    (player/write [:inbox ["feed-a" "a4"]] (constantly {:removed? false}) (at 22))
+                    (crdt/write [:inbox ["feed-a" "a4"]] (constantly {:removed? false}) (at 22))
                     (player/dismiss ["feed-a" "a4"] (at 23)))]
       (is (= [] (ids (:download (plan state {})))) "the listener did not want the newest")
       (is (= [["feed-a" "a4"]] (ids (:download (plan (player/enqueue state ["feed-a" "a4"] (at 24)) {}))))

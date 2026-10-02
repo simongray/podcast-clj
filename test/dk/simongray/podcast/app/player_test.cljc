@@ -11,6 +11,7 @@
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 t4 a]]
+            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]))
 
 (def b ["feed-a" "a2"])
@@ -168,9 +169,19 @@
     (testing "two devices that append several episodes at once keep each batch together"
       (let [d       ["feed-d" "d1"]
             e       ["feed-d" "d2"]
-            phone3  (player/append (player/state "phone") [:queue] [a b c] t0)
-            laptop3 (player/append (player/state "laptop") [:queue] [d e] t1)]
+            phone3  (crdt/append (player/state "phone") [:queue] {} [a b c] t0)
+            laptop3 (crdt/append (player/state "laptop") [:queue] {} [d e] t1)]
         (is (= [d e a b c] (player/queue (player/merge phone3 laptop3)) (player/queue (player/merge laptop3 phone3))))))
+    (testing "a move never brings back an episode that another device took out"
+      (let [three   (-> (player/state "phone") (player/enqueue a t0) (player/enqueue b t0) (player/enqueue c t0))
+            phone4  (player/dequeue three b t1)
+            laptop4 (player/move (assoc three :device "laptop") b 0 t2)]
+        (is (= [b a c] (player/queue laptop4)) "until the devices merge")
+        (is (= [a c] (player/queue (player/merge phone4 laptop4)) (player/queue (player/merge laptop4 phone4))))
+        (is (= [a c] (player/queue (player/merge phone4 (player/play-next (assoc three :device "laptop") b t2))))
+            "nor does play-next of a queued episode")
+        (is (= [b a c] (player/queue (player/merge phone4 (:state (player/step laptop4 [:play b] t2)))))
+            "but playing it puts it back")))
     (testing "ranks stay short as a queue grows, at its end and at its front"
       (let [long   (reduce (fn [s i] (player/enqueue s ["f" (str i)] t0)) (player/state "x") (range 2000))
             played (reduce (fn [s i] (:state (player/step s [:play ["g" (str i)]] t0))) long (range 200))
@@ -250,10 +261,10 @@
 (deftest the-inbox
   (let [c2 ["feed-b" "b2"]
         s  (-> (player/state "phone")
-               (player/write [:inbox a] (constantly {:removed? false}) t0)
-               (player/write [:inbox b] (constantly {:removed? false}) t0)
-               (player/write [:inbox c] (constantly {:removed? false}) t0)
-               (player/write [:inbox c2] (constantly {:removed? false}) t0))]
+               (crdt/write [:inbox a] (constantly {:removed? false}) t0)
+               (crdt/write [:inbox b] (constantly {:removed? false}) t0)
+               (crdt/write [:inbox c] (constantly {:removed? false}) t0)
+               (crdt/write [:inbox c2] (constantly {:removed? false}) t0))]
     (is (= [c2 c b a] (player/inbox s)) "the latest to arrive first")
     (testing "an episode leaves the inbox when it is dismissed, queued or played"
       (let [s' (-> s (player/dismiss a t1) (player/enqueue b t1) (player/mark-played c t1) (player/progress c2 3590 3600 t1))]
@@ -484,12 +495,12 @@
     (testing "a show that the listener left stays left on a device that joins after the compaction"
       (let [day    (* 24 60 60 1000)
             far    (time/->inst (+ (inst-ms t4) (* 40 day)))
-            phone  (-> (player/identify (:state r1) {:name "Phone"} t1)
+            phone  (-> (crdt/identify (:state r1) {:name "Phone"} t1)
                        (player/unsubscribe (g "https://pc20/rss") t2))
-            laptop (-> (player/identify (player/state "laptop") {:name "Laptop"} t2)
+            laptop (-> (crdt/identify (player/state "laptop") {:name "Laptop"} t2)
                        (player/merge phone)
-                       (player/acknowledge [phone] t3))
-            phone  (player/compact (player/acknowledge (player/merge phone laptop) [laptop] t3) far)
+                       (crdt/acknowledge [phone] t3))
+            phone  (player/compact (crdt/acknowledge (player/merge phone laptop) [laptop] t3) far)
             tablet (player/merge (player/state "tablet") phone)]
         (is (:removed? (get-in phone [:subscriptions (g "https://pc20/rss")]))
             "the tombstone stays while the listener follows a list")
@@ -515,6 +526,10 @@
     (is (= [c b] (player/playlist (player/remove-from-playlist s "Drive" a t2) "Drive")))
     (is (= {"Road trip" [c a b]} (player/playlists (player/rename-playlist s "Drive" "Road trip" t2))) "in the same order")
     (is (= {} (player/playlists (player/rename-playlist s "Drive" nil t2))) "nil deletes it")
+    (is (= [c b] (player/playlist (player/merge (player/remove-from-playlist s "Drive" a t2)
+                                                (player/move-in-playlist (assoc s :device "laptop") "Drive" a 0 t3))
+                                  "Drive"))
+        "a move never brings back an episode that another device took out")
     (is (= [] (player/queue s)) "the queue is its own")
     (testing "into a playlist that holds episodes"
       (let [d ["feed-b" "b2"]
@@ -628,12 +643,12 @@
                    (player/star a t0) (player/unstar a t1)
                    (player/bookmark a 30 "Kept" t0) (player/bookmark a 60 "Gone" t0) (player/unbookmark a 60 t1)
                    (player/bookmark b 90 "Gone" t0) (player/unbookmark b 90 t1)
-                   (player/write [:inbox b] (constantly {:removed? false}) t0) (player/dismiss b t1)
+                   (crdt/write [:inbox b] (constantly {:removed? false}) t0) (player/dismiss b t1)
                    (player/save-filter "F" {} t0) (player/remove-filter "F" t1)
                    (player/clip a 30 10 "Kept" t0) (player/clip b 60 10 "Gone" t0) (player/unclip b 60 t1)
                    (player/rate-episode a 4 t0) (player/rate-episode b 2 t0) (player/unrate-episode b t1))
-        laptop (player/acknowledge (player/merge (player/state "laptop") phone) [phone] t2)
-        phone  (player/acknowledge (player/merge phone laptop) [laptop] t2)
+        laptop (crdt/acknowledge (player/merge (player/state "laptop") phone) [phone] t2)
+        phone  (crdt/acknowledge (player/merge phone laptop) [laptop] t2)
         after  (player/compact phone far)]
     (is (= {:stars {} :inbox {} :filters {} :bookmarks {a {30 (get-in phone [:bookmarks a 30])}}
             :clips {a {30 (get-in phone [:clips a 30])}} :ratings {a (get-in phone [:ratings a])}}
@@ -758,7 +773,7 @@
                                   (player/rate-episode a 4 t1)
                                   (player/unrate-episode a t2)
                                   (player/rate-episode b 50 t1 {:scale {:worst 1 :best 100}})
-                                  (player/acknowledge [(player/subscribe (player/state "laptop") "feed-b" {:url "https://b/rss"} t0)] t2))))))
+                                  (crdt/acknowledge [(player/subscribe (player/state "laptop") "feed-b" {:url "https://b/rss"} t0)] t2))))))
   (testing "what would make an operation throw on every device it reached"
     (doseq [[state found] [[{:clock "now"} #"clock"]
                            [{:episodes {a {:updated-at "soon" :device "x"}}} #"stamped \"soon\""]
@@ -798,7 +813,7 @@
     (is (nil? (player/problem {:filters {"F" {:criteria {:where {:mood "calm"}} :updated-at t0 :device "x"}}})))))
 
 (deftest merging-entries-with-keys-of-any-kind
-  (let [s (player/identify (player/state "phone") {:name "Phone" "custom" 1} t0)]
+  (let [s (crdt/identify (player/state "phone") {:name "Phone" "custom" 1} t0)]
     (is (= s (player/merge s s)) "an entry ties with itself, and its keys still sort")))
 
 (deftest a-tie-between-two-entries
@@ -820,15 +835,15 @@
 
 (deftest devices-and-the-clock
   (let [s (-> (player/state "phone-id")
-              (player/identify {:name "Simon's phone" :platform "ios"} t0)
+              (crdt/identify {:name "Simon's phone" :platform "ios"} t0)
               (player/progress a 100 3600 t1))]
     (is (= {"phone-id" {:name "Simon's phone" :platform "ios" :updated-at t0 :device "phone-id"}}
-           (player/devices s)))
+           (crdt/devices s)))
     (is (= t1 (:clock s)) "the clock is the latest instant written")
-    (is (= t2 (player/after s t2)) "a later now is used as it is")
-    (is (= (time/->inst (inc (inst-ms t1))) (player/after s t0)) "an earlier now becomes the millisecond after the clock")
+    (is (= t2 (crdt/after s t2)) "a later now is used as it is")
+    (is (= (time/->inst (inc (inst-ms t1))) (crdt/after s t0)) "an earlier now becomes the millisecond after the clock")
     (is (= t2 (:clock (player/merge s (player/progress (player/state "x") b 5 t2)))) "and it follows what is merged")
-    (let [s (-> s (player/write [:notes "x"] #(assoc % :text "one") t0) (player/write [:notes "y"] #(assoc % :text "two") t0))]
+    (let [s (-> s (crdt/write [:notes "x"] #(assoc % :text "one") t0) (crdt/write [:notes "y"] #(assoc % :text "two") t0))]
       (is (not= (get-in s [:notes "x" :updated-at]) (get-in s [:notes "y" :updated-at]))
           "two entries of the app's own, written through write, are never stamped alike")
       (is (= (get-in s [:notes "y" :updated-at]) (:clock s))))
@@ -841,11 +856,11 @@
         (is (= #{t1} (set (map :updated-at (concat (vals (:subscriptions s)) (mapcat vals (vals (:tags s))))))))
         (is (nil? (player/problem s)) "and leaves nothing of the import in the state")))
     (testing "retiring a device from another"
-      (let [laptop (player/retire (player/state "laptop-id") "phone-id" t2)
+      (let [laptop (crdt/retire (player/state "laptop-id") "phone-id" t2)
             merged (player/merge s laptop)]
-        (is (player/retired? merged "phone-id"))
-        (is (= {} (player/devices merged)))
-        (is (= {} (player/devices (player/merge (player/identify merged {:name "Back"} t3) laptop)))
+        (is (crdt/retired? merged "phone-id"))
+        (is (= {} (crdt/devices merged)))
+        (is (= {} (crdt/devices (player/merge (crdt/identify merged {:name "Back"} t3) laptop)))
             "describing itself again does not undo it")))))
 
 (deftest writing-as-another-device
@@ -853,15 +868,15 @@
               (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1)
               (player/unsubscribe "feed-a" t3))]
     (testing "a write at the other device's own time, under its name"
-      (let [w (player/as-device s "gpodder:x" #(player/subscribe % "feed-b" {:url "https://b/rss"} t2))]
+      (let [w (crdt/as-device s "gpodder:x" #(player/subscribe % "feed-b" {:url "https://b/rss"} t2))]
         (is (= {:updated-at t2 :device "gpodder:x"} (select-keys (get-in w [:subscriptions "feed-b"]) [:updated-at :device])))
         (is (= "phone" (:device w)))
         (is (= t3 (:clock w)) "the clock stays at the later instant")
         (is (nil? (player/problem w)))))
     (testing "an entry that's later than the write stays, as a merge keeps it"
-      (is (= s (player/as-device s "gpodder:x" #(player/subscribe % "feed-a" {:url "https://a/rss"} t2)))))
+      (is (= s (crdt/as-device s "gpodder:x" #(player/subscribe % "feed-a" {:url "https://a/rss"} t2)))))
     (testing "the same as a merge of the other device's state"
-      (is (= (player/episode (player/as-device s "laptop" #(player/progress % a 100 3600 t4)) a)
+      (is (= (player/episode (crdt/as-device s "laptop" #(player/progress % a 100 3600 t4)) a)
              (player/episode (player/merge s (player/progress (player/state "laptop") a 100 3600 t4)) a))))))
 
 (deftest acknowledging-and-compacting
@@ -873,13 +888,13 @@
                    (player/unsubscribe "feed-b" t1)
                    (player/enqueue a t1)
                    (player/dequeue a t2))
-        laptop (player/acknowledge (player/merge (player/state "laptop") phone) [phone] t3)
-        phone  (player/acknowledge (player/merge phone laptop) [laptop] t3)]
+        laptop (crdt/acknowledge (player/merge (player/state "laptop") phone) [phone] t3)
+        phone  (crdt/acknowledge (player/merge phone laptop) [laptop] t3)]
     (testing "acknowledging what another device wrote"
       (is (= {"phone" t2} (get-in laptop [:devices "laptop" :seen])) "the latest the phone wrote, outside the registry")
       (is (= t3 (get-in laptop [:devices "laptop" :updated-at])))
-      (is (= laptop (player/acknowledge laptop [phone] t4)) "nothing new leaves the entry alone")
-      (is (= laptop (player/acknowledge laptop [(player/identify phone {:name "P"} t4)] t4)) "the registry itself is never news")
+      (is (= laptop (crdt/acknowledge laptop [phone] t4)) "nothing new leaves the entry alone")
+      (is (= laptop (crdt/acknowledge laptop [(crdt/identify phone {:name "P"} t4)] t4)) "the registry itself is never news")
       (is (= {} (get-in phone [:devices "phone" :seen])) "the laptop had written nothing of its own"))
     (testing "a tombstone goes once every other live device has seen it and it is old enough"
       (is (= 2 (count (:subscriptions phone))))
@@ -890,15 +905,15 @@
         (is (= (player/subscriptions phone) (player/subscriptions compacted)) "nothing the listener sees changed")
         (is (= (player/queue phone) (player/queue compacted))))
       (is (= (:subscriptions phone) (:subscriptions (player/compact phone far {:keep-for (* 40 day)}))) "the age is an option")
-      (is (= {} (player/lagging phone)) "the laptop is up to date"))
+      (is (= {} (crdt/lagging phone)) "the laptop is up to date"))
     (testing "a device that has not caught up holds compaction back, until it is retired"
-      (let [tablet (player/identify (player/state "tablet") {:name "Tablet"} t0)
+      (let [tablet (crdt/identify (player/state "tablet") {:name "Tablet"} t0)
             phone  (player/merge phone tablet)]
         (is (= 2 (count (:subscriptions (player/compact phone far)))))
-        (is (= {"tablet" nil} (player/lagging phone)) "it has merged nothing")
-        (is (= {"tablet" nil "laptop" t1} (player/lagging (assoc-in phone [:devices "laptop" :seen "phone"] t1)))
+        (is (= {"tablet" nil} (crdt/lagging phone)) "it has merged nothing")
+        (is (= {"tablet" nil "laptop" t1} (crdt/lagging (assoc-in phone [:devices "laptop" :seen "phone"] t1)))
             "a device part of the way is named with how far it got")
-        (is (= ["feed-a"] (keys (:subscriptions (player/compact (player/retire phone "tablet" t3) far)))))))))
+        (is (= ["feed-a"] (keys (:subscriptions (player/compact (crdt/retire phone "tablet" t3) far)))))))))
 
 (deftest the-changes-since-a-state
   (let [taken   (-> (player/state "phone")
@@ -907,16 +922,16 @@
         s       (-> taken
                     (player/progress a 100 3600 t2)
                     (player/enqueue a t3))
-        changes (player/changes-since s taken)]
+        changes (crdt/changes-since s taken)]
     (is (= #{:device :clock :episodes :queue} (set (keys changes)))
         "what was written since the state was taken, with the device and the clock")
     (is (= (player/episode s a) (player/episode changes a)))
     (is (= s (player/merge s changes)) "a partial state merges into the whole without changing it")
     (let [laptop (player/subscribe (player/state "laptop") "feed-b" {:url "https://b/rss" :title "B"} t0)]
-      (is (contains? (:subscriptions (player/changes-since (player/merge s laptop) taken)) "feed-b")
+      (is (contains? (:subscriptions (crdt/changes-since (player/merge s laptop) taken)) "feed-b")
           "and what was merged in since, however early its stamp"))
     (is (= (dissoc s :device)
-           (dissoc (player/merge (player/state "laptop") (player/changes-since s nil)) :device))
+           (dissoc (player/merge (player/state "laptop") (crdt/changes-since s nil)) :device))
         "nil means everything")))
 
 (deftest stepping

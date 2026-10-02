@@ -11,6 +11,7 @@
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
             [dk.simongray.podcast.test-support :refer [t1 t2 t3 t4 a same? with-temp-dir]]
+            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))
@@ -90,7 +91,7 @@
   (with-redefs [http/call! through-the-inspector]
     (let [backend (store/backend (webdav/store "http://inspector/dav/") {:opml? true :app "test"})
           phone   (sync/sync! (-> (player/state "phone")
-                                  (player/identify {:name "Phone"} t1)
+                                  (crdt/identify {:name "Phone"} t1)
                                   (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1))
                               [backend] t2)
           laptop  (sync/sync! (player/progress (player/state "laptop") a 60 3600 t2) [backend] t3)

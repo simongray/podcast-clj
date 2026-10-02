@@ -20,6 +20,7 @@
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
+            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]
             [inspector.player.view :as view]
             [replicant.dom :as replicant]))
@@ -211,7 +212,7 @@
   it needs to play the episode."
   [{:keys [id] :as episode} mode]
   (swap! app assoc-in [:titles id] episode)
-  (operate! player/write [:inspector/episodes id] (constantly {:value episode}))
+  (operate! crdt/write [:inspector/episodes id] (constantly {:value episode}))
   (case mode
     "now"  (play! id)
     "next" (operate! player/play-next id)

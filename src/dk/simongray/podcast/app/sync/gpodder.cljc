@@ -20,6 +20,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.secret :as secret]
@@ -322,11 +323,11 @@
                             stamp (if known at (time/->inst 0))]
                         (cond-> s
                           (not (player/subscribed? s g))
-                          (player/as-device (writer author) #(player/subscribe % g show stamp)))))
+                          (crdt/as-device (writer author) #(player/subscribe % g show stamp)))))
         unsubscribe (fn [s url]
                       (let [g (guid-of url)]
                         (cond-> s
-                          (player/subscribed? s g) (player/as-device (writer author) #(player/unsubscribe % g at)))))]
+                          (player/subscribed? s g) (crdt/as-device (writer author) #(player/unsubscribe % g at)))))]
     (as-> state s
       (reduce subscribe s add)
       (reduce unsubscribe s remove))))
@@ -347,7 +348,7 @@
                 "new"  #(player/mark-unplayed % id timestamp)
                 nil)]
     (if (and act timestamp (< (or stamp 0) (inst-ms timestamp)))
-      (player/as-device state (writer (or device author)) act)
+      (crdt/as-device state (writer (or device author)) act)
       state)))
 
 (defn- told-at
@@ -445,7 +446,7 @@
         more    (- (count pending) (count (:pending ctx)))
         broken  (count (remove whole? told-of))
         counted (fn [d n] (diagnostics/describe (assoc d :count n)))]
-    {:states   [(player/changes-since s state)]
+    {:states   [(crdt/changes-since s state)]
      :partial? true
      :ctx      (cond-> (-> ctx
                            (dissoc :pending)

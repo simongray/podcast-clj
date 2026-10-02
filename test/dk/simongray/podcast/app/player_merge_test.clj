@@ -6,7 +6,8 @@
   (:require [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [dk.simongray.podcast.app.player :as player]))
+            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.util.crdt :as crdt]))
 
 (def instants
   "A handful of instants close together, so that ties happen."
@@ -34,8 +35,8 @@
     (gen/fmap (fn [[id n t]] #(player/skip % id n t)) (gen/tuple episode-ids (gen/choose -60 60) instants))
     (gen/fmap (fn [[n t]] #(player/prefer % {:skip-forward n} t)) (gen/tuple (gen/elements [15 30 45]) instants))
     (gen/fmap (fn [t] #(player/advance % t)) instants)
-    (gen/fmap (fn [[n t]] #(player/identify % {:name n} t)) (gen/tuple (gen/elements ["Phone" "Laptop"]) instants))
-    (gen/fmap (fn [[d t]] #(player/retire % d t)) (gen/tuple (gen/elements ["phone" "laptop" "car"]) instants))
+    (gen/fmap (fn [[n t]] #(crdt/identify % {:name n} t)) (gen/tuple (gen/elements ["Phone" "Laptop"]) instants))
+    (gen/fmap (fn [[d t]] #(crdt/retire % d t)) (gen/tuple (gen/elements ["phone" "laptop" "car"]) instants))
     (gen/fmap (fn [[id t]] #(player/star % id t)) (gen/tuple episode-ids instants))
     (gen/fmap (fn [[id t]] #(player/unstar % id t)) (gen/tuple episode-ids instants))
     (gen/fmap (fn [[id s t]] #(player/bookmark % id s (str "at " s) t)) (gen/tuple episode-ids (gen/elements [30 754]) instants))
@@ -49,8 +50,8 @@
     (gen/fmap (fn [[id t]] #(player/unrate-episode % id t)) (gen/tuple episode-ids instants))
     (gen/fmap (fn [[id d t]] #(:state (player/step % [:chapter id d {:chapters [{:start-time 0} {:start-time 90}]}] t)))
               (gen/tuple episode-ids (gen/elements [:next :previous]) instants))
-    (gen/fmap (fn [[id t]] #(player/write % [:inbox id] (constantly {:removed? false}) t)) (gen/tuple episode-ids instants))
-    (gen/fmap (fn [[id p t]] #(player/as-device % "gpodder:x" (fn [s] (player/progress s id p 3600 t))))
+    (gen/fmap (fn [[id t]] #(crdt/write % [:inbox id] (constantly {:removed? false}) t)) (gen/tuple episode-ids instants))
+    (gen/fmap (fn [[id p t]] #(crdt/as-device % "gpodder:x" (fn [s] (player/progress s id p 3600 t))))
               (gen/tuple episode-ids (gen/choose 0 3600) instants))
     (gen/fmap (fn [[id t]] #(player/dismiss % id t)) (gen/tuple episode-ids instants))
     (gen/fmap (fn [[g f t]] #(player/configure % g {:folder f} t)) (gen/tuple feed-guids (gen/elements [nil "News"]) instants))

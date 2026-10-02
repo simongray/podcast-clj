@@ -7,7 +7,8 @@
             [clojure.test.check.properties :as prop]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync :as sync]
-            [dk.simongray.podcast.app.sync.store :as store]))
+            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.util.crdt :as crdt]))
 
 (def devices
   ["phone" "laptop" "car"])
@@ -64,12 +65,12 @@
     :advance              (player/advance state x)
     :prefer               (player/prefer state {:skip-forward x} y)
     :configure            (player/configure state x {:skip-intro y} z)
-    :identify             (player/identify state {:name x} y)
+    :identify             (crdt/identify state {:name x} y)
     :star                 (player/star state x y)
     :unstar               (player/unstar state x y)
     :bookmark             (player/bookmark state x y "A bookmark" z)
     :unbookmark           (player/unbookmark state x y z)
-    :arrive               (player/write state [:inbox x] (constantly {:removed? false}) y)
+    :arrive               (crdt/write state [:inbox x] (constantly {:removed? false}) y)
     :dismiss              (player/dismiss state x y)
     :folder               (player/configure state x {:folder y} z)
     :tag                  (player/tag state x y z)
@@ -143,10 +144,10 @@
   unsubscriptions stay while the listener follows a list, so they count
   only for a listener who follows none."
   [state]
-  (let [flat (cond-> [:lists :queue :inbox :stars :filters]
+  (let [flat (cond-> [:lists :queue :queue-moves :inbox :stars :filters]
                (empty? (player/lists state)) (conj :subscriptions))]
     (count (filter :removed? (concat (mapcat (comp vals state) flat)
-                                     (mapcat vals (mapcat (comp vals state) [:bookmarks :tags :playlists])))))))
+                                     (mapcat vals (mapcat (comp vals state) [:bookmarks :tags :playlists :playlist-moves])))))))
 
 (defspec devices-converge-through-a-folder-of-documents 100
   (prop/for-all [steps schedule]

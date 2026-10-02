@@ -16,7 +16,11 @@
   the list grows. The after function gives the ranks of many items that
   go to the end of a list at one time:
 
-      (after \"V\" 3)       ;=> (\"W\" \"X\" \"Y\")"
+      (after \"V\" 3)       ;=> (\"W\" \"X\" \"Y\")
+
+  This is fractional indexing as Wallace describes it in Realtime Editing
+  of Ordered Sequences (Figma, 2017), except that the ranks count at the
+  ends: https://www.figma.com/blog/realtime-editing-of-ordered-sequences/"
   (:require [clojure.string :as str]))
 
 (def ^:no-doc digits
@@ -130,9 +134,12 @@
 (defn- tag-digits
   "Two digits from the string `tag`, the same on every platform."
   [tag]
-  (let [n (reduce (fn [h c] (mod (+ (* 31 h) #?(:clj (int c) :cljs (.charCodeAt c 0))) 3844)) 0 tag)]
-    (str (nth digits (quot n 62)) (nth digits (mod n 62)))))
+  (let [base (count digits)
+        n    (reduce (fn [h c] (mod (+ (* 31 h) #?(:clj (int c) :cljs (.charCodeAt c 0))) (* base base))) 0 tag)]
+    (str (nth digits (quot n base)) (nth digits (mod n base)))))
 
+;; The tag keeps two batches clear of the interleaving anomaly of Kleppmann
+;; et al. 2019, section 2: https://doi.org/10.1145/3301419.3323972
 (defn after
   "The `n` ranks that come after the rank `before`, in order, in a block of
   their own for the `tag` if given. With nil for `before`, they're the
@@ -161,8 +168,7 @@
   ([before n tag]
    (if (< n 2)
      (after before n)
-     (let [block (str (between before nil) (tag-digits (str tag)))]
-       (map #(str block %) (after nil n))))))
+     (map (partial str (between before nil) (tag-digits (str tag))) (after nil n)))))
 
 (comment
   (take 40 (iterate #(between % nil) (between nil nil)))

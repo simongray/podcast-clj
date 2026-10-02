@@ -14,6 +14,7 @@
   `[:audio/time id]`. The shell in inspector.player performs them."
   (:require [cljs.pprint :as pprint]
             [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]))
 
 (defn item-href
@@ -123,7 +124,7 @@
 (defn- devices
   "The listener's devices and the sync through the inspector's folder."
   [{:keys [player synced syncing?]}]
-  (let [known (player/devices player)]
+  (let [known (crdt/devices player)]
     [:section
      [:h2 "Devices"]
      [:p.muted "Every device writes its own document to the inspector's folder, served over WebDAV at /dav/, and reads the others'."]

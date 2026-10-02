@@ -33,7 +33,8 @@
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.opml :as opml]
-            [dk.simongray.podcast.util.async :as async]))
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.crdt :as crdt]))
 
 (defn memory
   "A store over the atom `documents`, or a fresh one, which holds the :body
@@ -382,7 +383,7 @@
                 (not push?)
                 {:ctx ctx}
 
-                (player/retired? state (:device state))
+                (crdt/retired? state (:device state))
                 {:ctx ctx :report [(describe {:id :sync/retired-device :device (:device state)})]}
 
                 :else

@@ -15,6 +15,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.secret :as secret]
@@ -425,7 +426,7 @@
                    (send request))
         ;; the laptop of the listener is a device of podcast-clj that the
         ;; phone knows, and an app sends an action in its name
-        s        (player/merge (phone) (player/identify (player/state "laptop") {:name "Laptop"} t1))]
+        s        (player/merge (phone) (crdt/identify (player/state "laptop") {:name "Laptop"} t1))]
     (ask send :post "/api/2/episodes/simon.json"
          [{"podcast" feed-a "episode" "https://a.example/2.mp3" "guid" "a2" "action" "play"
            "timestamp" "2026-01-01T01:30:00" "position" 300 "total" 1800 "device" "laptop"}])
@@ -439,7 +440,7 @@
           (sync/sync! s [(backend send')] t3 {:ctx ctx})
           (fn [{s :state}]
             (is (= [] @posts) "no push sends it back")
-            (is (nil? (get-in (player/acknowledge (player/state "tablet") [s] t3) [:devices "tablet" :seen "laptop"]))
+            (is (nil? (get-in (crdt/acknowledge (player/state "tablet") [s] t3) [:devices "tablet" :seen "laptop"]))
                 "and it is not what the laptop wrote"))))))))
 
 (deftest episodes-the-app-does-not-know-yet

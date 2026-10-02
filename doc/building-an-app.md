@@ -605,7 +605,7 @@ readable for other apps:
 
 Each sync removes the tombstones that every device has seen, once they're
 30 days old. A device that stopped syncing blocks this. Such devices are
-listed by `player/lagging`, and `player/retire` removes one.
+listed by `crdt/lagging`, and `crdt/retire` removes one.
 
 To keep in step with AntennaPod, Kasts and other apps of the gpodder API,
 add a gpodder server as a backend. For the GPodder Sync app of Nextcloud,

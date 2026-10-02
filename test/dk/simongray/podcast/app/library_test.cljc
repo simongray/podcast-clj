@@ -12,6 +12,7 @@
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]))
 
 (def now #inst "2026-09-30T12:00:00Z")
@@ -51,7 +52,7 @@
 (deftest a-fresh-library
   (let [lib (library/make "phone" now {:name "Phone" :platform "ios"})]
     (is (= "phone" (:device lib)))
-    (is (= {:name "Phone" :platform "ios"} (dissoc (get (player/devices (:player lib)) "phone") :updated-at :device)))
+    (is (= {:name "Phone" :platform "ios"} (dissoc (get (crdt/devices (:player lib)) "phone") :updated-at :device)))
     (is (nil? (:index lib)) "no index unless the settings say so")
     (is (= {} (:feeds lib)))
     (is (= library/default-settings (:settings lib)))

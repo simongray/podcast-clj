@@ -428,7 +428,9 @@ clock in one rule. A removal is a tombstone. `merge` reconciles two states
 entry by entry, and the later entry wins. The merge is commutative,
 associative and idempotent, which a generative test checks, so any backend
 that can store a document can sync the state. This is also why the state
-must only change through `app.player`, never with `assoc`.
+must only change through `app.player` and `util.crdt`, never with `assoc`.
+The CRDT itself is in `util.crdt`, which knows nothing of podcasts:
+`app.player` gives it the schema of its collections.
 
 `step` takes the events of a player (`:progress`, `:ended`, `:play`,
 `:skip` and `:chapter`) and returns the new state with effects for the app,

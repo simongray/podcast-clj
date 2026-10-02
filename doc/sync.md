@@ -107,6 +107,10 @@ without a new version.
 
 ## The player state as a CRDT
 
+The CRDT is `util.crdt`, which knows nothing of podcasts. `app.player`
+gives it a schema: how deep the entries of each collection are, which
+entries hold counts that only grow, and which tombstones compact drops.
+
 ### Merge by shape
 
 The merge goes through the two states key by key, and handles each value
@@ -122,9 +126,9 @@ a set with tombstones for its removals, and the clock is a max register, so
 the state is their product and the merge is its join. When two entries have
 the same stamp, the device id decides, and then the printed entry, so every
 platform makes the same choice. Entries that an app adds to the state sync
-with no change to podcast-clj, as long as `player/write` stamps them. What
+with no change to podcast-clj, as long as `crdt/write` stamps them. What
 another device or a service did at a time of its own goes in with
-`player/as-device`, which keeps a later entry, as a merge would. A value
+`crdt/as-device`, which keeps a later entry, as a merge would. A value
 outside a stamped entry would never agree across devices, so the sync
 leaves out a document that holds one.
 
@@ -164,7 +168,9 @@ The queue has one entry per episode, ordered by a rank from `util.rank`, a
 string with room for another rank between any two. A removal is a
 tombstone. Additions on two devices both survive, a finished episode stays
 removed, and only two devices that move the same episode at the same time
-need a winner, the later one. Ranks stay short at the ends of the list,
+need a winner, the later one. A move writes the episode's new place as an
+entry of its own, so it never brings back an episode that another device
+removed meanwhile. Ranks stay short at the ends of the list,
 where most episodes are added. Episodes that one device appends at once
 share a block of ranks named after the device, so batches that two devices
 append at the same time don't mix. Playlists work the same way.
@@ -215,6 +221,10 @@ sends, since those don't show everything a device saw.
 An entry that device A wrote at time `t` can be dropped when every other
 live device has acknowledged A up to `t`. The device that compacts counts
 too, since its document holds the entry or the entry that replaced it.
+This relies on A's entries reaching each device in the order of their
+stamps, which holds for the devices in the registry. The entries that a
+service such as gpodder brings in can arrive in any order, so their
+tombstones stay.
 Such tombstones are dropped once they're 30 days old, which leaves room for
 a device that joins with a state of its own. Played marks and listening
 counts are never dropped, since the listener still sees them. After a
@@ -227,7 +237,7 @@ every show that the state doesn't know, so a new device needs the tombstone
 to know that the listener left a show.
 
 A device that stops syncing blocks compaction until it's retired, and
-`player/lagging` lists such devices. A device restored from a backup can
+`crdt/lagging` lists such devices. A device restored from a backup can
 still bring back what the others forgot, so retire its old id before the
 restore.
 

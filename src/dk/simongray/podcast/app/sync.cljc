@@ -24,6 +24,7 @@
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]))
 
 (def version
@@ -113,7 +114,7 @@
   "The `state` with the whole `states` acknowledged at `at`, and compacted
   with the options `compact` of player/compact unless `compact` is false."
   [state states at compact]
-  (let [acknowledged (player/acknowledge state states at)]
+  (let [acknowledged (crdt/acknowledge state states at)]
     (if (false? compact)
       acknowledged
       (player/compact acknowledged at (or compact {})))))

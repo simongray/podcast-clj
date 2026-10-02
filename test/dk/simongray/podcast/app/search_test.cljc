@@ -6,7 +6,8 @@
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.search :as search]
-            [dk.simongray.podcast.test-support :refer [fixture]]))
+            [dk.simongray.podcast.test-support :refer [fixture]]
+            [dk.simongray.podcast.util.crdt :as crdt]))
 
 (def example
   (delay (podcast/parse (fixture "feeds/namespace-example.xml"))))
@@ -92,7 +93,7 @@
   (testing "the stars and the inbox of the player, and a saved filter"
     (let [marked (-> listened
                      (player/star ["feed-guid" "b"] t1)
-                     (player/write [:inbox ["feed-guid" "t"]] (constantly {:removed? false}) t1)
+                     (crdt/write [:inbox ["feed-guid" "t"]] (constantly {:removed? false}) t1)
                      (player/save-filter "Starred" {:where {:starred? true}} t1))]
       (is (= ["Bonus"] (titles {:where {:starred? true} :player marked})))
       (is (= ["Trailer"] (titles {:where {:inbox? true} :player marked})))

@@ -17,7 +17,7 @@
   the formats, the app and the directories, the root namespace, and the
   views of an app, the only namespaces that require the root namespace."
   {"diagnostics" 0 "feed.guid" 0
-   "util.async" 0 "util.bech32" 0 "util.bytes" 0 "util.http" 0 "util.json" 0 "util.rank" 0
+   "util.async" 0 "util.bech32" 0 "util.bytes" 0 "util.crdt" 0 "util.http" 0 "util.json" 0 "util.rank" 0
    "util.nostr" 0 "util.secret" 0 "util.time" 0 "util.time.rrule" 0 "util.xml" 0 "util.xml.jsoup" 0
    "crypto.chacha20" 0 "crypto.nip44" 0 "crypto.secp256k1" 0
    "feed.spec" 1 "feed.quirks" 1

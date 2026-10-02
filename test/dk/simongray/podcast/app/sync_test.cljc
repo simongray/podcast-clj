@@ -10,6 +10,7 @@
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.test-support :refer [t2 t3 t4 a phone-state laptop-state #?@(:clj [same?])]]
+            #?(:clj [dk.simongray.podcast.util.crdt :as crdt])
             [dk.simongray.podcast.util.time :as time]))
 
 (deftest documents
@@ -231,11 +232,11 @@
          (let [{:keys [report]} (sync/sync! (:state phone) [backend] t4 {:ctx (:ctx phone)})]
            (is (= [:sync/shared-device] (map :id report)))))
        (testing "a retired device's document is deleted, and it writes no more"
-         (let [laptop2 (sync/sync! (player/retire (:state laptop) "phone" t4) [backend] t4 {:ctx (:ctx laptop)})
+         (let [laptop2 (sync/sync! (crdt/retire (:state laptop) "phone" t4) [backend] t4 {:ctx (:ctx laptop)})
                phone2  (sync/sync! (:state phone) [backend] t4 {:ctx (:ctx phone)})]
            (is (= ["laptop.edn"] (keys @documents)))
            (is (nil? (:failed laptop2)))
-           (is (player/retired? (:state phone2) "phone") "it learns of its retirement")
+           (is (crdt/retired? (:state phone2) "phone") "it learns of its retirement")
            (is (= [:sync/retired-device] (map :id (:report phone2))))
            (is (= ["laptop.edn"] (keys @documents))))))))
 
@@ -330,10 +331,10 @@
          (let [documents (atom {})
                backend   (store/backend (dissoc (store/memory documents) :list))
                phone     (sync/sync! (phone-state) [backend] t2)
-               _         (sync/sync! (player/retire (laptop-state) "phone" t3) [backend] t3)
+               _         (sync/sync! (crdt/retire (laptop-state) "phone" t3) [backend] t3)
                written   (:version (@documents "podcast.edn"))
                phone2    (sync/sync! (player/prefer (:state phone) {:rate 2.0} t4) [backend] t4 {:ctx (:ctx phone)})]
-           (is (player/retired? (:state phone2) "phone") "it learns of its retirement")
+           (is (crdt/retired? (:state phone2) "phone") "it learns of its retirement")
            (is (= [:sync/retired-device] (map :id (:report phone2))))
            (is (= written (:version (@documents "podcast.edn"))) "and the shared document stays as it was"))))))
 
