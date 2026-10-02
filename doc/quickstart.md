@@ -153,6 +153,6 @@ and the URLs of the WebDAV servers.
 
 - [How to build a podcast app](building-an-app.md): every step of an app,
   the call of the library first and then the functions below it.
-- [Namespaces](namespaces.md): the conventions of the API, and one line
-  for each namespace.
+- [Principles](principles.md): what guides the design of podcast-clj.
+- [Namespaces](namespaces.md): a line for each namespace.
 - The library is one map. Print `@lib`, and read it.

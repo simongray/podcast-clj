@@ -129,7 +129,7 @@ Learn more:
 
 Look up:
 
-- [Namespaces](doc/namespaces.md): the conventions of the API, and a line for each namespace.
+- [Namespaces](doc/namespaces.md): a line for each namespace.
 - [The feed model](doc/tags.md): every element with its key and type.
 - [Diagnostics](doc/diagnostics.md): every diagnostic that a report can hold.
 - [Sync stores and documents](doc/stores.md): the store contract, the documents,
@@ -138,7 +138,8 @@ Look up:
 
 Understand:
 
-- [Architecture](doc/architecture.md): the design of podcast-clj and the underlying motivations.
+- [Principles](doc/principles.md): what guides the design of podcast-clj.
+- [Architecture](doc/architecture.md): how each part of podcast-clj is built.
 - [Syncing](doc/sync.md): why the sync between devices is safe.
 - [Podcasting 2.0 and Clojure](doc/podcasting-2.0-clojure-survey.md): the survey of the ecosystem that came
   before podcast-clj (September 2026).

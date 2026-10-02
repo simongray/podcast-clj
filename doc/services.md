@@ -5,7 +5,7 @@ Index, Podping, OP3, the servers of the gpodder API and some relays of
 Nostr. So are the OPML of some apps, the forms of the links of the apps,
 and the rules of some apps for downloads. This page lists what
 podcast-clj knows about each, and the option that replaces it.
-[Architecture](architecture.md#why-the-api-is-regular) gives the reason,
+[Principles](principles.md) gives the reason,
 and [How to build a podcast app](building-an-app.md#use-another-service)
 shows the calls.
 

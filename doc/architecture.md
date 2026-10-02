@@ -1,42 +1,10 @@
 # Architecture
 
-This page explains the design of podcast-clj and the reasons for it.
-[Namespaces](namespaces.md) gives the conventions of the API, and [The feed
-model](tags.md) gives the rules of the model. [Syncing](sync.md) explains
-the design of the sync between devices. The
+This page explains how each part of podcast-clj is built.
+[Principles](principles.md) sums up what guides its design, and
+[Syncing](sync.md) explains the sync between devices. The
 [survey](podcasting-2.0-clojure-survey.md) from September 2026 describes the
 ecosystem that podcast-clj was written for.
-
-
-## Goals
-
-Six goals guide the design of podcast-clj:
-
-1. **A library, not a framework.** Pure functions over plain Clojure data,
-   with no global state. It does not decide how an app stores data, plays
-   media or draws its user interface.
-2. **All of the feed stack.** It reads RSS 2.0, the iTunes namespace, all
-   formalized tags of the `podcast` namespace, and the companion formats.
-   It reads the other namespaces of real feeds (`atom`, `content`, `dc`,
-   `sy`, `media`, `psc`, `rawvoice`, `googleplay`, `spotify`) as far as a
-   podcast app needs them, and it keeps the rest.
-3. **Standards first, quirks apart.** Each standard is implemented as
-   specified. Each accommodation for feeds that break a standard is a
-   named quirk. A quirk can be switched off, and each use of a quirk goes
-   into a report. An app can see how far a feed is from the standards, and
-   the strict path stays strict.
-4. **One code base for all platforms.** Most code is `.cljc` and free of
-   platform APIs. The platform APIs are in small adapters, for XML, JSON,
-   SHA-1, deferred values, encryption and HTTP. Only the lenient XML parser,
-   the folder store and the WebDAV server are for the JVM alone.
-5. **No silent loss of content.** What it does not understand, it keeps as
-   Hiccup, so `emit` writes back the elements that `parse` read. When a
-   rule drops something, such as the repeat of an element that the
-   specification allows once, the report tells so. Only comments and
-   processing instructions go without a report.
-6. **Tests against real feeds.** The inspector and a corpus of real feeds
-   test podcast-clj against reality. The fixtures are a conformance suite,
-   which the ecosystem does not have otherwise.
 
 
 ## Layers
@@ -117,41 +85,6 @@ podcast-clj, and each part is under the subject that it belongs to:
 The functions in these documents have the alias of their namespace. The
 alias is the last part of the name: `resolve/title` is in `feed.resolve`,
 and `http/call!` is in `util.http`.
-
-
-## Why the API is regular
-
-The [conventions](namespaces.md#conventions) of the API have these reasons:
-
-- **Lenient parsing, with a report.** Real feeds break the standards in many
-  small ways, and an app must show them anyway. The report makes each
-  accommodation visible, so the leniency hides nothing. A diagnostic is a
-  problem that a host can correct, or information that an app can act on.
-  The ordinary work of a parser, such as collapsing whitespace in HTML, is
-  not a diagnostic.
-- **Options maps.** A map can get new keys without a change for its callers.
-  A positional flag cannot.
-- **Time as an argument.** A function that does not read the clock gives the
-  same result for the same arguments. This keeps the tests simple, and it
-  lets the player state stamp its writes like a hybrid logical clock (see
-  [Syncing](sync.md)).
-- **Requests as maps.** A browser can send a request map with `fetch`, and
-  the tests can run on recorded answers. The JVM client in `util.http` is
-  one way to send the requests, not the only way.
-- **A call throws, and a step gives data.** A call has one answer to
-  give. Without the answer it has nothing to return, so it throws. A step
-  does more than one thing, and a part of it can fail while the rest has
-  a result. A poll keeps the pings that it read, and a check keeps the
-  facts of the other files. A failure that is thrown is an exception on
-  the JVM, and a rejected promise in ClojureScript. Only a failure that is
-  data has one shape for code that runs on both platforms. The failure is
-  a diagnostic, so an app handles it as it handles a report.
-- **Services as defaults.** A service can close, change its owner, or get
-  a copy at another address. A directory can change its rules. The app
-  then gives the new address or the new rules as data, and it needs no new
-  version of podcast-clj. A fact that a specification defines does not
-  change with a service, so it is a constant in the code. [Services and
-  their defaults](services.md) lists the defaults.
 
 
 ## XML as Hiccup

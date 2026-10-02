@@ -1,112 +1,21 @@
 # Namespaces
 
-The root namespace is `dk.simongray.podcast`, and each part of
-podcast-clj is a namespace below it. The parts are in groups, one for
-each subject: `feed`, `format`, `directory`, `updates`, `comments`,
-`analytics`, `app` and `value`. The groups `util` and `crypto` hold what
-knows nothing about podcasts. This page gives the conventions that all
-namespaces follow, and one line for each namespace. The docstrings give
-the details.
+Every namespace is under the root namespace, `dk.simongray.podcast`, and
+grouped by subject: `feed`, `format`, `directory`, `updates`, `comments`,
+`analytics`, `app` and `value`. The `util` and `crypto` namespaces have
+nothing specific to podcasts. Names in the tables are relative to the root,
+and everything runs on the JVM and in ClojureScript unless the table says
+JVM. [Principles](principles.md) has the rules that every namespace follows, and
+the docstrings have the details.
 
 
-## Conventions
-
-- **Reading does not throw on content.** The functions that read a format,
-  such as `parse` and `chapters/parse-json`, keep a value that does not read
-  as its type as a string. They leave out a value that cannot be a string,
-  such as a JSON object as the title of a chapter. They throw only when the
-  input is not in the format at all. The functions that write a format, such as `emit` and
-  `transcript/emit-vtt`, write its canonical form.
-- **What a reader forgave is in the report.** A parsed feed, transcript or
-  chapters document is clean data. So is what a reader gives of a media
-  file, an image or the record of a payment. What the reader had to repair
-  or normalize is in the report, a vector of diagnostics in the metadata of
-  the result, under `:podcast/report`. The `report` function of the same
-  namespace reads it. Metadata does not survive printing. So data that an
-  app keeps or sends holds its report as data, under `:report`: the result
-  of a step such as `sync!`, a thread of comments, and the facts of a
-  check.
-- **A diagnostic is a map.** It has an `:id`, a `:level` (`:info`,
-  `:warning` or `:error`) and a `:message`. Other keys give details, such as
-  a `:path` into the data or the `:tag` of an element.
-  [Diagnostics](diagnostics.md) lists all ids, and `summarize` groups
-  diagnostics by kind.
-- **An accessor of `feed.resolve` gives one answer.** Where vocabularies
-  overlap, the docstring of the accessor gives the rule that selects the
-  answer. Most accessors take a feed or an item. Where the specifications
-  let an item inherit from its channel, the accessor also takes the feed
-  and the item. It then applies the inheritance.
-- **Options are a map.** Required arguments are positional. Optional
-  behavior is a map of options, never a positional flag:
-  `(podcast/parse xml {:quirks? false})`,
-  `(validate/validate feed {:profile :psp-1})`.
-- **Only the functions whose names end in `!` do I/O or read the clock.**
-  All other functions take the time as an argument. For example, each write
-  to the player state takes the instant of the write, and a Podcast Index
-  request takes the instant to sign.
-- **A `!` function is named by its verb, and gives what the verb
-  produced.** The verb stands alone when the namespace names its object:
-  `podcast/fetch!`, `media/read!`, `library/sync!`. It takes the object
-  otherwise: `episode/read-files!`, `op3/fetch-downloads!`,
-  `check/check-files!`. What it gives is what the verb produced, never
-  the value of a pure function with more in it. So the app merges:
-  `(merge (library/episode lib id) (library/read-files! lib id))` is a
-  page.
-- **A call throws, and a step gives data.** A call sends one request and
-  gives the answer. The calls are the functions with the name `call!`, the
-  functions of a store, `http/fetch!`, `http/digest!`, and the function
-  that `http/fetcher` makes. When a call has no answer to give, it throws
-  an `ex-info`, and the `:type` in its data tells why. In ClojureScript, it
-  rejects its promise with that `ex-info`. The client of an API throws
-  `::failed` with the `:status` for an answer that is a failure. Each
-  other function with a name that ends in `!` is a step, such as
-  `podcast/fetch!`, `media/read!` and `sync!`. A step throws nothing for
-  what a network, a server or a file does. It gives what it got, and the
-  part that failed holds `:error`, a diagnostic with the `:reason`. An
-  HTTP status is an answer, so `podcast/fetch!` and `http/probe!` give a
-  404 as a `:status`. A call and a step throw for an argument that is
-  wrong.
-- **A secret can be a hidden text.** Each function that takes a password,
-  a token, a passphrase or a secret key takes a text, or a hidden text of
-  `secret/hide`. The printer writes a hidden text as `#<secret>`. A
-  function that gives a secret gives a hidden text. A request map has
-  its credentials as hidden texts, and `http/revealed` gives the request
-  with their texts, for a client that is not `http/call!`.
-  [Secrets](architecture.md#secrets) tells what a hidden text protects
-  from.
-- **Requests are maps.** The directories, the Podcast Index, Podping and the
-  WebDAV store build requests as `{:method :url :headers :body}`, and pure
-  functions read the answers. Any HTTP client can send the requests. A
-  client that is not `http/call!` takes a request through `http/revealed`
-  first, which gives the text of each hidden header.
-- **What podcast-clj knows about one service is a default.** A public var
-  holds the address, the paths, the limits or the rules of the service as
-  data. An option of the same name replaces it for one call. Where an
-  option takes the name of an entry, such as `:profile :apple`, it also
-  takes an entry as data. [Services and their defaults](services.md) lists
-  the defaults.
-- **What a feed or a stranger names is fetched within limits.** The
-  functions that fetch such URLs hold their limits in the `default-limits`
-  of their namespace, and their options set each limit. The option
-  `:allow?` tells which URLs a request can go to, and `:send` sends in
-  place of `http/call!`. [Requests that strangers
-  choose](architecture.md#requests-that-strangers-choose) tells more.
-- **The code is `.cljc`.** Each namespace runs on the JVM and in
-  ClojureScript, except the namespaces and functions that the table marks
-  "JVM". In ClojureScript, a function that sends requests returns a promise.
-
-
-## The namespaces
-
-Each name below is relative to `dk.simongray.podcast`.
-
-### The root namespace
+## The root namespace
 
 | Namespace | Contents |
 |---|---|
 | `dk.simongray.podcast` | `parse`, `emit`, `report`, `summarize` and `parse-tree`. JVM: `fetch!`, which fetches a feed and parses it in one step, with the headers that a poller needs. |
 
-### Feeds
+## Feeds
 
 | Namespace | Contents |
 |---|---|
@@ -121,7 +30,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `feed.check` | Checks over the network of the files a feed links to: media files, images, transcripts, chapters and the feed itself, by the standards and by the profiles of PSP-1 and Apple Podcasts. `files`, `verdicts` and `report` are pure, and `check-files!` sends the requests: two bytes of most files and the header of each image, unless it is asked to read them. `default-limits` holds its limits of files, time and bytes. |
 | `diagnostics` | Every diagnostic id, with its level and meaning. |
 
-### Formats
+## Formats
 
 | Namespace | Contents |
 |---|---|
@@ -135,7 +44,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `format.media.mp3` | The MPEG audio frames of an MP3 file, and its duration. |
 | `format.media.mp4` | The boxes of an MP4 or M4A file: its duration, its QuickTime or Nero chapters, and its artwork. |
 
-### Directories and updates
+## Directories and updates
 
 | Namespace | Contents |
 |---|---|
@@ -145,7 +54,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `updates.podping` | Podping: calls to the Hive chain as request maps, pings read from blocks, and writers verified. JVM: `poll!`. `notify-request` is for a host. |
 | `updates.websub` | WebSub, for a server that a hub sends the feeds to. `discover` finds the hubs of a feed, `request` and `call!` subscribe, and `handler` is a Ring handler for the callback, which checks the signature of the hub. `publish-request` is for a host. |
 
-### Comments
+## Comments
 
 | Namespace | Contents |
 |---|---|
@@ -155,14 +64,14 @@ Each name below is relative to `dk.simongray.podcast`.
 | `comments.nostr` | The threads of Nostr, from relays: the replies of NIP-10 and the comments of NIP-22. `about` gives the thread about a show or an episode, by the id that NIP-73 gives it. It keeps only the events that are verified. `hiccup` writes the content of a note as Hiccup, with the names of the profiles that it mentions. |
 | `comments.common` | What the two readers share: the values in JSON answers, the problem with an answer, and the HTML of a post made safe to show. |
 
-### Analytics
+## Analytics
 
 | Namespace | Contents |
 |---|---|
 | `analytics` | The downloads of episodes, counted from the requests that a host logs, by the rules of the IAB. `downloads` gives the downloads, and why the other requests do not count. `threshold` gives the bytes of one minute of a file, and `listener-ip` the part of an address that counts. `user-agents` reads the open list of user agents of the OPAWG, and `identify` names the app, the device and the bots by it. |
 | `analytics.op3` | OP3, a free service that counts downloads through a prefix. `prefix` and `with-prefix` put its prefix on the URLs of enclosures. `request`, `response`, `call!` and `fetch-downloads!` use its API: the downloads of a show, the counts of shows and episodes, and the apps of the listeners. |
 
-### Apps
+## Apps
 
 | Namespace | Contents |
 |---|---|
@@ -182,7 +91,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `app.sync.gpodder` | The gpodder API as a backend: the subscriptions and the episode actions of gpodder.net, the GPodder Sync app for Nextcloud and other servers. `identities` names the shows and episodes of the app's feeds. |
 | `app.sync.gpodder.server` | The gpodder API served over a player state, as a Ring handler, for AntennaPod, Kasts and gPodder. |
 
-### Value for value
+## Value for value
 
 | Namespace | Contents |
 |---|---|
@@ -192,7 +101,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `value.nwc` | Nostr Wallet Connect, NIP-47: payments from the listener's wallet. `parse` reads the connection URI. `pay-invoice`, `pay-keysend`, `get-balance` and the other commands are data. `request` writes the event of a command, and `answer` reads the event of the wallet. `fetch-info!` reads what the wallet takes, and `ask!` sends a command and gives the answer. |
 | `value.webln` | WebLN, the interface that a wallet gives a web page. `keysend-args` gives the arguments of a keysend payment. ClojureScript: `enable!`, `get-info!`, `pay-invoice!` and `pay-keysend!` call the provider of the page. |
 
-### Utilities
+## Utilities
 
 | Namespace | Contents |
 |---|---|
@@ -209,7 +118,7 @@ Each name below is relative to `dk.simongray.podcast`.
 | `util.bech32` | Bech32, the encoding of BIP-173: `decode` and `encode`. `words` and `of-words` read and write data that are no whole bytes, as those of an invoice. |
 | `util.rank` | Ranks that always leave room for another rank between two ranks, and that stay short at the ends of a list. `after` gives the ranks of many items that go to the end at one time. |
 
-### Cryptography
+## Cryptography
 
 | Namespace | Contents |
 |---|---|

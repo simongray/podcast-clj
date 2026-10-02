@@ -6,6 +6,7 @@
                    ["Diagnostics" {:file "doc/diagnostics.md"}]
                    ["Sync stores and documents" {:file "doc/stores.md"}]
                    ["Services and their defaults" {:file "doc/services.md"}]
+                   ["Principles" {:file "doc/principles.md"}]
                    ["Architecture" {:file "doc/architecture.md"}]
                    ["Syncing" {:file "doc/sync.md"}]
                    ["Changelog" {:file "CHANGELOG.md"}]]}

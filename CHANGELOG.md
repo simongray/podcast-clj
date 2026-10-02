@@ -348,7 +348,7 @@
   check. The `:error` in the facts of `http/probe!` and of `check/check-files!`
   is a diagnostic too, not a text. The function that `http/fetcher` makes
   throws `::failed` with the `:status`.
-  [Namespaces](doc/namespaces.md#conventions) has the rule.
+  [Principles](doc/principles.md) has the rule.
 - The player: `step` takes the event `[:chapter id direction doc]`, a jump
   to the next or the previous chapter. `chapters/jump` gives the position
   of such a jump. `step` takes a sleep timer as the option
