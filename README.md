@@ -15,7 +15,7 @@ so you can start making a podcast app fast.
 > from frontier LLMs. I have spent a long time on the API design and on
 > hardening the library in terms of both security and performance, but it simply
 > wouldn't be feasible for me to develop a library with such broad support for
-> modern podcasting features without LLMs helping to implementing a lot of it.
+> modern podcasting features without LLMs helping to implement a lot of it.
 
 Current status
 --------------
@@ -31,7 +31,7 @@ The library already supports a wide range of podcast features:
 - **Apps.** Everything needed to create a podcast app, including sync between
   devices through a folder, WebDAV, gpodder, or a server of your own.
 - **Comments.** Get episode comments via ActivityPub, the AT Protocol, or Nostr.
-- **Analytics.** OP3 counts and download counts by the guidelines of the IAB.
+- **Analytics.** Download counts from OP3, and your own counts by the IAB guidelines.
 - **Payment integration.** Lightning addresses, keysend, the wallets of WebLN
   and Nostr Wallet Connect, boostagrams, and the payment metadata of a show.
 
@@ -72,8 +72,8 @@ gives its SRT transcripts the type `application/srt`, and uses the deprecated
 ;; => (:quirk/explicit-value :quirk/transcript-type :quirk/deprecated-images)
 ```
 
-Podcast feeds are written in several different vocabularies,
-so `feed.resolve` can be relied on to get a normalised answer:
+Podcast feeds mix several vocabularies,
+and `feed.resolve` gives one normalised answer across them:
 
 ```clojure
 (require '[dk.simongray.podcast.feed.resolve :as resolve])
