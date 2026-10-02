@@ -128,7 +128,7 @@
   [state feed-guid {:keys [url title added-at] :as details} at]
   (crdt/write state [:subscriptions feed-guid]
               (fn [sub]
-                (assoc (or sub {})
+                (assoc sub
                        :url url :title title :removed? false
                        :added-at (if (subscribed? state feed-guid) (:added-at sub) (time/date (or added-at at)))))
               at))
@@ -138,7 +138,7 @@
   where no subscription was known, so that it outlives an older
   subscription on another device."
   [state feed-guid at]
-  (crdt/write state [:subscriptions feed-guid] #(assoc (or % {}) :removed? true) at))
+  (crdt/write state [:subscriptions feed-guid] #(assoc % :removed? true) at))
 
 (defn- values
   [entries]
@@ -466,7 +466,7 @@
                       (min moved (* 3 spent)))))]
     (if seconds
       (crdt/write state [:listened (first id) (subs (time/format-iso8601 at) 0 7) (:device state)]
-                  #(assoc (or % {}) :seconds (+ (or (:seconds %) 0) seconds))
+                  #(update % :seconds (fnil + 0) seconds)
                   at)
       state)))
 

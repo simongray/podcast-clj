@@ -117,7 +117,7 @@ follows.
 | `util.secret` | Secrets that print as `#<secret>`: `hide`, `reveal` and `hidden?`. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |
 | `util.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |
-| `util.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The player state is one. |
+| `util.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The player state is one. |
 
 ## Cryptography
 

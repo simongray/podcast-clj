@@ -151,7 +151,11 @@ clock does. A convergence test showed why this is needed: without it, a
 device could write an entry that lost to one it had already merged, keep
 its own anyway, and never agree with the other devices again. An OPML
 import or a followed list writes all its entries with one stamp, or the
-millisecond steps would move the clock ahead of the time.
+millisecond steps would move the clock ahead of the time, and you can do
+the same for a series of your own writes with `crdt/at-once`. A full hybrid
+logical clock, with a counter in each stamp, would avoid the steps
+altogether, but it changes the format of every stamp for little practical
+gain.
 
 A clock that's a few seconds off does no harm. A clock that's years ahead
 spreads its year to every device through the merge, so the stamps no longer

@@ -118,18 +118,23 @@
   "The `state` with the entry at `path` replaced by what `f` returns for
   it, stamped at `at`, or just after the state's clock when that's later.
 
-  An app can write entries of its own this way, which merge then
-  reconciles like the rest."
+  The `f` gets nil when there's no entry yet. An app can write entries of
+  its own this way, which merge then reconciles like the rest."
   [state path f at]
   (write-each state [[path f]] at))
 
-(defn ^:no-doc at-once
+;; The alternative is the hybrid logical clock of Kulkarni et al. 2014 in
+;; full, with a counter in each stamp, so that no series of writes runs ahead
+;; of the time. That changes the format of every stamp, and its practical
+;; gain was deemed too small.
+(defn at-once
   "The `state` after `f` with every write in `f` stamped at the same
   instant, as one write at `at` would be.
 
   The `f` takes the state. Without at-once, each write in a series is a
   millisecond after the one before it, so a long series moves the clock
-  ahead of the time."
+  ahead of the time. Wrap a series of an app's own writes in it, e.g. those
+  of an import."
   [state at f]
   (if (contains? state ::at)
     (f state)
@@ -164,7 +169,7 @@
   nothing for it and deletes its document, and the device can't undo the
   retirement by describing itself again."
   [state device at]
-  (write state [:retired device] #(or % {}) at))
+  (write state [:retired device] identity at))
 
 (defn retired?
   "Whether `state` has retired the device `device`."
