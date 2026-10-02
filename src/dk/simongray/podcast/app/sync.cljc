@@ -1,24 +1,25 @@
 (ns dk.simongray.podcast.app.sync
-  "Keeping one listener's devices in step: the player state of each device
-  carried to the others and merged, over any backend that can hold a
-  document or speak a sync service's language; doc/sync.md is the design.
+  "Syncing the player state between a listener's devices, over any number
+  of backends.
 
-  `document` writes a device's whole state in an envelope and
-  `read-document` reads it back; `reconcile` merges what other devices
-  wrote into a state, with a report on what it found. A backend is a map
-  of two functions and a name:
+  A backend is a map of two functions and a name, and doc/sync.md explains
+  the design:
 
-      {:pull (fn [state ctx at])  ; {:states [state …] :ctx ctx' :report […] :partial? false}
-       :push (fn [state ctx at])  ; {:ctx ctx' :state state' :report […]}
+      {:pull (fn [state ctx at])  ; the states of the other devices
+       :push (fn [state ctx at])  ; writes the merged state
        :name \"Nextcloud\"}
 
-  `pull` returns the states of other devices to merge and its cursor for
-  next time, `:partial?` when they are changes since a cursor rather than
-  whole states; `push` writes the merged state and may return a state of
-  its own when it learned more while writing. Both take the instant `at`
-  of the step and never read a clock. `dk.simongray.podcast.app.sync.store`
-  builds backends over document stores; a sync service is a backend
-  directly. `sync!` drives any number of them in one step."
+  A pull returns a map of the :states to merge, the next :ctx and a
+  :report. It has :partial? when the states are changes since the cursor
+  rather than whole states. A push returns the next :ctx and a :report, and
+  a :state when it learned more while writing. Both take the instant of
+  the step and never read a clock.
+
+  Each step of sync! pulls from every backend, merges, and pushes the
+  result. Build a backend over a document store with
+  dk.simongray.podcast.app.sync.store. For a backend of your own, document
+  writes a device's whole state as a document, read-document reads it
+  back, and reconcile merges what the other devices wrote."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -26,15 +27,16 @@
             [dk.simongray.podcast.util.time :as time]))
 
 (def version
-  "The version of the document format, changed only when the meaning of a
-  key changes; keys a reader does not know merge by their shape, so growth
-  needs no new version."
+  "The version of the document format, which changes only when the meaning
+  of a key changes, since a reader merges the keys it doesn't know by their
+  shape."
   1)
 
 (defn document
-  "The document for `state` written at `at`: the state in an envelope naming
-  the format version, the device and, when `opts` say which `:app` wrote
-  it, the app, as an EDN string."
+  "The document of `state` written at `at` with `opts`, as an EDN string.
+
+  It's an envelope with the format version, the device, the state, and
+  the :app of `opts`, if any."
   ([state at]
    (document state at {}))
   ([state at {:keys [app] :as opts}]
@@ -45,10 +47,11 @@
                app (assoc :app app))))))
 
 (defn read-document
-  "The envelope in the EDN string `s`, `{:version :device :written-at :app
-  :state}`; a string that is not one throws `::malformed`, and so does one
-  of this format version whose state has a value the player cannot take,
-  as `player/problem` finds it."
+  "The envelope in the EDN string `s`, a map of :version, :device,
+  :written-at, :app and :state.
+
+  It throws ::malformed when `s` isn't an envelope, or when it's of this
+  format version and player/problem finds a problem in its state."
   [s]
   (let [envelope (try
                    (when (string? s) (edn/read-string s))
@@ -64,14 +67,14 @@
     envelope))
 
 (def skew-tolerance
-  "How far ahead of now a document may have been written before its writer's
-  clock is reported: a minute, in milliseconds."
+  "How far ahead of now a document can be written before the report says
+  that its device's clock is ahead: a minute, in milliseconds."
   60000)
 
 (defn- read-one
-  "`acc` with the document `{:name :body}` read at `at`: its state added, or
-  what kept it out reported."
-  [acc {:keys [name body]} at]
+  "The `acc` of read-documents with the document `doc` read at `at`: its
+  state added, or a diagnostic of what kept it out."
+  [acc {:keys [name body] :as doc} at]
   (let [envelope (try
                    (read-document body)
                    (catch #?(:clj Exception :cljs :default) e
@@ -93,17 +96,22 @@
                  :seconds (quot ahead 1000)})))))
 
 (defn read-documents
-  "The states in the documents `fetched`, each `{:name :body}`, read at the
-  instant `at`: `{:states [...] :report [...]}`, the report naming a body
-  that would not read (`:sync/unreadable-document`), an envelope from a
-  newer library, left out (`:sync/newer-format`), and a device whose clock
-  runs ahead of this one's (`:sync/clock-skew`)."
+  "The states in the documents `fetched`, read at `at`, as a map of :states
+  and a :report.
+
+  Each document is a map of :name and :body. The report has a diagnostic
+  for each of these:
+
+  - :sync/unreadable-document, a body that doesn't read
+  - :sync/newer-format, a document from a newer version of the library,
+    which is left out
+  - :sync/clock-skew, a device whose clock is ahead of this one"
   [fetched at]
   (reduce #(read-one %1 %2 at) {:states [] :report []} fetched))
 
 (defn- settle
-  "`state` with the whole states `states` acknowledged at `at` and, unless
-  `compact` is false, compacted, `compact` being `player/compact`'s options."
+  "The `state` with the whole `states` acknowledged at `at`, and compacted
+  with the options `compact` of player/compact unless `compact` is false."
   [state states at compact]
   (let [acknowledged (player/acknowledge state states at)]
     (if (false? compact)
@@ -111,11 +119,13 @@
       (player/compact acknowledged at (or compact {})))))
 
 (defn reconcile
-  "`state` with the documents `fetched` (see `read-documents`) merged in at
-  `at`, what they told acknowledged in the registry and the tombstones every
-  device has seen compacted away: `{:state merged :report [...]}`.
-  `:compact` in `opts` is false to leave the tombstones, or the options of
-  `player/compact`."
+  "The `state` with the documents `fetched` merged in at `at` with `opts`,
+  as a map of the :state and a :report.
+
+  The documents are as read-documents takes them. What they tell is
+  acknowledged in the device registry, and the tombstones that every
+  device has seen are compacted away. The :compact of `opts` is false to
+  keep the tombstones, or else the options of player/compact."
   ([state fetched at]
    (reconcile state fetched at {}))
   ([state fetched at {:keys [compact] :as opts}]
@@ -125,22 +135,27 @@
       :report report})))
 
 (def default-cadence
-  "How long to wait before syncing again, in seconds: after a change to the
-  local state, when nothing changed, and after each failure in a row, the
-  last wait repeated."
+  "How many seconds to wait before syncing again:
+
+  - :after-change, after a change to the local state
+  - :idle, when nothing changed
+  - :after-failure, after each failure in a row, repeating the last wait"
   {:after-change  10
    :idle          900
    :after-failure [30 60 300 900]})
 
 (defn next-at
-  "When to sync next, at the instant `now`: the `last` step's `:at` plus the
-  wait `cadence` (default `default-cadence`) gives for its outcome, whether
-  the local state has `:changed?` since it and how many `:failures` in a
-  row it ended with; never before `now`, and `now` when there was no step
-  yet. The library schedules nothing; an app's timer asks this and fires."
-  ([last now]
-   (next-at last now {}))
-  ([{:keys [at changed? failures]} now cadence]
+  "When to sync again at `now`, after the last sync `step`, with the waits
+  of `cadence`.
+
+  The wait depends on whether the local state has :changed? since the
+  step, and on how many :failures in a row it ended with. The result is
+  never before `now`, and without a step, it's `now`. The `cadence`
+  defaults to default-cadence. The library schedules nothing, so run the
+  sync from a timer of your own."
+  ([step now]
+   (next-at step now {}))
+  ([{:keys [at changed? failures] :as step} now cadence]
    {:pre [(map? cadence)]}
    (let [{:keys [after-change idle after-failure]} (merge default-cadence cadence)
          failures (or failures 0)
@@ -152,13 +167,20 @@
      (if (< (inst-ms due) (inst-ms now)) now due))))
 
 (defn- pulled
-  "What the pulls `results`, one per backend in order, each `{:value}` or
-  `{:error}`, add up to: the `:state` with every pulled state merged in,
-  those of whole documents acknowledged and the tombstones compacted at
-  `at`, the `:ok` backends paired with their results, the `:failed` ones
-  with their messages, and the `:report`. A backend whose states are
-  partial, a service's changes since a cursor, says so with `:partial?`
-  and has nothing acknowledged."
+  "What the pull `results` of the `backends` add up to, merged into `state`
+  at `at` and compacted with `compact`.
+
+  The results are one per backend, in order, each with a :value or an
+  :error. The sum is a map of these:
+
+  - :state, with every pulled state merged in, the whole states
+    acknowledged, and the tombstones compacted
+  - :ok, the backends that didn't fail, each paired with its result
+  - :failed, the message of each backend that failed, by name
+  - :report, the reports of the pulls
+
+  A backend whose states are partial, the changes of a service since a
+  cursor, says so with :partial?, and none of them are acknowledged."
   [state backends results at compact]
   (let [ok     (for [[backend {:keys [value error]}] (map vector backends results) :when (not error)]
                  [backend value])
@@ -171,11 +193,14 @@
      :report (into [] (mapcat (comp :report second)) ok)}))
 
 (defn- finished
-  "The step's result once the pushes `results`, one per `:ok` backend, are
-  in: the state with what a push learned merged in, acknowledged and
-  compacted, the cursors by backend name over the last step's `ctx`, the
-  failures of pull and push, and the report of both."
-  [{:keys [state ok failed report]} ctx results at compact]
+  "The result of a step from the pulls `so-far`, the push `results` and the
+  last cursors `ctx`, settled at `at` with `compact`.
+
+  There is one push result per backend that didn't fail. The state has
+  what a push learned merged in, acknowledged and compacted, and the new
+  cursors are by backend name. The failures and the reports are those of
+  both the pulls and the pushes."
+  [{:keys [state ok failed report] :as so-far} ctx results at compact]
   (let [pushes  (map (fn [[backend pull] {:keys [value error]}] [backend pull value error]) ok results)
         learned (keep (fn [[_ _ push]] (:state push)) pushes)
         failed  (into failed (for [[backend _ _ error] pushes :when error] [(:name backend) (async/explain error)]))]
@@ -190,31 +215,37 @@
       (seq failed) (assoc :failed failed))))
 
 (defn sync!
-  "One step of keeping `state` in step through `backends`, at `at`: pull
-  from every backend at once, merge what they return into `state`, push the
-  merged state to each, and return
+  "Sync `state` through `backends` in one step at `at` with the `opts`
+  below: pull from every backend at once, merge, and push the merged state
+  to each.
+
+  It returns this, in ClojureScript as a promise:
 
       {:state  merged
-       :ctx    {\"Nextcloud\" {…} …}   ; the cursors, by backend name, to pass back next time
-       :failed {\"Dropbox\" \"…\"}     ; the backends that failed, with the message; absent when none did
-       :report [...]}                ; what reading and writing found
+       :ctx    {\"Nextcloud\" {…} …}  ; the cursors by backend name
+       :failed {\"Dropbox\" \"…\"}    ; the backends that failed, if any
+       :report [...]}               ; what reading and writing found
 
-  On the JVM the result is returned, in ClojureScript promised, and there
-  each function of a backend may return a value or a promise. `opts` carry
-  the `:ctx` of the last step, and `:compact`: false to leave the
-  tombstones every device has seen in place, or the options of
-  `player/compact`, which otherwise drops them. A backend that fails in
-  its pull is not pushed to and keeps its cursor, one that fails in its
-  push keeps the cursor of its pull, and the state is never replaced, only
+  In ClojureScript, each function of a backend can return a value or a
+  promise. The `opts` are:
+
+  - :ctx, the cursors of the last step
+  - :compact, false to keep the tombstones that every device has seen, or
+    else the options of player/compact
+
+  A backend whose pull fails isn't pushed to and keeps its cursor, and one
+  whose push fails keeps the cursor of its pull. The state is only ever
   merged into, so a failed step loses nothing.
 
-  Steps run one at a time: a step that overlaps another can write an older
-  state after a newer one. What the listener did during a step is not in
-  its `:state`, so merge that into the state as it is by then, with
-  `player/merge`, rather than put it in its place, and compact the result
-  as the step did: the merge brings back the tombstones the step dropped.
-  The backends need distinct names, which the cursors are kept by; the
-  same name twice throws."
+  Run one step at a time, since a step that overlaps another can write an
+  older state after a newer one. What the listener did during a step
+  isn't in its :state, so don't put the result in place of the state.
+  Merge it into the state as it is by then, with player/merge. Then
+  compact as the step did, since the merge brings back the tombstones
+  that the step dropped.
+
+  The backends need distinct names, since the cursors are kept by name,
+  and the same name twice throws."
   ([state backends at]
    (sync! state backends at {}))
   ([state backends at {:keys [ctx compact] :as opts}]

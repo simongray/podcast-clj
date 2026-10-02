@@ -1,12 +1,19 @@
 (ns dk.simongray.podcast.app.sync.webdav.server
   "Any document store served over WebDAV (RFC 4918), for a Clojure backend
-  whose browser clients sync through their own origin: `handler` is a Ring
-  handler answering GET, HEAD, PUT, DELETE and a PROPFIND at depth zero or
-  one, with ETags and the preconditions, and OPTIONS so that a client can
-  ask. MKCOL gets 405, because the collection is there. A store without
-  `:list` is served without the listing of the collection, and one without
-  `:delete` without DELETE; a client of such a server leaves the same keys
-  out of its WebDAV store."
+  whose browser clients sync through their own origin.
+
+  The function handler is a Ring handler that answers these methods, with
+  ETags and preconditions:
+
+  - GET, HEAD and PUT, for a document
+  - DELETE, for a document, when the store has :delete
+  - PROPFIND at depth zero or one, with a listing of the collection when
+    the store has :list
+  - OPTIONS, so that a client can ask which methods there are
+  - MKCOL, with a 405, since the collection is already there
+
+  A client of a store without :list or :delete leaves the same keys out of
+  its WebDAV store."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
             [dk.simongray.podcast.util.http :as http]))
@@ -16,7 +23,7 @@
   (str "\"" version "\""))
 
 (defn- unquoted
-  "The version in the ETag `etag`, its quotes removed."
+  "The version in the ETag `etag`, without its quotes."
   [etag]
   (some-> etag str/trim (str/replace #"^\"|\"$" "")))
 
@@ -36,7 +43,7 @@
   (str/escape (str s) {\& "&amp;" \< "&lt;" \> "&gt;" \" "&quot;"}))
 
 (defn- entry
-  "One response of a multistatus, for `href` with the `version`, or a
+  "One response of a multistatus for `href` with the `version`, or for a
   collection when `version` is nil."
   [href version]
   (str "<d:response><d:href>" (escape href) "</d:href><d:propstat><d:prop>"
@@ -62,29 +69,32 @@
   (plain 404 "Not Found"))
 
 (defn- allow
-  "The methods that `store` answers for a document, or for the collection
-  when `document?` is false, as an Allow header value: DELETE only when
+  "The Allow header of the methods that `store` answers for a document, or
+  for the collection when `document?` is false. DELETE is there only when
   the store can delete."
-  [{:keys [delete]} document?]
+  [{:keys [delete] :as store} document?]
   (if document?
     (str "OPTIONS, GET, HEAD, PUT, " (when delete "DELETE, ") "PROPFIND")
     "OPTIONS, PROPFIND"))
 
 ;; RFC 9110, section 15.5.6
 (defn- not-allowed
-  "405 for the document `name` of `store`, or for the collection when
-  `name` is nil, with the methods that the target answers."
+  "The 405 answer for the document `name` of `store`, or for the
+  collection when `name` is nil, with the methods that it answers."
   [store name]
   (assoc-in (plain 405 "Method Not Allowed") [:headers "Allow"] (allow store (some? name))))
 
 ;; RFC 9110, sections 13.1.1 and 13.1.2
 (defn- precondition
-  "What the If-Match or If-None-Match of the request `headers`, by their
-  lower-case names, asks of a put of a document whose version is `current`,
-  nil when it is not there, as the `:if-version` a store takes: absent for
-  none. If-Match: * asks for the current version, or for one no document
-  has when there is none. `:failed` when If-Match lists no strong tag,
-  which no version matches."
+  "The options of a store's put that the If-Match or If-None-Match of the
+  request `headers` ask for, given the `current` version of the document.
+
+  The version is nil when the document isn't there. The headers are by
+  lower-case name, and the options have an :if-version
+  only when the headers ask for one. If-Match: * asks for the current
+  version, or for one that no document has when there's none. The result
+  is :failed when If-Match lists no strong tag, since no version matches
+  it."
   [headers current]
   (let [if-match (some-> (get headers "if-match") str/trim)]
     (cond
@@ -96,25 +106,28 @@
       :else                                 {})))
 
 (defn- plain-name?
-  "Whether `name` is a plain file name: no slash, not `.` or `..`, and no
-  control character."
+  "Whether `name` is a plain file name, without a slash or a control
+  character, and not one dot or two."
   [name]
   (not (or (str/includes? name "/")
            (#{"." ".."} name)
            (re-find #"[\x00-\x1f\x7f]" name))))
 
 (defn- version-of
-  "The version of the document `name` in `store`, nil when it is not there:
-  from the listing when the store has one, so that no body is read to
-  learn that a document exists."
-  [{:keys [list fetch]} name]
+  "The version of the document `name` in `store`, or nil when it isn't
+  there.
+
+  It comes from the listing when the store has one, so that no body is
+  read to learn that a document exists."
+  [{:keys [list fetch] :as store} name]
   (if list
     (some #(when (= name (:name %)) (:version %)) (list))
     (:version (fetch name))))
 
 (defn- options
-  "The methods the handler answers for the documents of `store`, whatever
-  the target: a client asks the collection what it can do with them."
+  "The answer to OPTIONS, with the methods that the handler answers for the
+  documents of `store`. A client asks the collection what it can do with
+  them, so the answer is the same for any target."
   [store]
   {:status  200
    :headers {"DAV" "1" "Allow" (allow store true)}
@@ -123,11 +136,11 @@
 ;; RFC 4918, sections 9.1 (no Depth is infinity, which is depth 1 here,
 ;; because the collection holds no collection) and 9.1.1 (403)
 (defn- propfind
-  "The multistatus of `store` for the document `name`, or for the collection
-  at `base` when there is none, at `depth`.
+  "The multistatus of `store` for the document `name`, or else for the
+  collection at `base`, at `depth`.
 
-  The collection comes alone at depth \"0\", and with its documents
-  otherwise, which a store without `:list` cannot give."
+  The collection comes alone at depth \"0\", and else with its documents,
+  which a store without :list can't give."
   [{:keys [list] :as store} base name depth]
   (cond
     name
@@ -147,7 +160,8 @@
     (plain 403 "The collection cannot be listed")))
 
 (defn- get-document
-  "The document `name` with its ETag, the body left out for a `head?`."
+  "The answer with the document `name` of `store` and its ETag, without the
+  body for a `head?`."
   [{:keys [fetch] :as store} name head?]
   (if-let [{:keys [body version]} (when name (fetch name))]
     {:status  200
@@ -156,10 +170,11 @@
     (if name (not-found) (not-allowed store nil))))
 
 (defn- put-document
-  "The document `name` written from the request `body`, at most `max-bytes`,
-  under the precondition of the `headers`: 201 for a new one, 204 for a
-  replaced one, 412 when the precondition failed, 413 when the body is too
-  large."
+  "The answer to a put of the document `name` in `store` from the request
+  `body` of at most `max-bytes`, under the precondition of the `headers`.
+
+  The status is 201 for a new document, 204 for a replaced one, 412 when
+  the precondition failed, and 413 when the body is too large."
   [{:keys [put] :as store} name headers body max-bytes]
   (if name
     (let [current (version-of store name)
@@ -173,8 +188,8 @@
     (not-allowed store nil)))
 
 (defn- delete-document
-  "The document `name` deleted from `store`: 204, or 404 when it is not
-  there, or 405 when the store cannot delete."
+  "The answer that deletes the document `name` from `store`: 204, or 404
+  when it isn't there, or 405 when the store can't delete."
   [{:keys [delete] :as store} name]
   (cond
     (not delete)                       (not-allowed store name)
@@ -185,18 +200,20 @@
 ;; RFC 4918, section 9.3.1: MKCOL is for an unmapped URL, and the
 ;; collection is there
 (defn- make-collection
-  "MKCOL refused, on the collection itself and within it."
+  "The 405 answer to MKCOL, on the collection of `store` itself or on the
+  document `name` within it."
   [store name]
   (not-allowed store name))
 
 (defn handler
-  "A Ring handler serving `store` over WebDAV under `base`, the path of the
-  collection with its trailing slash, `\"/dav/\"`. Mount it under Pedestal,
-  ring-jetty or http-kit for the routes `base` and everything below it;
-  whether the router passes a request for the collection with its trailing
-  slash, and a put's body unread, is the router's business. `:max-bytes`
-  in `opts` is the most a put may carry, 32 MB unless given, far more than
-  the state of any listener."
+  "A Ring handler that serves `store` over WebDAV under `base`, the path of
+  the collection with its trailing slash, e.g. \"/dav/\", with `opts`.
+
+  Mount it under Pedestal, ring-jetty or http-kit for the route `base` and
+  everything below it. Whether the router passes a request for the
+  collection with its trailing slash, and the body of a put unread,
+  depends on the router. The :max-bytes of `opts` is the most that a put
+  can send, 32 MB by default, far more than the state of any listener."
   ([store base]
    (handler store base {}))
   ([store base {:keys [max-bytes] :or {max-bytes (* 32 1024 1024)} :as opts}]

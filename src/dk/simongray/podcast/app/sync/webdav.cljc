@@ -1,21 +1,23 @@
 (ns dk.simongray.podcast.app.sync.webdav
-  "A WebDAV collection (RFC 4918) as a document store, which is what
-  Nextcloud, ownCloud, Seafile, Synology, Box, Fastmail and a Hetzner
-  storage box serve. GET, PUT, DELETE and a PROPFIND at depth one do it,
-  with the ETag as the version, `If-Match` making a put conditional and
-  `If-None-Match: *` asking for a document not there yet; HEAD when a
-  server answers a put without an ETag, and MKCOL when the collection is
-  not there.
+  "A WebDAV collection (RFC 4918) as a document store, e.g. on Nextcloud,
+  ownCloud, Seafile, Synology, Box, Fastmail or a Hetzner storage box.
 
-  `backend` is the one call an app makes, the collection's URL and the
-  credentials in, a backend for `dk.simongray.podcast.app.sync/sync!` out;
-  `dk.simongray.podcast.app.sync.store/check!` tries the store for a
-  settings screen. Underneath, `request` builds each call as a request map
-  and `response` reads the answer, so that a browser sends them with
-  fetch, the server's origin permitting, and the tests run on recorded
-  answers; `store` is the store over a collection, with the credentials
-  closed over. `dk.simongray.podcast.app.sync.webdav.server` is the other
-  side: any store served over WebDAV."
+  It uses GET, PUT, DELETE and a PROPFIND at depth one, with the ETag as
+  the version. If-Match makes a put conditional, and If-None-Match: * asks
+  for a document that isn't there yet. HEAD asks for the ETag when a
+  server answers a put without one, and MKCOL makes the collection when it
+  isn't there.
+
+  An app calls backend with the URL of the collection and the
+  credentials, and tests the store with
+  dk.simongray.podcast.app.sync.store/check!, e.g. from the settings.
+  Below that, request builds each call as a request map, and response
+  reads the answer. That way, a browser can send the requests with fetch
+  when the server's origin allows it, and the tests run on recorded
+  answers. The function store gives the store over a collection, with the
+  credentials closed over. The other side is
+  dk.simongray.podcast.app.sync.webdav.server, which serves any store over
+  WebDAV."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.util.async :as async]
@@ -23,19 +25,22 @@
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def calls
-  "What a store asks a collection: `:list` for the documents in it, `:fetch`,
-  `:put` and `:delete` for one, `:head` for its version alone, and
-  `:make-collection` for the collection itself."
+  "The calls that a store makes to a collection:
+
+  - :list, for the documents in it
+  - :fetch, :put and :delete, for one document
+  - :head, for the version of one document
+  - :make-collection, for the collection itself"
   #{:list :fetch :put :delete :head :make-collection})
 
 ;; RFC 4918, section 9.1
 (def ^:no-doc propfind-body
-  "The properties a listing asks for: the ETag and whether an entry is a
-  collection."
+  "The properties that a listing asks for: the ETag, and whether an entry
+  is a collection."
   "<?xml version=\"1.0\" encoding=\"utf-8\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:getetag/><d:resourcetype/></d:prop></d:propfind>")
 
 (defn content-type
-  "The Content-Type a document is put and served with, by its `name`."
+  "The Content-Type that the document `name` is put and served with."
   [name]
   (cond
     (str/ends-with? name ".edn")  "application/edn; charset=utf-8"
@@ -44,14 +49,15 @@
 
 ;; RFC 9110, sections 13.1.1 (If-Match) and 13.1.2 (If-None-Match: *)
 (defn request
-  "The request map for `call`, one of `calls`, on the collection at `root`,
-  a URL that ends in a slash. `name` is the document, where the call takes
-  one.
+  "The request map for `call` on the collection at `root`, for the
+  document `name` when the call takes one, with the `opts` below.
 
-  `opts` give the `:credentials`, and the `:body` to put. For a put, they
-  can give `:if-version`, the version that the document must still have.
-  Nil is for a document that must not be there yet. Without
-  `:if-version`, the put has no condition."
+  The `call` is one of calls, and the `root` is a URL that ends in a
+  slash. The `opts` give the
+  :credentials, and the :body to put. For a put, they can give
+  :if-version, the version that the document must still have, where nil
+  means that it must not exist yet. Without :if-version, the put has no
+  condition."
   ([call root]
    (request call root nil {}))
   ([call root name]
@@ -77,12 +83,12 @@
        (some? body) (assoc :body body)))))
 
 (def ^:no-doc uri->alias
-  "The library's namespace aliases, with WebDAV's bound to `d`, so that a
+  "The library's namespace aliases, with WebDAV's as :d, so that a
   multistatus reads the same whatever prefix a server wrote."
   (assoc xml/uri->alias "DAV:" :d))
 
 (defn- document-name
-  "The name of the document an `href` addresses: its last path segment,
+  "The name of the document that `href` addresses: its last path segment,
   decoded."
   [href]
   ;; a match may start only where a run of slashes starts: /+$ alone is
@@ -93,7 +99,8 @@
       http/percent-decode))
 
 (defn- entries
-  "The entries of the multistatus `body`: `{:href :etag :collection?}`."
+  "The entries of the multistatus `body`, as maps of :href, :etag and
+  :collection?."
   [body]
   (for [r (xml/elements (xml/parse body uri->alias) :d/response)
         :let [href  (some-> (xml/element r :d/href) xml/text str/trim)
@@ -106,14 +113,19 @@
 ;; RFC 4918, sections 9.1.1 (207), 9.3.1 (405 for MKCOL) and 9.7.1 (409
 ;; for a put without its collection)
 (defn response
-  "What the answer `{:status :headers :body}` to `call` says. `:list`: the
-  documents as `[{:name :version} …]`, none for a collection not there yet;
-  `:fetch`: `{:body :version}`, nil when absent; `:head`: `{:version}`;
-  `:put`: `{:version}` when written, `{:conflict? true}` when the
-  precondition failed, `{:missing-collection? true}` when the collection
-  is not there; `:delete` and `:make-collection`: nil. Any other status
-  throws `::failed`, with the `:status`."
-  [call {:keys [status headers body]}]
+  "What the `answer` to `call`, a map of :status, :headers and :body, says:
+
+  - :list, the documents as maps of :name and :version, or none for a
+    collection that isn't there yet
+  - :fetch, the :body and :version, or nil when the document isn't there
+  - :head, the :version
+  - :put, the :version when it was written, :conflict? when the
+    precondition failed, or :missing-collection? when the collection isn't
+    there
+  - :delete and :make-collection, nil
+
+  Any other status throws ::failed with the :status."
+  [call {:keys [status headers body] :as answer}]
   (let [etag (first (get headers "etag"))
         fail (fn [] (throw (ex-info (str "The server answered " status " to " (name call))
                                     {:type ::failed :call call :status status})))]
@@ -146,20 +158,20 @@
                          (fail)))))
 
 (defn- host
-  "The host of the URL `root`, as `http/origin` reads it, without the
-  credentials that a URL can carry. It has its port when that is not the
-  port of the scheme."
+  "The host of the URL `root`, as http/origin reads it, without
+  credentials. It has its port when that isn't the default port of the
+  scheme."
   [root]
   (when-let [[scheme host port] (http/origin root)]
     (cond-> host
       (not= port (get {"http" 80 "https" 443} scheme)) (str ":" port))))
 
 (defn- sender
-  "What sends a request map for `opts`.
+  "A function that sends a request map with `opts`.
 
-  On the JVM it is the library's HTTP client, with the `:timeout-seconds`
-  (default 30). In ClojureScript it is the `:fetch` given or js/fetch, with
-  the answer as `{:status :headers :body}` in a promise."
+  On the JVM, it's the library's HTTP client, with the :timeout-seconds,
+  30 by default. In ClojureScript, it's the :fetch given or js/fetch, with
+  the answer as a promise of a map of :status, :headers and :body."
   [opts]
   #?(:clj  (fn [request]
              (http/call! (assoc request :timeout-seconds (:timeout-seconds opts 30))))
@@ -178,16 +190,15 @@
 
 (defn store
   "The store over the WebDAV collection at `root`, a URL such as
-  `https://dav.example.org/podcasts/`. `opts`:
+  https://dav.example.org/podcasts/, with the `opts` below:
 
-      {:credentials     {:username \"simon\" :password \"app-password\"}  ; or {:token \"…\"},
-                                                                       ; a map or a function of
-                                                                       ; no arguments returning one
-       :name            \"Nextcloud\"   ; for the UI; default the host
-       :timeout-seconds 30            ; on the JVM
-       :fetch           js/fetch}     ; in ClojureScript, the fetch to send with
+  - :credentials, a :username and a :password, or a :token, as a map or a
+    function of no arguments that returns one
+  - :name, for the UI, the host by default
+  - :timeout-seconds, on the JVM, 30 by default
+  - :fetch, in ClojureScript, the fetch to send with, js/fetch by default
 
-  The collection is created on the first put when it is not there, and a
+  The collection is made on the first put when it isn't there, and a
   server that answers a put without an ETag is asked for one."
   ([root]
    (store root {}))
@@ -221,12 +232,13 @@
       :delete (fn [name] (call! :delete name {}))})))
 
 (defn backend
-  "A backend for `dk.simongray.podcast.app.sync/sync!` over the collection
-  at `root`, in one call; `opts` are those of `store` and of
-  `dk.simongray.podcast.app.sync.store/backend`.
+  "A backend for dk.simongray.podcast.app.sync/sync! over the collection at
+  `root`, with the `opts` of store and of
+  dk.simongray.podcast.app.sync.store/backend:
 
       (backend \"https://dav.example.org/podcasts/\"
-               {:credentials {:username \"simon\" :password \"app-password\"} :opml? true})"
+               {:credentials {:username \"simon\" :password \"app-password\"}
+                :opml?       true})"
   ([root]
    (backend root {}))
   ([root opts]

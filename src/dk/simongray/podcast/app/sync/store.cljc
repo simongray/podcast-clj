@@ -1,31 +1,33 @@
 (ns dk.simongray.podcast.app.sync.store
-  "Document stores, and backends over them. A store is a map of functions
-  over named documents with version tokens:
+  "Document stores, and backends over them.
 
-      {:fetch  (fn [name])            ; {:body \"…\" :version \"…\"}, nil when absent
-       :put    (fn [name body opts])  ; {:version \"…\"} when written; {:conflict? true} when
-                                      ; opts carry an :if-version other than the store's,
-                                      ; nil standing for no document yet
-       :list   (fn [])                ; [{:name \"…\" :version \"…\"} …]; optional
+  A store is a map of functions over named documents with versions:
+
+      {:fetch  (fn [name])            ; {:body \"…\" :version \"…\"}, or nil
+       :put    (fn [name body opts])  ; {:version \"…\"}, or {:conflict? true}
+       :list   (fn [])                ; [{:name \"…\" :version \"…\"} …], optional
        :delete (fn [name])            ; optional
-       :name   \"Nextcloud\"}           ; for the UI and the report, never the credentials
+       :name   \"Nextcloud\"}           ; for the UI and the report
 
-  On the JVM each function returns its value and throws on failure; in
-  ClojureScript each may return a value or a promise. A constructor closes
-  over its credentials, so a store never carries them, and wrapping a store
-  is updating a key. `memory` is a store over an atom, for tests and for an
-  app that keeps the documents itself.
+  A put is a conflict when its opts have an :if-version other than the
+  store's, where nil means that the document must not exist yet. On the
+  JVM, each function returns its value and throws when it fails. In
+  ClojureScript, each can return a value or a promise. A store closes over
+  its credentials, so they're never in the map, and you wrap a store by
+  updating a key. The function memory gives a store over an atom, for
+  tests or for an app that keeps the documents itself.
 
-  `backend` turns any store into a backend for
-  `dk.simongray.podcast.app.sync/sync!`. By default every device writes its
-  own document, `<device-id>.edn`, and reads the others', so that no two
-  writers ever meet and a folder any sync client mirrors is a complete
-  backend; a store without `:list` holds one shared document instead, put
-  on condition of the version fetched and merged again on a conflict.
-  `check!` tries any store through this contract and reports, for a
-  settings screen's test button. Every store namespace follows one
-  convention: `store` for the store over a place, and `backend` for the
-  backend in one call with the options of both."
+  The function backend turns any store into a backend for
+  dk.simongray.podcast.app.sync/sync!. By default, every device writes its
+  own document, named after its device id, and reads those of the others.
+  So no two devices write the same document, and a folder that any sync
+  client mirrors is a complete backend. A store without :list holds one
+  shared document instead, which is put on condition of the version that
+  was fetched, and merged again on a conflict.
+
+  Test a store with check!, e.g. from a button in the settings. Each store
+  namespace has a store function for the store over a place, and a backend
+  function for the backend in one call with the options of both."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync :as sync]
@@ -34,8 +36,8 @@
             [dk.simongray.podcast.util.async :as async]))
 
 (defn memory
-  "A store over the atom `documents` (a fresh one when none is given), name
-  to `{:body :version}`, the version counting the writes of the name."
+  "A store over the atom `documents`, or a fresh one, which holds the :body
+  and :version of each document by name, the version counting its writes."
   ([]
    (memory (atom {})))
   ([documents]
@@ -62,23 +64,24 @@
   (diagnostics/describe (assoc diagnostic :level :warning)))
 
 (defn document-name
-  "The name of the document the device `device` writes."
+  "The name of the document that the device `device` writes."
   [device]
   (str device ".edn"))
 
 (def opml-name
-  "The name of the subscription list a backend built with `:opml?` writes
+  "The name of the subscription list that a backend with :opml? writes
   beside the documents, for any podcast app to import."
   "subscriptions.opml")
 
 (defn- pull-documents
-  "The per-device pull: the documents in the store, the `.edn` files of
-  its listing, that changed since the cursor `ctx` was taken, fetched at
-  once and read at `at`, with this device's own noted when it changed
-  under it. A document the listing gives no version is always fetched,
-  and this device's own, when it has gone from the store, is written
-  again by the push."
-  [{:keys [list fetch]} state {:keys [versions] :as ctx} at]
+  "The per-device pull from `store` for `state` at `at`: the documents that
+  changed since the cursor `ctx`, fetched at once and read.
+
+  The documents are the .edn files of the listing, and one without a
+  version there is always fetched. The report notes when this device's own
+  document changed under it, and when the document is gone from the store,
+  the push writes it again."
+  [{:keys [list fetch] :as store} state {:keys [versions] :as ctx} at]
   (async/then (list)
               (fn [listing]
                 (let [own       (document-name (:device state))
@@ -102,13 +105,13 @@
                                              (conj (describe {:id :sync/shared-device :name own :device (:device state)})))})))))))
 
 (defn- mirror-opml
-  "Put the subscription list of `state` beside the documents of `store` when
-  `opts` ask for it and the list changed since the cursor `ctx`. The list
-  is what `player/to-opml` gives: the shows with their folders and tags,
-  and the lists that the listener follows.
+  "Put the subscription list of `state` beside the documents of `store`,
+  when `opts` ask for it and the list changed since the cursor `ctx`.
 
-  Returns the cursor, which remembers the list last mirrored."
-  [{:keys [put] :as store} {:keys [opml?]} state ctx]
+  The list is what player/to-opml gives: the shows with their folders and
+  tags, and the lists that the listener follows. Returns the cursor, which
+  remembers the list last mirrored."
+  [{:keys [put] :as store} {:keys [opml?] :as opts} state ctx]
   (let [list    (when opml? (player/to-opml state))
         written (hash list)]
     (if (and opml? (not= written (:opml ctx)))
@@ -117,10 +120,12 @@
       ctx)))
 
 (defn- push-document
-  "The per-device push: this device's document written when the state
-  changed since it was last written, and the documents of retired devices
-  deleted."
-  [{:keys [put delete]} opts state {:keys [versions] :as ctx} at]
+  "The per-device push of `state` to `store` at `at`, with the :app of
+  `opts` and the cursor `ctx`.
+
+  It writes this device's document when the state changed since the
+  cursor, and deletes the documents of retired devices."
+  [{:keys [put delete] :as store} opts state {:keys [versions] :as ctx} at]
   (let [own     (document-name (:device state))
         written (hash state)
         retired (filter #(contains? versions (document-name %)) (keys (:retired state)))]
@@ -135,11 +140,13 @@
                                         result (assoc-in [:versions own] (:version result)))}))))))
 
 (defn- pull-shared
-  "The shared-document pull: the one document, read at `at`, when its version
-  is not the one the cursor `ctx` remembers. A document that has gone from
-  the store is written again by the push, and one of a newer format than
-  this library writes is marked in the cursor, for the push to leave alone."
-  [{:keys [fetch]} name {:keys [version] :as ctx} at]
+  "The shared pull from `store`: the document `name`, read at `at`, when
+  its version isn't the one in the cursor `ctx`.
+
+  When the document is gone from the store, the push writes it again. A
+  document of a newer format is marked in the cursor, so that the push
+  leaves it alone."
+  [{:keys [fetch] :as store} name {:keys [version] :as ctx} at]
   (async/then (fetch name)
               (fn [doc]
                 (cond
@@ -159,12 +166,14 @@
                      :report report})))))
 
 (defn- push-shared
-  "The shared-document push: `state` put on condition of the version the
-  cursor `ctx` holds and, on a conflict, fetched, merged and put again, up
-  to three more times; the merged state comes back for the caller. A
+  "The shared push of `state` to the document `name` in `store` at `at`,
+  with the :app of `opts`, on condition of the version in the cursor `ctx`.
+
+  On a conflict, the document is fetched, merged and put again, up to
+  three more times. The merged state comes back for the caller. A
   document of a newer format is left alone, since writing over it would
-  lose what this library cannot read."
-  [{:keys [fetch put]} name opts state ctx at]
+  lose what this library can't read."
+  [{:keys [fetch put] :as store} name opts state ctx at]
   (letfn [(put-conditionally [state {:keys [version] :as ctx} attempts]
             (async/then (put name (sync/document state at (select-keys opts [:app])) {:if-version version})
                         (fn [{:keys [conflict?] :as result}]
@@ -189,8 +198,8 @@
       (put-conditionally state ctx 3))))
 
 (def probe-name
-  "The document `check!` writes and removes to see that it can; not an
-  `.edn`, so that a probe left behind is never read as a document."
+  "The document that check! writes and removes, which isn't an .edn file,
+  so that a probe left behind is never read as a document."
   "podcast-sync-probe.txt")
 
 (defn- check
@@ -199,16 +208,17 @@
 
 (defn- refused?
   "Whether the `answer` of a probe step failed for want of credentials, by
-  the `:status` a store's error carries, as the WebDAV store's do."
+  the :status of the store's error, as the WebDAV store gives it."
   [answer]
   (contains? #{401 403} (:status (ex-data (:error answer)))))
 
 (defn- reachability
-  "The checks that the first `answer` of the store gives: reachable,
-  authenticated and, when both, how many documents it holds.
+  "The checks that the first `answer` of a store gives, a listing if it
+  `lists?`: whether it's reachable and authenticated, and if so, how many
+  documents it holds.
 
-  The answer is a listing when the store `lists?`, and otherwise a fetch of
-  the probe, after which the listing check says that it cannot list."
+  Without a listing, the answer is a fetch of the probe, and the listing
+  check says that the store can't list."
   [answer lists?]
   (cond
     (refused? answer)
@@ -227,7 +237,7 @@
        (check :store/listing false "The store cannot list its documents, so it holds one shared document."))]))
 
 (defn- writing
-  "The check the `put` of the probe answers."
+  "The check that the answer `put` to the put of the probe gives."
   [put]
   (cond
     (refused? put)                 (check :store/put false (str "The credentials allow reading but not writing: " (async/explain (:error put))))
@@ -236,10 +246,11 @@
     :else                          (check :store/put true "A document can be written and gets a version.")))
 
 (defn- refusing-stale-versions
-  "The check that the put of the probe under a `stale` version answers.
+  "The check that the answer `stale` to a put of the probe with a stale
+  version gives, for a `shared?` document or not.
 
-  It is advisory for a store that can list, and what one `shared?` document
-  needs of a store that cannot."
+  The check is advisory for a store that can list, and a store that can't
+  needs it for its one shared document."
   [stale shared?]
   (let [refuses? (:conflict? (:value stale))]
     (check :store/conflicts refuses?
@@ -250,9 +261,10 @@
              :else                  "The store does not refuse a stale version; keep one document per device, which is the default."))))
 
 (defn- reading-back
-  "The check the `fetched` probe answers: the body as written, with the
-  version of the last write, the `stale` put's when it went through."
-  [{:keys [put stale fetched]}]
+  "The check that the fetch of the probe in `answers` gives. It expects the
+  body as written, with the version of the last write, or of the stale
+  put when that went through."
+  [{:keys [put stale fetched] :as answers}]
   (let [{:keys [body version]} (:value fetched)
         written (or (:version (:value stale)) (:version (:value put)))]
     (check :store/fetch (and (= "probe" body) (= version written))
@@ -263,8 +275,9 @@
              :else                  "A document reads back as written, with its version."))))
 
 (defn- deleting
-  "The check the `delete` of the probe answers, the probe `gone` after it."
-  [{:keys [delete gone]}]
+  "The check that the delete of the probe in `answers` gives, with the
+  probe gone after it."
+  [{:keys [delete gone] :as answers}]
   (check :store/delete (and (not (:error delete)) (nil? (:value gone)))
          (cond
            (:error delete)       (str "The probe document could not be deleted: " (async/explain (:error delete)) "; remove " probe-name " by hand.")
@@ -272,8 +285,8 @@
            :else                 "A document can be deleted.")))
 
 (defn- assess
-  "The checks, from the `answers` of the probe by step, for a store that
-  `lists?` and `deletes?` or not."
+  "The checks from the `answers` of the probe, by step, for a store that
+  `lists?` and `deletes?`, or not."
   [{:keys [listing put stale fetched delete] :as answers} lists? deletes?]
   (cond-> (reachability listing lists?)
     put                          (conj (writing put))
@@ -283,9 +296,9 @@
     (and fetched (not deletes?)) (conj (check :store/delete false (str "The store cannot delete documents; remove " probe-name " by hand.")))))
 
 (defn- probe
-  "The answers to the probe `steps`, `[key thunk]` in order, by key, each
-  `{:value}` or `{:error}`; nothing is tried after a listing or a put that
-  failed."
+  "The answers to the probe `steps`, pairs of a key and a thunk, by key,
+  each with a :value or an :error. The steps run in order, and none runs
+  after a listing or a put that failed."
   [steps]
   (reduce (fn [answers [k f]]
             (async/then answers
@@ -297,25 +310,26 @@
           steps))
 
 (defn check!
-  "Try `store` through its contract and report, for a settings screen's
-  test button:
+  "Try `store` through its contract, e.g. from a button in the settings,
+  and report what works:
 
-      {:ok?    true                       ; it works as `backend` uses it
-       :checks [{:id :store/reachable :ok? true :message \"The store answered.\"}
-                {:id :store/authenticated …} {:id :store/listing …}
-                {:id :store/put …}          ; a probe document written, with a version
-                {:id :store/conflicts …}    ; a stale version refused, or not
-                {:id :store/fetch …}        ; the probe read back as written
-                {:id :store/delete …}]}     ; the probe removed
+      {:ok?    true                   ; it works as backend uses it
+       :checks [{:id :store/reachable :ok? true :message \"…\"}
+                {:id :store/authenticated …}
+                {:id :store/listing …}
+                {:id :store/put …}        ; a probe written, with a version
+                {:id :store/conflicts …}  ; a stale version refused, or not
+                {:id :store/fetch …}      ; the probe read back as written
+                {:id :store/delete …}]}   ; the probe removed
 
-  On the JVM the report is returned, in ClojureScript promised. The probe
-  is `probe-name`, written and removed; nothing is written to a store that
-  cannot be reached. A store without `:list` is reached with a fetch and
-  tried for the one shared document `backend` gives it, which needs a
-  stale version refused; one without `:delete` keeps the probe. A store's
-  own errors tell the credentials apart from the rest when they carry a
-  `:status`, as the WebDAV store's do."
-  [{:keys [fetch put list delete]}]
+  The report is a promise in ClojureScript. The probe document is
+  probe-name, written and removed, and nothing is written to a store that
+  can't be reached. A store without :list is reached with a fetch, and
+  tried for the one shared document that backend gives it, which needs a
+  stale version refused. A store without :delete keeps the probe. The
+  store's errors tell refused credentials apart from other failures when
+  they have a :status, as those of the WebDAV store do."
+  [{:keys [fetch put list delete] :as store}]
   (async/then (probe (cond-> [[:listing (or list #(fetch probe-name))]
                               [:put     #(put probe-name "probe" {})]
                               [:stale   #(put probe-name "probe" {:if-version "\"no-such-version\""})]
@@ -331,18 +345,22 @@
                    :checks checks}))))
 
 (defn backend
-  "A backend for `dk.simongray.podcast.app.sync/sync!` over `store`. `opts`:
+  "A backend for dk.simongray.podcast.app.sync/sync! over `store`, with the
+  `opts` below:
 
-      {:strategy  :per-device    ; every device its own document, merged on read;
-                                 ; the default when the store has :list
-                  :shared        ; one document for all, put on condition of its
-                                 ; version; the default when it has not
-       :direction :both          ; :pull to read only, :push to write only
-       :opml?     false          ; write subscriptions.opml beside the documents
-       :app       \"my-app\"      ; named in the documents written
-       :name      \"…\"            ; the store's name unless given; the backends of
-                                 ; one sync need distinct names
-       :document  \"podcast.edn\"} ; the shared document's name"
+  - :strategy, :per-device for a document per device, or :shared for one
+    document for all
+  - :direction, :both by default, :pull to read only, or :push to write
+    only
+  - :opml?, whether to write subscriptions.opml beside the documents
+  - :app, the name of the app in the documents written
+  - :name, the store's name by default, and distinct for each backend of
+    one sync
+  - :document, the name of the shared document, podcast.edn by default
+
+  The :strategy is :per-device when the store has :list, and else
+  :shared. Documents per device are merged on read, and a shared document
+  is put on condition of its version."
   ([store]
    (backend store {}))
   ([store {:keys [strategy direction document] :or {direction :both document "podcast.edn"} :as opts}]

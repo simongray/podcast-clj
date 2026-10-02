@@ -1,16 +1,17 @@
 (ns dk.simongray.podcast.app.sync.gpodder
-  "The gpodder API as a sync backend, for the subscriptions and the episode
+  "The gpodder API as a sync backend, for the subscriptions and episode
   actions that a gpodder server keeps.
 
   Such servers are gpodder.net, the GPodder Sync app for Nextcloud,
-  oPodSync and PinePods. They keep the data for apps such as AntennaPod,
-  Kasts and gPodder. doc/sync.md is the design.
+  oPodSync and PinePods. They keep the data of apps such as AntennaPod,
+  Kasts and gPodder. The design is in doc/sync.md.
 
-  `backend` is the one call that an app makes. The API names a show by its
-  feed URL, and an episode by the URL of its media. podcast-clj names them
-  by guid. So `identities` gives the ways to name them, over the parsed
-  feeds of the app. `request` builds each call as a request map, and
-  `response` reads the answer, so that the tests run on recorded answers."
+  The function backend is the one call that an app makes. The API names a
+  show by its feed URL, and an episode by the URL of its media. Since
+  podcast-clj names them by guid, identities gives the ways to name them
+  from the app's parsed feeds. The function request builds each call as a
+  request map, and response reads the answer, so that the tests run on
+  recorded answers."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync :as sync]
@@ -25,20 +26,19 @@
             [dk.simongray.podcast.util.time :as time]))
 
 (def calls
-  "What a backend asks a server. `apis` gives the path of each call."
+  "The calls that a backend makes to a server, whose paths are in apis."
   #{:login :register :subscriptions :update-subscriptions :episodes :update-episodes})
 
 (def apis
-  "The paths of the calls, by the API that a server speaks. In a path,
-  `{user}` is the user name, and `{device}` is the id of the device.
+  "The paths of the calls, by the API that a server speaks.
 
-  :gpodder is the API of gpodder.net, which oPodSync and other servers
-  speak too. :nextcloud is the API of the GPodder Sync app for Nextcloud.
-  That app has no login and keeps no devices, so it has no path for
-  `:login` and none for `:register`.
-
-  The `:api` in the options of `request` and `backend` is a name here. For
-  a server with paths of its own, it is a map of paths of this shape."
+  In a path, {user} is the user name, and {device} is the id of the
+  device. The API :gpodder is that of gpodder.net, which oPodSync and
+  other servers speak too, and :nextcloud is that of the GPodder Sync app
+  for Nextcloud. That app has no login and keeps no devices, so it has no
+  path for :login or :register. The :api in the options of request and
+  backend is a name here. For a server with paths of its own, it's a map
+  of paths of this shape."
   {:gpodder   {:login                "/api/2/auth/{user}/login.json"
                :register             "/api/2/devices/{user}/{device}.json"
                :subscriptions        "/api/2/subscriptions/{user}/{device}.json"
@@ -51,22 +51,22 @@
                :update-episodes      "/index.php/apps/gpoddersync/episode_action/create"}})
 
 (def default-limits
-  "The limits of `backend` that its options do not set.
+  "The limits of backend when its options don't set them.
 
   A pull asks for one more page of episode actions when a page holds
-  `:page-size` actions, and it reads `:max-pages` pages at most. A push
-  sends `:batch-size` episode actions in one request. The page and the
-  batch are those of gpodder.net, and another server can have others. The
-  cursor keeps the last `:max-pending` actions that name a feed that the
-  app does not know."
+  :page-size actions, and it reads :max-pages pages at most. A push sends
+  :batch-size episode actions in each request. The page and the batch are
+  those of gpodder.net, and another server can have others. The cursor
+  keeps the last :max-pending actions that name a feed that the app
+  doesn't know."
   {:page-size   1000
    :max-pages   10
    :batch-size  100
    :max-pending 500})
 
 (defn ^:no-doc paths
-  "The paths of the calls of `api`, a name in `apis` or a map of paths.
-  Throws for a name that `apis` does not have."
+  "The paths of the calls of `api`, a name in apis or a map of paths. It
+  throws for a name that apis doesn't have."
   [api]
   (or (if (map? api) api (get apis api))
       (throw (ex-info (str "An API that podcast-clj does not know: " api) {:api api}))))
@@ -82,21 +82,22 @@
                  #(http/encode (case % "{user}" user "{device}" device)))))
 
 (defn request
-  "The request map for `call`, one of `calls`, to the server at `root`, as
-  `opts` say:
+  "The request map for `call`, one of calls, to the server at `root`, with
+  the `opts` below:
 
-      {:api         :gpodder   ; or :nextcloud, or a map of paths, see `apis`
-       :credentials {:username \"simon\" :password \"…\"}  ; or a function returning them
-       :device      \"…\"       ; the device's id on the server
-       :since       1727000000  ; for :subscriptions and :episodes, in seconds
-       :body        …           ; the data to send, as JSON
-       :session     \"…\"}      ; the session of a :login
+  - :api, :gpodder by default, :nextcloud, or a map of paths as in apis
+  - :credentials, a :username and a :password, or a function that returns
+    them
+  - :device, the device's id on the server
+  - :since, the seconds since the epoch, for :subscriptions and :episodes
+  - :body, the data to send as JSON
+  - :session, the session of a :login
 
-  Every call carries the credentials as Basic authentication, and the
-  session when there is one: some servers want the one, others the other.
+  Every call has the credentials as Basic authentication, and the session
+  when there is one, since some servers want the one and others the other.
   The password and the session can be hidden texts of
-  `dk.simongray.podcast.util.secret`. The request has them in its headers, as
-  hidden texts."
+  dk.simongray.podcast.util.secret, and the request has them in its
+  headers as hidden texts."
   [call root {:keys [api credentials device since body] :or {api :gpodder} :as opts}]
   (let [creds   (if (fn? credentials) (credentials) credentials)
         auth    (http/authorization creds)
@@ -113,23 +114,23 @@
       (some? body) (assoc :body (json/write-str body)))))
 
 (defn- text
-  "The string `v` trimmed; nil for a blank one or anything else."
+  "The string `v` trimmed, or nil for a blank one or anything else."
   [v]
   (when (string? v)
     (not-empty (str/trim v))))
 
 (defn- seconds
-  "The seconds `v`; nil for none, for the negative number a client writes
-  for a position it does not know, and for a number that no episode
+  "The seconds `v`, or nil for none, for the negative number that a client
+  writes for an unknown position, and for a number that no episode
   reaches."
   [v]
   (when (and (number? v) (<= 0 v) (< v 1e9))
     v))
 
 (defn ^:no-doc epoch
-  "The seconds since the epoch of the timestamp `v` of an answer: a whole
-  number, or from some servers a string of digits. Nil for anything else,
-  and for a time that a date of JavaScript does not hold."
+  "The seconds since the epoch of the timestamp `v` of an answer, a whole
+  number, or from some servers a string of digits. It's nil for anything
+  else, and for a time that a JavaScript date can't hold."
   [v]
   (let [n (if (string? v)
             (some->> v str/trim (re-matches #"\d{1,13}") parse-long)
@@ -138,22 +139,22 @@
       n)))
 
 (defn- instant
-  "The instant of the action time `v`: ISO 8601, without a zone in UTC, or
-  seconds since the epoch as `epoch` reads them."
+  "The instant of the action time `v`, in ISO 8601 and UTC without a zone,
+  or seconds since the epoch as epoch reads them."
   [v]
   (if (string? v)
     (time/parse-iso8601 v)
     (some-> (epoch v) (* 1000) time/->inst)))
 
 (defn- listed
-  "The items of the JSON value `v` when it is a list, and none otherwise."
   [v]
   (if (sequential? v) v []))
 
 (defn ^:no-doc read-action
-  "The episode action `m`, as JSON reads it, with keyword keys, its name in
-  lower case and its time an instant; nil for anything but a map. A field
-  that does not read is nil."
+  "The episode action `m`, as JSON reads it, or nil when it isn't a map.
+
+  The keys are keywords, the action is in lower case, and the time is an
+  instant. A field that doesn't read is nil."
   [m]
   (when (map? m)
     (into {} (for [[k f] {"podcast" text "episode" text "guid" text "device" text
@@ -168,20 +169,20 @@
     (some #(second (re-find #"(?:^|[;,]\s*)sessionid=([^;,\s]+)" %)) (if (string? v) [v] v))))
 
 (defn response
-  "What the answer `{:status :headers :body}` to `call` says:
+  "What the `answer` to `call`, a map of :status, :headers and :body, says:
 
-      :login                 the session id the server set, nil when none
-      :register              nil
-      :subscriptions         {:add [url …] :remove [url …] :timestamp seconds}
-      :episodes              {:actions [action …] :timestamp seconds}
-      :update-subscriptions  {:timestamp seconds :update-urls [[sent rewritten] …]}
-      :update-episodes       the same
+  - :login, the session id that the server set, or nil
+  - :register, nil
+  - :subscriptions, the URLs to :add and to :remove, and the :timestamp
+  - :episodes, the :actions and the :timestamp
+  - :update-subscriptions and :update-episodes, the :timestamp, and the
+    :update-urls as pairs of the URL sent and the URL rewritten
 
-  An action is as `read-action` reads it. A rewritten URL is nil when the
-  server refused the URL that was sent. A status that is not a success
-  throws `::failed` with the `:status`. So does an answer that is not the
+  An action is as read-action reads it. A rewritten URL is nil when the
+  server refused the URL that was sent. It throws ::failed with the
+  :status when the status isn't a success, or when the answer isn't the
   JSON object that the call expects."
-  [call {:keys [status headers body]}]
+  [call {:keys [status headers body] :as answer}]
   (let [fail (fn [why]
                (throw (ex-info (str "The server answered " status " to " (name call) why)
                                {:type ::failed :call call :status status})))
@@ -211,9 +212,11 @@
                                                   [sent (when (http/web-url? new) new)]))})))))
 
 (defn- indexed
-  "The feed `feed` at `url` with its guid, and with the index of its items
-  as a delay: the items by their guids, and their guids by the URLs of
-  their media. A feed makes its index when a lookup first needs it."
+  "The `feed` at `url` with its guid, and the index of its items as a
+  delay, made when a lookup first needs it.
+
+  The index has the items by guid, and their guids by the URL of their
+  media."
   [[url feed]]
   {:url   url
    :guid  (feed/feed-guid feed url)
@@ -225,23 +228,22 @@
                                     [(player/normal-url media) g]))}))})
 
 (defn identities
-  "The ways to name the shows and episodes of `feeds`, the app's parsed feeds
-  by URL, as `backend` takes them under `:identities`:
+  "The ways to name the shows and episodes of `feeds`, the app's parsed
+  feeds by URL, as backend takes them under :identities:
 
-      {:feed-guid   (fn [url])                        ; the guid of the feed at `url`
-       :feed-url    (fn [feed-guid])                  ; the URL of that feed
-       :episode-id  (fn [podcast-url media-url guid]) ; [feed-guid item-guid]
-       :episode-url (fn [[feed-guid item-guid]])}     ; the URL of its media
+      {:feed-guid   (fn [url])                         ; the guid of the feed
+       :feed-url    (fn [feed-guid])                   ; the URL of the feed
+       :episode-id  (fn [podcast-url media-url guid])  ; the episode id
+       :episode-url (fn [[feed-guid item-guid]])}      ; the URL of its media
 
-  Each function gives nil for a feed that `feeds` do not hold. The guid of
-  an episode finds it, because some servers keep the guid. When the guid
-  does not find it, the URL of its media does. When neither finds it, the
-  episode gets the name that podcast-clj gives an episode that its feed
-  leaves out. URLs match whatever their scheme, their case and their
-  trailing slashes.
+  Each function gives nil for a feed that isn't in `feeds`. An episode is
+  found by its guid, since some servers keep the guid, or else by the URL
+  of its media. When neither finds it, the episode gets the name that
+  podcast-clj gives an episode that its feed leaves out. URLs match
+  whatever their scheme, case and trailing slashes.
 
-  The items of a feed are indexed when a lookup first names the feed. An
-  app with many feeds keeps the result while its feeds are the same."
+  The items of a feed are indexed when a lookup first names the feed, so
+  keep the result while the app's feeds stay the same."
   [feeds]
   (let [known   (map indexed feeds)
         by-url  (into {} (map (juxt (comp player/normal-url :url) identity)) known)
@@ -259,18 +261,18 @@
 
 (defn ^:no-doc namer
   "The ways to name shows and episodes for `state` that `opts` give, by
-  their own keys or by `:identities`, with defaults for those they lack.
+  their own keys or by :identities, with defaults for those they lack.
 
   A feed is named by the subscription of `state` with its URL, as
-  `dk.simongray.podcast.app.player/by-url` finds it. Without such a
-  subscription, `:feed-guid` names the feed, else its URL does.
+  dk.simongray.podcast.app.player/by-url finds it. Without such a
+  subscription, :feed-guid names the feed, or else its URL does.
 
-  An episode is named by `:episode-id`. Without that option, the guid of
-  its action names it, else the URL of its media. With the option, an
-  episode of a feed that the option does not know stays unnamed.
+  An episode is named by :episode-id. Without that option, the guid of its
+  action names it, or else the URL of its media. With the option, an
+  episode of a feed that the option doesn't know stays unnamed.
 
-  The URL of the media of an episode is what `:episode-url` gives. Without
-  one, it is the guid of the item when that is a URL."
+  The URL of the media of an episode is what :episode-url gives, or
+  without it, the guid of the item when that's a URL."
   [{:keys [identities] :as opts} state]
   (let [{:keys [feed-guid feed-url episode-id episode-url]}
         (merge (when identities (identities)) (select-keys opts [:feed-guid :feed-url :episode-id :episode-url]))
@@ -291,22 +293,23 @@
                       (when (http/web-url? item) item)))}))
 
 (defn ^:no-doc writer
-  "The name that writes to a state what the `device` of a gpodder server
-  did. No device of podcast-clj has such a name. So the entry is the
-  knowledge of no device of the listener, and no push sends it back."
+  "The author of the entries in a state for what the `device` of a gpodder
+  server did. No device of podcast-clj has such a name, so a push never
+  sends the entries back."
   [device]
   (str "gpodder:" device))
 
 (defn ^:no-doc device-of
   "The device of a gpodder server that wrote an entry as `author`, the
-  `:device` of the entry: the inverse of `writer`. A device of podcast-clj
-  is its own name."
+  inverse of writer. A device of podcast-clj is its own name."
   [author]
   (str/replace-first (str author) #"^gpodder:" ""))
 
 (defn ^:no-doc written-by
-  "`(f state)` as the device `author` of a gpodder server writes it, under
-  the name that `writer` gives it, at the instants that `f` gives, with the
+  "The result of `f` on `state`, written as the device `author` of a
+  gpodder server, under the name that writer gives it.
+
+  The stamps are the instants that `f` gives, and the result has the
   device of `state` and the later of the two clocks."
   [state author f]
   (let [written (f (-> state (assoc :device (writer author)) (dissoc :clock)))
@@ -315,14 +318,14 @@
       (seq clocks) (assoc :clock (apply max-key inst-ms clocks)))))
 
 (defn ^:no-doc apply-subscriptions
-  "`state` with the feed URLs `add` subscribed to and `remove` unsubscribed
-  from, as the device `author` did at `at`; `names` gives each URL's guid.
+  "The `state` with the subscription `changes` that the device `author` made
+  at `at`: the URLs to :add and to :remove, with their guids from `names`.
 
-  A feed that already is as the change says is left alone. A server tells
-  the URL of a show, and no title. So the entry of a show that `state` does
-  not know is stamped at the start of time, and the entry of a device that
-  knows the show wins over it."
-  [state {:keys [add remove]} names author at]
+  A feed that's already as the change says is left alone. A server gives
+  the URL of a show but no title. When `state` doesn't know the show, its
+  entry is stamped at the start of time, so that the entry of a device
+  that knows the show wins over it."
+  [state {:keys [add remove] :as changes} names author at]
   (let [guid-of     (:feed-guid names)
         subscribe   (fn [s url]
                       (let [g     (guid-of url)
@@ -341,14 +344,14 @@
       (reduce unsubscribe s remove))))
 
 (defn ^:no-doc apply-action
-  "`state` with the episode action `a` applied to the episode `id` as its
-  device, else `author`, did it at the time it names.
+  "The `state` with the episode action `a` applied to the episode `id` at
+  the time it names, by its own device or else by `author`.
 
-  A play records a position as `player/progress` does, and `new` marks the
-  episode not played as `player/mark-unplayed` does. An action of another
-  kind, or one no later than what `state` holds of the episode, changes
-  nothing, so that an action read back does no harm."
-  [state id {:keys [action position total timestamp device]} author]
+  A \"play\" records a position as player/progress does, and a \"new\" marks
+  the episode as not played, as player/mark-unplayed does. An action of
+  another kind, or one no later than what `state` has of the episode,
+  changes nothing, so that an action read back does no harm."
+  [state id {:keys [action position total timestamp device] :as a} author]
   (let [stamp (some-> (get-in state [:episodes id :updated-at]) inst-ms)
         act   (case action
                 "play" (when (number? position)
@@ -360,29 +363,29 @@
       state)))
 
 (defn- told-at
-  "The instant of what the entry `e` of an episode tells, on the clock of
-  the device that wrote it: the later of its last report and of its mark as
-  played. For an entry with neither, it is the stamp.
+  "The instant of what the episode entry `e` tells, on the clock of the
+  device that wrote it.
 
-  The stamp is no time of the device. After a merge with a device whose
-  clock is fast, each stamp is later than the clock of this device."
-  [{:keys [reported-at played-at updated-at]}]
+  It's the later of its last report and its mark as played, or else its
+  stamp. The stamp isn't a time of the device: after a merge with a device
+  whose clock is fast, each stamp is later than the clock of this device."
+  [{:keys [reported-at played-at updated-at] :as e}]
   (or (some->> (filter inst? [reported-at played-at]) seq (apply max-key inst-ms))
       updated-at))
 
 (defn ^:no-doc entry-action
-  "The episode action that tells the entry `e` of the episode `id`, sent by
-  `device` with the feed URL `podcast` and the media URL `media`; nil when
-  no action tells it.
+  "The episode action that tells the entry `e` of the episode `id`, or nil.
+  The `device` sends it with the feed URL `podcast`, the media URL `media`
+  and `opts`.
 
-  A played episode is a play to its end, as AntennaPod writes it, and an
-  episode marked not played is `new`, but not on the first push, `:first?`
-  in `opts`. Positions are whole seconds, and a played episode of an
-  unknown duration tells nothing. The time of the action is the time of the
-  device that `told-at` gives."
+  A played episode is a play to its end, as AntennaPod writes it. An
+  episode marked as not played is a \"new\", except on the first push, when
+  `opts` have :first?. Positions are whole seconds, and a played episode
+  of an unknown duration tells nothing. The time of the action is that of
+  the device, as told-at gives it."
   ([id e podcast media device]
    (entry-action id e podcast media device {}))
-  ([id e podcast media device {:keys [first?]}]
+  ([id e podcast media device {:keys [first?] :as opts}]
    (let [{:keys [position duration played?]} e
          whole (fn [x] (when (and (number? x) (== x x) (not (infinite? x)) (not (neg? x))) (long x)))
          at    (whole position)
@@ -399,15 +402,15 @@
                    "timestamp" (subs (time/format-iso8601 (told-at e)) 0 19)})))))
 
 (defn- ahead?
-  "Whether the episode action `a` names a time that is more than
-  `sync/skew-tolerance` after the instant `at`."
+  "Whether the episode action `a` names a time that's more than
+  sync/skew-tolerance after the instant `at`."
   [a at]
   (< sync/skew-tolerance (- (inst-ms (:timestamp a)) (inst-ms at))))
 
 (defn- ahead-report
   "A diagnostic for each device whose episode `actions` name a time after
-  the pull at `at`. `author` stands for the device of an action that names
-  no device."
+  the pull at `at`, with `author` as the device of an action that names
+  none."
   [actions author at]
   (for [[device named] (group-by #(or (:device %) author) actions)
         :let [latest (apply max (map (comp inst-ms :timestamp) named))]]
@@ -415,19 +418,20 @@
                            :count (count named) :seconds (quot (- latest (inst-ms at)) 1000)})))
 
 (defn- pulled
-  "What a pull of `state` gives when the server told the subscription
-  changes `subs` and the `episodes` actions since the cursor `ctx`.
+  "What a pull for `state` gives at `at`, from the subscription changes
+  `subs` and the `episodes` actions since the cursor `ctx`, with the `opts`
+  of the backend.
 
-  They are applied to `state` as their devices did them, and the result is
-  what changed, a partial state; the actions whose episodes the app does not
-  know yet wait in the cursor, the last `:max-pending`. `opts` give the ways
-  to name and the backend's `:name`, which writes what names no device.
+  They're applied to `state` as their devices made them, and the result
+  is what changed, a partial state. The actions of episodes that the app
+  doesn't know yet wait in the cursor, up to the last :max-pending. The
+  `opts` give the ways to name, and the :name of the backend, which writes
+  what names no device.
 
-  An action that is `ahead?` of `at` changes nothing, and the report names
+  An action that's ahead? of `at` changes nothing, and the report names
   its device. A change to the subscriptions counts as made at `at` at the
-  latest, whatever time the server tells. An action that names no feed, no
-  media or no time that reads is left out, and the report counts such
-  actions."
+  latest, whatever time the server gives. An action that names no feed,
+  media or readable time is left out, and the report counts such actions."
   [state ctx subs episodes {:keys [name max-pending] :as opts} at]
   (let [names   (namer opts state)
         local   #(get (:urls ctx) % %)
@@ -465,7 +469,7 @@
 
 (defn- caller
   "A function of a call and its parameters that sends it to the server at
-  `root` as `opts` say, and reads the answer; deferred."
+  `root` with `opts`, and reads the answer, in a future or a promise."
   [root {:keys [send timeout-seconds device caption type] :as opts}]
   (fn [call params]
     (async/then ((or send http/call!)
@@ -477,10 +481,12 @@
                 #(response call %))))
 
 (defn- registered!
-  "The cursor `ctx` with the `device` registered through `call!` in the
-  `session`, unless `ctx` says that it is, or the `api` keeps no devices;
-  deferred."
-  [call! {:keys [api device]} session ctx]
+  "Register the device of `opts` through `call!` in the `session`, and give
+  the cursor `ctx` with it, in a future or a promise.
+
+  Nothing is sent when `ctx` says that the device is registered, or when
+  the API keeps no devices."
+  [call! {:keys [api device] :as opts} session ctx]
   (if (or (not (:register (paths api))) (= device (:registered ctx)))
     ctx
     ;; TODO: link the device to the account's others through
@@ -488,10 +494,12 @@
     (async/then (call! :register {:session session}) (fn [_] (assoc ctx :registered device)))))
 
 (defn- start!
-  "The cursor `ctx` once a step started with `call!`: logged in on a server
-  whose API has a login, the session in the atom `session`, and the device
-  registered as `registered!` does it; deferred. The login carries the
-  session of the step before, which a server can keep."
+  "Start a step with `call!` and `opts`, with the session in the atom
+  `session`, and give the cursor `ctx`, in a future or a promise.
+
+  On a server whose API has a login, it logs in and puts the new session
+  in the atom. The login sends the session of the step before, which the
+  server can keep. Then it registers the device as registered! does."
   [call! {:keys [api] :as opts} session ctx]
   (if-not (:login (paths api))
     (registered! call! opts nil ctx)
@@ -504,10 +512,12 @@
                   (registered! call! opts value ctx)))))
 
 (defn- subscriptions!
-  "The changes to the subscriptions since `since`, asked with `call!`; when
-  the server no longer knows the device, as gpodder.net answers, registered
-  again and asked once more; deferred."
-  [call! {:keys [api]} session since]
+  "Ask with `call!` in the `session` for the changes to the subscriptions
+  since `since`, by the API of `opts`, in a future or a promise.
+
+  When the server no longer knows the device, as gpodder.net can answer,
+  the device is registered again and the server asked once more."
+  [call! {:keys [api] :as opts} session since]
   (let [ask #(call! :subscriptions {:since since :session session})]
     (async/then (async/attempt ask)
                 (fn [{:keys [value error]}]
@@ -522,10 +532,13 @@
                     (throw error))))))
 
 (defn- episode-pages
-  "The episode actions since `since`, asked with `call!` a page at a time
-  while pages come full, as the `:page-size` and the `:max-pages` of
-  `opts` say: `{:actions [...] :timestamp seconds}`; deferred."
-  [call! {:keys [page-size max-pages]} session since]
+  "The episode actions since `since`, asked with `call!` in the `session`
+  by the limits in `opts`, in a future or a promise.
+
+  Another page is asked for while a page holds :page-size actions, up to
+  :max-pages pages. The result is a map of the :actions and the
+  :timestamp."
+  [call! {:keys [page-size max-pages] :as opts} session since]
   (letfn [(page [acc since n]
             (async/then (call! :episodes {:since since :session session})
                         (fn [{:keys [actions timestamp]}]
@@ -536,8 +549,9 @@
     (page {:actions []} since 1)))
 
 (defn- pull!
-  "The pull of the backend: what changed since the cursors of `ctx`, asked
-  with `call!`, as `pulled` gives it for `state`; deferred."
+  "Pull what changed for `state` since the cursors of `ctx` at `at`, with
+  `call!` in the `session` and `opts`. The result is as pulled gives it,
+  in a future or a promise."
   [call! opts session state ctx at]
   (async/then (start! call! opts session ctx)
               (fn [ctx]
@@ -548,13 +562,14 @@
                             (fn [[subs episodes]] (pulled state ctx subs episodes opts at))))))
 
 (defn- pushing
-  "What a push of `state` sends for `device`: the body of
-  `:update-subscriptions`, nil when none changed, the episode `:actions`,
-  and the ids of the changed episodes that stay `:unnamed`.
+  "What a push of `state` sends for `device`, given the stamps `pushed` of
+  the last push and the `names` of the episodes.
 
-  Only what devices of podcast-clj wrote since the stamps `pushed` of the
-  last push counts, this one or those in the registry of `state`, never
-  what came from a server; `names` names the episodes."
+  It's a map of the :subscriptions to send with :update-subscriptions, or
+  nil when none changed, the episode :actions, and the ids of the changed
+  episodes that stay :unnamed. Only what devices of podcast-clj wrote
+  since the last push counts, this one or those in the registry of
+  `state`, and never what came from a server."
   [state pushed names device]
   (let [ours?   #(or (= (:device %) (:device state)) (contains? (:devices state) (:device %)))
         changed (fn [k]
@@ -580,11 +595,11 @@
      :unnamed       (keep :unnamed told)}))
 
 (defn- push!
-  "The push of the backend: what `pushing` gives of `state`, sent with
-  `call!`, and the cursor `ctx` with the stamps of this push and the URLs
-  the server rewrote; deferred.
+  "Push what pushing gives of `state` with `call!` in the `session` and
+  `opts`, and give the cursor `ctx`, in a future or a promise.
 
-  An episode that the push did not name has no stamp in the cursor, so the
+  The cursor gets the stamps of this push and the URLs that the server
+  rewrote. An episode that the push didn't name has no stamp in it, so the
   next push tries it again."
   [call! {:keys [device batch-size] :as opts} session state {:keys [pushed urls] :as ctx}]
   (let [{:keys [subscriptions actions unnamed]} (pushing state pushed (namer opts state) device)
@@ -611,31 +626,33 @@
                   (conj (diagnostics/describe {:id :sync/unnamed-episodes :level :info :count (count unnamed)})))}))))
 
 (defn backend
-  "A backend for `dk.simongray.podcast.app.sync/sync!` over the gpodder API
-  of the server at `root`, as `opts` say:
+  "A backend for dk.simongray.podcast.app.sync/sync! over the gpodder API
+  of the server at `root`, with the `opts` below:
 
-      {:credentials {:username \"simon\" :password \"…\"}  ; or a function returning them
-       :api         :gpodder      ; or :nextcloud, or a map of paths, see `apis`
-       :device      \"…\"         ; the device's id on the server; the state's by default
-       :caption     \"podcast-clj\" ; the name the server shows for it
-       :type        \"other\"     ; desktop, laptop, mobile, server, tablet or other
-       :name        \"…\"         ; for the UI and the cursors; the host by default
-       :identities  #(identities @feeds)  ; the ways to name shows and episodes, made at
-                                           ; each step; or each by its own key:
-       :feed-guid   f :feed-url f :episode-id f :episode-url f
-       :page-size   1000        ; the limits, see `default-limits`
-       :max-pages   10
-       :batch-size  100
-       :max-pending 500
-       :timeout-seconds 30
-       :send        f}          ; how to send a request map, in place of http/call!
+  - :credentials, a :username and a :password, or a function that returns
+    them
+  - :api, :gpodder by default, :nextcloud, or a map of paths as in apis
+  - :device, the device's id on the server, the state's by default
+  - :caption, the name that the server shows for the device, podcast-clj
+    by default
+  - :type, desktop, laptop, mobile, server, tablet, or other by default
+  - :name, for the UI and the cursors, the host by default
+  - :identities, a function that makes the ways to name shows and
+    episodes at each step, e.g. #(identities @feeds)
+  - :feed-guid, :feed-url, :episode-id and :episode-url, each way on its
+    own, in place of :identities
+  - :page-size, :max-pages, :batch-size and :max-pending, over
+    default-limits
+  - :timeout-seconds, how long a request can take
+  - :send, a function that sends a request map, in place of http/call!
 
-  A pull gives the subscription changes and the episode actions since its
+  A pull gives the subscription changes and episode actions since its
   cursors, as a partial state. A push sends what the devices of
-  podcast-clj wrote since the last push. doc/sync.md tells how each maps.
+  podcast-clj wrote since the last push, and doc/sync.md tells how each
+  maps.
 
-  On gpodder.net, each device has its own subscriptions. So link the
-  devices of the account there, or give `:device` the id of the device of
+  On gpodder.net, each device has its own subscriptions, so link the
+  devices of the account there, or give :device the id of the device of
   another app."
   ([root]
    (backend root {}))

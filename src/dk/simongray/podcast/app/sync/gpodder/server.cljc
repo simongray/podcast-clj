@@ -1,17 +1,16 @@
 (ns dk.simongray.podcast.app.sync.gpodder.server
-  "The gpodder API served over a player state, so that the apps of that
-  API sync with a server of the listener. Such apps are AntennaPod, Kasts
-  and gPodder. `handler` is a Ring handler for the paths of gpodder.net
-  under /api/2.
+  "The gpodder API served over a player state, so that apps such as
+  AntennaPod, Kasts and gPodder sync with a server of the listener.
 
-  The server is a device of podcast-clj. Its state holds what the apps
-  send, and the device of the app writes each entry. A `:step` that the
-  app gives keeps that state in step with the other devices of the
-  listener.
+  The function handler is a Ring handler for the paths of gpodder.net
+  under /api/2. The server is a device of podcast-clj, whose state holds
+  what the apps send, with each entry written by the device of the app. A
+  :step that you give keeps that state in step with the other devices of
+  the listener.
 
-  One listener has one list of subscriptions, as the GPodder Sync app for
-  Nextcloud keeps it. A change counts from the time that it arrived here,
-  so that an action that a device sends late still reaches the other
+  The listener has one list of subscriptions, as in the GPodder Sync app
+  for Nextcloud. A change counts from the time that it arrived here, so
+  that an action that a device sends late still reaches the other
   devices."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
@@ -35,16 +34,18 @@
      :cljs (if (exists? js/crypto) (.randomUUID js/crypto) (str (random-uuid)))))
 
 (defn ^:no-doc live
-  "The `sessions` that last at the instant `at`, by id."
+  "The `sessions` that still last at the instant `at`, by id."
   [sessions at]
   (into {} (filter (fn [[_ {:keys [until]}]] (< (inst-ms at) until))) sessions))
 
 (defn- login
-  "A session for the user `who`, set as a cookie. It is the `session` of the
-  request when that lasts, so that a client that logs in at each step keeps
-  one session, and else a new one. The sessions that ended leave the
-  `book`."
-  [{:keys [book who session at]}]
+  "The answer to a login in the call context `ctx`: a session for the
+  user, set as a cookie.
+
+  It's the session of the request when that still lasts, so that a client
+  that logs in at each step keeps one session, or else a new one. The
+  sessions that ended leave the book."
+  [{:keys [book who session at] :as ctx}]
   (let [lasting (live (:sessions book) at)
         id      (if (= who (:user (get lasting session))) session (new-session))
         until   (+ (inst-ms at) (* 1000 session-seconds))]
@@ -54,23 +55,25 @@
      :book    (assoc book :sessions (assoc lasting id {:user who :until until}))}))
 
 (defn- logout
-  "The end of the `session` of the request."
-  [{:keys [book session]}]
+  "The answer to a logout in the call context `ctx`, which ends the
+  session of the request."
+  [{:keys [book session] :as ctx}]
   {:status 200 :body "" :book (update book :sessions dissoc session)})
 
 (defn- devices
-  "The devices that registered in the `book`, each with the listener's
-  number of subscriptions in `state`, since they share one list."
-  [{:keys [book state]}]
+  "The answer with the devices that registered in the book of the call
+  context `ctx`, each with the number of the listener's subscriptions,
+  since they share one list."
+  [{:keys [book state] :as ctx}]
   (let [n (count (player/subscriptions state))]
     {:status 200
      :body   (vec (for [[id {:keys [caption type]}] (sort-by key (:devices book))]
                     {"id" id "caption" (or caption id) "type" (or type "other") "subscriptions" n}))}))
 
 (defn- register
-  "The `device` registered in the `book` with the caption and the type that
-  the `json` body gives."
-  [{:keys [book device json]}]
+  "The answer that registers the device of the call context `ctx` in its
+  book, with the caption and type of the JSON body."
+  [{:keys [book device json] :as ctx}]
   (let [{:strs [caption type]} (when (map? json) json)]
     (if (and type (not (#{"desktop" "laptop" "mobile" "server" "tablet" "other"} type)))
       {:status 400 :body "Unknown device type"}
@@ -80,13 +83,14 @@
                           (cond-> {} (string? caption) (assoc :caption caption) type (assoc :type type)))})))
 
 (defn- subscriptions
-  "The feeds added to and removed from the subscriptions of `state` since
-  `since`, by URL and by the time they arrived in the `book`.
+  "The answer with the feeds added to and removed from the subscriptions
+  since the :since of the call context `ctx`, by URL and by the time they
+  arrived.
 
-  A device that has seen nothing yet gets no removed ones, and the `device`
+  A device that has seen nothing yet gets no removed ones, and the device
   counts as registered once it asks. A state can hold one URL under two
-  guids. When one of them is live, the URL is not removed."
-  [{:keys [state book device since seconds]}]
+  guids, and when one of them is live, the URL isn't removed."
+  [{:keys [state book device since seconds] :as ctx}]
   (if-not since
     {:status 400 :body "The parameter since is missing or not a number"}
     (let [public #(first (http/split-credentials (:url %)))
@@ -105,9 +109,12 @@
        :book   (update-in book [:devices device] #(or % {}))})))
 
 (defn- change-subscriptions
-  "`state` with the changes of the `json` body, `{\"add\" [url …] \"remove\"
-  [url …]}`, as the `device` made them at `at`."
-  [{:keys [state book names device json at seconds]}]
+  "The answer that applies the subscription changes of the JSON body in
+  the call context `ctx` to its state, as the device made them when the
+  call came.
+
+  The body is a JSON object with the URLs to \"add\" and to \"remove\"."
+  [{:keys [state book names device json at seconds] :as ctx}]
   (let [{:strs [add remove]} (when (map? json) json)
         urls? #(or (nil? %) (and (sequential? %) (every? string? %)))]
     (cond
@@ -124,12 +131,14 @@
        :book   (update-in book [:devices device] #(or % {}))})))
 
 (defn- episode-actions
-  "The episode actions that tell what changed in the episodes of `state`
-  since `since`, by the time it arrived in the `book`.
+  "The answer with the episode actions that tell what changed in the
+  episodes of the call context `ctx` since its :since, by the time it
+  arrived.
 
-  Each carries the URLs that its episode arrived with, else those that
-  `names` give, and the `params` can ask for one podcast and one device."
-  [{:keys [state book names since params seconds]}]
+  Each action has the URLs that its episode arrived with, or else those
+  that the names give, and the parameters can ask for one podcast and one
+  device."
+  [{:keys [state book names since params seconds] :as ctx}]
   (let [{:strs [podcast device]} params]
     {:status 200
      :body   {"actions"   (vec (for [[[g _ :as id] e] (:episodes state)
@@ -146,15 +155,17 @@
               "timestamp" seconds}}))
 
 (defn- apply-episode-actions
-  "`state` with the episode actions of the `json` body applied, those later
-  than what it holds, and the `book` with the URLs each named its episode by.
+  "The answer that applies the episode actions of the JSON body in the
+  call context `ctx` to its state.
 
-  An action without a time counts as made at `at`, when it arrived, and so
-  does an action that names a later time. An action with a time that does
-  not read tells nothing of when it was made, so it is left out. An episode
-  that `names` do not know is named as podcast-clj names one it knows
+  Only the actions later than what the state has change it, and the book
+  keeps the URLs that each action named its episode by. An action without
+  a time counts as made when it arrived, and so does an action that names
+  a later time. An action with a time that doesn't read
+  tells nothing of when it was made, so it's left out. An episode that the
+  names don't know is named as podcast-clj names an episode that it knows
   nothing more of."
-  [{:keys [state book names json at seconds]}]
+  [{:keys [state book names json at seconds] :as ctx}]
   (if-not (and (sequential? json) (every? map? json))
     {:status 400 :body "The body is not a list of episode actions"}
     (let [arrived (fn [t] (if (and t (< (inst-ms t) (inst-ms at))) t at))
@@ -175,8 +186,8 @@
        :book   (update book :urls into (map (juxt id-of (juxt :podcast :episode))) actions)})))
 
 (def ^:no-doc routes
-  "The paths the server answers: the pattern, the names of its parts, and
-  what answers each method."
+  "The paths that the server answers: the pattern, the names of its parts,
+  and the function that answers each method."
   [[#"/api/2/auth/([^/]+)/login\.json"            [:user]         {:post login}]
    [#"/api/2/auth/([^/]+)/logout\.json"           [:user]         {:post logout}]
    [#"/api/2/devices/([^/]+)\.json"               [:user]         {:get devices}]
@@ -185,8 +196,8 @@
    [#"/api/2/episodes/([^/]+)\.json"              [:user]         {:get episode-actions :post apply-episode-actions}]])
 
 (defn- route
-  "The `:parts` of the path `path`, decoded, and the `:methods` that answer
-  it, by `routes`; nil for a path the server does not answer."
+  "The decoded :parts of `path` and the :methods that answer it, from
+  routes. It's nil for a path that the server doesn't answer."
   [path]
   (some (fn [[pattern names methods]]
           (when-let [[_ & parts] (re-matches pattern (str path))]
@@ -194,8 +205,8 @@
         routes))
 
 (defn- basic
-  "The user name and the password of the Basic `authorization`, `[user
-  password]`; nil when it names none."
+  "The user name and password of the Basic `authorization` as a pair, or
+  nil when it has none."
   [authorization]
   (when-let [[_ encoded] (some->> authorization (re-matches #"(?i)\s*basic\s+([A-Za-z0-9+/=]+)\s*"))]
     (let [decoded (try
@@ -207,15 +218,15 @@
         [(subs decoded 0 i) (subs decoded (inc i))]))))
 
 (defn ^:no-doc put!
-  "Put the state `s`, which was made from the state `from` of the atom
-  `state`, in the atom. When the app changed the atom in between, `s` is
+  "Put the state `s`, made from the state `from` of the atom `state`, in
+  the atom. When the app changed the atom in between, `s` is
   merged with what the atom holds, so that nothing is lost."
   [state from s]
   (swap! state #(if (identical? % from) s (player/merge s %))))
 
 (defn ^:no-doc ring
   "The Ring response of `status` with `body` and the headers `more`. A
-  body that is no text goes out as JSON."
+  body that isn't a string goes out as JSON."
   ([status body]
    (ring status body nil))
   ([status body more]
@@ -225,10 +236,12 @@
       :body    (if (string? body) body (json/write-str body))})))
 
 (defn- asker
-  "Who sends a request with `headers` at `at`, as `{:who :session}`: the
-  user of the session that its cookie names, or else the user of its
-  Basic credentials, when the server `env` lets them in."
-  [{:keys [book authorized?]} headers at]
+  "Who sends a request with `headers` at `at` to the server `env`, as a map
+  of :who and :session.
+
+  The user is that of the session that its cookie names, or else that of
+  its Basic credentials, when the server lets them in."
+  [{:keys [book authorized?] :as env} headers at]
   (let [session (some->> (get headers "cookie") (re-find #"(?:^|;)\s*sessionid=([^;\s]+)") second)]
     {:session session
      :who     (or (:user (get (live (:sessions @book) at) session))
@@ -236,9 +249,11 @@
                     (when (authorized? user password) user)))}))
 
 (defn- call
-  "What a call of `routes` takes of `request`, which came at `at`, over
-  the `state` of the server `env`: the state, the book and the names, the
-  time, the parameters, and the JSON of the body."
+  "The context of a call of routes for `request`, which came at `at`, over
+  the `state` of the server `env`.
+
+  It has the state, the book, the names, the time, the parameters and the
+  JSON of the body."
   [{:keys [book max-bytes] :as env} request state at]
   (let [params (http/query-params (:query-string request))]
     {:state   state
@@ -251,9 +266,11 @@
      :json    (some-> (http/body-text (:body request) max-bytes) json/parse)}))
 
 (defn- answered!
-  "The Ring response of `answer`, a call of `routes`, to `request`, which
-  `who` sent at `at`. The call runs once the state is in step, and the
-  state is in step again after the call changed it."
+  "Answer `request` from `who` at `at` with `answer`, a function of
+  routes, on the server `env`, and give the Ring response.
+
+  The call runs once the state is in step, and the state is brought in
+  step again after the call changed it."
   [{:keys [state book settle!] :as env} request answer who at]
   (let [before (settle! at)
         result (answer (merge who (call env request before at)))]
@@ -282,9 +299,11 @@
       :else          (answered! env request answer (merge parts from) at))))
 
 (defn- arrived
-  "The `index` of when each entry of the subscriptions and the episodes of
-  `state` arrived, `[stamp arrived]` in milliseconds by `[collection key]`,
-  with the entries whose stamp changed noted as arrived at `now`."
+  "The `index` of when each entry of the subscriptions and episodes of
+  `state` arrived, with the entries whose stamp changed noted as arrived
+  at `now`.
+
+  The index maps [collection key] to [stamp arrived], in milliseconds."
   [index state now]
   (reduce (fn [index [k id e]]
             (let [stamp (some-> (:updated-at e) inst-ms)]
@@ -297,20 +316,23 @@
 
 (defn handler
   "A Ring handler that serves the gpodder API over the player state in the
-  atom `:state`, as `opts` say:
+  atom :state of `opts`:
 
-      {:state       (atom (player/state \"gpodder-server\"))
-       :authorized? (fn [user password] …)  ; whether to let them in
-       :step        (fn [state] state')      ; keeps the state in step with the listener's
-                                              ; devices, before and after each call
-       :identities  #(gpodder/identities @feeds)  ; as for gpodder/backend, or each by its key:
-       :feed-guid f :feed-url f :episode-id f :episode-url f
-       :now         (fn [] …)                ; the time, the clock by default
-       :max-bytes   10485760}                ; the most a request may send
+  - :state, the atom, e.g. (atom (player/state \"gpodder-server\"))
+  - :authorized?, a function of a user and a password that says whether
+    to let them in
+  - :step, a function of the state that brings it in step with the
+    listener's devices, before and after each call
+  - :identities, as for gpodder/backend
+  - :feed-guid, :feed-url, :episode-id and :episode-url, each way on its
+    own, in place of :identities
+  - :now, a function of no arguments that gives the time, the clock by
+    default
+  - :max-bytes, the most that a request can send, 10 MB by default
 
-  A request carries Basic credentials or the session of a login, and the
-  user in the path must be the one who logged in. A session lasts a day.
-  The calls run one at a time, as sync steps must, so `:step` can be:
+  A request has Basic credentials or the session of a login, and the user
+  in the path must be the one who logged in. A session lasts a day. The
+  calls run one at a time, as sync steps must, so :step can be:
 
       (let [ctx (atom nil)]
         (fn [state]
@@ -318,10 +340,10 @@
             (reset! ctx (:ctx step))
             (:state step))))
 
-  A `:step` gives a state, not a promise of one. In ClojureScript, where
-  `sync!` gives a promise, the app syncs on its own and merges the result
-  into the atom. The server merges what it writes with what the app put in
-  the atom in between."
+  A :step gives a state, not a promise of one. In ClojureScript, where
+  sync! gives a promise, sync in the app and merge the result into the
+  atom. The server merges what it writes with what the app put in the atom
+  in between."
   [{:keys [state authorized? step] :as opts}]
   {:pre [(some? state) (fn? authorized?)]}
   ;; TODO: keep the arrival times, the sessions and the devices in the store,

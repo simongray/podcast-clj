@@ -1,25 +1,28 @@
 (ns dk.simongray.podcast.app.sync.encrypted
-  "Any document store with its documents encrypted at rest, so that a
-  server or a synced folder holds a listener's habits as ciphertext and
-  nothing else changes: `store` wraps a store, names and versions pass
-  through, bodies are sealed on the way in and opened on the way out, and
-  `backend` is the one call with the options of both.
+  "Any document store, with its documents encrypted at rest.
+
+  A server or a synced folder then holds only ciphertext, and nothing else
+  changes. The function store wraps a store: names and versions pass
+  through, and bodies are sealed on the way in and opened on the way out.
+  The function backend does both in one call.
 
   A body is sealed with AES-256-GCM under a key derived from the passphrase
-  by PBKDF2 with HMAC-SHA256, and stored as a small EDN envelope carrying
-  its own salt, IV and iteration count, so that there is no key file to
-  lose and a document tells how to open it:
+  by PBKDF2 with HMAC-SHA256. Each document is a small EDN envelope with
+  the salt, IV and iteration count that open it, so there's no key file to
+  lose:
 
       {:encrypted 1 :cipher \"AES-256-GCM\" :kdf \"PBKDF2-HMAC-SHA256\"
        :iterations 600000 :salt \"…\" :iv \"…\" :data \"…\"}
 
-  A body that is not an envelope comes back as it is, so encryption can be
-  turned on over a folder that already holds plain documents; a passphrase
-  that does not open a document fails that store's call with `::locked`.
-  The JVM uses javax.crypto and ClojureScript the platform's WebCrypto,
-  which is asynchronous, so there `encrypt`, `decrypt` and the store's
-  functions return promises, as the store contract allows. The two
-  platforms open each other's envelopes."
+  A body that isn't an envelope comes back as it is, so you can turn on
+  encryption over a folder that already holds plain documents. A
+  passphrase that doesn't open a document makes that call of the store
+  fail with ::locked.
+
+  The JVM uses javax.crypto, and ClojureScript uses WebCrypto. Since
+  WebCrypto is asynchronous, encrypt, decrypt and the functions of the
+  store return promises in ClojureScript. Each platform opens the
+  envelopes of the other."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
             [dk.simongray.podcast.app.sync.store :as store]
@@ -36,15 +39,17 @@
   1)
 
 (def default-iterations
-  "The PBKDF2 iterations a key is derived with unless told otherwise: what
-  the Password Storage Cheat Sheet of OWASP recommends for HMAC-SHA256, as
-  of September 2026, about half a second on a phone once per salt."
+  "The PBKDF2 iterations of a key, unless the options give others.
+
+  It's what the OWASP Password Storage Cheat Sheet recommends for
+  HMAC-SHA256 as of September 2026. On a phone, a key takes about half a
+  second, once per salt."
   600000)
 
 (def max-iterations
-  "The most PBKDF2 iterations an envelope may ask for, ten times the
-  default: a document asking for more is not taken for an envelope, since
-  deriving its key would hold a device up for minutes."
+  "The most PBKDF2 iterations an envelope can ask for, ten times the
+  default. A document that asks for more isn't taken for an envelope, since
+  deriving its key would hold up a device for minutes."
   (* 10 default-iterations))
 
 (defn- ->base64
@@ -85,8 +90,8 @@
 ;; RFC 8018, section 5.2
 (defn- derive-key
   "The AES key for `passphrase` with `salt` over `iterations` of PBKDF2 with
-  HMAC-SHA256. In ClojureScript, it is a promise of the key. The passphrase
-  is a text, or a hidden text of `dk.simongray.podcast.util.secret`."
+  HMAC-SHA256, in ClojureScript as a promise. The passphrase is a string,
+  or a hidden text of dk.simongray.podcast.util.secret."
   [passphrase salt iterations]
   #?(:clj  (let [factory (SecretKeyFactory/getInstance "PBKDF2WithHmacSHA256")
                  text    (secret/reveal passphrase)
@@ -103,8 +108,8 @@
                                       #js ["encrypt" "decrypt"])))))))
 
 (defn- seal
-  "`plaintext` bytes sealed with `key` under `iv`: the ciphertext with its
-  tag; a promise of it in ClojureScript."
+  "The `plaintext` bytes sealed with `key` under `iv`: the ciphertext with
+  its tag, in ClojureScript as a promise."
   [key iv plaintext]
   #?(:clj  (let [cipher (Cipher/getInstance "AES/GCM/NoPadding")]
              (.init cipher Cipher/ENCRYPT_MODE ^SecretKeySpec key (GCMParameterSpec. 128 ^bytes iv))
@@ -119,8 +124,9 @@
            cause))
 
 (defn- open
-  "The plaintext bytes of `ciphertext` sealed with `key` under `iv`, or
-  `::locked` when the key is not the one; a promise in ClojureScript."
+  "The plaintext bytes of `ciphertext` sealed with `key` under `iv`, in
+  ClojureScript as a promise. With the wrong key, it throws ::locked for
+  the document `name`."
   [key iv ciphertext name]
   #?(:clj  (try
              (let [cipher (Cipher/getInstance "AES/GCM/NoPadding")]
@@ -139,10 +145,12 @@
                 (re-find #"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$" x))))
 
 (defn envelope
-  "The envelope in the string `s`, when it is one: `{:encrypted :cipher :kdf
-  :iterations :salt :iv :data}`, the last three in base64 and its
-  iterations at least one and at most `max-iterations`; nil for anything
-  else, a plain document included."
+  "The envelope in the string `s`, or nil for anything else, a plain
+  document included.
+
+  An envelope is a map of :encrypted, :cipher, :kdf, :iterations, :salt,
+  :iv and :data. The last three are in base64, and the iterations are at
+  least one and at most max-iterations."
   [s]
   (when (and (string? s) (str/starts-with? s "{:encrypted"))
     (let [m (try (edn/read-string s) (catch #?(:clj Throwable :cljs :default) _ nil))]
@@ -151,8 +159,8 @@
         m))))
 
 (defn- seal-with
-  "The envelope string for `body` under the key `key-for` derives for the
-  `salt` bytes over `iterations`, with a fresh IV."
+  "The envelope string for `body`, sealed with a fresh IV under the key
+  that `key-for` derives for the `salt` bytes over `iterations`."
   [key-for salt iterations body]
   (let [iv (random-bytes 12)]
     (async/then (key-for salt iterations)
@@ -168,9 +176,9 @@
                                          :data       (->base64 data)})))))))
 
 (defn- open-with
-  "The body in the envelope string `s`, opened with the key `key-for`
-  derives for its salt and iterations, `name` naming the document when it
-  is locked; `s` itself when it is not an envelope."
+  "The body in the envelope string `s` of the document `name`, opened with
+  the key that `key-for` derives for it. A string that isn't an envelope
+  comes back as it is."
   [key-for name s]
   (if-let [{:keys [iterations salt iv data]} (envelope s)]
     (async/then (key-for (<-base64 salt) iterations)
@@ -179,8 +187,8 @@
 
 (defn encrypt
   "The envelope string for `body` under `passphrase`, with a fresh salt and
-  IV; `opts` may set the `:iterations` (default `default-iterations`). A
-  promise of it in ClojureScript."
+  IV and the :iterations of `opts`, in ClojureScript as a promise. The
+  iterations default to default-iterations."
   ([passphrase body]
    (encrypt passphrase body {}))
   ([passphrase body {:keys [iterations] :or {iterations default-iterations} :as opts}]
@@ -188,27 +196,35 @@
    (seal-with #(derive-key passphrase %1 %2) (random-bytes 16) iterations body)))
 
 (defn decrypt
-  "The body in the envelope string `s` under `passphrase`, or `s` itself when
-  it is not an envelope; a passphrase that does not open it throws
-  `::locked`. A promise in ClojureScript, rejected when locked."
+  "The body in the envelope string `s` under `passphrase`, or `s` itself
+  when it isn't an envelope, in ClojureScript as a promise.
+
+  A passphrase that doesn't open it throws ::locked, or in ClojureScript,
+  rejects the promise with it."
   [passphrase s]
   (open-with #(derive-key passphrase %1 %2) nil s))
 
 (defn store
-  "The store `inner` with its documents encrypted at rest under the
-  `:passphrase` in `opts`, a string or a function of no arguments returning
-  one. The string can be a hidden text of `dk.simongray.podcast.util.secret`,
-  so that the options do not show it when they are printed. `:iterations`
-  (default `default-iterations`) derives the key, once
-  per salt and iteration count and cached; each store instance seals with
-  a salt of its own, and opens whatever salt a document carries. When the
-  passphrase is a function, a document the cached keys do not open empties
-  the cache and is tried once more, the passphrase asked for again, so that
-  one corrected since is the one used from then on. `:except` names
-  documents left in the clear, such
-  as `dk.simongray.podcast.app.sync.store/opml-name` for a subscription
-  list other apps should read. Listing and deleting are `inner`'s as they
-  are."
+  "The store `inner` with its documents encrypted at rest, with the `opts`
+  below:
+
+  - :passphrase, a string or a function of no arguments that returns one.
+    The string can be a hidden text of dk.simongray.podcast.util.secret,
+    so that the options don't show it when they're printed.
+  - :iterations, the PBKDF2 iterations of the key, default-iterations by
+    default
+  - :except, the names of documents to leave in the clear, e.g.
+    dk.simongray.podcast.app.sync.store/opml-name for a subscription list
+    that other apps should read
+
+  A key is derived once for each salt and iteration count, and cached.
+  Each store seals with a salt of its own, and opens any salt that a
+  document has. Listing and deleting are those of `inner`.
+
+  When the passphrase is a function, a document that the cached keys
+  don't open empties the cache. The document is then tried once more with
+  what the function gives, so that a corrected passphrase is used from
+  then on."
   [inner {:keys [passphrase iterations except] :or {iterations default-iterations except #{}} :as opts}]
   {:pre [(map? opts)]}
   (let [salt    (random-bytes 16)
@@ -245,9 +261,9 @@
       (:delete inner) (assoc :delete (:delete inner)))))
 
 (defn backend
-  "A backend for `dk.simongray.podcast.app.sync/sync!` over `inner` with its
-  documents encrypted, in one call; `opts` are those of `store` and of
-  `dk.simongray.podcast.app.sync.store/backend`."
+  "A backend for dk.simongray.podcast.app.sync/sync! over `inner` with its
+  documents encrypted, with the `opts` of store and of
+  dk.simongray.podcast.app.sync.store/backend."
   [inner opts]
   {:pre [(map? opts)]}
   (store/backend (store inner (select-keys opts [:passphrase :iterations :except]))
