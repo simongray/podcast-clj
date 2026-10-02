@@ -2,11 +2,11 @@
   "MP3 files: the ID3v2 tags at the start, and the MPEG audio frames after
   them.
 
-  dk.simongray.podcast.format.media.id3 reads the tags. ISO/IEC 11172-3 and
-  13818-3 define the header of a frame, and MPEG 2.5, which the reader
-  takes too, is in neither. `read` gives the tags, where the
-  audio starts, and its duration. `report` gives the diagnostics of the
-  reading.
+  The tags are read by dk.simongray.podcast.format.media.id3. ISO/IEC
+  11172-3 and 13818-3 define the header of a frame, and the reader takes
+  MPEG 2.5 too, which is in neither. The read function gives the tags,
+  where the audio starts and its duration. The report function gives the
+  diagnostics of the reading.
 
   The duration comes from the first of these that the file has:
 
@@ -17,9 +17,9 @@
     which is exact for a constant bitrate
 
   The reading is strict: the audio starts right after the tags. The quirk
-  `:mp3/junk-before-audio` skips bytes that are no frame, such as padding
-  that the size of a tag leaves out. `:except` in the options leaves out
-  the quirks that it names, those of the tags too."
+  :mp3/junk-before-audio skips bytes that are no frame, such as padding
+  that the size of a tag leaves out. The :except option leaves out the
+  quirks that it names, those of the tags too."
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.format.media.id3 :as id3]
             [dk.simongray.podcast.util.bytes :as bytes]))
@@ -38,12 +38,12 @@
   {1 [44100 48000 32000] 2 [22050 24000 16000] 2.5 [11025 12000 8000]})
 
 (defn frame-header
-  "The header of the MPEG audio frame at `p` in `view`. Nil when no valid
-  header is there.
+  "The header of the MPEG audio frame at `p` in `view`, or nil when no
+  valid header is there.
 
-  The header is `{:version :layer :bitrate :sample-rate :samples :length
-  :mono? :crc?}`. The bitrate is in bit/s, and the length of the frame is
-  in bytes."
+  The header is a map of :version, :layer, :bitrate, :sample-rate,
+  :samples, :length, :mono? and :crc?. The bitrate is in bit/s, and the
+  length of the frame is in bytes."
   [view p]
   (bytes/need view p (+ p 4))
   (let [b1 (bytes/u8 view (inc p))
@@ -71,8 +71,9 @@
          :crc?        (not (bit-test b1 0))}))))
 
 (defn- frame-at?
-  "The header of a frame at `p` in `view` that another frame follows, as a
-  real frame is followed, or that ends the file; nil otherwise."
+  "The header of the frame at `p` in `view` when another frame follows it,
+  as one follows a real frame, or when it ends the file. It's nil
+  otherwise."
   [view p]
   (when-let [h (frame-header view p)]
     (let [next (+ p (:length h))
@@ -86,9 +87,9 @@
   (* 256 1024))
 
 (defn- first-frame
-  "Where the first frame is at or after `start` in `view`, with its header:
-  `[p header]`, at `start` itself, or, by the quirk, further on; nil when
-  there is none."
+  "The place and the header of the first frame at or after `start` in
+  `view`, read in the context `ctx`, or nil when there's none. The frame
+  is at `start` itself, or further on by the quirk."
   [ctx view start]
   (bytes/need view start (+ start 4096))
   (if-let [h (frame-at? view start)]
@@ -106,12 +107,13 @@
 (defn- side-info
   "The size of the side information after the header `h` and its CRC, where
   the Xing and Info headers begin."
-  [{:keys [version mono? crc?]}]
+  [{:keys [version mono? crc?] :as h}]
   (+ (if (= 1 version) (if mono? 17 32) (if mono? 9 17)) (if crc? 2 0)))
 
 (defn- frame-count
-  "The number of frames that the Xing, Info or VBRI header of the first
-  frame, at `p` with the header `h`, gives; nil when it has none."
+  "The number of frames that the Xing, Info or VBRI header gives in the
+  first frame, at `p` in `view` with the header `h`, or nil when it has
+  none."
   [view p h]
   (let [x (+ p 4 (side-info h))
         v (+ p 36)]
@@ -130,7 +132,7 @@
 
 (defn- average-bitrate
   "The average bitrate in bit/s of the frames in `view` from the first, at
-  `p` with the header `h`, within `estimate-window` bytes: exact for a
+  `p` with the header `h`, within estimate-window bytes. It's exact for a
   constant bitrate, and closer than the first frame for a variable one."
   [view p h]
   (let [end (min (+ p estimate-window) (or (:total view) ##Inf))]
@@ -146,10 +148,11 @@
 
 (defn- duration
   "The duration in seconds of the audio in `view` whose first frame is at
-  `p` with the header `h`. Nil when there is no frame, or when no header
-  counts the frames and the size of the file is not known.
+  `p` with the header `h`, read in the context `ctx`.
 
-  The report of `ctx` tells when the duration is an estimate."
+  It's nil when there's no frame, or when no header counts the frames and
+  the size of the file isn't known. The report of `ctx` tells when the
+  duration is an estimate."
   [ctx view p h]
   (let [frames (when h (frame-count view p h))
         total  (:total view)]
@@ -163,23 +166,24 @@
           (/ (* 8.0 (- total p)) (average-bitrate view p h))))))
 
 (defn report
-  "The diagnostics of `file`, which `read` gave, with those of its tags.
+  "The diagnostics of `file`, which read gave, with those of its tags.
   Each diagnostic has its message."
   [file]
   (bytes/report file))
 
 (defn read
-  "The MP3 file in `view`, as `{:tags :audio-start :duration}`.
+  "The MP3 file in `view`, read with `opts`, as a map of :tags,
+  :audio-start and :duration.
 
-  `:tags` are the tags as `id3/read-all` gives them, and `:audio-start` is
-  where the first frame starts. `:duration` is in seconds. It is nil when
-  the file has no frame. It is also nil when the file has no Xing, Info or
-  VBRI header and its size is not known.
+  - :tags are the tags as id3/read-all gives them
+  - :audio-start is where the first frame starts
+  - :duration is in seconds, or nil when the file has no frame, or has no
+    Xing, Info or VBRI header and no known size
 
-  `report` gives the diagnostics of the reading. `opts` can give `:except`,
-  the ids of the quirks to leave out. When the view lacks bytes, the
-  reading throws, and `dk.simongray.podcast.util.bytes/missing` gives their
-  ranges."
+  The report function gives the diagnostics of the reading. The :except
+  of `opts` is the ids of the quirks to leave out. When the view lacks
+  bytes, the reading throws, and dk.simongray.podcast.util.bytes/missing
+  gives their ranges."
   ([view]
    (read view {}))
   ([view {:keys [except] :as opts}]

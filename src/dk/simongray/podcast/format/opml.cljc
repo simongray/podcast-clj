@@ -1,24 +1,33 @@
 (ns dk.simongray.podcast.format.opml
-  "Subscription lists as OPML 2.0, the lingua franca every podcast app
+  "Subscription lists as OPML 2.0, the format that every podcast app
   imports and exports.
 
   A subscription list is a map:
 
       {:title         \"My podcasts\"
-       :date-created  #inst \"…\"  ; and the other head elements of `head-elements`
-       :subscriptions [{:text \"A show\" :xml-url \"https://example.org/feed.xml\"
-                        :html-url \"https://example.org\" :path [\"Tech\"]
-                        :category [\"Daily\" \"/News/Denmark\"] :created #inst \"…\"}]
-       :includes      [{:text \"A list\" :url \"https://example.org/list.opml\" :path [\"News\"]}]}
+       :date-created  #inst \"…\" ; and the other head elements
+       :subscriptions [{:text     \"A show\"
+                        :xml-url  \"https://example.org/feed.xml\"
+                        :html-url \"https://example.org\"
+                        :path     [\"Tech\"]
+                        :category [\"Daily\" \"/News/Denmark\"]
+                        :created  #inst \"…\"}]
+       :includes      [{:text \"A list\"
+                        :url  \"https://example.org/list.opml\"
+                        :path [\"News\"]}]}
 
-  Folders in the OPML become the `:path` of the subscriptions inside them;
-  `emit` rebuilds the folders. The categories of an outline, which OPML
-  writes as one comma-separated attribute of tags and slash-delimited
-  paths, become a vector, and the time it was created an instant, as do
-  the dates of the head. Any other attribute stays a string. An outline
-  that includes another OPML list, by the type include or by a link to a
-  URL that ends in .opml, becomes one of the `:includes`, with the `:path`
-  of its folders as a subscription has."
+  The folders of the OPML become the :path of the subscriptions inside
+  them, and emit rebuilds the folders. In an outline:
+
+  - the categories become a vector, which OPML writes as one
+    comma-separated attribute of tags and slash-delimited paths
+  - the time it was created becomes an instant, as do the dates of the
+    head
+  - any other attribute stays a string
+
+  An outline that includes another OPML list becomes one of the :includes,
+  with the :path of its folders. It has the type include, or the type link
+  to a URL that ends in .opml."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.xml :as xml]))
@@ -30,21 +39,21 @@
    [:owner-email :ownerEmail] [:owner-id :ownerId] [:docs :docs]])
 
 (def ^:no-doc attr-names
-  "OPML attribute name by model key, for the camelCase ones."
+  "The OPML attribute name of each model key that's camelCase in OPML."
   {:xml-url :xmlUrl :html-url :htmlUrl})
 
 (defn ^:no-doc outline-key
-  "The model key of the outline attribute `k`: the camelCase ones in any
-  case, as some apps write xmlurl, and the rest kebab-cased."
+  "The model key of the outline attribute `k`, kebab-cased. The camelCase
+  ones match in any case, since some apps write xmlurl."
   [k]
   (or (some (fn [[key attr]] (when (= (str/lower-case (name attr)) (str/lower-case (name k))) key))
             attr-names)
       (xml/attr-key k)))
 
 (defn- subscription
-  "The subscription for an `outline` element with an xmlUrl, under `path`:
-  its attributes by key, the categories as a vector and the time it was
-  created as an instant when it reads as one."
+  "The subscription of the `outline` element with an xmlUrl, under `path`.
+  It has the attributes by key, the categories as a vector, and the time
+  it was created as an instant when it reads as one."
   [path outline]
   (let [m          (into {} (for [[k v] (xml/attrs outline)
                                   :when (not (namespace k))]
@@ -57,7 +66,7 @@
       (string? (:created m)) (update :created #(or (time/parse-rfc2822 %) %)))))
 
 (defn- inclusion
-  "The OPML list that `outline` includes, when it is an inclusion: the type
+  "The OPML list that `outline` includes, when it's an inclusion: the type
   include, or the type link to a URL that ends in .opml."
   [outline]
   (let [{:keys [type url text title]} (into {} (for [[k v] (xml/attrs outline)] [(outline-key k) v]))
@@ -69,10 +78,11 @@
         (or text title) (assoc :text (or text title))))))
 
 (defn- outlines
-  "The subscriptions and the inclusions in `element`'s outline children,
-  recursing into folders, each under the `:path` of its folders: an
-  outline is a subscription when it has an xmlUrl that is not blank, and
-  an inclusion, marked `::include`, as `inclusion` says."
+  "The subscriptions and the inclusions in the outline children of
+  `element`, under the `path` of their folders, recursing into folders.
+
+  An outline is a subscription when its xmlUrl isn't blank, and an
+  inclusion when inclusion says so. An inclusion is marked ::include."
   [path element]
   (mapcat (fn [outline]
             (let [{:keys [text title]} (xml/attrs outline)
@@ -85,7 +95,7 @@
           (xml/elements element :outline)))
 
 (defn parse
-  "Read the OPML document `s` into a subscription list."
+  "The subscription list of the OPML document `s`."
   [s]
   (let [tree     (xml/parse s)
         head     (xml/element tree :head)
@@ -103,9 +113,12 @@
             [k (if (#{:date-created :date-modified} k) (or (time/parse-rfc2822 v) v) v)]))))
 
 (defn ^:no-doc text-of
-  "The OPML text of the value `v`: an instant in the date format of RFC 822,
-  categories comma-separated, a comma inside one as an underscore since
-  OPML cannot escape it, and anything else as a string."
+  "The OPML text of the value `v`:
+
+  - an instant in the date format of RFC 822
+  - categories comma-separated, with a comma inside one as an underscore,
+    since OPML can't escape it
+  - anything else as a string"
   [v]
   (cond
     (inst? v)       (time/format-rfc2822 v)
@@ -113,8 +126,8 @@
     :else           (str v)))
 
 (defn- outline
-  "The outline element for `entry`: a subscription, or an inclusion when it
-  is marked `::include`."
+  "The outline element of `entry`: a subscription, or an inclusion when
+  it's marked ::include."
   [{:keys [url text] :as entry}]
   (if (::include entry)
     [:outline {:type "include" :text (or text url) :url url}]
@@ -124,8 +137,8 @@
                       [(get attr-names k (keyword (name k))) (text-of v)]))]))
 
 (defn- folders
-  "Nest the `entries` into outline folders by their `:path`, keeping their
-  order; consecutive entries in the same folder share it."
+  "The `entries` nested into outline folders by their :path, in order.
+  Consecutive entries in the same folder share it."
   [entries]
   (mapcat (fn [run]
             (if-let [folder (first (:path (first run)))]
@@ -135,11 +148,11 @@
           (partition-by (comp first :path) entries)))
 
 (defn emit
-  "Write the `subscription-list` (see `parse`) as an OPML 2.0 document, the
-  inclusions after the subscriptions of their folder.
+  "The OPML 2.0 document of the `subscription-list` that parse gives, with
+  the inclusions after the subscriptions of their folder.
 
-  OPML separates the categories of an outline with commas, and it cannot
-  escape a comma. So a comma in a category goes out as `_`."
+  OPML separates the categories of an outline with commas, and it can't
+  escape a comma. So a comma in a category goes out as an underscore."
   [subscription-list]
   (let [entries (concat (:subscriptions subscription-list)
                         (map #(assoc % ::include true) (:includes subscription-list)))

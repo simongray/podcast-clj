@@ -1,22 +1,26 @@
 (ns dk.simongray.podcast.format.transcript
-  "Transcripts in the four formats the podcast namespace allows, read into one
-  shape and written back: SRT, WebVTT, the JSON segments format and the
-  constrained HTML form, plus plain text.
+  "Transcripts in the four formats that the podcast namespace allows, read
+  into one shape and written back: SRT, WebVTT, the JSON segments format
+  and the constrained HTML form, plus plain text.
 
   A transcript is a map:
 
       {:format   :vtt                     ; :srt :json :html :text
        :segments [{:start 0.0 :end 2.76 :speaker \"Sarah\" :body \"…\"}]}
 
-  Times are seconds; `:end` and `:speaker` are present when the source had
-  them. Speakers are read from `<v>` voice spans, `<cite>` elements and JSON
-  fields, and from the \"Name:\" or \"[Name]:\" prefixes caption files use,
-  which mark a change of speaker and so carry over the cues that follow.
+  Times are seconds, and :end and :speaker are there when the source had
+  them. Speakers are read from these:
 
-  Reading is lenient and never throws on content. What it had to forgive is
-  in the report, metadata under `:podcast/report` read with `report`: times
-  written as strings, speakers taken from prefixes, an SRT wrapped in HTML,
-  a declared type that does not match the file."
+  - the voice spans of WebVTT
+  - the cite elements of HTML
+  - the fields of JSON
+  - the \"Name:\" or \"[Name]:\" prefixes of caption files, which mark a
+    change of speaker, so the name carries over the cues that follow
+
+  Reading is lenient and never throws on content. The report says what it
+  had to forgive, e.g. times written as strings, an SRT wrapped in HTML or
+  a declared type that doesn't match the file. The report function reads
+  it from the metadata."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
@@ -25,7 +29,7 @@
 ;; podcast:transcript names five types. application/srt is of Apple's
 ;; guide, and text/srt is in feeds.
 (def formats
-  "Transcript format by the mime type `podcast:transcript` gives it."
+  "The transcript format of each MIME type that podcast:transcript gives."
   {"text/vtt"             :vtt
    "application/x-subrip" :srt
    "application/srt"      :srt
@@ -35,8 +39,9 @@
    "text/plain"           :text})
 
 (def ^:no-doc timing-pattern
-  "A cue timing line in SRT or WebVTT: start, arrow, end, optional settings;
-  the fraction of a second may be missing, as some exports leave it out."
+  "A cue timing line in SRT or WebVTT: the start, an arrow, the end and any
+  settings. The fraction of a second may be missing, as some exports leave
+  it out."
   #"^\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}(?:[.,]\d{1,3})?)")
 
 (defn report
@@ -49,7 +54,7 @@
   (merge {:id id :level level :message message} extra))
 
 (defn- with-report
-  "`transcript` with `diagnostics` as its report."
+  "The `transcript` with `diagnostics` as its report."
   [transcript diagnostics]
   (with-meta transcript {:podcast/report (vec diagnostics)}))
 
@@ -80,8 +85,9 @@
        (map vec)))
 
 (defn- speaker-prefix
-  "Split a leading \"Name: \" or \"[Name]: \" off `body`; returns `[speaker
-  body]`, the speaker nil when there is none. Counts a hit in `stats`."
+  "The speaker of a leading \"Name: \" or \"[Name]: \" in `body`, and the
+  rest of `body`, as a pair. The speaker is nil when there's none, and a
+  hit counts in `stats`."
   [stats body]
   (if-let [[_ speaker rest] (re-find #"(?s)^\[?([A-Za-z][^:\n<>\[\]]{0,40}?)\]?:\s+(.*)$" body)]
     (do (vswap! stats update :prefixes (fnil inc 0))
@@ -89,8 +95,8 @@
     [nil body]))
 
 (defn- carry-speakers
-  "Give the segments that name no speaker the last one named before them,
-  the way caption files mark only the changes of speaker."
+  "The `segments`, each that names no speaker with the last one named
+  before it, the way caption files mark only the changes of speaker."
   [segments]
   (second (reduce (fn [[speaker acc] segment]
                     (let [speaker (or (:speaker segment) speaker)]
@@ -101,8 +107,9 @@
                   segments)))
 
 (defn- cue
-  "The segment for a cue whose timing line is `timing` and text lines
-  `lines`, or nil when the timing does not parse."
+  "The segment of a cue whose timing line is `timing` and text lines
+  `lines`, with a prefix counted in `stats`, or nil when the timing
+  doesn't parse."
   [stats timing lines]
   (when-let [[_ from to] (re-find timing-pattern timing)]
     (let [[speaker body] (speaker-prefix stats (str/join "\n" lines))]
@@ -110,7 +117,7 @@
         speaker (assoc :speaker speaker)))))
 
 (defn parse-srt
-  "Read the SRT transcript `s`."
+  "The transcript map of the SRT text `s`."
   [s]
   (let [stats    (volatile! {})
         segments (->> (blocks s)
@@ -123,21 +130,21 @@
       (prefix-diagnostics (:prefixes @stats 0)))))
 
 (defn- timed-segments
-  "The segments of `transcript` that have a start time; what the timed
-  formats write."
+  "The segments of `transcript` that have a start time, which are what the
+  timed formats write."
   [transcript]
   (filter (comp number? :start) (:segments transcript)))
 
 (defn ^:no-doc cue-body
   "The `body` of a segment as a cue carries it: trimmed, and without blank
-  lines, which end a cue in SRT and WebVTT, so that the next read would
+  lines. A blank line ends a cue in SRT and WebVTT, so the next read would
   lose the rest of the body."
   [body]
   (str/replace (str/trim (str body)) #"\n[ \t\r]*\n\s*" "\n"))
 
 (defn emit-srt
-  "Write `transcript` as SRT, one numbered cue per segment with a start time,
-  the speaker as a \"Name: \" prefix; segments without one are left out."
+  "The `transcript` as SRT, with one numbered cue for each segment that has
+  a start time, and the speaker as a \"Name: \" prefix."
   [transcript]
   (str/join "\n\n"
             (map-indexed (fn [i {:keys [start end speaker body]}]
@@ -154,8 +161,8 @@
   (str/replace s #"<[^<>]*>" ""))
 
 (defn- vtt-cue
-  "The segment for a WebVTT cue block, reading `<v Speaker>` voice spans and,
-  failing those, a \"Name:\" prefix."
+  "The segment of the WebVTT cue block `lines`, with its speaker from a
+  voice span or else from a \"Name:\" prefix, which counts in `stats`."
   [stats lines]
   (let [[timing & payload] (if (re-find timing-pattern (first lines)) lines (rest lines))]
     (when-let [[_ from to] (some->> timing (re-find timing-pattern))]
@@ -168,7 +175,8 @@
           speaker (assoc :speaker speaker))))))
 
 (defn parse-vtt
-  "Read the WebVTT transcript `s`, skipping NOTE, STYLE and REGION blocks."
+  "The transcript map of the WebVTT text `s`, without its NOTE, STYLE and
+  REGION blocks."
   [s]
   (let [stats    (volatile! {})
         segments (->> (blocks s)
@@ -187,7 +195,7 @@
   (str/escape s {\& "&amp;" \< "&lt;" \> "&gt;"}))
 
 (defn emit-vtt
-  "Write `transcript` as WebVTT, speakers as `<v>` voice spans; segments
+  "The `transcript` as WebVTT, with the speakers as voice spans. Segments
   without a start time are left out."
   [transcript]
   (str "WEBVTT\n\n"
@@ -200,12 +208,15 @@
        "\n"))
 
 (defn parse-json
-  "Read the JSON transcript `s`: `{\"version\" \"segments\" [{\"speaker\"
-  \"startTime\" \"endTime\" \"body\"}]}`. Times written as strings are read
-  as numbers and reported, and a speaker written as a number as its string.
-  A file that is not JSON, or not a JSON object, reads as no segments,
-  segments that are not objects are left out, and so are speakers that are
-  not text; the report says so."
+  "The transcript map of the JSON transcript `s`, whose segments have a
+  speaker, a startTime, an endTime and a body.
+
+  Bad content doesn't throw, and the report says what was forgiven:
+
+  - times written as strings are read as numbers
+  - a file that isn't a JSON object reads as no segments
+  - a segment that isn't an object is left out
+  - a speaker that isn't text is left out, but a number counts as text"
   [s]
   (let [doc      (json/parse s)
         raw      (when (map? doc) (get doc "segments"))
@@ -244,11 +255,11 @@
                           :count not-text))))))
 
 (defn emit-json
-  "Write `transcript` in the JSON transcript format, indented unless `opts`
-  says `{:pretty? false}`; segments without a start time are left out."
+  "The `transcript` in the JSON transcript format, indented unless `opts`
+  has :pretty? false. Segments without a start time are left out."
   ([transcript]
    (emit-json transcript {}))
-  ([transcript {:keys [pretty?] :or {pretty? true}}]
+  ([transcript {:keys [pretty?] :or {pretty? true} :as opts}]
    (json/write-str
     {"version"  (or (:version transcript) "1.0.0")
      "segments" (for [{:keys [start end speaker body]}
@@ -259,8 +270,8 @@
     {:pretty? pretty?})))
 
 (defn- tidy
-  "Collapse the layout whitespace of the HTML text `s`, keeping blank lines
-  as paragraph breaks."
+  "The HTML text `s` with its layout whitespace collapsed, and its blank
+  lines kept as paragraph breaks."
   [s]
   (->> (paragraphs s)
        (map #(str/trim (str/replace % #"\s+" " ")))
@@ -268,21 +279,24 @@
        (str/join "\n\n")))
 
 (def ^:no-doc html-token-pattern
-  "A `<cite>`, `<time>` or `<p>` element and its content, which ends at its
-  end tag or, the end tag of a p being optional in HTML, at the next p or
-  the end of the text, so that an unclosed p is read, and not searched to
-  the end of the text for an end tag once for every p there is."
+  "A cite, time or p element and its content.
+
+  The content ends at the end tag, or for a p, whose end tag is optional
+  in HTML, at the next p or the end of the text. So an unclosed p is read,
+  and the pattern doesn't search to the end of the text for an end tag
+  once for every p."
   #"(?is)<(cite|time|p)(?:\s[^>]*)?>(.*?)(?:</\1>|(?=<p\b)|$)")
 
 (defn- html-tokens
-  "The `[tag text]` pairs of the cite, time and p elements in `s`, in order."
+  "The tag and the text of each cite, time and p element in `s`, in order,
+  as pairs."
   [s]
   (for [[_ tag body] (re-seq html-token-pattern s)]
     [(str/lower-case tag) (tidy (xml/decode-entities (strip-tags body)))]))
 
 (defn- html-segments
-  "Segments from `tokens`: a cite sets the speaker, a time the start, and
-  every p yields a segment with both."
+  "The segments of `tokens`: a cite sets the speaker, a time the start, and
+  every p gives a segment with both."
   [tokens]
   (:segments
    (reduce (fn [{:keys [speaker start] :as state} [tag text]]
@@ -299,10 +313,11 @@
            tokens)))
 
 (defn parse-html
-  "Read the HTML transcript `s`, a sequence of `<cite>` speakers, `<time>`
-  starts and `<p>` paragraphs. A file that is really an SRT with every line
-  wrapped in a `<p>`, which some exports produce, is read as the SRT it is
-  and reported."
+  "The transcript map of the HTML transcript `s`, a sequence of cite
+  speakers, time starts and p paragraphs.
+
+  Some exports wrap every line of an SRT file in a p. Such a file is read
+  as the SRT that it is, and the report says so."
   [s]
   (let [tokens (html-tokens s)
         texts  (map second (filter (comp #{"p"} first) tokens))]
@@ -314,8 +329,9 @@
       (with-report {:format :html :segments (html-segments tokens)} []))))
 
 (defn parse-text
-  "Read the plain-text transcript `s`: one segment per paragraph, with
-  \"Name:\" prefixes as speakers, carried over the paragraphs that follow."
+  "The transcript map of the plain-text transcript `s`, with a segment for
+  each paragraph. A \"Name:\" prefix gives the speaker, which carries over
+  the paragraphs that follow."
   [s]
   (let [stats    (volatile! {})
         segments (->> (paragraphs s)
@@ -330,7 +346,7 @@
       (prefix-diagnostics (:prefixes @stats 0)))))
 
 (defn sniff
-  "Guess the format of the transcript text `s`. Cue timings come before
+  "The likely format of the transcript text `s`. Cue timings come before
   markup, and markup counts only when the text starts with it, since a
   cue or a paragraph of plain text may mention a tag."
   [s]
@@ -358,13 +374,16 @@
     (parse-text s)))
 
 (defn parse
-  "Read the transcript `s` in the format its `type` names: a mime type from
-  `podcast:transcript`, or one of the keywords in `format-keys`. Without a
-  type the format is sniffed. When the file plainly is another format than
-  its type says, it is read as what it is and the mismatch is reported. A
-  sniff for JSON or HTML can be wrong, since plain text can start with {
-  or hold a p tag: when such a reading finds no segments, the file is read
-  as its type says after all, or as plain text when it names none."
+  "The transcript map of `s`, in the format that `type` names: a MIME type
+  of podcast:transcript, or one of format-keys.
+
+  Without a type, the format is sniffed. When the file is plainly in
+  another format than its type says, it's read as what it is, and the
+  report names the mismatch.
+
+  A sniff for JSON or HTML can be wrong, since plain text can start with a
+  brace or hold a p tag. When such a reading finds no segments, the file
+  is read as its type says after all, or as plain text when it names none."
   ([s]
    (parse s nil))
   ([s type]
@@ -403,9 +422,10 @@
       end (assoc :end end))))
 
 (defn turns
-  "`transcript` with consecutive segments by the same speaker merged into
-  one turn each, spanning their time with their text joined by spaces.
-  Segments without a speaker are left as they are. A word-level transcript
+  "The `transcript` with each run of segments by the same speaker merged
+  into one turn, which spans their time and joins their text by spaces.
+
+  Segments without a speaker stay as they are. A word-level transcript
   reads as prose this way."
   [transcript]
   (update transcript :segments
@@ -416,8 +436,8 @@
                   segments))))
 
 (defn text
-  "The plain text of `transcript`: the bodies of its segments, one line per
-  speaker turn, speakers as prefixes."
+  "The plain text of `transcript`: the bodies of its segments, with a line
+  for each speaker turn and the speakers as prefixes."
   [transcript]
   (->> (:segments transcript)
        (partition-by :speaker)

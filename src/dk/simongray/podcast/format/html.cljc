@@ -1,25 +1,33 @@
 (ns dk.simongray.podcast.format.html
   "The HTML that feeds embed in descriptions and show notes, read into
-  Hiccup and rendered from there: `parse` reads a fragment into a sequence
-  of nodes, `[tag attrs & children]` with keyword tags and attribute keys
-  and strings for text; `sanitize` keeps what a client may render; `hiccup`
-  does both and turns a plain-text description into paragraphs; `text` and
-  `markdown` render either shape; `emit` writes Hiccup back as HTML.
-  `feed-links` finds the feeds that a web page names."
+  Hiccup and rendered from there.
+
+  A parse gives a sequence of nodes. An element is a vector of a keyword
+  tag, a map of keyword attributes and its children, and text is a string.
+  For a description that a client can render, use the hiccup function. It
+  parses and sanitizes HTML, and makes paragraphs of plain text. The text
+  and markdown functions render HTML or Hiccup as text, and emit writes
+  Hiccup back as HTML. Use feed-links for the feeds that a web page names."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def ^:no-doc token-pattern
-  "One token of HTML at a time: a script or style element whole, its text
-  running to its end tag, or to the end when it has none, as a browser
-  reads it, however much of it looks like markup; a comment, a CDATA
-  section, a doctype or other declaration, a processing instruction, an
-  end tag, a start tag, whose quoted values may hold a `>`, a run of text,
-  or a stray angle bracket. The start tag is a run of plain characters and
-  then quoted values each followed by another, which a regular expression
-  matches in one pass, where a choice for every character costs a third
-  of the time of the whole parse.
+  "One token of HTML at a time, which is one of:
+
+  - a whole script or style element
+  - a comment, a CDATA section, a declaration or a processing instruction
+  - an end tag
+  - a start tag, whose quoted values may hold a closing angle bracket
+  - a run of text, or a stray angle bracket
+
+  As in a browser, a script or style element runs to its end tag or the
+  end of the HTML, even where its text looks like markup.
+
+  A start tag is a run of plain characters, then quoted values that are
+  each followed by another such run. A regular expression matches it in
+  one pass, where a choice at every character would cost a third of the
+  time of the whole parse.
 
   On the JVM, the run of quoted values is possessive. A run that can give
   back what it took costs a stack frame for each value there, and a tag
@@ -32,9 +40,9 @@
         ">?|[^<]+|<")))
 
 (def ^:no-doc markup
-  "What makes a description HTML rather than plain text: a comment, or a
-  tag whole, `<p>`, `<a href=\"…\">` or `</b>`. Plain text may hold
-  `<show@example.com>` or `<3`, and neither is a tag."
+  "What makes a description HTML rather than plain text: a comment or a
+  whole tag. Plain text may hold an email address in angle brackets, or a
+  less-than sign before a 3, and neither is a tag."
   #"<!--|<[a-zA-Z][a-zA-Z0-9]*(?:\s[^<>]*)?/?>|</[a-zA-Z][a-zA-Z0-9]*\s*>")
 
 (def ^:no-doc attribute-pattern
@@ -58,9 +66,9 @@
 
 ;; HTML Standard, "Optional tags"
 (def ^:no-doc implied-end
-  "Elements whose start tag closes an open element of the listed kinds, and
-  the ancestors that bound the search: a new li closes an open li, but not
-  one outside the list it belongs to."
+  "For each tag, the open elements that its start tag closes, and the
+  ancestors where the search for them stops. A new li closes an open li,
+  but only inside the same list."
   {"li"     [#{"li"} #{"ul" "ol" "menu"}]
    "dt"     [#{"dt" "dd"} #{"dl"}]
    "dd"     [#{"dt" "dd"} #{"dl"}]
@@ -75,10 +83,9 @@
   (into block-elements #{"li" "td" "th" "dt" "dd" "body"}))
 
 (def max-depth
-  "How deep `parse` nests elements, as deep as WebKit and Chromium nest them:
-  an element opened deeper still is kept, empty, and its content goes to
-  the element it stands in, so that no walk of the tree recurses without
-  bound."
+  "How deep the parse function nests elements, as deep as WebKit and
+  Chromium do. An element opened deeper is kept empty, and its content goes
+  to its parent, so no walk of the tree recurses without bound."
   512)
 
 (defn- tag-name
@@ -86,8 +93,8 @@
   (name (first node)))
 
 (defn- parse-attributes
-  "The attributes in the start-tag remainder `s`, keys lower-cased, values
-  with their entities decoded, a bare attribute `true`."
+  "The attributes in `s`, the rest of a start tag, with lower-case keys and
+  decoded entities. A bare attribute has the value true."
   [s]
   (into {} (for [[_ k dq sq bare] (re-seq attribute-pattern s)
                  :let [v (or dq sq bare)]]
@@ -95,10 +102,12 @@
               (if (nil? v) true (xml/decode-entities v))])))
 
 (defn- start-tag
-  "`[name attrs self-closing?]` of the start tag `token`. A slash before
-  the `>` closes the element when white space, a quote or the name comes
-  before it, not at the end of a value without quotes, as in
-  `href=https://x/`."
+  "The name, the attributes and the self-closing flag of the start tag
+  `token`, as a vector.
+
+  A slash at the end closes the element when a space, a quote or the name
+  comes before it. The slash that ends a value without quotes doesn't, as
+  in href=https://x/."
   [token]
   (let [[_ name rest] (re-matches #"(?s)^<([a-zA-Z][\w:.-]*)(.*?)>?$" token)
         rest          (or rest "")
@@ -108,7 +117,7 @@
      self-closing?]))
 
 (defn- raw-element
-  "The script or style element of the token `token`, its text as it is."
+  "The script or style element of `token`, with its text as it is."
   [token]
   (let [[_ name rest text] (re-matches #"(?is)^<(script|style)([^>]*)>(.*?)(?:</\1\s*>)?$" token)]
     (cond-> [(keyword (str/lower-case name)) (parse-attributes (str/replace rest #"/$" ""))]
@@ -129,20 +138,20 @@
   (into [] (comp (partition-by string?) (mapcat #(if (string? (first %)) [(apply str %)] %))) node))
 
 (defn- append
-  "Append `child` to the element on top of the parse `state`."
+  "The parse `state` with `child` appended to its top element."
   [state child]
   (update state :stack #(conj (pop %) (conj (peek %) child))))
 
 (defn- push
-  "Open the element `node` on top of the parse `state`."
+  "The parse `state` with the element `node` opened on top."
   [state node]
   (-> state
       (update :stack conj node)
       (update-in [:open (tag-name node)] (fnil inc 0))))
 
 (defn- close-top
-  "Close the element on top of the parse `state` into its parent, its text
-  joined once rather than on every token."
+  "The parse `state` with its top element closed into its parent. The text
+  of the element is joined here, once, rather than on every token."
   [{:keys [stack] :as state}]
   (let [top (peek stack)]
     (-> state
@@ -151,10 +160,10 @@
         (append (merge-text top)))))
 
 (defn ^:no-doc open-index
-  "The index in the stack of the parse `state` of the nearest open element
-  whose tag is in `names`, searching from the top and giving up at one of
-  `boundaries`; nil when there is none."
-  [{:keys [stack open]} names boundaries]
+  "The stack index of the nearest open element of the parse `state` whose
+  tag is in `names`, or nil. The search goes down from the top and gives
+  up at one of `boundaries`."
+  [{:keys [stack open] :as state} names boundaries]
   (when (some #(pos? (get open % 0)) names)
     (loop [i (dec (count stack))]
       (when (pos? i)
@@ -165,9 +174,9 @@
             :else            (recur (dec i))))))))
 
 (defn- close-through
-  "Close open elements from the top down to and including the nearest one
-  whose tag is in `names`, closing nothing when one of `boundaries` is met
-  first or none of `names` is open."
+  "The parse `state` with the open elements closed from the top down to the
+  nearest one whose tag is in `names`, that one included. Nothing closes
+  when one of `boundaries` comes first or none of `names` is open."
   [state names boundaries]
   (if-let [i (open-index state names boundaries)]
     (nth (iterate close-top state) (- (count (:stack state)) i))
@@ -179,8 +188,9 @@
   (some? (open-index state #{"p"} paragraph-scope)))
 
 (defn- open-element
-  "Push or append the element `name` with `attrs`, closing what its start
-  tag implies; past `max-depth`, append it."
+  "The parse `state` with the element `name` and its `attrs` opened, or
+  appended when it's void, `self-closing?` or past max-depth. The elements
+  that its start tag implies an end for are closed first."
   [state name attrs self-closing?]
   (let [state (if (and (block-elements name) (open-paragraph? state))
                 (close-through state #{"p"} #{})
@@ -206,13 +216,19 @@
     :else                                                :text))
 
 (defn parse
-  "Read the HTML fragment `s` into Hiccup the way a browser would, as a
-  sequence of nodes: elements `[tag attrs & children]` with lower-case
-  keyword tags and keyword attribute keys, and strings with their entities
-  decoded. Comments and declarations vanish, unknown tags are kept, unclosed
-  elements close where HTML says they do, and stray end tags are ignored.
-  Hiccup renderers take a sequence as a fragment, so the result goes
-  straight into a parent element: `[:div (parse s)]`."
+  "The HTML fragment `s` as a sequence of Hiccup nodes, read the way a
+  browser reads it.
+
+  Tags and attribute keys are lower-case keywords, and text is a string
+  with its entities decoded. In the parse:
+
+  - comments and declarations vanish
+  - unknown tags are kept
+  - unclosed elements close where HTML says they do
+  - stray end tags are ignored
+
+  Hiccup renderers take a sequence as a fragment, so the result can go
+  straight into a parent element."
   [s]
   (loop [tokens (re-seq token-pattern (str s))
          state  {:stack [[:root {}]] :open {}}]
@@ -232,10 +248,11 @@
           (recur (close-top state)))))))
 
 (defn ^:no-doc scheme
-  "The scheme of the URL `s`, in lower case, and nil for a relative URL. The
-  URL is read as a browser reads it: without the tabs and line breaks that
-  it drops anywhere, and without the control characters and spaces that it
-  drops in front. So `java&#9;script:` has the scheme javascript."
+  "The scheme of the URL `s` in lower case, or nil for a relative URL.
+
+  The URL is read as a browser reads it, so a tab inside javascript:
+  doesn't hide the scheme. The tabs and line breaks anywhere in it are
+  dropped, and so are the control characters and spaces in front."
   [s]
   (let [s (-> (str s)
               (str/replace #"[\t\n\r]" "")
@@ -243,34 +260,34 @@
     (some-> (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*(?=:)" s) str/lower-case)))
 
 (defn ^:no-doc text-of
-  "The value `v` of an attribute when it is text that is not blank. A bare
-  attribute has the value true, and no text."
+  "The value `v` of an attribute when it's text that isn't blank. A bare
+  attribute has the value true, which isn't text."
   [v]
   (when (and (string? v) (not (str/blank? v)))
     v))
 
 (defn- page-base
   "The URL that the links of a page with the `nodes` are relative to, for a
-  page at `url`, which can be nil. It is the href of the first base element
-  that has one, when that href gives an http or https URL, else `url`."
+  page at `url`, which can be nil. It's the href of the first base element
+  that has one, when that gives an http or https URL, or else `url`."
   [nodes url]
   (let [href (some #(when (and (vector? %) (= :base (first %))) (text-of (:href (second %)))) nodes)
         base (when href (if url (http/absolute-url url href) href))]
     (if (#{"http" "https"} (scheme base)) base url)))
 
 (defn feed-links
-  "The feeds that the web page `s` names, as the RSS autodiscovery spec and
-  the HTML standard define them, in the order of the page.
+  "The feeds that the web page `s` names, in the order of the page. When
+  the URL of the page is given as `base`, each href is made absolute.
 
-  A feed is `{:href :type :title}`, for each `link` element with the rel
-  alternate or feed and the type of an RSS or an Atom feed. The type is
-  without its parameters. This is how an app finds the feed of a show when
-  the listener gives the address of its website.
+  A feed is a map of :href, :type and :title. It comes from a link element
+  with the rel alternate or feed and the type of an RSS or Atom feed. The
+  RSS autodiscovery spec and the HTML standard define these links. The
+  type is without its parameters. Use this to find the feed of a show from
+  the address of its website.
 
-  `base` is the URL of the page. With a base, each href is made absolute,
-  and only an http or https URL is a feed. The base element of the page
-  replaces `base`, as in a browser. Without a base, a relative href stays
-  as it is."
+  The base element of the page replaces `base`, as in a browser. With a
+  base, only an http or https URL is a feed. Without one, a relative href
+  stays as it is."
   ([s]
    (feed-links s nil))
   ([s base]
@@ -290,20 +307,20 @@
          (text-of title) (assoc :title title))))))
 
 (def allowed-tags
-  "The elements `sanitize` keeps."
+  "The elements that sanitize keeps."
   #{:p :br :a :strong :b :em :i :u :s :strike :del :ins :mark :small :sup :sub
     :ul :ol :li :dl :dt :dd :h1 :h2 :h3 :h4 :h5 :h6 :blockquote :q :cite :abbr
     :dfn :code :kbd :pre :hr :img :span :div :figure :figcaption
     :table :thead :tbody :tfoot :tr :td :th :caption})
 
 (def dropped-tags
-  "The elements `sanitize` removes with their content."
+  "The elements that sanitize removes with their content."
   #{:script :style :iframe :object :embed :form :input :button :select :option
     :textarea :noscript :svg :math :template :head :title :meta :link :base
     :frame :frameset :applet :audio :video :canvas})
 
 (def allowed-attributes
-  "The attributes `sanitize` keeps, by element."
+  "The attributes that sanitize keeps, by element."
   {:a          #{:href :title :rel :hreflang}
    :img        #{:src :alt :title :width :height}
    :td         #{:colspan :rowspan}
@@ -324,21 +341,21 @@
 
 (defn- safe-url?
   "Whether the URL `s` is relative, or has a scheme that a client can
-  follow, as a browser reads it (see `scheme`)."
+  follow, read as a browser reads it."
   [s]
   (contains? #{nil "http" "https" "mailto"} (scheme s)))
 
 (defn ^:no-doc parts
   "The tag, the attributes and the children of the Hiccup element `node`,
-  whose attribute map may be left out, as in `[:p \"x\"]`."
-  [[tag & more]]
+  whose attribute map can be left out, e.g. [:p \"x\"]."
+  [[tag & more :as node]]
   (if (map? (first more))
     [tag (first more) (rest more)]
     [tag {} more]))
 
 (defn- safe-attributes
   "The attributes `attrs` of an element `tag` that the table `allowed`
-  has, without a URL that a client cannot follow."
+  has, without a URL that a client can't follow."
   [tag attrs allowed]
   (into {} (for [[k v] attrs
                  :when (contains? (get allowed tag) k)
@@ -346,14 +363,18 @@
              [k v])))
 
 (defn sanitize
-  "The Hiccup `nodes` a client may render: the elements and attributes of
-  `allowed-tags` and `allowed-attributes` kept, URLs limited to http, https,
-  mailto and relative ones, `dropped-tags` removed with their content, any
-  other element replaced by its children, and layout whitespace removed
-  from lists and tables.
+  "The Hiccup `nodes` that a client may render, by the rules below and
+  `opts`. In the result:
 
-  `opts` can give `:allowed-tags`, `:dropped-tags` and
-  `:allowed-attributes`, each in the place of the var of its name."
+  - the elements and attributes of allowed-tags and allowed-attributes
+    are kept
+  - a URL is kept when it's http, https, mailto or relative
+  - the elements of dropped-tags are removed with their content
+  - any other element is replaced by its children
+  - lists and tables lose the whitespace of their layout
+
+  The options :allowed-tags, :dropped-tags and :allowed-attributes take
+  the place of the vars of the same names."
   ([nodes]
    (sanitize nodes {}))
   ([nodes opts]
@@ -378,7 +399,7 @@
        (apply list (mapcat node nodes))))))
 
 (defn- paragraphs
-  "The plain text `s` as paragraphs, blank lines between them and line
+  "The plain text `s` as paragraphs, with blank lines between them and line
   breaks within."
   [s]
   (apply list (for [paragraph (str/split (str/trim (xml/decode-entities s)) #"\n\s*\n")
@@ -387,10 +408,9 @@
                 (into [:p {}] (interpose [:br {}] lines)))))
 
 (defn hiccup
-  "The Hiccup a client can render for the description `s`, as a sequence of
-  nodes to put inside a parent element, `[:div (hiccup s)]`: parsed and
-  sanitized when it holds `markup`, paragraphs with line breaks when it is
-  plain text."
+  "The Hiccup that a client can render for the description `s`, as a
+  sequence of nodes to put inside a parent element. HTML is parsed and
+  sanitized, and plain text becomes paragraphs with line breaks."
   [s]
   (let [s (str s)]
     (if (re-find markup s)
@@ -406,8 +426,8 @@
   #{:div :li :tr :dt :dd :figcaption :address :caption :thead :tbody :tfoot :section :article})
 
 (defn- nodes-of
-  "`x` as a sequence of nodes: a string parsed when it holds `markup` and
-  read as paragraphs when it is plain text, a node wrapped."
+  "The nodes of `x`, which is a string, a node or nodes. A string is parsed
+  when it holds markup, or read as paragraphs when it's plain text."
   [x]
   (cond
     (string? x)             (if (re-find markup x) (parse x) (paragraphs x))
@@ -420,8 +440,9 @@
   (str/replace s #"\s+" " "))
 
 (defn- trim-blanks
-  "`s` without the spaces and tabs at its ends, found without a regular
-  expression: `[ \\t]+$` is tried again from every blank of a long run."
+  "The string `s` without the spaces and tabs at its ends, found without a
+  regular expression, which would try again from every blank of a long
+  run."
   [s]
   (let [blank? #(contains? #{\space \tab} (nth s %))
         end    (loop [i (count s)] (if (and (pos? i) (blank? (dec i))) (recur (dec i)) i))
@@ -429,14 +450,14 @@
     (subs s start end)))
 
 (def ^:no-doc pre-mark
-  "What `render` puts at the start of every line of preformatted text, a
-  character of the private use area, which no text holds, so that `tidy`
-  leaves the indentation of those lines alone, and then removes it."
+  "The mark that render puts at the start of each line of preformatted
+  text, so that tidy leaves its indentation alone and then removes it.
+  It's a character of the private use area, which no text holds."
   "\uE000")
 
 (defn- marked-lines
-  "The preformatted text `s` with `pre-mark` at the start of each of its
-  lines, the line breaks at its end dropped."
+  "The preformatted text `s` with pre-mark at the start of each line, and
+  without the line breaks at its end."
   [s]
   (let [end (loop [i (count s)]
               (if (and (pos? i) (contains? #{\newline \return} (nth s (dec i))))
@@ -445,8 +466,8 @@
     (str pre-mark (str/replace (subs s 0 end) "\n" (str "\n" pre-mark)))))
 
 (defn- tidy
-  "Trim the rendered `s` and its lines, but for the lines of preformatted
-  text, and reduce its blank lines to one."
+  "The rendered `s`, trimmed, with each run of blank lines cut to one. Its
+  lines are trimmed too, except those of preformatted text."
   [s]
   (-> (str/join "\n" (map #(if (str/starts-with? % pre-mark) % (trim-blanks %)) (str/split-lines s)))
       (str/replace #"\n{3,}" "\n\n")
@@ -454,12 +475,20 @@
       (str/replace pre-mark "")))
 
 (defn- render
-  "Render `nodes` with `inline`, a function of a text string and the
-  context, and `element`, a function of the tag and the attributes of a
-  node, its rendered children and the context, which is a map with
-  `:list` (:ul or :ol), `:index` (an atom counting list items) and
-  `:pre?`. The `dropped-tags` render as nothing, as a browser shows no
-  script, and every line of a pre starts with `pre-mark`."
+  "The `nodes` rendered as text by the functions `inline` and `element`,
+  starting from `context`.
+
+  The `inline` function renders a string, and takes the string and the
+  context. The `element` function renders an element, and takes its tag
+  and attributes, its rendered children and the context. The context is a
+  map:
+
+  - :list is :ul or :ol inside a list
+  - :index is an atom that counts the list items
+  - :pre? is true inside a pre
+
+  The elements of dropped-tags render as nothing, as a browser shows no
+  script. Every line of a pre starts with pre-mark."
   [nodes inline element context]
   (letfn [(node [x ctx]
             (cond
@@ -485,13 +514,16 @@
     ""))
 
 (defn text
-  "`x`, HTML text or Hiccup, as plain text: paragraphs separated by a blank
-  line, list items on their own lines with a marker, links as their text
-  or, with `{:links? true}` in `opts`, followed by their URL in parentheses,
-  images as their alt text."
+  "The HTML text or Hiccup `x` as plain text, with the URLs of links when
+  `opts` has :links?. In the text:
+
+  - paragraphs are separated by a blank line
+  - list items are on their own lines, with a marker
+  - a link is its text, followed by its URL in parentheses when :links?
+  - an image is its alt text"
   ([x]
    (text x {}))
-  ([x {:keys [links?]}]
+  ([x {:keys [links?] :as opts}]
    (render (nodes-of x)
            (fn [s {:keys [pre?]}] (if pre? s (collapse s)))
            (fn [[tag attrs] inner ctx]
@@ -509,10 +541,13 @@
            {})))
 
 (defn markdown
-  "`x`, HTML text or Hiccup, as Markdown: headings, emphasis, links, images,
-  lists, quotes, code and rules in their Markdown forms, a line break as a
-  backslash break, everything else as its text. Text is not escaped, so a
-  literal asterisk stays an asterisk."
+  "The HTML text or Hiccup `x` as Markdown. Text isn't escaped, so a
+  literal asterisk stays an asterisk. In the Markdown:
+
+  - headings, emphasis, links, images, lists, quotes, code and rules take
+    their Markdown forms
+  - a line break becomes a backslash at the end of the line
+  - everything else is its text"
   [x]
   (render (nodes-of x)
           (fn [s {:keys [pre?]}] (if pre? s (collapse s)))
@@ -550,8 +585,8 @@
                 (str " " (name k) "=\"" (str/replace (escape (str v)) "\"" "&quot;") "\"")))))
 
 (defn emit
-  "The Hiccup `nodes` as an HTML string: text escaped, void elements
-  without end tags."
+  "The Hiccup `nodes` as an HTML string, with the text escaped and the void
+  elements without end tags."
   [nodes]
   (letfn [(node [x]
             (cond

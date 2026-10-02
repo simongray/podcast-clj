@@ -1,7 +1,7 @@
 (ns dk.simongray.podcast.format.chapters
-  "Chapters in the two forms podcasts carry them: the JSON Chapters file that
-  `podcast:chapters` links to, and Podlove Simple Chapters embedded in the
-  feed under `psc:chapters`. Both read into one shape and write back out.
+  "Chapters in the two forms podcasts carry them: the JSON Chapters file
+  that podcast:chapters links to, and Podlove Simple Chapters embedded in
+  the feed as psc:chapters. Both read into one shape and write back out.
 
   A chapters document is a map:
 
@@ -11,11 +11,11 @@
                    :img \"https://…\" :url \"https://…\" :toc false
                    :end-time 120 :location {:name \"…\" :geo \"geo:…\"}}]}
 
-  Times are seconds. Chapters are kept in the order given, keys the format
-  does not define included; `sorted` orders them by start time and `at`
-  finds the one playing at a position. Reading never throws on content; what
-  it had to forgive is in the report, metadata under `:podcast/report` read
-  with `report`."
+  Times are seconds. Chapters keep the order they're given in, and the keys
+  that the format doesn't define are kept too. Reading never throws on
+  content.
+  What it had to forgive is in the report, which the report function reads
+  from the metadata."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.json :as json]
@@ -27,27 +27,29 @@
   "1.2.0")
 
 (def ^:no-doc document-keys
-  "Model key by JSON property, for the document."
+  "The model key of each JSON property of a chapters document."
   {"version" :version "author" :author "title" :title "podcastName" :podcast-name
    "description" :description "fileName" :file-name "waypoints" :waypoints
    "chapters" :chapters})
 
 (def ^:no-doc chapter-keys
-  "Model key by JSON property, for a chapter."
+  "The model key of each JSON property of a chapter."
   {"startTime" :start-time "endTime" :end-time "title" :title "img" :img
    "url" :url "toc" :toc "location" :location})
 
 (def ^:no-doc location-keys
-  "The keys of a chapter's location object, JSON name to model key."
+  "The model key of each JSON property of a chapter's location."
   {"name" :name "geo" :geo "osm" :osm})
 
 (defn- rename
-  "Rename the string keys of `m` by `table`, keeping the ones it lacks."
+  "The map `m` with its keys renamed by `table`, or kept where `table` has
+  none."
   [table m]
   (into {} (map (fn [[k v]] [(get table k k) v])) m))
 
 (defn- unname
-  "The inverse of `rename`: model keys back to JSON properties."
+  "The map `m` with its keys named back as JSON properties by `table`, and
+  its nil values left out. A keyword that `table` lacks becomes its name."
   [table m]
   (let [inverse (into {} (map (fn [[k v]] [v k])) table)]
     (into {} (for [[k v] m :when (some? v)]
@@ -113,8 +115,8 @@
                      :version v)))))
 
 (defn- read-text
-  "The raw chapter `m` with the value at `path` as text, as `json/text` reads
-  it, or without it when it is no text."
+  "The raw chapter `m` with the value at `path` read as text by json/text,
+  or without that value when it isn't text."
   [m path]
   (let [v (get-in m path)]
     (if (nil? v)
@@ -132,10 +134,14 @@
       (map? (:location chapter))      (update :location #(rename location-keys %)))))
 
 (defn parse-json
-  "Read the JSON Chapters document `s` into a chapters map. A document that
-  is not JSON, or not a JSON object, reads as no chapters, chapters that are
-  not objects are left out, and so are titles, links and place names that
-  are not text; the report says so. A number counts as text."
+  "The chapters map of the JSON Chapters document `s`.
+
+  Bad content doesn't throw. The report says what was left out instead:
+
+  - a document that isn't a JSON object reads as no chapters
+  - a chapter that isn't an object is left out
+  - a title, link or place name that isn't text is left out, but a number
+    counts as text"
   [s]
   (let [raw (json/parse s)]
     (if (map? raw)
@@ -162,20 +168,21 @@
     (unname chapter-keys m)))
 
 (defn emit-json
-  "Write the chapters map `doc` as a JSON Chapters document, indented unless
-  `opts` says `{:pretty? false}`; the version defaults to `version`."
+  "The chapters map `doc` as a JSON Chapters document, indented unless
+  `opts` has :pretty? false. A `doc` without a :version gets the version
+  that this namespace writes."
   ([doc]
    (emit-json doc {}))
-  ([doc {:keys [pretty?] :or {pretty? true}}]
+  ([doc {:keys [pretty?] :or {pretty? true} :as opts}]
    (json/write-str (unname document-keys
                            (-> (merge {:version version} doc)
                                (update :chapters #(mapv write-chapter %))))
                    {:pretty? pretty?})))
 
 (defn from-psc
-  "The chapters map for the `psc:chapters` value of a feed item, i.e. the
-  `:psc/chapters` map with `:chapters` of `:start`, `:title`, `:href` and
-  `:image`. Chapters whose start is not a timestamp are dropped and reported."
+  "The chapters map of the Podlove chapters `psc`, the :psc/chapters map of
+  a feed item. A chapter whose start isn't a timestamp is dropped, and the
+  report says so."
   [psc]
   (let [entries  (:chapters psc)
         chapters (vec (for [{:keys [start title href image]} entries
@@ -195,9 +202,9 @@
                          [])})))
 
 (defn to-psc
-  "The `psc:chapters` Hiccup element for the chapters map `doc`, for feeds
-  that embed chapters as well as linking to them; chapters without a start
-  time are left out, as Podlove requires one."
+  "The psc:chapters Hiccup element of the chapters map `doc`, for a feed
+  that embeds chapters as well as linking to them. Podlove requires a start
+  time, so the chapters without one are left out."
   [doc]
   (into [:psc/chapters {:version "1.2"}]
         (for [{:keys [start-time title url img]} (:chapters doc)
@@ -208,19 +215,20 @@
                           img   (assoc :image img))])))
 
 (def ^:no-doc timestamp-first
-  "A line of show notes that starts with a timestamp: an optional list
-  marker, the time, perhaps in brackets, a separator, then the title."
+  "A line of show notes that starts with a timestamp, e.g. \"1. (12:34) -
+  The topic\". The list marker, the brackets and the separator are
+  optional."
   #"^[ \t]*(?:[-*•–—]\s*|\d{1,2}[.)]\s+)?[\[(]?\s*((?:\d{1,2}:)?\d{1,2}:\d{2})\s*[\])]?\s*(?:[-–—:|.,]\s*)?(\S.*?)\s*$")
 
 (def ^:no-doc timestamp-last
-  "A line of show notes that ends with a timestamp: the title, a separator,
-  then the time, perhaps in brackets."
+  "A line of show notes that ends with a timestamp, e.g. \"- The topic
+  (12:34)\". The list marker, the separator and the brackets are optional."
   #"^[ \t]*(?:[-*•–—]\s*)?(\S.*?)\s*(?:[-–—:|,]\s*)?[\[(]?((?:\d{1,2}:)?\d{1,2}:\d{2})[\])]?[ \t]*$")
 
 (defn- line-chapter
-  "The chapter a line of show notes lists, by `pattern`, whose groups are
-  the timestamp and the title in the order `time-first?` says; nil when the
-  line lists none."
+  "The chapter that `line` of show notes lists by `pattern`, or nil when it
+  lists none. The time is the first group of `pattern` when `time-first?`,
+  and the second otherwise."
   [pattern time-first? line]
   (when-let [[_ a b] (re-matches pattern line)]
     (let [[timestamp title] (if time-first? [a b] [b a])]
@@ -228,16 +236,16 @@
         {:start-time seconds :title title}))))
 
 (defn from-lines
-  "The chapters listed as timestamps in `lines`, the lines of the plain
-  text of show notes, as a chapters map, or nil when they list none. A
-  line per chapter, \"12:34 The topic\" in any of the ways notes write it,
-  with the time first or, when no line starts with one, last, as in \"The
-  topic (12:34)\"; two such lines make a list when the time comes first,
-  three in rising order when it comes last. The report says the chapters
-  were inferred.
+  "The chapters map of the timestamps in `lines`, the lines of the plain
+  text of show notes, or nil when they list no chapters.
 
-  `from-text` reads the lines out of the notes. A view that has the text
-  of the notes already gives its lines here, and parses the notes once."
+  Each chapter is on a line of its own, e.g. \"12:34 The topic\" or \"The
+  topic (12:34)\". The time comes first, or last when no line starts with
+  one. Two lines with the time first make a list, and so do three with the
+  time last in rising order. The report says the chapters were inferred.
+
+  Use from-text for the notes themselves. A caller that has the plain text
+  of the notes already can give its lines here, so they're parsed once."
   [lines]
   ;; the patterns' optional parts meet around runs of spaces, over which
   ;; they would backtrack quadratically, so each run is one space first
@@ -258,9 +266,8 @@
                                         :count (count chapters))]})))))
 
 (defn from-text
-  "The chapters listed as timestamps in the show notes `s`, HTML or plain
-  text, as `from-lines` reads them from the lines of the plain text of
-  the notes."
+  "The chapters map of the timestamps in the show notes `s`, HTML or plain
+  text, as from-lines reads them."
   [s]
   ;; notes with no digit, colon and two digits in a row, a colon reference
   ;; counted, hold no time, and most notes have none, so they skip the parse
@@ -273,14 +280,14 @@
   (sort-by :start-time (filter (comp number? :start-time) (:chapters doc))))
 
 (defn visible
-  "The chapters of `doc` meant for the table of contents: those without
-  `:toc false`, in order."
+  "The chapters of `doc` meant for the table of contents, in order: those
+  whose :toc isn't false."
   [doc]
   (remove #(false? (:toc %)) (sorted doc)))
 
 (defn with-end-times
-  "The chapters of `doc` in order, each given the start of the next as its
-  `:end-time` when it has none."
+  "The chapters of `doc` in order, each with the start of the next as its
+  :end-time when it has none."
   [doc]
   (let [chapters (vec (sorted doc))]
     (map-indexed (fn [i chapter]
@@ -302,19 +309,19 @@
   3)
 
 (defn jump
-  "Where a jump from `seconds` into the media goes, in seconds, by the
-  table of contents of `doc`. `direction` is :next or :previous.
+  "The position in seconds that a jump from `seconds` into the media goes
+  to, by the table of contents of `doc`. The `direction` is :next or
+  :previous, and `opts` can give the :restart seconds.
 
   A jump to the next chapter goes to the first chapter that starts after
-  `seconds`. It is nil after the start of the last chapter. A jump to the
-  previous chapter goes to the start of the chapter that plays, or to the
-  chapter before it in the first `restart` seconds of a chapter. Before
-  the first chapter, it goes to 0.
+  `seconds`. It's nil after the start of the last chapter. A jump back
+  goes to the start of the chapter that plays. In the first :restart
+  seconds of a chapter, it goes to the chapter before instead. Before the
+  first chapter, it goes to 0.
 
-  The chapters with `:toc false` are not in the table of contents, as
-  the JSON Chapters format of the podcast namespace has it, so no jump
-  goes to them. No standard says where a jump back goes, so the seconds
-  are a choice: `opts` can give `:restart`."
+  Chapters with :toc false aren't in the table of contents, as JSON
+  Chapters has it, so no jump goes to them. No standard says where a jump
+  back goes, so the default :restart is only a choice."
   ([doc seconds direction]
    (jump doc seconds direction {}))
   ([doc seconds direction opts]
