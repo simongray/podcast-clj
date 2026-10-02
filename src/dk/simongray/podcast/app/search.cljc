@@ -1,32 +1,16 @@
 (ns dk.simongray.podcast.app.search
-  "Finding episodes: the items of a feed filtered and ordered by criteria
-  given as data, and full-text search over subscriptions through an index
-  that is a value.
+  "Finding episodes, by filtering and ordering the items of feeds with
+  criteria given as data, or by full-text search.
 
-  Filtering and ordering read the model through `resolve`, so a criterion
-  means what the accessor means:
+  The criteria read the model through feed.resolve, so each means what the
+  accessor means:
 
       (episodes feed {:where {:season 2 :type \"full\" :duration [600 nil]}
                       :order :newest})
 
-  `where` and `order` give the predicate and the sort key behind that, for
-  lists an app assembles itself. Both take the player state of
-  `dk.simongray.podcast.app.player` for what depends on the listener: whether
-  an episode is unplayed, in progress or played, and what was heard last.
-
-  The index is a map built with `index` and `add` and searched with
-  `query`. A document is `{:id :fields :stored}`: `:fields` the text to
-  search by field name, `:stored` what a result carries back;
-  `item-document` and `feed-document` build them from the model. Text is
-  analyzed into terms, lower-cased with the diacritics folded, so that
-  \"cafe\" finds \"Café\"; a field given as a vector of strings is taken as
-  terms already analyzed, for a client that stems or segments its own
-  text, and so is a query given as a vector. Results are ranked by BM25
-  per field, weighted by `boosts`; the last word of a query matches as a
-  prefix, for search as you type; words in quotes must occur in a row.
-
-  Nothing here reads a clock or does I/O; an app fetches transcripts and
-  chapters and hands them to `item-document`."
+  The full-text index is a map built with index and add, and searched with
+  query. Text is lower-cased with its diacritics folded, so \"cafe\"
+  finds \"Café\", and the results are ranked by BM25 per field."
   (:refer-clojure :exclude [remove])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
@@ -36,25 +20,26 @@
             [dk.simongray.podcast.format.transcript :as transcript]))
 
 (def ^:no-doc ligatures
-  "Letters that decomposing leaves whole, spelled out when folding."
+  "The letters that decomposition leaves whole, and how fold spells them
+  out."
   {\æ "ae" \ø "o" \œ "oe" \ß "ss" \ð "d" \þ "th" \ł "l" \đ "d" \ħ "h" \ı "i" \ŋ "n" \ŧ "t"})
 
 ;; Unicode, Blocks.txt: the five blocks of combining marks
 (def ^:no-doc marks
-  "The combining marks that decomposing a letter with diacritics leaves
-  after it."
+  "A pattern of the combining marks that decomposition splits off a letter
+  with diacritics."
   #"[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]")
 
 (defn- decompose
-  "`s` in canonical decomposition, its diacritics as separate marks."
   [s]
   #?(:clj  (java.text.Normalizer/normalize s java.text.Normalizer$Form/NFD)
      :cljs (.normalize s "NFD")))
 
 (defn- marked?
-  "Whether `s` holds a combining mark of the ranges `marks` covers, found
-  with a loop, which costs text without one far less than the pattern. The
-  comparisons take two arguments, which Clojure compiles inline."
+  "Whether `s` has a combining mark in the ranges of marks.
+
+  A loop is far faster than the pattern on text without marks, and each
+  comparison takes two arguments so that Clojure compiles it inline."
   [^String s]
   (let [n (count s)]
     (loop [i 0]
@@ -68,23 +53,20 @@
             (recur (inc i))))))))
 
 (defn fold
-  "`s` lower-cased, its diacritics stripped and its ligatures spelled out,
-  so that texts and queries compare the way a listener types: \"Café Ø\"
-  folds to \"cafe o\". Decomposing text with nothing to decompose gives
-  the same string back, on both platforms, and such text has marks to
-  strip only when it held them already, as \"İ\" lower-cased does."
+  "The string `s` lower-cased, with its diacritics stripped and its
+  ligatures spelled out, e.g. \"Café Ø\" becomes \"cafe o\"."
   [s]
   (let [s (str/lower-case (str s))
         d (decompose s)]
     (str/escape (if (and (identical? d s) (not (marked? s))) s (str/replace d marks "")) ligatures)))
 
 (def ^:no-doc word
-  "A run of letters, marks and digits: one word of text."
+  "The pattern of a word: a run of letters, marks and digits."
   #"(?u)[\p{L}\p{M}\p{N}]+")
 
 (defn tokens
-  "The terms of `s`: its words, folded. Scripts written without spaces
-  between words are indexed as runs."
+  "The terms of `s`, its words folded, with scripts that have no spaces
+  between words indexed as runs."
   [s]
   (let [folded (fold s)]
     #?(:clj  (let [m (re-matcher word folded)]
@@ -95,8 +77,8 @@
        :cljs (vec (re-seq word folded)))))
 
 (defn ^:no-doc spans
-  "The words of `s` with where they are, `{:start :end :term}`, for
-  marking matches in text."
+  "The words of `s` as maps of :start, :end and :term, for highlighting
+  matches."
   [s]
   (loop [words (re-seq word s) from 0 acc []]
     (if-let [[w & more] (seq words)]
@@ -106,14 +88,14 @@
       acc)))
 
 (defn ^:no-doc spaced
-  "The query `q` with every kind of white space as a space, so that the
-  JVM, whose `\\s` knows only the ASCII ones, reads it as JavaScript does."
+  "The query `q` with every kind of whitespace as a space, since the regex
+  \\s matches only ASCII whitespace on the JVM but all of it in JavaScript."
   [q]
   (str/replace q #"[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]" " "))
 
 (defn- words
-  "The terms of the query `q` and, unless it ends in whitespace, the last
-  one as the `:prefix` to complete: `{:terms [...] :prefix \"clo\"}`."
+  "The :terms of the query `q`, with the last one as a :prefix to complete
+  unless `q` ends in whitespace."
   [q]
   (let [q     (spaced q)
         terms (tokens q)]
@@ -122,34 +104,29 @@
       {:terms terms})))
 
 (defn- notes
-  "The show notes of `x` as plain text."
   [x]
   (some-> (resolve/description x) html/text))
 
 (defn- names
-  "The names credited on `item` of `feed`, or on the feed, as one string."
   [feed item]
   (str/join " " (map :name (if item (resolve/people feed item) (resolve/people feed)))))
 
 (defn- present
-  "The entries of `m` whose value is text or a sequence with something in it."
+  "The entries of `m` whose value isn't blank or empty."
   [m]
   (into {} (filter (fn [[_ v]] (if (string? v) (not (str/blank? v)) (seq v)))) m))
 
 (defn item-document
-  "The search document for `item` of `feed`: its identity as the player
-  knows it, the fields `:title`, `:show`, `:description`, `:people`,
-  `:keywords` and `:chapters`, and `:transcript` when `opts` carries one;
-  stored for results, the title, the show, the guid, when it was
-  published, how long it is and the url. A feed without a podcast:guid and
-  without `:url` has no identity to give its episodes, and throws. `opts`:
+  "The search document of `item` in `feed`, with the `opts` below.
 
-      {:url        \"https://…\"   ; where the feed was fetched, needed for the
-                                 ; identity of a feed without a podcast:guid
-       :chapters   doc           ; the chapters file fetched and parsed, else the
-                                 ; embedded chapters are used; chapters listed in
-                                 ; the notes are in :description already
-       :transcript doc}          ; the transcript fetched and parsed"
+  Its fields are :title, :show, :description, :people, :keywords,
+  :chapters and :transcript, and a result carries the title, show, guid,
+  publication date, duration and URL. The `opts` are:
+
+  - :url, where the feed was fetched, which a feed without a podcast:guid
+    needs, or it throws
+  - :chapters, the parsed chapters file, instead of the embedded ones
+  - :transcript, the parsed transcript"
   ([feed item]
    (item-document feed item {}))
   ([feed item {:keys [url chapters transcript] :as opts}]
@@ -178,10 +155,11 @@
                      :duration  (resolve/duration item)})})))
 
 (defn feed-document
-  "The search document for the show `feed` itself: its guid as the id, the
-  fields `:title`, `:description`, `:author`, `:people` and `:categories`,
-  and the title, author and url stored. `:url` in `opts` is where the feed
-  was fetched, needed for the identity of a feed without a podcast:guid."
+  "The search document of the show `feed` itself, by its guid, with the
+  :url in `opts` where the feed was fetched, for a feed without a
+  podcast:guid.
+
+  Its fields are :title, :description, :author, :people and :categories."
   ([feed]
    (feed-document feed {}))
   ([feed {:keys [url] :as opts}]
@@ -197,30 +175,29 @@
       :stored (into {} (filter (comp some? val)) {:title title :author author :url url})})))
 
 (def ^{:no-doc true :const true} span
-  "The block of positions each field of a document gets. A term's
-  positions are kept in one vector per document, each field's offset by
-  its number times this, so that two positions one apart are always in
-  the same field; a field longer than this is indexed up to it."
+  "The block of positions that each field of a document gets.
+
+  The positions of a term in a document are in one vector, each offset by
+  its field's number times this, so that two positions one apart are
+  always in the same field. A longer field is indexed up to this length."
   1000000)
 
 (declare add)
 
 (defn index
-  "An index over `docs`, or an empty one to `add` to. A map, a value like
-  everything else: `:docs` by id with what is stored, the length of each
-  field and the terms held; `:postings` from term to its positions in
-  every document that has it; `:terms` the same terms in order, for
-  prefixes; `:fields` with each field's number and the lengths BM25
-  normalizes by. Printed as EDN and read back, `:terms` is a hash set, and
-  prefixes are found by a scan of every term until `(update index :terms
-  #(into (sorted-set) %))` sorts it again."
+  "An index of `docs`, or an empty one to add to.
+
+  It's a plain map that prints as EDN. Read back from EDN, its :terms is a
+  hash set, so prefix search scans every term until you sort it again:
+
+      (update index :terms #(into (sorted-set) %))"
   ([]
    {:docs {} :postings {} :terms (sorted-set) :fields {}})
   ([docs]
    (reduce add (index) docs)))
 
 (defn remove
-  "`index` without the document `id`."
+  "The `index` without the document `id`."
   [index id]
   (if-let [{:keys [lengths terms]} (get-in index [:docs id])]
     (let [known    (:postings index)
@@ -246,8 +223,8 @@
     index))
 
 (defn- analyze
-  "The terms of a field value: a string analyzed, a vector taken as terms
-  analyzed already, and the strings of any other collection analyzed each."
+  "The terms of the field value `v`: a string tokenized, a vector taken as
+  terms already, or each string of any other collection tokenized."
   [v]
   (cond
     (string? v) (tokens v)
@@ -255,8 +232,8 @@
     :else       (into [] (mapcat tokens) v)))
 
 (defn- numbered
-  "The `fields` of an index with a number for every field of `analyzed`,
-  new ones numbered as they appear."
+  "The `fields` of an index with a number for each new field of
+  `analyzed`, in order of appearance."
   [fields analyzed]
   (reduce (fn [fields field]
             (if (contains? fields field)
@@ -265,8 +242,9 @@
           fields (keys analyzed)))
 
 (defn- positions
-  "Where each term occurs in the analyzed `fields`, by term: a position, or
-  a vector of them, each offset into the block of its field by `numbers`."
+  "The positions of each term in the `analyzed` fields, by term, as one
+  position or a vector of them, each offset into its field's block by the
+  field `numbers`."
   [numbers analyzed]
   (persistent!
    (reduce-kv (fn [acc field terms]
@@ -284,8 +262,8 @@
               (transient {}) analyzed)))
 
 (defn add
-  "`index` with the document `doc`, `{:id :fields :stored}`, added, in
-  place of an earlier one with the same id."
+  "The `index` with the document `doc`, a map of :id, :fields and :stored,
+  replacing any earlier one with the same id."
   [index {:keys [id fields stored] :as doc}]
   (when (nil? id)
     (throw (ex-info "A document needs an :id" {:document doc})))
@@ -318,8 +296,8 @@
                           fields analyzed)))))
 
 (def boosts
-  "How much a match in each field weighs for `query`: a word in a title
-  counts three times a word in the notes."
+  "How much a match in each field weighs in a query, e.g. a word in a
+  title counts three times a word in the notes."
   {:title 3 :show 2 :author 2 :people 2 :chapters 2 :keywords 2
    :categories 1 :description 1 :transcript 1})
 
@@ -339,12 +317,11 @@
   (Math/log (+ 1 (/ (+ (- total n) 0.5) (+ n 0.5)))))
 
 (defn- at-positions
-  "The positions a posting `at` holds, one or several."
   [at]
   (cond (nil? at) [] (vector? at) at :else [at]))
 
 (defn- field-counts
-  "How many positions the posting `at` holds in each field, by field
+  "The count of positions in each field of the posting `at`, by field
   number."
   [at]
   (if (vector? at)
@@ -356,10 +333,12 @@
     {(quot (long at) span) 1}))
 
 (defn- weighing
-  "What scoring against `index` needs of its fields, by field number: the
-  name, its boost by `boosts`, and BM25's `k1` and `b` folded with the
-  field's average length into the constants of the saturation
-  `tf (k1 + 1) / (tf + a + c length)`."
+  "The constants of each field of `index` for scoring with `boosts` and
+  the BM25 parameters `k1` and `b`, by field number.
+
+  Each has the field's name, its boost, and `k1`, `b` and the field's
+  average length folded into the constants of BM25's saturation,
+  tf (k1 + 1) / (tf + a + c length)."
   [index boosts k1 b]
   (let [k1 (double k1) b (double b)]
     (into {} (for [[name {:keys [no docs length]}] (:fields index)
@@ -371,9 +350,8 @@
                     :c     (/ (* k1 b) average)}]))))
 
 (defn- weight
-  "The boosted BM25 weight of a term occurring `counts` times by field
-  number in the document `id`, by `weighing`; a field boosted by zero
-  weighs nothing."
+  "The boosted BM25 weight of a term in the document `id` of `index`, with
+  the `counts` by field number, using the constants of `weighing`."
   ^double [index weighing id counts]
   (let [lengths (get-in index [:docs id :lengths])]
     (double (reduce-kv (fn [sum no tf]
@@ -389,9 +367,9 @@
                        0.0 counts))))
 
 (defn- expansions
-  "The index terms `term` stands for: itself, or every term it is a prefix
-  of when `prefix?`, from the sorted terms or, in an index read back from
-  EDN, by a scan of them."
+  "The terms of `index` that `term` matches: itself, or with `prefix?`,
+  every term that starts with it. An index read back from EDN has no sorted
+  terms, so it takes a scan."
   [index term prefix?]
   (let [terms (:terms index)]
     (cond
@@ -400,8 +378,9 @@
       :else           (filter #(str/starts-with? % term) terms))))
 
 (defn- term-scores
-  "The score of every document of `index` holding `term`, or when
-  `prefix?` any term it begins, each by the best such term: `{id score}`."
+  "The scores of the documents of `index` that hold `term`, as a map of id
+  to score, using the constants of `weighing`. With `prefix?`, a document
+  scores by its best term that starts with `term`."
   [index weighing term prefix?]
   (let [total (count (:docs index))]
     (persistent!
@@ -417,8 +396,8 @@
              (transient {}) (expansions index term prefix?)))))
 
 (defn- phrase-counts
-  "How often the `terms` occur in a row in the document `id`, by field
-  number."
+  "The number of times the `terms` occur in a row in the document `id`, by
+  field number, from the `postings` of an index."
   [postings terms id]
   (let [sets (map #(set (at-positions (get-in postings [% id]))) (rest terms))]
     (frequencies (for [start (at-positions (get-in postings [(first terms) id]))
@@ -427,8 +406,8 @@
                    (quot start span)))))
 
 (defn- phrase-scores
-  "The score of every document of `index` where the `terms` occur in a
-  row: `{id score}`."
+  "The scores of the documents of `index` where the `terms` occur in a
+  row, as a map of id to score, using the constants of `weighing`."
   [index weighing terms]
   (let [postings (:postings index)
         total    (count (:docs index))
@@ -443,11 +422,12 @@
                [id score]))))
 
 (defn- clauses
-  "The clauses of the query `q`: `{:term t}` for a word, with `:prefix?
-  true` on the last when `prefix?`, it is at least `min-prefix` long and
-  the query does not end in whitespace or a quote; `{:phrase [...]}` for
-  words in quotes or joined by punctuation, as in \"2.0\". A query given as
-  a vector is terms already analyzed."
+  "The clauses of the query `q`, a string or a vector of terms, with the
+  last word as a prefix if `prefix?` and at least `min-prefix` long.
+
+  A word is a map with its :term, and :prefix? when it's a prefix. Words in
+  quotes or joined by punctuation, e.g. \"2.0\", are one map with them as
+  its :phrase. A query that ends in whitespace or a quote has no prefix."
   [q prefix? min-prefix]
   (if (string? q)
     (let [clauses (vec (for [[_ quoted word] (re-seq #"\"([^\"]*)\"|(\S+)" q)
@@ -464,7 +444,6 @@
     (mapv #(hash-map :term %) q)))
 
 (defn- clause-scores
-  "The score of every document of `index` matching `clause`: `{id score}`."
   [index weighing {:keys [term prefix? phrase]}]
   (if phrase
     (phrase-scores index weighing phrase)
@@ -472,7 +451,7 @@
 
 (defn- matching
   "The ids in every one of the `scored` clause maps, or in any of them
-  when `match` is `:any`."
+  when `match` is :any."
   [scored match]
   (case match
     :all (let [[smallest & others] (sort-by count scored)]
@@ -480,11 +459,12 @@
     :any (into [] (distinct) (mapcat keys scored))))
 
 (defn- better
-  "Whether the result `a` ranks before `b`: the higher score, then the id
-  when both are numbers, else the hash of the id and finally the id
-  printed, so that the order is total and stable, and the same on both
-  platforms, whose hashes of a number differ. BM25 ties are common, so
-  this must stay cheap."
+  "A comparator of the results `a` and `b`: the higher score first, then
+  the lower id.
+
+  Ids that aren't both numbers compare by hash and then as strings, so
+  that the order is total and the same on both platforms, which hash
+  numbers differently. BM25 ties are common, so this must stay cheap."
   [a b]
   (let [sa (double (:score a)) sb (double (:score b))]
     (cond (> sa sb) -1
@@ -496,12 +476,12 @@
                             :else     (compare (str (:id a)) (str (:id b))))))))
 
 (defn- best
-  "`results` in the order of the comparator `before`, at most `n` of them
-  when `n` is given. When `n` is small next to the results, the best so
-  far are kept as a small sorted vector, so that a candidate below the
-  worst of them costs one comparison, which is what nearly every candidate
-  does; otherwise, as for `n` beyond the square root of their number, all
-  are sorted."
+  "The `results` sorted by the comparator `before`, at most `n` of them if
+  `n` is given.
+
+  For a small `n`, the best so far are kept in a small sorted vector, so
+  that most candidates cost one comparison with its worst. For an `n`
+  beyond the square root of the number of results, all are sorted."
   [before n results]
   (cond
     (and n (<= n 0)) []
@@ -520,27 +500,23 @@
                       [] results)))
 
 (defn query
-  "The documents of `index` matching the query `q`, best first, as
-  `{:id :score :stored}`. Every word must occur, the last as a prefix
-  unless `q` ends in whitespace, words in quotes in a row. `opts`:
+  "The documents of `index` that match the query `q`, best first, as maps
+  of :id, :score and :stored, with the `opts` below.
 
-      {:limit      10              ; at most this many results
-       :match      :any            ; documents matching any word, not all of them
-       :prefix?    false           ; the last word taken whole
-       :min-prefix 3               ; the last word a prefix only from this many
-                                   ; characters (default 1)
-       :boosts     {:title 5 ...}  ; field weights, default `boosts`; a field
-                                   ; boosted by 0 does not match at all
-       :k1 1.2 :b 0.75             ; BM25's saturation and length normalization
-       :where      pred            ; keep the results this predicate accepts,
-                                   ; each `{:id :score :stored}`
-       :rank       f}              ; order the results by this function of each
-                                   ; instead of by score, ascending
+  Every word must occur, the last as a prefix unless `q` ends in
+  whitespace, and words in quotes in a row. The `opts` are:
 
-  Without `:rank`, equal scores are ordered by the id, so that the order
-  is stable; `(fn [r] [(- (:score r)) (- (or (some-> r :stored :published inst-ms) 0))])`
-  ranks by score and then puts the newest first. The white space of a
-  query is the same on both platforms, no-break spaces included."
+  - :limit, the most results
+  - :match, :any for documents that match any word instead of all
+  - :prefix?, false to take the last word whole, and :min-prefix, the
+    fewest characters for a prefix, 1 by default
+  - :boosts, the field weights over boosts, where 0 leaves a field out
+  - :k1 and :b, the saturation and length normalisation of BM25
+  - :where, a predicate of a result to keep it
+  - :rank, a function of a result to order by, ascending, instead of the
+    score
+
+  Without :rank, equal scores are ordered by id, so the order is stable."
   ([index q]
    (query index q {}))
   ([index q {:keys [limit match prefix? min-prefix where rank]
@@ -559,11 +535,12 @@
                                  (matching scored match))))))
 
 (defn snippet
-  "A window of `text` around the first words matching the query `q`, the
-  matches marked: a vector of `{:text}` parts with `:match? true` on the
-  words found and an ellipsis where the window cuts the text, for a
-  result list to render. `:width` in `opts` is the number of characters
-  shown (default 160), more when the first match is longer."
+  "A window of `text` around the first words that match the query `q`, as
+  parts for a result list to render, with the :width in `opts`.
+
+  It's a vector of maps with :text, and :match? on the matches, with an
+  ellipsis where the window cuts the text. The :width is the number of
+  characters shown, 160 by default."
   ([text q]
    (snippet text q {}))
   ([text q {:keys [width] :or {width 160} :as opts}]
@@ -594,38 +571,35 @@
        (< to length) (conj {:text "…"})))))
 
 (defn- in?
-  "Whether `actual` is `expected`, or one of them when `expected` is a set."
   [expected actual]
   (if (set? expected) (contains? expected actual) (= expected actual)))
 
 (defn- within?
-  "Whether `x` lies in `[lo hi]`, either end open when nil; false when
-  there is no `x`."
+  "Whether `x` is in the range from `lo` to `hi`, where a nil end is open.
+  A nil `x` is in no range."
   [[lo hi] x]
   (boolean (and (some? x)
                 (or (nil? lo) (<= lo x))
                 (or (nil? hi) (<= x hi)))))
 
 (defn- url-of
-  "The url of `feed` in the context `ctx`: the `:url` given, or what the
-  function given returns for the feed."
   [{:keys [url]} feed]
   (if (fn? url) (url feed) url))
 
 (defn ^:no-doc episode-id
-  "The id of `item` of `feed` in the player state, by the context `ctx`."
+  "The player id of `item` in `feed`, with the feed URL from `ctx`."
   [ctx feed item]
   (player/episode-id feed (url-of ctx feed) item))
 
 (defn ^:no-doc entry
-  "What the player state in `ctx` knows about `item` of `feed`."
+  "The player entry of `item` in `feed`, from the player state in `ctx`."
   [ctx feed item]
   (player/episode (:player ctx) (episode-id ctx feed item)))
 
 (defn- status
-  "Whether the episode with the player `entry` is `:unplayed`,
-  `:in-progress` or `:played`."
-  [{:keys [position played?]}]
+  "The status of the episode with the player entry `e`: :unplayed,
+  :in-progress or :played."
+  [{:keys [position played?] :as e}]
   (cond played?                                  :played
         (and (number? position) (pos? position)) :in-progress
         :else                                    :unplayed))
@@ -638,16 +612,16 @@
                (resolve/inferred-chapters item))))
 
 (defn- mentions?
-  "Whether the set of terms `present` holds every word of the query
-  `words`, the last as a prefix."
-  [{:keys [terms prefix]} present]
+  "Whether the set of terms `present` holds every term of the `parsed`
+  query, as words gives it, and a term that starts with its prefix."
+  [{:keys [terms prefix] :as parsed} present]
   (boolean (and (every? present terms)
                 (or (nil? prefix) (some #(str/starts-with? % prefix) present)))))
 
 (defn- mentioned
   "The predicate of the criterion :text for `v`, a query or a set of
-  queries. It tells whether the title or the notes of an item hold one of
-  the queries."
+  queries, which is true when the title or notes of an item match any of
+  them."
   [v]
   (let [queries (mapv words (if (set? v) v [v]))]
     (fn [_ item]
@@ -655,8 +629,8 @@
         (boolean (some #(mentions? % present) queries))))))
 
 (defn- age
-  "The seconds between the publication of `item` and the instant `at`. 0
-  for an item with a later date, and nil for an item without a date."
+  "The seconds from the publication of `item` to `at`, at least 0, or nil
+  when the item has no date."
   [item at]
   (when-let [published (resolve/published item)]
     (max 0 (/ (- (inst-ms at) (inst-ms published)) 1000.0))))
@@ -673,8 +647,8 @@
 (declare where)
 
 (def ^:no-doc criterion
-  "The test behind each criterion of `where`: a function of the value given
-  and the context, returning a predicate of a feed and an item."
+  "The test of each criterion of where, a function of the criterion's
+  value and the context that returns a predicate of a feed and an item."
   {:season      (fn [v _] (fn [_ item] (in? v (:season (resolve/numbering item)))))
    :type        (fn [v _] (fn [_ item] (in? v (:type (resolve/numbering item)))))
    :duration    (fn [v _] (fn [_ item] (within? v (resolve/duration item))))
@@ -705,44 +679,31 @@
    (fn [v ctx] (fn [feed item] (= (boolean v) (since-subscription? ctx feed item))))})
 
 (defn where
-  "The predicate of a feed and one of its items for `criteria`. Each entry
-  of the map must hold:
+  "The predicate of a feed and one of its items for `criteria` in the
+  context `ctx`. The criteria are a map whose entries must all hold:
 
-      {:season      2                      ; or a set of seasons; see resolve/numbering
-       :type        \"full\"                 ; \"full\", \"trailer\" or \"bonus\", or a set
-       :duration    [600 3600]              ; seconds, either end nil for open
-       :published   [#inst \"2026-01-01\" nil]
-       :age         [nil 604800]            ; seconds since it came out, either end
-                                           ; nil for open; 0 for a later date
-       :transcript? true                    ; has a transcript; false for has none
-       :chapters?   true                    ; linked, embedded or listed in the notes
-       :explicit?   false                   ; the item's flag, else the feed's
-       :person      \"Adam\"                 ; someone credited, matched folded
-       :text        \"value for\"            ; every word in the title or notes, the
-                                           ; last as a prefix; or a set of such
-                                           ; texts, for an item with one of them
-       :not         {:text #{\"rerun\"}}     ; criteria that the item does not meet
-       :status      :unplayed               ; :unplayed, :in-progress or :played, or a set
-       :starred?    true                    ; starred; false for not starred
-       :inbox?      true                    ; in the inbox; false for not
-       :rating      [4 nil]                 ; the rating of the listener, either end
-                                           ; nil for open; an episode with no rating
-                                           ; is in no range
-       :since-subscription? true}           ; came out after the listener subscribed
+  - :season, a season or a set of them, as resolve/numbering gives it
+  - :type, \"full\", \"trailer\" or \"bonus\", or a set of them
+  - :duration, a range of seconds, e.g. [600 nil], nil for an open end
+  - :published, a range of instants
+  - :age, a range of seconds since it came out, e.g. [nil 604800]
+  - :transcript?, :chapters? and :explicit?, where chapters count when
+    linked, embedded or listed in the notes
+  - :person, someone credited
+  - :text, words that must all be in the title or notes, the last as a
+    prefix, or a set of such texts, any of which matches
+  - :not, criteria that the item doesn't meet, e.g. {:text #{\"rerun\"}}
+  - :status, :unplayed, :in-progress or :played, or a set of them
+  - :starred? and :inbox?
+  - :rating, a range of the listener's ratings, which no unrated episode
+    is in
+  - :since-subscription?, whether it came out after the listener
+    subscribed
 
-  `:status`, `:starred?`, `:inbox?`, `:rating` and `:since-subscription?`
-  need the player state under `:player` in `ctx`. For feeds that declare
-  no podcast:guid, they also need `:url`, a string or a function of the
-  feed. The player names the episodes of such a feed by its URL. An empty
-  map takes each item.
-
-  `:age` needs the instant of now under `:at` in `ctx`, because nothing
-  here reads a clock. It is for a saved filter, where the dates of
-  `:published` get old.
-
-  With `:scale` in `ctx`, the range of `:rating` is in that scale, and
-  each rating is read in it, as `player/rating` does. Without it, each
-  rating is the number that the state has."
+  An empty map takes every item. The criteria about the listener need the
+  player state as :player in `ctx`, and for feeds without a podcast:guid,
+  the :url, a string or a function of the feed. The :age needs the current
+  time as :at, and with :scale, the :rating is in that scale."
   ([criteria]
    (where criteria {}))
   ([criteria ctx]
@@ -760,7 +721,7 @@
          (every? #(% feed item) tests))))))
 
 (def orders
-  "The orders `order` knows, for a UI to offer."
+  "The orders that order takes, for a UI to offer."
   #{:listening :newest :oldest :shortest :longest :title :recent})
 
 (defn- published-ms
@@ -768,20 +729,25 @@
   (some-> (resolve/published item) inst-ms))
 
 (defn- last-heard-ms
-  "When the listener last touched `item` of `feed`, by the player state in
-  `ctx`."
+  "When the listener last touched `item` of `feed`, in milliseconds, from
+  the player state in `ctx`."
   [ctx feed item]
   (let [{:keys [played-at updated-at]} (entry ctx feed item)]
     (some-> (or played-at updated-at) inst-ms)))
 
 (defn order
-  "The sort key of a feed and one of its items for the order `k`, for
-  `sort-by`: `:listening` as `resolve/episodes` orders a show, `:newest`
-  and `:oldest` by publication, `:shortest` and `:longest` by duration,
-  `:title` alphabetically, folded, and `:recent` by when the listener
-  last touched the episode, which needs `:player` in `ctx` like `where`.
-  Items missing the property sort last. A function of a feed and an item
-  is taken as the key itself."
+  "The sort key of a feed and one of its items for the order `k` and the
+  context `ctx`, for sort-by, or `k` itself when it's a function of a feed
+  and an item.
+
+  - :listening, as resolve/episodes orders a show
+  - :newest and :oldest, by publication
+  - :shortest and :longest, by duration
+  - :title, alphabetically
+  - :recent, by when the listener last touched the episode, which needs
+    :player in `ctx`
+
+  Items without the property sort last."
   ([k]
    (order k {}))
   ([k ctx]
@@ -800,35 +766,23 @@
        (throw (ex-info (str "An order the library does not know: " k) {:order k}))))))
 
 (defn ^:no-doc sorted-by
-  "The items of `coll` in the order of `(sort-by f coll)`, with one call
-  of `f` for each item. `sort-by` calls `f` twice for each comparison."
+  "The items of `coll` sorted by `f` as sort-by sorts them, but with one
+  call of `f` per item rather than two per comparison."
   [f coll]
   (map second (sort-by first (map (juxt f identity) coll))))
 
 (defn episodes
-  "The items of `feed` that `opts` selects, in the order it asks for:
+  "The items of `feed` that `opts` select, in the order they ask for:
 
-      {:where  {:season 2 :status :unplayed}   ; criteria, see `where`; default all
-       :order  :newest                          ; see `order`; default :listening
-       :limit  20                               ; at most this many
-       :player state                            ; the context `where` and `order` need
-       :url    url
-       :at     #inst \"2026-09-29\"               ; now, for the criterion :age
-       :scale  {:worst 1 :best 100}}            ; the scale of the criterion :rating
+  - :where, criteria as where takes them, or else every item
+  - :order, as order takes it, :listening by default
+  - :limit, the most items
+  - :player, :url, :at and :scale, the context that where and order need
 
-  A saved filter that keeps the `:scale` with its criteria reads the same
-  in an app with another scale of ratings.
-
-  Given a collection of feeds instead, the selection runs over all of
-  them and comes back as `[feed item]` pairs in one order, the inbox of
-  an app; `:url` is then a function of the feed. The listening order is
-  that of one show, so across shows each keeps its episodes together, in
-  the order the feeds are given.
-
-  With a `:limit` and an order of `orders`, the criteria read the items in
-  that order, and no more items than the limit needs. So a criterion that
-  reads the notes of an item, as `:text` does, reads those of a few
-  items."
+  For a collection of feeds, the result is [feed item] pairs in one order,
+  e.g. for an inbox, with :url as a function of the feed. With a :limit
+  and one of the orders, the criteria only read as many items as the
+  limit needs."
   ([feed]
    (episodes feed {}))
   ([feed {:keys [limit] :as opts}]
@@ -854,9 +808,8 @@
      (vec (if (map? feed) (map second pairs) (map vec pairs))))))
 
 (defn- where-problem
-  "What in the criteria `where` of the place `place` this version of
-  podcast-clj does not know, described. The criteria under :not are
-  criteria too."
+  "A description of what this version of podcast-clj doesn't know in the
+  criteria `where` at `place`, including those under :not."
   [where place]
   (let [unknown (when (map? where) (filter #(not (contains? criterion %)) (keys where)))]
     (cond
@@ -866,13 +819,12 @@
       :else              (where-problem (:not where) :not))))
 
 (defn problem
-  "What in `criteria`, the options of `episodes` as a saved filter has them,
-  this version of podcast-clj does not know, described. Nil when it knows
-  all of them.
+  "A description of what in the saved filter `criteria` this version of
+  podcast-clj doesn't know, or nil.
 
-  A saved filter comes from a device of the listener, and that device can
-  have a later version of podcast-clj. `episodes` throws for criteria that
-  it does not know. So an app asks here before it offers such a filter."
+  A saved filter can come from a device with a later version, and
+  episodes throws for criteria that it doesn't know, so check here before
+  offering the filter."
   [criteria]
   (let [{:keys [where order limit scale]} (when (map? criteria) criteria)
         in-where (where-problem where :where)]
