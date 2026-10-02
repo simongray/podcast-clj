@@ -2,9 +2,7 @@
 
 This page explains how each part of podcast-clj is built.
 [Principles](principles.md) sums up what guides its design, and
-[Syncing](sync.md) explains the sync between devices. The
-[survey](podcasting-2.0-clojure-survey.md) from September 2026 describes the
-ecosystem that podcast-clj was written for.
+[Syncing](sync.md) explains the sync between devices.
 
 
 ## Layers

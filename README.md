@@ -141,10 +141,11 @@ Understand:
 - [Principles](doc/principles.md): what guides the design of podcast-clj.
 - [Architecture](doc/architecture.md): how each part of podcast-clj is built.
 - [Syncing](doc/sync.md): why the sync between devices is safe.
-- [Podcasting 2.0 and Clojure](doc/podcasting-2.0-clojure-survey.md): the survey of the ecosystem that came
-  before podcast-clj (September 2026).
-- [Podcast features outside podcast-clj](doc/feature-gaps.md): what apps, hosts,
-  and other libraries have + the status of each feature in this library.
+
+Background:
+
+- [Podcasting and Clojure, September 2026](doc/podcasting-and-clojure-2026.md):
+  the ecosystem that podcast-clj was built for, and how its features compared.
 
 
 Development
@@ -175,6 +176,22 @@ and it has a small player that syncs. To start it on http://localhost:8300/:
 clojure -M:cljs compile player  # once: the browser player
 clojure -M:web
 ```
+
+
+Not built yet
+-------------
+
+- The Open Podcast API, whose spec for episodes is still a draft.
+- Stores over the HTTP APIs of cloud services. Each would be a short
+  namespace against the store contract.
+- A JSON form of the sync documents, for clients in other languages.
+- A lenient XML parser for JavaScript.
+- A folder store for Node.
+- The extensions of Nostr Wallet Connect other than keysend: notifications,
+  hold invoices, payment history and BOLT 12 offers.
+
+NIP-04 encryption for wallets without NIP-44 is left out on purpose, since
+NIP-04 is deprecated and can't detect a changed message.
 
 
 License
