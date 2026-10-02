@@ -1,31 +1,34 @@
 (ns dk.simongray.podcast.updates.podping
-  "Podping: word that a feed has changed, written to the Hive blockchain by
-  the hosts and read by anyone, so that a client fetches the feed that
+  "Podping: word that a feed has changed, which hosts write to the Hive
+  blockchain and anyone can read. A client then fetches the feed that
   changed instead of polling every feed on a schedule.
 
   A consumer reads blocks from any Hive API node and picks out the
-  custom_json operations the podping writers post. `request` builds the
-  JSON-RPC calls as request maps for `dk.simongray.podcast.util.http/call!` or
-  any client that sends a POST, and `pings` reads the notifications out of
-  the blocks answered:
+  custom_json operations that the podping writers post. The request
+  function builds the JSON-RPC calls as request maps that
+  dk.simongray.podcast.util.http/call! or any client can send as a POST.
+  The pings function reads the notifications out of the blocks in an
+  answer:
 
       {:block 110254833 :timestamp #inst \"2026-09-26T16:44:57Z\"
        :account \"podping.eee\" :id \"pp_podcast_update\" :version \"1.1\"
        :medium \"podcast\" :reason \"update\"
        :iris [\"https://media.rss.com/…/feed.xml\"]}
 
-  Anyone can write a custom_json, so `writers` reads which accounts may
-  write podpings: the ones the `podping` account follows on the chain,
-  which is how the project publishes its writers. `pinged?` says whether
-  a ping concerns a feed URL, the URLs compared as podcast:guid compares
-  them. `poll!` is the poller's one step: the pings in the blocks since
-  the last one read, a hundred blocks to a request, verified, with where
-  to continue from; on the JVM it sends the requests itself, trying the
-  public nodes in turn, and in ClojureScript `call!` sends one with fetch,
-  which the nodes allow from any origin.
+  Anyone can write a custom_json, so writers reads which accounts may
+  write podpings. They're the ones that the podping account follows on
+  the chain, which is how the project publishes its writers. The pinged?
+  function says whether a ping concerns the URL of a feed, with the URLs
+  compared as podcast:guid compares them.
 
-  A host announces a change through podping.cloud; `notify-request` builds
-  that call with the token the host was given."
+  The poll! function is the one step of a poller. It reads the pings in
+  the blocks since the last one read, a hundred blocks to a request,
+  verifies them, and says where to continue from. On the JVM it sends the
+  requests itself, trying the public nodes in turn. In ClojureScript,
+  call! sends one with fetch, which the nodes allow from any origin.
+
+  A host announces a change through podping.cloud, and notify-request
+  builds that call with the token that the host was given."
   (:require [clojure.string :as str]
             #?@(:clj [[dk.simongray.podcast.diagnostics :as diagnostics]
                       [dk.simongray.podcast.util.async :as async]])
@@ -41,21 +44,23 @@
 
 (def gateway
   "The URL of podping.cloud, the service that writes a podping for a host.
-  `notify-request` sends to it, unless its options give another service as
-  `:gateway`."
+  The notify-request function sends to it, unless its options give
+  another service as :gateway."
   "https://podping.cloud/")
 
 (def calls
-  "What a consumer asks a node: `:head-block` for the newest block and the
-  last irreversible one; `:blocks` with `:from` and `:count` for a run of
-  blocks with their operations, a hundred answering in about a second;
-  `:operations` with `:block` for one block's operations; `:following` for
-  the accounts podping follows, its writers."
+  "The calls that a consumer makes to a node:
+
+  - :head-block, for the newest block and the last irreversible one
+  - :blocks, with :from and :count, for a run of blocks with their
+    operations, of which a hundred answer in about a second
+  - :operations, with :block, for the operations of one block
+  - :following, for the accounts that podping follows, its writers"
   #{:head-block :blocks :operations :following})
 
 (defn request
-  "The JSON-RPC request map for `call`, one of `calls`, with `params`, sent
-  to the `:node` in `opts` (default the first of `nodes`)."
+  "The JSON-RPC request map for `call`, one of calls, with `params`, sent
+  to the :node of `opts`, or else the first of nodes."
   ([call params]
    (request call params {}))
   ([call params {:keys [node] :or {node (first nodes)} :as opts}]
@@ -73,7 +78,7 @@
       :body    (json/write-str {"jsonrpc" "2.0" "method" method "params" rpc-params "id" 1})})))
 
 (defn ^:no-doc result
-  "The result in the JSON-RPC `body`: a body that is not JSON, or a node
+  "The result in the JSON-RPC `body`. A body that isn't JSON, or a node
   that answers with an error, throws."
   [body]
   (let [raw (json/object body)]
@@ -90,9 +95,9 @@
       (get raw "result"))))
 
 (defn head-block
-  "The chain's position in the body of a `:head-block` answer: `{:block n
-  :irreversible n :time inst}`, the block a fork can no longer take back
-  being some seconds behind the head."
+  "The position of the chain in `body`, the answer to a :head-block call,
+  as a map of :block, :irreversible and :time. The irreversible block,
+  which a fork can no longer take back, is some seconds behind the head."
   [body]
   (let [r (result body)]
     {:block        (get r "head_block_number")
@@ -104,23 +109,27 @@
   (and (string? id) (or (= "podping" id) (str/starts-with? id "pp_"))))
 
 (defn- reason-of
-  "The reason a ping gives, in today's words: the first versions said
+  "The `reason` of a ping in today's words: the first versions said
   feed_update for update."
   [reason]
   (case reason "feed_update" "update" reason))
 
 (defn- operation
-  "The kind and value of the operation `op`, as condenser_api writes it,
-  `[kind value]`, or as block_api does, `{\"type\" \"…_operation\" \"value\" …}`."
+  "The kind and the value of the operation `op`, as a pair. The `op` is a
+  pair already as condenser_api writes it, or a map of a type and a value
+  as block_api does."
   [op]
   (if (map? op)
     [(str/replace (str (get op "type")) #"_operation$" "") (get op "value")]
     op))
 
 (defn ^:no-doc ping
-  "The podping in the operation `op` of `block` at `timestamp`, nil when it
-  holds none: a custom_json with a podping id and iris (urls in the first
-  versions), its medium and reason from the payload or else from the id."
+  "The podping in the operation `op` of `block` at `timestamp`, or nil
+  when it holds none.
+
+  A podping is a custom_json with a podping id and iris, which were urls
+  in the first versions. Its medium and reason come from the payload, or
+  else from the id."
   [block timestamp op]
   (let [[kind {:strs [id json required_posting_auths]}] (operation op)]
     (when (and (= "custom_json" kind) (podping-id? id))
@@ -139,7 +148,8 @@
            :iris      (vec iris)})))))
 
 (defn- block-number
-  "The number of a block, the first eight hex digits of its id."
+  "The number of the block whose id is `block-id`: the first eight hex
+  digits of the id."
   [block-id]
   #?(:clj  (Long/parseLong (subs block-id 0 8) 16)
      :cljs (js/parseInt (subs block-id 0 8) 16)))
@@ -156,8 +166,8 @@
     p))
 
 (defn pings
-  "The podpings in the body of a `:blocks` or an `:operations` answer, in
-  the order of the chain."
+  "The podpings in `body`, the answer to a :blocks or an :operations call,
+  in the order of the chain."
   [body]
   (let [r (result body)]
     (vec (if (map? r)
@@ -165,37 +175,39 @@
            (keep (fn [{:strs [block timestamp op]}] (ping block timestamp op)) r)))))
 
 (defn writers
-  "The accounts that may write podpings, from the body of a `:following`
-  answer: the ones the `podping` account follows, which is how the project
-  publishes its writers, and `podping` itself."
+  "The accounts that may write podpings, from `body`, the answer to a
+  :following call. They're podping itself and the accounts it follows,
+  which is how the project publishes its writers."
   [body]
   (into #{"podping"} (map #(get % "following")) (result body)))
 
 (defn pinged?
-  "Whether `ping` concerns the feed at `url`, the URLs compared as
-  podcast:guid compares them, so that the scheme and a trailing slash do
-  not tell them apart."
+  "Whether `ping` concerns the feed at `url`, with the URLs compared as
+  podcast:guid compares them, so the scheme and a trailing slash don't
+  tell them apart."
   [ping url]
   (let [g (guid/from-url url)]
     (boolean (some #(= g (guid/from-url %)) (:iris ping)))))
 
 (defn affected
-  "The URLs among `urls` that any of `pings` concerns, in the order given,
-  each URL's podcast:guid computed once, not again for every ping."
+  "The URLs among `urls` that any of `pings` concerns, in the order given.
+  The podcast:guid of each URL is computed once, not again for every ping."
   [pings urls]
   (let [pinged (into #{} (comp (mapcat :iris) (map guid/from-url)) pings)]
     (filterv #(contains? pinged (guid/from-url %)) urls)))
 
 (defn notify-request
-  "The call that a host makes to announce that the feed at `url` changed,
-  with the `token` that the service gave the host. The token can be a
-  hidden text of `dk.simongray.podcast.util.secret`. The request has the token
-  in a header, as a hidden text.
+  "The call that a host makes with `opts` to announce that the feed at
+  `url` changed, with the `token` that the service gave the host.
 
-  `opts` give the `:medium` (default \"podcast\") and the `:reason`:
-  \"update\", \"live\" or \"liveEnd\" (default \"update\"). The call goes to
-  `gateway`, or to the `:gateway` of `opts`, the URL of another service
-  that takes the same call."
+  The token can be a hidden text of dk.simongray.podcast.util.secret, and
+  the request has it in a header as a hidden text. The `opts` are these:
+
+  - :medium, \"podcast\" by default
+  - :reason, which is \"update\", \"live\" or \"liveEnd\", \"update\" by
+    default
+  - :gateway, the URL of another service that takes the same call, in
+    place of gateway"
   ([token url]
    (notify-request token url {}))
   ([token url {:keys [medium reason] :or {medium "podcast" reason "update"} :as opts}]
@@ -208,17 +220,22 @@
       :headers {"Authorization" (secret/hide token) "User-Agent" http/user-agent}})))
 
 (defn call!
-  "Send `call` with `params` as `opts` say, and return the body, for
-  `head-block`, `pings` or `writers` to read.
+  "Send `call` with `params` as `opts` say, and give the body, for
+  head-block, pings or writers to read.
 
-  On the JVM, the library's HTTP client tries the `:nodes` in `opts`
-  (default `nodes`), or the one `:node`, in turn until one answers, each
-  given `:timeout-seconds` (default 10); an exception, a status other than
-  200, or an answer that is not JSON or holds a JSON-RPC error, which
-  proxies send with a 200, is that node's failure, and when every node
-  fails, the exception names them all. In ClojureScript, the platform's
-  `fetch` sends it to the node in `opts`, which the public nodes allow from
-  any origin, and a js/Promise of the body comes back."
+  On the JVM, the HTTP client of podcast-clj tries each node in turn until
+  one answers. The `opts` are these:
+
+  - :nodes, the nodes to try, nodes by default
+  - :node, the one node to try
+  - :timeout-seconds, the time that each node gets, 10 by default
+
+  A node fails on an exception, a status other than 200, or an answer
+  that isn't JSON or holds a JSON-RPC error, which proxies send with a
+  200. When every node fails, the exception names them all.
+
+  In ClojureScript, fetch sends it to the :node of `opts`, which the
+  public nodes allow from any origin, and the body comes in a promise."
   [call params opts]
   {:pre [(map? opts)]}
   #?(:clj
@@ -249,9 +266,9 @@
 
 #?(:clj
    (defn ^:no-doc attempted
-     "What `(f)` gives, a reading of the answer to a call. When it throws,
-     the result is `{:error diagnostic}`, and the diagnostic is
-     `:podping/unavailable`."
+     "What `f` gives when called, a reading of the answer to a call. When
+     it throws, the result has a :podping/unavailable diagnostic under
+     :error."
      [f]
      (try
        (f)
@@ -262,9 +279,9 @@
 
 #?(:clj
    (defn- read-chunk!
-     "The podpings in the blocks `chunk`, numbers in a row, that one request
-     gets: `{:pings :through}`. `:through` is the last block before the
-     first block that the node left out of its answer."
+     "Read the podpings in the blocks `chunk`, numbered in a row, with one
+     request by `opts`. It gives the :pings and :through, the last block
+     before the first one that the answer left out."
      [chunk opts]
      (let [blocks  (get (result (call! :blocks {:from (first chunk) :count (count chunk)} opts)) "blocks")
            numbers (set (map #(block-number (get % "block_id")) blocks))
@@ -274,14 +291,14 @@
 
 #?(:clj
    (defn- read-blocks!
-     "The podpings in the blocks `start` to `end`, and the last block read:
-     `{:pings :block}`. A request gets 100 blocks, since 100 blocks answer
-     in a second and 1000 blocks in 40 seconds.
+     "Read the podpings in the blocks `start` to `end` with `opts`. It
+     gives a map of the :pings and the last :block read.
 
-     A node that leaves blocks out of its answer ends the reading before
-     the first block that it left out. So the next step asks for them
-     again, and no ping comes twice. A call that fails ends the reading
-     too, and the result has the `:error` of it."
+     A request gets 100 blocks, since 100 blocks answer in a second and
+     1000 blocks in 40 seconds. A node that leaves blocks out of its answer
+     ends the reading before the first block that it left out. So the next
+     step asks for them again, and no ping comes twice. A call that fails
+     ends the reading too, and the result has its :error."
      [start end opts]
      (loop [chunks (partition-all 100 (range start (inc end)))
             found  []
@@ -297,35 +314,34 @@
 
 #?(:clj
    (defn poll!
-     "The podpings that came after the block `from`, up to the head of the
-     chain. This is the one step that a poller repeats:
+     "Poll the chain for the podpings after the block `from`, up to its
+     head, with `opts`. This is the one step that a poller repeats, and it
+     gives a map of these:
 
-         {:pings   [...]                 ; from the writers that podping follows, in chain order
-          :refused [...]                 ; from each other account
-          :block   110254840             ; the last block read, the `from` of the next step
-          :writers #{\"podping.eee\" …}   ; the writers, to give back in `opts`
-          :error   {…}}                  ; when no node answered a call
+     - :pings, from the writers that podping follows, in chain order
+     - :refused, the pings of each other account
+     - :block, the last block read, which is `from` for the next step
+     - :writers, to give back in `opts`
+     - :error, when no node answered a call
 
-     With `from` nil, the step starts at the head. `opts` can give these:
+     With `from` nil, the step starts at the head. The `opts` are these:
 
-     - `:max-blocks`, the most blocks that one step reads (default 100,
-       five minutes of the chain). A poller that is behind reads on from
-       `:block`.
-     - `:up-to`, which is `:head` (the default) or `:irreversible`, the
-       last block that a fork cannot take back
-     - `:writers` from the last step, so that the step does not read them
-       again
-     - `:verify?` false, to keep each ping, whatever account wrote it
-     - `:nodes`, `:node` and `:timeout-seconds`, as `call!` takes them
+     - :max-blocks, the most blocks that one step reads, 100 by default,
+       which is five minutes of the chain. A poller that's behind reads on
+       from :block.
+     - :up-to, which is :head by default, or :irreversible, the last block
+       that a fork can't take back
+     - :writers from the last step, so the step doesn't read them again
+     - :verify? false, to keep each ping, whatever account wrote it
+     - :nodes, :node and :timeout-seconds, as call! takes them
 
-     `:block` is the last block that a node answered with. So the next
+     The :block is the last block that a node answered with, so the next
      step reads a block that an answer left out.
 
-     `poll!` throws nothing for what a node or the network does. When no
-     node answers a call, the result has the diagnostic
-     `:podping/unavailable` as its `:error`. It has the pings of the
-     blocks that the step read before that call, and `:block` names the
-     last of those blocks."
+     Nothing that a node or the network does throws. When no node answers
+     a call, the :error is a :podping/unavailable diagnostic. The result
+     has the pings of the blocks that the step read before that call, and
+     :block names the last of those blocks."
      ([from]
       (poll! from {}))
      ([from {:keys [max-blocks verify? up-to] :or {max-blocks 100 verify? true up-to :head} :as opts}]

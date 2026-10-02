@@ -62,9 +62,9 @@
     (diagnostics/describe {:id :fetch/unreachable :url url :status status})))
 
 (defn- known-show!
-  "The remote `item` with its :show from the Podcast Index, asked with
-  `opts`, in a future or a promise. Without an answer, it's the item as it
-  is."
+  "Ask the Podcast Index with `opts` for the :show of the remote `item`,
+  and give the item with it, in a future or a promise. Without an answer,
+  it's the item as it is."
   [item {:keys [index send now] :as opts}]
   (let [requests (podcastindex/remote-item-requests index item {:auth-date (quot (inst-ms (now)) 1000)})]
     (async/then (async/all (map #(http/sent! send % opts) requests))
@@ -77,10 +77,10 @@
                     (cond-> item found (assoc :show found)))))))
 
 (defn- publisher-feed!
-  "The publisher `item` of the show `view` with the publisher's :feed
-  fetched with `opts`, in a future or a promise.
+  "Fetch the :feed of the publisher `item` of the show `view` with `opts`,
+  and give the item with it, in a future or a promise.
 
-  It also has the :shows of the publisher feed, and :confirmed? when that
+  The item also has the :shows of the publisher feed, and :confirmed? when that
   feed lists the show, or an :error when the feed couldn't be fetched."
   [item {:keys [guid] :as view} {:keys [send] :as opts}]
   (let [url (:feed-url item)]

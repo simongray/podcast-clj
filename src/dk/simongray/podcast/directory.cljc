@@ -1,28 +1,36 @@
 (ns dk.simongray.podcast.directory
-  "The podcast directories of the world behind one shape: Apple Podcasts,
-  fyyd, gpodder.net and the Podcast Index, searched, looked up and their
-  charts read, every answer keyed like a parsed feed.
+  "Apple Podcasts, fyyd, gpodder.net and the Podcast Index behind one
+  shape. You can search them, look shows up and read their charts, and
+  every answer is keyed like a parsed feed.
 
-  A request is a map any HTTP client can send; a response reads into
-  shows, maps with the keys a parsed feed has where the directory carries
-  the same information, `:rss/title`, `:itunes/author`, `:itunes/image`,
-  the feed's URL as the `:atom/links` entry with rel self that
-  `resolve/self-url` reads, `:podcast/guid` as declared or derived from
-  that URL, and `:directory/*` for what only the directory knows: the
-  `:source`, the show's `:id` there, the `:url` of its page, counts, and
-  the record itself under `:raw`.
+  A request is a map that any HTTP client can send, e.g.:
 
       (request :apple :search {:q \"podcasting 2.0\" :limit 5})
-      ;; => {:method :get :url \"https://itunes.apple.com/search?…\" :headers {…}}
+      ;; => {:method :get :url \"https://itunes.apple.com/search?…\" …}
       (response :apple :search body)
-      ;; => [{:rss/title \"Podcasting 2.0\" :itunes/author \"Podcast Index LLC\" … :directory/source :apple} …]
+      ;; => [{:rss/title \"Podcasting 2.0\" … :directory/source :apple} …]
 
-  Three endpoints every source answers as far as it can: `:search` shows
-  by words, `:lookup` one show by the source's id, `:trending` the
-  source's chart. Apple, fyyd and gpodder.net need no credentials; the
-  Podcast Index takes its under `:credentials` in the options. On the JVM,
-  `search!` and `fetch-chart!` ask several sources at once and `combine` the
-  answers into one entry per show."
+  A response reads into shows, which are maps with the keys of a parsed
+  feed where the directory has the same information:
+
+  - :rss/title, :itunes/author and :itunes/image
+  - the URL of the feed as the :atom/links entry with rel self, which
+    resolve/self-url reads
+  - :podcast/guid as declared, or derived from that URL
+  - keys in the directory namespace for what only the directory knows,
+    such as :directory/source, :directory/id and the record itself as
+    :directory/raw
+
+  Every source answers three endpoints as far as it can:
+
+  - :search, the shows that match some words
+  - :lookup, one show by its id at the source
+  - :trending, the chart of the source
+
+  Apple, fyyd and gpodder.net need no credentials, and the Podcast Index
+  takes its under the :credentials option. On the JVM, search! and
+  fetch-chart! ask several sources at once and combine the answers into
+  one entry per show."
   (:require [clojure.string :as str]
             #?(:clj [dk.simongray.podcast.util.async :as async])
             [dk.simongray.podcast.directory.podcastindex :as index]
@@ -36,8 +44,8 @@
   of Apple gave them on 29 September 2026. The names are the categories
   of itunes:category, of both levels.
 
-  The entry of Apple in `sources` holds them as `:genres`, so an app
-  gives another table with an entry of its own."
+  The entry of Apple in sources holds them as :genres, so you can give
+  another table in an entry of your own."
   {"Arts" 1301 "Food" 1306 "Design" 1402 "Performing Arts" 1405 "Visual Arts" 1406 "Fashion & Beauty" 1459
    "Books" 1482
    "Comedy" 1303 "Improv" 1495 "Comedy Interviews" 1496 "Stand-Up" 1497
@@ -71,18 +79,18 @@
    "Volleyball" 1557 "Swimming" 1558 "Wilderness" 1559 "Fantasy Sports" 1560})
 
 (def sources
-  "The directories that podcast-clj knows, by name. An entry tells the
-  `:api` that the directory speaks, its `:name` for a listener, whether it
-  needs credentials, and the URLs of the service.
+  "The directories that podcast-clj knows, by name. An entry has the :api
+  that the directory speaks, its :name for a listener, whether it needs
+  credentials, and the URLs of the service.
 
-  `request`, `response` and `call!` take a source by its name here, or as
-  an entry of this shape. So an app reaches another service with the same
-  API:
+  The request, response and call! functions take a source by its name
+  here, or as an entry of this shape. So you can reach another service
+  with the same API:
 
       (assoc (:fyyd sources) :id :mirror :root \"https://fyyd.example.org/0.2/\")
 
-  The `:id` of such an entry names the source in the results. Without an
-  `:id`, the name of its API does."
+  The :id of such an entry names the source in the results. Without an
+  :id, the name of its API does."
   {:apple        {:api          :apple
                   :name         "Apple Podcasts"
                   :credentials? false
@@ -106,36 +114,40 @@
                   :pages        "https://podcastindex.org/podcast/"}})
 
 (def endpoints
-  "What every source answers: `:search` takes `:q` and `:limit`, with
-  `:country` for Apple and `:language` for the Podcast Index; `:lookup`
-  takes the source's `:id` for the show, which for gpodder.net is the feed
-  URL and for Apple may be several ids at once; `:trending` takes `:limit`
-  and `:country` for Apple or `:language` for fyyd and the Podcast Index.
+  "The endpoints that every source answers, with their parameters:
 
-  `:trending` also takes `:category`, for the chart of one category. It
-  is a name of the categories of Apple Podcasts, such as Technology or
-  Society & Culture. A map gives each source a category of its own, by
-  the id of the source. Each source reads the category in its own way:
+  - :search takes :q and :limit, with :country for Apple and :language
+    for the Podcast Index
+  - :lookup takes the :id of the show at the source, which for
+    gpodder.net is the feed URL and for Apple can be several ids at once
+  - :trending takes :limit, with :country for Apple and :language for
+    fyyd and the Podcast Index
 
-  - Apple takes a name or an id of the `:genres` of its entry.
-  - The Podcast Index takes what `index/category-filter` takes. It has
-    the top categories of Apple, and words of its own for the rest.
-  - gpodder.net takes the category as a tag, in lower case.
-  - fyyd has no chart by category, so `request` throws for it."
+  The :trending endpoint also takes :category, for the chart of one
+  category. It's a name of the categories of Apple Podcasts, such as
+  Technology or Society & Culture. A map gives each source a category of
+  its own, by the id of the source. Each source reads the category in its
+  own way:
+
+  - Apple takes a name or an id of the :genres of its entry.
+  - The Podcast Index takes what index/category-filter takes. It has the
+    top categories of Apple, and words of its own for the rest.
+  - The category is a tag of gpodder.net, in lower case.
+  - The chart of fyyd has no categories, so request throws for it."
   #{:search :lookup :trending})
 
 (defn ^:no-doc source-id
-  "What names `source` in the results: its name in `sources`, or the `:id`
-  of an entry, else the name of its API."
+  "What names `source` in the results: its name in sources, or the :id of
+  an entry, or else the name of its API."
   [source]
   (if (map? source)
     (:id source (:api source))
     source))
 
 (defn ^:no-doc entry
-  "The entry of `source`, a name in `sources` or an entry itself, with the
-  `:id` that `source-id` gives it. Throws for a source whose API
-  podcast-clj does not know."
+  "The entry of `source`, a name in sources or an entry itself, with the
+  :id that source-id gives it. It throws for a source whose API
+  podcast-clj doesn't know."
   [source]
   (let [e (if (map? source) source (get sources source))]
     (when-not (contains? sources (:api e))
@@ -162,11 +174,12 @@
 
 (defn- category-for
   "The category that the source with the entry `e` gets of `category`, the
-  category of a chart: the value under the id of the source when
-  `category` is a map, and else `category`. Throws for a map that names
-  no category for the source, because the source then has only the chart
-  of all categories."
-  [{:keys [id]} category]
+  category of a chart. It's the value under the id of the source when
+  `category` is a map, or else `category`.
+
+  It throws for a map that names no category for the source, since the
+  source would then get the chart of all categories."
+  [{:keys [id] :as e} category]
   (cond
     (not (map? category))   category
     (contains? category id) (get category id)
@@ -175,7 +188,7 @@
 
 (defn- apple-genre
   "The id of the genre of Apple for `category`, a name of `genres` or an
-  id. Throws for a name that `genres` do not have."
+  id. It throws for a name that isn't in `genres`."
   [genres category]
   (let [s     (str/trim (str category))
         named (into {} (map (fn [[name id]] [(str/lower-case name) id])) genres)]
@@ -184,10 +197,13 @@
         (throw (ex-info (str "Apple Podcasts has no genre " (pr-str category)) {:category category})))))
 
 (defn- apple-chart
-  "The URL of the chart of Apple for `country`, with `limit` shows. The
-  chart of a `category` is a feed of the older kind of Apple, below
-  `genre-charts`, which takes the id of a genre."
-  [{:keys [trending genre-charts genres]} {:keys [limit country category]}]
+  "The URL of the chart of Apple for the source entry `e`, by the country,
+  the limit of shows and the category in `params`.
+
+  The chart of a category is a feed of the older kind of Apple, below the
+  :genre-charts URL of the entry, which takes the id of a genre."
+  [{:keys [trending genre-charts genres] :as e}
+   {:keys [limit country category] :as params}]
   (let [limit (long (or limit 25))]
     (if category
       (below genre-charts (str (country-code country) "/rss/toppodcasts/limit=" limit
@@ -241,15 +257,17 @@
                                opts))))
 
 (defn request
-  "The request map for `endpoint` at `source` with `params`, as `{:method
-  :get :url :headers}`. `endpoints` tells the endpoints and their
-  parameters.
+  "The request map for `endpoint` at `source` with `params` and `opts`, a
+  map of :method, :url and :headers. See endpoints for each endpoint and
+  its parameters.
 
-  `source` is a name in `sources`, or an entry of the shape of its
-  entries. `opts` give the `:credentials` of the Podcast Index, `{:key
-  :secret}`. They also give the `:auth-date` of the signature of its
-  requests, in Unix seconds, which `call!` supplies (see
-  `index/request`)."
+  The `source` is a name in sources, or an entry of the shape of its
+  entries. The `opts` are for the Podcast Index, as index/request takes
+  them:
+
+  - :credentials, a map of :key and :secret
+  - :auth-date, the time in Unix seconds that signs a request, which call!
+    gives"
   ([source endpoint params]
    (request source endpoint params {}))
   ([source endpoint params {:keys [credentials] :as opts}]
@@ -267,8 +285,8 @@
                                            (select-keys opts [:auth-date]))))))
 
 (defn- present
-  "`m` without the entries that say nothing: nil, a blank string or an
-  empty collection."
+  "The map `m` without the entries that say nothing: nil, a blank string or
+  an empty collection."
   [m]
   (into {} (remove (fn [[_ v]]
                      (or (nil? v)
@@ -277,8 +295,8 @@
         m))
 
 (defn- with-feed-url
-  "`show` with `feed-url` as its self link and, unless it declares one, the
-  guid the podcast namespace derives from the URL."
+  "The `show` with `feed-url` as its self link, and the guid that the
+  podcast namespace derives from the URL unless it declares one."
   [show feed-url]
   (if (str/blank? (str feed-url))
     show
@@ -286,8 +304,8 @@
       (not (:podcast/guid show)) (assoc :podcast/guid (guid/from-url feed-url)))))
 
 (defn- apple-explicit
-  "Apple's advisory `rating` as the iTunes flag; its chart JSON spells
-  Explicit without the second i."
+  "The iTunes explicit flag of Apple's advisory `rating`. The chart JSON of
+  Apple spells Explicit without the second i."
   [rating]
   (case (some-> rating str/lower-case)
     ("explicit" "explict") true
@@ -295,7 +313,7 @@
     nil))
 
 (defn- apple-show
-  "A show from a search or lookup result `r` of Apple's API."
+  "The show of the result `r` of a search or lookup at Apple."
   [{:strs [collectionId collectionName artistName feedUrl artworkUrl600 artworkUrl100 collectionViewUrl
            genres releaseDate trackCount contentAdvisoryRating] :as r}]
   (-> (present {:rss/title               collectionName
@@ -311,8 +329,8 @@
       (with-feed-url feedUrl)))
 
 (defn- apple-chart-show
-  "A show from an entry `r` of Apple's chart, which names no feed; `:lookup`
-  by its id gives the rest."
+  "The show of the entry `r` of Apple's chart, which names no feed. A
+  lookup by its id gives the rest."
   [{:strs [id name artistName artworkUrl100 url genres contentAdvisoryRating] :as r}]
   (present {:rss/title         name
             :itunes/author     artistName
@@ -324,9 +342,9 @@
             :directory/raw     r}))
 
 (defn- apple-genre-show
-  "A show from an entry `r` of the chart of a genre of Apple, which has the
-  form of the older feeds of Apple. It names no feed, as `apple-chart-show`
-  names none."
+  "The show of the entry `r` of the chart of a genre of Apple, which has
+  the form of the older feeds of Apple. Like the other charts of Apple,
+  it names no feed."
   [r]
   (let [label  #(let [x (get r %)] (get (if (map? x) x (first x)) "label"))
         images (let [x (get r "im:image")] (if (map? x) [x] x))
@@ -341,7 +359,7 @@
               :directory/raw     r})))
 
 (defn- fyyd-show
-  "A show from a podcast record `r` of fyyd's API."
+  "The show of the podcast record `r` of fyyd's API."
   [{:strs [id title author description xmlURL htmlURL imgURL layoutImageURL language lastpub
            episode_count url_fyyd paymentURL] :as r}]
   (-> (present {:rss/title               title
@@ -359,7 +377,7 @@
       (with-feed-url xmlURL)))
 
 (defn- gpodder-show
-  "A show from a podcast record `r` of gpodder.net, whose id is the feed
+  "The show of the podcast record `r` of gpodder.net, whose id is the feed
   URL itself."
   [{:strs [url title author description subscribers logo_url scaled_logo_url website mygpo_link] :as r}]
   (-> (present {:rss/title              title
@@ -374,8 +392,9 @@
       (with-feed-url url)))
 
 (defn- podcastindex-show
-  "A show from the feed map `m` that `index/response` read, its `:index/*`
-  keys kept. Its page is below `pages`, the URL of the pages of the shows."
+  "The show of the feed map `m` that index/response read, with its keys in
+  the index namespace kept. Its page is below `pages`, the URL of the
+  pages of the shows."
   [m pages]
   (-> (present (assoc m
                       :directory/id            (:index/id m)
@@ -385,18 +404,18 @@
       (with-feed-url (:index/url m))))
 
 (defn- ranked
-  "`shows` with their position in a chart under `:directory/rank`."
+  "The `shows` with their place in a chart as :directory/rank."
   [shows]
   (map-indexed (fn [i show] (assoc show :directory/rank (inc i))) shows))
 
 (defn response
   "The shows in the JSON `body` that `source` answered for `endpoint`, as
-  a vector. Throws only when the body is no JSON.
+  a vector. It throws only when the body isn't JSON.
 
   A lookup gives one show. The shows of trending are in the order of the
-  chart, each with its `:directory/rank`. The vector is empty when the
-  body tells of a failure. `source` is as `request` takes it, and each
-  show names it under `:directory/source`."
+  chart, each with its :directory/rank. The vector is empty when the body
+  tells of a failure. The `source` is as request takes it, and each show
+  names it as :directory/source."
   [source endpoint body]
   (let [{:keys [api id pages]} (entry source)
         shows (if (= :podcastindex api)
@@ -430,11 +449,15 @@
   (into {} (remove #(= "directory" (namespace (key %)))) show))
 
 (defn- same-as
-  "The position in `entries` of the show `show` is the same as: the one
-  with its id at the same source, the one with its guid, declared or
-  derived from the feed URL, or, when either of them has no guid, the one
-  with its title and author. Two feeds of one show keep their own entries."
-  [{:keys [entries by-id by-guid by-name]} show]
+  "The position in the entries of `state` of the entry that `show` is the
+  same as, or nil. It's the first entry that has:
+
+  - the id of `show` at the same source
+  - its guid, declared or derived from the feed URL
+  - its title and author, when either of them has no guid
+
+  Two feeds of one show keep their own entries."
+  [{:keys [entries by-id by-guid by-name] :as state} show]
   (let [guid (:podcast/guid show)]
     (or (get by-id [(:directory/source show) (:directory/id show)])
         (when guid (get by-guid guid))
@@ -444,11 +467,13 @@
 
 (defn combine
   "One entry per show across `results` from several sources, in the order
-  first found: the first source's record, with the fields it lacked filled
-  from the later ones and `:directory/sources` naming every source that
-  had the show, by its id there. A chart entry, which names no feed, meets
-  its lookup by the id they share, or the same show found elsewhere by its
-  title and author, and gains the feed."
+  they were first found.
+
+  An entry is the record of the first source, with the fields it lacked
+  filled from the later ones. Its :directory/sources names every source
+  that had the show, by its id there. A chart entry names no feed. It
+  gains one when it meets its lookup by the id they share, or the same
+  show from elsewhere by its title and author."
   [results]
   (:entries
    (reduce (fn [{:keys [entries] :as state} show]
@@ -473,21 +498,21 @@
 #?(:clj
    (defn- default-sources
      "Every source that needs no credentials, and the Podcast Index when
-     `opts` carry `:credentials`."
-     [{:keys [credentials]}]
+     `opts` have :credentials."
+     [{:keys [credentials] :as opts}]
      (cond-> [:apple :fyyd :gpodder] credentials (conj :podcastindex))))
 
 #?(:clj
    (defn call!
-     "Send `endpoint` with `params` to `source` with the HTTP client of
-     podcast-clj, and read the shows in the answer.
+     "Send `endpoint` with `params` and `opts` to `source` by the HTTP
+     client of podcast-clj, and read the shows in the answer.
 
-     `opts` are those of `request`. They can also give `:timeout-seconds`,
-     the time to wait for an answer. The default is 15, so that a
-     directory that does not answer costs little.
+     The `opts` are those of request, and :timeout-seconds, the time to
+     wait for an answer. It's 15 by default, so a directory that doesn't
+     answer costs little.
 
-     A 404 is no shows. Each other status that is not a success throws
-     `::failed`, so that a refused key does not look like an empty
+     A 404 gives no shows. Any other status that isn't a success throws with
+     the :type ::failed, so a refused key doesn't look like an empty
      answer."
      ([source endpoint params]
       (call! source endpoint params {}))
@@ -505,9 +530,9 @@
 
 #?(:clj
    (defn- completed!
-     "The `shows` a `source` answered for `endpoint`, with what a chart
-     leaves out fetched: Apple's names no feed, so its entries are looked
-     up by id, all in one request, for `combine` to fold in."
+     "Complete the `shows` that `source` answered for `endpoint` with what
+     a chart leaves out, fetched with `opts`. Apple's chart names no feed,
+     so its entries are looked up by id in one request."
      [source endpoint shows opts]
      (if (and (= :apple (:api (entry source))) (= :trending endpoint) (seq shows))
        (concat shows (call! source :lookup {:id (keep :directory/id shows)} opts))
@@ -515,9 +540,12 @@
 
 #?(:clj
    (defn ^:no-doc fan-out!
-     "Ask every one of `sources` for `endpoint` with `params` at once and
-     `combine` what they answer: `{:results [...] :failed {source message}}`,
-     a source that fails costing nothing but its absence."
+     "Ask each of `sources` for `endpoint` with `params` and `opts` at once,
+     and combine what they answer.
+
+     The result is a map of the :results and, under :failed, the error
+     message of each source that failed. A source that fails costs nothing
+     but its absence."
      [sources endpoint params opts]
      (let [answers (async/all (map (fn [source]
                                      (async/attempt #(completed! source endpoint (call! source endpoint params opts) opts)))
@@ -529,21 +557,21 @@
 
 #?(:clj
    (defn search!
-     "The shows that match the words `q` across the directories, as
-     `{:results [...] :failed {...}}`.
+     "Search the directories for the shows that match the words `q`, with
+     `opts`. It gives a map of the :results and the :failed sources.
 
      The results have one entry for each show, and the shows that the
-     most sources have come first. `:failed` has the message of each
-     source that failed. `opts` are these:
+     most sources have come first. The :failed map has the message of
+     each source that failed. The `opts` are these:
 
-         {:sources         [:apple :fyyd]   ; each a name in `sources` or an entry.
-                                            ; default: every source without credentials,
-                                            ; plus the Podcast Index when given them
-          :limit           10               ; per source
-          :country         \"dk\"             ; Apple's store
-          :language        \"da\"             ; the Podcast Index's filter
-          :credentials     {:key :secret}    ; for the Podcast Index
-          :timeout-seconds 15}               ; to wait for each source"
+     - :sources, each a name in sources or an entry. By default, they're
+       the sources without credentials, and the Podcast Index with
+       :credentials.
+     - :limit, the number of shows from each source
+     - :country, the store of Apple, e.g. \"dk\"
+     - :language, the filter of the Podcast Index, e.g. \"da\"
+     - :credentials, the :key and :secret of the Podcast Index
+     - :timeout-seconds, the time to wait for each source"
      ([q]
       (search! q {}))
      ([q opts]
@@ -555,13 +583,12 @@
 
 #?(:clj
    (defn fetch-chart!
-     "The charts of the directories combined, as `search!` returns them,
-     in the order that the sources list them. `opts` are those of
-     `search!`.
+     "Fetch the charts of the directories with `opts`, and combine them as
+     search! does. The shows are in the order that the sources list them.
 
-     `opts` can also give `:category`, for the charts of one category, as
-     `endpoints` tells. A source that has no chart of the category is in
-     `:failed`, with the reason."
+     The `opts` are those of search!, and :category, for the charts of one
+     category, as endpoints tells. A source that has no chart of the
+     category is in :failed, with the reason."
      ([]
       (fetch-chart! {}))
      ([opts]

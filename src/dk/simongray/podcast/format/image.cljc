@@ -306,7 +306,7 @@
   (bytes/reading #(read-header view)))
 
 (defn read!
-  "The header of the image at `url`, as read gives it, fetched with `opts`.
+  "Read the header of the image at `url` as read does, fetched with `opts`.
   On the JVM it gives the result, and in ClojureScript a promise of it.
 
   The function dk.simongray.podcast.util.bytes/read! fetches the ranges

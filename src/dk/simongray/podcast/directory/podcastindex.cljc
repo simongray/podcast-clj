@@ -1,19 +1,21 @@
 (ns dk.simongray.podcast.directory.podcastindex
-  "The Podcast Index API (https://podcastindex-org.github.io/docs-api/) as
+  "The Podcast Index API, https://podcastindex-org.github.io/docs-api/, as
   request maps and model maps.
 
-  `request` builds `{:method :url :headers}` with the authentication
-  computed for the instant given, for any HTTP client to send; `response`
-  reads a response body into data shaped like the feed model, so that a
-  feed or an episode from the index carries the same keys as one parsed
-  from RSS, plus what only the index knows under `:index/*`. The key and
-  secret never leave the caller's process, and nothing here reads a clock
-  but `call!`, `fetch-remote-value!` and `fetch-remote-item!`, which send with the
-  library's own HTTP client.
+  The request function builds a map of :method, :url and :headers that
+  any HTTP client can send, with the authentication for the time it's
+  given. The response function reads a response body into data shaped
+  like the feed model. So a feed or an episode from the index has the same
+  keys as one parsed from RSS, and what only the index knows is in the
+  index namespace.
 
-  The remote items that value time splits point at are resolved with
-  `remote-value-requests`, the requests to try in order, or `remote-value`,
-  which sends them with a function you supply."
+  The key and the secret never leave your process. Nothing here reads a
+  clock but call!, fetch-remote-value! and fetch-remote-item!, which send
+  with the HTTP client of podcast-clj.
+
+  A value time split points at a remote item. Its value block is found by
+  remote-value-requests, the requests to try in order, or by remote-value,
+  which sends them with a function that you give."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
@@ -22,14 +24,14 @@
             [dk.simongray.podcast.util.time :as time]))
 
 (def base-url
-  "The root of the URLs of the API. The paths of `endpoints` are below it.
-  `request` uses it, unless its options give the root of another service
-  with the same API as `:base-url`."
+  "The root of the URLs of the API, which the paths of endpoints are
+  below. The request function uses it, unless its options give the root
+  of another service with the same API as :base-url."
   "https://api.podcastindex.org/api/1.0/")
 
 (def endpoints
-  "API paths by endpoint keyword, as the API's OpenAPI description lists
-  them. Each takes its parameters as a query."
+  "The path of each endpoint of the API by a keyword, as its OpenAPI
+  description lists them. Each takes its parameters as a query."
   {:search/all                  "search"
    :search/by-term              "search/byterm"
    :search/by-title             "search/bytitle"
@@ -93,17 +95,17 @@
 
 (defn category-filter
   "The value of the parameters cat and notcat for `category`, by the
-  `:categories` of `opts`, which are `categories` by default. Nil for no
+  :categories of `opts`, or else the categories table. It's nil for no
   category.
 
-  `category` is a name or an id of a category, or a collection of them.
-  A name can hold several names with commas or ampersands between them,
-  so a name of Apple Podcasts such as Society & Culture reads as its two
-  categories. The case of a name does not count, and a space reads as a
-  hyphen where the index has one.
+  The `category` is a name or an id of a category, or a collection of
+  them. A name can hold several names with commas or ampersands between
+  them, so a name of Apple Podcasts such as Society & Culture reads as its
+  two categories. The case of a name doesn't count, and a space reads as
+  a hyphen where the index has one.
 
-  The index gives the whole chart for a name that it does not know, and
-  it tells no error. So `category-filter` throws for such a name."
+  For a name that it doesn't know, the index gives the whole chart and no
+  error. So this throws for such a name."
   ([category]
    (category-filter category {}))
   ([category opts]
@@ -128,15 +130,16 @@
      :cljs (quot (.now js/Date) 1000)))
 
 (defn auth-headers
-  "The headers that authenticate a request with `key` and `secret` at Unix
-  time `seconds`: the date, the key and the SHA-1 of key, secret and date.
-  The API requires a descriptive User-Agent, and `:user-agent` in the
-  credentials replaces that of podcast-clj.
+  "The headers that authenticate a request with `credentials` at the Unix
+  time `seconds`: the date, the key and the SHA-1 of the key, the secret
+  and the date.
 
-  The secret can be a hidden text of `dk.simongray.podcast.util.secret`. It is
-  in no header: the API gets the hash, which holds for some minutes. The
-  hash is a hidden text, as each Authorization header is."
-  [{:keys [key secret user-agent]} seconds]
+  The API requires a descriptive User-Agent, and the :user-agent of the
+  credentials replaces that of podcast-clj. The secret can be a hidden
+  text of dk.simongray.podcast.util.secret. It's in no header, since the
+  API gets the hash, which holds for some minutes. The hash is a hidden
+  text, as each Authorization header is."
+  [{:keys [key secret user-agent] :as credentials} seconds]
   {"User-Agent"    (or user-agent http/user-agent)
    "X-Auth-Key"    key
    "X-Auth-Date"   (str seconds)
@@ -147,15 +150,15 @@
                        secret/hide)})
 
 (defn request
-  "The request map for `endpoint`, a key of `endpoints`, with the query
-  `params`, signed with `credentials` at the `:auth-date` of `opts`.
+  "The request map for `endpoint`, a key of endpoints, with the query
+  `params`, signed with `credentials` at the :auth-date of `opts`.
 
-  The credentials are `:key` and `:secret`, and they can give a
-  `:user-agent`. The `:auth-date` is in Unix seconds. The API takes a
-  date within a few minutes of its own clock. The caller reads the clock,
-  as `call!` does.
+  The credentials are a :key and a :secret, and they can give a
+  :user-agent. The :auth-date is in Unix seconds. The API takes a date
+  within a few minutes of its own clock. You read the clock, as call!
+  does.
 
-  The request goes to `base-url`, or to the `:base-url` of `opts`."
+  The request goes to base-url, or to the :base-url of `opts`."
   [credentials endpoint params {:keys [auth-date] :as opts}]
   {:pre [(map? opts)]}
   (when-not auth-date
@@ -176,7 +179,8 @@
     :else       nil))
 
 (defn- ->boolean
-  "The index writes flags as booleans, as 0 and 1, and as strings."
+  "The flag `x`, which the index writes as a boolean, as 0 and 1, or as a
+  string."
   [x]
   (cond
     (boolean? x) x
@@ -185,21 +189,23 @@
     :else        nil))
 
 (defn- ->inst
-  "The instant of the Unix time `seconds` the index gives, nil when absent."
+  "The instant of the Unix time `seconds` that the index gives, or nil when
+  it's absent."
   [seconds]
   (when (and (number? seconds) (pos? seconds))
     (time/->inst (* 1000 seconds))))
 
 (defn- ->positive
-  "The number `x`, or nil: the index writes 0 for a season, episode number
-  or duration it does not know."
+  "The number `x`, or nil when it isn't positive. The index writes 0 for a
+  season, episode number or duration that it doesn't know."
   [x]
   (let [n (->number x)]
     (when (and n (pos? n)) n)))
 
 (defn- pick
-  "The model map for `m` by `fields`, each `[index-key model-key convert]`,
-  leaving out what `m` lacks or what converts to nil."
+  "The model map of `m` by `fields`, without what `m` lacks or what
+  converts to nil. Each field is a vector of an index key, a model key and
+  perhaps a function that converts the value."
   [fields m]
   (reduce (fn [acc [k model-key convert]]
             (let [v (get m k)
@@ -220,9 +226,9 @@
     customValue             (assoc :custom-value (str customValue))))
 
 (defn value->block
-  "The value block for the index's value object `v`, `{\"model\" {...}
-  \"destinations\" [...]}`, in the shape `podcast:value` takes in the model;
-  nil when `v` is not one."
+  "The value block of the index's value object `v`, which has a model and
+  destinations, in the shape that podcast:value takes in the model. It's
+  nil when `v` isn't one."
   [v]
   (when (map? v)
     (let [{:strs [model destinations]} v
@@ -247,9 +253,9 @@
    ["type" :index/format #(case % 0 "rss" 1 "atom" nil)]])
 
 (defn feed->model
-  "The feed object `f` of the index as a feed map: the keys a parsed feed
-  has where the index carries the same information, `:index/*` for what only
-  the index knows, and the original under `:index/raw`."
+  "The feed object `f` of the index as a feed map. It has the keys of a
+  parsed feed where the index has the same information, keys in the index
+  namespace for what only the index knows, and the original as :index/raw."
   [f]
   (let [{:strs [image ownerName locked value funding categories]} f]
     (cond-> (assoc (pick feed-fields f) :index/raw f)
@@ -297,9 +303,9 @@
     (seq title)                  (assoc :content title)))
 
 (defn episode->model
-  "The episode object `e` of the index as an item map, keyed like a parsed
-  item where the index carries the same information, `:index/*` for the
-  rest, and the original under `:index/raw`."
+  "The episode object `e` of the index as an item map. It has the keys of
+  a parsed item where the index has the same information, keys in the
+  index namespace for the rest, and the original as :index/raw."
   [e]
   (let [{:strs [guid enclosureUrl enclosureType enclosureLength image chaptersUrl transcriptUrl
                 transcripts persons socialInteract soundbite soundbites value]} e
@@ -321,11 +327,14 @@
       (value->block value) (assoc :podcast/values [(value->block value)]))))
 
 (defn response
-  "The data in the JSON `body` of an API response: `:status` as a boolean,
-  `:description`, `:count` and `:query` as given, feeds under `:feed` or
-  `:feeds` and episodes under `:episode`, `:items` or `:live-items` in the
-  shape of the model, a value block under `:value`, and the whole parsed body
-  under `:raw`."
+  "The data in the JSON `body` of an API response:
+
+  - :status, as a boolean
+  - :description, :count and :query, as given
+  - feeds as :feed or :feeds, and episodes as :episode, :items or
+    :live-items, in the shape of the model
+  - a value block as :value
+  - the whole parsed body as :raw"
   [body]
   (let [raw (json/read-str body)]
     (cond-> {:status (= "true" (str (get raw "status"))) :raw raw}
@@ -340,10 +349,13 @@
       (map? (get raw "value"))      (assoc :value (value->block (get raw "value"))))))
 
 (defn remote-value-requests
-  "The requests that resolve the value block the `remote-item` of a time
-  split points at, to try in order: the item's own block when the remote
-  item names one, then the feed's. `opts` are those of `request`."
-  [credentials {:keys [feed-guid item-guid]} opts]
+  "The requests to try in order for the value block that `remote-item` of
+  a time split points at, with `credentials` and `opts` as request takes
+  them.
+
+  The block of the item comes first, when the remote item names one, and
+  then that of the feed."
+  [credentials {:keys [feed-guid item-guid] :as remote-item} opts]
   (cond-> []
     (and feed-guid item-guid)
     (conj (request credentials :value/by-episode-guid
@@ -362,20 +374,25 @@
         value))))
 
 (defn remote-value
-  "The value block the `remote-item` of a time split points at: the requests
-  of `remote-value-requests`, with `opts` as for `request`, sent one by one
-  with `send`, a function from a request map to a response map with the
-  `:body` string, until one answers with a block. Nil when none does.
-  `send` is synchronous, so in ClojureScript use the requests directly
-  instead."
+  "The value block that `remote-item` of a time split points at, or nil,
+  found by sending the requests of remote-value-requests for
+  `credentials` and `opts` with `send`.
+
+  The requests go one by one, until one answers with a block. The `send`
+  function takes a request map and gives a response map with the :body
+  string. Since it's synchronous, use the requests directly in
+  ClojureScript instead."
   [credentials remote-item send opts]
   (some #(block-in (:body (send %))) (remote-value-requests credentials remote-item opts)))
 
 (defn remote-item-requests
-  "The requests that resolve `remote-item`, a podroll, publisher, list or
-  time-split entry with a `:feed-guid` and perhaps an `:item-guid`: the
-  episode when it names one, then the feed. `opts` are those of `request`."
-  [credentials {:keys [feed-guid item-guid]} opts]
+  "The requests to try in order for `remote-item`, with `credentials` and
+  `opts` as request takes them. The episode comes first, when it's named,
+  and then the feed.
+
+  The `remote-item` is a podroll, publisher, list or time-split entry with
+  a :feed-guid and perhaps an :item-guid."
+  [credentials {:keys [feed-guid item-guid] :as remote-item} opts]
   (cond-> []
     (and feed-guid item-guid)
     (conj (request credentials :episodes/by-guid {:guid item-guid :podcastguid feed-guid} opts))
@@ -384,10 +401,12 @@
     (conj (request credentials :podcasts/by-guid {:guid feed-guid} opts))))
 
 (defn remote-item
-  "What `remote-item` points at, as `{:feed ... :episode ...}` in the shape
-  of the model, by sending the requests of `remote-item-requests` with
-  `send` and `opts` (see `remote-value`). Nil when the index knows
-  neither."
+  "What `remote-item` points at, found by sending the requests of
+  remote-item-requests for `credentials` with `send` and `opts`.
+
+  It's a map of the :feed and the :episode in the shape of the model, or
+  nil when the index knows neither. The `send` is as remote-value takes
+  it."
   [credentials remote-item send opts]
   (let [answers (for [req  (remote-item-requests credentials remote-item opts)
                       :let [body (:body (send req))]
@@ -401,13 +420,14 @@
                 [k v])))))
 
 (defn call!
-  "Send `endpoint` with `params` for `credentials`, signed now, and read the
-  answer with `response`. `opts` give the `:base-url` of `request`.
+  "Send `endpoint` with `params` for `credentials`, signed now, and read
+  the answer with response. The :base-url of `opts` is as request takes
+  it.
 
-  The JVM sends it with the library's HTTP client, and ClojureScript with
-  the platform's `fetch`, returning a js/Promise of the result. In a
-  browser, the API's CORS policy decides whether the call is allowed at
-  all."
+  On the JVM, it's sent with the HTTP client of podcast-clj. In
+  ClojureScript, it's sent with fetch, and the result comes in a promise.
+  In a browser, the call works only where the CORS policy of the API
+  allows it."
   ([credentials endpoint params]
    (call! credentials endpoint params {}))
   ([credentials endpoint params opts]
@@ -419,8 +439,9 @@
 
 #?(:clj
    (defn fetch-remote-value!
-     "`remote-value` of `remote-item` for `credentials`, sent with
-     `http/call!` and signed now. `opts` give the `:base-url` of `request`."
+     "Fetch the value block that `remote-item` points at for
+     `credentials`, as remote-value gives it, sent with http/call! and
+     signed now. The :base-url of `opts` is as request takes it."
      ([credentials remote-item]
       (fetch-remote-value! credentials remote-item {}))
      ([credentials remote-item opts]
@@ -428,9 +449,9 @@
 
 #?(:clj
    (defn fetch-remote-item!
-     "What `remote-item` points at for `credentials`, as the function
-     `remote-item` gives it, sent with `http/call!` and signed now. `opts`
-     give the `:base-url` of `request`."
+     "Fetch what `remote-item` points at for `credentials`, as the
+     remote-item function gives it, sent with http/call! and signed now.
+     The :base-url of `opts` is as request takes it."
      ([credentials remote-item]
       (fetch-remote-item! credentials remote-item {}))
      ([credentials remote-item opts]

@@ -95,7 +95,7 @@
                      (bytes/reported {} [{:id :file/unknown-format :level :warning}])))))
 
 (defn read!
-  "What the media file at `url` says about itself, as read gives it,
+  "Read what the media file at `url` says about itself as read does,
   fetched with `opts`. On the JVM it gives the result, and in
   ClojureScript a promise of it.
 
@@ -171,9 +171,9 @@
                   #(bytes/base64 (js/Uint8Array. %)))))
 
 (defn- whole!
-  "The verdict on the file at `url` against `metadata` by `algorithm`, in a
-  future or a promise. The function `send` fetches the file whole, with
-  the limits of `opts`."
+  "Fetch the file at `url` whole with `send` and the limits of `opts`, and
+  give the verdict against `metadata` by `algorithm`, in a future or a
+  promise."
   [send url metadata algorithm opts]
   (async/then
    (http/sent! send {:url url :as :bytes :headers (:headers opts) :timeout-seconds 600} opts)
@@ -185,8 +185,8 @@
 
 #?(:clj
    (defn- streamed!
-     "The verdict on the file at `url` against `metadata` by `algorithm`.
-     The file streams through the digest, with the limits of `opts`."
+     "Stream the file at `url` through the digest by `algorithm`, with the
+     limits of `opts`, and give the verdict against `metadata`."
      [url metadata algorithm opts]
      (try
        (let [{:keys [status digests]} (http/digest! url [algorithm] opts)]
@@ -197,7 +197,7 @@
          (absent url e)))))
 
 (defn verify!
-  "Whether the file at `url` is what `integrity` says, checked with `opts`.
+  "Check whether the file at `url` is what `integrity` says, with `opts`.
   On the JVM it gives the result, and in ClojureScript a promise of it.
 
   The `integrity` is the podcast:integrity of an alternate enclosure, a

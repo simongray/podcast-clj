@@ -138,9 +138,9 @@
 
 #?(:clj
    (defn- page!
-     "The page at `url` of a paged feed, fetched and parsed with `opts`, as
-     a map of its :url and :feed. When the page can't be read, the reason
-     is the :failure instead of the :feed."
+     "Fetch and parse the page at `url` of a paged feed with `opts`, and
+     give a map of its :url and :feed. When the page can't be read, the
+     reason is the :failure instead of the :feed."
      [url opts]
      (try
        (let [{:keys [status body]} (http/fetch! url (select-keys opts [:credentials :timeout-seconds :max-bytes :user-agent :allow?]))]

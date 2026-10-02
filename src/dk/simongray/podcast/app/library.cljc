@@ -220,8 +220,8 @@
                                            (h "last-modified") (assoc :last-modified (h "last-modified")))))))))))
 
 (defn- lists-refreshed!
-  "The `library` with its lists that are due at `now` fetched with `opts`
-  and applied, in a future or a promise. The result is a map of the
+  "Fetch the lists of `library` that are due at `now` with `opts`, and
+  apply them, in a future or a promise. The result is a map of the
   :library and the :report."
   [library now opts]
   (let [due (for [[url entry] (:lists library)
@@ -263,8 +263,8 @@
         (reindexed declared))))
 
 (defn- fetched-new!
-  "The `library` with the feeds of new subscriptions fetched at `now` with
-  `opts` and added, in a future or a promise.
+  "Fetch the feeds of the new subscriptions of `library` at `now` with
+  `opts`, and add them, in a future or a promise.
 
   The result is a map of the :library and the :report. A feed that
   couldn't be fetched is tried again next time."

@@ -198,15 +198,15 @@
       (not error) (assoc :report (report value)))))
 
 (defn ^:no-doc head!
-  "The facts of the answer to a HEAD request for `url` with `headers`, sent
-  with `send`, in a future or a promise."
+  "Send a HEAD request for `url` with `headers` through `send`, and give
+  the facts of the answer, in a future or a promise."
   [send url headers]
   (async/then (http/sent! send {:method :head :url url :headers headers}) http/sent-facts))
 
 (defn ^:no-doc probed!
-  "The facts of `url` that http/probe! gives, asked with `headers` through
-  `send`, in a future or a promise. They tell all that a check needs of
-  most files, from two bytes of each."
+  "Probe `url` with `headers` through `send` as http/probe! does, and give
+  the facts, in a future or a promise. They tell all that a check needs
+  of most files, from two bytes of each."
   [send url headers]
   (http/probe! url {:send send :headers headers}))
 
@@ -242,8 +242,8 @@
       own-send (assoc :send own-send))))
 
 (defn- probe-media!
-  "The facts of the media `file`, through `send` with `opts`, in a future
-  or a promise.
+  "Probe the media `file` through `send` with `opts`, and give its facts,
+  in a future or a promise.
 
   They're those that probed! gives, and as `opts` ask, what the file says
   about itself and whether it has its integrity."
@@ -266,9 +266,9 @@
             verified (assoc :integrity (attempted verified)))))))))
 
 (defn- probe-image!
-  "The facts of the image `file`, through `send` with `opts`, in a future
-  or a promise. They're the answer to a HEAD request, and the header of
-  the image, read by range."
+  "Probe the image `file` through `send` with `opts`, and give its facts,
+  in a future or a promise. They're the answer to a HEAD request, and the
+  header of the image, read by range."
   [send {:keys [url] :as file} opts]
   (async/then (head! send url {})
               (fn [head]
@@ -293,8 +293,8 @@
       {:error (diagnostics/describe (bytes/failure e))})))
 
 (defn- probe-text!
-  "The facts of the transcript or chapters `file`, through `send` with
-  `opts`, in a future or a promise.
+  "Probe the transcript or chapters `file` through `send` with `opts`, and
+  give its facts, in a future or a promise.
 
   They're those that probed! gives. When `opts` ask to :read? the file,
   they're the answers to a HEAD request and to a GET of the whole file,
@@ -312,8 +312,8 @@
                         (ok? got) (assoc :read (reading kind (or (get-in attempt [:value :body]) "") (:type declared))))))))))
 
 (defn- probe-feed!
-  "The facts of the feed at the URL of `file`, as probed! gives them
-  through `send` with `opts`, in a future or a promise.
+  "Probe the feed at the URL of `file` through `send` with `opts`, and give
+  its facts as probed! does, in a future or a promise.
 
   The requests name the origin of the check, and have the ::authorization
   of `opts` for a private feed. The caller has the feed, so none of it is
@@ -331,9 +331,9 @@
    :feed       probe-feed!})
 
 (defn- probe!
-  "The facts of `file`, by its kind, from the answers that `send` gives
-  with `opts`, in a future or a promise. On the JVM, the probe runs on a
-  thread of its own."
+  "Probe `file` by its kind through `send` with `opts`, and give its facts,
+  in a future or a promise. On the JVM, the probe runs on a thread of its
+  own."
   [send file opts]
   (async/then (async/attempt #((probes (:kind file)) send file opts))
               attempted))
