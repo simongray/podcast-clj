@@ -27,11 +27,29 @@ September 2026:
   verdict gives to a library. The column names the namespace or the
   function that has it.
 - **Not built**: podcast-clj does not have the feature. [Not
-  built](architecture.md#not-built) lists these features too.
+  built](#not-built) lists these features too.
 - A feature with the verdict Out has no status.
 
 The [changelog](../CHANGELOG.md) tells what came with each feature, and
 [Namespaces](namespaces.md) tells where each feature is.
+
+
+## Not built
+
+podcast-clj doesn't have these yet:
+
+- The Open Podcast API, whose spec for episodes is still a draft.
+- Stores over the HTTP APIs of cloud services. Each would be a short
+  namespace against the store contract.
+- A JSON form of the sync documents, for clients in other languages.
+- A lenient XML parser for JavaScript.
+- A folder store for Node.
+- A release to Clojars.
+- The extensions of Nostr Wallet Connect other than keysend: notifications,
+  hold invoices, payment history and BOLT 12 offers.
+
+NIP-04 encryption for wallets without NIP-44 is left out on purpose, since
+NIP-04 is deprecated and can't detect a changed message.
 
 
 ## How to read this page

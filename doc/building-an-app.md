@@ -607,7 +607,7 @@ them, give `tree` the options `{:hidden? true}`.
 
 The servers of a thread choose the URLs that `fetch!` fetches. So `fetch!`
 sends nothing to your app's network, as
-[Requests that strangers choose](architecture.md#requests-that-strangers-choose)
+[Untrusted URLs](architecture.md#untrusted-urls)
 tells. If your app must reach its own network, give `fetch!` the option
 `:allow? (constantly true)`.
 
