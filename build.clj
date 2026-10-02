@@ -12,7 +12,7 @@
   'dk.simongray/podcast)
 
 (def version
-  "The version to build; bump it with CHANGELOG.md."
+  "The version to build; bump it with each release on GitHub."
   "1.0.0-SNAPSHOT")
 
 (def class-dir

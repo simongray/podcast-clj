@@ -8,5 +8,4 @@
                    ["Services and their defaults" {:file "doc/services.md"}]
                    ["Principles" {:file "doc/principles.md"}]
                    ["Architecture" {:file "doc/architecture.md"}]
-                   ["Syncing" {:file "doc/sync.md"}]
-                   ["Changelog" {:file "CHANGELOG.md"}]]}
+                   ["Syncing" {:file "doc/sync.md"}]]}
