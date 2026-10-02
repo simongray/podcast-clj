@@ -1,21 +1,30 @@
 (ns dk.simongray.podcast.comments
   "The public comments on an episode or a show, from the thread below the
-  root post that podcast:socialInteract names. The comments of
-  ActivityPub, of the AT Protocol and of Nostr come in one shape.
-  `comments.activitypub` reads the threads of ActivityPub, which Mastodon,
-  PeerTube and the podcast host Castopod speak. `comments.atproto` reads
-  those of the AT Protocol, which Bluesky speaks, from an AppView.
-  `comments.nostr` reads those of Nostr from relays. It also reads the
-  comments about an episode that names no root post.
+  root post that podcast:socialInteract names.
 
-  A thread is a map. Each interact that `resolve/social-interacts` gives,
-  `{:protocol :uri}`, is an unread thread, and `thread` gives the one of an
-  episode. `fetch!` reads a thread as far as its limits allow. It adds the
-  id of the `:root` post, the `:comments` by id, their `:authors` by id,
-  and the `:report` of what went wrong. A later fetch reads on from where
-  the last one stopped. `tree` gives the comments in the shape to show them.
-  `resumed`, `requests`, `next-page` and `with-exchanges` are the pure
-  steps of `fetch!`, for an app that sends the requests itself.
+  The comments of these protocols come in one shape:
+
+  - ActivityPub, which Mastodon, PeerTube and the podcast host Castopod
+    speak, in comments.activitypub
+  - the AT Protocol, which Bluesky speaks, from an AppView, in
+    comments.atproto
+  - Nostr, from relays, in comments.nostr, which also reads the comments
+    about an episode that names no root post
+
+  A thread is a map. Each interact that resolve/social-interacts gives is
+  an unread thread, a map of :protocol and :uri. The thread function gives
+  the one of an episode. The fetch! function reads a thread as far as its
+  limits allow, and adds these:
+
+  - the id of the :root post
+  - the :comments by id
+  - their :authors by id
+  - the :report of what went wrong
+
+  A later fetch reads on from where the last one stopped. The tree
+  function gives the comments in the shape to show them. For an app that
+  sends the requests itself, resumed, requests, next-page and
+  with-exchanges are the pure steps of fetch!.
 
   A comment:
 
@@ -39,13 +48,12 @@
        :hidden?     true        ; hidden by the author of the root post
        :read-at     #inst \"2026-09-28T12:00:00Z\"}
 
-  A deleted post is `:deleted?`, and a post that podcast-clj did not get
-  has an `:error` that tells why. An author is
-  `{:id :name :handle :url :avatar}`. The handle is `@name@domain` on
-  ActivityPub, `@handle` on the AT Protocol and `npub1…` on Nostr. A
-  thread that podcast-clj read through the Mastodon API is `:via
-  :mastodon-api`. The keys in this namespace, such as `::collection`,
-  record how far the reading went."
+  A deleted post is :deleted?, and a post that podcast-clj didn't get has
+  an :error that tells why. An author is a map of :id, :name, :handle,
+  :url and :avatar. The handle is @name@domain on ActivityPub, @handle on
+  the AT Protocol and npub1… on Nostr. A thread that podcast-clj read
+  through the Mastodon API has :via :mastodon-api. The keys in this
+  namespace, such as ::collection, record how far the reading went."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
             [dk.simongray.podcast.comments.atproto :as atproto]
@@ -59,13 +67,13 @@
             [dk.simongray.podcast.util.nostr :as nostr]))
 
 (def protocols
-  "The protocols of podcast:socialInteract whose threads `fetch!` reads."
+  "The protocols of podcast:socialInteract whose threads fetch! reads."
   #{"activitypub" "atproto" "nostr"})
 
 (def default-limits
-  "The limits of `fetch!` that its options do not set.
+  "The limits of fetch! that its options don't set.
 
-  The docstring of `fetch!` tells what each limit does. A page of a
+  The docstring of fetch! tells what each limit does. A page of a
   collection is a few kilobytes, and the thread of an AppView a few
   megabytes. A round of requests keeps all its answers in memory until it
   ends."
@@ -78,10 +86,12 @@
    :max-bytes       (* 5 1024 1024)})
 
 (defn ^:no-doc errors
-  "The errors of the reading of `thread` below its root: of the Mastodon
-  API, its conversation, its relays, its posts, the collections of their
-  replies and their authors, as diagnostics without their level."
-  [{:keys [comments authors] ::keys [api conversation] ::nostr-comments/keys [relays]}]
+  "The errors of the reading of `thread` below its root, as diagnostics
+  without their level.
+
+  They're those of the Mastodon API, the conversation, the relays, the
+  posts, the collections of their replies and the authors."
+  [{:keys [comments authors] ::keys [api conversation] ::nostr-comments/keys [relays] :as thread}]
   (concat (keep :error [api conversation])
           (keep :error (map val (sort-by key relays)))
           (keep :error (vals comments))
@@ -89,22 +99,22 @@
           (keep :error (vals authors))))
 
 (defn ^:no-doc origin
-  "The origin of the URL `url` of a server or of a relay, as `http/origin`
+  "The origin of the URL `url` of a server or of a relay, as http/origin
   reads the origin of a web URL."
   [url]
   (http/origin (str/replace (str url) #"(?i)^ws" "http")))
 
 (defn ^:no-doc public?
   "Whether the host of the URL `url` of a server or of a relay is on the
-  public internet, as `http/public?` and `nostr/public?` tell."
+  public internet, as http/public? and nostr/public? tell."
   [url]
   (if (nostr/relay-url url)
     (nostr/public? url)
     (http/public? url)))
 
 (defn ^:no-doc send!
-  "Sends the request map `request` as `http/call!` does, or as
-  `nostr/call!` does when its URL is that of a relay."
+  "Send the request map `request` as http/call! does, or as nostr/call!
+  does when its URL is that of a relay."
   [request]
   (if (nostr/relay-url (:url request))
     (nostr/call! request)
@@ -112,24 +122,25 @@
 
 (defn ^:no-doc spared-origins
   "The origins that the reading of `thread` asks no more: those of the
-  servers that did not answer in time, and of those that answered 429, too
-  many requests. `resumed` takes these failures out of a thread, so a
-  server is spared in one reading only."
+  servers that didn't answer in time or answered 429, Too Many Requests.
+
+  Since resumed takes these failures out of a thread, a server is spared
+  in one reading only."
   [{:keys [error] :as thread}]
   (set (for [{:keys [url status timeout?]} (cons error (errors thread))
              :when (or timeout? (= 429 status))]
          (origin url))))
 
 (defn resumed
-  "`thread` as a new reading of it starts. `fetch!` applies it first, and
-  an app that sends the `requests` itself does the same.
+  "The `thread` as a new reading of it starts. The fetch! function applies
+  it first, and an app that sends the requests itself does the same.
 
   A failure that can pass with time kept a post, an author, a page of
   replies or a root from the last reading. Such a part is unread again.
-  The failure is `:retry?` in the report: the request failed, or the
-  server answered 429 or a status from 500. The thread also notes how
-  many comments it holds, so that `:max-comments` counts the comments of
-  this reading."
+  The failure is :retry? in the report: the request failed, or the server
+  answered 429 or a status from 500. The thread also notes how many
+  comments it holds, so that :max-comments counts the comments of this
+  reading."
   [{:keys [protocol] :as thread}]
   (let [thread (case protocol
                  "activitypub" (activitypub/resumed thread)
@@ -152,26 +163,30 @@
     []))
 
 (defn- distinct-by
-  "The `xs` without those whose `f` one before them has."
+  "The `xs` without those that have the same `f` as one before them."
   [f xs]
   (let [seen (volatile! #{})]
     (filterv #(let [k (f %)] (when-not (contains? @seen k) (vswap! seen conj k))) xs)))
 
 (defn requests
   "The requests that `thread` needs next, as `opts` allow, in the order to
-  send them. None when podcast-clj can read no more of the thread.
+  send them. There are none when podcast-clj can read no more of it.
 
   The root post comes first. Then come the posts and the collections of
   replies nearest to it, and then their authors. They ask for no more
-  posts than the `:max-comments` of `opts` or `default-limits` allows,
-  counted from the last `resumed`. For the AT Protocol, they go to the
-  `:appview` of `opts`. For the Mastodon API, the `:status-paths` of `opts`
-  replace `activitypub/status-paths`. For Nostr, they go to the relays
-  that the root names and to the `:relays` of `opts`. A server that did
-  not answer in time, or that answered 429, gets no more requests until
-  the next `resumed`. Each request is a request map for `http/call!`, or
-  for `nostr/call!` when its URL is that of a relay, and each URL comes
-  once."
+  posts than the :max-comments of `opts` or default-limits allows,
+  counted from the last resumed. The `opts` also have these:
+
+  - :appview, where the requests for the AT Protocol go
+  - :status-paths, for the Mastodon API, in place of
+    activitypub/status-paths
+  - :relays, where the requests for Nostr go, besides the relays that the
+    root names
+
+  A server that didn't answer in time, or that answered 429, gets no more
+  requests until the next resumed. Each request is a request map for
+  http/call!, or for nostr/call! when its URL is that of a relay, and each
+  URL comes once."
   ([thread]
    (requests thread {}))
   ([thread opts]
@@ -179,25 +194,25 @@
      (distinct-by :url (pending thread (merge default-limits opts) #(not (contains? spared (origin %))))))))
 
 (defn next-page
-  "The request for the page after the one in `exchange`, an exchange
-  `{:request :response}` of the reading of a collection. Nil after the last
-  page, and for any other exchange.
+  "The request for the page after the one in `exchange`, an exchange of
+  the reading of a collection with a :request and a :response. It's nil
+  after the last page, and for any other exchange.
 
-  Only the collections of ActivityPub come in pages, so it is
-  `activitypub/next-page`."
+  Only the collections of ActivityPub come in pages, so it's
+  activitypub/next-page."
   [exchange]
   (activitypub/next-page exchange))
 
 (defn with-exchanges
-  "`thread` with the `exchanges` of one of its `requests` read into it at
+  "The `thread` with the `exchanges` of one of its requests read into it at
   the instant `at`.
 
   The exchanges are the exchange of the request and, for a collection, the
-  exchanges of the pages that `next-page` names after it. Each exchange is
-  `{:request :response}`. The response is the map that `http/call!` gives,
-  or `{:error reason}` when the request failed. Such a response is also
-  `:timeout?` when the request took too long, and `:retry?` when a later
-  request can get an answer."
+  exchanges of the pages that next-page names after it. Each exchange is a
+  map of the :request and the :response. The response is the map that
+  http/call! gives, or a map of the :error when the request failed. Such
+  a response is also :timeout? when the request took too long, and
+  :retry? when a later request can get an answer."
   [thread exchanges at]
   (case (:protocol thread)
     "activitypub" (activitypub/with-exchanges thread exchanges at)
@@ -206,13 +221,13 @@
     thread))
 
 (defn readable?
-  "Whether `fetch!` can read the thread of `interact`, a map that
-  `resolve/social-interacts` gives, with `opts`.
+  "Whether fetch! can read the thread of `interact`, a map that
+  resolve/social-interacts gives, with `opts`.
 
-  The protocol of the thread must be one of `protocols`, and its URI must
+  The protocol of the thread must be one of protocols, and its URI must
   have the form of that protocol. For ActivityPub, the URI is an http or
-  https URL. For the AT Protocol, it is the at URI of a post, and `opts`
-  must name an `:appview`. For Nostr, it is the name of a note, or the id
+  https URL. For the AT Protocol, it's the at URI of a post, and `opts`
+  must name an :appview. For Nostr, it's the name of a note, or the id
   that NIP-73 gives a show or an episode."
   ([interact]
    (readable? interact {}))
@@ -224,26 +239,25 @@
      false)))
 
 (defn thread
-  "The unread thread of comments on `item` of `feed` that `fetch!` can read
-  with `opts`. Nil when there is none.
+  "The unread thread of comments on `item` of `feed` that fetch! can read
+  with `opts`, or nil.
 
-  It is the first podcast:socialInteract of the item, by priority, that is
-  `readable?`. When the item names none, it is the first of the feed. There
-  is none when the podcaster wants no public comments."
+  It's the first podcast:socialInteract of the item, by priority, that's
+  readable?. When the item names none, it's the first of the feed. There's
+  none when the podcaster wants no public comments."
   ([feed item]
    (thread feed item {}))
   ([feed item opts]
    (first (filter #(readable? % opts) (resolve/social-interacts feed item)))))
 
 (defn report
-  "The diagnostics of `thread` as `fetch!` read it with `opts`. For the AT
-  Protocol, `opts` names the `:appview`.
+  "The diagnostics of `thread` as fetch! read it with `opts`, which name
+  the :appview for the AT Protocol.
 
-  They tell why podcast-clj did not read the thread, a post, a collection
+  They tell why podcast-clj didn't read the thread, a post, a collection
   of replies or an author. They also tell whether it left out replies, how
   many replies a limit of size cut, and whether a limit stopped the fetch.
-  For Nostr, they tell how many events a relay gave that are not
-  verified."
+  For Nostr, they tell how many events from a relay aren't verified."
   ([thread]
    (report thread {}))
   ([{:keys [protocol uri error via] ::keys [withheld truncated] ::nostr-comments/keys [left-out] :as thread} opts]
@@ -274,9 +288,9 @@
                        [{:id :comments/incomplete}])))))))
 
 (defn- levels
-  "The posts of a thread from the post `top` down, level by level, each
-  post once: `[[top] [replies] ...]`, 256 levels at most. `children` gives
-  the replies to a post by its id, and `shown?` tells which replies count."
+  "The posts of a thread from the post `top` down, level by level, with
+  each post once and 256 levels at most. The `children` map gives the
+  replies to a post by its id, and `shown?` tells which replies count."
   [top children shown?]
   (loop [levels [[top]] seen #{(:id top)}]
     (let [below (into [] (comp (mapcat #(get children (:id %))) (filter shown?) (remove #(seen (:id %))))
@@ -288,14 +302,16 @@
 (defn- oldest-first
   "The key that puts the comment `c` in its place among replies: by the
   time of its publication, and a comment without one last."
-  [{:keys [published id]}]
+  [{:keys [published id] :as c}]
   [(if published (inst-ms published) ##Inf) id])
 
 (defn- nested
-  "Each post of `levels` with the `:replies` below it and the map of its
-  `:author`, by its id, made from the deepest level up. A deleted post, or
-  a post with an error, is there only when a reply below it is, or when it
-  is the root."
+  "Each post of `levels` by its id, with the :replies below it from
+  `children` and the map of its :author from `authors`.
+
+  The posts are built from the deepest level up. A deleted post, or a post
+  with an error, is there only when a reply below it is, or when it's the
+  root."
   [levels children authors]
   (let [root (:id (ffirst levels))]
     (reduce (fn [built {:keys [id author deleted? error] :as c}]
@@ -308,19 +324,19 @@
             (apply concat (rseq levels)))))
 
 (defn tree
-  "The comments of `thread` in the shape to show them, with `opts`. Nil
-  until `fetch!` reads the root post.
+  "The comments of `thread` in the shape to show them, with `opts`, or nil
+  until fetch! reads the root post.
 
-  The tree is the root post, with its `:author` as the map of its author.
-  Its `:replies` are comments of the same shape, oldest first. An unread
-  reply is not in the tree, and neither are the replies below it.
-  The tree leaves out the replies that the author of the root post hid.
-  With `:hidden? true` in `opts`, it holds them too. A deleted post, or a
-  post that podcast-clj did not get, is in the tree only when a reply below
-  it is. The tree ends 256 levels down."
+  The tree is the root post, with its :author as the map of its author.
+  Its :replies are comments of the same shape, oldest first. An unread
+  reply isn't in the tree, and neither are the replies below it. The tree
+  leaves out the replies that the author of the root post hid, unless
+  `opts` has :hidden?. A deleted post, or a post that podcast-clj didn't
+  get, is in the tree only when a reply below it is. The tree ends 256
+  levels down."
   ([thread]
    (tree thread {}))
-  ([{:keys [root comments authors]} {:keys [hidden?]}]
+  ([{:keys [root comments authors] :as thread} {:keys [hidden?] :as opts}]
    (when-let [top (get comments root)]
      (let [children (group-by :in-reply-to (vals comments))
            shown?   (fn [c] (and (:read-at c) (or hidden? (not (:hidden? c)))))]
@@ -328,8 +344,8 @@
 
 (defn parts
   "The parts of the content of `comment`, a comment of `thread`, in their
-  order. Each part is a map with its `:type` and the `:text` that the
-  content shows for it:
+  order. Each part is a map with its :type and the :text that the content
+  shows for it:
 
       {:type :text :text \"Good episode, \"}
       {:type :mention :text \"@ann\" :id \"https://example.social/users/ann\"}
@@ -338,15 +354,16 @@
       {:type :reference :text \"nevent1qqs9…m9d82\" :uri \"nostr:nevent1…\"}
       {:type :emoji :text \":blobcat:\" :shortcode \"blobcat\" :url \"https://…\"}
 
-  The `:id` of a mention is the id of an author, as the `:authors` of a
-  thread have it. It is the id of an actor on ActivityPub, a DID on the
-  AT Protocol and a public key on Nostr. A part has a `:url` when the
-  content itself names a web page for it. A reference names an event of
-  Nostr, and an emoji is a custom emoji of ActivityPub.
+  The :id of a mention is the id of an author, as the :authors of a
+  thread have it. It's the id of an actor on ActivityPub, a DID on the AT
+  Protocol and a public key on Nostr. A part has a :url when the content
+  itself names a web page for it. A reference names an event of Nostr,
+  and an emoji is a custom emoji of ActivityPub.
 
-  The parts are for an app that writes the content in its own way. `text`
-  gives the content as plain text. The reader of each protocol has
-  `parts` for what it keeps of a comment, and its docstring tells more."
+  The parts are for an app that writes the content in its own way, and
+  text gives the content as plain text. The reader of each protocol has a
+  parts function for what it keeps of a comment, and its docstring tells
+  more."
   [{:keys [protocol] :as thread} {:keys [content] :as comment}]
   (or (case protocol
         "activitypub" (some-> (::activitypub/source comment) activitypub/parts)
@@ -361,12 +378,19 @@
 (defn hiccup
   "The content of `comment`, a comment of `thread`, as Hiccup that a page
   can show, with `opts`. The result is a sequence of nodes to put inside
-  a parent element, as `[:div (hiccup thread comment)]`.
+  a parent element.
 
-  `:link` is a function of a part of `parts`, with the `:protocol` of the
-  thread. It gives the URL that a mention, a hashtag or a reference links
-  to, or nil. So the app chooses where they lead, in one function for
-  each protocol:
+  The `opts` are these:
+
+  - :link, a function of a part of parts, with the :protocol of the
+    thread. It gives the URL that a mention, a hashtag or a reference
+    links to, or nil. So you choose where they lead, in one function for
+    each protocol.
+  - :emoji?, to show the custom emoji of ActivityPub as images
+  - :names, a map from the ids of profiles of Nostr to names, in place of
+    the names of the authors of the thread
+
+  For example:
 
       (hiccup thread comment
               {:link (fn [{:keys [type id tag]}]
@@ -375,13 +399,10 @@
                          :hashtag (str \"/tags/\" tag)
                          nil))})
 
-  For nil, a mention of ActivityPub keeps the link that the post has, and
-  a mention of another protocol has no link. `:emoji? true` shows the
-  custom emoji of ActivityPub as images. `:names` is a map from the ids
-  of profiles of Nostr to names, in the place of the names of the authors
-  of the thread.
+  When :link gives nil, a mention of ActivityPub keeps the link that the
+  post has, and a mention of another protocol has no link.
 
-  The `:content` of a comment is the same content as HTML, without the
+  The :content of a comment is the same content as HTML, without the
   links of an app. A comment that an older version of podcast-clj read
   has only that HTML, and the Hiccup is then made of it."
   ([thread comment]
@@ -401,19 +422,21 @@
          (html/hiccup content)))))
 
 (defn text
-  "The content of `comment`, a comment of `thread`, as plain text: the
-  text that a reader sees in what `hiccup` gives, as `html/text` writes
-  it. A blank line is between two paragraphs.
+  "The content of `comment`, a comment of `thread`, as plain text, with
+  `opts`. It's the text that a reader sees in what hiccup gives, as
+  html/text writes it, with a blank line between two paragraphs.
 
       (text thread comment)  ; => \"Is this @Ann approved? #podcast\"
 
-  The text is not the text that the author sent. A note of Nostr names a
+  The text isn't the text that the author sent. A note of Nostr names a
   profile as a nostr: URI of 69 characters, and the text has the name of
   the profile in its place. The text of a post of ActivityPub has no tags
   of HTML.
 
-  `opts` can give `:links? true`, as `html/text` takes it. Each link then
-  has its URL after it. `opts` can also give the `:names` of `hiccup`."
+  The `opts` are these:
+
+  - :links?, as html/text takes it, to put the URL of each link after it
+  - :names, as hiccup takes it"
   ([thread comment]
    (text thread comment {}))
   ([thread comment opts]
@@ -421,17 +444,17 @@
    (html/text (hiccup thread comment (dissoc opts :link)) (select-keys opts [:links?]))))
 
 (defn ^:no-doc exchange!
-  "The exchange of `request`, sent by the `:send` of `opts` with its limits
-  of time and size, the time cut to what is left before its `::deadline`;
-  deferred.
+  "Send `request` by the :send of `opts`, with its limits of time and size,
+  and give the exchange, in a future or a promise. The time is cut to
+  what's left before the ::deadline of `opts`.
 
-  It is `{:request :response :document}`: the response without its body,
-  and the JSON object that the body held. When sending failed, the
-  response is `{:error reason}`, and `:timeout?` when it took too long; a
-  body larger than the limit fails too, when a `:send` did not keep to
-  it.
+  The exchange is a map of the :request, the :response without its body,
+  and the :document, the JSON object that the body held. When sending
+  failed, the response is a map of the :error, and :timeout? when it took
+  too long. A body larger than the limit fails too, when a :send didn't
+  keep to it.
 
-  A failed response is `:retry?`, unless the guard of the request refused
+  A failed response is :retry?, unless the guard of the request refused
   its URL or the answer was too large. A later request gets the same
   failure then."
   [request {:keys [send timeout-seconds max-bytes now] ::keys [deadline] :as opts}]
@@ -459,11 +482,11 @@
   [{:request request :response {:error (async/explain e)}}])
 
 (defn ^:no-doc round!
-  "The exchanges of the requests of `batch`, all under way at once; deferred.
+  "Send the requests of `batch` all at once with `opts`, and give their
+  exchanges with up to `limit` pages each, in a future or a promise.
 
-  Of each request they are its own and those of the pages after it that
-  `next-page` names, `limit` pages at most, and none after the
-  `::deadline` of `opts`."
+  The exchanges of a request are its own and those of the pages after it
+  that next-page names, with none after the ::deadline of `opts`."
   [batch limit {:keys [now] ::keys [deadline] :as opts}]
   (let [in-time? #(or (nil? deadline) (< (inst-ms (now)) deadline))]
     (async/then (async/all (mapv (fn [request]
@@ -476,10 +499,11 @@
                   (mapv (fn [request {:keys [value error]}] (or value (failed request error))) batch attempts)))))
 
 (defn- with-round
-  "`thread` with the exchanges of a `round` of requests read into it at `at`,
-  one request after another. The exchanges of a request that cannot be
-  read count as a failed request, so that the thread is read on without
-  them."
+  "The `thread` with the exchanges of a `round` of requests read into it at
+  `at`, one request after another.
+
+  The exchanges of a request that can't be read count as a failed
+  request, so the thread is read on without them."
   [thread round at]
   (reduce (fn [thread exchanges]
             (try
@@ -491,51 +515,52 @@
 
 (defn fetch!
   "Read `thread` as far as the limits of `opts` allow, and give it with the
-  `:report` of what went wrong. On the JVM the thread, in ClojureScript a
-  promise of it.
+  :report of what went wrong. On the JVM it gives the thread, and in
+  ClojureScript a promise of it.
 
-  `thread` is an interact from `resolve/social-interacts`, or a thread
+  The `thread` is an interact from resolve/social-interacts, or a thread
   that an earlier fetch gave. A second fetch reads on from where the first
-  stopped, and it asks again for what failed for a time, as `resumed`
-  tells. To read what is new, fetch the interact again. `opts`, with
-  `default-limits` for the limits:
+  stopped, and it asks again for what failed for a time, as resumed
+  tells. To read what's new, fetch the interact again. The `opts` are
+  these, with default-limits for the limits:
 
-      {:appview         \"https://…\"  ; to read AT Protocol threads from
-       :status-paths    [#\"…\"]       ; in place of activitypub/status-paths
-       :relays          [\"wss://…\"]  ; to read Nostr threads from, in place of comments.nostr/relays
-       :max-comments    100          ; ask for no more posts after this many in a fetch
-       :max-requests    300          ; start no round after this many
-       :max-seconds     60           ; start no request after this long
-       :concurrency     4            ; requests under way at a time
-       :max-pages       5            ; of a collection in a round
-       :timeout-seconds 30           ; for each request
-       :max-bytes       5242880      ; of each answer
-       :allow?          f            ; which URLs a request can go to
-       :send            f            ; in place of http/call! and nostr/call!
-       :now             f}           ; the time, the clock by default
+  - :appview, to read the threads of the AT Protocol from
+  - :status-paths, in place of activitypub/status-paths
+  - :relays, to read the threads of Nostr from, in place of
+    comments.nostr/relays
+  - :max-comments, the most posts to ask for in a fetch
+  - :max-requests, after which no round starts
+  - :max-seconds, after which no request starts
+  - :concurrency, the number of requests under way at a time
+  - :max-pages, the most pages of a collection in a round
+  - :timeout-seconds, for each request
+  - :max-bytes, of each answer
+  - :allow?, which URLs a request can go to
+  - :send, in place of http/call! and nostr/call!
+  - :now, a function that gives the time, the clock by default
 
   The requests go out in rounds. The root post comes first, then the posts
-  nearest to it, then the authors. The pages of a collection come one after
-  another, as `next-page` names them. A server that did not answer in
+  nearest to it, then the authors. The pages of a collection come one
+  after another, as next-page names them. A server that didn't answer in
   time, or that answered 429 Too Many Requests, gets no more requests in
-  the same fetch. The time that is left limits each request. `fetch!`
-  throws nothing.
+  the same fetch. The time that's left limits each request. Nothing
+  throws.
 
   A thread also has limits of size that no option sets, such as 10,000
   comments in all. The report counts the replies that such a limit cut.
 
-  The servers of a thread choose the URLs that `fetch!` fetches. So each
-  request carries a guard as its `:allow?`, which is `http/public?` for a
-  server and `nostr/public?` for a relay. `http/call!` and `nostr/call!`
-  then send nothing to the network of the app. An app that must reach its
-  own network gives `(constantly true)` as `:allow?`. A `:send` keeps to
-  the `:timeout-seconds` and the `:allow?` of each request. A `:send` that
-  signs its requests can also read the servers that answer only signed
+  The servers of a thread choose the URLs that this fetches. So each
+  request carries a guard as its :allow?, which is http/public? for a
+  server and nostr/public? for a relay. With these guards, http/call! and
+  nostr/call! send nothing to a private network. To reach your own
+  network, give (constantly true) as :allow?. A :send keeps to the
+  :timeout-seconds and the :allow? of each request. A :send that signs
+  its requests can also read the servers that answer only signed
   requests.
 
-  A request to a relay has the `:url` of the relay and the `:filters` of
-  NIP-01, and `nostr/call!` sends it over a WebSocket. A `:send` of the
-  app gets such requests too, and answers them as `nostr/call!` does."
+  A request to a relay has the :url of the relay and the :filters of
+  NIP-01, and nostr/call! sends it over a WebSocket. Your :send gets such
+  requests too, and answers them as nostr/call! does."
   ([thread]
    (fetch! thread {}))
   ([thread opts]

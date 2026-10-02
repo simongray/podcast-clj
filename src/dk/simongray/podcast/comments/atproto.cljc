@@ -1,17 +1,20 @@
 (ns dk.simongray.podcast.comments.atproto
   "Threads of comments on the AT Protocol, the protocol of Bluesky, read
-  from an AppView for `comments`.
+  from an AppView for dk.simongray.podcast.comments.
 
   An AppView indexes the network. It gives the thread below a post in one
   call, app.bsky.feed.getPostThread, without an account. The labels that
-  the protocol defines apply. `with-exchanges` leaves out a reply whose
-  author asks apps to show it only to signed-in users, and a reply that a
-  moderation service hid. A reply with a warning is `:sensitive?`. A reply
-  that the author of the root post hid is `:hidden?`.
+  the protocol defines apply:
 
-  The protocol gives no web page for a post. `at-uri` gives the parts of
-  its at URI, from which an app builds a link to the web app of its
-  choice."
+  - a reply whose author asks apps to show it only to signed-in users is
+    left out
+  - a reply that a moderation service hid is left out
+  - a reply with a warning is :sensitive?
+  - a reply that the author of the root post hid is :hidden?
+
+  The protocol gives no web page for a post. The at-uri function gives the
+  parts of its at URI, from which you can build a link to the web app of
+  your choice."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
@@ -22,11 +25,11 @@
             [dk.simongray.podcast.util.time :as time]))
 
 (defn at-uri
-  "The parts of the at URI `s`, `at://authority/collection/rkey`, as a map
-  of `:authority`, `:collection` and `:rkey`. Nil for another string.
+  "The parts of the at URI `s` as a map of :authority, :collection and
+  :rkey, or nil for another string.
 
-  The authority is the DID or the handle of a repository, and the rkey is
-  the record key."
+  An at URI has the form at://authority/collection/rkey. The authority is
+  the DID or the handle of a repository, and the rkey is the record key."
   [s]
   (when-let [[_ authority collection rkey] (when (string? s)
                                              (re-matches #"at://([^/\s?#]+)(?:/([^/\s?#]+)(?:/([^/\s?#]+))?)?" s))]
@@ -60,7 +63,7 @@
 
 (defn- withheld?
   "Whether the AT Protocol post `view` is kept from a reader without an
-  account: its author or the post asks so with the label
+  account. Its author or the post asks so with the label
   !no-unauthenticated, or a moderation service hid it with !hide."
   [view]
   (let [did (get-in view ["author" "did"])]
@@ -70,10 +73,12 @@
                    (labels view)))))
 
 (defn- warnings
-  "The labels of the AT Protocol post `view` that put it behind a warning:
-  those of adult content and graphic media, and !warn when a moderation
-  service set it, since clients ignore it from the author. A label on the
-  account of the author counts as a label on each of its posts."
+  "The labels of the AT Protocol post `view` that put it behind a warning.
+
+  They're the labels of adult content and graphic media, and !warn when a
+  moderation service set it, since clients ignore it from the author. A
+  label on the account of the author counts as a label on each of its
+  posts."
   [view]
   (let [did (get-in view ["author" "did"])]
     (set (for [{:strs [val src]} (labels view)
@@ -83,9 +88,8 @@
 
 (defn- feature
   "What `facet` makes of the text that it marks, by the first of its
-  features that podcast-clj knows. It is a link, a mention of a profile
-  by its DID, or a hashtag. The lexicon app.bsky.richtext.facet defines
-  the three."
+  features that podcast-clj knows: a link, a mention of a profile by its
+  DID, or a hashtag. The lexicon app.bsky.richtext.facet defines them."
   [facet]
   (some (fn [f]
           (case (get f "$type")
@@ -96,9 +100,11 @@
         (filter map? (common/values facet "features"))))
 
 (defn- marks
-  "What the `facets` of a post mark in its text of `n` bytes, as `[start
-  end part]` counted in bytes, in their order. A facet that overlaps the
-  one before it is left out, as the official clients do."
+  "What the `facets` of a post mark in its text of `n` bytes, in order, as
+  triples of a start, an end and a part, counted in bytes.
+
+  A facet that overlaps the one before it is left out, as the official
+  clients do."
   [facets n]
   (->> (for [facet (filter map? facets)
              :let  [{:strs [byteStart byteEnd]} (get facet "index")
@@ -115,7 +121,7 @@
 (defn parts
   "The parts of the content of `record`, the record of an AT Protocol post
   with its \"text\" and its \"facets\", in their order. Each part is a map
-  with its `:type` and the `:text` that the post shows for it:
+  with its :type and the :text that the post shows for it:
 
       {:type :text :text \"/cc \"}
       {:type :link :text \"atproto.com/blog\" :url \"https://atproto.com/blog\"}
@@ -139,14 +145,14 @@
              vec)))))
 
 (defn hiccup
-  "The content of `record`, the record of an AT Protocol post, as Hiccup:
-  one paragraph, with a break for each line break of the text. The result
-  is a sequence of nodes to put inside a parent element.
+  "The content of `record`, the record of an AT Protocol post, as Hiccup by
+  `opts`: one paragraph, with a break for each line break of the text.
+  The result is a sequence of nodes to put inside a parent element.
 
-  A link of the post is a link. `:link` in `opts` is a function of a part
-  of `parts`. It gives the URL that a mention or a hashtag links to, or
-  nil for no link. The protocol gives no web page for a profile, so the
-  app chooses the web app that shows one."
+  A link of the post is a link. The :link of `opts` is a function of a
+  part of parts. It gives the URL that a mention or a hashtag links to,
+  or nil for no link. The protocol gives no web page for a profile, so you
+  choose the web app that shows one."
   ([record]
    (hiccup record {}))
   ([record opts]
@@ -161,17 +167,17 @@
        ()))))
 
 (defn ^:no-doc post-html
-  "The content of the AT Protocol `record` as sanitized HTML, as `hiccup`
-  gives it. A mention and a hashtag have no link. Nil for a post without
-  text."
+  "The content of the AT Protocol `record` as sanitized HTML, as hiccup
+  gives it, or nil for a post without text. A mention and a hashtag have
+  no link."
   [record]
   (when-let [paragraphs (seq (hiccup record))]
     (html/emit (html/sanitize paragraphs))))
 
 (defn- embed-attachments
-  "The media of the `embed` view of an AT Protocol post: its images, its
-  video, or the media beside the post that it quotes, each with the ratio
-  of its width to its height."
+  "The media of the `embed` view of an AT Protocol post, each with the
+  ratio of its width to its height. They're the images, the video, or the
+  media beside the post that it quotes."
   [embed]
   (let [media (fn [kind x url preview]
                 (when-let [url (common/web-url (get x url))]
@@ -192,11 +198,12 @@
       [])))
 
 (defn- post-comment
-  "The AT Protocol post `view` as a comment read at `at`. It is hidden when
-  it is among the replies that the author of the root hid, the `:hidden`
-  of `opts`. Its replies count as read when the view gives them, which
-  `:replies?` tells."
-  [view at {:keys [hidden replies?]}]
+  "The AT Protocol post `view` as a comment read at `at`, by `opts`.
+
+  It's hidden when it's among the replies that the author of the root
+  hid, the :hidden of `opts`. Its replies count as read when the view
+  gives them, which :replies? tells."
+  [view at {:keys [hidden replies?] :as opts}]
   (let [record  (get view "record")
         labels  (warnings view)
         created (time/parse-date (get record "createdAt"))
@@ -231,13 +238,13 @@
                      :read-at at})))
 
 (defn- with-view
-  "`thread` with the posts of the AT Protocol thread `view` read at `at`
-  below the post `parent`, the replies in `hidden` hidden, and `level`
-  levels down from the post that was asked for.
+  "The `thread` with the posts of the AT Protocol thread `view` read at
+  `at` below the post `parent`, `level` levels down from the post that was
+  asked for. The replies in `hidden` are hidden.
 
-  A post that is gone is a deleted comment. A withheld post is left out
-  with the replies below it, and so is a post that the AppView does not
-  give because of a block. The `common/limits` of the depth and of a thread
+  A post that's gone is a deleted comment. A withheld post is left out
+  with the replies below it, and so is a post that the AppView doesn't
+  give because of a block. The common/limits of the depth and of a thread
   apply, and the thread counts the posts that a limit cut."
   [thread view parent hidden at level]
   (let [post (get view "post")
@@ -275,10 +282,9 @@
                 (when (sequential? replies) replies))))))
 
 (defn readable?
-  "Whether the thread of `interact` is one that `requests` reads with
-  `opts`. Its URI must be the at URI of a post, and `opts` must name an
-  `:appview`."
-  [{:keys [uri]} opts]
+  "Whether requests reads the thread of `interact` with `opts`. Its URI
+  must be the at URI of a post, and `opts` must name an :appview."
+  [{:keys [uri] :as interact} opts]
   (and (post-uri? uri) (string? (:appview opts))))
 
 (defn resumed
@@ -293,15 +299,15 @@
                                               (dissoc ::comments/collection)))))
 
 (defn requests
-  "The requests that the AT Protocol `thread` needs next, of those whose
-  URLs `ask?` takes.
+  "The requests that the AT Protocol `thread` needs next with `opts`, of
+  those whose URLs `ask?` takes.
 
-  They go to the `:appview` of `opts`. They ask for no more posts than
-  the `:max-comments` of `opts` allows, counted from the last `resumed`.
+  They go to the :appview of `opts`. They ask for no more posts than the
+  :max-comments of `opts` allows, counted from the last resumed.
 
   The root post comes first. Then come the posts nearest to it whose
   replies are below the levels that the AppView gives at once."
-  [{:keys [uri read-at comments] ::comments/keys [held] :as thread} {:keys [appview max-comments]} ask?]
+  [{:keys [uri read-at comments] ::comments/keys [held] :as thread} {:keys [appview max-comments] :as opts} ask?]
   (->> (cond
          (not (string? appview)) []
          (nil? read-at)          (when (post-uri? uri) [(thread-request appview uri)])
@@ -314,12 +320,12 @@
        (filter (comp ask? :url))))
 
 (defn with-exchanges
-  "The AT Protocol `thread` with the `exchanges` of one of its `requests`
-  read into it at `at`: the one exchange of the request.
+  "The AT Protocol `thread` with the `exchanges` of one of its requests
+  read into it at `at`. There's one exchange for the request.
 
-  A root that the AppView does not give, and a post that is gone, are
-  problems of the root and a deleted comment."
-  [{:keys [read-at] :as thread} [{{:keys [url] [_ anchor] ::comments/for} :request {:keys [status] :as response} :response :as exchange}] at]
+  A root that the AppView doesn't give is a problem of the root, and a
+  post that's gone is a deleted comment."
+  [{:keys [read-at] :as thread} [{{:keys [url] [_ anchor] ::comments/for} :request {:keys [status] :as response} :response :as exchange} :as exchanges] at]
   (let [doc     (common/document-of exchange)
         view    (get doc "thread")
         gone?   (or (and (= 400 status) (= "NotFound" (get doc "error")))

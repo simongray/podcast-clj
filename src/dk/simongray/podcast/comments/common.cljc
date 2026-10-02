@@ -1,8 +1,10 @@
 (ns dk.simongray.podcast.comments.common
-  "What `comments.activitypub` and `comments.atproto` share: the values in
-  JSON answers, the problem with an answer, and the HTML of a post made
-  safe to show. Also the posts that a thread withholds, and the order of
-  the requests by the depth of their posts."
+  "What the readers of comments.activitypub and comments.atproto share:
+
+  - the values in JSON answers, and the problem with an answer
+  - the HTML of a post, made safe to show
+  - the posts that a thread withholds
+  - the order of the requests by the depth of their posts"
   (:require [clojure.string :as str]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.format.html :as html]
@@ -11,8 +13,8 @@
             [dk.simongray.podcast.util.json :as json]))
 
 (defn ^:no-doc present
-  "`m` without the entries that say nothing: nil, false, a blank string or
-  an empty collection."
+  "The map `m` without the entries that say nothing: nil, false, a blank
+  string or an empty collection."
   [m]
   (into {} (remove (fn [[_ v]]
                      (or (nil? v)
@@ -27,13 +29,13 @@
   (first (filter #(and (string? %) (not (str/blank? %))) xs)))
 
 (defn ^:no-doc web-url
-  "`s` when it is an http or https URL with a host."
+  "The string `s` when it's an http or https URL with a host."
   [s]
   (when (http/web-url? s)
     s))
 
 (defn ^:no-doc dimension
-  "`x` when it is a whole number above zero, as a size is."
+  "The number `x` when it's a whole number above zero, as a size is."
   [x]
   (when-let [n (json/whole x)]
     (when (pos? n) n)))
@@ -50,38 +52,41 @@
 
 (defn ^:no-doc document
   "The JSON object in the body of the `response`, or nil."
-  [{:keys [body]}]
+  [{:keys [body] :as response}]
   (json/object body))
 
 (defn ^:no-doc document-of
-  "The JSON object that the `exchange`, `{:request :response}`, got in
-  answer: the one that `comments/fetch!` read when the answer came, or else
-  the one in the body of its response."
+  "The JSON object that the `exchange` of a :request and a :response got
+  in answer. It's the one that comments/fetch! read when the answer came,
+  or else the one in the body of its response."
   [{:keys [response] :as exchange}]
   (if (contains? exchange :document)
     (:document exchange)
     (document response)))
 
 (def ^:no-doc limits
-  "The limits of size of a thread, which no option sets. A page of a
-  collection gives `:page` items at most, and an id has `:id` characters
-  at most. A thread holds `:thread` comments at most. The replies of an AT
-  Protocol thread go `:depth` levels down at most. Servers list some dozens
-  of items to a page, so more is a flood."
+  "The limits of size of a thread, which no option sets:
+
+  - :page, the most items that a page of a collection gives
+  - :id, the most characters of an id
+  - :thread, the most comments that a thread holds
+  - :depth, how many levels down the replies of an AT Protocol thread go
+
+  Servers list some dozens of items to a page, so more is a flood."
   {:page 1000 :id 2048 :thread 10000 :depth 64})
 
 (defn ^:no-doc failure
   "What went wrong with the `response` to the request for `url`, as a
-  diagnostic without its level; nil when nothing did.
+  diagnostic without its level, or nil when nothing did.
 
-  A server that refuses a request that is not signed answers 401 or 403. A
-  request that failed has the `:error` of it in place of the response, and
-  one that took too long is `:timeout?` as well.
+  A server that refuses a request that isn't signed answers 401 or 403. A
+  request that failed has the :error of it in place of the response, and
+  one that took too long is :timeout? as well.
 
-  A failure is `:retry?` when it can pass with time, so that a later
-  reading asks again. The request failed and the response says `:retry?`,
+  A failure is :retry? when it can pass with time, so that a later
+  reading asks again. The request failed and the response says :retry?,
   or the server answered 429 or a status from 500."
-  [url {:keys [status error timeout? retry?]}]
+  [url {:keys [status error timeout? retry?] :as response}]
   (cond
     error                                             (cond-> {:id :comments/unreachable :url url :reason error}
                                                         timeout? (assoc :timeout? true)
@@ -92,21 +97,20 @@
                                                         (assoc :retry? true))))
 
 (defn ^:no-doc fit-links
-  "The Hiccup `nodes` of a post whose URL is `base`, fit to show on the page
-  of an app.
+  "The Hiccup `nodes` of a post whose URL is `base`, fit by `opts` to show
+  on the page of an app.
 
-  Each link is made absolute against `base`, marked as the link of a user
-  that the app does not vouch for, and left without a target when it is no
-  http or https URL. Each image is its alt text, since an image loads when
-  the page does.
+  Each link is made absolute against `base`, and marked as a link that a
+  user wrote, with rel nofollow ugc. A link that isn't an http or https
+  URL has no target. Each image is its alt text, since an image loads when
+  the page does. The `opts` can give two functions:
 
-  `opts` can give two functions. `:a` gets the attributes of a link and
-  its fitted children, and gives the node in the place of the link, or nil
-  for the link as it is. `:text` gets a text, and gives the nodes in its
-  place."
+  - :a takes the attributes of a link and its fitted children, and gives
+    the node in place of the link, or nil for the link as it is
+  - :text takes a text, and gives the nodes in its place"
   ([nodes base]
    (fit-links nodes base {}))
-  ([nodes base {:keys [a text] :or {a (constantly nil) text vector}}]
+  ([nodes base {:keys [a text] :or {a (constantly nil) text vector} :as opts}]
    (letfn [(nodes-of [x]
              (if-not (vector? x)
                (text x)
@@ -125,8 +129,8 @@
 
 (defn ^:no-doc safe-html
   "The HTML `s` of a post whose URL is `base`, safe for the page of an app
-  to show: sanitized by `html/hiccup`, which makes paragraphs of plain
-  text, with its links fit as `fit-links` has it. Nil when it is blank."
+  to show, or nil when it's blank. It's sanitized by html/hiccup, and its
+  links are fit by fit-links."
   [s base]
   (when (and (string? s) (not (str/blank? s)))
     (html/emit (fit-links (html/hiccup s) base))))
@@ -145,29 +149,29 @@
           ps)))
 
 (defn ^:no-doc user-link
-  "The Hiccup of a link to `url` that a user wrote in a content, with the
-  label `label`. The link is marked as the link of a user that the app
-  does not vouch for. It is the label alone when the URL is no http or
-  https URL with a host."
+  "The Hiccup of a link to `url` with the `label`, for a link that a user
+  wrote in a content, with rel nofollow ugc. It's the label alone when the
+  URL isn't an http or https URL with a host."
   [url label]
   (if-let [href (web-url url)]
     [:a {:href href :rel "nofollow ugc"} label]
     label))
 
 (defn ^:no-doc linked
-  "The Hiccup of the part `part` of a content, with the label `label`: a
-  link to what the `:link` of `opts` gives for the part, or else the
-  label. `:link` is a function of a part, and the app chooses where a
-  mention, a hashtag or a reference leads."
-  [part label {:keys [link]}]
+  "The Hiccup of the part `part` of a content, with the `label`, linked by
+  the :link of `opts`, or else the label.
+
+  The :link is a function of a part, which gives where a mention, a
+  hashtag or a reference leads."
+  [part label {:keys [link] :as opts}]
   (if-let [href (when link (link part))]
     [:a {:href href} label]
     label))
 
 (defn ^:no-doc guarded
-  "The comment that `(f)` reads of the post `id` at `at`. When the reading
-  fails, the comment holds the `:error` of it, so that the reading goes on
-  with the posts around it."
+  "The comment that `f` reads of the post `id` at `at`. When the reading
+  fails, the comment holds its :error, so that the reading goes on with
+  the posts around it."
   [id at f]
   (try
     (f)
@@ -175,23 +179,23 @@
       {:id id :error {:id :comments/malformed :url id :reason (async/explain e)} :read-at at})))
 
 (defn ^:no-doc withhold
-  "`thread` with the post `id` among the posts that it withholds, which its
-  report counts."
+  "The `thread` with the post `id` among the posts that it withholds, which
+  its report counts."
   [thread id]
   (update thread ::comments/withheld (fnil conj #{}) id))
 
 (defn ^:no-doc truncate
-  "`thread` with `n` more replies among those that the limit `k` of `limits`
-  cut, which its report counts."
+  "The `thread` with `n` more replies among those that the limit `k` of
+  limits cut, which its report counts."
   [thread k n]
   (cond-> thread
     (pos? n) (update-in [::comments/truncated k] (fnil + 0) n)))
 
 (defn ^:no-doc retried
-  "`thread` with its root, its posts and its authors unread again, where a
-  failure that can pass with time kept them from the reading.
+  "The `thread` with its root, its posts and its authors unread again,
+  where a failure that can pass with time kept them from the reading.
 
-  The failure of a root that the Mastodon API gave stays, because it tells
+  The failure of a root that the Mastodon API gave stays, since it tells
   why the thread came through the API."
   [{:keys [error via comments authors] :as thread}]
   (let [unread #(cond-> % (:retry? (:error %)) (dissoc :error :read-at))]
@@ -202,9 +206,9 @@
 
 (defn ^:no-doc depths
   "How many replies down from the root of `thread` each of its comments is,
-  by the post that each replies to, as a map from ids. A comment that does
-  not lead to the root has none."
-  [{:keys [root comments]}]
+  by the post that each replies to, as a map from ids. A comment that
+  doesn't lead to the root has none."
+  [{:keys [root comments] :as thread}]
   (let [children (group-by :in-reply-to (vals comments))]
     (loop [depth {root 0} level [root] n 1]
       (if (empty? level)
@@ -214,7 +218,7 @@
 
 (defn ^:no-doc nearest-first
   "The requests `rs`, those for the comments nearest the root first, by the
-  `depth` of the comment that each is `::comments/for`."
+  `depth` of the comment that the ::comments/for of each names."
   [depth rs]
   (sort-by (fn [{[_ id] ::comments/for :keys [url]}] [(get depth id ##Inf) url]) rs))
 

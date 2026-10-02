@@ -1,20 +1,20 @@
 (ns dk.simongray.podcast.comments.activitypub
   "Threads of comments over ActivityPub, the protocol of Mastodon, PeerTube
-  and the podcast host Castopod, read for `comments`.
+  and the podcast host Castopod, read for dk.simongray.podcast.comments.
 
   Each post is a JSON document at its own URL. A root post can start a
   conversation and name a collection of all its posts. This collection is
-  the `context` of FEP-f228, or the `comments` of a PeerTube video.
-  `requests` asks for that collection, or else for the `replies`
+  the context of FEP-f228, or the comments of a PeerTube video. The
+  requests function asks for that collection, or else for the replies
   collection of each post, down the tree. It asks for each post that a
   collection names by URL at the post's own server, and for each author
   too. A server speaks only for its own posts and authors, as FEP-fe34
-  asks. `with-exchanges` leaves out a post that is not public.
+  asks, and a post that isn't public is left out.
 
   Some servers answer only signed requests, and Mastodon lets no page on
-  another site read its posts. For such a root post, `requests` asks the
-  Mastodon API of its server for the thread. Many servers answer this API.
-  The API speaks only for its own server too."
+  another site read its posts. For such a root post, requests asks the
+  Mastodon API of its server for the thread. Many servers answer this API,
+  which speaks only for its own server too."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
@@ -40,7 +40,8 @@
 
 ;; ActivityPub, section 3.2
 (defn ^:no-doc document-request
-  "The request for the ActivityPub document at `url`, `for` what it asks."
+  "The request for the ActivityPub document at `url`, marked as `for` a
+  part of the reading."
   [url for]
   {:method        :get
    :url           url
@@ -51,7 +52,7 @@
    ::comments/for for})
 
 (defn ^:no-doc own-url
-  "`url` when it is an http or https URL on the server of `id`. A server
+  "The `url` when it's an http or https URL on the server of `id`. A server
   speaks only for itself, so a post or an author links to no page on
   another server."
   [url id]
@@ -60,8 +61,8 @@
 
 (defn ^:no-doc web-page
   "The web page of the ActivityPub object `o`: the first url that it names
-  on the server of its id, one of the type text/html before the others, or
-  else its id."
+  on the server of its id, with one of the type text/html first, or else
+  its id."
   [o]
   (let [id   (id-of o)
         urls (common/values o "url")
@@ -70,8 +71,8 @@
 
 (defn ^:no-doc attributed
   "The id of the author of the ActivityPub object `o`: the first person
-  that its attributedTo names, or else the first of any kind, since a
-  PeerTube video names its account and its channel."
+  that its attributedTo names, or else the first of any kind. A PeerTube
+  video names its account and its channel."
   [o]
   (let [xs (common/values o "attributedTo")]
     (id-of (or (first (filter #(= "Person" (get % "type")) (filter map? xs)))
@@ -87,9 +88,9 @@
 
 ;; ActivityPub, section 5.6
 (defn ^:no-doc public?
-  "Whether the ActivityPub object `o` is for anyone to see: the Public
-  collection is among its recipients, or it names no recipients at all, as
-  a few servers write their posts."
+  "Whether the ActivityPub object `o` is for anyone to see. Either the
+  Public collection is among its recipients, or it names no recipients at
+  all, as a few servers write their posts."
   [o]
   (let [recipients (map id-of (mapcat #(common/values o %) ["to" "cc" "bto" "bcc"]))]
     (or (empty? recipients)
@@ -99,8 +100,8 @@
 ;; (actors): the types that are no post
 (defn ^:no-doc post-of
   "The post in the ActivityPub document `doc`: the object itself, or the
-  object of the Create activity that it is. Nil for an actor, a
-  collection, another activity, and an object without an id."
+  object of the Create activity that it is. It's nil for an actor, a
+  collection, another activity or an object without an id."
   [doc]
   (let [o (if (= "Create" (get doc "type")) (get doc "object") doc)]
     (when (and (map? o)
@@ -114,10 +115,14 @@
       o)))
 
 (defn- answer-of
-  "What the `exchange` of a request for an ActivityPub document tells: the
-  `:url` asked for, the `:final` one that answered, the `:status`, the
-  `:problem` that kept the answer from being read if one did, and the
-  `:document`."
+  "What the `exchange` of a request for an ActivityPub document tells, as
+  a map:
+
+  - :url, the URL asked for
+  - :final, the URL that answered
+  - :status
+  - :problem, what kept the answer from being read, if anything did
+  - :document"
   [{:keys [request response] :as exchange}]
   (let [url     (:url request)
         problem (common/failure url response)]
@@ -128,11 +133,12 @@
      :document (when-not problem (common/document-of exchange))}))
 
 (defn ^:no-doc post-problem
-  "The problem with the post in the `answer` to the request for `url`: that
-  the request failed, that the answer holds no post, or that the post
-  speaks for another server than the one that sent it; nil when there is
-  none."
-  [{:keys [problem document final]} url]
+  "The problem with the post in the `answer` to the request for `url`, or
+  nil when there's none.
+
+  The request failed, the answer holds no post, or the post speaks for
+  another server than the one that sent it."
+  [{:keys [problem document final] :as answer} url]
   (let [o (post-of document)]
     (or problem
         (when-not o {:id :comments/malformed :url url})
@@ -143,8 +149,8 @@
   as the HTML that the server of its author wrote.
 
   The language is the one that its contentMap names. Text of another media
-  type than HTML, as the Markdown of PeerTube, keeps its line breaks, as
-  breaks when it holds markup as well."
+  type than HTML, such as the Markdown of PeerTube, keeps its line breaks,
+  as breaks when it holds markup as well."
   [o]
   (let [by-language  (get o "contentMap")
         [language s] (if (string? (get o "content"))
@@ -157,9 +163,10 @@
 
 (defn- tag-part
   "What the tag `t` of an ActivityPub object names in its content, as a
-  part: a mention of an actor, a hashtag or a custom emoji. The Activity
-  Vocabulary defines Mention. Mastodon defines Hashtag and Emoji, and
-  other server programs write them too."
+  part: a mention of an actor, a hashtag or a custom emoji.
+
+  The Activity Vocabulary defines Mention. Mastodon defines Hashtag and
+  Emoji, and other server programs write them too."
   [t]
   (let [label (common/first-text (get t "name"))]
     (case (get t "type")
@@ -190,9 +197,8 @@
               {:type :emoji :shortcode shortcode :url image}))))
 
 (defn- source
-  "What `parts` and `hiccup` read of a post: the HTML `markup` of its
-  content, the id `base` of the post, and the parts `tags` that its tags
-  name."
+  "What parts and hiccup read of a post: the HTML `markup` of its content,
+  the id `base` of the post, and the parts `tags` that its tags name."
   [markup base tags]
   (when (common/first-text markup)
     (common/present {:html markup :base base :tags (vec tags)})))
@@ -209,7 +215,7 @@
 
 (defn- account
   "The user name and the domain in the name `s` of an account, such as
-  @dave or @dave@example.social, in lower case: `[user domain]`. Nil for
+  @dave or @dave@example.social, in lower case, as a pair. It's nil for
   another text."
   [s]
   (when-let [[_ user domain] (re-matches #"@?([^@\s]+)(?:@(\S+))?" (str/lower-case (str s)))]
@@ -217,16 +223,16 @@
 
 (defn- link-part
   "What the link with the attributes `attrs` and the text `label` is in the
-  content of `source`: a mention or a hashtag, as a part, or nil for
+  content of `source`, as a part: a mention or a hashtag, or nil for
   another link.
 
   A hashtag starts with a number sign, and the post names it in a tag, or
   the link has the class hashtag or the rel tag. A mention starts with an
   at sign, and the post names the account in a tag, or the link has the
   class mention. No standard defines the classes. Mastodon writes them,
-  and other server programs follow it. The `:id` of a mention is the id of
+  and other server programs follow it. The :id of a mention is the id of
   the actor, from the tag of the same user name on the same server."
-  [{:keys [href class rel]} label {:keys [base tags]}]
+  [{:keys [href class rel] :as attrs} label {:keys [base tags] :as source}]
   (let [classes  (words class)
         url      (common/web-url (if (and base href) (http/absolute-url base href) href))
         of-type  (fn [type] (filter #(= type (:type %)) tags))
@@ -253,16 +259,16 @@
 (defn- sanitized
   "The content of `source` as sanitized Hiccup, with the class and the rel
   of each link, which tell what the link is."
-  [{markup :html}]
+  [{markup :html :as source}]
   (let [s (str markup)]
     (if (re-find html/markup s)
       (html/sanitize (html/parse s) {:allowed-attributes (update html/allowed-attributes :a conj :class)})
       (html/hiccup s))))
 
 (defn- with-emoji
-  "The text `s` as the pieces between and at the shortcodes of the custom
-  emoji `emojis`, a map from shortcodes to parts: each piece is a text, or
-  the part of an emoji."
+  "The text `s` as pieces, cut at the shortcodes of the custom `emojis`, a
+  map from shortcodes to parts. Each piece is a text, or the part of an
+  emoji."
   [s emojis]
   ;; `at` is where the next match starts or later, and `from` is where the
   ;; text starts that no piece has yet
@@ -278,24 +284,27 @@
 
 (defn- emojis-of
   "The custom emoji of `source`, by shortcode."
-  [{:keys [tags]}]
+  [{:keys [tags] :as source}]
   (into {} (keep (fn [{:keys [type shortcode] :as t}] (when (= :emoji type) [shortcode t]))) tags))
 
 (defn parts
   "The parts of the content of `source`, the source of an ActivityPub
-  comment, in their order. Each part is a map with its `:type` and the
-  `:text` that the post shows for it:
+  comment, in their order. Each part is a map with its :type and the
+  :text that the post shows for it:
 
       {:type :text :text \"Good episode, \"}
-      {:type :mention :text \"@dave\" :id \"https://example.social/users/dave\" :url \"https://example.social/@dave\"}
-      {:type :hashtag :text \"#podcast\" :tag \"podcast\" :url \"https://example.social/tags/podcast\"}
+      {:type :mention :text \"@dave\" :id \"https://example.social/users/dave\"
+       :url \"https://example.social/@dave\"}
+      {:type :hashtag :text \"#podcast\" :tag \"podcast\"
+       :url \"https://example.social/tags/podcast\"}
       {:type :link :text \"example.org\" :url \"https://example.org/\"}
-      {:type :emoji :text \":blobcat:\" :shortcode \"blobcat\" :url \"https://example.social/emoji/blobcat.png\"}
+      {:type :emoji :text \":blobcat:\" :shortcode \"blobcat\"
+       :url \"https://example.social/emoji/blobcat.png\"}
 
   The content of a post is HTML, and the parts are its text in one line
   of parts. A line break of the text is a line break in a text part, and
-  a blank line comes after a paragraph. `hiccup` keeps the elements of
-  the HTML."
+  a blank line comes after a paragraph. Unlike the parts, hiccup keeps the
+  elements of the HTML."
   [{:keys [base] :as source}]
   (let [emojis (emojis-of source)
         pieces (fn [s] (map #(if (string? %) {:type :text :text %} %) (with-emoji s emojis)))
@@ -324,15 +333,18 @@
 
 (defn hiccup
   "The content of `source`, the source of an ActivityPub comment, as
-  sanitized Hiccup, with its links fit as the `:content` of a comment has
-  them. The result is a sequence of nodes to put inside a parent element.
+  sanitized Hiccup by `opts`, with its links fit as the :content of a
+  comment has them.
 
-  `:link` in `opts` is a function of a part of `parts`. It gives the URL
-  that a mention or a hashtag links to, or nil for the link that the post
-  has. So a mention leads to a page of the app, and not to the server of
-  the mentioned account. With `:emoji? true`, each custom emoji is an
-  image. The image loads from the server of the author, which then knows
-  who reads the thread."
+  The result is a sequence of nodes to put inside a parent element. The
+  `opts` are these:
+
+  - :link, a function of a part of parts. It gives the URL that a mention
+    or a hashtag links to, or nil for the link that the post has. So a
+    mention leads to a page of the app, and not to the server of the
+    mentioned account.
+  - :emoji?, to show each custom emoji as an image. The image loads from
+    the server of the author, which can then see who reads the thread."
   ([source]
    (hiccup source {}))
   ([{:keys [base] :as source} {:keys [link emoji?] :as opts}]
@@ -349,15 +361,16 @@
 
 (defn- warning
   "The content warning in the summary `s` of an ActivityPub object, as
-  text; nil for none, as for the zero-width space that Misskey writes for
-  an empty one."
+  text, or nil for none, as for the zero-width space that Misskey writes
+  for an empty one."
   [s]
   (when (string? s)
     (common/first-text (str/replace (html/text s) (str (char 0x200B)) ""))))
 
 (defn- media-kind
   "The kind of media that the `media-type` names, or else the
-  ActivityStreams `type`: :image, :video, :audio, or :file for any other."
+  ActivityStreams `type`. It's :image, :video, :audio, or :file for any
+  other."
   [media-type type]
   (or (when (string? media-type) (#{:image :video :audio} (keyword (first (str/split media-type #"/")))))
       (get {"Image" :image "Video" :video "Audio" :audio} type)
@@ -445,7 +458,7 @@
   page after them.
 
   A collection lists its items itself, or in its first page, or only names
-  that page. Nil for a collection that lists nothing itself."
+  that page. It's nil for a collection that lists nothing itself."
   [c]
   (let [page (get c "first")]
     (cond
@@ -458,16 +471,16 @@
 (declare with-object)
 
 (defn ^:no-doc with-items
-  "`thread` with the `items` of a collection page that came from `url`,
-  read at `at` as replies to `owner`.
+  "The `thread` with the `items` of a collection page that came from `url`,
+  read at `at` as replies to `owner`, by `opts`.
 
-  With `:objects?` in `opts`, a public object from the server of `url` is
-  a comment, and a post that is not public is withheld. Anything else is
-  a comment to fetch by its id.
+  With :objects? in `opts`, a public object from the server of `url` is a
+  comment, and a post that isn't public is withheld. Anything else is a
+  comment to fetch by its id.
 
-  The `common/limits` of a page, of an id and of a thread apply. The
-  thread counts the items that a limit cut, for its report."
-  [thread owner items url at {:keys [objects?]}]
+  The common/limits of a page, of an id and of a thread apply. The thread
+  counts the items that a limit cut, for its report."
+  [thread owner items url at {:keys [objects?] :as opts}]
   (let [{:keys [page] longest :id most :thread} common/limits
         full? (fn [thread id]
                 (and (not (contains? (:comments thread) id))
@@ -488,14 +501,13 @@
             (take page items))))
 
 (defn ^:no-doc with-collection
-  "`thread` with the collection `c` of replies to `owner` at `path`, a value
-  in a document that came from `url`, as far as the document lists it at
-  `at`.
+  "The `thread` with the collection `c` of replies to `owner` at its `path`,
+  as far as the document that came from `url` lists it at `at`. Its items
+  are read by with-items with `opts`.
 
-  Its items are read with `with-items`, which takes `opts`. The
-  collection is read when the document lists all of it, or else it names
-  the URL of the page to read it from, which must be on the server of
-  `url`."
+  The collection is read when the document lists all of it. Or else it
+  names the URL of the page to read it from, which must be on the server
+  of `url`."
   [thread path owner c url at opts]
   (let [id                              (when (http/same-origin? (id-of c) url) (id-of c))
         {:keys [items next] :as listed} (when (map? c) (listing c))
@@ -508,15 +520,15 @@
                                          :else                  {:url id :read-at at}))))))
 
 (defn ^:no-doc with-object
-  "`thread` with the ActivityPub object `o`, which came from `url`, as a
-  comment read at `at`, and with the replies that it lists itself. With
-  `:nested?` in `opts`, the object came in another document, and its
-  replies count by their ids alone.
+  "The `thread` with the ActivityPub object `o`, which came from `url`, as
+  a comment read at `at`, with the replies that it lists itself, by
+  `opts`.
 
-  A post replies to what it names itself, whatever a collection that
-  listed it said, but a post that is gone keeps the place that the
-  collection gave it."
-  [thread o url at {:keys [nested?]}]
+  With :nested? in `opts`, the object came in another document, and its
+  replies count by their ids alone. A post replies to what it names
+  itself, whatever a collection that listed it said. But a post that's
+  gone keeps the place that the collection gave it."
+  [thread o url at {:keys [nested?] :as opts}]
   (let [id (id-of o)]
     (-> thread
         (update-in [:comments id] (fn [listed]
@@ -527,12 +539,12 @@
         (with-collection [:comments id ::comments/collection] id (get o "replies") url at {:objects? (not nested?)}))))
 
 (defn next-page
-  "The request for the page after the one in `exchange`, an exchange
-  `{:request :response}` of the reading of a collection. Nil after the last
-  page, and for any other exchange.
+  "The request for the page after the one in `exchange`, an exchange of
+  the reading of a collection with a :request and a :response. It's nil
+  after the last page, and for any other exchange.
 
-  It is the page that the answer names next, on the same server. It is nil
-  when the reading read that page before."
+  It's the page that the answer names next, on the same server, unless
+  the reading read that page before."
   [{:keys [request response] :as exchange}]
   (let [url  (:url request)
         seen (conj (::comments/seen request #{}) url)
@@ -543,13 +555,14 @@
       (assoc request :url next ::comments/seen seen))))
 
 (defn- read-pages
-  "`thread` with the `exchanges` of a reading of the collection at `path`
-  read into it at `at`, the items of each page as replies to `owner`.
+  "The `thread` with the `exchanges` of a reading of the collection at
+  `path` read into it at `at`, with the items of each page as replies to
+  `owner`.
 
   The collection is read when the reading ended at its last page, or at a
   page that failed, with the problem of it. When the limits stopped the
-  reading, the collection goes on from the page after the last, and it
-  keeps the pages read, so that no reading reads one twice."
+  reading, the collection goes on from the page after the last. It keeps
+  the pages read, so that no reading reads one twice."
   [thread path owner exchanges at]
   (let [read (reduce (fn [thread {:keys [request response] :as exchange}]
                        (let [url     (:url request)
@@ -567,18 +580,19 @@
 
 (defn- conversation-of
   "The collection of the posts of the whole thread that the ActivityPub
-  root `o` starts, on its own server: the comments of a PeerTube video, or
-  the context of FEP-f228 when the root replies to nothing."
+  root `o` starts, on its own server. It's the comments of a PeerTube
+  video, or the context of FEP-f228 when the root replies to nothing."
   [o]
   (let [c (or (get o "comments") (when (nil? (get o "inReplyTo")) (get o "context")))]
     (when (http/same-origin? (id-of c) (id-of o))
       c)))
 
 (defn- read-root
-  "`thread` with its root post read at `at` from the `answer` to the request
-  for its URI, with the conversation that the root starts; or with the
-  problem that kept the root from being read. A root that is not public
-  is withheld."
+  "The `thread` with its root post read at `at` from the `answer` to the
+  request for its URI, with the conversation that the root starts.
+
+  Or else it has the problem that kept the root from being read. A root
+  that isn't public is withheld."
   [{:keys [uri] :as thread} {:keys [document final] :as answer} at]
   (let [o       (post-of document)
         problem (post-problem answer uri)]
@@ -593,12 +607,13 @@
                             talk (with-collection [::comments/conversation] (id-of o) talk final at {:objects? true}))))))
 
 (defn- read-item
-  "`thread` with the post `id`, which a collection listed, read at `at` from
-  the `answer` to the request for it.
+  "The `thread` with the post `id`, which a collection listed, read at `at`
+  from the `answer` to the request for it:
 
-  A post that is gone is deleted, one that is not public is withheld, and
-  one that the answer names by another id is the comment of that id; else
-  the comment has the problem that kept it from being read."
+  - a post that's gone is deleted
+  - a post with a problem keeps it as its :error
+  - a post that isn't public is withheld
+  - a post that the answer names by another id is the comment of that id"
   [thread id {:keys [status document final] :as answer} at]
   (let [o       (post-of document)
         problem (post-problem answer id)
@@ -614,10 +629,10 @@
       :else               (with-object (update thread :comments dissoc id) o final at {}))))
 
 (defn- read-actor
-  "`thread` with its author `id` read at `at` from the `answer` to the
-  request for it, or with the problem that kept it from being read: an
+  "The `thread` with its author `id` read at `at` from the `answer` to the
+  request for it, or with the problem that kept it from being read. An
   actor must speak for the server of `id` and of the answer."
-  [thread id {:keys [problem document final]} at]
+  [thread id {:keys [problem document final] :as answer} at]
   (let [actor   (id-of document)
         problem (or problem
                     (when-not actor {:id :comments/malformed :url id})
@@ -631,13 +646,13 @@
   "The paths of statuses on the servers that answer the Mastodon API, as of
   September 2026.
 
-  They are the paths of the web pages and of the ActivityPub ids. Each is
-  a regular expression of the whole path, and its one group is the id of
+  They're the paths of the web pages and of the ActivityPub ids. Each is a
+  regular expression of the whole path, and its one group is the id of
   the status in the API.
 
-  They are the paths of Mastodon, of GoToSocial, of the ActivityPub ids of
-  both, and of Pleroma and Akkoma. `requests` reads them, unless its
-  options give the paths of other servers as `:status-paths`."
+  They're the paths of Mastodon, of GoToSocial, of the ActivityPub ids of
+  both, and of Pleroma and Akkoma. The requests function reads them,
+  unless its options give the paths of other servers as :status-paths."
   [#"/@[^/?#]+/([0-9A-Za-z]+)"
    #"/@[^/?#]+/statuses/([0-9A-Za-z]+)"
    #"/users/[^/?#]+/statuses/([0-9A-Za-z]+)"
@@ -645,8 +660,8 @@
 
 (defn ^:no-doc api-status
   "The origin of the server of the status at the web or ActivityPub URL
-  `uri`, and the id of the status in the Mastodon API there, by the `paths`
-  of statuses, as `status-paths` has them; nil for another URL."
+  `uri`, and the id of the status in the Mastodon API there, by the
+  `paths` of statuses as in status-paths. It's nil for another URL."
   [uri paths]
   (when-let [[_ origin path] (when (string? uri)
                                (re-find #"^(https?://[^/?#]+)(/[^?#]*)" uri))]
@@ -660,8 +675,10 @@
 
 (defn- api-requests
   "The requests to the Mastodon API of the server of `uri` for the parts of
-  its thread that it has not `read`: the `:status` of the root and the
-  `:context` of the replies below it. `paths` are those of `api-status`."
+  its thread that aren't in `read`, with the `paths` of api-status.
+
+  The parts are the :status of the root and the :context of the replies
+  below it."
   [uri read paths]
   (let [[origin id] (api-status uri paths)
         status      (str origin "/api/v1/statuses/" id)]
@@ -670,9 +687,9 @@
       {:method :get :url url :headers {"Accept" "application/json"} ::comments/for [part id]})))
 
 (defn ^:no-doc account-id
-  "The id of the `account` of the Mastodon API of the server at `origin`:
-  its ActivityPub id, or else the URL of its page, when it is on that
-  server."
+  "The id of the `account` of the Mastodon API of the server at `origin`,
+  when it's on that server. It's the ActivityPub id, or else the URL of
+  the page of the account."
   [account origin]
   (let [id (some common/web-url [(get account "uri") (get account "url")])]
     (when (http/same-origin? id origin) id)))
@@ -716,7 +733,7 @@
 
 (defn- status-comment
   "The `status` of the Mastodon API of the server at `origin` as a comment
-  read at `at` with its replies, which replies to the status that `ids`
+  read at `at`, with its replies. It replies to the status that `ids`
   maps its id in the API to."
   [status ids origin at]
   (let [poll (status-poll (get status "poll"))]
@@ -737,15 +754,15 @@
                      ::comments/collection {:read-at at}})))
 
 (defn- read-api
-  "`thread` with the answer of the Mastodon API about its root read at `at`,
-  its `part`, :status or :context, from the `answer` to the request for the
-  status `id`, or with the problem that kept the answer from being read.
+  "The `thread` with the `answer` of the Mastodon API about its root, read
+  at `at` for the `part` :status or :context of the status `id`. Or else
+  it has the problem that kept the answer from being read.
 
   The API speaks for its own server alone. Of the public statuses in the
   answer, those of the server are comments with their authors, and those
   of other servers are comments to fetch from them. An answer that holds
   no status, or no list of the statuses below it, is a problem."
-  [{:keys [uri root] :as thread} part id {:keys [problem document] origin :url} at]
+  [{:keys [uri root] :as thread} part id {:keys [problem document] origin :url :as answer} at]
   (let [statuses    (if (= :status part) [document] (common/values document "descendants"))
         own?        #(and (common/web-url (get % "uri"))
                           (http/same-origin? (get % "uri") origin)
@@ -777,18 +794,20 @@
 
 (defn- api-fallback?
   "Whether `thread` is read through the Mastodon API of the server of its
-  root: when the server refused the root unsigned, or the request for it
-  failed without an answer, as a request that CORS keeps from a page does.
-  `paths` are those of `api-status`."
-  [{:keys [uri error]} paths]
+  root, by the `paths` of api-status.
+
+  It is when the server refused the root unsigned, or when the request for
+  it failed without an answer, as a request that CORS keeps from a page
+  does."
+  [{:keys [uri error] :as thread} paths]
   (boolean (and (api-status uri paths)
                 (or (= :comments/refused (:id error))
                     (and (= :comments/unreachable (:id error)) (nil? (:status error)) (not (:timeout? error)))))))
 
 (defn- page-requests
-  "The requests for the pages of the collections of `thread` that it has
-  not read: of its conversation, or else of the replies of each post."
-  [{:keys [root comments] ::comments/keys [conversation]}]
+  "The requests for the pages of the collections of `thread` that it hasn't
+  read: of its conversation, or else of the replies of each post."
+  [{:keys [root comments] ::comments/keys [conversation] :as thread}]
   (if (and conversation (not (:error conversation)))
     (when-not (:read-at conversation)
       [(assoc (document-request (:url conversation) [:conversation root]) ::comments/seen (::comments/pages conversation #{}))])
@@ -797,9 +816,9 @@
       (assoc (document-request (:url collection) [:replies id]) ::comments/seen (::comments/pages collection #{})))))
 
 (defn readable?
-  "Whether the thread of `interact` is one that `requests` reads: its URI
-  is an http or https URL."
-  [{:keys [uri]}]
+  "Whether requests reads the thread of `interact`: its URI is an http or
+  https URL."
+  [{:keys [uri] :as interact}]
   (some? (common/web-url uri)))
 
 (defn- reopened
@@ -824,18 +843,18 @@
     (:retry? (:error api)) (dissoc ::comments/api)))
 
 (defn requests
-  "The requests that the ActivityPub `thread` needs next, of those whose
-  URLs `ask?` takes. They ask for no more posts than the `:max-comments`
-  of `opts` allows, counted from the last `resumed`.
+  "The requests that the ActivityPub `thread` needs next with `opts`, of
+  those whose URLs `ask?` takes. They ask for no more posts than the
+  :max-comments of `opts` allows, counted from the last resumed.
 
   The root post comes first. When its server keeps it from the reader, the
   Mastodon API of that server comes next. Then come the pages of the
   collections and the posts that they name, nearest the root first, and
-  then the authors. It asks for no more pages while the posts that wait
-  fill the room that `:max-comments` leaves.
+  then the authors. No more pages are asked for while the posts that wait
+  fill the room that :max-comments leaves.
 
   The URL of the root post tells its id in the Mastodon API, by
-  `status-paths` or by the `:status-paths` of `opts`."
+  status-paths or by the :status-paths of `opts`."
   [{:keys [uri root read-at comments authors via] ::comments/keys [api held] :as thread}
    {:keys [max-comments] :as opts}
    ask?]
@@ -866,7 +885,7 @@
          (filter (comp ask? :url)))))
 
 (defn with-exchanges
-  "The ActivityPub `thread` with the `exchanges` of one of its `requests`
+  "The ActivityPub `thread` with the `exchanges` of one of its requests
   read into it at `at`."
   [thread exchanges at]
   (let [{:keys [request] :as exchange} (first exchanges)
