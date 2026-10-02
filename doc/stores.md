@@ -282,6 +282,16 @@ for the episodes that it could not name by a media URL, and
 An entry that comes from a server has `gpodder:` and the id of a device of
 the server as its `:device`, such as `gpodder:antennapod`.
 
+The servers differ in a few ways:
+
+- The GPodder Sync app for Nextcloud keeps only play actions, so an
+  episode marked as unplayed doesn't reach it.
+- gpodder.net keeps a list of subscriptions for each device. To share one
+  list, link the devices on the site, or give the backend the device id of
+  the other app as `:device`.
+- Some servers want the session of a login, and others want Basic
+  authentication on every request, so the backend sends both.
+
 On both platforms, `app.sync.gpodder.server/handler` serves the API as a
 Ring handler. It answers the login, the devices, the changes to the
 subscriptions, and the episode actions, under `/api/2`. It takes the atom

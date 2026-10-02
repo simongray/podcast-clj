@@ -1,692 +1,341 @@
 # Syncing
 
-This page explains the design of the sync between the devices of one
-listener. It covers the engine in `app.sync`, the stores below it, and the
-parts of the player state that make sync possible. [Sync stores and
-documents](stores.md) gives the contracts and the formats. [How to build a
-podcast app](building-an-app.md) gives the steps for an app.
+This page explains how a listener's devices stay in step, and why it's
+safe. [Sync stores and documents](stores.md) has the contracts and the
+formats, and [How to build a podcast
+app](building-an-app.md#sync-the-devices-of-a-listener) shows the calls.
 
 
-## Why a backend only has to hold documents
+## Why a backend only stores documents
 
-The namespace `app.player` keeps the player state as one map of stamped
-entries. Its `merge` reconciles the states of two devices: the later entry
-wins. A generative test shows that the merge is commutative, associative and
-idempotent. A merge with these three properties is a join, so a backend never
-has to resolve a conflict. It only has to hold documents.
+The player state of `app.player` is one map of stamped entries, and
+`player/merge` combines the states of two devices entry by entry, keeping
+the later entry. The merge is commutative, associative and idempotent,
+which a generative test checks, so it's a join: states merged in any order,
+any number of times, end up the same. A backend never has to resolve a
+conflict, so it only has to store documents.
 
-Each kind of place needs only one short namespace: a synced folder, a
-WebDAV server, a Git repository, or a service with its own protocol.
+That makes three kinds of backend enough:
 
+- **One document per device.** Each device writes only its own document and
+  reads the documents of the others, so no two devices ever write the same
+  file. A folder that a sync client such as Dropbox mirrors, a Git working
+  tree or a WebDAV collection is a complete backend, and a new device gets
+  everything by reading it. This is the default.
+- **One shared document.** A store that can't list its documents, e.g. a
+  key-value store, holds a single document. A device fetches it, merges,
+  and writes it back only if its version hasn't changed. On a conflict, it
+  fetches and merges again, which is safe since a second merge changes
+  nothing.
+- **A service with its own model.** Services like gpodder merge on the
+  server and report the changes since a cursor. The backend translates
+  in both directions: a push sends the changes since the last push as the
+  service's own actions, and a pull turns what the service reports into a
+  partial state that merges like any other.
 
-## Three kinds of backend
-
-Because the merge is a join, three kinds of backend are sufficient, and all
-three use the same engine.
-
-**One document per device, merged on read.** Each device writes only its own
-document, and reads all other documents. No two devices write the same
-document, so there is no write conflict to detect. As a result, a folder is
-a complete backend: a folder that a sync client mirrors, a Git working tree,
-or a WebDAV collection. A new device reads the folder and gets everything.
-To retire a device, call `player/retire`, and the next sync of each device
-deletes its document. Its writes stay in the documents of the other devices,
-because each document holds the whole merged state, not only the entries of
-its writer. This is the default strategy.
-
-**One shared document, with optimistic concurrency.** A store that cannot
-list, such as a key-value store or a single record, holds one document. A
-device fetches the document, merges it, and puts it back on the condition
-that its version did not change. On a conflict, the device fetches and
-merges again. The retry is safe, because a second merge changes nothing.
-
-**A service with its own model.** gpodder and similar services merge on the
-server, and send the changes to subscriptions and the episode actions since
-a cursor. For these services, podcast-clj translates. A push sends the
-changes since the last push as actions of the service. A pull turns what the
-service reports since the last pull into a partial state, which merges like
-any other state. Such a service is a backend itself, not a store.
-
-Two rules apply to all three kinds. First, the local state is never
-replaced, only merged into. A failed pull changes nothing, and a failed push
-happens again at the next step. Second, a device can sync to several
-backends at the same time. It merges what it reads from all of them, and
-writes to each. This lets a listener keep a folder and a server in step, or
-move from one store to another by using both for some time.
+Two rules hold for all of them. The local state is only ever merged into,
+never replaced, so a failed pull changes nothing and a failed push is
+simply repeated. A device can also sync with several backends at once,
+merging what it reads from all of them, which lets a listener keep a folder
+and a server in step, or move from one store to another.
 
 
 ## Backends and stores
 
-There are two interfaces, at different levels.
+There are two levels. A backend is what the engine calls: `pull` returns
+the states to merge and a cursor, and `push` writes the merged state. A
+store is the common case below a backend, a set of named documents with
+version tokens. Any store becomes a backend through `store/backend`, which
+adds the strategy, the retries and the reports, so a new store only needs
+two to four functions.
 
-A **backend** is what the engine calls. The function `pull` returns the
-states to merge and a cursor for the next step. Then `push` writes the merged
-state and returns a cursor. It can also return a state, if it learned more
-while it wrote, as the shared strategy does after a conflict. A service
-computes what to send from its cursor with `player/changes-since`. Each thing
-that moves data between devices is a backend.
+A refused write is a value, not an exception, since it's a normal outcome
+of the shared strategy. Errors of the network or a service are exceptions,
+and the engine turns each one into an entry under `:failed`.
 
-A **store** is the common case below a backend: named documents with version
-tokens. Any store becomes a backend through `store/backend`, which adds the
-strategy, the envelope, the retries and the diagnostics. A new store thus
-needs only two to four functions.
+A store is a map of functions rather than a protocol or a multimethod, for
+four reasons:
 
-On the JVM, each function returns its value and throws on failure. In
-ClojureScript, each function can return a value or a promise. With
-`util.async`, the engine and the stores are written once for both platforms.
-A deferred value is a future on the JVM and a promise in ClojureScript. The
-functions `then` and `all` take values and deferred values alike. The
-function `attempt` calls a function and gives its value or its error as data.
-
-A refused write is a value, not an exception. It is a normal result of the
-shared strategy, and each store must signal it in the same way. Errors of
-the network or of a service are exceptions. The engine turns each exception
-into an entry under `:failed`, as `directory/search!` does.
-
-
-## Why stores are maps of functions
-
-The store contract is a map of functions, not a protocol or a multimethod.
-The reasons come from this problem:
-
-- To wrap a store is to `update` one of its keys. An encrypting, caching or
-  logging store is only a few lines over any other store. A store that fails
-  when a test tells it to is two anonymous functions.
-- Optional functions are optional keys. The engine looks up the key, and
-  needs no `satisfies?` for a store that implements part of the contract.
-- The credentials stay in the closure of the constructor, and the map
-  carries only a `:name`. A store never prints a token. A record with a
-  token field prints it by default.
-- Configuration and behavior stay apart. The argument of the constructor is
-  the EDN that an app stores, and the store is the value that the app uses.
-
-Each store namespace has the same two functions. In each, `store` makes the
-store over a place, and `backend` makes the backend in one call, with the
-options of both. The places themselves are facts about other products, such
-as the URL shape of a server or the folder of a sync client. These facts
-change. For this reason, podcast-clj contains none of them, and [Sync stores
-and documents](stores.md) has a dated table instead.
-
-The function `store/check!` tests any store through the contract. It lists
-the store, writes a probe document, puts it again with a stale version, reads
-it back and removes it. It reports the result as data, for a settings screen.
-For a store that cannot list, it tests what one shared document needs: a
-refused stale version. A Clojure server becomes a sync server with two lines
-of code, because `app.sync.webdav.server/handler` serves any store over
-WebDAV.
+- Wrapping a store means updating one of its keys, so an encrypting,
+  caching or logging store is a few lines over any other store, and a store
+  that fails on cue in a test is two anonymous functions.
+- The optional functions are optional keys, with no `satisfies?` checks.
+- The credentials stay in the constructor's closure, so a store never
+  prints a token, as a record with a token field would.
+- The constructor's argument is plain EDN that an app can save, and the
+  store is the value it uses.
 
 
 ## The engine
 
-The namespace `app.sync` is pure. The I/O is in the backends, at the edge.
+The engine in `app.sync` is pure, and all I/O happens in the backends. A
+document that doesn't read is reported and left out. So is a state with a
+value that the merge can't handle, such as a stamp that isn't an instant,
+since the merge would otherwise spread it to every device. A document from
+a newer version of podcast-clj is left out too, because this version can't
+understand all of it.
 
-The function `document` writes the state of a device into an envelope, as
-EDN. Then `read-document` reads it back, and throws for a body that is not a
-sync document. It also throws for a state with a value that the merge cannot
-take, such as a stamp that is not an instant. Without this check, the merge
-gives such a value to every device, and an operation fails there. The
-function `player/problem` finds these values. The function `read-documents`
-reads the documents of a pull at the instant of the step, and `reconcile`
-merges their states into the local state. Both report problems: a device
-clock that runs ahead, a document that does not read, and a document from a
-newer version of podcast-clj. A reader leaves out a newer document, because
-it cannot understand all of it.
+The engine schedules nothing. Call `sync!` when the app starts, when it
+goes to the background, after a series of changes, and when a file watcher
+or the service says that something changed, and `next-at` suggests when to
+sync next. Only run one step at a time, since a step that overlaps another
+can write an older state after a newer one. A file watcher also sees the
+writes of the step itself, so let such a call wait until the step ends.
 
-One step of `sync!` drives one or more backends, and asks all of them at the
-same time. At each step, it acknowledges in the device registry the whole
-states that it read, and compacts the tombstones that all devices know (see
-[Provenance and compaction](#provenance-and-compaction)). On the JVM, `sync!`
-blocks. In ClojureScript, it returns a promise. If an app loses the cursors,
-the cost is one full read and one full write.
-
-An app can also control the I/O, for example in an iOS background task with
-a time budget. It then does the steps itself: list, fetch, `reconcile`, put.
-
-The engine schedules nothing. An app calls `sync!` when it starts, when it
-goes to the background, and after a series of changes. It also calls `sync!`
-when a file watcher or a push from a service tells that the store changed.
-The app runs one step at a time, because a step that overlaps another can
-write an older state after a newer one. A file watcher also reports the
-writes of the step itself, so the app lets such a call wait until the step
-ends. The function `next-at` gives the app's timer a policy: soon after
-a change, later when nothing changed, and with longer waits after failures.
+For control over the I/O, e.g. in an iOS background task with a time
+budget, do the steps yourself: list, fetch, `reconcile` and put.
 
 
 ## The documents
 
-The documents of one listener are in one root: a folder, a WebDAV
-collection, or a path in a service. Two listeners use two roots. The layout
-does not depend on the app. Two apps built on podcast-clj can share one
-root, because the state belongs to podcast-clj. A client in another language
-can read the folder when it knows the format.
+The documents of one listener live under one root, such as a folder or a
+WebDAV collection, and the layout doesn't depend on the app. Two apps
+built on podcast-clj can share a root, since the state belongs to
+podcast-clj rather than to either app.
 
-The format is EDN, read with the EDN reader of the platform and its `#inst`.
-EDN needs no new dependency, and it holds the state as it is. JSON can come
-later as a defined mapping, for a client in another language. The episode ids
-are vectors, and JSON cannot use a vector as a key, so the mapping must list
-them. Transit can carry EDN over JSON, but it is a dependency, and there is
-no reason for it yet.
+The format is EDN, which needs no new dependency and holds the state as it
+is. JSON can come later as a defined mapping for clients in other
+languages. The episode ids are vectors, which JSON can't use as keys, so
+that mapping will have to list them. Transit would carry EDN over JSON, but
+it's a dependency with no use yet.
 
-The version of the format changes only when the meaning of an existing key
-changes. New keys need no new version, because a reader merges keys that it
-does not know by the shape of their values. As a result, an app can add
-entries of its own, and podcast-clj can grow the state without a flag day.
-A reader leaves out a version that is newer than its own, and reports it.
-
-A document takes a few hundred bytes for each subscription and about two
-hundred bytes for each episode entry. Ten thousand episodes take a few
-megabytes. Compaction limits the growth.
+The format version only changes when the meaning of an existing key
+changes. A reader merges keys it doesn't know by the shape of their values,
+so podcast-clj can grow the state, and an app can add entries of its own,
+without a new version.
 
 
 ## The player state as a CRDT
 
-The player state is a state-based CRDT of the simplest kind. This section
-tells how each part merges.
-
 ### Merge by shape
 
-The function `merge` merges each key of the two states by the shape of its
-value:
+The merge goes through the two states key by key, and handles each value
+by its shape:
 
-- a stamped entry: the later of the two, whole
+- a stamped entry: the later of the two
 - a map of other values: key by key, down to the stamped entries
 - an instant: the later of the two
-- any other value: the value of the local device
+- anything else: this device's value
 
-A stamped entry is a last-writer-wins register. A map of stamped entries is
-an add-remove set with tombstones. The clock is a max register. The state is
-their product, and `merge` is its join. When two entries have the same
-instant, the device id decides, and then the printed entry. Each platform
-makes the same choice. An app can add entries of its own, such as
-playlists, to the state, and they sync with no change to podcast-clj, if
-the app stamps them.
+A stamped entry is a last-writer-wins register, a map of stamped entries is
+a set with tombstones for its removals, and the clock is a max register, so
+the state is their product and the merge is its join. When two entries have
+the same stamp, the device id decides, and then the printed entry, so every
+platform makes the same choice. Entries that an app adds to the state sync
+with no change to podcast-clj, as long as `player/write` stamps them.
 
-### Device identity
+### Devices
 
-The `:device` of a state is a stable id, such as `(str (random-uuid))`. The
-app makes it once per installation and keeps it. The device registry holds
-the descriptions: `:devices {id {:name "Simon's phone" :platform "ios"}}`.
-Each device writes only its own entry, so a user interface can list the
-devices and let the listener retire one.
+Each state belongs to a device, with a stable id made once per
+installation. The registry under `:devices` holds the description of each
+device, which only that device writes. Retiring a device is a tombstone of
+its own, so the retired device can't undo it by describing itself again,
+and the other devices delete its document. The registry has no last-synced
+time on purpose: it would change every document at every step, and the
+devices would never stop writing.
 
-A retirement is a tombstone of its own, under `:retired`, so the retired
-device cannot undo it by describing itself again. A retired device writes no
-more, with either strategy. With one document per device, each device that
-sees the retirement also deletes the document of the retired device, if the
-store can delete.
+### The clock
 
-The registry does not keep a last-synced instant. Such an instant changes at
-each step, so each document changes at each step, and the devices never stop
-writing.
+Last-writer-wins trusts the clocks of the devices. The state keeps
+`:clock`, the latest stamp it wrote or merged, and a write whose time isn't
+later than the clock is stamped a millisecond after it, as a hybrid logical
+clock does. A convergence test showed why this is needed: without it, a
+device could write an entry that lost to one it had already merged, keep
+its own anyway, and never agree with the other devices again.
 
-### A clock that cannot fall behind
+A clock that's a few seconds off does no harm. A clock that's years ahead
+spreads its year to every device through the merge, so the stamps no longer
+say when things happened, and tombstones are kept longer. Nothing is lost,
+and the states still agree. Refusing such a state wouldn't help, because
+the device couldn't sync and its own state would keep the future stamps
+even after its clock was fixed. So the sync only warns: `:sync/clock-skew`
+names a device that wrote its document more than a minute ahead of this
+device's clock.
 
-Last-writer-wins trusts the clocks of the devices. A device with its clock in
-the future wins each tie, until the other clocks catch up. The state keeps
-`:clock`, the latest stamp that it wrote or merged. A merge keeps the later
-of the two clocks. Each write stamps with the given instant. If that instant
-is not later than the clock, the write stamps with the millisecond after the
-clock, as a hybrid logical clock does. The function `player/write` writes the
-entries of an app by the same rule, and moves the clock on, so that no two of
-them get the same stamp.
+### The queue
 
-A convergence test showed why this rule is necessary. Without the rule, a
-device sometimes wrote at an instant that was not later than an entry that
-it merged before. That device then kept its own entry, while all other
-devices kept the merged entry, and the states never met.
+The queue has one entry per episode, ordered by a rank from `util.rank`, a
+string with room for another rank between any two. A removal is a
+tombstone. Additions on two devices both survive, a finished episode stays
+removed, and only two devices that move the same episode at the same time
+need a winner, the later one. Ranks stay short at the ends of the list,
+where most episodes are added. Playlists work the same way.
 
-A skew of some seconds does no harm. A write after a merge still wins, and
-the stamps run ahead of real time by the skew at most, for about as long.
-The only effect is on two changes to one entry that two devices make
-before either syncs: the device with the fast clock wins, as it does with
-any clock and last-writer-wins.
+### Listening counts
 
-A clock that is years ahead does more. A merge keeps the later clock, so
-all devices then stamp in that year until real time catches up. Nothing is
-lost, and the states still meet. But the stamps no longer tell when a
-thing happened, and `compact` keeps each tombstone until its stamp is
-thirty days in the past. To refuse such a state would stop the spread, but
-it would also stop the sync of that device, and its own state would keep
-the future stamps after its clock was set right. For this reason, the
-report warns and nothing more: `:sync/clock-skew` names a device that
-wrote its document more than a minute ahead of this device's clock. The
-time of the write is the time of the device, not a stamp, so the warning
-names the device with the wrong clock, and not the devices that only
-merged its stamps.
+The seconds heard are counted per show, month and device. Each count
+belongs to one device and only grows, so it's a counter rather than a
+register: the merge keeps the higher of two counts from the same device,
+and the total is the sum over the devices. A single shared count would lose
+seconds when two devices count at the same time. Counting by month rather
+than by day keeps the document small.
 
-### The queue as a set of ranked entries
+### Settings, marks and new episodes
 
-The queue has one entry for each episode, with a rank from `util.rank`. A
-rank is a base-62 string, and there is always room for another rank between
-two ranks.
+The preferences and the settings of a subscription have one entry per
+field, so a skip amount changed on one device and a playback rate changed
+on another both survive. The settings of a subscription are kept apart from
+it, so they survive an unsubscription. The folder is one of these settings,
+so a show that two devices move at the same time ends up in the later
+folder, never in two.
 
-At the ends of the list, the ranks count in levels, and each level has 62
-times the room of the level before it. So ten thousand episodes that go to
-the end of a queue, one at a time, get ranks of five digits at most, and one
-million get ranks of seven.
+The inbox, stars, bookmarks, clips, saved filters, tags and followed lists
+are sets with tombstones, like the subscriptions, so two tags added on two
+devices both stay. A rating keeps its scale, since two apps of the same
+listener can use different scales.
 
-The function `rank/after` gives the ranks of many episodes that go to the end
-at one time. Examples are the episodes of a list feed, and the new episodes
-of a show with `:auto-queue?`.
+Every device refreshes its own feeds, so two devices can find the same new
+episode. That's why `refresh` only adds an episode to the queue or the
+inbox when the state doesn't know it yet. Otherwise, a device that's late
+would bring back an episode that the listener already played or removed.
+Followed lists work the same way for shows, which they recognise by feed
+URL.
 
-A removal is a tombstone. The order comes from the ranks, and then from the
-stamp and the device when two devices ranked at the same time. Additions on
-two devices both survive, and a finished episode stays removed. Only two
-devices that move the same episode at the same time need a winner: the later
-one.
+### Compaction
 
-One imprecision remains. A move between two entries with the same rank lands
-after both. This needs two devices that rank the same place at the same
-time, and then a third change between them.
+Tombstones are dropped once every device has seen them. Timestamps can't
+tell which device saw what, since a device can push late, so the registry
+entry of each device has a small version vector, `:seen`: for every other
+device, the latest of its stamps that this device merged. A sync updates it
+from the whole documents it reads, with two rules. It ignores the registry
+itself, or two devices would keep acknowledging each other's
+acknowledgements. It never counts the partial changes that a service
+sends, since those don't show everything a device saw.
 
-Each playlist is a set of ranked entries in the same way, under its name.
+An entry that device A wrote at time `t` can be dropped when every other
+live device has acknowledged A up to `t`. The device that compacts counts
+too, since its document holds the entry or the entry that replaced it.
+Such tombstones are dropped once they're 30 days old, which leaves room for
+a device that joins with a state of its own. Played marks and listening
+counts are never dropped, since the listener still sees them. After a
+sync, the result is merged into the current state, which brings back the
+dropped tombstones, so `library/sync!` compacts again afterwards.
 
-### Counts of listening
+While the listener follows a list, the tombstones of unsubscriptions stay.
+A feed never gives a new device old episodes, but a list subscribes to
+every show that the state doesn't know, so a new device needs the tombstone
+to know that the listener left a show.
 
-The seconds that the listener hears are counted for each show, month and
-device. Each count belongs to one device, which alone writes it, and it
-only grows. So a count is a counter, and not a register. Of two counts of
-one device, the merge takes the higher count, whatever their stamps are.
-The sum over the devices is the total. A count for all devices together
-loses the seconds of one device when two devices count at the same time.
-
-The reducer `step` counts at each report of the position. It measures the
-time since the last report on the clock of the device, which the episode
-keeps as `:reported-at`. The stamp of an entry is not that time. After a
-merge with a device whose clock is fast, each stamp is later than the clock
-of this device. A move of the position counts as listening when the last
-report is a minute old at most. After a longer time, the listener paused.
-
-A count of one month for each show keeps the document small: a listener of
-twenty shows on two devices adds about 500 entries a year. A count for
-each day would add thirty times as many.
-
-A device restored from a backup writes a count lower than the count that
-the other devices hold of it, with a later stamp. The merge keeps the
-higher count, and the device counts on from there after its first sync.
-Only the seconds between the restore and that sync are lost.
-
-### Settings field by field
-
-The preferences, and the settings of a subscription, have one entry for each
-field. A skip amount changed on one device and a rate changed on another
-both survive. The settings of a subscription are apart from the
-subscription, so they survive an unsubscription and come back with the feed.
-The accessors hide this layout.
-
-The folder of a show is one of these settings. For this reason, when two
-devices move a show to two folders at the same time, the later move wins,
-and the show is never in two folders.
-
-### Sets of marks
-
-The inbox, the stars, the bookmarks, the saved filters, the tags of a show
-and the followed OPML lists are sets, one entry for each episode, second,
-name, tag or URL, with a tombstone for each removal, as the subscriptions
-are. A star that one device removes stays removed when an older star comes
-from another device. Two tags that two devices give a show at the same
-time both stay, unlike two folders.
-
-The clips are a set as the bookmarks are, one entry for each whole second
-where a clip starts. The ratings have one entry for each episode. Of two
-ratings that two devices give an episode, the later rating wins. An entry
-holds the scale of its rating. Two apps of one listener can have two
-scales, and a number alone does not tell its scale.
-
-The sleep timer is not in the state. It belongs to one device and one
-evening, so `step` takes it as an option and gives back what is left of
-it.
-
-Each device refreshes its feeds, so two devices can find the same new
-episode. The function `refresh` adds an episode to the queue or the inbox
-only if the state does not know it yet. Otherwise, a device that finds the
-episode late brings back an episode that the listener played or took out on
-another device. For the shows of a followed list, `refresh-list` follows the
-same rule. It knows a show by the URL of its feed, and then by its guid,
-because a list names a show by its URL.
-
-### Provenance and compaction
-
-Each entry carries the device that wrote it, and compaction depends on this.
-An entry can be dropped only when each live device merged it. If not, an
-offline device brings the entry back. For a tombstone, that brings back a
-subscription that the listener removed.
-
-Timestamps cannot tell which device saw which entry, because a device can
-push late. A small version vector can. The registry entry of each device has
-`:seen {other-id latest-stamp}`: for each other device, the latest stamp of
-that device that this device merged. The function `player/acknowledge` keeps
-the vector monotone, and `sync!` calls it with the whole documents that it
-read. Two rules keep the vector correct:
-
-- It ignores the registry itself. Otherwise, two devices acknowledge the
-  acknowledgements of each other, and never stop writing.
-- It counts only whole states, never the changes that a service sends since
-  a cursor. Such changes do not show all that a device saw.
-
-An entry from device A with the stamp `t` can be dropped when each live
-device other than A acknowledged A up to `t`. The device that compacts
-counts as one of them, because a document is cumulative. A document written
-after `t` contains the entry, or the entry that replaced it. At least one
-other device must exist. A device alone gains nothing when it forgets, and a
-device that joins later can bring back what it forgot.
-
-The function `player/compact` drops the tombstones that pass this test and
-are older than 30 days: those of unsubscriptions, of lists no longer
-followed, of removals from the queue, the playlists and the inbox, and of the
-tags, stars, bookmarks and saved filters that the listener took away. The 30
-days are a buffer for a device that joins with a state of its own. The played
-marks and the counts of listening stay, because the listener still sees them.
-Each step of `sync!` compacts, unless its options tell it not to. The app
-merges the result of a step into its current state, and the merge keeps what
-either state holds, the removed tombstones too. For this reason, the app
-compacts after the merge as well.
-
-The tombstones of the unsubscriptions stay while the listener follows a
-list. A feed gives no old episode to a new device, because a first parse
-finds no new episodes. A list is different: a first parse subscribes to
-each show that the state does not know. A new device that reads the list
-needs the tombstone to know that the listener left a show.
-
-A device that stops syncing blocks compaction until the listener retires it,
-and `player/lagging` names such devices for the user interface. A device
-restored from a backup can still bring back what all other devices forgot.
-To prevent this, retire the id of the device before the restore.
+A device that stops syncing blocks compaction until it's retired, and
+`player/lagging` lists such devices. A device restored from a backup can
+still bring back what the others forgot, so retire its old id before the
+restore.
 
 ### What stays out
 
-Things that belong to one device stay outside the player state, and never
-sync. Examples are the downloads, the cache of titles, and the page that the
-listener was on. The queue belongs to the listener and follows the listener
-from device to device, as in the mainstream apps. An app that wants one
-queue per device keeps it outside the state.
+Anything that belongs to one device stays out of the player state and
+never syncs, e.g. the downloads, the sleep timer and the page that the
+listener was on. The queue belongs to the listener and follows them
+between devices, as in the mainstream apps. If you want a queue per device,
+keep it outside the state.
 
 
 ## The stores
 
-The store `store/memory` is a map in an atom. It is the test double of the
-engine, and a store for an app that keeps the documents itself.
-
-The store `app.sync.file` is a folder on the JVM: a folder that a sync client
-mirrors, or a Git working tree. It writes each file whole and then moves it
-into place, so the sync client never sees half a file. The version of a file
-is its modification time and its size.
-
-The store `app.sync.webdav` is a collection on any WebDAV server, including
-self-hosted servers. It uses plain HTTP: GET, PUT, DELETE, and PROPFIND at
-depth one for the listing. The ETag is the version, and `If-Match` is the
-precondition. The store is built like the directories: the calls are request
-maps, and the tests read recorded multistatus documents. The XML parser of
-podcast-clj reads these documents with the `DAV:` namespace bound to one
-alias, whatever prefix the server uses. In a browser, the store sends with
-`fetch`, if the server allows the origin.
-
-The namespace `app.sync.webdav.server` is the other side: a Ring handler that
-serves any store over WebDAV. The inspector mounts it at `/dav/` over its
-folder. As a result, its browser player syncs from the same origin, and any
-WebDAV client can mount the folder.
-
-The store `app.sync.encrypted` wraps any store (see [Credentials and
-privacy](#credentials-and-privacy)).
-
-The interfaces allow other stores with no change to podcast-clj. An HTTP API
-that holds files with a version, a revision or an ETag is a store. It needs
-one call per operation, with a bearer token. If the API can refuse a stale
-version, the store uses that as the precondition. If the API can list its
-files, the store can hold one document per device. A service with its own
-model is a backend, as the gpodder API is.
+[Sync stores and documents](stores.md#the-stores-of-podcast-clj) lists the
+stores that come with podcast-clj: in memory, a folder, a WebDAV collection,
+and any of them encrypted. Any place that can hold one document per device,
+or one document with a version, can be a store without a change to
+podcast-clj.
 
 
 ## The gpodder API
 
-Most open-source podcast apps sync through the gpodder API: AntennaPod,
-Kasts, gPodder and others. gpodder.net and several self-hosted servers speak
-it. The API is a backend, not a store, because the server keeps a model of
-its own. The backend `app.sync.gpodder` is a client of it, and
-`app.sync.gpodder.server` serves it over a state of podcast-clj.
+AntennaPod, Kasts, gPodder and most other open-source podcast apps sync
+through the gpodder API, which gpodder.net and several self-hosted servers
+speak. It's a backend rather than a store, because the server keeps a model
+of its own. The client is `app.sync.gpodder`, and `app.sync.gpodder.server`
+serves the API over a player state.
 
-The API keeps two things for a listener, each as changes since a time that
-the server gives:
+Only subscriptions and episode actions cross. A played mark is sent as a
+play to the end, as AntennaPod writes it, and the action `new` marks an
+episode as unplayed. The queue, the settings, the stars and the rest stay
+in podcast-clj. [Sync stores and documents](stores.md#the-gpodder-backend)
+has the full mapping.
 
-- the subscriptions, as lists of feed URLs added and removed
-- the episode actions: `play` with a position and a duration in whole
-  seconds, and also `new`, `download` and `delete`. Each action names a
-  feed URL, the URL of the media of an episode, a device, and a time in
-  UTC.
+### Pull and push
 
-Nothing else crosses: no queue, no settings and no stars. A played mark
-crosses as a play to the end of the episode, which is how AntennaPod writes
-it. The action `new` marks an episode as not played. Downloads and deletions
-stay on their device.
+A pull turns the actions since its cursor into a partial state, which the
+sync merges but doesn't acknowledge. Each action becomes the entry that the
+same act would make on this device, stamped at the time of the action and
+written by `gpodder:` and the id of the device on the server, e.g.
+`gpodder:antennapod`. An action that isn't later than the entry changes
+nothing, so reading back an action that this device sent does no harm.
 
-### A pull and a push
+The prefix matters, because a device on the server can have the same id as
+a device of podcast-clj. Its entries would then look like that device's own
+writes, so a push would send them back, and compaction would drop
+tombstones too soon, since the server only reports part of what a device
+wrote.
 
-A pull reads what changed since its cursors, and gives it as a partial state
-with `:partial? true`, so that `sync!` acknowledges nothing from it. An
-action becomes the episode entry that the same act on this device makes. The
-entry is written at the time that the action names. Its writer is `gpodder:`
-and the id of the device on the server, such as `gpodder:antennapod`. An
-action that is not later than the entry changes nothing. For this reason, an
-action that this device sent and reads back does no harm.
+An action can name a time in the future, because the clock of its device
+is fast, or because an app wrote milliseconds where the API has seconds.
+Such a time must not become a stamp, or every device's clock would jump
+ahead. An action more than a minute in the future changes nothing until a
+later pull reads it again after its time has come, and
+`:sync/future-actions` names its device. For the same reason, a push
+doesn't send a stamp as the time of an action, but the time on this
+device's clock when the listener acted, which the episode entry keeps too.
 
-No device of podcast-clj has a name that starts with `gpodder:`. This is
-necessary, because a device on the server can have the id of a device of
-podcast-clj. With that id as the writer, a push sends the entry back. The
-registry also takes the entry for something that the device wrote. But the
-server tells only a part of what a device wrote, so `compact` then drops
-tombstones too soon.
+A push only sends what devices of podcast-clj wrote since the last push,
+never what came from a server. A change to the subscriptions carries no
+time, so it counts as made when the pull before it saw none. A change on
+this device since the last pull wins over a change from the server, as in
+AntennaPod, and the first sync joins the two lists.
 
-An action can name a time in the future. The clock of its device is fast, or
-an app writes milliseconds where the API has seconds. Such a time must not
-become a stamp. The clock of the state follows the stamps, and the clock of
-each device follows the clock of the state. So an action that names a time
-more than a minute after the pull changes nothing, and
-`:sync/future-actions` names its device in the report. A later pull reads
-the action again, and the action counts when its time is there.
-
-The backend does not write such an action at the time of the pull. A later
-pull reads the action again. It then writes the action at its own time,
-over what the listener did since.
-
-A push does not send a stamp as the time of an action. It sends the time
-on the clock of the device. That is the time of the last report of the
-position, or the time of the mark as played. The episode entry keeps
-both. A stamp can be hours later than that clock, after a merge with a
-device whose clock is fast. With the stamp as its time, such an action
-names the future for each other device.
-
-A change to the subscriptions carries no time. It counts as made when the
-pull before it saw none. So a change on this device since the last pull wins
-over a change from the server, as in AntennaPod. At the first pull, a change
-counts as made at that pull, so the first sync joins the two lists, as other
-clients do. No change counts as made after the pull that read it, whatever
-time the server tells.
-
-A server tells the URL of a show, and no title. When the state does not
-know the show, the backend stamps its entry at the start of time. So the
-entry of a device that knows the show wins over the entry from the server.
-That entry has the title and the time of the subscription.
-
-A push sends what the devices of podcast-clj wrote since the last push, and
-never what came from a server. It sends the subscriptions that were added
-and removed, and one action for each episode entry that changed. The first
-push adds subscriptions and removes none. The cursor keeps the stamp of each
-entry at the last push, and a push sends the entries whose stamps differ.
-A push cannot name an episode when the app does not know the URL of its
-media. Such an episode gets no stamp in the cursor, so the next push tries
-it again. The backend does not take the guid of an item for that URL, even
-when the guid is a URL.
-
-### What the servers do
-
-The servers differ, and the backend works with all of them:
-
-- The GPodder Sync app for Nextcloud has other paths, and keeps only play
-  actions. The option `:api :nextcloud` selects its paths. The paths of each
-  API are data, in `gpodder/apis`, so a server with other paths takes a map
-  of its paths as `:api`.
-- gpodder.net keeps one list of subscriptions for each device. To share
-  the list, link the devices on the site, or give the backend the id of the
-  device of the other app.
-- The servers select the episode actions by the time that an action names,
-  not by the time that it arrived. So a server can miss an action that a
-  device sends late. For this reason, a pull asks for a day of actions
-  before its cursor. The merge is idempotent, so an action that comes twice
-  does no harm.
-- gpodder.net gives at most 1000 actions in an answer, so a pull reads them
-  in pages. It takes more than 100 actions of one request in the background,
-  and reports no error of them, so a push sends 100 at most. These numbers
-  are the defaults of the backend, in `gpodder/default-limits`, and its
-  options replace them for a server with other limits.
-- Some servers want the session of a login, and others want Basic
-  authentication on each request. The backend logs in at each step and
-  sends both.
+The servers select actions by the time they name, not by when they
+arrived, so a late action could be missed. A pull therefore asks for a day
+of actions before its cursor. The merge is idempotent, so an action that
+comes twice does no harm.
 
 ### Identity
 
-gpodder names a show by its feed URL, and an episode by the URL of its media.
-The player state names them by guid, because URLs change. Feeds move between
-hosts, schemes and slashes, and dynamic ad insertion gives a different media
-URL for each request.
+The gpodder API names a show by its feed URL and an episode by its media
+URL, but URLs change: feeds move between hosts, schemes and slashes, and
+dynamic ad insertion gives a new media URL for every request. The player
+state names them by guid, so the backend maps between the two.
 
-The backend names a show by the subscription in the state that has its URL,
-whatever the scheme, the case and the trailing slashes. Failing that, it uses
-the guid that the feed declares, from the app's feeds. Failing that, it
-uses the guid that the URL gives (`guid/from-url`). It names an episode by
-the guid of its item. AntennaPod, Kasts and the Nextcloud app send this guid
-with each action, and AntennaPod matches the actions that it receives by it.
-Without a guid, the backend looks up the media URL in the app's feeds.
-The function `identities` makes these lookups over the parsed feeds of the
-app. The feeds change, so the backend takes a function that makes them again
-at each step. It indexes the items of a feed only when a lookup names the
-feed.
-
-A state can hold two subscriptions with one URL, under the guid of the URL
-and under the guid that the feed declares. The live one names the show
-before a removed one, and then the one that changed last.
-
-An action for a feed that the app does not know yet waits in the cursor, and
-the next pull tries it again. The app then has time to fetch the feed of a
-new subscription. A server tells an action again in the day before the
-cursor, and the action waits only once.
+A show is found by its URL among the subscriptions, whatever the scheme,
+case and trailing slashes, then by the guid that its feed declares, and then
+by the guid derived from the URL. An episode is found by the guid of its
+item, which AntennaPod, Kasts and the Nextcloud app send with each action,
+and otherwise by its media URL in your parsed feeds, through `identities`.
+An action for a feed that isn't fetched yet waits in the cursor until the
+next pull.
 
 ### The server
 
-The server is a device of podcast-clj. The app gives it a state and a step
-that syncs the state with the listener's other devices, through any
-backend. The server runs the step before it tells what changed, and after it
-applies what a device sent. It keeps one list of subscriptions for all
-devices, as the Nextcloud app does.
-
-The server notes when each entry arrived, and answers `since` by that time,
-not by the time in an action. So an action that a device sends late still
-reaches the other devices. An action that names a time after it arrived
-counts as made when it arrived. An app sends an action once, so the server
-cannot wait for that time as a pull does. An action with a time that does
-not read tells nothing of when it was made, so the server leaves it out.
-
-A state can hold one URL under two guids, of which one is removed. The
-server tells such a URL as added, and not as removed.
-
-The server keeps these times, the sessions and the registered devices in
-memory. After a restart, a device reads again what it read before, which
-changes nothing. A session lasts a day. A login that carries its session
-keeps it, so a client that logs in at each step has one session.
-
-The app can write to the state while the server answers a call. The server
-then merges what it wrote with what the app wrote.
-
-The inspector serves the API at `/api/2/` over the folder that it serves at
-`/dav/`. As a result, AntennaPod, the browser player and any other device
-keep one state.
-
-
-## Other backends
-
-The interfaces are sufficient for backends that nobody planned:
-
-- A Nostr relay holds one replaceable event per device, tagged with the
-  device id, and lists by author and kind. It is a store with one document
-  per device.
-- A Solid pod is a container of resources with ETags: WebDAV with another
-  name.
-- IPFS publishes the document of a device under its IPNS name.
-- An IMAP folder holds one message per device, replaced at each write.
-- Two devices on one network each serve their own document, and pull from
-  the other device.
-- A paste-and-scan exchange uses `document` as text on one side and
-  `read-document` on the other: a store with `fetch` and `put` over the
-  clipboard.
-- A database keeps the documents as rows.
-- A key-value service without a listing uses the shared strategy.
+The server is a device of podcast-clj itself, with one list of
+subscriptions for all the devices that use it, as the Nextcloud app has. It
+answers `since` by when each entry arrived rather than by the time in the
+action, so an action sent late still reaches the other devices. It keeps
+its sessions and arrival times in memory, and after a restart, a device
+reads again what it read before, which changes nothing.
 
 
 ## Credentials and privacy
 
-The constructor of a store takes its `:credentials` as a map, or as a
-function without arguments that returns the current map, such as
-`{:token "…"}`. Services expire their tokens, and the app refreshes them.
-The OAuth flow belongs to the app, as do the Podcast Index credentials. The
-engine never sees credentials, and no result, report or `:name` contains
-them.
+The constructor of a store takes `:credentials` as a map, or as a function
+that returns the current map, so that you can refresh tokens that expire.
+OAuth flows are up to you. The engine never sees the credentials, and no
+result, report or store name contains them.
 
-A sync document describes the habits of a listener, and a provider can read
-what it stores. The encrypting wrapper, `app.sync.encrypted`, is the
-extension that the map-of-functions contract was chosen for. It uses
-AES-256-GCM, with a key that PBKDF2 derives from a passphrase. On the JVM it
-uses `javax.crypto`, and in a browser it uses WebCrypto, which is
-asynchronous. The promise convention of the stores covers this.
-
-Each encrypted document is an envelope that carries the salt, the IV and the
-iteration count that sealed it. There is no key file to lose, and the key is
-derived once for each salt. A plain document passes through, so an app can
-start to encrypt a folder at any time. A wrong passphrase makes that backend
-fail, with the name of the document. With `:except`, the subscription list
-that a backend writes stays readable for other apps.
+A sync document describes the listening habits of a listener, and the
+provider can read what it stores. The encrypting store, `app.sync.encrypted`,
+wraps any other store, which is what the map-of-functions design was chosen
+for. It uses AES-256-GCM with a key that PBKDF2 derives from a passphrase,
+through `javax.crypto` on the JVM and WebCrypto in a browser. Each
+document carries the salt, the IV and the iteration count that sealed it,
+so there's no key file to lose. Plain documents pass through, so you can
+start encrypting a folder at any time.
 
 
 ## Testing
 
-The memory store is the test double of the engine, and a store that fails on
-cue is two anonymous functions. The ranks have a property test of their own:
-a rank between two ranks sorts between them, and no rank ends in a zero.
-
-A convergence property extends the merge properties to the engine. Several
-devices apply random operations, and sync in random order through one store,
-with either strategy. Then they do three quiet rounds: one for the entries
-to reach each device, one for the acknowledgements, and one for the
-compaction that follows. At the end, all states are the same. A second
-property uses one document per device and compaction with no minimum age. At
-its end, all tombstones that a compaction drops are gone, and nothing that
-the listener sees changed.
-
-The folder store runs against a temporary directory. The shared strategy
-runs against a memory store that answers with conflicts on cue. The WebDAV
-store runs against recorded answers, PROPFIND included, with a live call in
-a comment block. The WebDAV folder of the inspector is tested through
-Pedestal, like the other routes. It is also a real WebDAV server for the
-test of the WebDAV store in `test/inspector/`, where Pedestal is available.
-The encrypted tests
-hold an envelope sealed on each platform, and open it on the other platform.
-
-The gpodder client reads recorded answers in the shapes of gpodder.net and
-the Nextcloud app. It also syncs through the gpodder server, on both
-platforms, with another app that the tests play by sending actions to the
-server. A stand-in with the paths and the answers of the Nextcloud app wraps
-the same server. The inspector's gpodder API is tested through Pedestal,
-with a device that syncs over WebDAV through the same folder.
-
-
-## Decisions
-
-Each of these choices had an alternative:
-
-- The namespaces are under `app.sync`, next to `app.player` and
-  `app.search`, not under a top-level `sync` like `directory`. What syncs is
-  the state of `app.player`, and the three together describe an app.
-- One document per device, merged on read, is the default strategy. One
-  shared document is only for a store that cannot list.
-- EDN is the only format until a client in another language needs JSON.
-- Stores are maps of functions, not a protocol. The constructor of a store
-  keeps its credentials in a closure.
-- The inspector serves a WebDAV folder, to show a self-hosted setup.
+The merge properties have a counterpart for the whole engine. Several
+devices apply random operations and sync in random order through one
+store, with either strategy, followed by three quiet rounds: one for the
+entries to reach every device, one for the acknowledgements, and one for
+the compaction that follows. At the end, every state is the same. A second
+property checks that compaction drops every tombstone that it may, and
+changes nothing that the listener sees.
