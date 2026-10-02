@@ -1,23 +1,10 @@
 (ns dk.simongray.podcast
-  "Podcast feeds as data: RSS 2.0, the iTunes namespace and the podcast
-  namespace of Podcasting 2.0, parsed leniently and emitted by the book.
+  "Podcast feeds as data, parsed leniently and written back in canonical
+  form.
 
-  This is the root namespace. Each step of its work is its own namespace,
-  which an app can use alone:
-
-      util.xml       XML as Hiccup, namespaces resolved by URI
-      feed.quirks    repairs and normalizations for feeds that bend the standards
-      feed.spec      the tag registry every interpreter reads
-      feed           Hiccup to feed maps and back
-      feed.validate  the registry-driven validator and its profiles
-
-  `parse` runs the strict path first and falls back to repair only when the
-  document is malformed, and everything the lenient path did is in the
-  report. `parse`, `parse-tree`, `emit` and `fetch!` take `:registry` in
-  their options, the tag registry to interpret, so that a vocabulary
-  extended with a client's own elements (see
-  `dk.simongray.podcast.feed.spec/registry`) reads and writes like the
-  library's."
+  The feeds are RSS 2.0 with the iTunes namespace and the podcast namespace
+  of Podcasting 2.0. The strict parse comes first, and the repairs only run
+  when the document is malformed, with everything they did in the report."
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.quirks :as quirks]
@@ -32,20 +19,21 @@
   (= ::xml/malformed (:type (ex-data e))))
 
 (def ^:no-doc lenient-parser
-  "The raw parser to fall back on when a document is malformed even after
-  repair, or nil.
+  "The parser to fall back on when a document is still malformed after the
+  repairs, or nil.
 
-  On the JVM it is `dk.simongray.podcast.util.xml.jsoup/parse-raw` when
-  org.jsoup/jsoup is on the classpath, so adding jsoup to the dependencies
-  is all it takes to enable it. ClojureScript has none."
+  On the JVM, it's util.xml.jsoup/parse-raw when org.jsoup/jsoup is on
+  the classpath, so adding jsoup to the dependencies is all it takes.
+  ClojureScript has none."
   (delay #?(:clj  (try
                     (requiring-resolve 'dk.simongray.podcast.util.xml.jsoup/parse-raw)
                     (catch Exception _ nil))
             :cljs nil)))
 
 (defn- held
-  "`xml` in a form that can be read twice, first strictly and then for the
-  repairs: on the JVM an InputStream as its bytes and a Reader as its text."
+  "The `xml` in a form that can be read twice, first strictly and then for
+  the repairs, so on the JVM an InputStream becomes bytes and a Reader a
+  string."
   [xml]
   #?(:clj  (cond
              (instance? java.io.InputStream xml) (.readAllBytes ^java.io.InputStream xml)
@@ -54,9 +42,9 @@
      :cljs xml))
 
 (defn- strict
-  "Parse `xml`, as `held` gives it, strictly: `{:raw tree}`, or `{:error e}`
-  when it is malformed. Bytes go to the parser as a stream, so that it
-  honours the document's own encoding declaration."
+  "Parse `xml`, as held gives it, strictly into a map with the :raw tree,
+  or the :error when it's malformed. Bytes go to the parser as a stream, so
+  that it honours the document's own encoding."
   [xml]
   (try
     {:raw (xml/parse-raw #?(:clj  (if (bytes? xml) (java.io.ByteArrayInputStream. ^bytes xml) xml)
@@ -65,11 +53,13 @@
       (if (malformed? e) {:error e} (throw e)))))
 
 (defn- repaired
-  "Repair the malformed `xml`, as `held` gives it, with `opts` as for
-  `quirks/repair`, and parse it again: strictly when the repairs sufficed,
-  leniently when a lenient parser is available and `:except` does not name
-  `:repair/lenient-parser`, and otherwise by throwing the strict parser's
-  error. Returns `{:raw tree :report [...]}`."
+  "Repair the malformed `xml`, as held gives it, with `opts`, and parse it
+  again into a map of the :raw tree and its :report.
+
+  The parse is strict when the repairs were enough, and lenient when
+  there's a lenient parser and :except in `opts` doesn't name
+  :repair/lenient-parser. Otherwise, it throws the error of the strict
+  parser."
   [xml {:keys [except] :as opts}]
   (let [text                           #?(:clj  (if (bytes? xml) (http/decode {} xml) xml)
                                           :cljs xml)
@@ -83,16 +73,14 @@
       :else           (throw error))))
 
 (defn parse-tree
-  "Parse the RSS document `xml`, a string or, on the JVM, an InputStream or a
-  Reader, into canonical Hiccup, normalized by
-  `dk.simongray.podcast.feed.quirks/normalize`. With `:quirks?` in `opts` (the
-  default), namespace URI variants are recognized and a document the strict
-  parser rejects is repaired and parsed again, leniently as a last resort
-  when the platform has a lenient parser; `{:quirks? false}` is the strict
-  path alone, neither repaired nor normalized. `:registry` is the tag
-  registry the quirks read (default `spec/default`) and `:except` a set of
-  repair and quirk ids to leave out. The result carries every diagnostic
-  under `:podcast/report` in its metadata."
+  "Parse the RSS document `xml` with `opts` into canonical Hiccup that has
+  every diagnostic under :podcast/report in its metadata.
+
+  The `xml` is a string or, on the JVM, an InputStream or a Reader. When
+  :quirks? is false in `opts`, the document is parsed strictly, without
+  repairs or normalisation. The option :registry is the tag registry that
+  the quirks read, and :except a set of repair and quirk ids to leave
+  out."
   ([xml]
    (parse-tree xml {}))
   ([xml {:keys [quirks?] :or {quirks? true} :as opts}]
@@ -114,10 +102,9 @@
                       (into (quirks/report tree))))))))
 
 (defn parse
-  "Parse the RSS `xml` string into a feed map; `opts` are those of
-  `parse-tree`, and `:registry` the tag registry to read it by (default
-  `spec/default`). The report is metadata, read with `report`: what parsing
-  the tree found, then what mapping it onto the model found."
+  "Parse the RSS string `xml` into a feed map, with the `opts` of
+  parse-tree. The report is in the metadata, where the report function
+  reads it."
   ([xml]
    (parse xml {}))
   ([xml opts]
@@ -128,19 +115,19 @@
                 (into (vec (:podcast/report (meta tree))) (feed/report feed))))))
 
 (defn report
-  "The diagnostics recorded while parsing `feed` (or a tree from `parse-tree`):
-  repairs, namespace variants, quirks applied, and values that would not
-  coerce. Each is a map with `:id`, `:level` and `:message`, the message
-  from the diagnostics catalogue, plus the specifics: a `:path` into the
-  model, the `:value` that would not read, the `:tag` a quirk rewrote."
+  "The diagnostics of `feed`, or of a tree from parse-tree, each a map of
+  an :id, a :level and a :message, with details such as a :path into the
+  model."
   [feed]
   (mapv diagnostics/describe (:podcast/report (meta feed))))
 
 (defn emit
-  "The XML document for `feed`, canonical in every way the library knows how
-  to be. `opts` are those of `dk.simongray.podcast.feed/emit`: `:registry`,
-  the tag registry to write it by, and `:namespaces`, alias to URI for the
-  elements of namespaces the feed was not parsed with."
+  "The XML document of `feed` in canonical form, with the `opts` of
+  dk.simongray.podcast.feed/emit.
+
+  These are :registry, the tag registry to write it by, and :namespaces,
+  a map from alias to URI for the elements of namespaces that the feed
+  wasn't parsed with."
   ([feed]
    (emit feed {}))
   ([feed opts]
@@ -149,9 +136,9 @@
 
 #?(:clj
    (defn- page!
-     "The page at `url` of a feed that comes in pages, fetched and parsed as
-     `opts` say: `{:url :feed}`, or `{:url :failure}` with the reason it
-     could not be read."
+     "The page at `url` of a paged feed, fetched and parsed with `opts`, as
+     a map of its :url and :feed, or of its :url and the reason it couldn't
+     be read as the :failure."
      [url opts]
      (try
        (let [{:keys [status body]} (http/fetch! url (select-keys opts [:credentials :timeout-seconds :max-bytes :user-agent :allow?]))]
@@ -163,13 +150,13 @@
 
 #?(:clj
    (defn- later-pages
-     "The pages after `feed`, the page at `url`, as `page!` reads them: each
-     the page that the one before names as the next (see
-     `resolve/next-page`), `n` at most, a page read before ending them.
+     "Up to `n` pages after `feed`, the page at `url`, which the URL `asked`
+     led to, each the next of the one before, fetched with `opts` until a
+     page repeats.
 
-     The feed names the pages, so the `:credentials` in `opts` go only to
-     the pages at the origin of `asked`, the URL that the app gave them
-     for. After a redirect, `url` can be at another origin."
+     The feed names its pages, so the :credentials in `opts` only go to
+     pages at the origin of `asked`, since a redirect can move `url` to
+     another origin."
      [asked url feed n opts]
      (let [next-of  (fn [url feed seen]
                       (when-let [next (some->> (resolve/next-page feed) (http/absolute-url url))]
@@ -184,9 +171,8 @@
 
 #?(:clj
    (defn ^:no-doc attempted
-     "What `(f)` gives, as `{:value v}`. When it throws, the result is
-     `{:error diagnostic}`: the diagnostic `id` about `url`, with the
-     reason."
+     "The result of calling `f` as the :value, or when it throws, the
+     diagnostic `id` about `url`, with the reason, as the :error."
      [id url f]
      (try
        {:value (f)}
@@ -195,10 +181,11 @@
 
 #?(:clj
    (defn- with-pages
-     "The feed `first-page`, the page at `url`, joined with the pages after
-     it, `:max-pages` of `opts` at most. `asked` is the URL that the app
-     gave. When a later page does not read, the report of the feed tells
-     so."
+     "The feed `first-page`, the page at `url` that the URL `asked` led to,
+     joined with the pages after it, up to the :max-pages of `opts`.
+
+     A later page that can't be read gets a diagnostic in the report of the
+     feed."
      [asked url first-page {:keys [max-pages] :or {max-pages 1} :as opts}]
      (let [pages  (when (> max-pages 1) (later-pages asked url first-page (dec max-pages) opts))
            failed (first (remove :feed pages))]
@@ -211,9 +198,9 @@
 
 #?(:clj
    (defn- read-answer
-     "What `fetch!` gives of the `response` of 200 to the request for
-     `asked`. It is the body, the feed and its report, or the `:error` of
-     a body that is no feed."
+     "What fetch! gives for the 200 `response` to the request for `asked`,
+     parsed with `opts`: the body, the feed and its report, or an :error
+     for a body that isn't a feed."
      [asked {:keys [url body] :as response} opts]
      (let [{first-page :value error :error}
            (attempted :fetch/malformed url #(parse (str body) (select-keys opts [:quirks? :registry :except])))]
@@ -228,45 +215,28 @@
 
 #?(:clj
    (defn fetch!
-     "Fetch the feed at `url` and parse it, the one step that a poller
-     repeats:
+     "Fetch the feed at `url` and parse it with the `opts` below, the one
+     step that a poller repeats:
 
          {:status 200 :url \"…\"             ; the final URL, after redirects
           :permanent-url \"…\"               ; when redirects moved it for good
-          :etag \"…\" :last-modified \"…\"    ; to hand back next time
-          :not-before #inst \"…\"            ; when the server says to wait
-          :body \"…\" :feed {…} :report [...] ; on a 200: the XML, the feed, its report
-          :new-feed-url \"…\"                ; when the feed declares it has moved
+          :etag \"…\" :last-modified \"…\"    ; to send next time
+          :not-before #inst \"…\"            ; when the server asks you to wait
+          :body \"…\" :feed {…} :report [...] ; on a 200
+          :new-feed-url \"…\"                ; when the feed declares a move
           :websub {:hubs [\"…\"] :topic \"…\"}  ; when the feed names a WebSub hub
-          :error {…}}                      ; when the fetch got no answer or no feed
+          :error {…}}                      ; when there's no answer or no feed
 
-     `opts` can give these:
+     The `opts` are:
 
-     - the `:etag` and the `:last-modified` of the last fetch. A server
-       answers them with a 304 when nothing changed.
-     - the `:credentials` of a private feed
-     - `:timeout-seconds`, `:max-bytes`, `:user-agent` and `:allow?`, as
-       `http/fetch!` takes them
-     - the options of `parse`
+     - :etag and :last-modified, from the last fetch
+     - :credentials, for a private feed, or else those in the `url`
+     - :max-pages, the most pages of a paged feed to fetch and join
+     - the options of http/fetch! and parse
 
-     A user name and a password in `url` are the credentials when `opts`
-     give none, and no URL in the result holds them. A server that fetches
-     feeds for strangers gives `{:allow? http/public?}`, which sends
-     nothing to its own network.
-
-     `fetch!` throws nothing for what the network, the server or the body
-     does. When the request fails, the result is `{:url :error}`, and the
-     `:error` is the diagnostic `:fetch/unreachable`. When the body of a
-     200 is no feed, the result has the diagnostic `:fetch/malformed` as
-     its `:error`, and no feed. Each other status is an answer, so the
-     result has the `:status` and no `:error`.
-
-     A feed can come in pages, and each page names the next (see
-     `resolve/next-page`). With `:max-pages` above 1, `fetch!` fetches that
-     many pages at most, and joins them into one feed (see
-     `feed/join-pages`). This is for the first fetch of a feed with a long
-     past. `:body` stays the XML of the first page. A later page that does
-     not read ends the pages, and the report tells so."
+     Nothing is thrown for what the network, the server or the body does.
+     The result has an :error diagnostic when there's no answer or no
+     feed, and any other status comes back as :status."
      ([url]
       (fetch! url {}))
      ([url opts]
@@ -283,11 +253,8 @@
           :else                      result)))))
 
 (defn summarize
-  "Group `diagnostics`, from `report` or from `dk.simongray.podcast.feed.validate`,
-  by id and message: one map per kind with the `:id`, `:level` and
-  `:message` of its first occurrence, that occurrence as `:example`, and
-  the `:count`, most frequent first. A recommendation repeated for each of
-  three thousand items becomes one row."
+  "Group `diagnostics` by id and message, most frequent first: one row per
+  kind, with its :count and its first occurrence as :example."
   [diagnostics]
   (->> (group-by (juxt :id :message) diagnostics)
        (map (fn [[_ [example :as group]]]

@@ -1,15 +1,8 @@
 (ns dk.simongray.podcast.app.episode
-  "One episode as a page shows it, in one map. `view` is what the feed
-  says of the episode: the item, its properties as `feed.resolve` answers
-  them, the show notes as Hiccup and as text, the chapters that the feed
-  itself holds, and the links to the apps. `read-files!` reads what the
-  files of the episode say, the chapters file, the transcript and the
-  media file, for a page to merge into the view.
+  "Everything an episode page needs, in one map.
 
-  A page reads one map. The functions below the view give the same
-  answers, so an app drops down to them when a step is not what it wants.
-  `(:enclosure view)` is what `resolve/enclosure` gives, and `(:document
-  (:transcript view))` is what `transcript/parse` gives."
+  Use view for what the feed says about the episode, and merge in
+  read-files! for what its chapters file, transcript and media file say."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -25,16 +18,15 @@
             [dk.simongray.podcast.util.http :as http]))
 
 (def default-limits
-  "The limits of `read-files!` that its options do not set: the seconds
-  that a request can take, and the most bytes of a chapters file or a
+  "The limits of read-files! when its options don't set them: how many
+  seconds a request can take, and the most bytes of a chapters file or a
   transcript."
   {:timeout-seconds 15
    :max-bytes       (* 16 1024 1024)})
 
 (defn- chosen
-  "The `:enclosure` and the `:transcript` of `item` in `show`, as `opts`
-  select them: `:types` and `:max-bitrate` for the enclosure, and
-  `:languages`, `:timed?` and `:transcript-types` for the transcript."
+  "The :enclosure and :transcript of `item` in `show`, as `opts` select
+  them with the options of resolve/enclosure and resolve/transcript."
   [show item {:keys [languages timed? transcript-types] :as opts}]
   (into {} (remove (comp nil? val))
         {:enclosure  (resolve/enclosure item (select-keys opts [:types :max-bitrate]))
@@ -42,17 +34,17 @@
                                                      transcript-types (assoc :types transcript-types)))}))
 
 (defn- with-report
-  "The part `part` of a view with its `:report`, the report of its
-  `document` as data, because metadata does not survive printing."
+  "The `part` of a view with its `document`, and the diagnostics that
+  `report` gives for it as data, since metadata doesn't survive printing."
   [part document report]
   (let [diagnostics (report document)]
     (cond-> (assoc part :document document)
       (seq diagnostics) (assoc :report (vec diagnostics)))))
 
 (defn- own-chapters
-  "The chapters that the feed itself holds for `item`: the embedded ones,
-  else those read from the timestamps of `text`, the plain text of its
-  show notes. Nil for none."
+  "The chapters in the feed itself for `item`: the embedded ones, or else
+  those from the timestamps of `text`, its show notes as plain text, or
+  nil."
   [item text]
   (if-let [embedded (resolve/embedded-chapters item)]
     (with-report {:source :embedded} embedded chapters/report)
@@ -60,27 +52,27 @@
       (with-report {:source :inferred} inferred chapters/report))))
 
 (defn view
-  "The episode `item` of the feed `show`, as a page shows it: the item with
-  the properties of `resolve/properties` merged in, and these keys:
+  "The episode `item` of the feed `show` as a page shows it, with the
+  `opts` below: the item with the properties of resolve/properties merged
+  in, and these keys:
 
-  - `:guid`, the guid of the item, and `:id`, its identity for
-    `app.player`, when the feed has a guid or `opts` give the `:url` of
-    the feed
-  - `:notes`, the show notes as Hiccup, and `:text`, as plain text
-  - `:chapters`, `{:source :document}`, the chapters that the feed itself
-    holds: `:embedded`, else `:inferred` from the timestamps of the show
-    notes. `:chapters-url` names a chapters file, which `read-files!`
-    reads.
-  - `:links`, the links to the episode in the apps, as `links/links`
-    gives them
+  - :guid, the guid of the item, and :id, its id for app.player, when the
+    feed has a guid or `opts` give the :url of the feed
+  - :notes, the show notes as Hiccup, and :text, as plain text
+  - :chapters, the :source and :document of the chapters in the feed
+    itself, where the source is :embedded, or else :inferred from the
+    timestamps in the show notes. A chapters file is named by
+    :chapters-url, and read-files! reads it.
+  - :links, links to the episode in other apps, as links/links gives them
 
-  `opts` select the `:enclosure` and the `:transcript` as
-  `resolve/enclosure` and `resolve/transcript` do: `:types` and
-  `:max-bitrate` for the enclosure, `:languages`, `:timed?` and
-  `:transcript-types` for the transcript. `:url` is the URL of the feed,
-  for a feed that does not name its own. `:except` is a set of the keys
-  above that the view leaves out, and does not compute: a list of
-  episodes needs no `:notes`, `:text`, `:chapters` or `:links`."
+  The `opts` are:
+
+  - :types and :max-bitrate, to select the :enclosure as resolve/enclosure
+    does
+  - :languages, :timed? and :transcript-types, to select the :transcript
+    as resolve/transcript does
+  - :url, the URL of the feed, for a feed that doesn't name its own
+  - :except, a set of the keys above to leave out"
   ([show item]
    (view show item {}))
   ([show item {:keys [url except] :or {except #{}} :as opts}]
@@ -105,16 +97,17 @@
        (wanted? :links)          (assoc :links (links/links (links/ids show item {:url url})))))))
 
 (defn- unreachable
-  "The diagnostic of the file at `url` that did not come: the request
-  failed with `e`, or the answer had the `status` of a failure."
+  "The diagnostic for the file at `url` that couldn't be fetched, because
+  the request failed with `e` or the answer had the `status` of a failure."
   [url e status]
   (if e
     (assoc (bytes/unreachable e) :url url)
     (diagnostics/describe {:id :file/unreachable :url url :status status})))
 
 (defn- fetched!
-  "The text of the file at `url`, asked for with the `accept` types, as
-  `{:value text}` or `{:error diagnostic}`; deferred."
+  "Fetch the text of the file at `url` with `opts`, asking for the `accept`
+  types, as the :value, or else a diagnostic as the :error, in a future or
+  a promise."
   [url accept {:keys [send] :as opts}]
   (async/then (http/sent! send {:url url :headers {"Accept" accept}} opts)
               (fn [{:keys [value error]}]
@@ -124,8 +117,9 @@
                   :else                             {:value (str (:body value))}))))
 
 (defn- chapters-file!
-  "The chapters file at `url`, read: `{:source :file :url :document
-  :report}`, or with `:error` when it did not come; deferred."
+  "Read the chapters file at `url` with `opts` into a map of its :url,
+  :document and :report, or an :error, with :file as the :source, in a
+  future or a promise."
   [url opts]
   (async/then (fetched! url "application/json+chapters, application/json;q=0.9, */*;q=0.1" opts)
               (fn [{:keys [value error]}]
@@ -134,9 +128,8 @@
                   (with-report {:source :file :url url} (chapters/parse-json value) chapters/report)))))
 
 (defn- transcript-file!
-  "The transcript `ref` of the view, read: the reference with its
-  `:document` and its `:report`, or with `:error` when it did not come;
-  deferred."
+  "Read the transcript that the reference `ref` names with `opts`, adding
+  its :document and :report, or an :error, in a future or a promise."
   [{:keys [url type] :as ref} opts]
   (async/then (fetched! url (str (or type "text/vtt") ", */*;q=0.1") opts)
               (fn [{:keys [value error]}]
@@ -145,8 +138,8 @@
                   (with-report ref (transcript/parse value type) transcript/report)))))
 
 (defn- media-file!
-  "The media file at `url`, read by `media/read!`: what it says of itself,
-  with the `:url` and its `:report` as data, or with `:error`; deferred."
+  "Read the media file at `url` with media/read! and `opts`, adding its
+  :url and its :report as data, or an :error, in a future or a promise."
   [url opts]
   (async/then (media/read! url (select-keys opts [:send :allow? :timeout-seconds :headers :except]))
               (fn [file]
@@ -157,10 +150,10 @@
                       (seq diagnostics) (assoc :report (vec diagnostics))))))))
 
 (defn- best-chapters
-  "The `:chapters` of a view after its files came: the `file` when it
-  read, else what the feed holds under `own` when embedded, else the
-  chapters of the `media` file, else `own`. The chapters that came carry
-  the `:error` of a file that did not, in their `:report`."
+  "The :chapters of a view once its files are read, from the first of the
+  `file`, the embedded chapters of `own`, the `media` file, and `own`.
+
+  The chapters carry the :error of a file that failed in their :report."
   [file own media]
   (let [failed (:error file)
         from   (fn [part] (cond-> part failed (update :report (fnil conj []) failed)))]
@@ -172,34 +165,26 @@
       failed                                    file)))
 
 (defn read-files!
-  "Read the files of the episode `view`: what they say, for a page to
-  merge into the view. On the JVM the map, in ClojureScript a promise
-  of it.
+  "Read the files of the episode `view` with the `opts` below, for a page
+  to merge into the view. Returns a map, in ClojureScript as a promise:
 
-  - `:chapters` is `{:source :url :document :report}`: the chapters file
-    when it came, else the embedded chapters, else the chapters of the
-    media file, else those inferred from the show notes. `:source` tells
-    which. When the file did not come, the report of the chapters that
-    did has its `:file/unreachable`, and `:chapters` has `:error` when
-    nothing else holds chapters.
-  - `:transcript` is the reference that `view` chose, with its
-    `:document` as `transcript/parse` reads it and its `:report`, or with
-    `:error` when the file did not come.
-  - `:media` is what `media/read!` gives of the media file: its
-    `:duration`, its `:artwork` and its `:report`, or `:error`. The
-    `:duration` is then that of the file, which is what a listener gets,
-    and can differ from what the feed says.
+  - :chapters has the :source, :url, :document and :report of the
+    chapters, from the first place that has them: the chapters file, the
+    embedded chapters, the media file, or the timestamps in the show
+    notes.
+  - :transcript is the reference that `view` chose, with its :document
+    and :report.
+  - :media is the :duration, :artwork and :report of the media file, as
+    media/read! reads them, and the :duration of the page becomes that of
+    the file.
 
-  The step throws nothing for what the network or a server does. Each
-  part that did not come has `:error`, a diagnostic with the `:reason`.
-  `report` gathers the reports of all the parts.
+  Nothing is thrown for what the network or a server does, and a part
+  that couldn't be read has an :error. The report function gathers the
+  reports of all the parts. The `opts` are:
 
-  The `opts` are those of the requests: `:send`, a function that sends
-  a request map in the place of `http/call!`, `:allow?`, a predicate of
-  a URL, `:headers`, and the `:timeout-seconds` and `:max-bytes` of
-  `default-limits`. In `:except`, `:chapters`, `:transcript` and
-  `:media` leave those files unread: a page that needs no duration of
-  the file and no artwork from it gives `#{:media}`."
+  - :send, :allow? and :headers, as for any request
+  - :timeout-seconds and :max-bytes, over default-limits
+  - :except, a set of the parts to leave unread"
   ([view]
    (read-files! view {}))
   ([view {:keys [except] :or {except #{}} :as opts}]
@@ -220,9 +205,8 @@
                        (:duration media) (assoc :duration (:duration media)))))))))
 
 (defn report
-  "The diagnostics of all the parts of `files`, as `read-files!` gives
-  them or a page has them merged in, each with the `:part` that it is
-  about: `:chapters`, `:transcript` or `:media`."
+  "The diagnostics of all the parts of `files`, as read-files! gives them,
+  each with the :part that it's about: :chapters, :transcript or :media."
   [files]
   (vec (for [part [:chapters :transcript :media]
              :let [{:keys [report error]} (get files part)]

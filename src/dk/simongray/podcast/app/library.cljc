@@ -1,63 +1,40 @@
 (ns dk.simongray.podcast.app.library
-  "The library of a listener: everything that an app keeps, in one map.
-  It holds the player state of `app.player`, the feeds of `app.feeds`,
-  the OPML lists that the listener follows, the search index when the
-  app searches, the cursors of the sync, and the settings that every step
-  reads. An app saves the map as one value, and each part is what its
-  own namespace gives, so `(:player library)` takes every function of
-  `app.player`.
+  "The subscriptions, feeds, queue and play progress of an app, in one map.
+
+  Each part is a value of its own namespace, e.g. every function of
+  app.player takes (:player library):
 
       {:device   \"…\"                ; the id of this device
        :player   {…}                ; the player state, a CRDT
        :feeds    {guid {…}}         ; the feeds, as app.feeds keeps them
-       :lists    {url {…}}          ; the OPML lists, with the validators of their fetch
-       :index    {…}                ; the search index, with :search? in the settings
-       :sync     {:ctx {…} …}       ; the cursors of the last sync, and its report
-       :refresh  {:added […] …}     ; the last refresh: the new episodes, the moves, the report
-       :effects  [[:seek id 784]]   ; the effects of the last step, for the app to do
-       :sleep    {:episodes 1}      ; the sleep timer of this device, when set
-       :settings {…}}               ; given once to `make`
+       :lists    {url {…}}          ; the followed OPML lists
+       :index    {…}                ; the search index, with :search?
+       :sync     {:ctx {…} …}       ; the cursors and report of the last sync
+       :refresh  {:added […] …}     ; the new episodes, moves and report
+       :effects  [[:seek id 784]]   ; the effects of the last step, to apply
+       :sleep    {:episodes 1}      ; the sleep timer of this device, if set
+       :settings {…}}               ; given once to make
 
-  `subscribe` and `follow` put a fetched feed or list in. `refresh!`
-  fetches what is due and applies it: the feeds to the player, the lists
-  to the subscriptions, and the feeds of new subscriptions. `episodes`
-  selects episodes across the shows, `show` and `episode` give the views
-  of `app.show` and `app.episode`, `fetch-linked-shows!` and
-  `read-files!` what the network adds to them, `step` takes the events
-  of a player,
-  `sync!` keeps the devices in step, and `plan` gives the downloads.
+  Keep the library in an atom: swap! it with the pure functions, and
+  reset! it with refresh! and sync!, which fetch. Each returns the library
+  along with what it did, under :effects, :refresh or :sync.
+  The player state is a CRDT, so change it only with the functions of
+  app.player, never with assoc or dissoc.
 
-  Most apps keep the library in an atom, and `swap!` it with the
-  functions of this namespace and of `app.player`. Every step gives the
-  library, with what it did in it: `:effects` after `step`, `:refresh`
-  after `refresh!` and `:sync` after `sync!`. The steps `refresh!` and
-  `sync!` fetch, so put what they give back with `reset!`, and in
-  ClojureScript after the promise.
+  The settings are the options that the functions take, given once:
 
-  The player state under `:player` is not a map to `assoc` into. It is a
-  CRDT, so that `player/merge` joins the states of the devices without
-  conflict. Each write stamps what it changed with the time and the
-  device, and a removal is a tombstone. Change it with the functions of
-  `app.player`, e.g. `(swap! lib update :player player/enqueue id now)`.
-  An entry put in by hand has no stamp, which `player/problem` names,
-  and a `dissoc` comes back at the next sync. The other keys are plain
-  data, e.g. `(swap! lib assoc :sleep {:episodes 1})` sets the sleep
-  timer.
-
-  The settings are the options that the steps take, given once:
-
-      {:fetch          f              ; fetches a feed, in the place of dk.simongray.podcast/fetch!
-       :send           f              ; sends a request map, in the place of http/call!
-       :allow?         http/public?   ; the guard of every request
-       :credentials-of f              ; the credentials of a private feed, by its guid
+      {:fetch          f              ; in place of podcast/fetch!
+       :send           f              ; in place of http/call!
+       :allow?         http/public?   ; which URLs a request may go to
+       :credentials-of f              ; the credentials of a private feed
        :index          {…}            ; the credentials of the Podcast Index
        :languages      [\"da\" \"en\"]    ; of the listener, for transcripts
        :search?        false          ; whether to keep the search index
-       :cadence        {…}            ; of app.feeds
-       :parallel       8              ; feeds fetched at once
+       :cadence        {…}            ; as app.feeds takes it
+       :parallel       8              ; how many feeds are fetched at once
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
-  Each step takes the same keys as options, for one call."
+  Each function also takes the same keys as options, for one call."
   (:require [dk.simongray.podcast.app.downloads :as downloads]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.feeds :as feeds]
@@ -74,16 +51,17 @@
             [dk.simongray.podcast.util.time :as time]))
 
 (def default-settings
-  "The settings of a library that `make` is not given. `:list-seconds` is
-  how long a fetched OPML list is current."
+  "The settings that a library has when make isn't given them. The
+  :list-seconds is how long a fetched OPML list stays current."
   {:search?      false
    :list-seconds 86400})
 
 (defn make
-  "A library for the device `device`, a stable id that tells the devices of
-  a listener apart, made once per installation, at `now`. `opts` describe
-  the device for the other devices, such as its `:name` and its
-  `:platform`, and give the `:settings`."
+  "A library for the device `device`, made at `now` with the `opts` below.
+
+  The `device` is a stable id that tells the listener's devices apart,
+  made once per installation. The `opts` describe the device for the other
+  devices, such as its :name and :platform, and give the :settings."
   ([device now]
    (make device now {}))
   ([device now {:keys [settings] :as opts}]
@@ -100,31 +78,31 @@
       :settings settings})))
 
 (defn- options
-  "The `opts` of a step over the settings of `library`."
+  "The `opts` of a call over the settings of `library`."
   [library opts]
   (merge (:settings library) opts))
 
 (defn urls
-  "The URL of each feed of `library`, by the feed itself, as the `:url`
-  function that `search/episodes` and `downloads/plan` take."
+  "A map from each feed of `library` to its URL, which search/episodes and
+  downloads/plan take as :url."
   [library]
   (into {} (map (fn [[_ {:keys [feed url]}]] [feed url])) (:feeds library)))
 
 (defn- documents
-  "The search documents of the feed `feed` at `url`: the show and each of
-  its items."
+  "The search documents of the show and each item of `feed` at `url`."
   [feed url]
   (into [(search/feed-document feed {:url url})]
         (map #(search/item-document feed % {:url url}))
         (:rss/items feed)))
 
 (defn- unindexed
-  "The index `index` without the documents of the feed `guid`."
+  "The `index` without the documents of the feed `guid`."
   [index guid]
   (reduce search/remove index (filter #(or (= guid %) (and (vector? %) (= guid (first %)))) (keys (:docs index)))))
 
 (defn- reindexed
-  "`library` with the feed `guid` indexed again, when it keeps an index."
+  "The `library` with the feed `guid` indexed again, when it keeps an
+  index."
   [library guid]
   (if-let [index (:index library)]
     (let [{:keys [feed url]} (get-in library [:feeds guid])]
@@ -132,22 +110,18 @@
     library))
 
 (defn- fetch-result
-  "The `x` given to `subscribe` as the result of a fetch: itself, or a
-  parsed feed, whose keys are namespaced, as the result of a fetch
-  without validators."
+  "The result of a fetch that the `x` given to subscribe stands for: `x`
+  itself, or a map with `x` as the :feed for a parsed feed, whose keys are
+  namespaced."
   [x]
   (if (some #(and (keyword? %) (namespace %)) (keys x))
     {:feed x}
     x))
 
 (defn subscribe
-  "The `library` subscribed to the feed that `fetched` gave at `now`: the
-  feed kept as `app.feeds/add` keeps it, the subscription in the player
-  state, and the feed indexed when the library searches. The `fetched`
-  is the result of `dk.simongray.podcast/fetch!` from `url`, or the
-  parsed feed from there, which then has no validators for the next
-  fetch. The `opts` are the settings of the subscription, as
-  `player/configure` takes them."
+  "The `library` subscribed at `now` to the feed at `url`, where `fetched` is
+  the result of dk.simongray.podcast/fetch! or a parsed feed, and `opts`
+  are the settings of the subscription, as player/configure takes them."
   ([library url fetched now]
    (subscribe library url fetched now {}))
   ([library url fetched now opts]
@@ -162,8 +136,9 @@
          (reindexed guid)))))
 
 (defn unsubscribe
-  "`library` without the subscription to the feed `guid`, at `now`: the
-  player state keeps the record, and the feed and its documents go."
+  "The `library` unsubscribed from the feed `guid` at `now`, with the feed
+  and its search documents removed, and a record of the subscription kept
+  in the player state."
   [library guid now]
   (-> library
       (update :player player/unsubscribe guid now)
@@ -171,9 +146,9 @@
       (cond-> (:index library) (update :index unindexed guid))))
 
 (defn subscriptions
-  "The live subscriptions of `library`, by guid: each as `player/subscriptions`
-  gives it, with its `:settings` as `player/settings` fills them in, and
-  its `:feed` when it is fetched."
+  "The live subscriptions of `library` by guid, each as
+  player/subscriptions gives it, with its :settings filled in by
+  player/settings, and its :feed once it's fetched."
   [library]
   (let [player (:player library)]
     (into {} (map (fn [[guid sub]]
@@ -182,11 +157,10 @@
           (player/subscriptions player))))
 
 (defn- listed
-  "`library` with the parse `list` of the OPML list at `url`, fetched at
-  `now` with the `etag` and the `last-modified` of the answer, applied:
-  the entry of the list, and the shows that joined it subscribed, as
-  `player/refresh-list` does it."
-  [library url list now {:keys [etag last-modified]}]
+  "The `library` with the parse `list` of the OPML list at `url`, fetched
+  at `now`, applied as player/refresh-list does, and kept with the ETag
+  and Last-Modified of `fetched`."
+  [library url list now {:keys [etag last-modified] :as fetched}]
   (let [seconds (:list-seconds (:settings library))
         entry   (cond-> {:list list :fetched-at now :next-check (time/->inst (+ (inst-ms now) (* 1000 seconds)))}
                   etag          (assoc :etag etag)
@@ -196,11 +170,12 @@
         (assoc-in [:lists url] entry))))
 
 (defn follow
-  "`library` following the OPML list at `url`, whose parse `list` came at
-  `now`, with the `:etag` and the `:last-modified` of the fetch in `opts`,
-  and the `:title` and the `:folder` of the list as `player/follow-list`
-  takes them. The shows of the list become subscriptions, which
-  `refresh!` fetches."
+  "The `library` following the OPML list at `url`, whose parse `list`
+  arrived at `now`, with the `opts` below.
+
+  The `opts` give the :etag and :last-modified of the fetch, and the
+  :title and :folder of the list as player/follow-list takes them. The
+  shows of the list become subscriptions, which refresh! fetches."
   ([library url list now]
    (follow library url list now {}))
   ([library url list now opts]
@@ -210,16 +185,19 @@
        (listed url list now opts))))
 
 (defn unfollow
-  "`library` no longer following the list at `url`, at `now`."
+  "The `library` no longer following the list at `url`, at `now`."
   [library url now]
   (-> library
       (update :player player/unfollow-list url now)
       (update :lists dissoc url)))
 
 (defn- fetched-list!
-  "The OPML list at `url` fetched with the validators of `entry`: `{:list
-  :etag :last-modified}`, `{:unchanged? true}`, or `{:error}`; deferred."
-  [url {:keys [etag last-modified]} {:keys [send] :as opts}]
+  "Fetch the OPML list at `url` with `opts` and the ETag and Last-Modified
+  in its library `entry`, in a future or a promise.
+
+  The result has the :list, :etag and :last-modified, or :unchanged? when
+  the list didn't change, or an :error."
+  [url {:keys [etag last-modified] :as entry} {:keys [send] :as opts}]
   (let [headers (cond-> {"Accept" "text/x-opml, application/xml;q=0.9, */*;q=0.1"}
                   etag          (assoc "If-None-Match" etag)
                   last-modified (assoc "If-Modified-Since" last-modified))]
@@ -240,8 +218,9 @@
                                            (h "last-modified") (assoc :last-modified (h "last-modified")))))))))))
 
 (defn- lists-refreshed!
-  "`library` with its lists that are due at `now` fetched and applied:
-  `{:library :report}`; deferred."
+  "The `library` with its lists that are due at `now` fetched with `opts`
+  and applied, as a map of the :library and the :report, in a future or a
+  promise."
   [library now opts]
   (let [due (for [[url entry] (:lists library)
                   :when (<= (inst-ms (:next-check entry)) (inst-ms now))]
@@ -263,18 +242,17 @@
                           results)))))
 
 (defn- unfetched
-  "The guids of the live subscriptions of `library` without a feed, with
-  the URL of each."
+  "The guids and URLs of the live subscriptions of `library` that have no
+  feed yet."
   [library]
   (for [[guid {:keys [url]}] (player/subscriptions (:player library))
         :when (and url (not (contains? (:feeds library) guid)))]
     [guid url]))
 
 (defn- known
-  "`library` with the feed of `result`, fetched from `url` at `now` for the
-  subscription `guid`, put in. A list or another app names a show by the
-  guid of its URL, so when the feed declares a guid of its own, the
-  subscription moves to it, as `player/rekey` moves it."
+  "The `library` with the feed of `result`, fetched from `url` at `now` for
+  the subscription `guid`, which moves to the guid that the feed declares,
+  as player/rekey does."
   [library guid url result now]
   (let [declared (feed/feed-guid (:feed result) url)]
     (-> library
@@ -283,9 +261,11 @@
         (reindexed declared))))
 
 (defn- fetched-new!
-  "`library` with the feeds of its subscriptions that have none fetched
-  and put in: `{:library :report}`; deferred. A feed that does not come
-  is tried again at the next step."
+  "The `library` with the feeds of new subscriptions fetched at `now` with
+  `opts` and added, as a map of the :library and the :report, in a future
+  or a promise.
+
+  A feed that couldn't be fetched is tried again next time."
   [library now {:keys [fetch credentials-of] :as opts}]
   (let [common (select-keys opts [:timeout-seconds :max-bytes :user-agent :allow?])
         fetch1 (fn [[guid url]]
@@ -306,10 +286,10 @@
                           results)))))
 
 (defn- applied
-  "`library` with the changes of `step`, a result of `app.feeds/refresh!`,
-  applied to the player at `now`: `{:library :added :moved}`. The player
-  learns each fresh feed, and moves each subscription whose feed moved."
-  [library {:keys [feeds changed moved]} now]
+  "The `library` with the `result` of app.feeds/refresh! applied to the
+  player at `now`, as a map of the :library and what was :added and
+  :moved."
+  [library {:keys [feeds changed moved] :as result} now]
   (let [before (:feeds library)
         library (assoc library :feeds feeds)
         result (reduce (fn [acc guid]
@@ -328,22 +308,24 @@
             moved)))
 
 (defn refresh!
-  "Fetch what `library` is due to fetch at `now`, and apply it: the OPML
-  lists, whose new shows become subscriptions; the feeds of the
-  subscriptions that have none; and the feeds that are due, as
-  `app.feeds/refresh!` fetches them, each fresh feed given to
-  `player/refresh`. The library, with the step under `:refresh`. On the
-  JVM the library, in ClojureScript a promise of it.
+  "Fetch and apply whatever `library` is due to fetch at `now`, with the
+  `opts` below.
+
+  It fetches the followed lists, the feeds of new subscriptions, and the
+  feeds whose next check has come. Returns the library with the step under
+  :refresh, in ClojureScript as a promise.
 
       {:at     now
-       :added  [[feed-guid item-guid] …]   ; the new episodes, as player/refresh found them
-       :moved  {feed-guid \"https://…\"}    ; the feeds that moved, their subscriptions moved too
+       :added  [[feed-guid item-guid] …]   ; the new episodes
+       :moved  {feed-guid \"https://…\"}    ; the feeds that moved, and so
+                                          ; their subscriptions
        :report [...]}                     ; the fetches that failed, and why
 
-  The step throws nothing for what the network or a server does. The
-  `opts` are the settings, for this call, and `:guids`, the feeds to
-  fetch in the place of those that are due, as after a Podping:
-  `(app.feeds/affected (:feeds library) pings)`."
+  Nothing is thrown for what the network or a server does. The `opts` are
+  settings for this call, and :guids, the feeds to fetch instead of those
+  that are due, e.g. after a Podping:
+
+      (app.feeds/affected (:feeds library) pings)"
   ([library now]
    (refresh! library now {}))
   ([library now opts]
@@ -362,25 +344,22 @@
                                                                           :report (-> [] (into report) (into report-new) (into (:report step)))})))))))))))
 
 (defn episode-id
-  "The identity of the episode `item` of `feed` in `library`, `[feed-guid
-  item-guid]`, as `player/episode-id` gives it with the URL of the feed:
-  what `episode`, `step` and the player take, for a pair that `episodes`
-  gives."
+  "The id of the episode `item` of `feed` in `library`, [feed-guid
+  item-guid], as player/episode-id gives it with the URL of the feed."
   [library feed item]
   (player/episode-id feed (get (urls library) feed) item))
 
 (defn- item-of
-  "The feed and the item of `library` with the identity `id`, `[feed-guid
-  item-guid]`, as `[entry item]`; nil when the library has neither."
+  "The entry of the feed `feed-guid` in `library` and its item
+  `item-guid`, as a pair, or nil."
   [library [feed-guid item-guid]]
   (when-let [{:keys [feed] :as entry} (get-in library [:feeds feed-guid])]
     (when-let [item (some #(when (= item-guid (feed/item-guid %)) %) (:rss/items feed))]
       [entry item])))
 
 (defn show
-  "The view of the show `guid` of `library`, as `app.show/view` gives it,
-  with the `:url` of its feed; nil when the library has no such feed.
-  `opts` are those of `app.show/view`."
+  "The view of the show `guid` of `library`, as app.show/view gives it
+  with the `opts` it takes, or nil when the library has no such feed."
   ([library guid]
    (show library guid {}))
   ([library guid opts]
@@ -388,11 +367,12 @@
      (show/view feed (assoc opts :url url)))))
 
 (defn fetch-linked-shows!
-  "Fetch the shows that the show `guid` of `library` links to, as
-  `app.show/fetch-linked-shows!` gives them, with the settings of the
-  library, for a page to merge into `show`; nil when the library has no
-  such feed. The `opts` are those of `app.show/fetch-linked-shows!`, for
-  this call."
+  "Fetch the shows that the show `guid` of `library` links to, with `opts`
+  for this call, for a page to merge into the view that show gives.
+
+  The result is that of app.show/fetch-linked-shows! with the settings of
+  the library, or nil when the library has no such feed. The `opts` are
+  those of app.show/fetch-linked-shows!."
   ([library guid]
    (fetch-linked-shows! library guid {}))
   ([library guid opts]
@@ -401,10 +381,11 @@
                                (options library opts)))))
 
 (defn episode
-  "The view of the episode `id` of `library`, `[feed-guid item-guid]`, as
-  `app.episode/view` gives it, with the `:languages` of the settings; nil
-  when the library has no such episode. `opts` are those of
-  `app.episode/view`."
+  "The view of the episode `id` of `library`, as app.episode/view gives it
+  with `opts`.
+
+  The `id` is [feed-guid item-guid], and the view uses the :languages
+  of the settings. Returns nil when the library has no such episode."
   ([library id]
    (episode library id {}))
   ([library id opts]
@@ -412,11 +393,12 @@
      (episode/view feed item (assoc (options library opts) :url url)))))
 
 (defn read-files!
-  "Read the files of the episode `id` of `library`, as
-  `app.episode/read-files!` gives what they say, with the settings of
-  the library, for a page to merge into `episode`; nil when the library
-  has no such episode. The `opts` are those of `app.episode/read-files!`,
-  for this call."
+  "Read the files of the episode `id` of `library`, with `opts` for this
+  call, for a page to merge into the view that episode gives.
+
+  The result is that of app.episode/read-files! with the settings of the
+  library, or nil when the library has no such episode. The `opts` are
+  those of app.episode/read-files!."
   ([library id]
    (read-files! library id {}))
   ([library id opts]
@@ -425,12 +407,13 @@
                           (options library opts)))))
 
 (defn episodes
-  "The episodes of the shows of `library` that `opts` select, in the
-  order they ask for, as `search/episodes` selects them over all the
-  feeds: `[feed item]` pairs. The criteria read the player state of the
-  library.
+  "The episodes of the shows of `library` that `opts` select, as [feed
+  item] pairs.
 
-      (episodes library {:where {:status :unplayed} :order :listening :limit 20})"
+  The selection and the order are those of search/episodes across all
+  the feeds, and the criteria read the player state of the library.
+
+      (episodes library {:where {:status :unplayed} :order :listening})"
   ([library]
    (episodes library {}))
   ([library opts]
@@ -440,19 +423,22 @@
 
 (defn search
   "The episodes and shows of `library` that match the query `q`, best
-  first, as `search/query` finds them in the index of the library, which
-  the settings keep with `:search? true`. Nil without an index. `opts` are
-  those of `search/query`."
+  first, with the `opts` of search/query.
+
+  The library has an index when its settings have :search?, and
+  without one, this returns nil."
   ([library q]
    (search library q {}))
   ([library q opts]
    (some-> (:index library) (search/query q opts))))
 
 (defn step
-  "The library after the player event `event` at `now`, as `player/step`
-  takes it: `library` with the new player state, the `:effects` that the
-  app must do, and the `:sleep` timer of this device that is left. The
-  `opts` are those of `player/step`, over the `:sleep` of the library."
+  "The `library` after the player `event` at `now`, with `opts`, both as
+  player/step takes them.
+
+  It has the new player state, the :effects to apply, and what's left of
+  the :sleep timer of this device. The `opts` go over the :sleep of
+  the library."
   ([library event now]
    (step library event now {}))
   ([library event now opts]
@@ -462,23 +448,19 @@
        sleep (assoc :sleep sleep)))))
 
 (defn sync!
-  "One step of keeping the devices of the listener in step through
-  `backends`, at `now`, as `sync/sync!` does it: the cursors of the last
-  step go with it, what the listener did during the step is merged into
-  the result, the tombstones are compacted, and the cursors are kept for
-  the next step. The `library`, with the step under `:sync`, and
-  `next-sync` tells when to sync again. On the JVM the library, in
-  ClojureScript a promise of it.
+  "Sync `library` with the listener's other devices through `backends` at
+  `now`, with the `opts` of sync/sync! except :ctx.
+
+  It syncs as sync/sync! does, keeps the cursors for the next sync, and
+  compacts the tombstones. Returns the library with the step under
+  :sync, in ClojureScript as a promise.
 
       {:ctx      {…}         ; the cursors of the stores, for the next step
        :at       now
        :clock    #inst \"…\"   ; the clock of the player state after the step
        :failures 0           ; the steps in a row that failed
        :failed   {…}         ; the backends that failed, when any did
-       :report   [...]}
-
-  The `opts` are those of `sync/sync!`, but for `:ctx`, which the
-  library keeps."
+       :report   [...]}"
   ([library backends now]
    (sync! library backends now {}))
   ([library backends now opts]
@@ -494,18 +476,17 @@
                                     (seq failed) (assoc :failed failed)))))))))
 
 (defn next-sync
-  "When `library` is due to sync again, at `now`, as `sync/next-at` says:
-  `now` before the first step, and sooner when the player state changed
-  since the last step."
+  "When `library` should sync again, at `now`, as sync/next-at says: `now`
+  before the first step, and sooner when the player state changed since
+  the last step."
   [library now]
   (let [{:keys [at clock failures]} (:sync library)]
     (sync/next-at (when at {:at at :changed? (not= clock (:clock (:player library))) :failures failures}) now)))
 
 (defn plan
-  "The episodes to download and the files to delete on this device at
-  `now`, as `downloads/plan` gives them for the player state and the
-  feeds of `library`. `files` are the files of the device, and `opts` are
-  those of `downloads/plan`."
+  "The episodes to download and the files to delete at `now` on this
+  device with `files`, as downloads/plan gives them for the player state
+  and feeds of `library` and the `opts`."
   ([library files now]
    (plan library files now {}))
   ([library files now opts]

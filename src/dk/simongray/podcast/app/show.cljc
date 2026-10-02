@@ -1,15 +1,8 @@
 (ns dk.simongray.podcast.app.show
-  "One show as a page shows it, in one map. `view` is what the feed says
-  of the show: the feed, its properties as `feed.resolve` answers them,
-  the description as Hiccup and as text, the episodes in listening order,
-  the seasons, and the links to the apps. `fetch-linked-shows!` fetches
-  the shows that the feed links to, the shows of the podroll as the
-  Podcast Index knows them and the publisher feed with its shows, when
-  it confirms the show, for a page to merge into the view.
+  "Everything a show page needs, in one map.
 
-  A page reads one map. The functions below the view give the same
-  answers, so an app drops down to them when a step is not what it wants.
-  `dk.simongray.podcast.app.episode` is the view of one episode."
+  Use view for what the feed says about the show, and merge in
+  fetch-linked-shows! for the shows that it links to."
   (:require [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory.links :as links]
@@ -22,27 +15,25 @@
             [dk.simongray.podcast.util.http :as http]))
 
 (def default-limits
-  "The limits of `fetch-linked-shows!` that its options do not set: the
-  seconds that a request can take, and the most bytes of a publisher
-  feed."
+  "The limits of fetch-linked-shows! when its options don't set them: how
+  many seconds a request can take, and the most bytes of a publisher feed."
   {:timeout-seconds 15
    :max-bytes       (* 16 1024 1024)})
 
 (defn view
-  "The feed `show`, as a page shows it: the feed with the properties of
-  `resolve/properties` merged in, and these keys:
+  "The feed `show` as a page shows it, with the `opts` below: the feed with
+  the properties of resolve/properties merged in, and these keys:
 
-  - `:guid`, the identity of the feed as `feed/feed-guid` gives it, when
-    the feed has one or `opts` give the `:url` of the feed
-  - `:notes`, the description as Hiccup, and `:text`, as plain text
-  - `:episodes`, the items in listening order, as `resolve/episodes`
-    gives them, and `:seasons`, as `resolve/seasons` gives them
-  - `:links`, the links to the show in the apps, as `links/links` gives
-    them
+  - :guid, the id of the feed as feed/feed-guid gives it, when the feed
+    has one or `opts` give the :url of the feed
+  - :notes, the description as Hiccup, and :text, as plain text
+  - :episodes, the items in listening order, as resolve/episodes gives
+    them, and :seasons, as resolve/seasons gives them
+  - :links, links to the show in other apps, as links/links gives them
 
-  `opts` give the `:url` of the feed, for a feed that does not name its
-  own. `:except` is a set of the keys above that the view leaves out, and
-  does not compute."
+  The `opts` give the :url of the feed, for a feed that doesn't name its
+  own, and :except, a set of the keys above to leave out without
+  computing them."
   ([show]
    (view show {}))
   ([show {:keys [url except] :or {except #{}} :as opts}]
@@ -61,18 +52,17 @@
        (wanted? :links)             (assoc :links (links/links (links/ids show nil {:url url})))))))
 
 (defn- unreachable
-  "The diagnostic of the feed at `url` that did not come: the request
-  failed with `e`, or the answer had the `status` of a failure."
+  "The diagnostic for the feed at `url` that couldn't be fetched, because
+  the request failed with `e` or the answer had the `status` of a failure."
   [url e status]
   (if e
     (assoc (bytes/unreachable e) :url url :id :fetch/unreachable)
     (diagnostics/describe {:id :fetch/unreachable :url url :status status})))
 
 (defn- known-show!
-  "The remote item `item` with the `:show` that the Podcast Index knows
-  for it, asked with the `:index` credentials of `opts`, signed at the
-  time `:now` gives; deferred. The item as it is when the index does not
-  know it, or does not answer."
+  "The remote `item` with its :show from the Podcast Index, asked with
+  `opts`, in a future or a promise, or the item as it is when the index
+  has no answer."
   [item {:keys [index send now] :as opts}]
   (let [requests (podcastindex/remote-item-requests index item {:auth-date (quot (inst-ms (now)) 1000)})]
     (async/then (async/all (map #(http/sent! send % opts) requests))
@@ -85,11 +75,12 @@
                     (cond-> item found (assoc :show found)))))))
 
 (defn- publisher-feed!
-  "The publisher `item` of the view of `show`, with the `:feed` of the
-  publisher, whether it `:confirmed?` the show, and its `:shows`, the
-  remote items of the publisher feed; deferred. With `:error` when the
-  feed did not come."
-  [item {:keys [guid]} {:keys [send] :as opts}]
+  "The publisher `item` of the show `view` with the publisher's :feed
+  fetched with `opts`, in a future or a promise.
+
+  It also has the :shows of the publisher feed, and :confirmed? when that
+  feed lists the show, or an :error when the feed couldn't be fetched."
+  [item {:keys [guid] :as view} {:keys [send] :as opts}]
   (let [url (:feed-url item)]
     (async/then (http/sent! send {:url url :headers {"Accept" "application/rss+xml, application/xml;q=0.9, */*;q=0.1"}} opts)
                 (fn [{:keys [value error]}]
@@ -112,29 +103,25 @@
                                              :confirmed? (boolean (some #(= guid (:feed-guid %)) shows))))))))))))
 
 (defn fetch-linked-shows!
-  "Fetch the shows that the `view` of a show links to, for a page to
-  merge into the view. On the JVM the map, in ClojureScript a promise
-  of it.
+  "Fetch the shows that the `view` of a show links to, with the `opts`
+  below, for a page to merge into the view. Returns a map, in
+  ClojureScript as a promise:
 
-  - `:podroll` has each recommended show with `:show`, the show as the
-    Podcast Index knows it, when `opts` give the `:index` credentials and
-    the index knows the show. The Podcast Index is one of the directories,
-    so the show has the keys of `dk.simongray.podcast.directory`. Without
-    the credentials, nothing is asked, and the page keeps the podroll of
-    the view.
-  - `:publisher` has the `:feed` of the publisher, its `:shows`, and
-    `:confirmed?`, which tells whether the publisher feed lists this show.
-    The podcast namespace asks an app to show the other shows of a
-    publisher only when it does. With `:error` when the feed did not
-    come.
+  - :podroll has each recommended show with its :show from the Podcast
+    Index, when `opts` give the :index credentials.
+  - :publisher has the :feed of the publisher, its :shows, and
+    :confirmed?, which says whether the publisher feed lists this show.
+    The podcast namespace asks apps to show the other shows of a publisher
+    only when it does.
 
-  The step throws nothing for what the network or a server does. The
-  `opts` are those of the requests: `:send`, a function that sends a
-  request map in the place of `http/call!`, `:allow?`, a predicate of a
-  URL, and the `:timeout-seconds` and `:max-bytes` of `default-limits`.
-  `:index` gives the credentials of the Podcast Index, and `:now` a
-  function that gives the instant of now, to sign them. In `:except`,
-  `:podroll` and `:publisher` leave those unasked."
+  Nothing is thrown for what the network or a server does, and a part
+  that failed has an :error. The `opts` are:
+
+  - :send and :allow?, as for any request
+  - :timeout-seconds and :max-bytes, over default-limits
+  - :index, the credentials of the Podcast Index, and :now, a function of
+    the current time to sign the requests with
+  - :except, a set of the parts to leave out"
   ([view]
    (fetch-linked-shows! view {}))
   ([view {:keys [except] :or {except #{}} :as opts}]
