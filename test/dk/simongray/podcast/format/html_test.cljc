@@ -134,45 +134,6 @@
       (is (= nodes (html/parse (html/emit nodes))))))
   (is (= "<p>x</p>" (html/emit [:p "x"])) "hiccup without an attribute map"))
 
-(deftest feeds-a-page-names
-  (let [page (str "<!DOCTYPE html><html><head><title>A show</title>"
-                  "<link rel=\"alternate\" type=\"application/rss+xml\" title=\"The show\" href=\"/feed.xml\">"
-                  "<link rel=\"Alternate Feed\" type=\"application/atom+xml\" href=\"https://b.example/atom\">"
-                  "<link rel=alternate type=text/html href=/other>"
-                  "<link rel=alternate type=application/rss+xml>"
-                  "<link rel=stylesheet href=style.css></head><body><p>Listen</p></body></html>")]
-    (is (= [{:href "/feed.xml" :type "application/rss+xml" :title "The show"}
-            {:href "https://b.example/atom" :type "application/atom+xml"}]
-           (html/feed-links page))
-        "RSS and Atom links only, and none without an href")
-    (is (= ["https://a.example/feed.xml" "https://b.example/atom"]
-           (map :href (html/feed-links page "https://a.example/show/")))
-        "made absolute against the address of the page")
-    (testing "only an address that an app can fetch"
-      (let [link  #(str "<link rel=\"alternate\" type=\"application/rss+xml\" href=\"" % "\">")
-            hrefs ["javascript:alert(1)" "data:text/xml,x" "file:///etc/passwd" " java\tscript:alert(1)" "feed.xml"]
-            page  (apply str (map link hrefs))]
-        (is (= ["https://a.example/show/feed.xml"] (map :href (html/feed-links page "https://a.example/show/"))))
-        (is (= ["feed.xml"] (map :href (html/feed-links page))))))
-    (testing "a type with a parameter, and attributes without a value"
-      (is (= [{:href "https://a.example/feed.xml" :type "application/rss+xml"}]
-             (html/feed-links (str "<link rel=alternate type=\"Application/RSS+XML; charset=utf-8\" href=/feed.xml title>"
-                                   "<link rel=alternate type=application/rss+xml href>"
-                                   "<link rel=alternate type href=/other.xml>")
-                              "https://a.example/"))))
-    (testing "the base element of the page, as in a browser"
-      (let [page #(str "<base target=_blank><base href=\"" % "\"><base href=\"https://late.example/\">"
-                       "<link rel=alternate type=application/rss+xml href=feed.xml>")]
-        (is (= ["https://cdn.example/shows/feed.xml"]
-               (map :href (html/feed-links (page "https://cdn.example/shows/") "https://a.example/show/"))))
-        (is (= ["https://a.example/feeds/feed.xml"] (map :href (html/feed-links (page "/feeds/") "https://a.example/show/")))
-            "relative to the address of the page")
-        (is (= ["https://cdn.example/shows/feed.xml"] (map :href (html/feed-links (page "https://cdn.example/shows/"))))
-            "and with no address of the page")
-        (is (= ["https://a.example/show/feed.xml"]
-               (map :href (html/feed-links (page "javascript:void(0)") "https://a.example/show/")))
-            "a base that is no address on the web is none")))))
-
 #?(:clj
    (deftest descriptions-in-the-corpus-render
      (testing "every description of every corpus feed, when the corpus is there"

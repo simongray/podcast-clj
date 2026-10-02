@@ -7,9 +7,8 @@
   For a description that a client can render, use the hiccup function. It
   parses and sanitizes HTML, and makes paragraphs of plain text. The text
   and markdown functions render HTML or Hiccup as text, and emit writes
-  Hiccup back as HTML. Use feed-links for the feeds that a web page names."
+  Hiccup back as HTML."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def ^:no-doc token-pattern
@@ -265,46 +264,6 @@
   [v]
   (when (and (string? v) (not (str/blank? v)))
     v))
-
-(defn- page-base
-  "The URL that the links of a page with the `nodes` are relative to, for a
-  page at `url`, which can be nil. It's the href of the first base element
-  that has one, when that gives an http or https URL, or else `url`."
-  [nodes url]
-  (let [href (some #(when (and (vector? %) (= :base (first %))) (text-of (:href (second %)))) nodes)
-        base (when href (if url (http/absolute-url url href) href))]
-    (if (#{"http" "https"} (scheme base)) base url)))
-
-(defn feed-links
-  "The feeds that the web page `s` names, in the order of the page. When
-  the URL of the page is given as `base`, each href is made absolute.
-
-  A feed is a map of :href, :type and :title. It comes from a link element
-  with the rel alternate or feed and the type of an RSS or Atom feed. The
-  RSS autodiscovery spec and the HTML standard define these links. The
-  type is without its parameters. Use this to find the feed of a show from
-  the address of its website.
-
-  The base element of the page replaces `base`, as in a browser. With a
-  base, only an http or https URL is a feed. Without one, a relative href
-  stays as it is."
-  ([s]
-   (feed-links s nil))
-  ([s base]
-   (let [nodes (tree-seq vector? #(drop 2 %) (into [:root {}] (parse s)))
-         base  (page-base nodes base)]
-     (for [node  nodes
-           :when (and (vector? node) (= :link (first node)))
-           :let  [{:keys [rel type href title]} (second node)
-                  rels (set (str/split (str/lower-case (str rel)) #"\s+"))
-                  type (http/media-type (text-of type))]
-           :when (and (or (rels "alternate") (rels "feed"))
-                      (#{"application/rss+xml" "application/atom+xml"} type)
-                      (text-of href))
-           :let  [href (if base (http/absolute-url base href) href)]
-           :when (contains? (if base #{"http" "https"} #{nil "http" "https"}) (scheme href))]
-       (cond-> {:href href :type type}
-         (text-of title) (assoc :title title))))))
 
 (def allowed-tags
   "The elements that sanitize keeps."

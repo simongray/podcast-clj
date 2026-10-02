@@ -8,7 +8,8 @@
   The apps table holds these forms as data. The links function writes the
   links of a show for each app whose keys the show has. The ids function
   reads the keys from a feed, or from a show of
-  dk.simongray.podcast.directory.
+  dk.simongray.podcast.directory, and link-ids reads them back from a
+  link.
 
   A link with the scheme of an app, such as podcast:// or pktc://, opens
   the app and subscribes. It works only where the app is. A link to the
@@ -215,21 +216,26 @@
             :enclosure-url           (get-in item [:rss/enclosure :url])
             :podcastindex-episode-id (when (:index/feed-id item) (:index/id item))}))))
 
+(defn- encoding-of
+  "The encoding and the key of the part `p` of a form that names a key."
+  [p]
+  (if (keyword? p) [:plain p] p))
+
 (defn- part
   "The text of the part `p` of a form, for the keys `ids`, or nil when the
   ids don't have the key of the part."
   [p ids]
-  (let [[encoding k] (cond (string? p) nil (keyword? p) [:plain p] :else p)
-        v            (if (= :slug k) (:slug ids default-slug) (get ids k))]
-    (cond
-      (string? p) p
-      (nil? v)    nil
-      :else       (case encoding
-                    :plain     (str v)
-                    :encoded   (http/encode v)
-                    :base64url (http/base64url (str v))
-                    :hex       (bytes/hex (bytes/encode (str v)))
-                    :bare      (str/replace (str v) #"(?i)^[a-z][a-z0-9+.-]*://" "")))))
+  (if (string? p)
+    p
+    (let [[encoding k] (encoding-of p)
+          v            (if (= :slug k) (:slug ids default-slug) (get ids k))]
+      (when (some? v)
+        (case encoding
+          :plain     (str v)
+          :encoded   (http/encode v)
+          :base64url (http/base64url (str v))
+          :hex       (bytes/hex (bytes/encode (str v)))
+          :bare      (str/replace (str v) #"(?i)^[a-z][a-z0-9+.-]*://" ""))))))
 
 (defn- written
   "The link that the form `form` gives for the keys `ids`, or nil when the
@@ -273,6 +279,110 @@
         (sort-by (comp str/lower-case str :name))
         vec)))
 
+(def ^:no-doc id-patterns
+  "The regex of the text of each key of the ids in a link, for link-ids.
+  A key that isn't here is the text of one part of a path or a query."
+  {:apple-id                "[0-9]+"
+   :podcastindex-id         "[0-9]+"
+   :podcastindex-episode-id "[0-9]+"
+   :podcast-guid            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+   :feed-url                ".+"})
+
+(defn- quoted
+  "The text `s` as a regex that matches it as it is."
+  [s]
+  (str/escape s #(when (#{\\ \^ \$ \. \| \? \* \+ \( \) \[ \] \{ \}} %) (str "\\" %))))
+
+(defn- web-start
+  "The regex of `s`, the start of a form of a link on the web. It takes
+  http or https, with or without www., and one more part of the path
+  before each part of `s` that has a name. So the form of Apple Podcasts
+  reads the links that it shares, which have a country and the name of
+  the show in their paths."
+  [s]
+  (let [[_ host path query] (re-matches #"(?i)https?://(?:www\.)?([^/?#]*)([^?#]*)(.*)" s)]
+    (str "https?://(?:www\\.)?" (quoted host)
+         (apply str (map #(str (when (< 1 (count %)) "(?:/[^/?#]+)?") (quoted %))
+                         (re-seq #"/[^/]*" path)))
+         (quoted query))))
+
+(defn- part-pattern
+  "The regex of the text of the part `p` of a form that names a key."
+  [p]
+  (let [[encoding k] (encoding-of p)]
+    (case encoding
+      :encoded   "[^&#]+"
+      :base64url "[A-Za-z0-9_-]+"
+      :hex       "[0-9a-fA-F]+"
+      (get id-patterns k "[^/?#&]+"))))
+
+(defn- form-pattern
+  "The regex that reads a link of `form`, with a group for each key."
+  [[start & parts :as form]]
+  (re-pattern (str "(?i)^"
+                   (if (re-find #"(?i)^https?://" start) (web-start start) (quoted start))
+                   (apply str (map #(if (string? %) (quoted %) (str "(" (part-pattern %) ")")) parts))
+                   "(?:[/?#].*)?$")))
+
+(defn- utf8
+  "The bytes `b` as UTF-8 text, or nil for no bytes."
+  [b]
+  (when b
+    (bytes/decode b 0 (bytes/length b) :utf8)))
+
+(defn- value-of
+  "The value of the key that the part `p` of a form names, read from the
+  `text` of the part in a link, or nil when the text doesn't read as one.
+
+  A feed URL that isn't encoded in the form is decoded anyway when it is,
+  as some apps encode it. One in a bare form keeps no scheme."
+  [p text]
+  (let [[encoding k] (encoding-of p)
+        v            (case encoding
+                       :encoded   (http/percent-decode text)
+                       :base64url (let [s (str/escape text {\- "+" \_ "/"})]
+                                    (utf8 (bytes/from-base64 (str s (subs "===" 0 (mod (- (count s)) 4))))))
+                       :hex       (utf8 (bytes/from-hex text))
+                       (if (and (= [:plain :feed-url] [encoding k]) (not (str/includes? text "://")))
+                         (http/percent-decode text)
+                         text))]
+    (case k
+      :feed-url                                   (when (http/web-url? (cond->> v (= :bare encoding) (str "https://"))) v)
+      (:podcastindex-id :podcastindex-episode-id) (some-> v parse-long)
+      v)))
+
+(defn- read-form
+  "The ids that the link `url` holds by `form`, or nil when the form
+  doesn't read the link."
+  [form url]
+  (let [found (re-find (form-pattern form) url)
+        keyed (remove string? (rest form))]
+    (when (vector? found)
+      (let [values (map value-of keyed (rest found))]
+        (when (every? some? values)
+          (dissoc (zipmap (map (comp second encoding-of) keyed) values) :slug))))))
+
+(defn link-ids
+  "The ids that the link `url` of an app holds, read with the forms of
+  the apps table or of the :apps of `opts`. Nil when no form reads it.
+
+  It reads a link more loosely than link writes it: with http or https,
+  with or without www., and with one more part of the path before each
+  part of the form, such as the country and the name of a show in a link
+  that Apple Podcasts shares. A feed URL that a link holds without its
+  scheme comes without one."
+  ([url]
+   (link-ids url {}))
+  ([url opts]
+   {:pre [(map? opts)]}
+   (->> (for [entry (vals (:apps opts apps))
+              kind  kinds
+              form  (get entry kind)]
+          form)
+        (keep #(read-form % (str url)))
+        (filter #(some % [:feed-url :apple-id :podcast-guid :podcastindex-id]))
+        first)))
+
 (defn at-time
   "The URL `url` of a media file, to play from `start` seconds, and to
   `end` seconds when there is one. A player that knows media fragments
@@ -312,6 +422,10 @@
 
   ;; a feed alone has its URL, so it has the links that take the URL
   (map :name (links {:feed-url "https://feeds.podcastindex.org/pc20.xml"}))
+
+  ;; and back: the ids in a link that an app shares
+  (link-ids "https://podcasts.apple.com/us/podcast/podcasting-2-0/id1584274529")
+  (link-ids "pktc://subscribe/feeds.podcastindex.org/pc20.xml")
 
   ;; a clip of an episode, as a link to its media file
   (at-time "https://example.org/272.mp3" 754 796.5)

@@ -1,11 +1,13 @@
 (ns dk.simongray.podcast.directory.links-test
   "The links to a show and an episode in the apps: the keys of a show, the
-  forms of the table, and the link to a time in a media file."
+  forms of the table, the ids read back from a link, and the link to a
+  time in a media file."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.directory.links :as links]
-            [dk.simongray.podcast.feed.guid :as guid]))
+            [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.util.http :as http]))
 
 (def feed-url "https://feeds.podcastindex.org/pc20.xml")
 
@@ -134,6 +136,39 @@
              (str "doc/services.md has the forms of " app " as the table has them")))
        (is (= (count links/apps) (count (re-seq #"(?m)^\| [^|]+ \| (?:app|page) \|" page)))
            "and no app that the table does not have"))))
+
+(deftest reading-a-link-back
+  (let [ids  {:feed-url                feed-url
+              :podcast-guid            "917393e3-1b1e-5cef-ace4-edaa54e1f810"
+              :apple-id                "1524356573"
+              :podcastindex-id         920666
+              :slug                    "podcasting-2-0"
+              :episode-guid            "PC20-272"
+              :enclosure-url           "https://example.org/272.mp3"
+              :podcastindex-episode-id 123}
+        bare #(str/replace (str %) #"^https://" "")]
+    (testing "each link that the table writes, back to the ids it holds"
+      (doseq [[app entry] links/apps
+              kind        links/kinds
+              :let        [link (links/link app kind ids)]
+              :when       (and link (some #{:feed-url :apple-id :podcast-guid :podcastindex-id}
+                                          (keep #(if (keyword? %) % (second %)) (mapcat identity (get entry kind)))))
+              :let        [read (links/link-ids link)]]
+        (is (seq read) link)
+        (doseq [[k v] read]
+          (is (= (if (= :feed-url k) (bare v) v) (if (= :feed-url k) (bare (ids k)) (ids k))) (str link " " k)))))
+    (testing "the links that Apple Podcasts and Overcast share"
+      (is (= {:apple-id "1524356573"} (links/link-ids "https://podcasts.apple.com/dk/podcast/podcasting-2-0/id1524356573?i=1000")))
+      (is (= {:apple-id "1524356573"} (links/link-ids "http://www.podcasts.apple.com/podcast/id1524356573")))
+      (is (= {:apple-id "1524356573"} (links/link-ids "https://overcast.fm/itunes1524356573/podcasting-2-0"))))
+    (testing "a feed URL that is encoded, though its form has it plain"
+      (is (= {:feed-url feed-url}
+             (links/link-ids (str "https://antennapod.org/deeplink/subscribe?url=" (http/encode feed-url))))))
+    (testing "a link that names no show"
+      (is (nil? (links/link-ids "https://fountain.fm/episode/123")) "only an episode")
+      (is (nil? (links/link-ids "https://pod.link/not-a-url")) "a base64 that is no URL")
+      (is (nil? (links/link-ids feed-url)) "a feed")
+      (is (nil? (links/link-ids "https://podcasts.apple.com/dk/charts"))))))
 
 (deftest a-time-in-a-media-file
   (let [url "https://example.org/272.mp3"]

@@ -173,6 +173,7 @@
               "The namespace of an id says which part of podcast-clj found the problem:"
               ""
               "- `fetch`: the fetch of a feed"
+              "- `discovery`: finding the feeds of a show from an address"
               "- `repair`: the repairs of malformed XML"
               "- `xml`: namespace resolution"
               "- `quirk`: the normalisations of the tree"

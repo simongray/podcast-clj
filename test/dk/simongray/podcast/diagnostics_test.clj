@@ -25,7 +25,7 @@
   "The diagnostic ids that the source names. A keyword of an alias, such as
   `::comments/for`, is none."
   []
-  (->> (re-seq #"(?<!:):(?:fetch|repair|quirk|xml|feed|transcript|chapters|id3|mp3|mp4|file|validate|check|sync|podping|comments|value|analytics)/[a-z0-9-]+" source)
+  (->> (re-seq #"(?<!:):(?:fetch|discovery|repair|quirk|xml|feed|transcript|chapters|id3|mp3|mp4|file|validate|check|sync|podping|comments|value|analytics)/[a-z0-9-]+" source)
        (map #(keyword (subs % 1)))
        (remove not-diagnostics)
        set))

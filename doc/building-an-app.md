@@ -120,13 +120,25 @@ the result before you subscribe:
 (:error result)  ; => nil, or e.g. {:id :fetch/unreachable :reason "…" …}
 ```
 
-If the listener gives the address of a show's website instead of its feed,
-`html/feed-links` finds the feeds that the page links to:
+If the listener gives a show's website, a domain or a link from another app
+instead of a feed, find the feeds with `podcast/find-feeds!`:
 
 ```clojure
-(html/feed-links (:body (http/fetch! site-url)) site-url)
-;; => ({:href "https://example.com/feed.xml" :type "application/rss+xml" …})
+(def found (podcast/find-feeds! "freakshow.fm"))
+
+(map (juxt :title :url :found-by) (:feeds found))
+;; => (["Freak Show" "https://freakshow.fm/feed/mp3" :link]
+;;     ["Freak Show" "https://freakshow.fm/feed/opus" :link]
+;;     ["Freak Show" "https://freakshow.fm/feed" :link] …)
 ```
+
+The podcasts come first, so you can subscribe to a single one at once and
+let the listener choose among several. Each comes with its parsed `:feed`,
+which `library/subscribe` takes in place of the result of `fetch!`. Give
+`:known (library/urls @lib)` to put the shows that the listener has first.
+When the page names no podcast feed, `:search [:apple]` also asks a
+directory for the shows whose website is on that domain. It's off by
+default, since it sends the name of the page to the directory.
 
 A private feed can need a user name and password, which `fetch!` takes as
 `:credentials`. It doesn't send them on when a redirect leads to another

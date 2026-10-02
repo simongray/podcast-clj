@@ -30,6 +30,7 @@ are relative to `dk.simongray.podcast`.
 | The request that tells a WebSub hub of a change | `websub/publish-form` | `:form` | the fields `hub.mode=publish` and `hub.url` |
 | The genres of Apple Podcasts, for the chart of a category | `directory/apple-genres` | the `:genres` of a source | the genres of Apple |
 | The forms of links to the apps | `links/apps` | `:apps` | the [table below](#the-links-of-the-apps) |
+| The paths that `find-feeds!` tries on the domain of a page | `feed.discovery/guessed-paths` | `:guessed-paths` | `/feed/` of WordPress, `/rss` of Libsyn and Ghost, `/feed.xml` of Jekyll and `/index.xml` of Hugo |
 | The relays of Nostr | `comments.nostr/relays` | `:relays` | the [relays below](#the-relays-of-nostr) |
 | The instance of OP3 | `analytics.op3/origin` | `:origin` | `https://op3.dev` |
 | The URLs that OP3 accepts behind its prefix | `analytics.op3/accepts?` | `:accepts?`, a predicate of a URL | the rules of op3.dev |

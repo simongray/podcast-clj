@@ -7,6 +7,7 @@
   doc/diagnostics.md. The namespace of an id names what raises it:
 
   - fetch, the fetch of a feed
+  - discovery, finding the feeds of a show from an address
   - repair, the text repairs of a malformed document
   - xml, the resolution of XML namespaces
   - quirk, the normalizations of the tree
@@ -33,6 +34,12 @@
     :doc "A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it."}
    {:id :fetch/status :level :warning
     :doc "The server answered with a status that isn't a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row."}
+
+   ;; finding the feeds of a show
+   {:id :discovery/unreadable :level :warning
+    :doc "The text isn't a URL, a domain or a link of an app, so there's nothing to fetch. It may be words to search a directory with."}
+   {:id :discovery/not-found :level :warning
+    :doc "No feed was found: the page names none, and none of the other places that were tried has one."}
 
    ;; repairs of the XML text, applied only when the strict parse failed
    {:id :repair/leading-junk :level :warning

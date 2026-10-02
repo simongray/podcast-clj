@@ -13,7 +13,7 @@ follows.
 
 | Namespace | Contents |
 |---|---|
-| `dk.simongray.podcast` | Parsing and writing feeds: `parse`, `emit`, `report`, `summarize` and `parse-tree`. On the JVM, `fetch!` fetches and parses a feed in one call. |
+| `dk.simongray.podcast` | Parsing and writing feeds: `parse`, `emit`, `report`, `summarize` and `parse-tree`. On the JVM, `fetch!` fetches and parses a feed in one call. `find-feeds!` finds the feeds of a show from a domain, a web page or a link of an app. |
 
 ## Feeds
 
@@ -27,6 +27,7 @@ follows.
 | `feed.schema` | Malli schemas of the model, generated from the registry. Malli isn't a dependency. |
 | `feed.guid` | The `podcast:guid`: `from-url` derives it from a feed URL, and `guid?` checks one. |
 | `feed.resolve` | One answer for each property where the vocabularies overlap, with `properties` for all of them and `sources` for where each came from. Also the listening order, `blocked?` and `next-check`. |
+| `feed.discovery` | Finding the feeds of a show from what a listener types: `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. `find-feeds!` fetches with them. |
 | `feed.check` | Checks over the network of the files that a feed links to, by the standards and the PSP-1 and Apple profiles. Only `check-files!` sends requests, and `files`, `verdicts` and `report` are pure. |
 | `diagnostics` | Every diagnostic id, with its level and meaning. |
 
@@ -37,7 +38,7 @@ follows.
 | `format.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters from the timestamps in show notes, with `at` for the chapter at a position and `jump` for the target of a jump to the next or previous one. |
 | `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers. |
 | `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
-| `format.html` | HTML in descriptions as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. Also `feed-links`, which finds the feeds that a web page links to. |
+| `format.html` | HTML in descriptions as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. |
 | `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. |
 | `format.media` | The duration, chapters and artwork of a media file, read with byte ranges by `read!`. Also `verify!`, which checks a file against its `podcast:integrity`. |
 | `format.media.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |
@@ -50,7 +51,7 @@ follows.
 |---|---|
 | `directory` | Search and charts across Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results. On the JVM, `search!` and `fetch-chart!` ask them all at once. |
 | `directory.podcastindex` | The Podcast Index API, with signed requests and answers mapped onto the feed model. On the JVM, `fetch-remote-item!` and `fetch-remote-value!` resolve remote items. |
-| `directory.links` | Links to a show or an episode in other apps: `ids` reads the ids of a show, `links` writes the links, and `at-time` links to a moment in an episode. |
+| `directory.links` | Links to a show or an episode in other apps: `ids` reads the ids of a show, `links` writes the links, `link-ids` reads the ids back from a link, and `at-time` links to a moment in an episode. |
 | `updates.podping` | Podping: request maps for the Hive chain, and pings read from blocks and checked against the known writers. On the JVM, `poll!` reads the latest pings. For hosts, there's `notify-request`. |
 | `updates.websub` | WebSub, for a server: `discover` finds the hubs of a feed, `request` and `call!` subscribe, and `handler` is a Ring handler for the callback. For hosts, there's `publish-request`. |
 

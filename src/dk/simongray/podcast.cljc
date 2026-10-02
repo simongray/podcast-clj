@@ -4,15 +4,23 @@
 
   The feeds are RSS 2.0 with the iTunes namespace and the podcast namespace
   of Podcasting 2.0. The strict parse comes first, and the repairs only run
-  when the document is malformed, with everything they did in the report."
-  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
+  when the document is malformed, with everything they did in the report.
+
+  On the JVM, fetch! fetches and parses a feed. On both platforms,
+  find-feeds! finds the feeds of a show from what a listener types, such
+  as a domain, the address of a web page or a link of an app."
+  (:require [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.quirks :as quirks]
+            [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.xml :as xml]
-            #?@(:clj [[dk.simongray.podcast.feed.resolve :as resolve]
-                      [dk.simongray.podcast.updates.websub :as websub]
-                      [dk.simongray.podcast.util.async :as async]
-                      [dk.simongray.podcast.util.http :as http]])))
+            #?(:clj [dk.simongray.podcast.updates.websub :as websub])))
 
 (defn- malformed?
   [e]
@@ -253,6 +261,286 @@
           error                      {:url url :error error}
           (= 200 (:status response)) (merge result (read-answer url response opts))
           :else                      result)))))
+
+(defn- discovery-request
+  "The request for the feed or the web page at `url`, with the :user-agent
+  and the :credentials of `opts`."
+  [url {:keys [user-agent credentials] :as opts}]
+  {:url     url
+   :headers (cond-> {"Accept" "application/rss+xml, application/xml;q=0.9, text/xml;q=0.9, text/html;q=0.8, */*;q=0.1"}
+              user-agent  (assoc "User-Agent" user-agent)
+              credentials (assoc "Authorization" (http/authorization credentials)))})
+
+(defn- failure
+  "The diagnostic of the `attempt` at `url` when it gave no document: the
+  request failed, or the answer has a status that isn't a success."
+  [url {:keys [value error] :as attempt}]
+  (cond
+    error                                     (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})
+    (not (<= 200 (long (:status value)) 299)) (diagnostics/describe {:id :fetch/status :url url :status (:status value)})))
+
+(defn- read-feed
+  "The candidate in the `attempt` at the feed at `url`, found where
+  `where` says and parsed with `opts`, or the diagnostic as :error when
+  the request failed or the answer isn't a feed. Deferred."
+  [url where {response :value :as attempt} opts]
+  (if-let [e (failure url attempt)]
+    {:error e}
+    (let [body (str (:body response))]
+      (if-not (discovery/feed-document? body)
+        {:error (diagnostics/describe {:id :fetch/malformed :url url :reason "The answer isn't a feed"})}
+        (async/then (async/attempt #(parse body (select-keys opts [:quirks? :registry :except])))
+                    (fn [{feed :value error :error}]
+                      (if error
+                        {:error (diagnostics/describe {:id :fetch/malformed :url url :reason (async/explain error)})}
+                        {:candidate (discovery/candidate (or (:permanent-url response) url) where feed)})))))))
+
+(defn- podcast-found?
+  "Whether the state `acc` of find-feeds! has a podcast among its
+  candidates, so that the places after are left alone."
+  [acc]
+  (some :podcast? (:candidates acc)))
+
+(defn- with-candidates!
+  "Fetch the candidates at the `urls` with `opts`, found where `where`
+  says, and give the state `acc` of find-feeds! with them. Deferred.
+
+  The `urls` can be a delay, which is forced only when `acc` has no
+  podcast yet. At most :max-candidates are fetched, and none that was
+  tried. The failure of a place that claims a feed goes in the report."
+  [acc where urls {:keys [send max-candidates] :as opts}]
+  (let [urls (when-not (podcast-found? acc)
+               (into [] (comp (remove (:tried acc)) (distinct) (take max-candidates)) (force urls)))]
+    (if (empty? urls)
+      acc
+      ;; every request goes out before an answer is read, since reading
+      ;; waits for its future on the JVM
+      (async/then (async/all (map #(http/sent! send (discovery-request % (dissoc opts :credentials)) opts) urls))
+                  (fn [attempts]
+                    (async/then (async/all (map #(read-feed %1 where %2 opts) urls attempts))
+                                (fn [results]
+                                  (cond-> (-> acc
+                                              (update :tried into urls)
+                                              (update :candidates into (keep :candidate) results))
+                                    (#{:app-link :link :link-header :rule} where)
+                                    (update :report into (keep :error) results)))))))))
+
+(defn- lookups
+  "The lookups of the show that the `ids` of a link of an app name, or the
+  podcast:guid `guid` of a fast-follow link, at the :lookup directories of
+  `opts`. Each is a pair of the directory and its request.
+
+  Apple takes its own id. The Podcast Index takes its own id or a guid,
+  when `opts` give its :index credentials."
+  [{:keys [apple-id podcastindex-id podcast-guid] :as ids} guid {:keys [lookup index now] :as opts}]
+  (let [entries      (map directory/entry lookup)
+        of-api       (fn [api] (first (filter #(= api (:api %)) entries)))
+        apple        (of-api :apple)
+        podcastindex (of-api :podcastindex)
+        index-id     (or podcast-guid guid podcastindex-id)]
+    (cond-> []
+      (and apple apple-id)
+      (conj [apple (directory/request apple :lookup {:id apple-id})])
+
+      (and podcastindex index index-id)
+      (conj [podcastindex (directory/request podcastindex :lookup {:id index-id}
+                                             {:credentials index :auth-date (quot (inst-ms (now)) 1000)})]))))
+
+(defn- feed-urls!
+  "Send the requests of the `endpoint` of directories with `opts`, and give
+  the feed URLs of the shows that they answer, as :urls, and the failures,
+  as :report. Each of the `asked` is a pair of the directory and its
+  request. Deferred."
+  [asked endpoint {:keys [send] :as opts}]
+  (async/then (async/all (map (fn [[_ request]] (http/sent! send request opts)) asked))
+              (fn [attempts]
+                (let [answers (map (fn [[source request] {:keys [value] :as attempt}]
+                                     (if-let [e (failure (:url request) attempt)]
+                                       {:error e}
+                                       {:urls (keep resolve/self-url
+                                                    (try
+                                                      (directory/response source endpoint (:body value))
+                                                      (catch #?(:clj Exception :cljs :default) _
+                                                        nil)))}))
+                                   asked attempts)]
+                  {:urls   (into [] (comp (mapcat :urls) (distinct)) answers)
+                   :report (into [] (keep :error) answers)}))))
+
+(defn- looked-up!
+  "The state `acc` of find-feeds! with the feeds of the shows that the
+  `asked` lookups find, each a pair of a directory and its request, sent
+  with `opts`. Deferred."
+  [acc asked opts]
+  (if (empty? asked)
+    acc
+    (async/then (feed-urls! asked :lookup opts)
+                (fn [{:keys [urls report]}]
+                  (with-candidates! (update acc :report into report) :app-link urls opts)))))
+
+(defn- searched!
+  "The state `acc` of find-feeds! with the feeds that the directories of
+  the :search of `opts` find by the name of the web page `body` at `page`.
+  Deferred.
+
+  A feed counts only when its website is on the domain of the page. When
+  `acc` has a podcast already, no directory is asked."
+  [acc body page {:keys [search index now max-candidates] :as opts}]
+  (let [q (when-not (or (empty? search) (podcast-found? acc))
+            (discovery/page-name body page))]
+    (if (nil? q)
+      acc
+      (let [signed {:credentials index :auth-date (quot (inst-ms (now)) 1000)}
+            asked  (for [source (map directory/entry search)]
+                     [source (directory/request source :search {:q q :limit max-candidates} signed)])
+            domain (http/absolute-url page "/")]
+        (async/then (feed-urls! asked :search opts)
+                    (fn [{:keys [urls report]}]
+                      (async/then (with-candidates! {:candidates [] :report [] :tried (:tried acc)}
+                                                    :directory
+                                                    urls
+                                                    (assoc opts :max-candidates (* max-candidates (count search))))
+                                  (fn [found]
+                                    (-> acc
+                                        (update :report into report)
+                                        (update :tried into (:tried found))
+                                        (update :candidates into
+                                                (filter #(some->> (resolve/link (:feed %)) (discovery/same-website? domain)))
+                                                (:candidates found)))))))))))
+
+(defn- addresses
+  "The URLs to try in turn for the page at `url`, while none answers:
+  `url`, and when it was `typed?` without a scheme, the same with http
+  and with www."
+  [url typed?]
+  (distinct (cond-> [url]
+              typed? (conj (str/replace url #"^https:" "http:")
+                           (str/replace url #"^https://(?!www\.)" "https://www.")))))
+
+(defn- answered!
+  "Send the requests for the `urls` in turn with `opts` until one answers,
+  and give its attempt with the :url that it asked. Deferred.
+
+  Only a connection that fails is followed by the others. A URL that
+  isn't allowed isn't, and neither is a server that doesn't answer in
+  time, since the others would wait for it as long."
+  [[url & more :as urls] {:keys [send] :as opts}]
+  (async/then (http/sent! send (discovery-request url opts) opts)
+              (fn [{:keys [error] :as attempt}]
+                (if (and error more (not= ::http/refused (:type (ex-data error))) (not (http/timeout? error)))
+                  (answered! more opts)
+                  (assoc attempt :url url)))))
+
+(defn- page-feeds!
+  "The state `acc` of find-feeds! with the feeds that the page at `url` is
+  or names, fetched with `opts`, where `typed?` tells that the scheme of
+  the URL was added. Deferred.
+
+  When `acc` has a podcast already, the page isn't fetched. A place in
+  the table can have limits of its own, which replace those of `opts`."
+  [acc url typed? {:keys [rules guessed-paths timeout-seconds guess-timeout-seconds] :as opts}]
+  (if (or (nil? url) (podcast-found? acc))
+    acc
+    (async/then
+     (answered! (addresses url typed?) opts)
+     (fn [{asked :url response :value :as attempt}]
+       (let [page (or (:url response) asked)
+             body (str (:body response))]
+         (if-let [e (failure asked attempt)]
+           (assoc acc :error e)
+           (if (discovery/feed-document? body)
+             (async/then (read-feed asked :input attempt opts)
+                         (fn [{:keys [candidate error]}]
+                           (cond-> acc
+                             candidate (update :candidates conj candidate)
+                             error     (assoc :error error))))
+             (async/then
+              (reduce (fn [acc [where urls limits]] (async/then acc #(with-candidates! % where urls (merge opts limits))))
+                      (update acc :tried conj asked page)
+                      [[:link        (delay (map :href (discovery/feed-links body page)))]
+                       [:link-header (delay (map :href (discovery/header-links (:headers response) page)))]
+                       [:anchor      (delay (discovery/feed-anchors body page))]
+                       [:rule        (delay (mapcat #(discovery/rule-urls % rules) (distinct [asked page])))]
+                       [:guess       (delay (discovery/guesses page guessed-paths))
+                        {:timeout-seconds (min timeout-seconds guess-timeout-seconds)}]])
+              #(searched! % body page opts)))))))))
+
+(defn- result
+  "What find-feeds! gives for its state `acc` at the end, for the page at
+  `url` and the podcast:guid `guid` of a fast-follow link.
+
+  With a guid, only the feeds with that guid stay, if any have it. The
+  :error is there when no feed is, and otherwise it goes in the report."
+  [{:keys [known candidates report error] :as acc} url guid]
+  (let [feeds  (discovery/ranked (concat known candidates))
+        same   (filterv #(= guid (feed/feed-guid (:feed %) (:url %))) feeds)
+        feeds  (if (and guid (seq same)) same feeds)
+        report (cond-> (vec report) (and error (seq feeds)) (conj error))]
+    (cond-> {:feeds feeds}
+      (seq report)   (assoc :report report)
+      (empty? feeds) (assoc :error (or error (diagnostics/describe (cond-> {:id :discovery/not-found} url (assoc :url url))))))))
+
+(defn find-feeds!
+  "Find the feeds of a show from the text `s` that a listener types or
+  pastes, with the `opts` below. Gives a map of the :feeds, in
+  ClojureScript as a promise.
+
+  The text can be the URL of a feed, a domain such as example.com, the
+  address of a web page, or a link that an app shares, such as one of
+  Apple Podcasts. The feeds are candidates, best first, as
+  feed.discovery/ranked orders them. Each is a map of the :url to
+  subscribe to, the :title, where it was found as :found-by, :podcast?
+  and the parsed :feed. The namespace feed.discovery tells where the
+  feeds are looked for.
+
+  Nothing is thrown for what the network or a server does. The failures
+  of the places that claim a feed are in the :report. When no feed is
+  found, the result has an :error: :discovery/unreadable,
+  :discovery/not-found, or the failure of the page.
+
+  The `opts` are:
+
+  - :known, the feeds that the caller knows, as a map of each parsed feed
+    to its URL, as library/urls gives it
+  - :search, the directories to search by the name of a page that names
+    no podcast feed, as names in directory/sources or entries. None by
+    default, since a search sends the name to the directories.
+  - :lookup, the directories that look up a show that a link of an app
+    names by an id: Apple Podcasts its own ids, and the Podcast Index its
+    own ids and a podcast:guid. Both by default, as names or entries.
+  - :index, the credentials of the Podcast Index, for its lookups and its
+    search, and :now, a function of the current time to sign with
+  - :rules, rules of the caller for the address of a page, as
+    feed.discovery/rule-urls takes them
+  - :guessed-paths, in place of feed.discovery/guessed-paths, and :apps,
+    in place of directory.links/apps
+  - :send, a function that sends a request map as http/call! does
+  - :allow?, a predicate of the URLs that a request may go to, which is
+    http/public? by default
+  - :timeout-seconds, :guess-timeout-seconds, :max-bytes and
+    :max-candidates, over feed.discovery/default-limits
+  - :user-agent, and the options of parse"
+  ([s]
+   (find-feeds! s {}))
+  ([s opts]
+   {:pre [(map? opts)]}
+   (let [opts                                (merge discovery/default-limits
+                                                    {:send          http/call!
+                                                     :allow?        http/public?
+                                                     :lookup        [:apple :podcastindex]
+                                                     :guessed-paths discovery/guessed-paths
+                                                     :now           time/now}
+                                                    opts)
+         {:keys [url typed? ids guid error]} (discovery/read-input s opts)
+         [url credentials]                   (if url (http/split-credentials url) [nil nil])
+         acc                                 {:known      (when url (vec (discovery/known-matches url (:known opts))))
+                                              :candidates []
+                                              :report     []
+                                              :tried      #{}}]
+     (-> (if error
+           (assoc acc :error error)
+           (looked-up! acc (lookups ids guid opts) opts))
+         (async/then #(page-feeds! % url typed? (cond-> opts credentials (assoc :credentials credentials))))
+         (async/then #(result % url guid))))))
 
 (defn summarize
   "Group `diagnostics` by id and message, most frequent first: one row per

@@ -12,6 +12,7 @@ parsed feed, transcript or chapters document, `validate` for those of a feed, an
 The namespace of an id says which part of podcast-clj found the problem:
 
 - `fetch`: the fetch of a feed
+- `discovery`: finding the feeds of a show from an address
 - `repair`: the repairs of malformed XML
 - `xml`: namespace resolution
 - `quirk`: the normalisations of the tree
@@ -35,6 +36,8 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:fetch/malformed` | warning | The server answered with something that isn't an RSS feed: the body isn't XML, or its root element isn't rss. |
 | `:fetch/page-failed` | warning | A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it. |
 | `:fetch/status` | warning | The server answered with a status that isn't a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row. |
+| `:discovery/unreadable` | warning | The text isn't a URL, a domain or a link of an app, so there's nothing to fetch. It may be words to search a directory with. |
+| `:discovery/not-found` | warning | No feed was found: the page names none, and none of the other places that were tried has one. |
 | `:repair/leading-junk` | warning | Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed. |
 | `:repair/trailing-junk` | warning | Text after the end of the rss element, such as a PHP warning, was removed. |
 | `:repair/control-characters` | warning | Control characters that XML forbids, and character references to them, were removed. |
