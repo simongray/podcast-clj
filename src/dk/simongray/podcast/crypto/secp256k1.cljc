@@ -2,19 +2,20 @@
   "Schnorr signatures over the curve secp256k1, as BIP-340 defines them,
   on both platforms. Nostr signs each event with such a signature.
 
-  `verify` checks a signature, `sign` makes one, and `public-key` gives
-  the public key of a secret key. `shared-x` gives what two owners of keys
-  share, which is the start of an encrypted exchange. Each key, message
-  and signature is hexadecimal text, which is how Nostr writes them. A
-  secret key can be a hidden text of `dk.simongray.podcast.util.secret`.
+  The verify function checks a signature, sign makes one, and public-key
+  gives the public key of a secret key. The shared-x function gives what
+  two owners of keys share, which is the start of an encrypted exchange.
+  Each key, message and signature is hexadecimal text, which is how Nostr
+  writes them. A secret key can be a hidden text of
+  dk.simongray.podcast.util.secret.
 
-  `verify` reads no secret key, so the time that it takes tells nothing
-  that is secret. The time that `sign`, `public-key` and `shared-x` take
-  depends on the secret key.
+  The verify function reads no secret key, so the time that it takes
+  tells nothing that's secret. The time that sign, public-key and shared-x
+  take depends on the secret key.
 
   The numbers are BigInteger on the JVM and BigInt in JavaScript. A point
-  of the curve is `[x y z]` in Jacobian coordinates, and nil is the point
-  at infinity.
+  of the curve is a vector of x, y and z in Jacobian coordinates, and nil
+  is the point at infinity.
 
   A product of a number and a point is a row of doublings and additions.
   The number is read as digits with signs, which need few additions, and
@@ -108,7 +109,7 @@
   (big (str/join (repeat 64 "f"))))
 
 (def ^:no-doc overflow
-  "What 2^256 is in the field: 2^32 + 977. The size of the field, `p`, is
+  "What 2^256 is in the field: 2^32 + 977. The size of the field, p, is
   2^256 less this number."
   (big "1000003d1"))
 
@@ -118,7 +119,7 @@
 
 (defn- folded
   "A number that is `k` in the field, and smaller: the 256 lowest bits of
-  `k`, plus its higher bits times `overflow`."
+  `k`, plus its higher bits times overflow."
   [k]
   #?(:clj  (.add (.and ^BigInteger k ^BigInteger low-bits)
                  (.multiply (.shiftRight ^BigInteger k (int shift)) ^BigInteger overflow))
@@ -142,7 +143,7 @@
     (str (str/join (repeat (- width (count s)) "0")) s)))
 
 (defn- power
-  "`a` to the power `e` in the field."
+  "The number `a` to the power `e` in the field."
   [a e]
   #?(:clj  (.modPow ^BigInteger a ^BigInteger e p)
      :cljs (reduce (fn [acc bit]
@@ -198,19 +199,19 @@
            (mul (if flat? z1 (mul z1 z2)) h)])))))
 
 (defn- negative
-  "The point that gives the point at infinity when it is added to
+  "The point that gives the point at infinity when it's added to
   `point`."
-  [[x y z]]
+  [[x y z :as point]]
   [x (sub zero y) z])
 
 (defn- digits
   "The number `k` below 2^256 as digits with signs, the lowest first, for
-  a window of `width` bits. A digit is 0 or an odd number, above and below
-  0, that is smaller than 2^(`width` - 1). After a digit that is not 0
-  come `width` - 1 digits that are 0.
+  a window of `width` bits.
 
-  This is the non-adjacent form with a window. Of 9 digits of 8 bits, 1 is
-  not 0, and only such a digit costs an addition."
+  A digit is 0 or an odd number, above or below 0, that's smaller than
+  2^(`width` - 1). After a digit that isn't 0 come `width` - 1 digits
+  that are 0. This is the non-adjacent form with a window. Of 9 digits of
+  8 bits, 1 isn't 0, and only such a digit costs an addition."
   [k width]
   (let [width (long width)
         low   (mapv #(if (= \1 %) 1 0) (reverse (bits k 256)))
@@ -243,8 +244,8 @@
 
 (defn- summed
   "The sum of the products of `terms`. Each term is the digits of a
-  number, as `digits` gives them, and the odd multiples of a point, as
-  `multiples` gives them. The products share their doublings."
+  number, as digits gives them, and the odd multiples of a point, as
+  multiples gives them. The products share their doublings."
   [terms]
   (reduce (fn [acc i]
             (reduce (fn [acc [ds points]]
@@ -259,8 +260,8 @@
           (range (dec (apply max (map (comp count first) terms))) -1 -1)))
 
 (defn- affine
-  "The coordinates `[x y]` of the point `point` on the curve. Nil for the
-  point at infinity."
+  "The x and y coordinates of the `point` on the curve, as a pair, or nil
+  for the point at infinity."
   [[x y z :as point]]
   (when point
     (let [inverse  (power z inverse-power)
@@ -274,7 +275,7 @@
 
 (defn- lifted
   "The point of the curve with the x coordinate `x` and an even y
-  coordinate, as the function lift_x of BIP-340 gives it. Nil when the
+  coordinate, as the function lift_x of BIP-340 gives it, or nil when the
   curve has no such point."
   [x]
   (when (< x p)
@@ -285,24 +286,23 @@
 
 (defn- challenge
   "The number e of BIP-340 for the hexadecimal texts `r`, `public-key` and
-  `message`: the tagged hash BIP0340/challenge of their bytes. The result
-  is the number that is left when the order of the curve is taken off as
-  often as it goes."
+  `message`: the tagged hash BIP0340/challenge of their bytes, modulo the
+  order of the curve."
   [r public-key message]
   (let [e (big (tagged "BIP0340/challenge" (str r public-key message)))]
     #?(:clj  (.mod ^BigInteger e n)
        :cljs (mod e n))))
 
 (defn- negated
-  "The number that gives zero when it is added to `e`, by the order of the
-  curve."
+  "The number that gives zero when it's added to `e`, modulo the order of
+  the curve."
   [e]
   #?(:clj  (.mod (.subtract ^BigInteger n ^BigInteger e) n)
      :cljs (mod (- n e) n)))
 
 (defn- secret-number
   "The number of the secret key `secret-key`, hexadecimal text of 32
-  bytes, plain or hidden. Nil for a text that is no secret key of the
+  bytes, plain or hidden, or nil for a text that isn't a secret key of the
   curve."
   [secret-key]
   (let [text (secret/reveal secret-key)]
@@ -312,10 +312,11 @@
           d)))))
 
 (def ^:no-doc widths
-  "The bits of a window of `digits`, for a product with the generator and
-  for a product with another point. The multiples of the generator are
-  computed once, so its window is wide. Those of another point are
-  computed for each product."
+  "The bits of a window of digits, for a product with the generator and
+  for a product with another point.
+
+  The multiples of the generator are computed once, so its window is
+  wide. Those of another point are computed for each product."
   {:generator 8 :point 5})
 
 (def ^:no-doc generator-multiples
@@ -324,17 +325,18 @@
   (delay (mapv #(conj (affine %) one) (multiples g (:generator widths)))))
 
 (defn- by-generator
-  "The term of `summed` for `k` times the generator of the curve."
+  "The term of summed for `k` times the generator of the curve."
   [k]
   [(digits k (:generator widths)) @generator-multiples])
 
 (defn- by-point
-  "The term of `summed` for `k` times the point `point`."
+  "The term of summed for `k` times the `point`."
   [k point]
   [(digits k (:point widths)) (multiples point (:point widths))])
 
 (defn- multiplied
-  "The coordinates `[x y]` of `k` times the generator of the curve."
+  "The x and y coordinates of `k` times the generator of the curve, as a
+  pair."
   [k]
   (affine (summed [(by-generator k)])))
 
@@ -346,12 +348,11 @@
     (bytes/hex (bytes/of (map #(bit-xor (bytes/at a %) (bytes/at b %)) (range (bytes/length a)))))))
 
 (defn verify
-  "Whether `signature` is the signature of the message `message` by the
-  owner of `public-key`. The three are hexadecimal text: a signature of
-  64 bytes, a message of any length and a public key of 32 bytes. False
-  for other values.
+  "Whether `signature` is the signature of the `message` by the owner of
+  `public-key`, all hexadecimal text, or false for other values.
 
-  The check is the algorithm Verify of BIP-340, in its section
+  The signature has 64 bytes, the message any length and the public key
+  32 bytes. The check is the algorithm Verify of BIP-340, in its section
   Verification. A public key is the x coordinate of a point with an even
   y coordinate."
   [public-key message signature]
@@ -369,8 +370,8 @@
            (and (some? x) (even-number? y) (= x r))))))))
 
 (defn public-key
-  "The public key of the secret key `secret-key`, both hexadecimal text of
-  32 bytes. Nil for a text that is no secret key.
+  "The public key of the `secret-key`, both hexadecimal text of 32 bytes,
+  or nil for a text that isn't a secret key.
 
   The section Public Key Generation of BIP-340 defines it: the x
   coordinate of the secret number times the generator."
@@ -388,17 +389,17 @@
 
 (defn shared-x
   "The x coordinate of the point that the owner of `secret-key` shares
-  with the owner of `public-key`, as hexadecimal text of 32 bytes. Nil
-  for a text that is no key, and for a public key that is no point of the
-  curve.
+  with the owner of `public-key`, as hexadecimal text of 32 bytes.
 
-  The point is the secret number times the point of the public key, which
-  is the key agreement of Diffie and Hellman on the curve. The two owners
-  get the same point, each from the own secret key and the public key of
-  the other. NIP-44 uses the x coordinate as it is, without a hash.
+  It's nil for a text that isn't a key, and for a public key that isn't a
+  point of the curve. The point is the secret number times the point of
+  the public key, which is the key agreement of Diffie and Hellman on the
+  curve. The two owners get the same point, each from their own secret
+  key and the public key of the other. NIP-44 uses the x coordinate as it
+  is, without a hash.
 
-  The result is as secret as the secret key, so it is a hidden text of
-  `dk.simongray.podcast.util.secret`. The time that `shared-x` takes depends on
+  The result is as secret as the secret key, so it's a hidden text of
+  dk.simongray.podcast.util.secret. The time that this takes depends on
   the secret key."
   [secret-key public-key]
   (when-let [d (secret-number secret-key)]
@@ -407,16 +408,16 @@
         (some-> (affine (summed [(by-point d point)])) first hex32 secret/hide)))))
 
 (defn sign
-  "The signature of the message `message` with the secret key
-  `secret-key`, as hexadecimal text of 64 bytes. Nil for a text that is
-  no secret key.
+  "The signature of the `message` with the `secret-key` and the random
+  `aux`, as hexadecimal text of 64 bytes, or nil for a text that isn't a
+  secret key.
 
-  `message` is hexadecimal text of any length. `aux` is hexadecimal text
-  of 32 bytes that nobody can guess, new for each signature. The
-  algorithm is Sign of BIP-340, in its section Default Signing, which
-  also checks the signature before it gives it.
+  The `message` is hexadecimal text of any length. The `aux` is
+  hexadecimal text of 32 bytes that nobody can guess, new for each
+  signature. The algorithm is Sign of BIP-340, in its section Default
+  Signing, which also checks the signature before it gives it.
 
-  The time that `sign` takes depends on the secret key. So sign only
+  The time that signing takes depends on the secret key, so sign only
   where no stranger measures that time."
   [secret-key message aux]
   (when-let [d (secret-number secret-key)]

@@ -1,24 +1,22 @@
 (ns dk.simongray.podcast.util.nostr
-  "The Nostr protocol, which the comments of `comments.nostr` and the
-  wallets of `value.nwc` speak. The namespace has events and their
-  signatures, the names that a person reads, the filters and the messages
-  of a relay, and one exchange with a relay. It knows nothing about
-  podcasts.
+  "The Nostr protocol, which the comments of comments.nostr and the
+  wallets of value.nwc speak. Nothing here is about podcasts.
 
-  An event is the JSON object of NIP-01 as plain data with string keys, as
-  a relay gives it. `verified?` tells whether an event has the id and the
-  signature of its content. An app shows no event that is not verified,
-  because a relay can send anything.
+  An event is the JSON object of NIP-01 as plain data with string keys,
+  as a relay gives it. The verified? function tells whether an event has
+  the id and the signature of its content. Show no event that isn't
+  verified, since a relay can send anything.
 
-  `decode` and `encode` read and write the names of NIP-19, such as
-  npub1…, note1… and nevent1…, and the nostr: URIs of NIP-21. podcast-clj
-  reads no secret key, so nsec1… is no name here. `parts` gives the
-  content of an event as text, mentions, references, links and hashtags.
+  The decode and encode functions read and write the names of NIP-19,
+  e.g. npub1…, note1… and nevent1…, and the nostr: URIs of NIP-21. Secret
+  keys aren't read, so nsec1… isn't a name here. The parts function
+  splits the content of an event into text, mentions, references, links
+  and hashtags.
 
-  A relay speaks over a WebSocket. `call!` opens one, asks for the events
-  of some filters, reads them until the relay has no more, and closes it.
-  `received` is the pure step of that reading, for an app that holds its
-  own connections."
+  A relay speaks over a WebSocket. The call! function opens one, asks for
+  the events of some filters, reads them until the relay has no more, and
+  closes it. The received function is the pure step of that reading, for
+  when you hold your own connections."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bech32 :as bech32]
@@ -31,20 +29,19 @@
                    [java.util.concurrent TimeUnit])))
 
 (def default-limits
-  "The limits of `call!` that its request does not set. `:max-events` is
-  the most events of one answer, and `:max-bytes` is the most characters
-  that the relay sends."
+  "The limits of call! that its request doesn't set. One answer has at
+  most :max-events events, and the relay sends at most :max-bytes
+  characters."
   {:timeout-seconds 30
    :max-events      500
    :max-bytes       (* 5 1024 1024)})
 
 (def max-name-length
-  "The most characters of a name that `decode` reads, which is the limit
-  that NIP-19 gives."
+  "The most characters of a name that decode reads, the limit of NIP-19."
   5000)
 
 (def ^:no-doc subscription
-  "The id of the one subscription of an exchange of `call!`."
+  "The id of the one subscription of an exchange of call!."
   "podcast-clj")
 
 (defn ^:no-doc hex-id?
@@ -54,9 +51,8 @@
   (boolean (and (string? x) (re-matches #"[0-9a-f]{64}" x))))
 
 (defn event?
-  "Whether `x` has the form of an event of NIP-01. Such an event has an
-  id, a public key, a time, a kind, tags, a content and a signature, each
-  of its type."
+  "Whether `x` has the form of an event of NIP-01, with each of its
+  fields of the right type."
   [x]
   (boolean
    (and (map? x)
@@ -87,7 +83,7 @@
 (defn ^:no-doc serialized
   "The text whose SHA-256 is the id of `event`, as the section Events and
   signatures of NIP-01 defines it."
-  [{:strs [pubkey created_at kind tags content]}]
+  [{:strs [pubkey created_at kind tags content] :as event}]
   (str "[0," (quoted pubkey)
        "," (json/whole created_at)
        "," (json/whole kind)
@@ -96,8 +92,8 @@
        "]"))
 
 (defn event-id
-  "The id that NIP-01 gives `event`: the SHA-256 of its public key, its
-  time, its kind, its tags and its content, in hexadecimal."
+  "The id that NIP-01 gives `event`: the SHA-256 of its fields, in
+  hexadecimal."
   [event]
   (bytes/hex (bytes/sha256 (bytes/encode (serialized event)))))
 
@@ -112,20 +108,20 @@
                 (secp256k1/verify (get event "pubkey") (get event "id") (get event "sig")))))
 
 (defn signed
-  "`event` as the owner of `secret-key` wrote it: with the public key of
-  the owner, the id of NIP-01 and the signature of BIP-340. Nil for a text
-  that is no secret key.
+  "The `event` signed with `secret-key` and `aux`: with the public key of
+  the owner, the id of NIP-01 and the signature of BIP-340. Nil when
+  `secret-key` isn't a secret key.
 
       (signed {\"kind\" 1 \"created_at\" 1790000000 \"tags\" [] \"content\" \"Hi\"}
-              secret-key aux)
+              secret-key
+              (bytes/hex (bytes/generate! 32)))
 
-  `event` has its kind and its time, in seconds. Its tags and its content
-  are empty when it has none. `aux` is hexadecimal text of 32 bytes that
-  nobody can guess, new for each signature, as `(bytes/hex
-  (bytes/generate! 32))` gives them.
+  The `event` has its kind and its time, in seconds. Its tags and its
+  content are empty when it has none. The `aux` is 32 bytes in
+  hexadecimal that nobody can guess, new for each signature, as in the
+  example.
 
-  The time that `signed` takes depends on the secret key, as the time of
-  `secp256k1/sign` does."
+  How long it takes depends on the secret key, as for secp256k1/sign."
   [event secret-key aux]
   (when-let [public (secp256k1/public-key secret-key)]
     (let [event (merge {"tags" [] "content" ""} event {"pubkey" public})
@@ -141,10 +137,10 @@
     value))
 
 (defn matches?
-  "Whether `event` passes the filter `filter` of NIP-01, a map with keys
-  such as \"ids\", \"authors\", \"kinds\", \"#e\", \"since\" and \"until\".
+  "Whether `event` passes the `filter` of NIP-01, a map with keys such as
+  \"ids\", \"kinds\" and \"#e\".
 
-  An attribute that NIP-01 does not define takes each event, and so does
+  A key that NIP-01 doesn't define lets every event pass, and so does
   \"limit\", which counts events."
   [filter event]
   (let [{:strs [id pubkey kind created_at]} event]
@@ -167,9 +163,11 @@
 ;; NIP-19, part "Shareable identifiers with extra metadata": the types 0
 ;; (the thing), 1 (a relay), 2 (the author) and 3 (the kind)
 (defn- fields
-  "The fields of the bytes `b` of a name with extra data, as `[type
-  bytes]` in their order: a byte for the type, a byte for the length, and
-  the value. Nil when a field ends after the bytes."
+  "The fields in the bytes `b` of a name with extra data, in order, each
+  as a pair of its type and its value. Nil when a field ends after the
+  bytes.
+
+  A field is a byte for the type, a byte for the length, and the value."
   [b]
   (loop [i 0 out []]
     (cond
@@ -186,7 +184,7 @@
   (bytes/decode b 0 (bytes/length b) :utf8))
 
 (defn- with-fields
-  "The name of the type `type` whose data are the fields `fs`, as `decode`
+  "The name of the type `type` whose data are the fields `fs`, as decode
   gives it. Nil when the field that names the thing has a wrong size."
   [type fs]
   (let [of-type (fn [t] (map second (filter #(= t (first %)) fs)))
@@ -205,9 +203,9 @@
       :naddr    (when (and special author kind) (assoc extras :type type :identifier (text-of special))))))
 
 (defn decode
-  "What the name `s` of NIP-19 names, as a map with its `:type`. `s` is a
-  name such as npub1…, or a nostr: URI of NIP-21 with such a name. Nil
-  for another text, and for the name of a secret key.
+  "What the name `s` names, as a map with its :type, or nil for another
+  text and for the name of a secret key. The name is one of NIP-19, e.g.
+  npub1…, or a nostr: URI of NIP-21 with such a name.
 
       {:type :npub :public-key \"3bf0…\"}
       {:type :note :id \"5c83…\"}
@@ -216,7 +214,7 @@
       {:type :naddr :identifier \"…\" :relays […] :author \"3bf0…\" :kind 30023}
 
   The ids and the keys are in hexadecimal, as the events have them. A
-  field that NIP-19 does not define is left out, as NIP-19 asks."
+  field that NIP-19 doesn't define is left out, as NIP-19 asks."
   [s]
   (when (string? s)
     (let [text (str/replace (str/trim s) #"(?i)^nostr:" "")]
@@ -228,17 +226,17 @@
             (some->> (fields b) (with-fields type))))))))
 
 (defn- field
-  "The bytes of a field of the type `t` with the value `b`, bytes of 255
-  or fewer."
+  "The bytes of a field of the type `t` with the value `b`, which has 255
+  bytes or fewer."
   [t b]
   (bytes/of (concat [t (bytes/length b)] (map #(bytes/at b %) (range (bytes/length b))))))
 
 (defn encode
-  "The name of NIP-19 for `x`, a map of the form that `decode` gives. Nil
-  for a map that names no thing of its type.
+  "The name of NIP-19 for `x`, a map of the form that decode gives, or nil
+  when `x` names nothing of its type.
 
   A relay with more than 255 bytes in its URL is left out."
-  [{:keys [type id public-key identifier author kind relays]}]
+  [{:keys [type id public-key identifier author kind relays] :as x}]
   (let [short? #(<= (bytes/length %) 255)
         extras (concat (for [b (map bytes/encode relays) :when (short? b)] (field 1 b))
                        (when (hex-id? author) [(field 2 (bytes/from-hex author))])
@@ -256,20 +254,22 @@
       nil)))
 
 (defn uri
-  "The nostr: URI of NIP-21 for `x`, a map of the form that `decode`
-  gives. Nil when `encode` gives no name."
+  "The nostr: URI of NIP-21 for `x`, a map of the form that decode gives,
+  or nil when encode gives no name."
   [x]
   (some->> (encode x) (str "nostr:")))
 
 (def ^:no-doc part-pattern
-  "What `parts` finds in the content of an event: a nostr: URI with a
-  name, a web URL, and a word after a number sign."
+  "What parts finds in the content of an event: a nostr: URI with a name,
+  a web URL, and a word after a number sign."
   #"(?u)nostr:(?:npub|nprofile|note|nevent|naddr)1[02-9ac-hj-np-z]+|https?://[^\s<>]+|#[\p{L}\p{N}_]+")
 
 (defn- part
-  "The part that the match `s` of `part-pattern` gives, in an event with
-  the hashtags `hashtags`, in lower case. Nil for a match that is text.
-  The URL of a link is without the signs that end a sentence after it."
+  "The part that the match `s` of part-pattern gives, in an event whose
+  hashtags in lower case are `hashtags`, or nil for a match that is text.
+
+  The URL of a link is without the punctuation that ends a sentence after
+  it."
   [s hashtags]
   (let [named (when (str/starts-with? s "nostr:") (decode s))]
     (cond
@@ -288,19 +288,21 @@
 (defn parts
   "The parts of the content of `event`, in their order. The content of a
   note is plain text, and some of its words name other things. Each part
-  is a map with its `:type`:
+  is a map with its :type:
 
       {:type :text :text \"Is this \"}
       {:type :mention :public-key \"5f7a…\" :uri \"nostr:npub1…\"}
-      {:type :reference :target {:type :nevent :id \"…\" :kind 1} :uri \"nostr:nevent1…\"}
+      {:type   :reference
+       :target {:type :nevent :id \"…\" :kind 1}
+       :uri    \"nostr:nevent1…\"}
       {:type :link :url \"https://example.org/\"}
       {:type :hashtag :tag \"podcast\"}
 
   A mention is a nostr: URI with the name of a profile, and a reference is
-  one with the name of an event, as NIP-27 defines. The `:target` of a
-  reference is what `decode` gives for the name. A hashtag is a word after
+  one with the name of an event, as NIP-27 defines. The :target of a
+  reference is what decode gives for the name. A hashtag is a word after
   a number sign that the event names in a t tag, as NIP-24 defines. A
-  mention of a profile can have `:relays`."
+  mention of a profile can have :relays."
   [event]
   (let [content  (if (string? (get event "content")) (get event "content") "")
         hashtags (set (map str/lower-case (filter string? (tag-values event "t"))))
@@ -323,9 +325,9 @@
         (with-text out from (count content))))))
 
 (defn relay-url
-  "The URL `s` of a relay as podcast-clj knows a relay: a ws or wss URL
-  with a host, without white space around it and without a slash at its
-  end. Nil for another text."
+  "The URL `s` of a relay in a normal form, or nil when it isn't a ws or
+  wss URL with a host. The form is trimmed, with the scheme and the host
+  in lower case, and without a slash at the end."
   [s]
   (when (string? s)
     (let [url (str/replace (str/trim s) #"/+$" "")]
@@ -334,7 +336,7 @@
 
 (defn public?
   "Whether the host of the relay at `url` is on the public internet, as
-  `http/public?` tells for a web URL."
+  http/public? tells for a web URL."
   [url]
   (boolean (some-> (relay-url url) (str/replace #"^ws" "http") http/public?)))
 
@@ -350,14 +352,14 @@
   (json/write-str ["CLOSE" id]))
 
 (defn event-message
-  "The message that gives the relay the event `event`: the EVENT of
-  NIP-01, as JSON. `signed` gives an event its id and its signature."
+  "The message that gives a relay the `event`: the EVENT of NIP-01, as
+  JSON. The signed function gives an event its id and its signature."
   [event]
   (json/write-str ["EVENT" event]))
 
 (defn read-message
-  "The message `text` of a relay, as a map with its `:type`. Nil for a
-  text that is no message of a relay.
+  "The message `text` of a relay, as a map with its :type, or nil when it
+  isn't a message of a relay.
 
       {:type :event :subscription \"…\" :event {…}}
       {:type :eose :subscription \"…\"}             ; the relay has no more
@@ -381,30 +383,36 @@
           nil)))))
 
 (defn received
-  "The answer `answer` of a relay with the message `text` read into it,
-  within the limits `limits`. An exchange starts with an empty map.
+  "The `answer` of a relay with the message `text` read into it, within
+  the `limits`. An exchange starts with an empty map.
 
       {:events [{…}] :notices [\"…\"] :complete? true :done? true}
 
-  The answer is `:done?` when the exchange ends. It ends when the relay
-  has no more events, which is `:complete?`. It ends when the relay
-  closes the subscription, and `:closed` is then the reason of the relay.
-  It also ends at a limit, and `:truncated` then names the limit. `:auth?`
-  tells that the relay asks who the reader is, as NIP-42 defines.
+  The answer is :done? when the exchange ends. It ends in these cases:
+
+  - The relay has no more events, and the answer is :complete?.
+  - The relay closes the subscription, and :closed is its reason.
+  - A limit is reached, and :truncated names it.
+
+  The answer has :auth? when the relay asks who the reader is, as NIP-42
+  defines.
 
   An exchange that gives the relay an event has the id of the event as
-  `:published` in `limits`, and `:until` tells where it ends. With
-  `:until :ok`, it ends when the relay takes the event, which is
-  `:accepted?`. With `:until :event`, it ends at the first event that
-  comes, and not when the relay has no more events. In both, it ends when
-  the relay refuses the event, and `:refused` is then the reason of the
-  relay. An app that holds its own connection gives the relay the event
-  when the answer is `:complete?`, because the relay has the subscription
-  then.
+  :published in `limits`, and :until says when it ends:
 
-  The events are those of the subscription `subscription`, as the relay
-  gives them. They are not verified."
-  [answer text {:keys [max-events max-bytes until published]}]
+  - With :until :ok, it ends when the relay takes the event, and the
+    answer is :accepted?.
+  - With :until :event, it ends at the first event that comes, and not
+    when the relay has no more events.
+
+  In both cases, it ends when the relay refuses the event, and :refused
+  is the reason of the relay. If you hold your own connection, give the
+  relay the event when the answer is :complete?, since the relay has the
+  subscription then.
+
+  The events are only those of the subscription of call!, as the relay
+  gives them, and they aren't verified."
+  [answer text {:keys [max-events max-bytes until published] :as limits}]
   (let [counted (update answer :bytes (fnil + 0) (count text))
         message (read-message text)
         ours?   (= subscription (:subscription message))
@@ -445,15 +453,16 @@
       answer)))
 
 (defn ^:no-doc response
-  "The response of `call!` for the answer `answer` of the relay at `url`."
+  "The response of call! for the `answer` of the relay at `url`."
   [url answer]
   (merge {:url url :events []} (dissoc answer :bytes :done?)))
 
 (defn- failure
   "The exception of an exchange with the relay at `url` that failed for
-  the reason `message`, with the cause `cause`. `answer` is what the
-  exchange has. When its event went out before the failure, the data of
-  the exception has `:sent? true`."
+  the reason `message`, with the `cause` and the `answer` so far.
+
+  When the event went out before the failure, the data of the exception
+  has :sent? true."
   [url message cause answer]
   (ex-info (str message ": " url)
            (cond-> {:type ::failed :url url}
@@ -461,22 +470,24 @@
            cause))
 
 (defn- due?
-  "Whether the event of an exchange goes out now, by its `answer`: the
-  relay has the subscription, the event did not go out before, and the
+  "Whether the event of an exchange goes out now, by its `answer`. It does
+  when the relay has the subscription, the event hasn't gone out, and the
   exchange goes on."
-  [{:keys [complete? sent? done?]}]
+  [{:keys [complete? sent? done?] :as answer}]
   (boolean (and complete? (not sent?) (not done?))))
 
 #?(:clj
    (defn- listener
      "The listener of a WebSocket that reads the messages of a relay into
-     the atom `answer` within `limits`. It gives `:ready` to the promise
-     `ready` when the event of the exchange is due, and the answer to the
-     promise `done` when the exchange ends.
+     the atom `answer` within `limits`, with the promises `ready` and
+     `done`.
 
-     The thread of `exchange` sends the event. A send from the listener
-     fails with `Send pending` while the send of the first message is not
-     complete, and the JDK clears that only after the message went out."
+     It delivers :ready to `ready` when the event of the exchange is due,
+     and the answer to `done` when the exchange ends.
+
+     The thread of exchange sends the event. A send from the listener
+     fails while the send of the first message is pending, and the JDK
+     clears that only after the message went out."
      [answer ready done {:keys [max-bytes] :as limits}]
      (let [partial (StringBuilder.)
            end     (fn [result]
@@ -507,8 +518,8 @@
 
 #?(:clj
    (defn- hang-up
-     "Ends the subscription of `socket` and closes it. A relay that does
-     not take the two messages in two seconds is left."
+     "End the subscription of `socket` and close it, waiting at most two
+     seconds for the relay to take each of the two messages."
      [^WebSocket socket]
      (try
        (when-not (.isOutputClosed socket)
@@ -520,12 +531,13 @@
          (.abort socket)))))
 
 (defn- opening
-  "What an exchange for `filters` and the event `event` sends, of which
-  one can be absent: the message `:first`, and the message `:later`.
+  "The messages that an exchange for `filters` and the `event` sends, as
+  the :first and the :later message, one of which can be absent.
 
   With filters, the event goes out later, when the relay has the
   subscription. So the answer to the event finds the subscription, and an
-  event does not go to a relay that refuses the subscription."
+  event doesn't go to a relay that refuses the subscription. Without
+  them, the event is the first message, and the map has :sent? true."
   [filters event]
   (cond
     (and (seq filters) event) {:first (request-message subscription filters) :later (event-message event)}
@@ -534,8 +546,8 @@
 
 #?(:clj
    (defn- exchange
-     "The answer of the relay at `url` to the messages `messages` of
-     `opening`, within `limits`, over a WebSocket of the JDK."
+     "The answer of the relay at `url` to the `messages` of opening, within
+     `limits`, over a WebSocket of the JDK."
      [url messages {:keys [timeout-seconds] :as limits}]
      (let [answer   (atom {})
            ready    (promise)
@@ -575,9 +587,8 @@
 
 #?(:cljs
    (defn- exchange
-     "A promise of the answer of the relay at `url` to the messages
-     `messages` of `opening`, within `limits`, over the WebSocket of the
-     platform."
+     "A promise of the answer of the relay at `url` to the `messages` of
+     opening, within `limits`, over the WebSocket of the platform."
      [url messages {:keys [timeout-seconds] :as limits}]
      (js/Promise.
       (fn [resolve reject]
@@ -612,42 +623,47 @@
                     (end reject (failure url "The connection to the relay failed" (.-error e) @answer))))))))))
 
 (defn call!
-  "Ask the relay of the request `request` for the events of its filters,
-  and give what the relay answers. On the JVM it gives the response, and
-  in ClojureScript a promise of it.
+  "Ask the relay of the `request` for the events of its filters, and give
+  what it answers. On the JVM it gives the response, and in ClojureScript
+  a promise of it.
 
       {:url     \"wss://relay.example\"
        :filters [{\"kinds\" [1111] \"#I\" [\"podcast:item:guid:…\"] \"limit\" 100}]}
 
-  The response has the `:url` and the `:events`, with the other keys of
-  `received`. A relay that does not answer in time gives the events that
-  came, and `:timeout? true`. The exchange is one subscription: `call!`
-  opens a WebSocket, sends the REQ of NIP-01, reads until the relay sends
-  EOSE, and closes.
+  The exchange is one subscription. It opens a WebSocket, sends the REQ
+  of NIP-01, reads until the relay sends EOSE, and closes. The response
+  has the :url and the :events, with the other keys of received. A relay
+  that doesn't answer in time gives the events that came, with :timeout?
+  true.
 
-  The request can give `:timeout-seconds`, `:max-events` and `:max-bytes`
-  in the place of `default-limits`. `:allow?` is a predicate of the URL of
-  a relay, as `public?` is. `call!` throws `::refused` for a URL that it
-  refuses or that is no URL of a relay, and `::failed` when the relay
-  gives no connection.
+  The `request` has these keys:
 
-  With an `:event`, the request gives the relay that event, which
-  `signed` wrote, as the EVENT of NIP-01. The exchange then ends at the
-  first event of the filters that comes, which is the answer to the event.
-  Such a request has filters for that answer. The event goes out when the
-  relay has the subscription, which the relay tells with EOSE. So the
-  event does not go to a relay that refuses the subscription. Without
-  filters, the event goes out at once, and the exchange ends when the
-  relay takes it.
+  - :url, the URL of the relay
+  - :filters, the filters of NIP-01
+  - :event, an event that signed wrote, to give the relay
+  - :timeout-seconds, :max-events and :max-bytes, which default to those
+    of default-limits
+  - :allow?, a predicate of the URL of the relay, as public? is
 
-  The response has `:sent? true` when the event went out. It has
-  `:accepted? true` when the relay took the event, and `:refused` with the
-  reason of the relay when it did not. An exception of `::failed` has
-  `:sent? true` in its data when the event went out before the failure.
-  Without `:sent?`, the event did not leave the app.
+  It throws ::refused for a URL that :allow? refuses or that isn't the URL
+  of a relay, and ::failed when the relay gives no connection.
 
-  The events are not verified. `verified?` and `matches?` tell which of
-  them to keep."
+  With an :event, the request gives the relay that event as the EVENT of
+  NIP-01. The filters are then for the answer to the event, and the
+  exchange ends at the first event of the filters that comes. The event
+  goes out when the relay has the subscription, which the relay tells
+  with EOSE, so the event doesn't go to a relay that refuses the
+  subscription. Without filters, the event goes out at once, and the
+  exchange ends when the relay takes it.
+
+  The response has :sent? true when the event went out. It has :accepted?
+  true when the relay took the event, and :refused with the reason of the
+  relay when it didn't. An exception of ::failed has :sent? true in its
+  data when the event went out before the failure. Without :sent?, the
+  event never went out.
+
+  The events aren't verified. Use verified? and matches? to choose which
+  to keep."
   [{:keys [url filters event allow?] :or {allow? (constantly true)} :as request}]
   (let [relay    (relay-url url)
         messages (opening filters event)

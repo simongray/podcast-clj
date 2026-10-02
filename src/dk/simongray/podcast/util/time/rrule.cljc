@@ -1,8 +1,10 @@
 (ns dk.simongray.podcast.util.time.rrule
-  "RFC 5545 recurrence rules (section 3.3.10), as the rrule of
-  `podcast:updateFrequency` carries them: parsed into a map of their parts,
-  written back as a rule string, and evaluated into the instants they
-  produce, from the calendar arithmetic of dk.simongray.podcast.util.time.
+  "Recurrence rules of RFC 5545, section 3.3.10, as the rrule of
+  podcast:updateFrequency carries them.
+
+  They're parsed into a map of their parts, written back as a rule string,
+  and evaluated into the instants that they produce, with the calendar
+  arithmetic of dk.simongray.podcast.util.time:
 
       (parse \"FREQ=WEEKLY;BYDAY=MO,WE\")
       ;; => {:freq \"WEEKLY\" :byday [\"MO\" \"WE\"]}
@@ -14,19 +16,19 @@
 
 (def ^:no-doc parts
   "The parts of a recurrence rule, as model keys and as written, in the
-  order `format` writes them."
+  order that format writes them."
   [[:freq "FREQ"] [:interval "INTERVAL"] [:count "COUNT"] [:until "UNTIL"]
    [:bysecond "BYSECOND"] [:byminute "BYMINUTE"] [:byhour "BYHOUR"] [:byday "BYDAY"]
    [:bymonthday "BYMONTHDAY"] [:byyearday "BYYEARDAY"] [:byweekno "BYWEEKNO"]
    [:bymonth "BYMONTH"] [:bysetpos "BYSETPOS"] [:wkst "WKST"]])
 
 (def ^:no-doc freq-values
-  "The values RFC 5545 allows for FREQ."
+  "The values that RFC 5545 allows for FREQ."
   #{"SECONDLY" "MINUTELY" "HOURLY" "DAILY" "WEEKLY" "MONTHLY" "YEARLY"})
 
 (def ^:no-doc byday-pattern
   "A BYDAY value: a weekday code, perhaps after a signed ordinal from 1 to
-  53, \"-1FR\"."
+  53, e.g. \"-1FR\"."
   #"([+-]?(?:0?[1-9]|[1-4]\d|5[0-3]))?(SU|MO|TU|WE|TH|FR|SA)")
 
 (defn- in-range?
@@ -43,9 +45,11 @@
     (:byyearday :bysetpos) (<= 1 (abs n) 366)))
 
 (defn- part-value
-  "The model value of the rule part `k` written as `s`; nil when it does not
-  read, or names a number out of the range RFC 5545 gives the part. Numbers
-  become longs, UNTIL an instant, the BY lists vectors."
+  "The model value of the rule part `k` written as `s`, or nil when it
+  doesn't read, or names a number out of the range that RFC 5545 gives
+  the part.
+
+  Numbers become longs, UNTIL an instant, and the BY lists vectors."
   [k s]
   (let [longs (fn [s]
                 (let [xs (str/split s #",")]
@@ -73,11 +77,16 @@
       s)))
 
 (defn parse
-  "Parse the RFC 5545 recurrence rule `s`, \"FREQ=WEEKLY;BYDAY=MO,WE\", into
-  a map of its parts by lower-case key: `{:freq \"WEEKLY\" :byday [\"MO\"
-  \"WE\"]}`. INTERVAL and COUNT are numbers, UNTIL an instant, the BY lists
-  vectors of numbers or day names. Nil when FREQ is missing or invalid, or
-  a part does not read or is out of its range, such as INTERVAL=0."
+  "The RFC 5545 recurrence rule `s` as a map of its parts by lower-case
+  key:
+
+      (parse \"FREQ=WEEKLY;BYDAY=MO,WE\")
+      ;; => {:freq \"WEEKLY\" :byday [\"MO\" \"WE\"]}
+
+  INTERVAL and COUNT are numbers, UNTIL an instant, and the BY lists
+  vectors of numbers or day names. It's nil when FREQ is missing or
+  invalid, or when a part doesn't read or is out of its range, such as
+  INTERVAL=0."
   [s]
   (let [pairs (for [part (str/split (str/replace-first (str/trim (str s)) #"(?i)^RRULE:" "") #";")
                     :when (not (str/blank? part))
@@ -92,8 +101,8 @@
     (when (:freq m) m)))
 
 (defn format
-  "Write the recurrence rule map `m` (see `parse`) as an RFC 5545 rule
-  string, the parts in the order of `parts` and any other part last."
+  "The recurrence rule map `m`, as parse gives it, as an RFC 5545 rule
+  string, with the parts in the order of parts and any other part last."
   [m]
   (let [known (mapv first parts)
         names (into {} parts)
@@ -112,16 +121,18 @@
                             (part k v))))))
 
 (def ^:no-doc weekday-codes
-  "The RFC 5545 weekday codes, Sunday first as `time/days-from-civil` counts."
+  "The weekday codes of RFC 5545, Sunday first, as time/days-from-civil
+  counts."
   ["SU" "MO" "TU" "WE" "TH" "FR" "SA"])
 
 (def ^:no-doc weekday-numbers
-  "Weekday number, 0 Sunday to 6 Saturday, by RFC 5545 code."
+  "The weekday number of each code of RFC 5545, from 0 for Sunday to 6 for
+  Saturday."
   (zipmap weekday-codes (range)))
 
 (def ^:no-doc evaluable-parts
-  "The rule parts `occurrences` evaluates; a rule with any other part yields
-  nil."
+  "The rule parts that occurrences evaluates. A rule with any other part
+  gives nil."
   #{:freq :interval :count :until :byday :bymonthday :bymonth :wkst})
 
 (defn- weekday-of
@@ -136,19 +147,21 @@
      (time/days-from-civil y m 1)))
 
 (defn- parse-byday
-  "The BYDAY value `s` as `[ordinal weekday]`: \"MO\" is [nil 1], \"-1FR\"
-  is [-1 5]."
+  "The BYDAY value `s` as a pair of its ordinal and its weekday: \"MO\" is
+  [nil 1], and \"-1FR\" is [-1 5]."
   [s]
   (let [[_ ordinal code] (re-matches byday-pattern s)]
     [(some-> ordinal parse-long) (weekday-numbers code)]))
 
 ;; RFC 5545, section 3.3.10, note 1 of its table: BYDAY limits BYMONTHDAY
 (defn- month-days
-  "The days of the month `y`-`m` that `rule` selects: BYMONTHDAY, negative
-  from the end, intersected with BYDAY when both are given; BYDAY alone, with
-  ordinals such as -1FR or every such weekday; else `default-day` when the
-  month has it."
-  [{:keys [bymonthday byday]} y m default-day]
+  "The days of the month `y`-`m` that `rule` selects, or `default-day`
+  when the rule names no day and the month has it. The rule selects by:
+
+  - BYMONTHDAY, negative from the end, intersected with BYDAY when both
+    are given
+  - BYDAY alone, with ordinals such as -1FR, or every such weekday"
+  [{:keys [bymonthday byday] :as rule} y m default-day]
   (let [n        (days-in-month y m)
         first    (time/days-from-civil y m 1)
         weekdays (fn [wd] (filterv #(= wd (weekday-of (+ first (dec %)))) (range 1 (inc n))))
@@ -171,15 +184,15 @@
             :else                     []))))
 
 (defn- in-months?
-  "Whether the day `days` after the epoch falls in one of `months`, a set of
-  month numbers; always when `months` is nil."
+  "Whether the day `days` after the epoch falls in one of `months`, a set
+  of month numbers, or always when `months` is nil."
   [months days]
   (or (nil? months) (contains? months (second (time/civil-from-days days)))))
 
 (defn- on-monthdays?
   "Whether the day `days` after the epoch is one of `monthdays`, a set of
-  BYMONTHDAY values, the negative ones counted from the end of the month;
-  always when `monthdays` is nil."
+  BYMONTHDAY values, the negative ones counted from the end of the month,
+  or always when `monthdays` is nil."
   [monthdays days]
   (or (nil? monthdays)
       (let [[y m d] (time/civil-from-days days)]
@@ -187,14 +200,14 @@
             (contains? monthdays (- d (inc (days-in-month y m))))))))
 
 (def ^:no-doc century
-  "The days `occurrences` reads ahead from the start: a hundred years."
+  "The days that occurrences reads ahead from the start: a hundred years."
   36525)
 
 (defn- daily-days
-  "The day numbers a DAILY `rule` selects from the day number `day0`, for a
-  century: every INTERVAL days, kept when BYMONTH, BYDAY and BYMONTHDAY
-  allow."
-  [{:keys [interval byday bymonth bymonthday] :or {interval 1}} day0]
+  "The day numbers that a DAILY `rule` selects from the day number `day0`,
+  for a century. It's every INTERVAL days, kept when BYMONTH, BYDAY and
+  BYMONTHDAY allow."
+  [{:keys [interval byday bymonth bymonthday] :or {interval 1} :as rule} day0]
   (let [months    (some-> bymonth set)
         weekdays  (some->> byday (map (comp second parse-byday)) set)
         monthdays (some-> bymonthday set)]
@@ -205,10 +218,12 @@
          (filter #(on-monthdays? monthdays %)))))
 
 (defn- weekly-days
-  "The day numbers a WEEKLY `rule` selects from the day number `day0`, for a
-  century: the BYDAY weekdays, or `day0`'s, of every INTERVAL weeks, the
-  weeks starting on WKST, kept when BYMONTH allows."
-  [{:keys [interval byday bymonth wkst] :or {interval 1}} day0]
+  "The day numbers that a WEEKLY `rule` selects from the day number
+  `day0`, for a century.
+
+  They're the BYDAY weekdays, or that of `day0`, of every INTERVAL weeks,
+  with the weeks starting on WKST, kept when BYMONTH allows."
+  [{:keys [interval byday bymonth wkst] :or {interval 1} :as rule} day0]
   (let [week-start (weekday-numbers (or wkst "MO"))
         offset     #(mod (- % week-start) 7)
         week0      (- day0 (offset (weekday-of day0)))
@@ -222,9 +237,9 @@
          (filter #(in-months? months %)))))
 
 (defn- monthly-days
-  "The day numbers a MONTHLY `rule` selects from the day number `day0`, for
-  a century: the `month-days` of every INTERVAL months, kept when BYMONTH
-  allows."
+  "The day numbers that a MONTHLY `rule` selects from the day number
+  `day0`, for a century: the month-days of every INTERVAL months, kept
+  when BYMONTH allows."
   [{:keys [interval bymonth] :or {interval 1} :as rule} day0]
   (let [[y0 m0 d0] (time/civil-from-days day0)
         months     (some-> bymonth set)]
@@ -238,9 +253,9 @@
          (filter #(>= % day0)))))
 
 (defn- yearly-days
-  "The day numbers a YEARLY `rule` selects from the day number `day0`, for a
-  century: the `month-days` of the BYMONTH months, or of `day0`'s month, of
-  every INTERVAL years."
+  "The day numbers that a YEARLY `rule` selects from the day number
+  `day0`, for a century: the month-days of the BYMONTH months, or of the
+  month of `day0`, of every INTERVAL years."
   [{:keys [interval bymonth] :or {interval 1} :as rule} day0]
   (let [[y0 m0 d0] (time/civil-from-days day0)]
     (->> (iterate #(+ % interval) y0)
@@ -254,15 +269,17 @@
 ;; RFC 5545, section 3.8.5.3: a start that the rule does not select gives
 ;; an undefined result. Here it is left out.
 (defn occurrences
-  "The instants the recurrence rule `rule` (see `parse`) produces from the
-  instant `start`, in order, as a lazy sequence: `start`'s time of day on
-  every day the rule selects, for up to a century. The days are days in
-  UTC, as `start` is an instant: BYDAY=MO means Mondays in UTC. DAILY,
-  WEEKLY, MONTHLY and YEARLY rules with INTERVAL, COUNT, UNTIL, BYDAY,
-  BYMONTHDAY, BYMONTH and WKST are evaluated; anything else, such as an
-  hourly rule, BYHOUR or a WEEKLY rule with BYMONTHDAY, yields nil, and so
-  does an INTERVAL or a COUNT that is not a whole number, or an INTERVAL of
-  0."
+  "The instants that the recurrence `rule`, as parse gives it, produces
+  from the instant `start`, in order, as a lazy sequence of up to a
+  century.
+
+  They're the time of day of `start` on every day that the rule selects.
+  The days are days in UTC, since `start` is an instant, so BYDAY=MO
+  means Mondays in UTC. These rules are evaluated: DAILY, WEEKLY, MONTHLY
+  and YEARLY, with INTERVAL, COUNT, UNTIL, BYDAY, BYMONTHDAY, BYMONTH and
+  WKST. Anything else gives nil, such as an hourly rule, BYHOUR or a
+  WEEKLY rule with BYMONTHDAY. So does an INTERVAL or a COUNT that isn't
+  a whole number, or an INTERVAL of 0."
   [{:keys [freq interval until byday bymonth bymonthday] n :count :as rule} start]
   (when (and (map? rule)
              (inst? start)
@@ -290,8 +307,8 @@
       (if n (take n insts) insts))))
 
 (defn next-occurrence
-  "The first instant after `at` that `rule` produces from `start`; nil when
-  the rule cannot be evaluated or has run out."
+  "The first instant after `at` that `rule` produces from `start`, or nil
+  when the rule can't be evaluated or has run out."
   [rule start at]
   (first (drop-while #(<= (inst-ms %) (inst-ms at)) (occurrences rule start))))
 

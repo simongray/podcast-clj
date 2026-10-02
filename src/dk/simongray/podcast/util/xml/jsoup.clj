@@ -1,13 +1,16 @@
 (ns dk.simongray.podcast.util.xml.jsoup
-  "A lenient XML parser for feeds that are not well-formed at all, built on
-  jsoup's XML mode: unquoted attributes, stray angle brackets in text,
-  unclosed and mismatched tags all yield a best-effort tree instead of an
-  error. Names are kept exactly as written, so the result is the same raw
-  Hiccup `dk.simongray.podcast.util.xml/parse-raw` produces.
+  "A lenient XML parser for feeds that aren't well-formed at all, built on
+  the XML mode of jsoup.
 
-  jsoup is an optional dependency. When org.jsoup/jsoup is on the classpath,
-  `dk.simongray.podcast/parse` falls back to `parse-raw` for documents the
-  strict parser rejects even after repair, and says so in the report."
+  Unquoted attributes, stray angle brackets in text, and unclosed or
+  mismatched tags all give a tree as good as it gets, rather than an
+  error. Names are kept exactly as written, so the result is the same raw
+  Hiccup that dk.simongray.podcast.util.xml/parse-raw gives.
+
+  The library jsoup is an optional dependency. When org.jsoup/jsoup is on
+  the classpath, dk.simongray.podcast/parse falls back to parse-raw for
+  documents that the strict parser rejects even after repair, and the
+  report says so."
   (:require [dk.simongray.podcast.util.xml :as xml])
   (:import [java.io InputStream]
            [org.jsoup Jsoup]
@@ -20,8 +23,9 @@
              [(.getKey a) (.getValue a)])))
 
 (defn- node->raw
-  "Raw Hiccup for the jsoup `node` at `depth`, 1 for the root: elements and
-  their text, nothing else; see `xml/check-depth`."
+  "The raw Hiccup of the jsoup `node` at `depth`, which is 1 for the root,
+  with elements and their text only. The depth is checked as
+  xml/check-depth does."
   [^Node node depth]
   (condp instance? node
     TextNode (.getWholeText ^TextNode node)
@@ -43,11 +47,12 @@
     (throw (ex-info "Cannot parse XML from this value" {:type (type xml)}))))
 
 (defn parse-raw
-  "Parse `xml` (a String, or an InputStream whose charset jsoup detects) into
-  raw Hiccup the way `dk.simongray.podcast.util.xml/parse-raw` does, but
-  leniently: jsoup rejects nothing. Throws `::xml/malformed` only when the
-  document has no element in it at all, or nests deeper than
-  `xml/max-depth`."
+  "The raw Hiccup of `xml`, a String or an InputStream whose charset jsoup
+  detects, as dk.simongray.podcast.util.xml/parse-raw gives it, but read
+  leniently.
+
+  Since jsoup rejects nothing, it throws ::xml/malformed only when the
+  document has no element at all, or nests deeper than xml/max-depth."
   [xml]
   (if-let [root (first (.children (document xml)))]
     (node->raw root 1)

@@ -1,17 +1,17 @@
 (ns dk.simongray.podcast.crypto.chacha20
   "ChaCha20, the stream cipher of RFC 8439, on both platforms.
 
-  `encrypt` gives the bytes of a text under a key and a nonce. The cipher
-  makes a stream of bytes from the key, and each byte of the text goes
-  with a byte of the stream by exclusive or. So `encrypt` of the result
-  gives the text again.
+  The encrypt function gives the bytes of a text under a key and a nonce.
+  The cipher makes a stream of bytes from the key, and each byte of the
+  text goes with a byte of the stream by exclusive or. So encrypting the
+  result gives the text again.
 
   The Web Crypto API of the browsers has no ChaCha20, so the arithmetic is
   here, for both platforms. A word is a number of 32 bits without a sign.
 
-  The cipher keeps a text secret, and it does not tell when somebody
-  changed the result. `dk.simongray.podcast.crypto.nip44` adds a check of
-  that."
+  The cipher keeps a text secret, but it doesn't tell when somebody
+  changed the result. The namespace dk.simongray.podcast.crypto.nip44 adds
+  a check of that."
   (:require [dk.simongray.podcast.util.bytes :as bytes]))
 
 (def ^:no-doc constants
@@ -20,9 +20,9 @@
   [0x61707865 0x3320646e 0x79622d32 0x6b206574])
 
 (def ^:no-doc rounds
-  "The places of the words of each quarter round of a double round: the
-  four columns of the state, and then its four diagonals, as section 2.3
-  of RFC 8439 gives them."
+  "The places of the words of each quarter round of a double round, as
+  section 2.3 of RFC 8439 gives them: the four columns of the state, and
+  then its four diagonals."
   [[0 4 8 12] [1 5 9 13] [2 6 10 14] [3 7 11 15]
    [0 5 10 15] [1 6 11 12] [2 7 8 13] [3 4 9 14]])
 
@@ -74,14 +74,13 @@
       (bit-and (unsigned-bit-shift-right w (* 8 i)) 0xff))))
 
 (defn encrypt
-  "The bytes `data` under the bytes `key` and `nonce`, as bytes of the
-  same number. `key` has 32 bytes, and `nonce` has 12 bytes, which no
-  other text under the key has. `encrypt` of the result gives `data`
-  again.
+  "The bytes `data` under the bytes `key` and `nonce` by `opts`, as bytes
+  of the same number. Encrypting the result gives `data` again.
 
-  Section 2.4 of RFC 8439 defines the algorithm. `opts` can give
-  `:counter`, the number of the first block of the stream, which is 0.
-  The AEAD of RFC 8439 starts its text at 1."
+  The `key` has 32 bytes, and the `nonce` has 12 bytes, which no other
+  text under the key has. Section 2.4 of RFC 8439 defines the algorithm.
+  The :counter of `opts` is the number of the first block of the stream,
+  0 by default. The AEAD of RFC 8439 starts its text at 1."
   ([key nonce data]
    (encrypt key nonce data {}))
   ([key nonce data {:keys [counter] :or {counter 0} :as opts}]

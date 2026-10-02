@@ -6,16 +6,16 @@
   encode them as base64.
 
   A view holds the parts of a file that are there, each at its offset. A
-  reader asks the view for a range with `need`, or for several ranges
-  with `need-all`, before it reads them. It reads the numbers and the
-  text in them with `u8`, `u32` and `text`.
+  reader asks the view for a range with need, or for several ranges with
+  need-all, before it reads them. It reads the numbers and the text in
+  them with u8, u32 and text.
 
-  A range that the view does not hold throws. `missing` gives the ranges
-  from the exception, so that the caller can fetch them and read again. A
-  range past the end of the file throws too, and `truncated?` tells so.
-  `reading` turns what a reader throws into data. `read!` fetches what a
-  reader needs until the reading is done, and `report` gives the
-  diagnostics of a reading."
+  A range that the view doesn't hold throws. The missing function gives
+  the ranges from the exception, so that the caller can fetch them and
+  read again. A range past the end of the file throws too, and truncated?
+  tells so. The reading function turns what a reader throws into data.
+  The read! function fetches what a reader needs until the reading is
+  done, and report gives the diagnostics of a reading."
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
             #?(:cljs [goog.crypt.Hmac])
@@ -71,8 +71,8 @@
                        (range (length b))))))
 
 (defn from-hex
-  "The bytes that the hexadecimal text `s` names, in upper or lower case.
-  Nil for a text that is not hexadecimal, or that has a half byte."
+  "The bytes that the hexadecimal text `s` names, in upper or lower case,
+  or nil for a text that isn't hexadecimal, or that has a half byte."
   [s]
   (when (and (string? s) (even? (count s)) (re-matches #"[0-9a-fA-F]*" s))
     (of (map #(#?(:clj Integer/parseInt :cljs js/parseInt) (subs s % (+ % 2)) 16)
@@ -110,8 +110,8 @@
              out)))
 
 (defn same?
-  "Whether the bytes `a` and `b` are the same. The time that the answer
-  takes does not tell where they differ."
+  "Whether the bytes `a` and `b` are the same, in a time that doesn't tell
+  where they differ."
   [a b]
   #?(:clj  (MessageDigest/isEqual ^bytes a ^bytes b)
      :cljs (and (= (.-length a) (.-length b))
@@ -145,7 +145,7 @@
 
 (defn from-base64
   "The bytes that the base64 text `s` names, with its padding, as RFC 4648,
-  section 4, defines it. Nil for a text that is not base64."
+  section 4, defines it, or nil for a text that isn't base64."
   [s]
   (when (and (string? s)
              (zero? (mod (count s) 4))
@@ -166,7 +166,7 @@
 (defn decode
   "The text of the bytes `b` from `start` to `end` in `encoding`: :latin1,
   :utf8, :utf16le or :utf16be. A byte order mark stays, and a sequence that
-  is not valid becomes U+FFFD, on both platforms."
+  isn't valid becomes U+FFFD, on both platforms."
   [b start end encoding]
   #?(:clj  (String. ^bytes b (int start) (int (- end start))
                     (case encoding
@@ -181,7 +181,7 @@
                       (.subarray b start end)))))
 
 (defn encode
-  "The text `s` as the bytes of its UTF-8, which `decode` reads back with
+  "The text `s` as the bytes of its UTF-8, which decode reads back with
   :utf8."
   [s]
   #?(:clj  (.getBytes ^String s StandardCharsets/UTF_8)
@@ -219,7 +219,7 @@
 
 (defn image-type
   "The MIME type of the image whose bytes `b` begin as a JPEG, PNG, GIF or
-  WebP image begins. Nil for other bytes."
+  WebP image begins, or nil for other bytes."
   [b]
   (some (fn [[type signature]]
           (when (and (>= (length b) (count signature))
@@ -228,17 +228,17 @@
         image-signatures))
 
 (defn view
-  "A view of a file of `total` bytes, nil when that is not known yet,
-  holding no part of it."
+  "A view of a file of `total` bytes, which is nil when the size isn't
+  known yet, holding no part of it."
   ([]
    (view nil))
   ([total]
    {:parts [] :total total}))
 
 (defn add
-  "`view` with the bytes `b` that begin at `offset` in the file, in place
-  of the parts that they cover. `total` is the size of the file, or nil
-  when the size is not known."
+  "The `view` with the bytes `b` that begin at `offset` in the file, in
+  place of the parts that they cover. The `total` is the size of the
+  file, or nil when the size isn't known."
   [view offset b total]
   (let [end (+ offset (length b))]
     (cond-> view
@@ -249,7 +249,8 @@
       total             (assoc :total total))))
 
 (defn ^:no-doc part-at
-  "The part `[offset bytes]` of `view` that holds the byte at `p`."
+  "The part of `view` that holds the byte at `p`, as a pair of its offset
+  and its bytes."
   [view p]
   (some (fn [[o b]] (when (and (<= o p) (< p (+ o (length b)))) [o b])) (:parts view)))
 
@@ -259,8 +260,8 @@
   (ex-info (str "Past the end of the file: " p) {::truncated true}))
 
 (defn missing
-  "The ranges `[[start end] ...]` that a read of a view missed, when `e` is
-  the exception it threw, and nil otherwise."
+  "The ranges that a read of a view missed, as pairs of a start and an
+  end, when `e` is the exception it threw, or else nil."
   [e]
   (::missing (ex-data e)))
 
@@ -270,9 +271,9 @@
   (boolean (::truncated (ex-data e))))
 
 (defn- gaps
-  "The ranges from `start` to `end` that `view` lacks, `[[from to] ...]`,
-  the end cut at the end of the file. Throws `truncated?` when `start` lies
-  past the end of the file."
+  "The ranges from `start` to `end` that `view` lacks, as pairs of a start
+  and an end, with the end cut at the end of the file. It throws an
+  exception that's truncated? when `start` lies past the end of the file."
   [view start end]
   (let [total (:total view)]
     (when (and total (< start end) (>= start total))
@@ -287,10 +288,10 @@
               (recur to (conj acc [p to])))))))))
 
 (defn need-all
-  "Return nil when `view` holds the bytes of all the `ranges`, each `[start
-  end]` as `need` takes them.
+  "Nil when `view` holds the bytes of all the `ranges`, each a pair of a
+  start and an end as need takes them.
 
-  When the view lacks bytes, throw an exception from which `missing`
+  When the view lacks bytes, it throws an exception from which missing
   gives each range that it lacks. So a caller can fetch them all at one
   time."
   [view ranges]
@@ -298,12 +299,12 @@
     (throw (ex-info (str "Bytes missing from " (ffirst missing)) {::missing (vec missing)}))))
 
 (defn need
-  "Return nil when `view` holds the bytes from `start` to `end`, end
-  excluded. The end is cut at the end of the file when its size is known.
+  "Nil when `view` holds the bytes from `start` to `end`, end excluded.
+  The end is cut at the end of the file when its size is known.
 
-  When the view lacks bytes, throw an exception from which `missing`
+  When the view lacks bytes, it throws an exception from which missing
   gives the range that it lacks. When `start` is past the end of the
-  file, the exception is `truncated?`."
+  file, the exception is truncated?."
   [view start end]
   (need-all view [[start end]]))
 
@@ -332,7 +333,7 @@
 
 (defn u64
   "The big-endian 64-bit number at `p` in `view`, exact up to 2^53 in
-  JavaScript, and up to 2^63 on the JVM. Above that, it is the nearest
+  JavaScript, and up to 2^63 on the JVM. Above that, it's the nearest
   floating-point number."
   [view p]
   (let [high (u32 view p)
@@ -371,7 +372,7 @@
 
 (defn text
   "The text of the bytes of `view` from `start` to `end` in `encoding`, as
-  `decode` reads it."
+  decode reads it."
   [view start end encoding]
   (let [b (slice view start end)]
     (decode b 0 (length b) encoding)))
@@ -389,33 +390,34 @@
   (mapv diagnostics/describe (:podcast/report (meta result))))
 
 (defn ^:no-doc reported
-  "`result` with the `diagnostics` as its report."
+  "The `result` with the `diagnostics` as its report."
   [result diagnostics]
   (vary-meta result assoc :podcast/report (vec diagnostics)))
 
 (defn ^:no-doc failure
-  "The diagnostic of a reading that failed with `e`: `:file/truncated` when
-  it went past the end of the file, and `:file/malformed` otherwise."
+  "The diagnostic of a reading that failed with `e`: :file/truncated when
+  it went past the end of the file, or else :file/malformed."
   [e]
   (if (truncated? e)
     {:id :file/truncated :level :warning}
     {:id :file/malformed :level :warning :reason (async/explain e)}))
 
 (defn ^:no-doc unreachable
-  "The diagnostic of a file that did not come, since the request for it
-  failed with `e`. It has the `:url` and the `:status` that `e` holds."
+  "The diagnostic of a file that didn't come, since the request for it
+  failed with `e`. It has the :url and the :status that `e` holds."
   [e]
   (diagnostics/describe
    (into {:id :file/unreachable :reason (async/explain e)}
          (select-keys (ex-data e) [:url :status]))))
 
 (defn ^:no-doc part
-  "What `(f)` gives as `{:value v}`, the reading of the part `k` of a file
-  that the rest of the file can do without, such as its artwork. When the
-  part does not read, `{:report [diagnostic]}`, which names the `:part`.
+  "What `f` gives when called, as a map of the :value, for the reading of
+  the part `k` of a file that the rest of the file can do without, such
+  as its artwork.
 
-  A reading that lacks bytes of the view throws on, so that the caller can
-  fetch them."
+  When the part doesn't read, the map has a :report of one diagnostic,
+  which names the :part. A reading that lacks bytes of the view throws on,
+  so that the caller can fetch them."
   [k f]
   (let [failed #(if (missing %) (throw %) {:report [(assoc (failure %) :part k)]})]
     (try
@@ -427,13 +429,13 @@
 
 (defn reading
   "What the function `f` gives, a reading of a view that takes no
-  arguments. `report` reads its diagnostics.
+  arguments. The report function reads its diagnostics.
 
-  When the view lacks bytes, the result is `{:need [[start end] ...]}`,
-  the ranges that it lacks, end excluded. When the reading fails, the
-  result is an empty map, and its report tells why. The diagnostic is
-  `:file/truncated` for a reading past the end of the file, and
-  `:file/malformed` for each other failure. On the JVM, a reading that
+  When the view lacks bytes, the result has the ranges that it lacks
+  under :need, as pairs of a start and an end, end excluded. When the
+  reading fails, the result is an empty map, and its report says why. The
+  diagnostic is :file/truncated for a reading past the end of the file,
+  and :file/malformed for any other failure. On the JVM, a reading that
   overflows the stack is such a failure."
   [f]
   (let [failed #(if (missing %) {:need (missing %)} (reported {} [(failure %)]))]
@@ -445,16 +447,16 @@
                 (failed e))))))
 
 (def ^:no-doc chunk-size
-  "The least that `read!` fetches at a time, so that small reads come in
-  one request."
+  "The least that read! fetches at a time, so that small reads come in one
+  request."
   (* 64 1024))
 
 (def default-limits
-  "The limits of `read!` that its options do not set.
+  "The limits of read! that its options don't set.
 
-  One reading fetches `:max-bytes` of a file at most, 32 MB, and starts no
-  request after `:max-seconds`. Nil sets no limit of bytes or of time. It
-  fetches in `:max-rounds` rounds, of `:max-requests` requests each. The
+  One reading fetches :max-bytes of a file at most, 32 MB, and starts no
+  request after :max-seconds. Nil sets no limit of bytes or of time. It
+  fetches in :max-rounds rounds, of :max-requests requests each. The
   ranges that a reading needs beyond them come in the rounds after.
 
   The sizes in a file are numbers that its writer chose, so a file can ask
@@ -465,9 +467,9 @@
    :max-requests 16})
 
 (defn- spans
-  "The `ranges` that a reading needs, `[[start end] ...]`, in order, and
-  those less than `chunk-size` apart joined, so that ranges near each
-  other come in one request."
+  "The `ranges` that a reading needs, in order, with those less than
+  chunk-size apart joined, so that ranges near each other come in one
+  request."
   [ranges]
   (reduce (fn [acc [start end]]
             (let [[s e] (peek acc)]
@@ -478,10 +480,11 @@
           (sort ranges)))
 
 (defn- fetch-all
-  "The parts that `fetch` gives of the `ranges`, one request after another,
-  and none once `in-time?` says no; deferred. A part without bytes is left
-  out. When a request fails, the result is `{:error e}`, and no request
-  goes out after it."
+  "The parts that `fetch` gives of the `ranges`, one request after
+  another, and none once `in-time?` says no, in a future or a promise.
+
+  A part without bytes is left out. When a request fails, the result is a
+  map of the :error, and no request goes out after it."
   [fetch ranges in-time?]
   (reduce (fn [parts [start end]]
             (async/then parts
@@ -498,7 +501,7 @@
           ranges))
 
 (defn- with-parts
-  "`view` with the `parts` that a round fetched."
+  "The `view` with the `parts` that a round fetched."
   [view parts]
   (reduce (fn [v {b :bytes :keys [start total]}] (add v start b total)) view parts))
 
@@ -508,8 +511,8 @@
   (reduce + (map (fn [[start end]] (- end start)) ranges)))
 
 (defn- widened
-  "The `ranges` with the end of each moved to `(wide range)`, as far as the
-  bytes that this adds fit in `spare`."
+  "The `ranges` with the end of each moved to what `wide` gives for the
+  range, as far as the bytes that this adds fit in `spare`."
   [ranges wide spare]
   (first (reduce (fn [[acc spare] [start end :as range]]
                    (let [more (min spare (max 0 (- (wide range) end)))]
@@ -518,27 +521,33 @@
                  ranges)))
 
 (defn- ahead
-  "How far past the end of `range`, the one range of a round, the round
-  reads: `chunk-size`, where a reading most often goes next. It is twice as
-  far as in the round before, up to 1 MB, when the range is short and
-  starts where that round ended, `[until before]`, as a walk through the
-  segments of a file asks."
-  [[start end] [until before]]
+  "How far past the end of `span`, the one range of a round, the round
+  reads, given the `walk` of the round before. It's chunk-size, where a
+  reading most often goes next.
+
+  It's twice as far as in the round before, up to 1 MB, when the range is
+  short and starts where that round ended. A walk through the segments of
+  a file asks for such ranges. The `walk` is a pair of where the round
+  before ended and how far ahead it read."
+  [[start end :as span] [until before :as walk]]
   (if (and until (<= until start) (< (- start until) chunk-size) (< (- end start) chunk-size))
     (min (* 2 before) (* 16 chunk-size))
     chunk-size))
 
 (defn- round-of
-  "The round that fetches the ranges `need` of a reading within `limits`:
-  `{:ranges :walk}`, the ranges to fetch, and for a round of one range
-  where it ends and how far ahead it reads. Nil when `need` holds more
-  bytes than `room`, those that the reading can still fetch.
+  "The round that fetches the ranges `need` of a reading within `limits`
+  and the bytes of `room`, after the `walk` of the round before, or nil.
+  With `whole?`, the server sends a file from its start.
 
-  `walk` is that of the round before. With `whole?`, the server sends a
-  file from its start, whatever range a request names, so each request
-  costs all the bytes before its range. The round then asks once, from the
-  start of the file to an eighth further than the reading needs."
-  [need {:keys [max-requests]} room walk whole?]
+  The round is a map of the :ranges to fetch, and, for a round of one
+  range, the :walk of where it ends and how far ahead it reads. It's nil
+  when `need` holds more bytes than `room`, those that the reading can
+  still fetch.
+
+  When the server sends whole files, each request costs all the bytes
+  before its range. The round then asks once, from the start of the file
+  to an eighth further than the reading needs."
+  [need {:keys [max-requests] :as limits} room walk whole?]
   (when-let [wanted (seq (take max-requests (spans need)))]
     (let [far    (apply max (map second wanted))
           batch  (if whole? [[0 far]] wanted)
@@ -557,16 +566,17 @@
          :walk   (when (and more (not whole?)) [(second (first ranges)) more])}))))
 
 (defn read!
-  "What the reader `read` gives of the file whose bytes `fetch` gets, within
-  the limits of `opts`. On the JVM it gives the result, and in
+  "Read the file whose bytes `fetch` gets with the reader `read`, within
+  the limits of `opts`. On the JVM it gives what the reader gives, and in
   ClojureScript a promise of it.
 
-  `read` is a function of a view. It gives its result, or `{:need [[start
-  end] ...]}` as `reading` gives it. `fetch` is a function of a start and
-  an end, end excluded. It gives `{:bytes :start :total}` or a deferred
-  one, as `dk.simongray.podcast.util.http/fetcher` makes. Its answer is
-  `:whole?` when it holds the file from its start, whatever start was
-  asked. A server that ignores ranges gives such an answer.
+  The `read` function takes a view. It gives its result, or the ranges
+  that it needs under :need, as reading gives them. The `fetch` function
+  takes a start and an end, end excluded. It gives a map of the :bytes,
+  :start and :total, or a future or a promise of one, as
+  dk.simongray.podcast.util.http/fetcher makes. Its answer is :whole?
+  when it holds the file from its start, whatever start was asked. A
+  server that ignores ranges gives such an answer.
 
   The ranges that one reading needs come in one round, in 16 requests at
   most, one after another. Each request asks for 64 KB or more, and ranges
@@ -576,16 +586,15 @@
   time, up to 1 MB. A walk through the segments of a file asks for such
   ranges.
 
-  `opts` give the limits, with `default-limits` for the limits that they
-  do not set. They can give `:now`, a function that gives the time, the
-  clock by default. When a limit stops the reading, or when the ranges
-  did not come, the result is an empty map, and its report has
-  `:file/incomplete`. A reading fetches nothing of ranges that hold more
-  bytes than it can still fetch.
+  The `opts` give the limits, with default-limits for the limits that
+  they don't set, and :now, a function that gives the time, the clock by
+  default. When a limit stops the reading, or when the ranges didn't
+  come, the result is an empty map, and its report has :file/incomplete.
+  A reading fetches nothing of ranges that hold more bytes than it can
+  still fetch.
 
-  `read!` throws nothing for what `fetch` does. When `fetch` fails, the
-  result is `{:error diagnostic}`, and the diagnostic is
-  `:file/unreachable`."
+  Nothing that `fetch` does throws. When `fetch` fails, the result has a
+  :file/unreachable diagnostic under :error."
   ([fetch read]
    (read! fetch read {}))
   ([fetch read opts]

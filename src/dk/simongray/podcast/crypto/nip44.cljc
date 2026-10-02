@@ -3,10 +3,10 @@
   platforms. Nostr Wallet Connect sends its requests and its answers in
   such payloads.
 
-  Two owners of keys share a conversation key, which `conversation-key`
-  gives to each of them. `encrypt` writes a payload under that key, and
-  `decrypt` reads one. A payload is base64 text: a version, a nonce, the
-  encrypted text and a check of the two.
+  Two owners of keys share a conversation key, which conversation-key
+  gives to each of them. The encrypt function writes a payload under that
+  key, and decrypt reads one. A payload is base64 text: a version, a
+  nonce, the encrypted text and a check of the two.
 
   The text is encrypted with ChaCha20 (RFC 8439), and the check is an
   HMAC with SHA-256 (RFC 2104). The keys of one payload come from the
@@ -14,19 +14,20 @@
   padding, so that the payload tells little of its length.
 
   NIP-44 asks that a payload is in a signed event, and that a reader
-  checks the signature before it reads the payload.
-  `dk.simongray.podcast.util.nostr/verified?` checks it."
+  checks the signature before it reads the payload, as
+  dk.simongray.podcast.util.nostr/verified? does."
   (:require [dk.simongray.podcast.crypto.chacha20 :as chacha20]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.secret :as secret]))
 
 (def default-limits
-  "The limits of `encrypt` and `decrypt` that their options do not set.
-  `:max-bytes` is the most bytes of a text, as UTF-8. NIP-44 allows 2^32 -
-  1 bytes, and asks each reader for a limit of its own. The limit here is
-  a choice: the most bytes that a payload holds with a length of two
-  bytes."
+  "The limits of encrypt and decrypt that their options don't set.
+
+  The :max-bytes is the most bytes of a text, as UTF-8. NIP-44 allows
+  2^32 - 1 bytes, and asks each reader for a limit of its own. The limit
+  here is a choice: the most bytes that a payload holds with a length of
+  two bytes."
   {:max-bytes 65535})
 
 (def ^:no-doc version
@@ -45,8 +46,8 @@
   (bytes/hmac-sha256 salt material))
 
 (defn- expanded
-  "`n` bytes that HKDF expands from the bytes `key` for the bytes `info`,
-  as section 2.3 of RFC 5869 defines it."
+  "The `n` bytes that HKDF expands from the bytes `key` for the bytes
+  `info`, as section 2.3 of RFC 5869 defines it."
   [key info n]
   (loop [i 1 last (bytes/of []) out []]
     (if (<= n (* 32 (count out)))
@@ -63,26 +64,29 @@
 
 (defn conversation-key
   "The key that the owner of `secret-key` shares with the owner of
-  `public-key`, as hexadecimal text of 32 bytes. Nil for a text that is no
-  key, and for a public key that is no point of the curve.
+  `public-key`, as hexadecimal text of 32 bytes. It's nil for a text that
+  isn't a key, and for a public key that isn't a point of the curve.
 
   The owner of the other secret key gets the same key with the public key
   of this one. The key is for each payload between the two, so an app
-  computes it once. It is as secret as the secret key, so it is a hidden
-  text of `dk.simongray.podcast.util.secret`. `encrypt` and `decrypt` take it
-  hidden or plain.
+  computes it once. It's as secret as the secret key, so it's a hidden
+  text of dk.simongray.podcast.util.secret. The encrypt and decrypt
+  functions take it hidden or plain.
 
   The section Encryption of NIP-44 defines it: the x coordinate that
-  `secp256k1/shared-x` gives, extracted by HKDF with the salt nip44-v2."
+  secp256k1/shared-x gives, extracted by HKDF with the salt nip44-v2."
   [secret-key public-key]
   (when-let [x (secp256k1/shared-x secret-key public-key)]
     (secret/hide (bytes/hex (extracted (bytes/encode salt) (bytes/from-hex (secret/reveal x)))))))
 
 (defn ^:no-doc message-keys
-  "The keys of one payload, from `conversation-key` and `nonce`, each
-  hexadecimal text of 32 bytes: the `:cipher-key` and the `:cipher-nonce`
-  of ChaCha20, and the `:check-key` of the HMAC, as bytes. They are 76
-  bytes that HKDF expands."
+  "The keys of one payload from `conversation-key` and `nonce`, which are
+  hexadecimal text of 32 bytes, as a map of bytes:
+
+  - :cipher-key and :cipher-nonce, of ChaCha20
+  - :check-key, of the HMAC
+
+  They're 76 bytes that HKDF expands."
   [conversation-key nonce]
   (let [b (expanded (bytes/from-hex (secret/reveal conversation-key)) (bytes/from-hex nonce) 76)]
     {:cipher-key   (bytes/copy b 0 32)
@@ -91,8 +95,8 @@
 
 (defn ^:no-doc padded-length
   "The bytes of a text of `n` bytes with its padding, as the function
-  calc_padded_len of NIP-44 computes it: 32 bytes at least, and then a
-  multiple of a chunk that grows with the text."
+  calc_padded_len of NIP-44 computes it. It's 32 bytes at least, and then
+  a multiple of a chunk that grows with the text."
   [n]
   (if (<= n 32)
     32
@@ -125,8 +129,8 @@
                  (bytes/of (repeat (- (padded-length n) n) 0))])))
 
 (defn- unpadded
-  "The text in the bytes `b`, which `padded` wrote, as bytes. Nil when the
-  bytes do not have the form that `padded` gives a text of their length."
+  "The text in the bytes `b`, which padded wrote, as bytes, or nil when the
+  bytes don't have the form that padded gives a text of their length."
   [b]
   (when (<= 6 (bytes/length b))
     (let [short  (number-of b 0 2)
@@ -152,13 +156,14 @@
 
 (defn encrypt
   "The payload of the text `plaintext` under `conversation-key`, with
-  `nonce`. The two are hexadecimal text of 32 bytes. Nil for a text
-  without a byte, and for a text with more bytes than `:max-bytes` of
-  `opts` or of `default-limits`.
+  `nonce` and `opts`. The key and the nonce are hexadecimal text of 32
+  bytes.
 
-  The nonce is 32 bytes that nobody can guess, new for each payload, as
-  `(bytes/hex (bytes/generate! 32))` gives them. The section Encryption of
-  NIP-44 defines the steps."
+  It's nil for a text without a byte, and for a text with more bytes than
+  the :max-bytes of `opts` or of default-limits. The nonce is 32 bytes
+  that nobody can guess, new for each payload, e.g. from
+  (bytes/hex (bytes/generate! 32)). The section Encryption of NIP-44
+  defines the steps."
   ([plaintext conversation-key nonce]
    (encrypt plaintext conversation-key nonce {}))
   ([plaintext conversation-key nonce opts]
@@ -171,21 +176,25 @@
          (bytes/base64 (bytes/join [(bytes/of [version]) nonce sealed (check check-key nonce sealed)])))))))
 
 (defn payload-version
-  "The version of the payload `payload`, a number. Nil for a text that is
-  no payload of NIP-44, and for a payload in a form that comes after
-  version 2, which starts with a number sign.
+  "The version of the `payload`, a number, or nil for a text that isn't a
+  payload of NIP-44. It's nil too for a payload in a form after version 2,
+  which starts with a number sign.
 
-  podcast-clj reads version 2. With another version, an app can tell the
-  user that the other side has a later version of NIP-44."
+  This namespace reads version 2. With another version, an app can tell
+  the user that the other side has a later version of NIP-44."
   [payload]
   (when (and (string? payload) (<= 4 (count payload)))
     (some-> (bytes/from-base64 (subs payload 0 4)) (bytes/at 0))))
 
 (defn decrypt
-  "The text of the payload `payload` under `conversation-key`. Nil for a
-  payload that the key does not open: a payload of another version, one
-  that somebody changed, one of another key, and one with a text of more
-  bytes than `:max-bytes` of `opts` or of `default-limits`.
+  "The text of the `payload` under `conversation-key`, with `opts`, or nil
+  for a payload that the key doesn't open:
+
+  - a payload of another version
+  - a payload that somebody changed
+  - a payload of another key
+  - a payload with a text of more bytes than the :max-bytes of `opts` or
+    of default-limits
 
   The section Decryption of NIP-44 defines the steps. The check of the
   payload comes before the text is read, and takes the same time for each

@@ -1,8 +1,11 @@
 (ns dk.simongray.podcast.util.rank
-  "Ranks: strings that sort where an item was put and always leave room for
-  another between any two. A rank is digits in base 62, `0-9A-Za-z`, read as
-  a fraction with no trailing zero and compared as a string; `between` gives
-  a rank between two, before the first or after the last.
+  "Ranks: strings that sort where an item was put, and always leave room
+  for another between any two.
+
+  A rank is digits in base 62, from 0 to 9, A to Z and a to z. It's read
+  as a fraction with no trailing zero, and compared as a string. The
+  between function gives a rank between two, before the first or after
+  the last:
 
       (between nil nil)   ;=> \"V\"    the first rank
       (between \"V\" nil)   ;=> \"W\"    after it
@@ -10,8 +13,8 @@
       (between nil \"V\")   ;=> \"U\"    before the first
 
   At an end of a list, the ranks count, so they stay short however long
-  the list grows. `after` gives the ranks of many items that go to the end
-  of a list at one time.
+  the list grows. The after function gives the ranks of many items that
+  go to the end of a list at one time:
 
       (after \"V\" 3)       ;=> (\"W\" \"X\" \"Y\")"
   (:require [clojure.string :as str]))
@@ -25,7 +28,7 @@
   (str/index-of digits (str c)))
 
 (defn rank?
-  "Whether `x` is a rank: a string of `digits` that does not end in a zero."
+  "Whether `x` is a rank: a string of digits that doesn't end in a zero."
   [x]
   (boolean (and (string? x) (re-find #"^[0-9A-Za-z]*[1-9A-Za-z]$" x))))
 
@@ -76,9 +79,9 @@
     (apply str (map #(nth digits %) (take length ds)))))
 
 (defn ^:no-doc above
-  "The rank after the rank `s`, where `s` is the last of a list: the next
-  number of the level of `s`, or the first number of the next level when
-  `s` has the last number of its level."
+  "The rank after the rank `s`, the last of a list. It's the next number
+  of the level of `s`, or the first number of the next level when `s` has
+  the last number of its level."
   [s]
   (let [level (count (take-while #(= \z %) s))
         lead  (subs s 0 level)
@@ -88,9 +91,9 @@
       (str lead (written up)))))
 
 (defn ^:no-doc below
-  "The rank before the rank `s`, where `s` is the first of a list: the
-  number before it in the level of `s`, or the last number of the next
-  level when `s` has the first number of its level."
+  "The rank before the rank `s`, the first of a list. It's the number
+  before it in the level of `s`, or the last number of the next level
+  when `s` has the first number of its level."
   [s]
   (let [level (count (take-while #(= \0 %) s))
         lead  (subs s 0 level)
@@ -103,14 +106,14 @@
       :else                                (str lead (written (plus down -1))))))
 
 (defn between
-  "A rank between `before` and `after`. Either is nil for an end of the
-  list. `before` must sort before `after`, and two equal ranks leave no
-  room. What is not a rank throws.
+  "A rank between `before` and `after`, where nil stands for an end of the
+  list. The rank `before` must sort before `after`, since two equal ranks
+  leave no room, and anything that isn't a rank throws.
 
   After the last rank and before the first, the ranks count: W is after V,
   and U is before it. The 30 ranks from V to y have one digit. The next
-  3,781 ranks have three digits at most, from z01, and the 234,483 ranks
-  after them have five at most. So a list that grows at an end keeps short
+  3,781 ranks have three digits at most, from z01. The 234,483 ranks after
+  them have five at most, so a list that grows at an end keeps short
   ranks."
   [before after]
   (when-not (and (or (nil? before) (= "" before) (rank? before))
@@ -126,10 +129,10 @@
 
 (defn after
   "The `n` ranks that come after the rank `before`, in order. With nil for
-  `before`, they are the first `n` ranks of a list. What is not a rank
-  throws.
+  `before`, they're the first `n` ranks of a list. Anything that isn't a
+  rank throws.
 
-  Each rank is what `between` gives after the rank before it. So the ranks
+  Each rank is what between gives after the rank before it. So the ranks
   of many items are short: 8,000 ranks have five digits at most.
 
       (after \"V\" 3)   ;=> (\"W\" \"X\" \"Y\")

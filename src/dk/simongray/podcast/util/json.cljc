@@ -11,7 +11,7 @@
      thousand digits. The reader of the JVM reads such a number in a time that
      grows with the square of its length, minutes for a million digits.
 
-     The digits in a string of the JSON are text, and do not count."
+     The digits in a string of the JSON are text, and don't count."
      [^String s]
      (let [n (.length s)]
        (loop [i 0 run 0 quoted? false]
@@ -27,7 +27,7 @@
                             :else                      (recur (inc i) 0 false))))))))
 
 (defn read-str
-  "Parse the JSON string `s` into Clojure data with string keys.
+  "The JSON string `s` as Clojure data with string keys.
 
   A byte order mark before the value is skipped. Anything but white space
   after the value is an error, on the JVM as in JavaScript. A value nested
@@ -53,8 +53,8 @@
        :cljs (js->clj (js/JSON.parse s)))))
 
 (defn ^:no-doc parse
-  "The data in the JSON string `s`, as `read-str` reads it, or nil when `s`
-  is not JSON."
+  "The data in the JSON string `s`, as read-str reads it, or nil when `s`
+  isn't JSON."
   [s]
   (try
     (read-str s)
@@ -62,7 +62,7 @@
       nil)))
 
 (defn ^:no-doc object
-  "The JSON object in the string `s`, as `read-str` reads it, or nil when
+  "The JSON object in the string `s`, as read-str reads it, or nil when
   `s` holds no JSON object."
   [s]
   (let [x (parse s)]
@@ -76,19 +76,19 @@
     (str v)))
 
 (defn ^:no-doc whole
-  "The JSON value `v` read for a field that holds a whole number: `v` as an
-  integer when it is a number without a fraction that JavaScript holds
-  exactly, and nil for anything else."
+  "The JSON value `v` read for a field that holds a whole number. It's `v`
+  as an integer when it's a number without a fraction that JavaScript
+  holds exactly, and nil for anything else."
   [v]
   (when (and (number? v) (== v (Math/floor v)) (< (Math/abs (double v)) 9e15))
     (long v)))
 
 (defn write-str
-  "Serialize `x` as JSON, indented when `opts` has `:pretty?`. Characters
-  outside ASCII are written as they are, on the JVM as in JavaScript."
+  "The JSON of `x`, indented when `opts` has :pretty?. Characters outside
+  ASCII are written as they are, on the JVM as in JavaScript."
   ([x]
    (write-str x {}))
-  ([x {:keys [pretty?]}]
+  ([x {:keys [pretty?] :as opts}]
    #?(:clj  (json/write-str x :indent (boolean pretty?) :escape-slash false
                             :escape-unicode false :escape-js-separators false)
       :cljs (if pretty?

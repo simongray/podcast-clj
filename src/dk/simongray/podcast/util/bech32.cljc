@@ -6,11 +6,11 @@
   data are a checksum. The names of Nostr are Bech32, as NIP-19 defines
   them.
 
-  `decode` reads a text and `encode` writes one. The data are bytes, and
-  the section Segwit address format of BIP-173 tells how eight bits go
-  into characters of five bits. `words` and `of-words` read and write the
-  data as numbers of five bits, for data that are no whole bytes. Bech32m,
-  the checksum of BIP-350, is not here."
+  The decode function reads a text and encode writes one. The data are
+  bytes, and the section Segwit address format of BIP-173 tells how eight
+  bits go into characters of five bits. For data that aren't whole bytes,
+  words and of-words read and write the data as numbers of five bits.
+  Bech32m, the checksum of BIP-350, isn't here."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]))
 
@@ -19,7 +19,7 @@
   "qpzry9x8gf2tvdw0s3jn54khce6mua7l")
 
 (def ^:no-doc values
-  "The value of each character of `charset`."
+  "The value of each character of charset."
   (zipmap charset (range)))
 
 (def ^:no-doc generators
@@ -27,8 +27,8 @@
   [0x3b6a57b2 0x26508e6d 0x1ea119fa 0x3d4233dd 0x2a1462b3])
 
 (def max-length
-  "The most characters of a text that `decode` reads, which is the limit
-  of BIP-173. The option `:max-length` gives another limit."
+  "The most characters of a text that decode reads, which is the limit of
+  BIP-173. The option :max-length gives another limit."
   90)
 
 (defn- polymod
@@ -70,14 +70,14 @@
           (and (< bits from) (zero? acc))  out)))))
 
 (defn words
-  "The prefix and the data of the Bech32 text `s`, as `{:prefix :words}`.
-  The data are numbers of five bits, one for each character, without the
-  checksum. Nil for a text that is not Bech32, or that has a wrong
-  checksum.
+  "The prefix and the data of the Bech32 text `s`, read with `opts`, as a
+  map of :prefix and :words. It's nil for a text that isn't Bech32, or
+  that has a wrong checksum.
 
-  The prefix is in lower case. `opts` can give `:max-length`, the most
-  characters of the text, in the place of `max-length`. The data of a
-  BOLT 11 invoice are no whole bytes, so a reader of invoices takes the
+  The data are numbers of five bits, one for each character, without the
+  checksum, and the prefix is in lower case. The :max-length of `opts` is
+  the most characters of the text, in place of max-length. The data of a
+  BOLT 11 invoice aren't whole bytes, so a reader of invoices takes the
   numbers."
   ([s]
    (words s {}))
@@ -107,12 +107,12 @@
     (str prefix "1" (apply str (map #(nth charset %) (concat words check))))))
 
 (defn decode
-  "The prefix and the data of the Bech32 text `s`, as `{:prefix :bytes}`.
-  Nil for a text that is not Bech32, that has a wrong checksum, or whose
-  data are no whole bytes.
+  "The prefix and the data of the Bech32 text `s`, read with `opts`, as a
+  map of :prefix and :bytes. It's nil for a text that isn't Bech32, that
+  has a wrong checksum, or whose data aren't whole bytes.
 
-  The prefix is in lower case. `opts` can give `:max-length`, the most
-  characters of the text, in the place of `max-length`."
+  The prefix is in lower case. The :max-length of `opts` is the most
+  characters of the text, in place of max-length."
   ([s]
    (decode s {}))
   ([s opts]
