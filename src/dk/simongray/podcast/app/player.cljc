@@ -66,8 +66,8 @@
 
 (defn after
   "The instant to stamp a write to `state` at `now` with: `now`, or the
-  millisecond after the clock of the state when that's later, so that a
-  write always comes after what the device has merged."
+  millisecond after the clock of the state when that's later. This keeps
+  each write after what the device has merged."
   [state now]
   (let [clock (:clock state)]
     (if (and clock (>= (inst-ms clock) (inst-ms now)))
@@ -195,10 +195,13 @@
   "Change the `settings` of the subscription `feed-guid` in `state` at
   `at`.
 
-  The settings are the keys of default-settings, :rate, a playback rate
-  for this show, and :downloads, its rule for
-  dk.simongray.podcast.app.downloads. Each is an entry of its own, so two
-  devices that change different settings both keep their change."
+  The settings are the keys of default-settings, and these:
+
+  - :rate, the playback rate of this show
+  - :downloads, its rule for dk.simongray.podcast.app.downloads
+
+  Each is an entry of its own, so two devices that change different
+  settings both keep their change."
   [state feed-guid settings at]
   (if (get-in state [:subscriptions feed-guid])
     (write-each state (for [[k v] settings] [[:settings feed-guid k] (constantly {:value v})]) at)
@@ -322,9 +325,9 @@
 (defn retire
   "Retire the device `device` from `state` at `at`, from any device.
 
-  It's no longer among the devices of the state, a sync writes nothing for
-  it and deletes its document, and it can't undo the retirement by
-  describing itself again."
+  The device is no longer among the devices of the state. A sync writes
+  nothing for it and deletes its document, and the device can't undo the
+  retirement by describing itself again."
   [state device at]
   (write state [:retired device] #(or % {}) at))
 
@@ -357,9 +360,9 @@
   whole states `others`.
 
   Its entry keeps the latest stamp of each other device that's now merged
-  here under :seen, which compact goes by. Only whole states count,
-  never the changes that a service sends, and the entry is only written
-  when it grew, so that a sync alone never rewrites a document."
+  here under :seen, which compact goes by. Only whole states count, never
+  the changes that a service sends. The entry is only written when it
+  grew, so that a sync alone never rewrites a document."
   [state others at]
   (let [me    (:device state)
         known (get-in state [:devices me :seen] {})
@@ -514,8 +517,8 @@
 
 (defn skip
   "Move `seconds` forward, or back when negative, in the episode `id` of
-  `state` at `at`, with the `opts` of progress, but never before its
-  start or past a known end.
+  `state` at `at`, with the `opts` of progress. The position never goes
+  before the start or past a known end.
 
   A duration of zero, or one that isn't a finite number, counts as
   unknown, since players report those before they know. The new position
@@ -532,13 +535,14 @@
 
 (defn- heard
   "The `state` with the seconds heard of the episode `id` up to `position`
-  at `at` added to this device's count for the show and month, unless the
-  last report is more than `gap` seconds old.
+  at `at` added to this device's count. Nothing counts when the last
+  report is more than `gap` seconds old.
 
-  An older report means the listener paused. The seconds are how far the
-  position moved since the last report, at most three times the time
-  since then, as a faster move is a seek. The month is in UTC, and the
-  last report is the episode's :reported-at, or else its stamp."
+  An older report means that the listener paused. The seconds are how far
+  the position moved since the last report, at most three times the time
+  since then, as a faster move is a seek. The count is by show and month,
+  in UTC, and the last report is the episode's :reported-at, or else its
+  stamp."
   [state id position at gap]
   (let [{p0 :position :keys [reported-at updated-at]} (episode state id)
         t0      (or reported-at updated-at)
@@ -557,8 +561,8 @@
   "The seconds that the listener heard of each show in `state`, by feed
   guid and month in UTC, e.g. {feed-guid {\"2026-09\" 5400.0}}.
 
-  The counts of all the devices add up, and step counts at each
-  :progress, so report the position at least every 30 seconds while an
+  The counts of all the devices add up. Since step counts at each
+  :progress, report the position at least every 30 seconds while an
   episode plays (see listening-gap)."
   [state]
   (update-vals (:listened state)
@@ -663,8 +667,8 @@
 
 (defn ^:no-doc marks
   "The live entries of the collection `k` of `state`, the latest written
-  first, or those of the episode `id` in order of their seconds, as maps
-  of the second under `at-key` and the keys `ks` of each entry.
+  first, or those of the episode `id` in order of their seconds. Each is a
+  map of its second under `at-key` and the keys `ks` of the entry.
 
   The collection holds entries by episode and whole second, e.g.
   :bookmarks. Each map also has the episode's :id and :updated-at."
@@ -730,8 +734,8 @@
    (marks state :clips :start-time [:duration :title] id)))
 
 (def rating-scale
-  "The scale of ratings when no other is given, from 1, the worst, to 5,
-  the best, like the stars of most apps.
+  "The scale of ratings when no other is given: from 1 for the worst to 5
+  for the best, like the stars of most apps.
 
   A scale is a map of :worst and :best, two different numbers, as in a
   schema.org Rating. Give another as :scale in the options, e.g.
@@ -782,8 +786,8 @@
   "The rating that the listener gave the episode `id` in `state`, or nil,
   in the scale of `opts` if it gives one.
 
-  It's in the scale it was given in, or with :scale in `opts`, converted
-  to that scale, e.g. a 4 of 1 to 5 is 75.25 of 1 to 100."
+  It's in the scale that it was given in. A :scale in `opts` converts it,
+  e.g. a 4 of 1 to 5 is 75.25 of 1 to 100."
   ([state id]
    (rating state id {}))
   ([state id {:keys [scale] :as opts}]
@@ -1094,9 +1098,9 @@
             (if oldest-first? added (reverse added))))))
 
 (defn refresh
-  "Note in `state` a new parse `after` of the feed at `url`, which was
-  `before`, at `at`, as a map of the new :state and the episode ids it
-  :added.
+  "Note in `state` at `at` a new parse `after` of the feed at `url`, which
+  was `before`. The result is a map of the new :state and the episode ids
+  it :added.
 
   The new episodes join the end of the queue with :auto-queue? in the
   settings of the subscription, or else the inbox with :inbox?. An
@@ -1116,8 +1120,8 @@
 
 (defn lists
   "The OPML lists that the listener follows in `state`, as a map from URL
-  to :title and :folder, where the folder is the one that the shows of the
-  list go into."
+  to :title and :folder. The folder is the one that the shows of the list
+  go into."
   [state]
   (into {} (keep (fn [[url e]] (when-not (:removed? e) [url (select-keys e [:title :folder])])))
         (:lists state)))
@@ -1150,8 +1154,8 @@
   subscriptions by URL, as by-url gives them.
 
   It's the guid of the subscription at the outline's URL, or else the
-  outline's own guid, or else the guid of its URL, so that a known show
-  never comes in again under another guid."
+  outline's own guid, or else the guid of its URL. This keeps a known show
+  from coming in again under another guid."
   [names {:keys [xml-url guid] :as outline}]
   (or (get names (normal-url xml-url))
       (when (string? guid) (not-empty (str/trim guid)))
@@ -1159,8 +1163,8 @@
 
 (defn- joined
   "The result `acc` of refresh-list with the show of `outline` subscribed
-  to at `at`, in `folder` if any, unless the list had it before, in `was`,
-  or the state has it."
+  to at `at`, in `folder` if any. Nothing changes when the list had the
+  show before, in `was`, or the state has it."
   [{:keys [state names] :as acc} {:keys [xml-url title text] :as outline} was folder at]
   (let [g (named names outline)]
     (if (or (was g) (get-in state [:subscriptions g]))
@@ -1172,9 +1176,9 @@
           (update :added conj g)))))
 
 (defn refresh-list
-  "Note in `state` a new parse `after` of the OPML list at `url`, which was
-  `before`, at `at`, as a map of the new :state, the feed guids it :added,
-  and those that :left.
+  "Note in `state` at `at` a new parse `after` of the OPML list at `url`,
+  which was `before`. The result is a map of the new :state, the feed
+  guids it :added, and those that :left.
 
   Shows that joined the list are subscribed to, in its folder, unless the
   state has them already by feed URL or guid. Without `before`, every
@@ -1225,9 +1229,9 @@
 ;; https://github.com/razorgoto/podcast/blob/master/podcasts.opml
 ;; https://github.com/vinhnx/podcasts/blob/main/overcast.opml
 (def wrappers
-  "The names, in lower case, of the folder that some apps write around a
-  whole subscription list, which from-opml reads as no folder when it
-  holds every feed of the list."
+  "The lower-case names of the folder that some apps write around a whole
+  subscription list. When such a folder holds every feed of the list,
+  from-opml reads it as no folder."
   #{"feeds"})
 
 (defn- wrapper
@@ -1255,11 +1259,13 @@
   from dk.simongray.podcast.format.opml/parse, with `opts`.
 
   Each subscription gets the title, the innermost folder, the categories as
-  tags, and the creation time of its outline, and the state follows the
-  lists that the OPML includes. A feed that the state has already keeps its
-  guid and URL. A folder around every feed whose name is in wrappers
-  counts as no folder, and :wrappers in `opts` replaces the names with a
-  set of lower-case names or a predicate."
+  tags and the creation time of its outline. The state also follows the
+  lists that the OPML includes, and a feed that the state has already
+  keeps its guid and URL.
+
+  A folder around every feed whose name is in wrappers counts as no
+  folder. The :wrappers of `opts` replaces those names with a set of
+  lower-case names or a predicate."
   ([state list at]
    (from-opml state list at {}))
   ([state list at opts]
@@ -1365,7 +1371,7 @@
 
 (def ^:no-doc collections
   "The keys of a state that hold maps of entries, in the order problem
-  checks them, each with the depth of its entries, e.g. 2 for bookmarks,
+  checks them. Each has the depth of its entries, e.g. 2 for bookmarks,
   which are by episode and second."
   [[:subscriptions 1] [:settings 2] [:tags 2] [:lists 1] [:episodes 1] [:queue 1]
    [:playlists 2] [:inbox 1] [:stars 1] [:bookmarks 2] [:clips 2] [:ratings 1]
@@ -1378,8 +1384,9 @@
       (str "the clock is " (pr-str clock) ", not an instant"))))
 
 (defn- entry-problem
-  "A description of the first value in `v`, at `path`, that isn't a map,
-  or of the first entry without a stamp, `depth` keys below `v`."
+  "A description of the first value in `v` at `path` that isn't a map, or
+  of the first entry without a stamp. The entries are `depth` keys below
+  `v`."
   [path depth v]
   (cond
     (not (map? v))     (str "the entry at " (pr-str path) " is not a map")

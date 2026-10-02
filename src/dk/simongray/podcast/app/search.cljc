@@ -120,7 +120,7 @@
   "The search document of `item` in `feed`, with the `opts` below.
 
   Its fields are :title, :show, :description, :people, :keywords,
-  :chapters and :transcript, and a result carries the title, show, guid,
+  :chapters and :transcript. A result has the title, show, guid,
   publication date, duration and URL. The `opts` are:
 
   - :url, where the feed was fetched, which a feed without a podcast:guid
@@ -178,8 +178,8 @@
   "The block of positions that each field of a document gets.
 
   The positions of a term in a document are in one vector, each offset by
-  its field's number times this, so that two positions one apart are
-  always in the same field. A longer field is indexed up to this length."
+  its field's number times this. Two positions one apart are then always
+  in the same field. A longer field is indexed up to this length."
   1000000)
 
 (declare add)
@@ -243,8 +243,8 @@
 
 (defn- positions
   "The positions of each term in the `analyzed` fields, by term, as one
-  position or a vector of them, each offset into its field's block by the
-  field `numbers`."
+  position or a vector of them. Each is offset into the block of its field
+  by the field `numbers`."
   [numbers analyzed]
   (persistent!
    (reduce-kv (fn [acc field terms]
@@ -336,9 +336,9 @@
   "The constants of each field of `index` for scoring with `boosts` and
   the BM25 parameters `k1` and `b`, by field number.
 
-  Each has the field's name, its boost, and `k1`, `b` and the field's
-  average length folded into the constants of BM25's saturation,
-  tf (k1 + 1) / (tf + a + c length)."
+  Each has the field's name, its boost, and the constants of BM25's
+  saturation, tf (k1 + 1) / (tf + a + c length). The constants fold in
+  `k1`, `b` and the field's average length."
   [index boosts k1 b]
   (let [k1 (double k1) b (double b)]
     (into {} (for [[name {:keys [no docs length]}] (:fields index)
@@ -508,8 +508,8 @@
 
   - :limit, the most results
   - :match, :any for documents that match any word instead of all
-  - :prefix?, false to take the last word whole, and :min-prefix, the
-    fewest characters for a prefix, 1 by default
+  - :prefix?, false to take the last word whole
+  - :min-prefix, the fewest characters of a prefix, 1 by default
   - :boosts, the field weights over boosts, where 0 leaves a field out
   - :k1 and :b, the saturation and length normalisation of BM25
   - :where, a predicate of a result to keep it
@@ -620,8 +620,7 @@
 
 (defn- mentioned
   "The predicate of the criterion :text for `v`, a query or a set of
-  queries, which is true when the title or notes of an item match any of
-  them."
+  queries. It's true when the title or notes of an item match any of them."
   [v]
   (let [queries (mapv words (if (set? v) v [v]))]
     (fn [_ item]
@@ -691,7 +690,7 @@
     linked, embedded or listed in the notes
   - :person, someone credited
   - :text, words that must all be in the title or notes, the last as a
-    prefix, or a set of such texts, any of which matches
+    prefix. A set of such texts matches when any of them does.
   - :not, criteria that the item doesn't meet, e.g. {:text #{\"rerun\"}}
   - :status, :unplayed, :in-progress or :played, or a set of them
   - :starred? and :inbox?
@@ -701,9 +700,9 @@
     subscribed
 
   An empty map takes every item. The criteria about the listener need the
-  player state as :player in `ctx`, and for feeds without a podcast:guid,
-  the :url, a string or a function of the feed. The :age needs the current
-  time as :at, and with :scale, the :rating is in that scale."
+  player state as :player in `ctx`. For feeds without a podcast:guid, they
+  also need the :url, a string or a function of the feed. The :age needs
+  the current time as :at, and with :scale, the :rating is in that scale."
   ([criteria]
    (where criteria {}))
   ([criteria ctx]
@@ -737,8 +736,8 @@
 
 (defn order
   "The sort key of a feed and one of its items for the order `k` and the
-  context `ctx`, for sort-by, or `k` itself when it's a function of a feed
-  and an item.
+  context `ctx`, for sort-by. When `k` is a function of a feed and an
+  item, it's `k` itself.
 
   - :listening, as resolve/episodes orders a show
   - :newest and :oldest, by publication

@@ -124,9 +124,9 @@
   know, by place, or nil.
 
   A place is a key of the rules, or the feed guid of a show. The rules can
-  come from a device with a later version, so plan does nothing for a
-  show whose rule has a problem, and nothing at all for a problem
-  elsewhere."
+  come from a device with a later version. For a show whose rule has a
+  problem, plan does nothing, and for a problem elsewhere, it does nothing
+  at all."
   [rules]
   (if-not (map? rules)
     {:rules (str "the rules are " (pr-str rules) ", not a map")}
@@ -262,7 +262,7 @@
 
 (defn- deletes
   "The plan entries for the files of `ctx` that their shows' rules delete,
-  in order of id, given the ids that each rule selects in `selected`, by
+  in order of id. The `selected` ids are those that each rule selects, by
   feed guid."
   [{:keys [files] :as ctx} selected]
   (let [selected (update-vals selected set)]
@@ -274,8 +274,8 @@
 
 (defn- spare
   "The plan entries for the `files` that can go to make room for a
-  download: those of played episodes that the rules of `ctx` allow
-  deleting, the earliest played first."
+  download, the earliest played first. They're the files of played
+  episodes that the rules of `ctx` allow deleting."
   [{:keys [player] :as ctx} files]
   (->> files
        (filter (fn [[id file]] (and (player/played? player id) (free? ctx id file))))
@@ -289,9 +289,9 @@
   (boolean (and (:removed? (get-in state [:inbox id])) (not (player/queued? state id)))))
 
 (defn- wanted?
-  "Whether to download the episode `id`, by the player and files of
-  `ctx`: not when the device has or had the file, or the listener played
-  or dismissed the episode."
+  "Whether to download the episode `id`, by the player and files of `ctx`.
+  It's false when the device has or had the file, or when the listener
+  played or dismissed the episode."
   [{:keys [player files] :as ctx} id]
   (not (or (contains? files id) (player/played? player id) (dismissed? player id))))
 
@@ -410,11 +410,14 @@
        :delete   [{:id id :bytes 51093220 :reason :played}]
        :waiting  [{:id id :url \"…\" :bytes 912004113 :limit :max-bytes …}]}
 
-  The downloads come in order: the front of the queue first, with the
-  reason :queue, then what the rules of the shows select, newest first,
-  with the reason :rule. Played or dismissed episodes aren't downloaded,
-  and downloads without room within :max-episodes and :max-bytes wait. A
-  file is deleted for one of these reasons:
+  The downloads come in this order, with these reasons:
+
+  - :queue, the front of the queue
+  - :rule, what the rules of the shows select, newest first
+
+  Played or dismissed episodes aren't downloaded, and downloads without
+  room within :max-episodes and :max-bytes wait. A file is deleted for one
+  of these reasons:
 
   - :played, the episode was played :played seconds ago
   - :inactive, it wasn't played for :inactive seconds

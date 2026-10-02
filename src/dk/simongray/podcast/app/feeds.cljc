@@ -1,9 +1,9 @@
 (ns dk.simongray.podcast.app.feeds
   "The fetched feeds of an app, and keeping them current.
 
-  The feeds are a map by guid, and each entry holds the parsed feed, its
-  URL, the ETag and Last-Modified of the last fetch, and the time of the
-  next check:
+  The feeds are a map by guid. Each entry has the parsed feed, its URL,
+  the ETag and Last-Modified of the last fetch, and the time of the next
+  check:
 
       {\"917393e3-…\" {:url          \"https://feeds.podcastindex.org/pc20.xml\"
                      :feed         {…}
@@ -52,8 +52,10 @@
 
 (defn- fetched
   "The entry `old` after a fetch from `url` gave the fresh feed of `result`
-  at `now`, with the feed, its ETag and Last-Modified, the next check by
-  `cadence`, and the new URL of a feed that moved."
+  at `now`, with the next check by `cadence`.
+
+  The entry has the feed, its ETag and Last-Modified, and the new URL of a
+  feed that moved."
   [old url result now cadence]
   (let [{:keys [feed status etag last-modified not-before websub permanent-url new-feed-url]} result]
     (-> (dissoc old :etag :last-modified :websub :status)

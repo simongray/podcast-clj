@@ -56,8 +56,9 @@
   `opts` below: the item with the properties of resolve/properties merged
   in, and these keys:
 
-  - :guid, the guid of the item, and :id, its id for app.player, when the
-    feed has a guid or `opts` give the :url of the feed
+  - :guid, the guid of the item
+  - :id, its id for app.player, when the feed has a guid or `opts` give
+    the :url of the feed
   - :notes, the show notes as Hiccup, and :text, as plain text
   - :chapters, the :source and :document of the chapters in the feed
     itself, where the source is :embedded, or else :inferred from the
@@ -106,8 +107,8 @@
 
 (defn- fetched!
   "Fetch the text of the file at `url` with `opts`, asking for the `accept`
-  types, as the :value, or else a diagnostic as the :error, in a future or
-  a promise."
+  types, in a future or a promise. The text is the :value, or else a
+  diagnostic is the :error."
   [url accept {:keys [send] :as opts}]
   (async/then (http/sent! send {:url url :headers {"Accept" accept}} opts)
               (fn [{:keys [value error]}]
@@ -117,9 +118,9 @@
                   :else                             {:value (str (:body value))}))))
 
 (defn- chapters-file!
-  "Read the chapters file at `url` with `opts` into a map of its :url,
-  :document and :report, or an :error, with :file as the :source, in a
-  future or a promise."
+  "Read the chapters file at `url` with `opts`, in a future or a promise.
+  The result is a map of its :url, :document and :report, or an :error,
+  with :file as the :source."
   [url opts]
   (async/then (fetched! url "application/json+chapters, application/json;q=0.9, */*;q=0.1" opts)
               (fn [{:keys [value error]}]
@@ -169,9 +170,9 @@
   to merge into the view. Returns a map, in ClojureScript as a promise:
 
   - :chapters has the :source, :url, :document and :report of the
-    chapters, from the first place that has them: the chapters file, the
-    embedded chapters, the media file, or the timestamps in the show
-    notes.
+    chapters. They come from the first place that has them: the chapters
+    file, the embedded chapters, the media file, or the timestamps in the
+    show notes.
   - :transcript is the reference that `view` chose, with its :document
     and :report.
   - :media is the :duration, :artwork and :report of the media file, as

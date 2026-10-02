@@ -32,7 +32,7 @@
 
 (defn- held
   "The `xml` in a form that can be read twice, first strictly and then for
-  the repairs, so on the JVM an InputStream becomes bytes and a Reader a
+  the repairs. On the JVM, an InputStream becomes bytes, and a Reader a
   string."
   [xml]
   #?(:clj  (cond
@@ -115,9 +115,9 @@
                 (into (vec (:podcast/report (meta tree))) (feed/report feed))))))
 
 (defn report
-  "The diagnostics of `feed`, or of a tree from parse-tree, each a map of
-  an :id, a :level and a :message, with details such as a :path into the
-  model."
+  "The diagnostics of `feed`, or of a tree from parse-tree. Each is a map
+  of an :id, a :level and a :message, with details such as a :path into
+  the model."
   [feed]
   (mapv diagnostics/describe (:podcast/report (meta feed))))
 
@@ -125,9 +125,11 @@
   "The XML document of `feed` in canonical form, with the `opts` of
   dk.simongray.podcast.feed/emit.
 
-  These are :registry, the tag registry to write it by, and :namespaces,
-  a map from alias to URI for the elements of namespaces that the feed
-  wasn't parsed with."
+  The `opts` are:
+
+  - :registry, the tag registry to write it by
+  - :namespaces, a map from alias to URI for the elements of namespaces
+    that the feed wasn't parsed with"
   ([feed]
    (emit feed {}))
   ([feed opts]
@@ -137,8 +139,8 @@
 #?(:clj
    (defn- page!
      "The page at `url` of a paged feed, fetched and parsed with `opts`, as
-     a map of its :url and :feed, or of its :url and the reason it couldn't
-     be read as the :failure."
+     a map of its :url and :feed. When the page can't be read, the reason
+     is the :failure instead of the :feed."
      [url opts]
      (try
        (let [{:keys [status body]} (http/fetch! url (select-keys opts [:credentials :timeout-seconds :max-bytes :user-agent :allow?]))]
@@ -150,9 +152,9 @@
 
 #?(:clj
    (defn- later-pages
-     "Up to `n` pages after `feed`, the page at `url`, which the URL `asked`
-     led to, each the next of the one before, fetched with `opts` until a
-     page repeats.
+     "Up to `n` pages after `feed`, the page at `url` that the URL `asked`
+     led to, fetched with `opts`. Each page is the next of the one before,
+     until a page repeats.
 
      The feed names its pages, so the :credentials in `opts` only go to
      pages at the origin of `asked`, since a redirect can move `url` to
@@ -171,8 +173,8 @@
 
 #?(:clj
    (defn ^:no-doc attempted
-     "The result of calling `f` as the :value, or when it throws, the
-     diagnostic `id` about `url`, with the reason, as the :error."
+     "The result of calling `f` as the :value. When it throws, the :error is
+     the diagnostic `id` about `url`, with the reason."
      [id url f]
      (try
        {:value (f)}
@@ -199,8 +201,8 @@
 #?(:clj
    (defn- read-answer
      "What fetch! gives for the 200 `response` to the request for `asked`,
-     parsed with `opts`: the body, the feed and its report, or an :error
-     for a body that isn't a feed."
+     parsed with `opts`. It's the body, the feed and its report, or an
+     :error for a body that isn't a feed."
      [asked {:keys [url body] :as response} opts]
      (let [{first-page :value error :error}
            (attempted :fetch/malformed url #(parse (str body) (select-keys opts [:quirks? :registry :except])))]

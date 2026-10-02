@@ -110,18 +110,20 @@
     library))
 
 (defn- fetch-result
-  "The result of a fetch that the `x` given to subscribe stands for: `x`
-  itself, or a map with `x` as the :feed for a parsed feed, whose keys are
-  namespaced."
+  "The result of a fetch that the `x` given to subscribe stands for. It's
+  `x` itself, or a map with `x` as the :feed when `x` is a parsed feed,
+  which has namespaced keys."
   [x]
   (if (some #(and (keyword? %) (namespace %)) (keys x))
     {:feed x}
     x))
 
 (defn subscribe
-  "The `library` subscribed at `now` to the feed at `url`, where `fetched` is
-  the result of dk.simongray.podcast/fetch! or a parsed feed, and `opts`
-  are the settings of the subscription, as player/configure takes them."
+  "The `library` subscribed at `now` to the feed at `url`, with what was
+  `fetched` and the settings in `opts`.
+
+  The `fetched` is the result of dk.simongray.podcast/fetch! or a parsed
+  feed, and the `opts` are as player/configure takes them."
   ([library url fetched now]
    (subscribe library url fetched now {}))
   ([library url fetched now opts]
@@ -219,8 +221,8 @@
 
 (defn- lists-refreshed!
   "The `library` with its lists that are due at `now` fetched with `opts`
-  and applied, as a map of the :library and the :report, in a future or a
-  promise."
+  and applied, in a future or a promise. The result is a map of the
+  :library and the :report."
   [library now opts]
   (let [due (for [[url entry] (:lists library)
                   :when (<= (inst-ms (:next-check entry)) (inst-ms now))]
@@ -262,10 +264,10 @@
 
 (defn- fetched-new!
   "The `library` with the feeds of new subscriptions fetched at `now` with
-  `opts` and added, as a map of the :library and the :report, in a future
-  or a promise.
+  `opts` and added, in a future or a promise.
 
-  A feed that couldn't be fetched is tried again next time."
+  The result is a map of the :library and the :report. A feed that
+  couldn't be fetched is tried again next time."
   [library now {:keys [fetch credentials-of] :as opts}]
   (let [common (select-keys opts [:timeout-seconds :max-bytes :user-agent :allow?])
         fetch1 (fn [[guid url]]
@@ -485,8 +487,8 @@
 
 (defn plan
   "The episodes to download and the files to delete at `now` on this
-  device with `files`, as downloads/plan gives them for the player state
-  and feeds of `library` and the `opts`."
+  device with `files`. It's what downloads/plan gives for the player state
+  and feeds of `library`, with the `opts`."
   ([library files now]
    (plan library files now {}))
   ([library files now opts]

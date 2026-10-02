@@ -28,12 +28,14 @@
     has one or `opts` give the :url of the feed
   - :notes, the description as Hiccup, and :text, as plain text
   - :episodes, the items in listening order, as resolve/episodes gives
-    them, and :seasons, as resolve/seasons gives them
+    them
+  - :seasons, as resolve/seasons gives them
   - :links, links to the show in other apps, as links/links gives them
 
-  The `opts` give the :url of the feed, for a feed that doesn't name its
-  own, and :except, a set of the keys above to leave out without
-  computing them."
+  The `opts` are:
+
+  - :url, the URL of the feed, for a feed that doesn't name its own
+  - :except, a set of the keys above to leave out without computing them"
   ([show]
    (view show {}))
   ([show {:keys [url except] :or {except #{}} :as opts}]
@@ -61,8 +63,8 @@
 
 (defn- known-show!
   "The remote `item` with its :show from the Podcast Index, asked with
-  `opts`, in a future or a promise, or the item as it is when the index
-  has no answer."
+  `opts`, in a future or a promise. Without an answer, it's the item as it
+  is."
   [item {:keys [index send now] :as opts}]
   (let [requests (podcastindex/remote-item-requests index item {:auth-date (quot (inst-ms (now)) 1000)})]
     (async/then (async/all (map #(http/sent! send % opts) requests))
