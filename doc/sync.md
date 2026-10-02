@@ -122,8 +122,10 @@ a set with tombstones for its removals, and the clock is a max register, so
 the state is their product and the merge is its join. When two entries have
 the same stamp, the device id decides, and then the printed entry, so every
 platform makes the same choice. Entries that an app adds to the state sync
-with no change to podcast-clj, as long as `player/write` stamps them. A
-value outside a stamped entry would never agree across devices, so the sync
+with no change to podcast-clj, as long as `player/write` stamps them. What
+another device or a service did at a time of its own goes in with
+`player/as-device`, which keeps a later entry, as a merge would. A value
+outside a stamped entry would never agree across devices, so the sync
 leaves out a document that holds one.
 
 ### Devices

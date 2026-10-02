@@ -50,6 +50,8 @@
     (gen/fmap (fn [[id d t]] #(:state (player/step % [:chapter id d {:chapters [{:start-time 0} {:start-time 90}]}] t)))
               (gen/tuple episode-ids (gen/elements [:next :previous]) instants))
     (gen/fmap (fn [[id t]] #(player/write % [:inbox id] (constantly {:removed? false}) t)) (gen/tuple episode-ids instants))
+    (gen/fmap (fn [[id p t]] #(player/as-device % "gpodder:x" (fn [s] (player/progress s id p 3600 t))))
+              (gen/tuple episode-ids (gen/choose 0 3600) instants))
     (gen/fmap (fn [[id t]] #(player/dismiss % id t)) (gen/tuple episode-ids instants))
     (gen/fmap (fn [[g f t]] #(player/configure % g {:folder f} t)) (gen/tuple feed-guids (gen/elements [nil "News"]) instants))
     (gen/fmap (fn [[f t]] #(player/rename-folder % f "Tech" t)) (gen/tuple (gen/elements [nil "News"]) instants))

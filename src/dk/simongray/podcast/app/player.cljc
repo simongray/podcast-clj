@@ -48,9 +48,43 @@
   [device]
   {:device device :subscriptions {} :episodes {} :queue {}})
 
+(def ^:no-doc header
+  "The keys of a state that hold no entries: its device and its clock."
+  #{:device :clock})
+
+(def ^:no-doc collections
+  "The collections of a state by key, each with the :depth of its entries,
+  e.g. 2 for bookmarks, which are by episode and second, and:
+
+  - :merge, how merge picks one of two entries: the later, or with
+    :higher, the higher of two counts that only grow
+  - :compact?, whether compact drops its tombstones
+  - :registry?, whether it describes the devices, which acknowledge
+    leaves out
+
+  The entries that an app adds merge by the later, and compact keeps them."
+  {:subscriptions {:depth 1 :compact? true}
+   :settings      {:depth 2}
+   :tags          {:depth 2 :compact? true}
+   :lists         {:depth 1 :compact? true}
+   :episodes      {:depth 1}
+   :played        {:depth 1}
+   :queue         {:depth 1 :compact? true}
+   :playlists     {:depth 2 :compact? true}
+   :inbox         {:depth 1 :compact? true}
+   :stars         {:depth 1 :compact? true}
+   :bookmarks     {:depth 2 :compact? true}
+   :clips         {:depth 2 :compact? true}
+   :ratings       {:depth 1 :compact? true}
+   :filters       {:depth 1 :compact? true}
+   :listened      {:depth 3 :merge :higher}
+   :preferences   {:depth 1}
+   :devices       {:depth 1 :registry? true}
+   :retired       {:depth 1}})
+
 (defn- stamp
   [state entry at]
-  (assoc entry :updated-at at :device (:device state)))
+  (assoc entry :updated-at at :device (or (::author state) (:device state))))
 
 (defn- stamped?
   [x]
@@ -75,14 +109,19 @@
       (time/->inst (inc (inst-ms clock)))
       (time/date now))))
 
+(declare later)
+
 (defn- write-each
   "The `state` with each path and function of `writes` applied at `at` as
   write applies one, all with the same stamp, which becomes the state's
-  clock. Within at-once, the stamp is that of at-once."
+  clock. Within at-once, the stamp is that of at-once. Within as-device,
+  it's `at` itself, and an entry that's later than the write stays."
   [state writes at]
-  (let [at (or (::at state) (after state at))]
-    (-> (reduce (fn [s [path f]] (update-in s path #(stamp state (f %) at))) state writes)
-        (assoc :clock at))))
+  (let [foreign? (contains? state ::author)
+        at       (if foreign? (time/date at) (or (::at state) (after state at)))
+        put      (fn [old new] (if foreign? (later old new) new))]
+    (-> (reduce (fn [s [path f]] (update-in s path #(put % (stamp state (f %) at)))) state writes)
+        (assoc :clock (later-inst (:clock state) at)))))
 
 (defn write
   "The `state` with the entry at `path` replaced by what `f` returns for
@@ -104,6 +143,18 @@
   (if (contains? state ::at)
     (f state)
     (dissoc (f (assoc state ::at (after state at))) ::at)))
+
+(defn as-device
+  "The `state` after `f`, with every write in `f` made as the device
+  `device` at the instants that `f` gives, as a merge of that device's
+  state would bring them.
+
+  The `f` takes the state. An entry of the state that's later than such a
+  write stays, and the clock moves to the write when that's later. This is
+  for what another device or a service did at a time of its own, e.g. the
+  episode actions of a gpodder server."
+  [state device f]
+  (dissoc (f (assoc state ::author device)) ::author))
 
 (defn episode-id
   "The id of `item` in the `feed` at `url`: [feed-guid item-guid]."
@@ -366,7 +417,7 @@
               (stamped? v) (update m (:device v) later-inst (:updated-at v))
               (map? v)     (reduce-kv (fn [m _ x] (walk m x)) m v)
               :else        m))]
-    (reduce-kv (fn [m k v] (if (#{:device :clock :devices} k) m (walk m v))) {} state)))
+    (reduce-kv (fn [m k v] (if (or (header k) (:registry? (collections k))) m (walk m v))) {} state)))
 
 (defn acknowledge
   "Note in the registry of `state` at `at` that this device has merged the
@@ -432,9 +483,9 @@
                             m))]
      (reduce (fn [s k] (if (map? (get s k)) (update s k sweep) s))
              state
-             (cond->> [:subscriptions :tags :lists :queue :playlists :inbox :stars :bookmarks :clips :ratings
-                       :filters]
-               follows? (remove #{:subscriptions}))))))
+             (for [[k {:keys [compact?]}] collections
+                   :when (and compact? (not (and follows? (= :subscriptions k))))]
+               k)))))
 
 (defn lagging
   "The live devices of `state` that haven't merged everything this one has,
@@ -1433,17 +1484,9 @@
   apply in any order and any number of times. Of two listening counts of
   one device, it keeps the higher."
   [a b]
-  (reduce (fn [m k] (assoc m k (join (if (= :listened k) higher later) (get a k) (get b k))))
+  (reduce (fn [m k] (assoc m k (join (if (= :higher (:merge (collections k))) higher later) (get a k) (get b k))))
           {:device (:device a)}
           (disj (into (set (keys a)) (keys b)) :device)))
-
-(def ^:no-doc collections
-  "The keys of a state that hold maps of entries, in the order problem
-  checks them. Each has the depth of its entries, e.g. 2 for bookmarks,
-  which are by episode and second."
-  [[:subscriptions 1] [:settings 2] [:tags 2] [:lists 1] [:episodes 1] [:played 1] [:queue 1]
-   [:playlists 2] [:inbox 1] [:stars 1] [:bookmarks 2] [:clips 2] [:ratings 1]
-   [:filters 1] [:listened 3] [:preferences 1] [:devices 1] [:retired 1]])
 
 (defn- clock-problem
   [state]
@@ -1465,7 +1508,7 @@
   "A description of the first collection of `state` that isn't a map, or
   of the first problem entry-problem finds in one."
   [state]
-  (some (fn [[k depth]]
+  (some (fn [[k {:keys [depth]}]]
           (when-some [entries (get state k)]
             (if (map? entries)
               (entry-problem [k] depth entries)
@@ -1568,7 +1611,7 @@
   "The checks of problem, in order. Each takes a state that is a map and
   returns a description of the first problem of its kind, or nil, and
   relies on the checks before it."
-  [clock-problem collection-problem #(value-problem [] (dissoc % :device :clock)) #(stamp-problem [] %)
+  [clock-problem collection-problem #(value-problem [] (apply dissoc % header)) #(stamp-problem [] %)
    rank-problem seen-problem key-problem mark-problem count-problem criteria-problem])
 
 (defn problem
@@ -1616,9 +1659,9 @@
   is what a sync pushes to a service that wants changes rather than the
   whole state."
   [state previous]
-  (into (select-keys state [:device :clock])
+  (into (select-keys state header)
         (keep (fn [[k v]]
-                (when-not (#{:device :clock} k)
+                (when-not (header k)
                   (when-some [w (changed-part v (get previous k))]
                     [k w]))))
         state))

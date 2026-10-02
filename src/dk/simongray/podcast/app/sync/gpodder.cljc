@@ -305,18 +305,6 @@
   [author]
   (str/replace-first (str author) #"^gpodder:" ""))
 
-(defn ^:no-doc written-by
-  "The result of `f` on `state`, written as the device `author` of a
-  gpodder server, under the name that writer gives it.
-
-  The stamps are the instants that `f` gives, and the result has the
-  device of `state` and the later of the two clocks."
-  [state author f]
-  (let [written (f (-> state (assoc :device (writer author)) (dissoc :clock)))
-        clocks  (keep :clock [state written])]
-    (cond-> (assoc written :device (:device state))
-      (seq clocks) (assoc :clock (apply max-key inst-ms clocks)))))
-
 (defn ^:no-doc apply-subscriptions
   "The `state` with the subscription `changes` that the device `author` made
   at `at`: the URLs to :add and to :remove, with their guids from `names`.
@@ -334,11 +322,11 @@
                             stamp (if known at (time/->inst 0))]
                         (cond-> s
                           (not (player/subscribed? s g))
-                          (written-by author #(player/subscribe % g show stamp)))))
+                          (player/as-device (writer author) #(player/subscribe % g show stamp)))))
         unsubscribe (fn [s url]
                       (let [g (guid-of url)]
                         (cond-> s
-                          (player/subscribed? s g) (written-by author #(player/unsubscribe % g at)))))]
+                          (player/subscribed? s g) (player/as-device (writer author) #(player/unsubscribe % g at)))))]
     (as-> state s
       (reduce subscribe s add)
       (reduce unsubscribe s remove))))
@@ -359,7 +347,7 @@
                 "new"  #(player/mark-unplayed % id timestamp)
                 nil)]
     (if (and act timestamp (< (or stamp 0) (inst-ms timestamp)))
-      (written-by state (or device author) act)
+      (player/as-device state (writer (or device author)) act)
       state)))
 
 (defn- told-at

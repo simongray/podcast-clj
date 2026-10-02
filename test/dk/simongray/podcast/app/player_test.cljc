@@ -848,6 +848,22 @@
         (is (= {} (player/devices (player/merge (player/identify merged {:name "Back"} t3) laptop)))
             "describing itself again does not undo it")))))
 
+(deftest writing-as-another-device
+  (let [s (-> (player/state "phone")
+              (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1)
+              (player/unsubscribe "feed-a" t3))]
+    (testing "a write at the other device's own time, under its name"
+      (let [w (player/as-device s "gpodder:x" #(player/subscribe % "feed-b" {:url "https://b/rss"} t2))]
+        (is (= {:updated-at t2 :device "gpodder:x"} (select-keys (get-in w [:subscriptions "feed-b"]) [:updated-at :device])))
+        (is (= "phone" (:device w)))
+        (is (= t3 (:clock w)) "the clock stays at the later instant")
+        (is (nil? (player/problem w)))))
+    (testing "an entry that's later than the write stays, as a merge keeps it"
+      (is (= s (player/as-device s "gpodder:x" #(player/subscribe % "feed-a" {:url "https://a/rss"} t2)))))
+    (testing "the same as a merge of the other device's state"
+      (is (= (player/episode (player/as-device s "laptop" #(player/progress % a 100 3600 t4)) a)
+             (player/episode (player/merge s (player/progress (player/state "laptop") a 100 3600 t4)) a))))))
+
 (deftest acknowledging-and-compacting
   (let [day    (* 24 60 60 1000)
         far    (time/->inst (+ (inst-ms t3) (* 31 day)))
