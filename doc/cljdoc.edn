@@ -4,7 +4,7 @@
                    ["Namespaces" {:file "doc/namespaces.md"}]
                    ["The feed model" {:file "doc/tags.md"}]
                    ["Diagnostics" {:file "doc/diagnostics.md"}]
-                   ["Sync stores and documents" {:file "doc/stores.md"}]
+                   ["Sync reference" {:file "doc/sync-reference.md"}]
                    ["Services and their defaults" {:file "doc/services.md"}]
                    ["Principles" {:file "doc/principles.md"}]
                    ["Architecture" {:file "doc/architecture.md"}]

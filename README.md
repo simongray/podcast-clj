@@ -132,7 +132,7 @@ Look up:
 - [Namespaces](doc/namespaces.md): a line for each namespace.
 - [The feed model](doc/tags.md): every element with its key and type.
 - [Diagnostics](doc/diagnostics.md): every diagnostic that a report can hold.
-- [Sync stores and documents](doc/stores.md): the store contract, the documents,
+- [Sync reference](doc/sync-reference.md): the store contract, the documents,
   and where the sync clients keep their folders.
 - [Services and their defaults](doc/services.md): what podcast-clj knows about each service.
 

@@ -587,7 +587,7 @@ this is safe.
 ```
 
 A store can be a WebDAV collection or a folder that a sync client such as
-Dropbox mirrors. [Sync stores and documents](stores.md) has the URLs and
+Dropbox mirrors. [Sync reference](sync-reference.md) has the URLs and
 paths of some providers. Sync when the app starts, when it goes to the
 background, and after a series of changes. A button in the settings
 screen can test a store with `store/check!`.
@@ -625,7 +625,7 @@ give `:api :nextcloud`:
 To serve a store from your own Clojure server, mount the Ring handler of
 `app.sync.webdav.server`, and for the gpodder API that of
 `app.sync.gpodder.server`. To sync through a service that has no store
-yet, write one: [Sync stores and documents](stores.md) gives the contract,
+yet, write one: [Sync reference](sync-reference.md) gives the contract,
 a map of two to four functions.
 
 

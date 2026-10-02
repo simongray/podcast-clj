@@ -1,7 +1,7 @@
 # Syncing
 
 This page explains how a listener's devices stay in step, and why it's
-safe. [Sync stores and documents](stores.md) has the contracts and the
+safe. [Sync reference](sync-reference.md) has the contracts and the
 formats, and [How to build a podcast
 app](building-an-app.md#sync-the-devices-of-a-listener) shows the calls.
 
@@ -232,7 +232,7 @@ keep it outside the state.
 
 ## The stores
 
-[Sync stores and documents](stores.md#the-stores-of-podcast-clj) lists the
+[Sync reference](sync-reference.md#the-stores-of-podcast-clj) lists the
 stores that come with podcast-clj: in memory, a folder, a WebDAV collection,
 and any of them encrypted. Any place that can hold one document per device,
 or one document with a version, can be a store without a change to
@@ -250,7 +250,7 @@ serves the API over a player state.
 Only subscriptions and episode actions cross. A played mark is sent as a
 play to the end, as AntennaPod writes it, and the action `new` marks an
 episode as unplayed. The queue, the settings, the stars and the rest stay
-in podcast-clj. [Sync stores and documents](stores.md#the-gpodder-backend)
+in podcast-clj. [Sync reference](sync-reference.md#the-gpodder-backend)
 has the full mapping.
 
 ### Pull and push

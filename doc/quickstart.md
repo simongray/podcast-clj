@@ -142,9 +142,9 @@ a store, and so is a WebDAV collection:
 The result under `:sync` has the cursors for the next sync, its report,
 and any backends that failed under `:failed`. The folder now holds one
 document for this device, and another device that syncs through the same
-folder gets the subscription and the queue. [Sync stores and
-documents](stores.md) lists where the common sync clients and WebDAV
-servers keep their folders.
+folder gets the subscription and the queue. [Sync
+reference](sync-reference.md) lists where the common sync clients and
+WebDAV servers keep their folders.
 
 ## What next
 
