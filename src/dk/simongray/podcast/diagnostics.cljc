@@ -1,20 +1,26 @@
 (ns dk.simongray.podcast.diagnostics
-  "Every diagnostic the library can put in a report, by id: its level and
-  what it means. Consumers match on these ids, so they are API; a test keeps
-  the catalogue and the source in step, and dev/reference.clj writes it out
-  as doc/diagnostics.md.
+  "Every diagnostic that the library can put in a report, by id, with its
+  level and what it means.
 
-  Ids are namespaced by the layer that raises them: `fetch` for the fetch
-  of a feed, `repair` for the text repairs of a malformed document, `xml`
-  for namespace resolution, `quirk`
-  for the normalizations of the tree, `feed` for the model, `transcript` and
-  `chapters` for the companion formats, `id3`, `mp3`, `mp4` and `file` for
-  the media files and images, `validate` for the validator, whose
-  diagnostics are about the feed rather than about reading it, `check` for
-  the checks over the network of what the feed links to, `sync` for a step
-  of keeping devices in step, `podping` for a poll of the Hive chain,
-  `comments` for the reading of a thread of comments, `value` for the
-  records of payments, and `analytics` for the list of user agents.")
+  The ids are API, since apps match on them. A test keeps the catalogue in
+  step with the source, and dev/reference.clj writes it out as
+  doc/diagnostics.md. The namespace of an id names what raises it:
+
+  - fetch, the fetch of a feed
+  - repair, the text repairs of a malformed document
+  - xml, the resolution of XML namespaces
+  - quirk, the normalizations of the tree
+  - feed, the model
+  - transcript and chapters, the companion formats
+  - id3, mp3, mp4 and file, media files and images
+  - validate, the validator, whose diagnostics are about the feed rather
+    than about reading it
+  - check, the checks over the network of what the feed links to
+  - sync, a sync step
+  - podping, a poll of the Hive chain
+  - comments, reading a thread of comments
+  - value, the records of payments
+  - analytics, the list of user agents")
 
 (def catalogue
   "The diagnostics, in the order they tend to arise."
@@ -414,12 +420,12 @@
   (into {} (map (juxt :id identity)) catalogue))
 
 (defn describe
-  "The `diagnostic` with a `:message` and a `:level`: its own when it has
-  them, else what the catalogue says of its id.
+  "The `diagnostic` with a :message and a :level: its own, or else those
+  that the catalogue gives for its id.
 
-  The parser records only the id, the level and the specifics of a
-  diagnostic, so every `report` function runs its diagnostics through
-  here. An id the catalogue does not know is left as it is."
+  The parser records only the id, the level and the details of a
+  diagnostic, so every report function runs its diagnostics through here.
+  An id that the catalogue doesn't know is left as it is."
   [diagnostic]
   (let [{:keys [doc level]} (by-id (:id diagnostic))]
     (cond-> diagnostic

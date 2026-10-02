@@ -1,24 +1,27 @@
 (ns dk.simongray.podcast.feed.schema
-  "The feed model as Malli schemas, generated from the tag registry so that
-  they can never drift from what `parse` produces and `emit` accepts.
+  "The feed model as Malli schemas, made from the tag registry so that they
+  never drift from what parse gives and emit takes.
 
-  The schemas are plain data in Malli's vector syntax and Malli itself is not
-  a dependency: hand `feed`, `item` or any tag's schema from `tag` to
-  `malli.core/schema` in your own project to validate, explain, generate or
-  coerce with it, and pass `:registry` in the options of `schemas`,
-  `feed-schema` and `tag` for a vocabulary extended with your own elements.
+  The schemas are plain data in the vector syntax of Malli, and Malli
+  itself isn't a dependency. In your own project, give a schema to
+  malli.core/schema, and validate, explain, generate or coerce with it:
 
       (m/validate schema/feed (podcast/parse xml))
 
-  The schemas describe the model when every value coerced, so validating a
-  parsed feed against them tells you where `parse` forgave a value and kept
-  it as a string. Enumerations are left as strings, since feeds vary their
-  case and the validator judges them case insensitively."
+  The schemas are feed and item, and what the function tag gives for any
+  element. For a vocabulary extended with your own elements, give a
+  :registry in the options of schemas, feed-schema and tag.
+
+  The schemas describe the model when every value coerced. Validating a
+  parsed feed against them tells you where parse forgave a value and kept
+  it as a string. Enumerations stay strings, since feeds vary their case,
+  and the validator ignores case when it judges them."
   (:require [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def types
-  "The Malli schema for each value type of the registry; strings otherwise."
+  "The Malli schema of each value type of the registry, which is a string
+  for any other type."
   {:integer  :int
    :decimal  'number?
    :boolean  :boolean
@@ -54,32 +57,32 @@
   (get types type :string))
 
 (defn ref-key
-  "The key an element's schema is registered under: its tag, namespaced
-  `rss` when the tag has no namespace, so that `:title` becomes `:rss/title`."
+  "The key that the schema of the element `tag` is registered under: the
+  tag, in the namespace rss when it has none, e.g. :rss/title for :title."
   [tag]
   (if (namespace tag)
     tag
     (keyword "rss" (name tag))))
 
 (def ^:no-doc unknown
-  "The schema of the Hiccup an element may keep for elements the registry
-  does not know; never generated."
+  "The schema of the Hiccup that an element can keep for elements that the
+  registry doesn't know, which is never generated."
   [:vector {:gen/max 0} :any])
 
 (def ^:no-doc generated-max
   "How many of a repeatable element a generated feed holds at most, so that
-  generation does not grow multiplicatively with Malli's size parameter;
-  validation ignores it."
+  generation doesn't grow multiplicatively with the size parameter of
+  Malli. Validation ignores it."
   5)
 
 (defn- attribute-entries
-  "The map entries for the declared attributes of `entry`."
+  "The map entries of the declared attributes of `entry`."
   [entry]
   (for [[k {:keys [type required]}] (:attrs entry)]
     [(xml/attr-key k) {:optional (not required)} (type-schema (or type :text))]))
 
 (defn- child-entries
-  "The map entries for the elements of `registry` that may appear in the
+  "The map entries of the elements of `registry` that can appear in the
   `context`."
   [registry context]
   (for [child (spec/entries-for registry context)
@@ -91,9 +94,9 @@
        schema)]))
 
 (defn ^:no-doc entry-schema
-  "The schema for one occurrence of the element `entry` of `registry`
-  describes: its coerced text when it is a scalar, otherwise a map of its
-  attributes, its `:content` and its children."
+  "The schema of one occurrence of the element `entry` of `registry`. It's
+  the coerced text of a scalar, or else a map of the attributes, the
+  :content and the children."
   [registry entry]
   (let [content (spec/content-type entry)]
     (if (spec/map-shaped? registry entry)
@@ -106,11 +109,12 @@
       (type-schema content))))
 
 (defn schemas
-  "Every element's schema by `ref-key`, plus `::feed` for the channel map
-  that `parse` returns, as a Malli registry, for the tag registry in `opts`
-  (`:registry`, default `spec/default`). Elements that appear under several
-  parents share one schema, since their attributes and children do not
-  depend on the parent."
+  "The schema of every element by ref-key, and ::feed for the channel map
+  that parse returns, as a Malli registry for the :registry of `opts`.
+
+  The tag registry is spec/default by default. Elements that appear under
+  several parents share one schema, since their attributes and children
+  don't depend on the parent."
   ([]
    (schemas {}))
   ([{:keys [registry] :or {registry spec/default} :as opts}]
@@ -123,26 +127,26 @@
                            (conj [:xml/unknown {:optional true} unknown])))))))
 
 (defn feed-schema
-  "The self-contained schema of a feed map, with `opts` as for `schemas`."
+  "The self-contained schema of a feed map, with the `opts` of schemas."
   ([]
    (feed-schema {}))
   ([opts]
    [:schema {:registry (schemas opts)} ::feed]))
 
 (defn tag
-  "The self-contained schema for the element tagged `k`, e.g. `(tag
-  :podcast/value)`, with `opts` as for `schemas`."
+  "The self-contained schema of the element tagged `k`, e.g.
+  (tag :podcast/value), with the `opts` of schemas."
   ([k]
    (tag k {}))
   ([k opts]
    [:schema {:registry (schemas opts)} (ref-key k)]))
 
 (def feed
-  "The schema of a feed map, self-contained."
+  "The self-contained schema of a feed map."
   (feed-schema))
 
 (def item
-  "The schema of an item map, self-contained."
+  "The self-contained schema of an item map."
   (tag :item))
 
 (comment

@@ -1,20 +1,25 @@
 (ns dk.simongray.podcast.feed.validate
-  "Registry-driven validation of a feed map.
+  "Validation of a feed map by the tag registry.
 
-  `validate` walks a feed with the tag registry, the library's or the one
-  its options name, and reports what the specifications say is wrong:
-  missing required attributes, values outside an enumeration, values that
-  would not coerce to their type, deprecated elements, structural rules such
-  as an alternate enclosure without a source, and elements the registry does
-  not know. A *profile* named in the options adds the required and
-  recommended elements of a directory or standard on top: `:psp-1` for the
-  Podcast Standards Project baseline, `:apple` for Apple Podcasts.
+  The function validate walks a feed with a tag registry, that of the
+  library unless the options give another. It reports what the
+  specifications say is wrong:
 
-  Diagnostics have the same shape as the parse report: `:id`, `:level`
-  (`:error`, `:warning` or `:info`), `:path` into the feed and `:message`.
-  Validation never throws on a value: a shape the element does not take
-  is a diagnostic like any other, and the shorthand `feed/normalize`
-  expands is taken first."
+  - a required attribute that's missing
+  - a value outside an enumeration, or one that doesn't coerce to its type
+  - a deprecated element
+  - a broken structure, e.g. an alternate enclosure without a source
+  - an element that the registry doesn't know
+
+  A profile in the options adds the required and recommended elements of a
+  directory or a standard. The profile :psp-1 is the baseline of the
+  Podcast Standards Project, and :apple is that of Apple Podcasts.
+
+  A diagnostic has the shape of those of the parse report: an :id, a
+  :level of :error, :warning or :info, a :path into the feed, and a
+  :message. Validation never throws on a value, since a shape that the
+  element doesn't take is a diagnostic like any other. The shorthand that
+  feed/normalize expands is taken first."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.coerce :as coerce]
@@ -32,9 +37,15 @@
     (boolean (some #(= v (str/lower-case %)) values))))
 
 (defn- typed-diagnostics
-  "Diagnostics for the value `v` of `type` at `path`: not of its type (see
-  `coerce/of-type?`), a negative number, outside the enumeration `values`,
-  or an http URL where https is expected."
+  "The diagnostics of the value `v` of `type` at `path`, by the enumeration
+  `values` and whether `https?` is expected.
+
+  There's one for each of these:
+
+  - a value that isn't of its type, as coerce/of-type? says
+  - a negative number
+  - a value outside the enumeration
+  - an http URL where https is expected"
   [type values v path https?]
   (cond
     (and (contains? coerce/coerced-types type) (not (coerce/of-type? type v)))
@@ -60,7 +71,8 @@
     []))
 
 (defn- attr-diagnostics
-  "Diagnostics for the attributes of the map value `m` of `entry`."
+  "The diagnostics of the attributes of the map value `m` of `entry` at
+  `path`."
   [entry m path]
   (let [https? (= "podcast" (namespace (:tag entry)))]
     (mapcat (fn [[k {:keys [type required values]}]]
@@ -81,7 +93,8 @@
   (count (get m k)))
 
 (def structural-rules
-  "Checks per tag on the model value of an element, each returning diagnostics."
+  "Checks by tag of the model value of an element, each a function of the
+  value and its path that returns diagnostics."
   {:podcast/alternateEnclosure
    (fn [v path]
      (when (zero? (count-children v :sources))
@@ -139,12 +152,14 @@
 (declare children-diagnostics)
 
 (defn- unknown-key-diagnostics
-  "Diagnostics for the keys of the model map `m` that `registry` defines
-  neither as a child in the `context` nor as an attribute of `entry`, nil
-  for the channel: typos such as :rss/titel. On the channel, where a parse
-  keeps no attributes, every such key counts; elsewhere only one in a
-  namespace of the library, since any other can be an attribute that a
-  parse kept."
+  "The diagnostics of the keys of the model map `m` at `path` that
+  `registry` doesn't define, as a child in the `context` or as an
+  attribute of `entry`. The `entry` is nil for the channel.
+
+  They catch typos such as :rss/titel. On the channel, where a parse keeps
+  no attributes, every such key counts. Elsewhere, only a key in a
+  namespace of the library counts, since any other can be an attribute
+  that a parse kept."
   [registry context entry m path]
   (let [known (cond-> (into #{:content :xml/unknown}
                             (concat (map #(spec/key-for % context) (spec/entries-for registry context))
@@ -171,9 +186,9 @@
         :else           (pr-str v)))
 
 (defn- value-diagnostics
-  "Diagnostics for the model value `v` of `entry` in `registry`: the shape
-  the element does not take, or else its attributes, content, children
-  and structure."
+  "The diagnostics of the model value `v` of `entry` in `registry` at
+  `path`. They're of a shape that the element doesn't take, or else of its
+  attributes, content, children and structure."
   [registry entry v path]
   (let [structural  (get structural-rules (:tag entry))
         map-shaped? (spec/map-shaped? registry entry)]
@@ -207,9 +222,9 @@
        (keyword? d) (assoc :replaced-by d))]))
 
 (defn- children-diagnostics
-  "Diagnostics for every entry of `registry` present in the model map `m` of
-  an element in the `parent` context, and for its unknown elements. A nil
-  value is no value, as it is to `emit`."
+  "The diagnostics of every entry of `registry` in the model map `m` at
+  `path` of an element in the `parent` context, and of its unknown
+  elements. A nil value is no value, as it is to emit."
   [registry parent m path]
   (concat
    (for [entry (spec/entries-for registry parent)
@@ -247,13 +262,14 @@
               "the item has no enclosure, so there is nothing to play"))))
 
 (def profiles
-  "Required and recommended elements per profile, at channel and item level.
-  A requirement is a model key, or a vector of a key and a predicate on its
-  value with a description.
+  "The required and recommended elements of each profile, for the channel
+  and for an item.
 
-  They are the requirements of PSP-1 and of A Podcaster's Guide to RSS of
-  Apple, as of September 2026. `validate` takes a profile by its name
-  here, or as a map of requirements of this shape."
+  A requirement is a model key, or a vector of a key, a predicate of its
+  value, and a description. They're the requirements of PSP-1, and of
+  Apple's A Podcaster's Guide to RSS, as of September 2026. The function
+  validate takes a profile by its name here, or as a map of requirements
+  of this shape."
   {:psp-1 {:name    "Podcast Standards Project PSP-1"
            :channel {:required    [[:atom/links #(some (comp #{"self"} :rel) %) "atom:link rel=self"]
                                    :rss/title :rss/description :rss/link :rss/language
@@ -291,16 +307,15 @@
              (map-indexed vector (:rss/items feed))))))
 
 (defn validate
-  "The diagnostics for `feed`: the checks of the registry, the basics of
-  RSS 2.0 and, with a `:profile` in `opts`, the requirements of that
-  profile.
+  "The diagnostics of `feed` with the `opts` below: the checks of the
+  registry, the basics of RSS 2.0, and the requirements of a profile.
 
-  `:registry` is the tag registry to check against, `spec/default` by
-  default. The feed is normalized first, so the shorthand that `emit`
-  takes passes here too.
+  - :registry, the tag registry to check against, spec/default by default
+  - :profile, a name in profiles, or a map of requirements of the shape of
+    its entries
 
-  The `:profile` is a name in `profiles`, or a map of requirements of the
-  shape of its entries."
+  The feed is normalized first, so the shorthand that emit takes passes
+  here too."
   ([feed]
    (validate feed {}))
   ([feed {:keys [profile registry] :or {registry spec/default} :as opts}]
@@ -316,8 +331,8 @@
                     (profile-diagnostics feed profile)))))))
 
 (defn valid?
-  "Whether `validate` finds no errors in `feed`, with `opts` as for
-  `validate`."
+  "Whether validate finds no errors in `feed`, with the `opts` of
+  validate."
   ([feed]
    (valid? feed {}))
   ([feed opts]

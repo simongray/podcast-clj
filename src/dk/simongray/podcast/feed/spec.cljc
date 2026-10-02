@@ -1,68 +1,68 @@
 (ns dk.simongray.podcast.feed.spec
-  "The vocabulary: every element the library understands, as data.
+  "The vocabulary of the library as data: every element that it
+  understands.
 
-  Each entry in `tags` describes one XML element, what the model calls it,
-  where it may appear, how often, and how its attributes and text are typed.
-  The parser, the emitter and the validator are interpreters of this data, so
-  adding a tag or an attribute is a data change here and nowhere else.
+  Each entry of tags describes one XML element: what the model calls it,
+  where it can appear, how often, and the types of its attributes and
+  text. The parser, the emitter and the validator interpret this data, so
+  adding a tag or an attribute is a change to the data here and nowhere
+  else. The keys of an entry are:
 
-  Entry keys:
+  - :tag, the XML name, namespaced by alias, e.g. :podcast/transcript or
+    :title
+  - :key, the key in the model, or a map from parent to key when the
+    element has another name under another parent
+  - :parent, where it can appear: :channel, :item, which covers
+    podcast:liveItem too, or the tag of its parent element
+  - :count, :one or :many, or a map from parent to either
+  - :attrs, the specified attributes by XML name, each with an optional
+    :type from dk.simongray.podcast.feed.coerce/types, :required, and
+    :values for an :enum
+  - :content, the type of the node text, :none when the element has none,
+    or :presence for an empty element that's true when it's there
+  - :values, the allowed values of the node text of an enumeration
+  - :deprecated, true, or the tag that replaces it
+  - :children-as, the context to look up the children of the element in,
+    when it borrows those of another element, as liveItem does with item
+  - :doc, one line from the specification
 
-    :tag      the XML name, namespaced by alias: :podcast/transcript, :title
-    :key      the key in the model, or a map from parent to key when the
-              same element is called something else under different parents
-    :parent   where it may appear: :channel, :item (which covers
-              podcast:liveItem too) or the tag of its parent element
-    :count    :one or :many, or a map from parent to either
-    :attrs    the specified attributes by XML name, each with an optional
-              :type (see dk.simongray.podcast.feed.coerce/types), :required and,
-              for :enum, :values
-    :content  the type of the node text, :none when the element has none,
-              and :presence for an empty element that is true when it is
-              there
-    :values   the permitted node-text values of an enumeration
-    :deprecated  true, or the tag that replaces it
-    :children-as the context to look the element's children up under, when
-              it borrows another element's (liveItem takes item's)
-    :doc      one line from the specification
-
-  `tags` is the library's vocabulary; `registry` indexes it, or it plus a
-  client's own entries, into the value every interpreter takes under
-  `:registry` in its options, and `default` is `tags` indexed.")
+  The function registry indexes tags, or tags and an app's own entries,
+  into the value that every interpreter takes as the :registry of its
+  options. The registry default is tags indexed.")
 
 (def mediums
-  "Values of podcast:medium, without the list variants."
+  "The values of podcast:medium, without the list variants."
   #{"podcast" "music" "video" "film" "audiobook" "newsletter" "blog"
     "publisher" "course"})
 
 (def list-mediums
-  "The list variants of `mediums`, plus the mixed list."
+  "The list variants of mediums, and the mixed list."
   (into #{"mixed"} (map #(str % "L")) mediums))
 
 ;; socialprotocols.txt of the podcast namespace, as of 2026-09-30
 (def social-protocols
-  "The protocols podcast:socialInteract may name."
+  "The protocols that podcast:socialInteract can name."
   #{"disabled" "activitypub" "twitter" "lightning" "atproto" "hive" "matrix" "nostr"})
 
 (def chat-protocols
-  "The protocols podcast:chat may name."
+  "The protocols that podcast:chat can name."
   #{"irc" "xmpp" "nostr" "matrix"})
 
 (def value-types
-  "The payment networks a podcast:value block may name."
+  "The payment networks that a podcast:value block can name."
   #{"lightning" "bitcoin"})
 
 (def value-methods
-  "The payment methods a podcast:value block may name."
+  "The payment methods that a podcast:value block can name."
   #{"keysend" "amp" "lnaddress" "default"})
 
 (def recipient-types
-  "The kinds of address a podcast:valueRecipient may have."
+  "The kinds of address that a podcast:valueRecipient can have."
   #{"node" "lnaddress" "wallet"})
 
 ;; serviceslugs.txt of the podcast namespace, as of 2026-09-30
 (def service-slugs
-  "Platform slugs used by podcast:block."
+  "The platform slugs of podcast:block."
   #{"acast" "amazon" "anchor" "apple" "audible" "audioboom" "backtracks"
     "bitcoin" "blubrry" "buzzsprout" "captivate" "castos" "castopod" "facebook"
     "fireside" "fyyd" "google" "gpodder" "hypercatcher" "kasts" "libsyn"
@@ -74,14 +74,15 @@
     "tiktok" "transistor" "twitter" "whooshkaa" "youtube" "zencast"})
 
 (def transcript-types
-  "Mime types the transcript specification names, with the variants in use."
+  "The MIME types that the transcript specification names, and the
+  variants in use."
   #{"text/plain" "text/html" "text/vtt" "application/json" "application/x-subrip"
     "application/srt" "text/srt"})
 
 ;; taxonomy.json of the podcast namespace, as of 2026-09-30
 (def taxonomy
-  "The Podcast Taxonomy Project's groups and the roles in each, lower-cased,
-  which podcast:person draws from."
+  "The groups of the Podcast Taxonomy Project and the roles in each, in
+  lower case, which podcast:person draws from."
   {"creative direction"    ["director" "assistant director" "executive producer"
                             "senior producer" "producer" "associate producer"
                             "development producer" "creative director"]
@@ -110,7 +111,7 @@
    "video post-production" ["editor" "assistant editor"]})
 
 (def roles
-  "Every role in `taxonomy`."
+  "Every role in taxonomy."
   (into #{} (mapcat val) taxonomy))
 
 (def ^:no-doc url
@@ -138,7 +139,7 @@
   {:type :boolean})
 
 (def tags
-  "Every element the library understands, in emit order."
+  "Every element that the library understands, in the order of emit."
   [;; RSS 2.0, channel
    {:tag :title :key :rss/title :parent #{:channel :item} :count :one
     :doc "The name of the channel or item."}
@@ -563,12 +564,14 @@
     :doc "An episode."}])
 
 (defn registry
-  "The tag `entries` indexed for the interpreters, which take the result
-  under `:registry` in their options: `{:entries :by-tag :by-parent
-  :containers}`. A registry already indexed comes back as it is. Every
-  entry needs a `:tag`, a `:key`, a set of `:parent`s and a `:count`;
-  anything less throws. A client extends the library's vocabulary by
-  indexing `tags` plus its own entries:
+  "The tag `entries` indexed for the interpreters, which take the result as
+  the :registry of their options.
+
+  The index is a map of :entries, :by-tag, :by-parent and :containers, and
+  a registry that's already indexed comes back as it is. Every entry needs
+  a :tag, a :key, a set of :parent and a :count, or this throws. An app
+  extends the vocabulary of the library by indexing tags with its own
+  entries:
 
       (registry (conj tags {:tag :acme/rating :key :acme/rating
                             :parent #{:channel} :count :one}))"
@@ -593,18 +596,19 @@
        :containers (into #{} (mapcat :parent) entries)})))
 
 (def default
-  "The registry of `tags`: what every interpreter reads unless its options
-  name another."
+  "The registry of tags, which every interpreter reads unless its options
+  give another."
   (registry tags))
 
 (defn entry
-  "The entry of `registry` for `tag` under `parent`, nil when none applies."
+  "The entry of `registry` for `tag` under `parent`, or nil when none
+  applies."
   [registry tag parent]
   (some #(when (contains? (:parent %) parent) %) (get (:by-tag registry) tag)))
 
 (defn entries-for
-  "The entries of `registry` that may appear directly under `parent`, in
-  emit order."
+  "The entries of `registry` that can appear right under `parent`, in the
+  order of emit."
   [registry parent]
   (get (:by-parent registry) parent []))
 
@@ -625,8 +629,9 @@
   (by-parent (:count entry) parent))
 
 (defn children-context
-  "The parent context the children of `entry` are looked up under: its tag,
-  unless the entry borrows another element's children, as liveItem does."
+  "The parent context that the children of `entry` are looked up in: its
+  tag, unless the entry borrows the children of another element, as
+  liveItem does."
   [entry]
   (or (:children-as entry) (:tag entry)))
 
@@ -637,14 +642,15 @@
   (contains? (:containers registry) (children-context entry)))
 
 (defn map-shaped?
-  "Whether the value of `entry` is a map in `registry`, because it has
+  "Whether the value of `entry` in `registry` is a map, since it has
   attributes or child entries, rather than its coerced text alone."
   [registry entry]
   (boolean (or (seq (:attrs entry))
                (container? registry entry))))
 
 (defn content-type
-  "The value type of the node text of `entry`; :text when unspecified."
+  "The value type of the node text of `entry`, or :text when none is
+  given."
   [entry]
   (get entry :content :text))
 

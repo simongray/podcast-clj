@@ -1,8 +1,10 @@
 (ns dk.simongray.podcast.feed.coerce
-  "Coercion between the strings in a feed and the values in the model, by the
-  value types the tag registry uses. `parse` never throws: a string that does
-  not read as its type comes back as `::invalid`, and `format` turns a model
-  value back into its canonical string."
+  "Coercion between the strings of a feed and the values of the model, by
+  the value types of the tag registry.
+
+  The function parse never throws: a string that doesn't read as its type
+  comes back as ::invalid. The function format turns a model value back
+  into its canonical string."
   (:refer-clojure :exclude [format])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.time :as time]
@@ -10,14 +12,14 @@
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def coerced-types
-  "The value types whose model values are not strings, so that a string
-  where one is expected means the value did not coerce."
+  "The value types whose model values aren't strings, so that a string
+  where one is expected means that the value didn't coerce."
   #{:integer :decimal :boolean :yes-no :presence :rfc2822 :iso8601 :duration :rrule :geo :osm})
 
 (def types
-  "The value types a registry entry may give an attribute or node text:
-  `coerced-types` and the types that stay strings but tell the validator
-  what to check."
+  "The value types that a registry entry can give an attribute or node
+  text: coerced-types, and the types that stay strings but tell the
+  validator what to check."
   (into #{:text :html :url :email :mime :language :enum} coerced-types))
 
 (defn- read-boolean
@@ -35,8 +37,8 @@
     ::invalid))
 
 (defn- read-integer
-  "The whole number written as `s`, when both platforms hold it exactly; a
-  larger one does not read, on the JVM either, so that the two agree."
+  "The whole number written as `s`, when both platforms hold it exactly. A
+  larger one doesn't read, on the JVM either, so that the two agree."
   [s]
   (let [n (when (re-matches #"[+-]?\d+" s) (parse-long s))]
     (if (and n (<= (abs n) time/max-whole))
@@ -44,8 +46,8 @@
       ::invalid)))
 
 (defn- read-decimal
-  "The number written as `s`, a whole one too large for `read-integer` as a
-  double; one too large for a double does not read."
+  "The number written as `s`, with a whole one too large for read-integer
+  as a double. One too large for a double doesn't read."
   [s]
   (let [n (cond
             (re-matches #"[+-]?\d+" s)                       (let [n (read-integer s)]
@@ -56,9 +58,11 @@
       ::invalid)))
 
 (defn- read-geo
-  "A geo URI (RFC 5870, section 3.3),
-  \"geo:30.2672,-97.7431[,altitude][;u=uncertainty]\", as a map; nil when a
-  part does not read."
+  "The geo URI `s` (RFC 5870, section 3.3) as a map, or nil when a part
+  doesn't read.
+
+  A geo URI looks like \"geo:30.2672,-97.7431\", with an optional altitude
+  after another comma and an uncertainty after ;u=."
   [s]
   (when-let [[_ lat lon alt u] (re-matches #"(?i)\s*geo:([+-]?\d+(?:\.\d+)?),\s*([+-]?\d+(?:\.\d+)?)(?:,\s*([+-]?\d+(?:\.\d+)?))?(?:;u=(\d+(?:\.\d+)?))?\s*"
                                            (str s))]
@@ -69,9 +73,9 @@
         m))))
 
 (defn- read-osm
-  "The osm of a podcast:location, \"R113314\" or \"W5013364#3\", as a map; nil
-  when a number in it does not read or is 0, which OpenStreetMap never
-  gives."
+  "The osm `s` of a podcast:location, e.g. \"R113314\" or \"W5013364#3\", as a
+  map. It's nil when a number in it doesn't read or is 0, which
+  OpenStreetMap never gives."
   [s]
   (when-let [[_ type id revision] (re-matches #"\s*([NWR])(\d+)(?:#(\d+))?\s*" (str s))]
     (let [m (cond-> {:type type :id (read-integer id)}
@@ -84,12 +88,13 @@
   (if (nil? x) ::invalid x))
 
 (defn parse
-  "Read the string `s` as a value of `type`; `::invalid` when it cannot be.
-  The white space around `s` goes first, no-break spaces included, which
-  the JVM would otherwise keep and JavaScript not.
+  "Read the string `s` as a value of `type`, or as ::invalid when it can't
+  be read.
 
-  An element of the type :presence has no text. It is true because it is
-  there, whatever `s` is."
+  The whitespace around `s` goes first, no-break spaces included, which
+  the JVM would otherwise keep and JavaScript not. An element of the type
+  :presence has no text, and it's true because it's there, whatever `s`
+  is."
   [type s]
   (let [s (xml/trim s)]
     (case type
@@ -107,7 +112,7 @@
       s)))
 
 (defn invalid?
-  "Whether `x` is the marker `parse` returns for an unreadable value."
+  "Whether `x` is the marker that parse returns for an unreadable value."
   [x]
   (= x ::invalid))
 
@@ -116,12 +121,17 @@
   (and (number? n) (== n n) (not (infinite? n))))
 
 (defn of-type?
-  "Whether `v` is a model value of `type`, of the kind `parse` makes of a
-  string that reads: a whole number both platforms hold exactly, a finite
-  number, a boolean, an instant, the map of a rule, a geo URI or an OSM
-  reference, and for the types that stay strings, a string. The value of
-  the type :presence is true, and a feed without the element has no value
-  for it."
+  "Whether `v` is a model value of `type`, of the kind that parse makes of
+  a string that reads. By type, that's:
+
+  - :integer, a whole number that both platforms hold exactly
+  - :decimal and :duration, a finite number
+  - :boolean and :yes-no, a boolean
+  - :presence, true, since a feed without the element has no value for it
+  - :rfc2822 and :iso8601, an instant
+  - :rrule, the map of a rule
+  - :geo and :osm, the map of a geo URI or an OSM reference
+  - any other type, a string"
   [type v]
   (case type
     :integer             (and (integer? v) (<= (abs v) time/max-whole))
@@ -135,8 +145,8 @@
     (string? v)))
 
 (defn plain-decimal
-  "Write the number `n` without an exponent, as XML consumers expect:
-  5.0E-8 becomes \"0.00000005\". A number that is not finite is written as
+  "The number `n` written without an exponent, as XML consumers expect,
+  e.g. 5.0E-8 as \"0.00000005\". A number that isn't finite is written as
   Clojure prints it."
   [n]
   (cond
@@ -167,9 +177,11 @@
   (str type id (when (some? revision) (str "#" revision))))
 
 (defn format
-  "Write the model value `v` of `type` in its canonical string form. A value
-  that is not of its type, which `validate` reports, is written as it is,
-  a keyword by its name, so that `:no` for a boolean stays no."
+  "The model value `v` of `type`, written in its canonical string form.
+
+  A value that isn't of its type, which validate reports, is written as it
+  is. A keyword is written by its name, so that :no for a boolean stays
+  no."
   [type v]
   (if-not (of-type? type v)
     (if (keyword? v) (name v) (str v))

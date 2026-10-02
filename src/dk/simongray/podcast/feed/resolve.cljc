@@ -1,9 +1,11 @@
 (ns dk.simongray.podcast.feed.resolve
-  "One answer where the vocabularies give several: the accessors a podcast
-  client needs, each reading plain keys off a feed or an item (`x`). The
-  two-argument forms take the `feed` and an `item` and let the item override
-  or inherit what the channel declares. `properties` gathers every answer
-  into one map and `sources` says which fields gave them."
+  "One answer where the vocabularies give several: the accessors that a
+  podcast app needs.
+
+  Each reads plain keys of a feed or an item. A form with two arguments
+  takes the feed and an item, and the item overrides or inherits what the
+  channel declares. The function properties gathers every answer into one
+  map, and sources says which fields gave them."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.util.time :as time]
@@ -11,13 +13,13 @@
             [dk.simongray.podcast.value :as value]))
 
 (defn title
-  "The title of `x`: the RSS title, or the iTunes one when only that exists."
+  "The title of `x`: the RSS title, or else the iTunes one."
   [x]
   (or (:rss/title x) (:itunes/title x)))
 
 (defn description
   "The fullest description of `x`, HTML allowed: content:encoded, then the
-  RSS description, then the iTunes or Google Play summary."
+  RSS description, then the summary of iTunes or Google Play."
   [x]
   (or (:content/encoded x)
       (:rss/description x)
@@ -25,9 +27,12 @@
       (:googleplay/description x)))
 
 (defn- email-name
-  "The name in an RSS email field written as \"address (Name)\", else `s`.
-  The field is cut at its first parenthesis rather than matched whole: one
-  pattern for all of it backtracks quadratically over a long address."
+  "The name in the RSS email field `s`, written as \"address (Name)\", or
+  else `s`.
+
+  The field is cut at its first parenthesis rather than matched whole,
+  since one pattern for all of it backtracks quadratically over a long
+  address."
   [s]
   (let [t    (str/trim (str s))
         open (str/index-of t "(")
@@ -40,9 +45,10 @@
       s)))
 
 (defn author
-  "Who made `x`: the iTunes author, the Dublin Core creator, the Google Play
-  author, or the RSS author or managing editor, with the name picked out of
-  an \"address (Name)\" field."
+  "Who made `x`, with the name picked out of an \"address (Name)\" field.
+
+  It's the iTunes author, the Dublin Core creator, the Google Play author,
+  or else the RSS author or managing editor."
   [x]
   (some-> (or (:itunes/author x)
               (:dc/creator x)
@@ -52,7 +58,7 @@
           email-name))
 
 (defn link
-  "The web page for `x`: its link, or its guid when that is a permalink."
+  "The web page of `x`: its link, or its guid when that's a permalink."
   [x]
   (or (:rss/link x)
       (let [{:keys [content is-perma-link]} (:rss/guid x)]
@@ -61,22 +67,25 @@
           content))))
 
 (defn published
-  "When `x` was published, as an instant; nil when it gave no readable date."
+  "When `x` was published, as an instant, or nil when it gave no readable
+  date."
   [x]
   (let [d (:rss/pub-date x)]
     (when (inst? d) d)))
 
 (defn- purposes
-  "The purpose tokens of the podcast:image `image`, lower-cased."
+  "The purpose tokens of the podcast:image `image`, in lower case."
   [image]
   (into #{} (comp (map str/lower-case) (remove str/blank?))
         (str/split (str (:purpose image)) #"\s+")))
 
 (defn images
-  "Every image `x` offers, newest vocabulary first: maps with `:href`,
-  `:source` (:podcast, :itunes, :googleplay, :rss or :media), `:purpose` (a
-  set of tokens, empty when none is declared) for a podcast:image, and
-  `:width`, `:height`, `:aspect-ratio` and `:alt` when declared."
+  "Every image that `x` offers, the newest vocabulary first.
+
+  Each is a map with the :href and the :source, one of :podcast, :itunes,
+  :googleplay, :rss and :media. A podcast:image also has its :purpose, a
+  set of tokens, which is empty when none is declared. The :width,
+  :height, :aspect-ratio and :alt are there when declared."
   [x]
   (concat
    (for [{:keys [href width height aspect-ratio alt] :as image} (:podcast/images x)
@@ -100,23 +109,25 @@
 
 (defn- square?
   "Whether `image` is square, or says nothing about its shape."
-  [{:keys [aspect-ratio width height]}]
+  [{:keys [aspect-ratio width height] :as image}]
   (cond
     aspect-ratio       (contains? #{"1/1" "1" "1:1"} (str/replace aspect-ratio #"\s" ""))
     (and width height) (= width height)
     :else              true))
 
 (defn- artwork?
-  "Whether the podcast:image `image` is meant as artwork: said so, or has no
-  stated purpose and is not another shape."
+  "Whether the podcast:image `image` is meant as artwork: it says so, or it
+  has no stated purpose and isn't another shape."
   [image]
   (or (contains? (:purpose image) "artwork")
       (and (empty? (:purpose image)) (square? image))))
 
 (defn artwork
-  "The URL of the square artwork for `x`: the largest podcast:image meant as
-  artwork, else the iTunes image, the Google Play image, the RSS image or a
-  media thumbnail. With `feed` and `item`, the item's own or else the feed's."
+  "The URL of the square artwork of `x`, or of an `item` of `feed`, with
+  the item's own before the feed's.
+
+  It's the largest podcast:image meant as artwork, or else the iTunes
+  image, the Google Play image, the RSS image or a media thumbnail."
   ([x]
    (let [candidates (images x)
          artworks   (filter #(and (= :podcast (:source %)) (artwork? %)) candidates)
@@ -127,9 +138,11 @@
    (or (artwork item) (artwork feed))))
 
 (defn explicit?
-  "Whether `x` is marked explicit: the iTunes flag, else Google Play's
-  yes/no/clean; nil when unstated. With `feed` and `item`, the item's flag
-  or, when it has none, the feed's."
+  "Whether `x`, or an `item` of `feed`, is marked explicit, or nil when
+  that's unstated.
+
+  The iTunes flag comes first, and then the yes, no or clean of Google
+  Play. An item without a flag has that of its feed."
   ([x]
    (let [flag (:itunes/explicit x)]
      (if (boolean? flag)
@@ -143,13 +156,13 @@
      (if (some? flag) flag (explicit? feed)))))
 
 (defn txt
-  "The free-form texts of `x` by purpose, from podcast:txt, as `{purpose
-  [text ...]}`.
+  "The free-form texts of `x` by purpose, from podcast:txt, e.g.:
+
+      {\"applepodcastsverify\" [\"05124\"] nil [\"abc\"]}
 
   Each purpose is in lower case, and the texts that name no purpose are
-  under nil. An example is `{\"applepodcastsverify\" [\"05124\"] nil
-  [\"abc\"]}`. An item does not inherit the texts of its feed, except
-  through `ai-content?`."
+  under nil. An item doesn't inherit the texts of its feed, except through
+  ai-content?."
   [x]
   (let [texts (filter #(let [s (:content %)] (and (string? s) (not (str/blank? s))))
                       (:podcast/txt x))]
@@ -157,11 +170,11 @@
                  #(mapv :content %))))
 
 (defn ai-content?
-  "Whether AI-generated content went into `x`, as its podcast:txt with the
-  purpose ai-content tells. Nil when it does not tell.
+  "Whether AI-generated content went into `x`, or an `item` of `feed`, by
+  its podcast:txt with the purpose ai-content. It's nil when that doesn't
+  tell.
 
-  With `feed` and `item`, the answer is that of the item. When the item
-  has none, it is that of the feed, as for `explicit?`."
+  An item without an answer has that of its feed, as for explicit?."
   ([x]
    (case (some-> (first (get (txt x) "ai-content")) str/lower-case)
      "true"  true
@@ -178,7 +191,7 @@
 
 (defn duration
   "The duration of `item` in seconds, from iTunes or Media RSS, in the item
-  or its media:group; nil when neither gives a number."
+  or its media:group, or nil when neither gives a number."
   [item]
   (let [d (:itunes/duration item)]
     (if (number? d)
@@ -188,9 +201,13 @@
 
 (defn numbering
   "The season and episode of `item`, from the podcast namespace first and
-  iTunes second: `{:type \"full\" :season 2 :season-name \"…\" :episode 3
-  :episode-display \"Ch.3\"}`, with `:type` always and the rest as declared.
-  A number that did not read in one namespace leaves the other to answer."
+  iTunes second, e.g.:
+
+      {:type \"full\" :season 2 :season-name \"…\" :episode 3
+       :episode-display \"Ch.3\"}
+
+  The :type is always there, and the rest as declared. A number that
+  didn't read in one namespace leaves the other to answer."
   [item]
   (let [season  (:podcast/season item)
         episode (:podcast/episode item)
@@ -207,10 +224,12 @@
 
   The enclosure comes first, then each source of an alternateEnclosure,
   then the Media RSS contents of the item and of its media:group. Each is
-  a map with `:url` and `:source`, which is :enclosure, :alternate or
-  :media. It has what else the feed declares: `:type`, `:length`,
-  `:bitrate`, `:title`, `:default`, and the `:integrity` of an alternate.
-  dk.simongray.podcast.format.media/verify! checks the integrity."
+  a map with the :url and the :source, which is :enclosure, :alternate or
+  :media.
+
+  It has what else the feed declares, e.g. the :type, :length, :bitrate,
+  :title and :default. An alternate also has its :integrity, which
+  dk.simongray.podcast.format.media/verify! checks."
   [item]
   (concat
    (when-let [{:keys [url] :as enclosure} (:rss/enclosure item)]
@@ -229,29 +248,33 @@
        file-size (assoc :length file-size)))))
 
 (defn- type-rank
-  "The position of `type` among the preferred `types`, case ignored; after
-  them all when it is not among them."
+  "The position of `type` among the preferred `types`, ignoring case, or
+  after them all when it isn't among them."
   [types type]
   (or (first (keep-indexed (fn [i wanted] (when (= (str/lower-case wanted) (str/lower-case (str type))) i))
                            types))
       (count types)))
 
 (defn- source-rank
-  "The order of `enclosures` sources when nothing else tells them apart."
+  "The order of the `source` of enclosures, when nothing else tells them
+  apart."
   [source]
   (case source :enclosure 0 :alternate 1 2))
 
 (defn enclosure
-  "The one thing to play for `item`: the candidate of `enclosures` that best
-  fits `opts`, types first, then bitrate, a candidate above `:max-bitrate`
-  ranking last; among equals the enclosure first, then the default
-  alternate, then the rest as `enclosures` lists them.
+  "The one thing to play for `item`: the candidate of enclosures that best
+  fits the `opts` below.
 
-      {:types       [\"audio/opus\" \"audio/mpeg\"] ; most wanted first
-       :max-bitrate 64000}                        ; bits per second"
+  - :types, the wanted types, most wanted first, e.g.
+    [\"audio/opus\" \"audio/mpeg\"]
+  - :max-bitrate, in bits per second, e.g. 64000
+
+  The types count first, then the bitrate, where a candidate above the
+  :max-bitrate ranks last. Among equals, the enclosure comes first, then
+  the default alternate, then the rest as enclosures lists them."
   ([item]
    (enclosure item nil))
-  ([item {:keys [types max-bitrate]}]
+  ([item {:keys [types max-bitrate] :as opts}]
    (let [rank (fn [{:keys [type bitrate default is-default source]}]
                 [(if types (type-rank types type) 0)
                  (if (and max-bitrate (number? bitrate) (> bitrate max-bitrate)) 1 0)
@@ -260,25 +283,28 @@
      (first (sort-by rank (enclosures item))))))
 
 (def ^:no-doc transcript-preference
-  "Transcript types in the order a client is best served by them: WebVTT
-  (timed, speakers, played by browsers), then SRT, JSON, HTML, plain text."
+  "The transcript types in the order that an app is best served by them:
+  WebVTT, which has timings and speakers and plays in browsers, then SRT,
+  JSON, HTML and plain text."
   ["text/vtt" "application/x-subrip" "application/srt" "text/srt"
    "application/json" "text/html" "text/plain"])
 
 (def timed-transcript-types
-  "Transcript types whose files carry timings as a rule."
+  "The transcript types whose files have timings as a rule."
   #{"text/vtt" "application/x-subrip" "application/srt" "text/srt" "application/json"})
 
 (defn- language-tag
-  "The primary subtag of the language `s` (RFC 5646, section 2.2.1): \"en\"
-  for \"en-US\"."
+  "The primary subtag of the language `s` (RFC 5646, section 2.2.1), e.g.
+  \"en\" for \"en-US\"."
   [s]
   (first (str/split (str/lower-case (str s)) #"[-_]")))
 
 (defn- language-rank
-  "How well `language` serves the `languages` wanted, most wanted first:
-  its position among them, or after them all when it matches none, and
-  before the mismatches when it is unknown."
+  "How well `language` serves the `languages` wanted, most wanted first, as
+  its position among them.
+
+  A language that matches none comes after them all, and an unknown
+  language comes before those that don't match."
   [languages language]
   (cond
     (empty? languages) 0
@@ -289,27 +315,29 @@
                            (inc (count languages)))))
 
 (defn- timed-transcript?
-  "Whether the transcript reference carries timings: rel=captions, or a type
-  that does as a rule."
-  [{:keys [type rel]}]
+  "Whether the transcript reference `ref` has timings: rel=captions, or a
+  type that has them as a rule."
+  [{:keys [type rel] :as ref}]
   (or (= "captions" (some-> rel str/lower-case))
       (contains? timed-transcript-types (str/lower-case (str type)))))
 
 (defn transcript
-  "The transcript reference of `item` a client is best served by, given the
-  `feed` (nil for none) and `opts`: language first, timings second, type
-  third. A reference naming no language counts as in the feed's language,
-  or without a feed ranks after the matches and before the mismatches.
-  Something is always returned when the item has transcripts at all.
+  "The transcript reference of `item` that an app is best served by, given
+  the `feed`, which can be nil, and the `opts` below.
 
-      {:types     [\"text/vtt\" ...] ; default transcript-preference
-       :languages [\"da\" \"en\"]    ; most wanted first
-       :timed?    true}              ; prefer rel=captions or a timed type"
+  - :types, the wanted types, transcript-preference by default
+  - :languages, the wanted languages, most wanted first, e.g. [\"da\" \"en\"]
+  - :timed?, whether to prefer rel=captions or a timed type
+
+  The language counts first, the timings second, and the type third. A
+  reference that names no language counts as in the feed's language. Without
+  a feed, it ranks after the matches and before the mismatches. The result
+  is never nil when the item has transcripts."
   ([item]
    (transcript nil item nil))
   ([feed item]
    (transcript feed item nil))
-  ([feed item {:keys [types languages timed?] :or {types transcript-preference}}]
+  ([feed item {:keys [types languages timed?] :or {types transcript-preference} :as opts}]
    (let [default-language (:rss/language feed)
          rank             (fn [{:keys [type language] :as ref}]
                             [(language-rank languages (or language default-language))
@@ -318,7 +346,7 @@
      (first (sort-by rank (:podcast/transcripts item))))))
 
 (defn chapters-url
-  "The URL of the JSON chapters file `item` links to, if any."
+  "The URL of the JSON chapters file that `item` links to, if any."
   [item]
   (:url (:podcast/chapters item)))
 
@@ -329,18 +357,18 @@
 
 (defn inferred-chapters
   "The chapters listed as timestamps in the show notes of `item`, as a
-  chapters document, or nil; see `chapters/from-text`. What to fall back on
-  when `chapters-url` and `embedded-chapters` give nothing."
+  chapters document from chapters/from-text, or nil. They're what to fall
+  back on when chapters-url and embedded-chapters give nothing."
   [item]
   (chapters/from-text (description item)))
 
 (defn soundbites
-  "The soundbites of `item`, in the order of the feed. They are the parts
-  that its creator selected to preview or share it.
+  "The soundbites of `item` in the order of the feed, the parts that its
+  creator selected to preview or share it.
 
-  A soundbite is a map with `:start-time` and `:duration` in seconds, and
-  `:title` when it has one. The podcast namespace leaves the title of a
-  soundbite without one to the app, such as the title of the item. A
+  A soundbite is a map with the :start-time and :duration in seconds, and
+  the :title when it has one. The podcast namespace leaves the title of a
+  soundbite without one to the app, e.g. the title of the item. A
   soundbite is left out when it has no start of zero seconds or more, or
   no duration above zero."
   [item]
@@ -351,10 +379,12 @@
       (and (string? content) (not (str/blank? content))) (assoc :title content))))
 
 (defn people
-  "The people credited on `x`, roles and groups lower-cased with the
-  defaults of podcast:person filled in: `{:name :role :group :img :href}`.
-  With `feed` and `item`, the item's people replace the feed's entirely when
-  the item names any, as podcast:person says."
+  "The people credited on `x`, or on an `item` of `feed`, as maps of :name,
+  :role, :group, :img and :href.
+
+  The roles and groups are in lower case, with the defaults of
+  podcast:person filled in. The people of an item replace those of its
+  feed entirely when the item names any, as podcast:person says."
   ([x]
    (for [{:keys [content role group img href]} (:podcast/people x)]
      (cond-> {:name  content
@@ -368,7 +398,7 @@
      (people feed))))
 
 (defn- inherited
-  "The value of `k` on `item` when it declares one, else the feed's."
+  "The value of `k` on `item` when it declares one, or else that of `feed`."
   [k feed item]
   (let [v (get item k)]
     (if (or (nil? v) (and (coll? v) (empty? v)))
@@ -376,33 +406,35 @@
       v)))
 
 (defn funding
-  "The funding links of `x`; with `feed` and `item`, the item's or the feed's."
+  "The funding links of `x`, or of an `item` of `feed`, which are the
+  item's own or else the feed's."
   ([x] (:podcast/funding x))
   ([feed item] (inherited :podcast/funding feed item)))
 
 (defn license
-  "The license of `x`; with `feed` and `item`, the item's or the feed's."
+  "The license of `x`, or of an `item` of `feed`, which is the item's own
+  or else the feed's."
   ([x] (:podcast/license x))
   ([feed item] (inherited :podcast/license feed item)))
 
 (defn chat
-  "The chat of `x`; with `feed` and `item`, the item's or the feed's."
+  "The chat of `x`, or of an `item` of `feed`, which is the item's own or
+  else the feed's."
   ([x] (:podcast/chat x))
   ([feed item] (inherited :podcast/chat feed item)))
 
 (defn social-interacts
-  "Where the public comments on `x` are: the root posts of the threads that
-  its podcast:socialInteract elements name.
+  "Where the public comments on `x`, or on an `item` of `feed`, are: the
+  root posts of the threads that its podcast:socialInteract elements name.
 
-  Each is a map with `:protocol` in lower case and `:uri`. It has
-  `:account-id`, `:account-url` and `:priority` when the feed declares
-  them. The lowest priority number comes first, and the maps without a
-  priority come last.
+  Each is a map with the :protocol in lower case and the :uri, and the
+  :account-id, :account-url and :priority when the feed declares them. The
+  lowest priority number comes first, and those without a priority come
+  last.
 
   When one of them has the protocol \"disabled\", the podcaster wants no
-  public comments shown. The answer is then `[{:protocol \"disabled\"}]`.
-  With `feed` and `item`, the answer is that of the item. When the item
-  gives none, it is that of the feed."
+  public comments shown, and the answer is [{:protocol \"disabled\"}]. An
+  item without an answer has that of its feed."
   ([x]
    (let [interacts (for [{:keys [protocol uri] :as interact} (:podcast/social-interacts x)
                          :let  [protocol (some-> protocol str/lower-case)]
@@ -417,25 +449,26 @@
      (if (seq own) own (social-interacts feed)))))
 
 (defn locations
-  "The locations of `x`; with `feed` and `item`, the item's or the feed's."
+  "The locations of `x`, or of an `item` of `feed`, which are the item's
+  own or else the feed's."
   ([x] (:podcast/locations x))
   ([feed item] (inherited :podcast/locations feed item)))
 
 (defn value
-  "The value block of `x`; with `feed` and `item`, the block that applies to
-  the item, which is its own when it declares one. See
-  dk.simongray.podcast.value for the arithmetic."
+  "The value block of `x`, or the one that applies to an `item` of `feed`,
+  which is the item's own when it declares one. The arithmetic is in
+  dk.simongray.podcast.value."
   ([x] (first (:podcast/values x)))
   ([feed item] (value/effective feed item)))
 
 (def ^:no-doc live-status-order
-  "Live items in the order a listener cares about: on air, then upcoming,
-  then over."
+  "Live items in the order that a listener cares about: on air, then
+  upcoming, then over."
   {"live" 0 "pending" 1 "ended" 2})
 
 (defn live-items
-  "The live items of `feed`: on air first, then upcoming soonest first, then
-  ended most recent first."
+  "The live items of `feed`: on air first, then upcoming, the soonest
+  first, then ended, the most recent first."
   [feed]
   (let [ms #(if (inst? %) (inst-ms %) 0)]
     (sort-by (fn [{:keys [status start]}]
@@ -444,9 +477,8 @@
              (:podcast/live-items feed))))
 
 (defn live?
-  "Whether the live item `live-item` is on air at `at`: its status says so,
-  or `at` falls between its start and end and it has not been declared
-  ended."
+  "Whether the `live-item` is on air at `at`: its status says so, or the
+  time falls between its start and end, and it hasn't been declared ended."
   [{:keys [status start end] :as live-item} at]
   (let [status (some-> status str/lower-case)]
     (or (= "live" status)
@@ -456,13 +488,15 @@
              (or (not (inst? end)) (< (inst-ms at) (inst-ms end)))))))
 
 (defn medium
-  "What the content of `feed` is, lower-cased; \"podcast\" when unstated."
+  "What the content of `feed` is, in lower case, or \"podcast\" when that's
+  unstated."
   [feed]
   (str/lower-case (or (:podcast/medium feed) "podcast")))
 
 (defn list-feed?
   "Whether `feed` is a list of remote items rather than of its own: a
-  medium ending in L, or mixed. `remote-items` gives the list."
+  medium that ends in L, or mixed. The function remote-items gives the
+  list."
   [feed]
   (let [m (medium feed)]
     (or (= m "mixed") (str/ends-with? m "l"))))
@@ -475,8 +509,10 @@
 
 (defn- dates
   "The instants of the items of `feed` dated no later than `now`, newest
-  first, as milliseconds. An item dated after it is an episode scheduled
-  ahead, or a mistake, and neither tells when the feed changes."
+  first, as milliseconds.
+
+  An item dated after it is an episode scheduled ahead, or a mistake, and
+  neither tells when the feed changes."
   [feed now]
   (->> (:rss/items feed)
        (keep :rss/pub-date)
@@ -486,12 +522,13 @@
        (sort >)))
 
 (defn next-episode
-  "When `feed` says its next episode is due after `at`: the first instant
-  after `at` that the recurrence rule of podcast:updateFrequency produces,
-  anchored at its dtstart or, failing that, at the date of the latest item
-  published by `at`, or at `at`, on the days of UTC. Nil when the feed is
-  complete, has no rule, or has one the library does not evaluate (see
-  `rrule/occurrences`)."
+  "When `feed` says that its next episode is due after `at`.
+
+  It's the first instant after that of the recurrence rule of
+  podcast:updateFrequency, on the days of UTC. The rule is anchored at its
+  dtstart, or else at the date of the latest item published by then, or
+  else at `at`. It's nil when the feed is complete, has no rule, or has
+  one that the library doesn't evaluate, as rrule/occurrences says."
   [feed at]
   (let [{:keys [rrule dtstart]} (:podcast/update-frequency feed)
         latest (some-> (first (dates feed (inst-ms at))) time/->inst)]
@@ -499,7 +536,7 @@
       (rrule/next-occurrence rrule (or (when (inst? dtstart) dtstart) latest at) at))))
 
 (def ^:no-doc syndication-periods
-  "Milliseconds in each period sy:updatePeriod may name."
+  "The milliseconds of each period that sy:updatePeriod can name."
   {"hourly" 3600000 "daily" 86400000 "weekly" 604800000 "monthly" 2629800000 "yearly" 31557600000})
 
 (defn- median
@@ -512,8 +549,8 @@
 
 (defn- cadence
   "The median gap in milliseconds between the ten most recent items of
-  `feed` dated no later than `now`; nil when fewer than two of them differ
-  in date."
+  `feed` dated no later than `now`, or nil when fewer than two of them
+  differ in date."
   [feed now]
   (let [recent (take 10 (dates feed now))
         gaps   (filter pos? (map - recent (rest recent)))]
@@ -521,26 +558,27 @@
       (median gaps))))
 
 (defn next-check
-  "When to look at `feed` again for something new, judged at `at`. Nil when
-  the feed is complete, or when nothing gives a time.
+  "When to look at `feed` again for something new, judged at `at`, with the
+  `opts` below.
 
-  The time is the first of these that the feed gives:
+  It's nil when the feed is complete, or when nothing gives a time. The
+  time is the first of these that the feed gives:
 
   - the next occurrence of its update-frequency rule
-  - `at` plus its ttl
-  - `at` plus its syndication period divided by its syndication frequency
+  - the time `at` plus its ttl
+  - the time `at` plus its syndication period divided by its syndication
+    frequency
   - the date of its latest item plus the median gap between its recent
     items, or `at` plus that gap when that time is past
 
-  Items dated after `at` do not count. A feed with fewer than two dated
+  Items dated after `at` don't count, and a feed with fewer than two dated
   items has no gap. The time is at most a year after `at`, the longest
   period that a feed can name.
 
-  `opts` can give `:not-before`, the earliest instant that the server
-  allows, such as the `:not-before` of `dk.simongray.podcast/fetch!`. The
-  answer is then no earlier than that instant, also when the instant is
-  more than a year after `at`. For a feed that gives no time, the answer
-  is that instant."
+  The `opts` can give :not-before, the earliest instant that the server
+  allows, e.g. the :not-before of dk.simongray.podcast/fetch!. The answer
+  is then no earlier than that instant, even when it's more than a year
+  after `at`. For a feed that gives no time, the answer is that instant."
   ([feed at]
    (next-check feed at {}))
   ([feed at {:keys [not-before] :as opts}]
@@ -569,11 +607,12 @@
   (true? (:content (:podcast/locked feed))))
 
 (defn blocked?
-  "Whether `x`, a feed or an item, asks `platform` not to show it, the
-  platform being a keyword or one of the slugs of `podcast:block`, such as
-  :apple, :google or :spotify. A podcast:block naming the platform decides
-  first, then one naming none, and failing both the legacy itunes:block
-  for Apple and googleplay:block for Google."
+  "Whether `x`, a feed or an item, asks `platform` not to show it.
+
+  The platform is a keyword or one of the slugs of podcast:block, e.g.
+  :apple, :google or :spotify. A podcast:block that names the platform
+  decides first, then one that names none, and else the legacy
+  itunes:block for Apple and googleplay:block for Google."
   [x platform]
   (let [slug    (str/lower-case (name platform))
         blocks  (:podcast/blocks x)
@@ -587,7 +626,7 @@
       :else             false)))
 
 (defn new-feed-url
-  "Where `feed` says it has moved to, if anywhere."
+  "Where `feed` says that it has moved to, if anywhere."
   [feed]
   (or (:itunes/new-feed-url feed) (:googleplay/new-feed-url feed)))
 
@@ -611,8 +650,8 @@
   "The URL of the page with the older items of `feed`, when the feed comes
   in pages as RFC 5005, sections 3 and 4, defines them.
 
-  It is the atom:link rel=next of a paged feed, or else the
-  rel=prev-archive of an archived feed. It is as the feed writes it, so it
+  It's the atom:link rel=next of a paged feed, or else the
+  rel=prev-archive of an archived feed. It's as the feed writes it, so it
   can be relative to the URL of the page."
   [feed]
   (let [href (fn [rel] (some #(when (= rel (some-> (:rel %) str/lower-case)) (:href %))
@@ -623,11 +662,11 @@
   "The shows that `feed` recommends, from its podcast:podroll, in the order
   of the feed.
 
-  Each is a remote item with `:feed-guid`, and with `:feed-url` and
-  `:title` when the feed declares them. An item that names no guid and no
-  URL is left out. Where the guid and the URL lead to different feeds, the
-  guid wins, because a guid outlives a URL.
-  `directory.podcastindex/remote-item` looks up the guid."
+  Each is a remote item with the :feed-guid, and the :feed-url and :title
+  when the feed declares them. An item that names no guid and no URL is
+  left out. Where the guid and the URL lead to different feeds, the guid
+  wins, since a guid outlives a URL. The function
+  directory.podcastindex/remote-item looks up the guid."
   [feed]
   (filter #(or (:feed-guid %) (:feed-url %))
           (:remote-items (:podcast/podroll feed))))
@@ -635,28 +674,28 @@
 (defn remote-items
   "The remote items of the channel of `feed`, in the order of the feed.
 
-  They are the entries of a list feed, most often items of other feeds,
-  or the shows of a publisher feed. Each is a map with `:feed-guid`. It
-  has `:feed-url`, `:item-guid`, `:title` and `:medium` when the feed
-  declares them. An item that names no guid and no URL is left out."
+  They're the entries of a list feed, most often items of other feeds, or
+  the shows of a publisher feed. Each is a map with the :feed-guid, and
+  the :feed-url, :item-guid, :title and :medium when the feed declares
+  them. An item that names no guid and no URL is left out."
   [feed]
   (filter #(or (:feed-guid %) (:feed-url %))
           (:podcast/remote-items feed)))
 
 (defn publisher
-  "The publisher feed of `feed`, as a remote item with `:feed-guid`, and
-  with `:feed-url` and `:title` when the feed declares them. Nil when no
-  remote item names a guid or a URL.
+  "The publisher feed of `feed`, as a remote item, or nil when no remote
+  item names a guid or a URL.
 
-  It is the remote item of the podcast:publisher of the feed. Some feeds
-  write the publisher without that element, as a remote item of the
-  channel with the medium publisher. So such an item is the answer when
-  the feed has no podcast:publisher, and is no list feed and no publisher
-  feed.
+  The remote item has the :feed-guid, and the :feed-url and :title when
+  the feed declares them. It's the remote item of the podcast:publisher of
+  the feed. Some feeds write the publisher without that element, as a
+  remote item of the channel with the medium publisher. Such an item is
+  the answer when the feed has no podcast:publisher, and is neither a list
+  feed nor a publisher feed.
 
-  The podcast namespace (The Publisher Medium) asks for links both ways:
-  an app trusts the link only when the `remote-items` of the publisher
-  feed list `feed`."
+  The podcast namespace, in The Publisher Medium, asks for links both
+  ways, so an app trusts the link only when the remote-items of the
+  publisher feed list `feed`."
   [feed]
   (let [item (:remote-item (:podcast/publisher feed))]
     (cond
@@ -678,8 +717,10 @@
           categories))
 
 (defn categories
-  "The Apple categories of `feed` as paths, subcategory after category:
-  `[[\"News\" \"Tech News\"] [\"Technology\"]]`."
+  "The Apple categories of `feed` as paths, subcategory after category,
+  e.g.:
+
+      [[\"News\" \"Tech News\"] [\"Technology\"]]"
   [feed]
   (vec (category-paths [] (:itunes/categories feed))))
 
@@ -693,10 +734,12 @@
     (if (inst? d) (inst-ms d) 0)))
 
 (defn- serial-key
-  "Where `item` goes in a serial show: season by season, a season's trailer
-  first, then the episodes by number with a bonus right after the episode
-  it belongs to, then the season's bonuses; a show trailer before every
-  season, a show bonus after them all, and dates settle the rest."
+  "Where `item` goes in a serial show, as a sort key.
+
+  The show goes season by season, and a season has its trailer first, then
+  the episodes by number, then its bonuses. A bonus that belongs to an
+  episode comes right after it. A trailer of the show comes before every
+  season, a bonus of the show after them all, and dates settle the rest."
   [item]
   (let [{:keys [type season episode]} (numbering item)
         trailer? (= "trailer" type)
@@ -709,25 +752,28 @@
      (date-ms item)]))
 
 (defn- episodic-key
-  "Where `item` goes in an episodic show: trailers first, then newest first."
+  "Where `item` goes in an episodic show, as a sort key: trailers first,
+  then newest first."
   [item]
   [(if (= "trailer" (:type (numbering item))) 0 1)
    (- (date-ms item))])
 
 (defn listening-key
   "Where `item` falls in the listening order of `feed`, as a key for
-  `sort-by`; `episodes` is the items of the feed sorted by it."
+  sort-by. The function episodes sorts the items of the feed by it."
   [feed item]
   ((if (serial? feed) serial-key episodic-key) item))
 
 ;; Apple, A Podcaster's Guide to RSS: itunes:type and itunes:episodeType
 (defn episodes
-  "The items of `feed` in listening order, as Apple Podcasts presents them:
-  newest first with the trailers ahead for an episodic show, the default;
-  for a serial show (itunes:type), season by season and episode by episode
-  from the first, a season's trailer at its head, a bonus right after the
-  episode it belongs to or at the end of its season, a show trailer before
-  everything and a show bonus after."
+  "The items of `feed` in listening order, as Apple Podcasts presents them.
+
+  An episodic show, the default, has the newest first, with the trailers
+  ahead. A serial show, as itunes:type says, goes season by season and
+  episode by episode from the first. The trailer of a season comes at its
+  head, and a bonus right after the episode that it belongs to, or at the
+  end of its season. A trailer of the show comes before everything, and a
+  bonus of the show after."
   [feed]
   (sort-by (partial listening-key feed) (:rss/items feed)))
 
@@ -736,9 +782,9 @@
 
       ({:season 2 :name \"The Sequel\" :items [...]} ...)
 
-  Seasons come in the order `episodes` reaches them, so newest first for an
-  episodic show and ascending for a serial one; items without a season form
-  a group without one, where their first item falls."
+  Seasons come in the order that episodes reaches them, so newest first
+  for an episodic show, and ascending for a serial one. Items without a
+  season form a group without one, where their first item falls."
   [feed]
   (let [ordered (episodes feed)
         season  #(:season (numbering %))
@@ -751,12 +797,13 @@
         name (assoc :name name)))))
 
 (defn- of-item
-  "`f`, an accessor of an item alone, as one of a feed and an item."
+  "The accessor `f` of an item alone, made an accessor of a feed and an
+  item."
   [f]
   (fn [_ item] (f item)))
 
 (def ^:no-doc show-properties
-  "The accessors of a show by property, for `properties` and `sources`."
+  "The accessors of a show by property, for properties and sources."
   {:title title :description description :author author :link link
    :published published :images images :artwork artwork :explicit? explicit?
    :txt txt :ai-content? ai-content? :people people :funding funding
@@ -768,7 +815,7 @@
 
 (def ^:no-doc episode-properties
   "The accessors of an episode by property, each of the feed and the item,
-  inheriting as the two-argument forms do."
+  inheriting as the forms with two arguments do."
   (merge (update-vals {:title title :description description :author author
                        :link link :published published :images images
                        :duration duration :numbering numbering
@@ -782,8 +829,8 @@
           :value value}))
 
 (defn- answer
-  "The value of an accessor as a property: a sequence as a vector, nothing
-  when it is nil or empty."
+  "The value `v` of an accessor as a property: a sequence as a vector, and
+  nothing when it's nil or empty."
   [v]
   (cond (nil? v)  nil
         (seq? v)  (when (seq v) (vec v))
@@ -791,7 +838,7 @@
         :else     v))
 
 (defn- answers
-  "The properties answered by the accessors of `table`, each called with
+  "The properties that the accessors of `table` answer, each called with
   `call`."
   [table call]
   (into {} (keep (fn [[k f]]
@@ -800,16 +847,19 @@
         table))
 
 (defn properties
-  "Every property `resolve` answers, as one map with plain keys and the
-  unanswered left out: for `feed` alone the show's, `:title` to
-  `:categories`; for `feed` and `item` the episode's, inheriting from the
-  feed as each accessor does. What needs a time or a platform, `next-check`,
-  `live?` and `blocked?`, is asked on its own. A map merged so is one to
-  read: `emit` would take its plain keys with string values for
-  attributes.
+  "Every property that resolve answers for `feed`, or for its `item`, as
+  one map with plain keys, without those that have no answer.
+
+  For a feed alone, the properties are those of the show, :title to
+  :categories. For a feed and an item, they're those of the episode,
+  inheriting from the feed as each accessor does. Ask on its own for what
+  needs a time or a platform: next-check, live? and blocked?.
 
       (merge item (properties feed item))
-      ;; => {:rss/title \"…\" :title \"…\" :artwork \"…\" …}"
+      ;; => {:rss/title \"…\" :title \"…\" :artwork \"…\" …}
+
+  A map merged like this is for reading, since emit would take its plain
+  keys with string values as attributes."
   ([feed]
    (answers show-properties #(% feed)))
   ([feed item]
@@ -821,18 +871,19 @@
   (= expected (answer (apply f args))))
 
 (defn- from-defaults?
-  "Whether `f` answers with nothing to read from: a default, which no
-  field explains."
+  "Whether `f`, given `arity` empty maps, answers with nothing to read
+  from: a default, which no field explains."
   [f arity]
   (some? (answer (apply f (repeat arity {})))))
 
 (defn sources
-  "Where the properties of `feed`, or of its `item`, were read from: for
-  each property `properties` answers, the paths whose value alone gives the
-  same answer, `[:rss/title]` for a show and `[:item :rss/title]` or
-  `[:feed :itunes/explicit]` for an episode. Several paths mean several
-  fields agree; a property put together from more than one field, or
-  answered by a default, is left out."
+  "Where the properties of `feed`, or of its `item`, were read from.
+
+  For each property that properties answers, it's the paths whose value
+  alone gives the same answer, e.g. [:rss/title] for a show, and
+  [:item :rss/title] or [:feed :itunes/explicit] for an episode. Several
+  paths mean that several fields agree. A property put together from more
+  than one field, or answered by a default, is left out."
   ([feed]
    (let [full (properties feed)]
      (into {} (for [[k f] show-properties

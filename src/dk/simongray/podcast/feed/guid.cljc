@@ -1,15 +1,15 @@
 (ns dk.simongray.podcast.feed.guid
-  "Feed identity: the `podcast:guid` UUIDv5 scheme, on both platforms."
+  "Feed identity by the UUIDv5 scheme of podcast:guid, on both platforms."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]))
 
 (def ^:no-doc podcast-namespace
-  "The UUID namespace every `podcast:guid` is derived in."
+  "The UUID namespace that every podcast:guid is derived in."
   "ead4c236-bf58-58c6-a2c6-a6b28d128cb6")
 
 (defn uuid-v5
   "The name-based UUID (RFC 4122, section 4.3) of the string `name` in the
-  UUID namespace `ns`, as a lowercase string."
+  UUID namespace `ns`, as a lower-case string."
   [ns name]
   (let [h (bytes/sha1 (bytes/join [(bytes/from-hex (str/replace ns "-" "")) (bytes/encode name)]))
         h (-> (mapv #(bytes/at h %) (range 16))
@@ -20,8 +20,8 @@
          (subs s 16 20) "-" (subs s 20 32))))
 
 (defn guid-name
-  "The feed `url` as the podcast namespace seeds a podcast:guid with: without
-  its scheme and without trailing slashes."
+  "The feed `url` as the podcast namespace seeds a podcast:guid with, which
+  is without its scheme and trailing slashes."
   [url]
   (-> url
       str/trim
@@ -31,17 +31,16 @@
       (str/replace #"(^|[^/])/+$" "$1")))
 
 (defn from-url
-  "The `podcast:guid` a feed at `url` is assigned when its author has not
-  declared one."
+  "The podcast:guid of a feed at `url` whose author didn't declare one."
   [url]
   (uuid-v5 podcast-namespace (guid-name url)))
 
 (def ^:no-doc guid-pattern
-  "Matches a UUID in its canonical hyphenated form."
+  "The pattern of a UUID in its canonical form, with hyphens."
   #"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 (defn guid?
-  "Whether `s` looks like a UUID and so a plausible `podcast:guid`."
+  "Whether `s` looks like a UUID, and so like a podcast:guid."
   [s]
   (boolean (and (string? s) (re-matches guid-pattern s))))
 

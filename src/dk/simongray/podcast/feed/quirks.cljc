@@ -1,14 +1,16 @@
 (ns dk.simongray.podcast.feed.quirks
-  "The wild: named accommodations for feeds that bend the standards, applied
-  around the strict path and recorded, never silently.
+  "Named fixes for feeds that bend the standards, applied around the strict
+  parse and always reported.
 
-  `repair` rewrites XML text a strict parser rejects (see `repairs`) and
-  runs only when the strict parse has failed; `uri->alias` recognizes the
-  namespace URI variants feeds bind their prefixes to; `normalize` rewrites
-  a canonical Hiccup tree into the form the specifications describe, by
-  `rules` and the rules a registry implies. Every rule has an id, every
-  application lands in a report, and `:except` leaves the rules it names
-  out."
+  The function repair rewrites XML text that a strict parser rejects, by
+  the repairs, and runs only when the strict parse failed. The function
+  uri->alias knows the variants of namespace URIs that feeds bind their
+  prefixes to. The function normalize rewrites a canonical Hiccup tree
+  into the form that the specifications describe, by the rules and the
+  rules that a registry implies.
+
+  Every rule has an id, each use of a rule goes into a report, and the
+  option :except leaves out the rules that it names."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.spec :as spec]
@@ -16,8 +18,8 @@
             [dk.simongray.podcast.util.xml :as xml]))
 
 (defn ^:no-doc uri-key
-  "Normalize the namespace `uri` for lookup: no scheme, no case, no trailing
-  slashes, since feeds get every one of them wrong."
+  "The namespace `uri` in the form to look it up by, without scheme, case
+  or trailing slashes, since feeds get each of them wrong."
   [uri]
   (-> (str uri)
       str/lower-case
@@ -27,16 +29,16 @@
       (str/replace #"(^|[^/])/+$" "$1")))
 
 (def uri-variants
-  "Namespace URIs seen in the wild that differ from the canonical ones by
-  more than scheme, case or a trailing slash, with the alias they mean."
+  "The namespace URIs in feeds that differ from the canonical ones by more
+  than scheme, case or a trailing slash, with the alias that they mean."
   {"www.google.com/schemas/play-podcasts/1.0/play-podcasts.xsd" :googleplay
    "www.rssboard.org/media-rss"                                  :media
    "w3.org/2005/atom"                                            :atom
    "podlove.org/simple-chapters/1.0"                             :psc})
 
 (def uri->alias
-  "Look up a namespace alias leniently: canonical URIs, their spelling
-  variants, and the known aliases in `uri-variants`."
+  "A function that gives the namespace alias of a URI, leniently: of a
+  canonical URI, its spellings, and the known variants in uri-variants."
   (let [known (into {} (for [[uri alias] xml/uri->alias]
                          [(uri-key uri) alias]))
         table (merge uri-variants known)]
@@ -44,9 +46,9 @@
       (get table (uri-key uri)))))
 
 (defn namespace-variants
-  "Diagnostics for every namespace declaration in the raw Hiccup `tree` whose
-  URI is not the canonical one for its alias, found in one walk that looks
-  at the xmlns attributes alone."
+  "The diagnostics of every namespace declaration in the raw Hiccup `tree`
+  whose URI isn't the canonical one of its alias. One walk finds them,
+  looking at the xmlns attributes alone."
   [tree]
   (letfn [(walk [acc element]
             (let [acc (reduce-kv (fn [acc k uri]
@@ -68,7 +70,8 @@
     (walk [] tree)))
 
 (defn ^:no-doc map-outside-cdata
-  "Apply `f` to every stretch of `s` that lies outside a CDATA section."
+  "The string `s` with `f` applied to every stretch outside a CDATA
+  section."
   [f s]
   (loop [from 0
          acc  []]
@@ -78,18 +81,19 @@
       (apply str (conj acc (f (subs s from)))))))
 
 (defn strip-leading-junk
-  "Remove anything before the XML declaration or the `<rss>` start tag of
-  `s`, whichever comes first, or before its first `<` when it has neither:
-  byte order marks, blank lines and stray output from the server, such as a
-  PHP warning."
+  "The string `s` without anything before the XML declaration or the rss
+  start tag, whichever comes first, or else before its first tag.
+
+  That's byte order marks, blank lines and stray output of the server,
+  such as a PHP warning."
   [s]
   (if-let [start (some->> (re-find #"<\?xml|<rss[\s>/]" s) (str/index-of s))]
     (subs s start)
     (str/replace s #"^[^<]+" "")))
 
 (defn strip-trailing-junk
-  "Remove anything but white space after the `</rss>` end tag of `s`: stray
-  output from the server, such as a PHP warning."
+  "The string `s` without anything but whitespace after the rss end tag,
+  which is stray output of the server, such as a PHP warning."
   [s]
   (let [end (some->> (str/last-index-of s "</rss") (str/index-of s ">") inc)]
     (if (and end (not= "" (xml/trim (subs s end))))
@@ -103,9 +107,11 @@
   (or (= n 9) (= n 10) (= n 13) (<= 0x20 n 0xD7FF) (<= 0xE000 n 0xFFFD) (<= 0x10000 n 0x10FFFF)))
 
 (defn- illegal-reference?
-  "Whether `s` may hold a character reference to a character XML 1.0
-  forbids, judged at each `&#` alone. One in CDATA, which is no reference,
-  counts too; it only sends `strip-control-characters` to look closer."
+  "Whether `s` can hold a character reference to a character that XML 1.0
+  forbids, judged at each &# alone.
+
+  One in CDATA, which isn't a reference, counts too, but it only makes
+  strip-control-characters look closer."
   [s]
   (let [n (count s)]
     (loop [from 0]
@@ -117,10 +123,12 @@
         false))))
 
 (defn strip-control-characters
-  "Remove the control characters XML 1.0 forbids from `s`, and outside CDATA
-  the character references to them, which XML forbids as well. A loop over
-  the characters and a look at each `&#` come first, so that only a
-  document with something to remove pays for the patterns."
+  "The string `s` without the control characters that XML 1.0 forbids, and
+  without the character references to them outside CDATA, which XML
+  forbids too.
+
+  A loop over the characters and a look at each &# come first, so that
+  only a document with something to remove pays for the patterns."
   [s]
   (let [s (if (xml/legal? s) s (str/replace s xml/illegal-characters ""))]
     (if (illegal-reference? s)
@@ -132,8 +140,9 @@
       s)))
 
 (defn replace-html-entities
-  "Replace the HTML entities in `s` outside CDATA with numeric references,
-  which XML understands; unknown named entities become literal text."
+  "The string `s` with its HTML entities outside CDATA replaced by numeric
+  references, which XML understands. Unknown named entities become literal
+  text."
   [s]
   (map-outside-cdata
    #(str/replace % #"&([A-Za-z][A-Za-z0-9]*);"
@@ -145,16 +154,17 @@
    s))
 
 (defn escape-bare-ampersands
-  "Escape every `&` in `s` outside CDATA that does not start a reference."
+  "The string `s` with every ampersand outside CDATA that doesn't start a
+  reference escaped."
   [s]
   (map-outside-cdata
    #(str/replace % #"&(?!(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);)" "&amp;")
    s))
 
 (defn- prefix-before?
-  "Whether the colon at `i` of `s` ends a name that follows a `<` or white
-  space, as a namespace prefix does; the colon of `https:` in a quoted value
-  follows a quote."
+  "Whether the colon at `i` of `s` ends a name that follows the start of a
+  tag or whitespace, as a namespace prefix does. The colon of https: in a
+  quoted value follows a quote."
   [^String s ^long i]
   (loop [j (dec i)]
     (if (neg? j)
@@ -166,9 +176,9 @@
           (and (< j (dec i)) (or (== c 60) (== c 32) (== c 9) (== c 10) (== c 13))))))))
 
 (defn- prefixed-tags
-  "The start tags of `s` that name a namespace prefix, cut as
-  `<[A-Za-z][^<>]*` cuts them, found in one pass over the characters: the
-  text is most of a feed, and few of its tags name a prefix."
+  "The start tags of `s` that name a namespace prefix. They're found in one
+  pass over the characters, since the text is most of a feed and few of
+  its tags name a prefix."
   [^String s]
   ;; primitive locals throughout, -1 for no tag, and comparisons of two
   ;; arguments, which Clojure compiles inline, since this runs for every
@@ -189,8 +199,8 @@
         (persistent! (if prefixed? (conj! acc (subs s start n)) acc))))))
 
 (defn undeclared-prefixes
-  "The namespace prefixes that tags and attributes in `s` use without any
-  `xmlns:` declaration, looked for inside the start tags alone."
+  "The namespace prefixes that the tags and attributes in `s` use without
+  an xmlns: declaration, looked for in the start tags alone."
   [s]
   (let [tags     (prefixed-tags s)
         used     (into #{} (comp (mapcat #(re-seq #"^<([A-Za-z][\w.-]*):|[ \t\r\n]([A-Za-z][\w.-]*):[\w.-]+=" %))
@@ -201,8 +211,8 @@
     (remove declared used)))
 
 (defn declare-known-prefixes
-  "Declare on the root element of `s` every undeclared prefix that names one
-  of the namespaces in `xml/namespaces`."
+  "The string `s` with every undeclared prefix that names one of the
+  namespaces of xml/namespaces declared on its root element."
   [s]
   (let [missing (filter #(contains? xml/namespaces (keyword %)) (undeclared-prefixes s))
         open    (re-find #"<[A-Za-z][\w.-]*" s)
@@ -216,7 +226,7 @@
              (subs s end))))))
 
 (def repairs
-  "The text repairs, in the order they are applied."
+  "The text repairs, in the order that they're applied."
   [{:id :repair/leading-junk        :f strip-leading-junk}
    {:id :repair/trailing-junk       :f strip-trailing-junk}
    {:id :repair/control-characters  :f strip-control-characters}
@@ -225,9 +235,11 @@
    {:id :repair/bare-ampersands     :f escape-bare-ampersands}])
 
 (defn repair
-  "Apply every repair in `repairs` to the XML text `s`, except those whose
-  ids `:except` in `opts` names. Returns `{:xml s :report [...]}` with a
-  diagnostic for each repair that changed something."
+  "Apply every repair in repairs to the XML text `s`, except those whose
+  ids the :except of `opts` names.
+
+  It returns a map of the :xml and a :report, with a diagnostic for each
+  repair that changed something."
   ([s]
    (repair s {}))
   ([s {:keys [except] :or {except #{}} :as opts}]
@@ -240,18 +252,19 @@
            (remove (comp except :id) repairs))))
 
 (defn- rewrite
-  "A rule that replaces every element tagged `tag` by `(f element)`."
+  "The rule `id` that replaces every element tagged `tag` by what `f` gives
+  for it."
   [id tag f]
   {:id id :kind :rewrite :tag tag :f f})
 
 (defn- check
-  "A rule that reports `(f element)` for every element tagged `tag`, when it
-  returns anything."
+  "The rule `id` that reports what `f` gives for every element tagged
+  `tag`, when it gives anything."
   [id tag f]
   {:id id :kind :check :tag tag :f f})
 
 (defn- text-element
-  "The element `element` with its text content replaced by `s`."
+  "The `element` with its text content replaced by `s`."
   [element s]
   [(xml/tag element) (xml/attrs element) s])
 
@@ -261,12 +274,13 @@
    "false" "false" "no" "false" "clean" "false"})
 
 (def yes-no-values
-  "What feeds write in yes/no elements such as podcast:locked, and what
+  "What feeds write in yes-no elements such as podcast:locked, and what
   they mean."
   {"yes" "yes" "true" "yes" "no" "no" "false" "no"})
 
 (defn- canonical-text
-  "A rewrite of an element's text by the `values` table, case ignored."
+  "A rewrite of the text of an element by the `values` table, ignoring
+  case."
   [values]
   (fn [element]
     (let [v (str/lower-case (xml/trim (xml/text element)))]
@@ -275,7 +289,7 @@
         element))))
 
 (defn- href->url
-  "The `element` with an href attribute renamed to the url the podcast
+  "The `element` with an href attribute renamed to the url that the podcast
   namespace asks for, when it has no url of its own."
   [[tag attrs :as element]]
   (if (and (contains? attrs :href) (not (contains? attrs :url)))
@@ -283,8 +297,9 @@
     element))
 
 (defn- item-image->itunes
-  "The `item` with an attribute-only image element, which RSS 2.0 does not
-  have, replaced by the itunes:image it stands for, unless the item has one."
+  "The `item` with an image element of attributes alone, which RSS 2.0
+  doesn't have, replaced by the itunes:image that it stands for, unless
+  the item has one."
   [item]
   (let [image (first (filter #(and (= :image (xml/tag %))
                                    (:url (xml/attrs %))
@@ -297,10 +312,11 @@
                  (xml/children item))))))
 
 (defn- podcast-category->itunes
-  "The `channel` with the podcast:category elements Wavlake writes on its
-  music feeds, which the podcast namespace does not define but which mirror
-  itunes:category in every way, read as itunes:category when the channel
-  has none of the standard ones."
+  "The `channel` with the podcast:category elements of Wavlake's music
+  feeds read as itunes:category, when the channel has none of those.
+
+  The podcast namespace doesn't define podcast:category, but it mirrors
+  itunes:category in every way."
   [channel]
   (letfn [(category? [x] (and (vector? x) (= :podcast/category (xml/tag x))))
           (convert [[_ attrs & children]]
@@ -312,7 +328,7 @@
             (map #(if (category? %) (convert %) %) (xml/children channel))))))
 
 (def transcript-types
-  "Non-standard spellings of transcript types, and the standard ones."
+  "The nonstandard spellings of transcript types, and the standard ones."
   {"srt"              "application/x-subrip"
    "application/srt"  "application/x-subrip"
    "text/srt"         "application/x-subrip"
@@ -326,10 +342,12 @@
 
 ;; HTML Standard, "Parsing a srcset attribute"
 (defn- srcset-candidates
-  "The `[url descriptor]` pairs of the srcset `s`, read as a browser reads
-  them: a URL runs to white space, and only commas at its end end it, so
-  that a URL with commas in it survives; a descriptor runs to the next
-  comma, and nil stands for none."
+  "The pairs of URL and descriptor of the srcset `s`, read as a browser
+  reads them.
+
+  A URL runs to whitespace, and only commas at its end end it, so that a
+  URL with commas in it survives. A descriptor runs to the next comma, and
+  nil stands for none."
   [^String s]
   (let [n      (count s)
         blank? #(contains? #{\space \tab \newline \return \formfeed} (.charAt s %))
@@ -347,7 +365,8 @@
                 (recur (inc stop) (conj acc [(subs s start end) (not-empty (str/trim (subs s end stop)))]))))))))))
 
 (defn- srcset->images
-  "The podcast:image elements equivalent to the deprecated `images` element."
+  "The podcast:image elements that the deprecated `images` element stands
+  for."
   [images]
   (for [[url descriptor] (srcset-candidates (str (:srcset (xml/attrs images))))]
     [:podcast/image (cond-> {:href url}
@@ -355,8 +374,8 @@
                       (assoc :width (subs descriptor 0 (dec (count descriptor)))))]))
 
 (defn- add-images
-  "Add podcast:image children to `parent` for its deprecated podcast:images
-  element, unless it already has some."
+  "The `parent` with podcast:image children for its deprecated
+  podcast:images element, unless it has some already."
   [parent]
   (if (or (xml/element parent :podcast/image)
           (not (xml/element parent :podcast/images)))
@@ -364,8 +383,9 @@
     (into parent (mapcat srcset->images (xml/elements parent :podcast/images)))))
 
 (defn- non-canonical-date
-  "`{:value s}` when the text of `element` is a date the library reads but
-  not in the strict RFC 2822 form; nil otherwise."
+  "A map with the text of `element` as the :value, or nil. It's there for a
+  date that the library reads but that isn't in the strict form of RFC
+  2822."
   [element]
   (let [s (xml/trim (xml/text element))]
     (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
@@ -373,8 +393,8 @@
 
 (def rules
   "The tree rules that hold whatever the registry, applied to every element
-  in document order, children before parents; `registry-rules` adds the
-  ones a registry implies."
+  in document order, children before parents. The function registry-rules
+  adds those that a registry implies."
   [(rewrite :quirk/itunes-image-text :itunes/image
             (fn [[tag attrs :as element]]
               (let [href (or (:href attrs) (:url attrs) (not-empty (xml/trim (xml/text element))))]
@@ -413,16 +433,16 @@
    (check :quirk/date-format :lastBuildDate non-canonical-date)])
 
 (defn registry-rules
-  "The rules the tag `registry` implies: yes and no written as true and
-  false in every element it types as yes-no."
+  "The rules that the tag `registry` implies: true and false rewritten as
+  yes and no in every element that it types as yes-no."
   [registry]
   (for [{:keys [tag content]} (:entries registry)
         :when (= :yes-no content)]
     (rewrite :quirk/yes-no-value tag (canonical-text yes-no-values))))
 
 (defn- apply-rules
-  "Apply the rules of `by-tag` for the tag of `element`, recording what they
-  did in the `report` accumulator; nil when a rule removed the element."
+  "The `element` with the rules of `by-tag` for its tag applied, and what
+  they did added to the `report`, or nil when a rule removed the element."
   [by-tag report element]
   (reduce (fn [element {:keys [id kind f]}]
             (if (nil? element)
@@ -440,9 +460,11 @@
           (by-tag (xml/tag element))))
 
 (defn- walk
-  "`element` with the rules of `by-tag` applied to it and below it, children
-  before parents, recording in `report` what they did; the element itself
-  when nothing below it changed, so that no untouched subtree is copied."
+  "The `element` with the rules of `by-tag` applied to it and below it,
+  children before parents, and what they did added to the `report`.
+
+  It's the element itself when nothing below it changed, so that no
+  untouched subtree is copied."
   [by-tag report element]
   ;; a loop rather than a lazy keep, which costs the stack several frames
   ;; more for every level of nesting
@@ -461,10 +483,11 @@
     (apply-rules by-tag report (if rebuilt (persistent! rebuilt) element))))
 
 (defn normalize
-  "Rewrite the canonical Hiccup `tree` by `rules` and by the `registry-rules`
-  of the tag registry in `opts` (`:registry`, default `spec/default`),
-  except the rules whose ids `:except` names, keeping its metadata and
-  adding the diagnostics under `:quirks/report`."
+  "Rewrite the canonical Hiccup `tree` by the rules, and by the
+  registry-rules of the :registry of `opts`, spec/default by default.
+
+  The rules whose ids the :except of `opts` names are left out. The tree
+  keeps its metadata, with the diagnostics added under :quirks/report."
   ([tree]
    (normalize tree {}))
   ([tree {:keys [registry except] :or {registry spec/default except #{}} :as opts}]
@@ -478,8 +501,8 @@
      (with-meta tree' (assoc (meta tree) :quirks/report @report)))))
 
 (defn report
-  "The diagnostics `normalize` recorded on `tree`, each with its message from
-  the diagnostics catalogue."
+  "The diagnostics that normalize recorded on `tree`, each with its message
+  from the catalogue of diagnostics."
   [tree]
   (mapv diagnostics/describe (:quirks/report (meta tree))))
 
