@@ -178,14 +178,6 @@
     moved   (update :moved merge moved)
     report  (update :report into report)))
 
-(defn- in-groups
-  "The results of `f` over `xs`, `n` at a time, in a future or a promise."
-  [f n xs]
-  (reduce (fn [acc group]
-            (async/then acc (fn [done] (async/then (async/all (map f group)) #(into done %)))))
-          []
-          (partition-all n xs)))
-
 (defn refresh!
   "Fetch the feeds of `feeds` that are due at `now` with the `opts` below,
   and apply each result as refresh does.
@@ -225,7 +217,7 @@
                                   [guid (if error
                                           {:url url :error (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})}
                                           value)]))))]
-     (async/then (in-groups fetch1 parallel guids)
+     (async/then (async/in-groups fetch1 parallel guids)
                  (fn [results]
                    (reduce (fn [acc [guid result]] (merged acc (refresh (:feeds acc) guid result now cadence)))
                            {:feeds feeds :changed [] :moved {} :report []}

@@ -544,10 +544,10 @@
   [call! opts session state ctx at]
   (async/then (start! call! opts session ctx)
               (fn [ctx]
-                (async/then (async/all [(subscriptions! call! opts @session (or (:subscriptions ctx) 0))
-                                        ;; a day back, since servers select actions by the time they
-                                        ;; name, not the time they arrived, and so miss a late one
-                                        (episode-pages call! opts @session (max 0 (- (or (:episodes ctx) 0) 86400)))])
+                (async/then (async/all force [(delay (subscriptions! call! opts @session (or (:subscriptions ctx) 0)))
+                                              ;; a day back, since servers select actions by the time they
+                                              ;; name, not the time they arrived, and so miss a late one
+                                              (delay (episode-pages call! opts @session (max 0 (- (or (:episodes ctx) 0) 86400))))])
                             (fn [[subs episodes]] (pulled state ctx subs episodes opts at))))))
 
 (defn- pushing

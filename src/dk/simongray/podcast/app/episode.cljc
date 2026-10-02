@@ -194,9 +194,9 @@
          wanted? (complement except)
          own     (:chapters view)
          url     (:url (:enclosure view))]
-     (async/then (async/all [(when-let [chapters-url (and (wanted? :chapters) (:chapters-url view))] (chapters-file! chapters-url opts))
-                             (when-let [ref (and (wanted? :transcript) (:transcript view))] (transcript-file! ref opts))
-                             (when (and (wanted? :media) url) (media-file! url opts))])
+     (async/then (async/all force [(delay (when-let [chapters-url (and (wanted? :chapters) (:chapters-url view))] (chapters-file! chapters-url opts)))
+                                   (delay (when-let [ref (and (wanted? :transcript) (:transcript view))] (transcript-file! ref opts)))
+                                   (delay (when (and (wanted? :media) url) (media-file! url opts)))])
                  (fn [[file transcript media]]
                    (let [chapters (best-chapters file own media)]
                      (cond-> {}

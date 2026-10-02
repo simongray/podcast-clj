@@ -305,8 +305,8 @@
   (let [headers {"Origin" origin}]
     (if-not read?
       (probed! send url headers)
-      (async/then (async/all [(head! send url headers)
-                              (http/sent! send {:url url :headers headers})])
+      (async/then (async/all force [(delay (head! send url headers))
+                                    (delay (http/sent! send {:url url :headers headers}))])
                   (fn [[head attempt]]
                     (let [got (http/sent-facts attempt)]
                       (cond-> {:head head :get got}

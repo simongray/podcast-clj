@@ -1407,8 +1407,8 @@
   ([url {:keys [headers send] :or {send call!} :as opts}]
    (let [answer! (fn [request]
                    (async/then (sent! send (assoc request :url url) opts) sent-facts))]
-     (async/then (async/all [(answer! {:method :head :headers (merge {"Accept-Encoding" "identity"} headers)})
-                             (answer! {:range [0 1] :as :bytes :headers headers})])
+     (async/then (async/all answer! [{:method :head :headers (merge {"Accept-Encoding" "identity"} headers)}
+                                     {:range [0 1] :as :bytes :headers headers}])
                  (fn [[head got]] {:head head :get got})))))
 
 (defn ^:no-doc request-bytes

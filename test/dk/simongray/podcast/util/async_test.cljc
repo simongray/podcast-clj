@@ -45,7 +45,18 @@
      (let [started (System/currentTimeMillis)
            results (deferred/all (map (fn [n] (deferred/attempt #(do (Thread/sleep 200) n))) (range 4)))]
        (is (= [{:value 0} {:value 1} {:value 2} {:value 3}] results))
-       (is (< (- (System/currentTimeMillis) started) 600) "the attempts ran at once"))))
+       (is (< (- (System/currentTimeMillis) started) 600) "the attempts ran at once"))
+     (let [slow    (fn [n] (deferred/then (deferred/attempt #(do (Thread/sleep 200) n)) :value))
+           started (System/currentTimeMillis)]
+       (is (= [0 1 2 3] (deferred/all slow (range 4))))
+       (is (< (- (System/currentTimeMillis) started) 600)
+           "calls that wait for their own futures, as then does, ran at once")
+       (is (= [0 1 2 3] (deferred/in-groups slow 2 (range 4))))
+       (is (< 350 (- (System/currentTimeMillis) started) 1000) "and in two groups, one after the other"))
+     (is (= [2 :b] (deferred/all force [(delay (inc 1)) :b])) "two different calls")
+     (is (= "two" (try (deferred/all #(if (= 2 %) (throw (ex-info "two" {})) %) [1 2 3])
+                       (catch Exception e (ex-message e))))
+         "a call that throws throws its own exception")))
 
 #?(:cljs
    (deftest values-and-promises
@@ -57,6 +68,9 @@
            (.then (fn [v] (is (= {:value 1} v)) (deferred/attempt #(throw (ex-info "boom" {})))))
            (.then (fn [{:keys [error]}] (is (= "boom" (deferred/explain error)))
                     (deferred/attempt #(js/Promise.reject (js/Error. "nope")))))
-           (.then (fn [{:keys [error]}] (is (= "nope" (deferred/explain error)))))
+           (.then (fn [{:keys [error]}] (is (= "nope" (deferred/explain error)))
+                    (deferred/all #(js/Promise.resolve (inc %)) [1 2 3])))
+           (.then (fn [v] (is (= [2 3 4] v)) (deferred/in-groups #(js/Promise.resolve (* 2 %)) 2 [1 2 3])))
+           (.then (fn [v] (is (= [2 4 6] v))))
            (.catch (fn [e] (is false (str "rejected: " e))))
            (.finally done)))))

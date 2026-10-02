@@ -248,7 +248,7 @@
   (let [due (for [[url entry] (:lists library)
                   :when (<= (inst-ms (:next-check entry)) (inst-ms now))]
               url)]
-    (async/then (async/all (map (fn [url] (async/then (fetched-list! url (get-in library [:lists url]) opts) #(vector url %))) due))
+    (async/then (async/all (fn [url] (async/then (fetched-list! url (get-in library [:lists url]) opts) #(vector url %))) due)
                 (fn [results]
                   (reduce (fn [{:keys [library] :as acc} [url {:keys [list unchanged? error] :as fetched}]]
                             (let [seconds (:list-seconds (:settings library))
@@ -287,9 +287,10 @@
   "Fetch the feeds of the new subscriptions of `library` at `now` with
   `opts`, and add them, in a future or a promise.
 
-  The result is a map of the :library and the :report. A feed that
-  couldn't be fetched is tried again next time."
-  [library now {:keys [fetch credentials-of] :as opts}]
+  The result is a map of the :library and the :report. The :parallel of
+  `opts` feeds are fetched at a time, as app.feeds/refresh! fetches them.
+  A feed that couldn't be fetched is tried again next time."
+  [library now {:keys [fetch credentials-of parallel] :or {parallel feeds/default-parallel} :as opts}]
   (let [common (select-keys opts [:timeout-seconds :max-bytes :user-agent :allow?])
         fetch1 (fn [[guid url]]
                  (let [credentials (when credentials-of (credentials-of guid))]
@@ -298,7 +299,7 @@
                                  [guid url (if error
                                              {:error (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})}
                                              value)]))))]
-    (async/then (async/all (map fetch1 (unfetched library)))
+    (async/then (async/in-groups fetch1 parallel (unfetched library))
                 (fn [results]
                   (reduce (fn [acc [guid url result]]
                             (cond

@@ -496,6 +496,11 @@ Node tests install `@xmldom/xmldom`. A `DOMParser` is namespace-aware and
 refuses an undeclared prefix that the JVM accepts, which is why there's a
 repair that declares the known prefixes.
 
+On the JVM, `async/then` waits for its future at once, where a promise
+would carry on. So requests that should run at the same time go through
+`async/all` with a function, which starts each call on a future of its
+own before it waits for any of them.
+
 
 ## The inspector
 

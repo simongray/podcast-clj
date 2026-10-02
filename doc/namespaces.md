@@ -113,7 +113,7 @@ follows.
 | `util.time.rrule` | RFC 5545 recurrence rules. |
 | `util.http` | Requests as maps, and `call!`, which sends them with byte ranges and limits of size and time. Also `probe!`, which learns the facts of a file from two bytes, and `public?`, which checks that a host is on the public internet. On the JVM, `fetch!` fetches a feed with conditional requests. For another HTTP client, `revealed` unhides the credentials of a request. |
 | `util.bytes` | Bytes on both platforms, and `read!`, which fetches the byte ranges that a reader asks for until it's done. Also hex, SHA-1, SHA-256 and HMAC. |
-| `util.async` | Futures on the JVM and promises in JavaScript behind one API, and `iteration` for paged APIs on both platforms. |
+| `util.async` | Futures on the JVM and promises in JavaScript behind one API, `all` and `in-groups` to make calls at the same time, and `iteration` for paged APIs on both platforms. |
 | `util.nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `call!` for one exchange with a relay. |
 | `util.secret` | Secrets that print as `#<secret>`: `hide`, `reveal` and `hidden?`. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |

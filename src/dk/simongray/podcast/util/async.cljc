@@ -3,7 +3,7 @@
   functions, so that code that waits for answers is written once.
 
   The then, all, attempt and iteration functions take a value, a future
-  or a promise alike."
+  or a promise alike, and in-groups makes calls a group at a time."
   (:refer-clojure :exclude [iteration])
   (:require [clojure.string :as str]))
 
@@ -15,13 +15,35 @@
   #?(:clj  (f (if (future? x) @x x))
      :cljs (.then (js/Promise.resolve x) f)))
 
+(declare attempt)
+
 (defn all
-  "The values of `xs`, each a value, a future or a promise, as a vector.
-  On the JVM, it gives the vector once every future has its value, and
-  the futures run at once. In ClojureScript, it gives a promise of it."
-  [xs]
-  #?(:clj  (mapv #(if (future? %) @% %) (vec xs))
-     :cljs (.then (js/Promise.all (into-array xs)) vec)))
+  "The values of `xs`, each a value, a future or a promise, as a vector,
+  or with `f`, the results of `f` on each of `xs`. On the JVM, it gives
+  the vector once every future has its value, and the futures run at
+  once. In ClojureScript, it gives a promise of it.
+
+  With `f`, every call is under way before any is waited for. On the JVM
+  each call runs on a future of its own, since a call that uses then
+  waits for its own futures. So (all force [(delay (a!)) (delay (b!))])
+  makes two different calls at once."
+  ([xs]
+   #?(:clj  (mapv #(if (future? %) @% %) (vec xs))
+      :cljs (.then (js/Promise.all (into-array xs)) vec)))
+  ([f xs]
+   #?(:clj  (->> (all (map (fn [x] (attempt #(f x))) xs))
+                 (map (fn [{:keys [value error]}] (if error (throw error) value)))
+                 all)
+      :cljs (all (map f xs)))))
+
+(defn in-groups
+  "The results of `f` on each of `xs` as a vector, `n` calls at a time, as
+  all makes the calls of one group, in a future or a promise."
+  [f n xs]
+  (reduce (fn [acc group]
+            (then acc (fn [done] (then (all f group) #(into done %)))))
+          []
+          (partition-all n xs)))
 
 (defn attempt
   "The result of calling `f` as a map of its :value, in a future or a

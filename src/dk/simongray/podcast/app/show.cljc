@@ -134,10 +134,10 @@
                          :now  time/now}
                         opts)
          wanted? (complement except)]
-     (async/then (async/all [(when (and (wanted? :podroll) (:index opts))
-                               (async/all (map #(known-show! % opts) (:podroll view))))
-                             (when (and (wanted? :publisher) (:feed-url (:publisher view)))
-                               (publisher-feed! (:publisher view) view opts))])
+     (async/then (async/all force [(delay (when (and (wanted? :podroll) (:index opts))
+                                            (async/all #(known-show! % opts) (:podroll view))))
+                                   (delay (when (and (wanted? :publisher) (:feed-url (:publisher view)))
+                                            (publisher-feed! (:publisher view) view opts)))])
                  (fn [[podroll publisher]]
                    (cond-> {}
                      (seq podroll) (assoc :podroll (vec podroll))

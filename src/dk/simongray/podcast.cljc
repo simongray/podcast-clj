@@ -313,17 +313,16 @@
                (into [] (comp (remove (:tried acc)) (distinct) (take max-candidates)) (force urls)))]
     (if (empty? urls)
       acc
-      ;; every request goes out before an answer is read, since reading
-      ;; waits for its future on the JVM
-      (async/then (async/all (map #(http/sent! send (discovery-request % (dissoc opts :credentials)) opts) urls))
-                  (fn [attempts]
-                    (async/then (async/all (map #(read-feed %1 where %2 opts) urls attempts))
-                                (fn [results]
-                                  (cond-> (-> acc
-                                              (update :tried into urls)
-                                              (update :candidates into (keep :candidate) results))
-                                    (#{:app-link :link :link-header :rule} where)
-                                    (update :report into (keep :error) results)))))))))
+      (async/then (async/all (fn [url]
+                               (async/then (http/sent! send (discovery-request url (dissoc opts :credentials)) opts)
+                                           #(read-feed url where % opts)))
+                             urls)
+                  (fn [results]
+                    (cond-> (-> acc
+                                (update :tried into urls)
+                                (update :candidates into (keep :candidate) results))
+                      (#{:app-link :link :link-header :rule} where)
+                      (update :report into (keep :error) results)))))))
 
 (defn- lookups
   "The lookups of the show that the `ids` of a link of an app name, or the
@@ -352,19 +351,20 @@
   as :report. Each of the `asked` is a pair of the directory and its
   request. Deferred."
   [asked endpoint {:keys [send] :as opts}]
-  (async/then (async/all (map (fn [[_ request]] (http/sent! send request opts)) asked))
-              (fn [attempts]
-                (let [answers (map (fn [[source request] {:keys [value] :as attempt}]
-                                     (if-let [e (failure (:url request) attempt)]
-                                       {:error e}
-                                       {:urls (keep resolve/self-url
-                                                    (try
-                                                      (directory/response source endpoint (:body value))
-                                                      (catch #?(:clj Exception :cljs :default) _
-                                                        nil)))}))
-                                   asked attempts)]
-                  {:urls   (into [] (comp (mapcat :urls) (distinct)) answers)
-                   :report (into [] (keep :error) answers)}))))
+  (async/then (async/all (fn [[source request]]
+                           (async/then (http/sent! send request opts)
+                                       (fn [{:keys [value] :as attempt}]
+                                         (if-let [e (failure (:url request) attempt)]
+                                           {:error e}
+                                           {:urls (keep resolve/self-url
+                                                        (try
+                                                          (directory/response source endpoint (:body value))
+                                                          (catch #?(:clj Exception :cljs :default) _
+                                                            nil)))}))))
+                         asked)
+              (fn [answers]
+                {:urls   (into [] (comp (mapcat :urls) (distinct)) answers)
+                 :report (into [] (keep :error) answers)})))
 
 (defn- looked-up!
   "The state `acc` of find-feeds! with the feeds of the shows that the
