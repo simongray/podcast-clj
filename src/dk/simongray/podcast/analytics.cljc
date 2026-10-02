@@ -1,8 +1,10 @@
 (ns dk.simongray.podcast.analytics
   "The downloads of episodes, counted by the rules of the IAB Tech Lab from
-  the requests that a podcast host logs. The rules are those of the Podcast
-  Measurement Technical Guidelines, version 2.3 of September 2026. They
-  count the episodes of video too, when a feed delivers them as files.
+  the requests that a podcast host logs.
+
+  The rules are those of the Podcast Measurement Technical Guidelines,
+  version 2.3 of September 2026. They count the episodes of video too,
+  when a feed delivers them as files.
 
   A request is a map of one line of the log of a server:
 
@@ -16,20 +18,20 @@
        :bytes      1048576                         ; of the body that was sent
        :referer    nil}
 
-  `downloads` leaves out the requests that cannot be part of a download,
-  such as HEAD requests and the requests of bots. It puts together the
-  requests of each listener for a file in 24 hours. They count as one
-  download when they hold enough of the file to play for one minute. A
-  listener is an IP address and a user agent. `listener-ip` gives the part
-  of the address that counts, and `threshold` gives the bytes that a
-  download needs.
+  The downloads function leaves out the requests that can't be part of a
+  download, such as HEAD requests and the requests of bots. It puts
+  together the requests of each listener for a file in 24 hours. They
+  count as one download when they hold enough of the file to play for one
+  minute. A listener is an IP address and a user agent. The listener-ip
+  function gives the part of the address that counts, and threshold gives
+  the bytes that a download needs.
 
   The rules need data from outside podcast-clj. The open list of user
-  agents of the OPAWG names the apps and the bots, and `user-agents` reads
+  agents of the OPAWG names the apps and the bots, and user-agents reads
   it. Lists of the addresses of data centers, VPNs and known bots come from
-  other sources. The host gives them to `downloads` as a predicate.
+  other sources. The host gives them to downloads as a predicate.
 
-  A download of OP3, which `dk.simongray.podcast.analytics.op3` reads, has
+  A download of OP3, which dk.simongray.podcast.analytics.op3 reads, has
   the keys of these downloads where OP3 tells the same fact."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -39,13 +41,14 @@
 
 (defn threshold
   "The bytes of `file` that a download needs by the rules of the IAB: the
-  header, and one minute of the content. Nil when the size is not known.
+  header, and one minute of the content. It's nil when the size isn't
+  known.
 
-  `file` is `{:size :header :duration}`: the size of the file and of its
-  header in bytes, and its duration in seconds. The header of an MP3 file
-  is its ID3 tag. An episode of one minute or less needs the whole file.
-  So does a file with no duration."
-  [{:keys [size header duration]}]
+  The `file` is a map of its :size and the size of its :header in bytes,
+  and its :duration in seconds. The header of an MP3 file is its ID3 tag.
+  An episode of one minute or less needs the whole file, and so does a
+  file with no duration."
+  [{:keys [size header duration] :as file}]
   (when (and (number? size) (pos? size))
     (let [header (min size (max 0 (or header 0)))]
       (if (and (number? duration) (> duration 60))
@@ -71,7 +74,7 @@
   "The part of the IP address `ip` that tells listeners apart, as the IAB
   counts them.
 
-  That is an IPv4 address whole, and the first 64 bits of an IPv6 address,
+  That's an IPv4 address whole, and the first 64 bits of an IPv6 address,
   as a prefix such as 2001:db8:1:2::/64. An IPv4 address inside IPv6, as a
   server writes a client of IPv4, is that IPv4 address.
 
@@ -92,9 +95,9 @@
   [[:bots "bot"] [:apps "app"] [:libraries "library"] [:browsers "browser"]])
 
 (defn- entry
-  "The entry `e` of the file `file` of the list of user agents, with its
-  pattern compiled. A diagnostic when the pattern does not compile."
-  [file {:strs [name pattern category]}]
+  "The entry `e` of the `file` of the list of user agents, with its pattern
+  compiled, or a diagnostic when the pattern doesn't compile."
+  [file {:strs [name pattern category] :as e}]
   (when (and (string? name) (string? pattern))
     (if-let [re (try
                   (re-pattern pattern)
@@ -106,15 +109,15 @@
 
 (defn user-agents
   "The open list of user agents of the OPAWG from `files`, ready for
-  `identify`.
+  identify.
 
-  `files` maps :bots, :apps, :libraries, :browsers, :devices and
+  The `files` map :bots, :apps, :libraries, :browsers, :devices and
   :referrers to the JSON of the file of that name, as text or read. The
   files are in src/ or build/ of https://github.com/opawg/user-agents-v2.
 
   Each entry of a file has a name, a pattern and at times a category. The
-  pattern is a regular expression of JavaScript. A pattern that does not
-  compile on the platform is left out, and the report of the list tells
+  pattern is a regular expression of JavaScript. A pattern that doesn't
+  compile on the platform is left out, and the report of the list says
   so. The list changes often, so a host keeps a copy of one commit."
   [files]
   (let [parsed  (fn [x] (if (string? x) (json/read-str x) x))
@@ -137,17 +140,18 @@
 
 (defn identify
   "The agent that the header `user-agent` names by the list `user-agents`,
-  with the keys that OP3 gives it.
+  with the keys that OP3 gives it, and the referrer of the header
+  `referer`.
 
-  The result is `{:agent-type :agent-name :device-type :device-name}`.
-  With the header `referer` of a request from a browser, it also has
-  `:referrer-type` and `:referrer-name`.
+  The result is a map of :agent-type, :agent-name, :device-type and
+  :device-name. With the referer of a request from a browser, it also has
+  :referrer-type and :referrer-name.
 
   The agent type is the type of the file of the first entry that matches:
   bot, app, library or browser. A library that bots use is bot-library. A
   user agent that matches no entry is unknown, and its name is the header.
   The device comes from the devices of the list, except for a bot. The
-  referrer comes from the referrers of the list, or else it is the domain
+  referrer comes from the referrers of the list, or else it's the domain
   of the referer."
   ([user-agents user-agent]
    (identify user-agents user-agent nil))
@@ -179,25 +183,26 @@
 
 (defn- bot?
   "Whether `request` comes from a bot. The list names its agent a bot, or
-  the user agent says so when the list does not know it."
-  [{:keys [agent-type user-agent]}]
+  the user agent says so when the list doesn't know it."
+  [{:keys [agent-type user-agent] :as request}]
   (if (contains? #{"bot" "bot-library"} agent-type)
     true
     (and (contains? #{nil "unknown"} agent-type)
          (boolean (re-find #"(?i)bot|crawler|spider" user-agent)))))
 
 (defn ^:no-doc asked-size
-  "The bytes that the byte ranges `ranges` ask for together, ##Inf for a
-  range with no end."
+  "The bytes that the byte ranges `ranges` ask for together, or ##Inf for
+  a range with no end."
   [ranges]
   (reduce + 0 (for [[a b] ranges] (cond (nil? a) b (nil? b) ##Inf :else (inc (- b a))))))
 
 (defn ^:no-doc malformed?
-  "Whether `request` is no request that the rules can read. It has no
-  instant as `:time`, or no text as `:url` or `:ip`. Or a field that it has
-  is of another type than its own: the `:method` a keyword or text, and the
-  `:range`, the `:user-agent` and the `:referer` text."
-  [{:keys [time url ip method range user-agent referer]}]
+  "Whether the rules can't read `request`.
+
+  It has no instant as :time, or no text as :url or :ip. Or a field that
+  it has is of another type than its own: :method isn't a keyword or
+  text, or :range, :user-agent or :referer isn't text."
+  [{:keys [time url ip method range user-agent referer] :as request}]
   (let [text? #(or (nil? %) (string? %))]
     (not (and (inst? time)
               (string? url)
@@ -209,14 +214,14 @@
               (text? referer)))))
 
 (defn drop-reason
-  "Why the rules of the IAB leave out `request`, a keyword, or nil when it
-  can be part of a download. These are the filters of the first step of
-  the guidelines, in the order that `downloads` applies them:
+  "Why the rules of the IAB leave out `request` by `opts`, as a keyword, or
+  nil when it can be part of a download. These are the filters of the
+  first step of the guidelines, in the order that downloads applies them:
 
-  - :malformed, a request with no instant as `:time`, or no `:url` or
-    `:ip`, or with a field of another type than the type of that field
-  - :method, a request that is not GET, since HEAD moves no content
-  - :status, an answer that is not 200 or 206, or 000, which Akamai logs
+  - :malformed, a request with no instant as :time, or no :url or :ip, or
+    with a field of another type than the type of that field
+  - :method, a request that isn't GET, since HEAD moves no content
+  - :status, an answer that isn't 200 or 206, or 000, which Akamai logs
     for a 206 that ended early. A request without a status passes, since
     a prefix service sees no answers.
   - :two-bytes, ranges of two bytes or fewer, which players ask for to
@@ -224,15 +229,15 @@
   - :no-user-agent, a request with no user agent
   - :watch, a request of Apple Podcasts on a watch, which repeats the
     download of the phone
-  - :bot, a request whose `:agent-type` is bot or bot-library, as
-    `identify` names it. When the list does not know the agent, a user
-    agent that says bot, crawler or spider.
-  - :excluded, a request that the predicate `:exclude?` of `opts` takes:
-    the addresses of servers, data centers, VPNs and known bots, from the
-    lists of the host"
+  - :bot, a request whose :agent-type is bot or bot-library, as identify
+    names it. When the list doesn't know the agent, it's a user agent
+    that says bot, crawler or spider.
+  - :excluded, a request that the predicate :exclude? of `opts` takes.
+    It's for the addresses of servers, data centers, VPNs and known bots,
+    from the lists of the host."
   ([request]
    (drop-reason request {}))
-  ([{:keys [method status range user-agent] :as request} {:keys [exclude?]}]
+  ([{:keys [method status range user-agent] :as request} {:keys [exclude?] :as opts}]
    (cond
      (malformed? request)                                          :malformed
      (not= "get" (some-> method name str/lower-case))              :method
@@ -245,9 +250,9 @@
 
 (defn- held
   "The byte ranges of its file that `request` holds. These are the ranges
-  of its Range header, or the whole file, cut to the `:bytes` that the
+  of its Range header, or the whole file, cut to the :bytes that the
   server sent. The bytes arrive in the order of the ranges."
-  [{:keys [range bytes]}]
+  [{:keys [range bytes] :as request}]
   (let [asked (or (http/byte-ranges range) [[0 nil]])]
     (if (and (number? bytes) (<= 0 bytes))
       (first (reduce (fn [[acc left] [a b]]
@@ -260,10 +265,12 @@
       asked)))
 
 (defn- held-size
-  "The bytes that the byte ranges `ranges` hold together, each byte once:
-  ##Inf when a range has no end. The ranges from the end of the file count
-  apart, since their start is not known. They all end where the file ends,
-  so together they hold the bytes of the longest of them."
+  "The bytes that the byte ranges `ranges` hold together, each byte once,
+  or ##Inf when a range has no end.
+
+  The ranges from the end of the file count apart, since their start
+  isn't known. They all end where the file ends, so together they hold
+  the bytes of the longest of them."
   [ranges]
   (let [{from-end true from-start false} (group-by (comp nil? first) ranges)]
     (+ (reduce max 0 (map second from-end))
@@ -285,18 +292,21 @@
 ;; and the "last touch" rolling windows
 (defn- same-window?
   "Whether the request at `ms`, in milliseconds since the epoch, falls in
-  the window `w` of the kind `window`: the day of its `:start`, the 24
-  hours from its `:start`, or the 24 hours from its `:last` request."
-  [window {:keys [start last]} ms]
+  the window `w` of the kind `window`:
+
+  - :day, the day of the :start of `w`
+  - :rolling, the 24 hours from its :start
+  - :extending, the 24 hours from its :last request"
+  [window {:keys [start last] :as w} ms]
   (case window
     :day       (= (first (time/split-ms start)) (first (time/split-ms ms)))
     :rolling   (< ms (+ start 86400000))
     :extending (< ms (+ last 86400000))))
 
 (defn- judged
-  "The requests of `requests` that can be part of a download, and the count
-  of the others by the reason that `drop-reason` gives: `[kept dropped]`.
-  Each request has the agent that the `:user-agents` of `opts` names."
+  "The `requests` that can be part of a download, and the count of the
+  others by the reason that drop-reason gives, as a pair. Each request has
+  the agent that the :user-agents of `opts` names."
   [requests {:keys [user-agents] :as opts}]
   (let [known (memoize (fn [ua referer] (identify user-agents ua referer)))]
     (reduce (fn [[kept dropped] request]
@@ -310,10 +320,12 @@
             requests)))
 
 (defn- windows
-  "The windows of `requests`: for each listener, file and window, its first
-  request, the byte ranges that its requests hold, and their number. `file`
-  gives the file of a request, and `window` is :day, :rolling or
-  :extending."
+  "The windows of `requests` for each listener and file, where `file`
+  gives the file of a request and `window` is :day, :rolling or
+  :extending.
+
+  A window has its first request, the byte ranges that its requests hold,
+  and their number."
   [requests file window]
   (let [step          (fn [[open closed] {:keys [ip user-agent] :as request}]
                         (let [listener [(listener-ip ip) user-agent]
@@ -329,34 +341,38 @@
     (into closed (vals open))))
 
 (defn downloads
-  "The downloads that `requests` make by the rules of the IAB, and why the
-  other requests do not count: `{:downloads [...] :dropped {reason count}}`.
+  "The downloads that `requests` make by the rules of the IAB with `opts`,
+  and why the other requests don't count, as a map of :downloads and
+  :dropped.
 
   The requests of one listener for one file in one window of 24 hours make
   one download. They must hold at least the bytes of the threshold of the
-  file. A download is the first of its requests, with the `:listener` that
-  it counts for, `[(listener-ip ip) user-agent]`, and the agent that
-  `identify` names. The downloads come in the order of their first
-  requests. `:dropped` counts the requests that `drop-reason` leaves out,
-  by reason, and under :short the requests of listeners who fetched less
-  than the threshold. `opts`:
+  file. A download is the first of its requests, with the :listener that
+  it counts for and the agent that identify names. The listener is a pair
+  of the listener-ip of the address and the user agent. The downloads
+  come in the order of their first requests.
 
-      {:user-agents (user-agents files) ; to name the apps, the devices and the bots
-       :exclude?    f                   ; of a request: the addresses to leave out
-       :threshold   f                   ; of a file: the bytes that a download needs
-       :file        f                   ; of a request: the file that it asks for
-       :window      :day}               ; or :rolling, or :extending
+  The :dropped map counts the requests that drop-reason leaves out, by
+  reason. Under :short, it counts the requests of listeners who fetched
+  less than the threshold. The `opts` are these:
 
-  A window is a day in UTC. With `:rolling`, a window is the 24 hours
-  from the first request of a listener for a file. With `:extending`, it
-  is the 24 hours from the last request, so each request extends it.
-  These are the three windows of the guidelines. The file of a request is
-  its URL without the query. `:threshold` can be a map of files to bytes.
-  For a file with no threshold, any request that passes the filters
-  counts.
+  - :user-agents, as user-agents gives them, to name the apps, the devices
+    and the bots
+  - :exclude?, a predicate of a request, for the addresses to leave out
+  - :threshold, a function of a file that gives the bytes that a download
+    needs, or a map of files to bytes
+  - :file, a function of a request that gives the file that it asks for,
+    by default its URL without the query
+  - :window, which is :day by default, :rolling or :extending
+
+  A window is a day in UTC. With :rolling, a window is the 24 hours from
+  the first request of a listener for a file. With :extending, it's the
+  24 hours from the last request, so each request extends it. These are
+  the three windows of the guidelines. For a file with no threshold, any
+  request that passes the filters counts.
 
   The requests of a listener hold the bytes that their ranges ask for, cut
-  to the `:bytes` that the server sent. A byte counts once, whatever the
+  to the :bytes that the server sent. A byte counts once, whatever the
   number of requests that ask for it."
   ([requests]
    (downloads requests {}))

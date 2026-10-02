@@ -2,15 +2,15 @@
   "WebLN, the interface that a wallet gives a web page: payments from the
   wallet of the listener, in a browser.
 
-  A browser extension or a wallet app puts its provider at
-  `window.webln`. The page asks for the use of the provider, and the
-  wallet asks the listener. Then the wallet asks the listener again for
-  each payment, unless the listener gave the page a budget.
+  A browser extension or a wallet app puts its provider at window.webln.
+  The page asks for the use of the provider, and the wallet asks the
+  listener. Then the wallet asks the listener again for each payment,
+  unless the listener gave the page a budget.
 
-  `keysend-args` gives the arguments of a keysend payment as data, on
-  both platforms. The functions with a name that ends in `!` call the
-  provider, so they are in ClojureScript only. Each gives a promise of
-  its result, or of `{:error diagnostic}`.
+  The keysend-args function gives the arguments of a keysend payment as
+  data, on both platforms. The functions whose names end in ! call the
+  provider, so they're in ClojureScript only. Each gives a promise of its
+  result, or of a map with a diagnostic under :error.
 
   No standards body defines WebLN. The guide at webln.guide defines its
   methods, and doc/services.md tells when podcast-clj read it."
@@ -20,20 +20,20 @@
             #?(:cljs [dk.simongray.podcast.value.lnaddress :as lnaddress])))
 
 (defn keysend-args
-  "The arguments of `webln.keysend` for `payment` to `recipient`, as a map
-  with the string keys of WebLN. Nil for a recipient that is no node, and
-  for a payment below 1 sat.
+  "The arguments of webln.keysend for `payment` to `recipient`, as a map
+  with the string keys of WebLN, or nil for a recipient that isn't a node
+  or a payment below 1 sat.
 
       {\"destination\"   \"03…\"
        \"amount\"        \"50\"
        \"customRecords\" {\"7629169\" \"{\\\"action\\\":\\\"boost\\\",…}\" \"696969\" \"22\"}}
 
-  The payment is the map of `dk.simongray.podcast.value`, and the
-  recipient is a recipient of a value block, of the type node. WebLN
-  counts in whole sats, so the amount is the whole sats of the payment,
-  and the bLIP-10 record tells that amount. The custom records are those
-  of `value/records`, as text. `value/report` of the arguments tells when
-  they leave out the custom key or value of the recipient. Do not send the
+  The payment is the map of dk.simongray.podcast.value, and the recipient
+  is a recipient of a value block, of the type node. WebLN counts in whole
+  sats, so the amount is the whole sats of the payment, and the bLIP-10
+  record tells that amount. The custom records are those of
+  value/records, as text. The report of the arguments says when they
+  leave out the custom key or value of the recipient. Don't send the
   payment then."
   [payment {:keys [address] :as recipient}]
   (let [[msat] (value/amounts payment)
@@ -46,7 +46,7 @@
           (meta records))))))
 
 (defn ^:no-doc failure
-  "`{:error diagnostic}` for the diagnostic `d`."
+  "A map with the diagnostic `d` under :error."
   [d]
   {:error (diagnostics/describe d)})
 
@@ -58,10 +58,11 @@
 
 #?(:cljs
    (defn- called!
-     "A promise of what `read` gives for the result of `(f provider)`, after
-     the listener allowed the use of the provider. `opts` can give the
-     `:provider`. A provider that says no, and a listener who does, give
-     `:value/wallet-refused`."
+     "Call the provider with `f`, after the listener allowed its use, and
+     give a promise of what `read` makes of the result, by `opts`.
+
+     The :provider of `opts` replaces that of the page. A provider that
+     says no, and a listener who does, give :value/wallet-refused."
      [{given :provider :as opts} f read]
      (if-let [^js provider (if (contains? opts :provider) given (provider))]
        (-> (js/Promise.resolve nil)
@@ -74,14 +75,13 @@
 
 #?(:cljs
    (defn enable!
-     "Ask the listener for the use of the WebLN provider. A promise of
-     `{:enabled? true}`, or of `{:error diagnostic}`: `:value/no-provider`
-     for a page without a provider, and `:value/wallet-refused` when the
-     listener said no.
+     "Ask the listener for the use of the WebLN provider, with `opts`, and
+     give a promise of a map with :enabled? true.
 
-     `opts` can give `:provider`, a provider in the place of that of the
-     page. The other functions ask too, so an app needs `enable!` only to
-     know the answer early."
+     For a page without a provider, the :error is :value/no-provider, and
+     when the listener says no, it's :value/wallet-refused. The :provider
+     of `opts` replaces that of the page. The other functions ask too, so
+     call enable! only to know the answer early."
      ([]
       (enable! {}))
      ([opts]
@@ -90,10 +90,12 @@
 
 #?(:cljs
    (defn get-info!
-     "What the wallet of the listener tells of itself: a promise of
-     `{:alias :public-key :methods}`, as far as the wallet gives them, or of
-     `{:error diagnostic}`. `:methods` names the methods of WebLN that the
-     wallet has, such as keysend. `opts` are those of `enable!`."
+     "Ask the wallet of the listener about itself with `opts`, and give a
+     promise of a map of its :alias, :public-key and :methods, as far as
+     the wallet gives them, or of a map with a diagnostic under :error.
+
+     The :methods are the methods of WebLN that the wallet has, such as
+     keysend. The `opts` are those of enable!."
      ([]
       (get-info! {}))
      ([opts]
@@ -108,15 +110,15 @@
 
 #?(:cljs
    (defn pay-invoice!
-     "Pay the BOLT 11 invoice `invoice` from the wallet of the listener. A
-     promise of `{:preimage \"…\" :proven? true}`, or of `{:error
-     diagnostic}`. `opts` are those of `enable!`.
+     "Pay the BOLT 11 `invoice` from the wallet of the listener, with
+     `opts` as enable! takes them. It gives a promise of a map of the
+     :preimage and :proven?, or of a map with a diagnostic under :error.
 
-     `:proven?` tells whether the preimage is the proof of the invoice, as
-     `lnaddress/proves?` tells. When it is false, the wallet tells that it
-     paid, and it gave no proof. Do not pay again then, because the wallet
-     can have paid. `value.lnaddress/request-invoice!` gives the invoice of a
-     Lightning address."
+     The :proven? flag tells whether the preimage is the proof of the
+     invoice, as lnaddress/proves? tells. When it's false, the wallet says
+     that it paid, and it gave no proof. Don't pay again then, since the
+     wallet can have paid. The function value.lnaddress/request-invoice!
+     gives the invoice of a Lightning address."
      ([invoice]
       (pay-invoice! invoice {}))
      ([invoice opts]
@@ -129,14 +131,13 @@
 #?(:cljs
    (defn pay-keysend!
      "Pay `payment` to `recipient` with keysend from the wallet of the
-     listener, with the arguments of `keysend-args`. A promise of
-     `{:preimage \"…\" :sats 50}`, or of `{:error diagnostic}`. `opts` are
-     those of `enable!`.
+     listener, by keysend-args, with `opts` as enable! takes them.
 
-     Nothing goes out for a payment below 1 sat, for a recipient that is no
-     node, and for records that leave out the custom key or value of the
-     recipient. The errors are `:value/below-one-sat`, `:value/not-a-node`
-     and `:value/custom-record`."
+     It gives a promise of a map of the :preimage and the :sats, or of a
+     map with a diagnostic under :error. Nothing goes out for a payment
+     below 1 sat, for a recipient that isn't a node, or for records that
+     leave out the custom key or value of the recipient. The errors are
+     then :value/below-one-sat, :value/not-a-node and :value/custom-record."
      ([payment recipient]
       (pay-keysend! payment recipient {}))
      ([payment recipient opts]

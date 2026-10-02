@@ -3,17 +3,20 @@
   Lightning address is for. The comment of the payment tells it, and a URL
   that the comment names.
 
-  A payment to a Lightning address carries only a short comment. So the
-  comment is `rss::payment::boost https://… Great episode!`: the action,
-  a URL and the start of the message. The URL answers with the header
-  x-rss-payment, which holds the whole payment as JSON. The app that pays
-  writes the comment with `payment-comment`, and serves the header that
-  `header` writes. The host that receives the payment reads the comment
-  with `parse-comment`. `fetch!` gets the header, and `parse-header` reads
-  it. A payment is the map of `dk.simongray.podcast.value`.
+  A payment to a Lightning address carries only a short comment, which
+  has the action, a URL and the start of the message:
+
+      rss::payment::boost https://… Great episode!
+
+  The URL answers with the header x-rss-payment, which holds the whole
+  payment as JSON. The app that pays writes the comment with
+  payment-comment, and serves the header that the header function writes.
+  The host that receives the payment reads the comment with
+  parse-comment. The fetch! function gets the header, and parse-header
+  reads it. A payment is the map of dk.simongray.podcast.value.
 
   The sender writes the metadata, and the page at the URL is public. So
-  the metadata is a claim, which `value/as-received` puts next to what the
+  the metadata is a claim, which value/as-received puts next to what the
   node received."
   (:require [clojure.set :as set]
             [clojure.string :as str]
@@ -33,19 +36,23 @@
   "x-rss-payment")
 
 (def ^:no-doc record-keys
-  "The name in the metadata of each key of a payment that is not simply its
-  snake_case."
+  "The name in the metadata of each key of a payment whose name there
+  isn't just its snake_case."
   {:msat "value_msat" :total-msat "value_msat_total" :usd "value_usd"})
 
 (defn record
-  "The metadata of `payment` as a map with the string keys of the JSON, for
-  `dk.simongray.podcast.util.json/write-str`.
+  "The metadata of `payment` as a map with the string keys of the JSON,
+  for dk.simongray.podcast.util.json/write-str.
 
-  `:action` becomes action, boost when it is absent. `:msat` and
-  `:total-msat` become value_msat and value_msat_total, and `:sats` and
-  `:total-sats` count in sats in their place. `:usd` becomes value_usd, an
-  instant ISO 8601 text, and any other key its snake_case. Give the
-  `:timestamp` of the payment, which the metadata holds."
+  The keys of the payment become these:
+
+  - :action becomes action, boost when it's absent
+  - :msat and :total-msat become value_msat and value_msat_total, and
+    :sats and :total-sats count in sats in their place
+  - :usd becomes value_usd
+  - an instant becomes ISO 8601 text, and any other key its snake_case
+
+  Give the :timestamp of the payment, which the metadata holds."
   [{:keys [action] :as payment}]
   (let [[amount total] (value/amounts payment)]
     (cond-> (assoc (value/json-record payment record-keys #{:action :msat :total-msat :sats :total-sats})
@@ -53,7 +60,7 @@
       amount (assoc "value_msat" amount "value_msat_total" total))))
 
 (defn header
-  "The value of the header x-rss-payment for `payment`: its `record` as
+  "The value of the header x-rss-payment for `payment`: its record as
   JSON, URI-encoded as encodeURIComponent does."
   [payment]
   (http/encode (json/write-str (record payment))))
@@ -90,11 +97,11 @@
 
 (defn parse-header
   "The payment that the value `s` of the header x-rss-payment describes,
-  as `record` writes it: JSON, URI-encoded, or as it is.
+  as record writes it: JSON, URI-encoded, or as it is.
 
   The fields of the metadata become the keys of a payment, and the other
   fields keep their names. The report tells what the reader forgave, as
-  `value/parse-boostagram` tells it. A header that holds no JSON object
+  value/parse-boostagram tells it. A header that holds no JSON object
   reads as no payment."
   [s]
   (let [text (when (string? s) (str/trim s))
@@ -123,17 +130,17 @@
 
 (defn payment-comment
   "The comment of a payment to a Lightning address that names the metadata
-  of `payment` at `url`. Nil when `url` is no http or https URL, or when
-  the comment does not fit without the message.
+  of `payment` at `url`, at most `max-length` characters long, as
+  JavaScript counts them.
 
-  The comment is `rss::payment::boost https://… Great episode!`. With
-  `max-length`, it has that many characters at most, as JavaScript counts
-  them. Give the `:comment-length` of the terms of the address. The
-  message of the payment is cut to fit, and it ends in an ellipsis when it
-  is cut."
+  The comment has the form that the docstring of this namespace shows.
+  Give the :comment-length of the terms of the address as `max-length`.
+  The message of the payment is cut to fit, and it ends in an ellipsis
+  when it's cut. The comment is nil when `url` isn't an http or https
+  URL, or when the comment doesn't fit without the message."
   ([payment url]
    (payment-comment payment url ##Inf))
-  ([{:keys [action message]} url max-length]
+  ([{:keys [action message] :as payment} url max-length]
    (when (http/origin url)
      (let [head (str prefix (name (or action :boost)) " " url)
            text (some-> message str/trim not-empty)
@@ -146,12 +153,12 @@
          :else                             (str (str/trimr (value/cut full (dec max-length))) "…"))))))
 
 (defn parse-comment
-  "What the comment `s` of a payment tells about its metadata, as `{:action
-  :url :message}`. Nil when `s` does not start with `rss::payment::`.
+  "What the comment `s` of a payment tells about its metadata, as a map of
+  :action, :url and :message, or nil when `s` doesn't start with prefix.
 
   The message is the start of the message of the payment, and the metadata
   at the URL holds all of it. Fountain wrote the text undefined in place
-  of no message, so that text is no message."
+  of no message, so that text counts as none."
   [s]
   (when-let [[_ action url message] (when (string? s)
                                       (re-matches #"(?s)rss::payment::(\S*)\s*(\S*)\s*(.*)" (str/trim s)))]
@@ -164,9 +171,9 @@
         said?             (assoc :message message)))))
 
 (def default-limits
-  "The limits of `fetch!` that its options do not set. They are the seconds
-  that the request can take, and the size of an answer in bytes. The header
-  holds the metadata, so the answer needs no body."
+  "The limits of fetch! that its options don't set: the seconds that the
+  request can take, and the size of an answer in bytes. The header holds
+  the metadata, so the answer needs no body."
   {:timeout-seconds 10
    :max-bytes       (* 64 1024)})
 
@@ -177,17 +184,22 @@
   {:method :get :url url :range [0 1]})
 
 (defn fetch!
-  "The payment that the metadata at `url` describes, as `parse-header`
-  reads the header x-rss-payment of the answer, or `{:error diagnostic}`.
-  On the JVM the payment, in ClojureScript a promise of it.
+  "Fetch the metadata at `url` with `opts`, and read the header
+  x-rss-payment of the answer as parse-header does. On the JVM it gives
+  the payment, and in ClojureScript a promise of it.
 
-  Take `url` from `parse-comment`. `opts` are the limits of
-  `default-limits`, `:allow?`, and `:send`, a function that sends a request
-  map in place of `http/call!`. The sender of the payment chooses the URL.
-  So the request carries `http/public?` as its `:allow?`, and `http/call!`
-  then sends nothing to the network of the host. A host that must reach
-  its own network gives `(constantly true)` as `:allow?`. A browser reads
-  the header only when the server exposes it with CORS."
+  Take `url` from parse-comment. When the metadata doesn't come, the
+  result has a diagnostic under :error. The `opts` are these:
+
+  - the limits of default-limits
+  - :allow?, which URLs the request can go to
+  - :send, a function that sends a request map in place of http/call!
+
+  The sender of the payment chooses the URL. So the request carries
+  http/public? as its :allow?, and http/call! then sends nothing to a
+  private network. To reach your own network, give (constantly true) as
+  :allow?. A browser reads the header only when the server exposes it
+  with CORS."
   ([url]
    (fetch! url {}))
   ([url opts]

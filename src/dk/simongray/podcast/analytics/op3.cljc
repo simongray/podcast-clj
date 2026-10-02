@@ -3,17 +3,19 @@
   downloads of episodes through a prefix of their URLs, and its API.
 
   A host puts the prefix of OP3 in front of the URL of each enclosure. OP3
-  then counts each request, and redirects it to the file. `prefix` and
-  `with-prefix` write the prefix. The API gives the downloads of a show,
-  the counts of the show and of its episodes, and the apps of the
-  listeners. `request` builds a call of the API as a map, and `response`
-  reads the answer. `call!` and `fetch-downloads!` send the calls. Each call
-  needs the token of an API key from https://op3.dev/api/keys.
+  then counts each request, and redirects it to the file. The prefix and
+  with-prefix functions write the prefix.
+
+  The API gives the downloads of a show, the counts of the show and of its
+  episodes, and the apps of the listeners. The request function builds a
+  call of the API as a map, and response reads the answer. The call! and
+  fetch-downloads! functions send the calls. Each call needs the token of
+  an API key from https://op3.dev/api/keys.
 
   A download of OP3 has the keys of the downloads of
-  `dk.simongray.podcast.analytics/downloads` where OP3 tells the same fact.
-  These are the `:time`, the `:url`, the `:ip`, which OP3 keeps as a hash,
-  the `:listener` and the agent. OP3 counts its downloads by its own rules,
+  dk.simongray.podcast.analytics/downloads where OP3 tells the same fact.
+  They're the :time, the :url, the :listener, the agent, and the :ip,
+  which OP3 keeps as a hash. OP3 counts its downloads by its own rules,
   which are close to those of the IAB."
   (:require [clojure.set :as set]
             [clojure.string :as str]
@@ -28,17 +30,17 @@
 
 (def origin
   "The origin of OP3. The functions use it, unless their options give the
-  origin of another instance of OP3 as `:origin`."
+  origin of another instance of OP3 as :origin."
   "https://op3.dev")
 
 (defn ^:no-doc instance
-  "The origin of the instance of OP3 that `opts` name, else `origin`,
+  "The origin of the instance of OP3 that `opts` name, or else origin,
   without a slash at its end."
   [opts]
   (str/replace (:origin opts origin) #"(^|[^/])/+$" "$1"))
 
 (defn prefixed?
-  "Whether the URL `url` goes through OP3, at the `:origin` of `opts`: its
+  "Whether the URL `url` goes through OP3, at the :origin of `opts`. Its
   prefix is in the URL before the query, also behind other prefixes."
   ([url]
    (prefixed? url {}))
@@ -50,12 +52,12 @@
 
 (defn accepts?
   "Whether OP3 takes the URL `url` behind its prefix, as its server did in
-  September 2026. `prefix` asks this, unless its options give another
-  predicate of a URL as `:accepts?`.
+  September 2026. The prefix function asks this, unless its options give
+  another predicate of a URL as :accepts?.
 
-  OP3 answers a URL that it does not take with an error, so the episode
-  behind the prefix does not play. It takes an http or https URL with a
-  path and without a user name. It does not take a domain that is an IPv6
+  OP3 answers a URL that it doesn't take with an error, so the episode
+  behind the prefix doesn't play. It takes an http or https URL with a
+  path and without a user name. It doesn't take a domain that's an IPv6
   address, that has no dot, or that RFC 2606 keeps for tests, such as
   example.test."
   [url]
@@ -69,23 +71,25 @@
           (or (nil? port) (<= 1 (parse-long port) 65535))))))
 
 (defn- target
-  "The scheme of the http or https URL `url`, and the rest of the URL:
-  `[\"https\" \"cdn.example.com/episode.mp3\"]`. Nil for another URL."
+  "The scheme of the http or https URL `url` and the rest of the URL, as a
+  pair, e.g. https and cdn.example.com/episode.mp3. It's nil for another
+  URL."
   [url]
   (when-let [[_ scheme tail] (re-matches #"(?i)(https?)://(.+)" (str url))]
     [(str/lower-case scheme) tail]))
 
 (defn prefix
-  "The URL `url` with the prefix of OP3 in front, so that OP3 counts the
-  requests for it. Nil for a URL that OP3 does not take, as `accepts?`
-  tells.
+  "The URL `url` with the prefix of OP3 in front, by `opts`, so that OP3
+  counts the requests for it. It's nil for a URL that OP3 doesn't take, as
+  accepts? tells.
 
   Such a URL is https://op3.dev/e/cdn.example.com/episode.mp3. A URL that
-  goes through OP3 already stays as it is.
+  goes through OP3 already stays as it is. The `opts` are these:
 
-  `opts` give the `:podcast-guid` of the show, which helps OP3 find the
-  show. For another instance of OP3, they give its `:origin`, and the
-  predicate `:accepts?` when that instance takes other URLs."
+  - :podcast-guid, the podcast:guid of the show, which helps OP3 find the
+    show
+  - :origin, for another instance of OP3
+  - :accepts?, a predicate of a URL, when that instance takes other URLs"
   ([url]
    (prefix url {}))
   ([url {:keys [podcast-guid] :as opts}]
@@ -97,12 +101,12 @@
             "/" (when (= "http" scheme) "http://") tail)))))
 
 (defn with-prefix
-  "`feed` with the prefix of OP3 in front of the URL of each enclosure, and
-  of each source of an alternate enclosure.
+  "The `feed` with the prefix of OP3 in front of the URL of each enclosure,
+  and of each source of an alternate enclosure, by `opts`.
 
-  OP3 counts the requests for both. `prefix` writes each prefix, where
-  OP3 takes the URL. The `:podcast-guid` is that of the feed, unless
-  `opts` give one."
+  OP3 counts the requests for both. The prefix function writes each
+  prefix, where OP3 takes the URL. The :podcast-guid is that of the feed,
+  unless `opts` give one."
   ([feed]
    (with-prefix feed {}))
   ([feed opts]
@@ -110,18 +114,19 @@
      (feed/update-media-urls feed #(or (prefix % opts) %)))))
 
 (def endpoints
-  "The calls of the API, by the names of OP3, with their parameters.
-  `:show` names a show: by its show UUID, and for :show and
-  :top-apps-for-show also by its podcast guid or the URL of its feed.
+  "The calls of the API, by the names of OP3, with their parameters:
 
       :show                    {:show :episodes?}
-      :downloads               {:show :start :end :episode :bots? :limit :continuation-token}
+      :downloads               {:show :start :end :episode :bots? :limit
+                                :continuation-token}
       :show-download-counts    {:show}  ; one show UUID, or several
       :episode-download-counts {:show :limit}
       :top-apps-for-show       {:show}
 
-  `:start` and `:end` are instants, or text that OP3 reads: a date such as
-  2026-09 or 2026-09-26, or a time before now, such as -24h."
+  The :show parameter names a show by its show UUID. For :show and
+  :top-apps-for-show, it can also be its podcast guid or the URL of its
+  feed. The :start and :end are instants, or text that OP3 reads: a date
+  such as 2026-09 or 2026-09-26, or a time before now, such as -24h."
   #{:show :downloads :show-download-counts :episode-download-counts :top-apps-for-show})
 
 (defn- show-param
@@ -143,12 +148,12 @@
                   (str (http/encode k) "=" (http/encode (if (inst? v) (time/format-iso8601 v) v))))))
 
 (defn request
-  "The request map of the call `endpoint` with `params`, see `endpoints`,
-  with the bearer `token` of an API key. `opts` can give the `:origin` of
+  "The request map of the call `endpoint` with `params`, as endpoints lists
+  them, and the bearer `token` of an API key. The :origin of `opts` names
   another instance of OP3."
   ([token endpoint params]
    (request token endpoint params {}))
-  ([token endpoint {:keys [show episodes? start end episode bots? limit continuation-token]} opts]
+  ([token endpoint {:keys [show episodes? start end episode bots? limit continuation-token] :as params} opts]
    (let [[path params] (case endpoint
                          :show                    [(str "shows/" (http/encode (if (http/web-url? show) (http/base64url show) show)))
                                                    {"episodes" (when episodes? "include")}]
@@ -176,7 +181,7 @@
 
 (defn- download
   "The row `row` of the downloads of OP3 as a download, with the keys of
-  `dk.simongray.podcast.analytics/downloads` where it tells the same fact."
+  dk.simongray.podcast.analytics/downloads where it tells the same fact."
   [row]
   (set/rename-keys (record row) {:hashed-ip-address :ip :audience-id :listener}))
 
@@ -191,12 +196,11 @@
       :episode-download-counts {:show-uuid :show-title :episodes [counts] …}
       :top-apps-for-show       {:show-uuid :app-downloads {app downloads}}
 
-  A download has the keys of `dk.simongray.podcast.analytics/downloads`
-  where OP3 tells the same fact. So hashedIpAddress is `:ip`, and
-  audienceId is the `:listener`. The keys of a map by show or by app stay
-  text.
+  A download has the keys of dk.simongray.podcast.analytics/downloads
+  where OP3 tells the same fact. So hashedIpAddress is :ip, and audienceId
+  is the :listener. The keys of a map by show or by app stay text.
 
-  Throws `::failed` for a body that holds no JSON object."
+  It throws ::failed for a body that holds no JSON object."
   [endpoint body]
   (let [raw (json/object body)]
     (when-not raw
@@ -222,17 +226,19 @@
         (some-> body str str/trim not-empty))))
 
 (defn call!
-  "Send the call `endpoint` with `params` to OP3 with the bearer `token`,
-  and read the answer with `response`. On the JVM the data, in
-  ClojureScript a promise of it.
+  "Send the call `endpoint` with `params` and `opts` to OP3 with the bearer
+  `token`, and read the answer with response. On the JVM it gives the
+  data, and in ClojureScript a promise of it.
 
-  Nil when OP3 has no such show or no data of it. Throws `::failed` with
-  the `:status` and the `:message` of any other answer that is not a
-  success. Examples are 401 for a token that OP3 does not know, and 429
-  when a caller asks too often. A success that holds no JSON object is
-  `::failed` too. `opts` are the `:origin` of `request`, the
-  `:timeout-seconds` of each request, and `:send`, a function that sends a
-  request map in place of `http/call!`."
+  It gives nil when OP3 has no such show or no data of it. Any other
+  answer that isn't a success throws ::failed with its :status and
+  :message, such as 401 for an unknown token or 429 when a caller asks too
+  often. A success that holds no JSON object is ::failed too. The `opts`
+  are these:
+
+  - :origin, as request takes it
+  - :timeout-seconds, for each request
+  - :send, a function that sends a request map in place of http/call!"
   ([token endpoint params]
    (call! token endpoint params {}))
   ([token endpoint params opts]
@@ -248,21 +254,21 @@
                      :else                                  (throw (failed status "no JSON object"))))))))
 
 (defn fetch-downloads!
-  "The downloads of the show that `params` name, read page after page with
-  the bearer `token`, as `{:downloads [...] :continuation-token}`.
+  "Fetch the downloads of the show that `params` name, page after page,
+  with the bearer `token` and `opts`. On the JVM it gives the result, and
+  in ClojureScript a promise of it.
 
-  The call :downloads gives the pages. On the JVM it gives the downloads,
-  and in ClojureScript a promise of them.
+  The result is a map of the :downloads and the :continuation-token. The
+  call :downloads gives the pages. A page holds at most :limit downloads,
+  20,000 unless `params` say. The fetch stops after :max-pages pages, five
+  unless `opts` say. When it stops before the end, the continuation token
+  names the next page, and `params` with it read on from there. The other
+  `opts` are as call! takes them.
 
-  A page holds at most `:limit` downloads, 20,000 unless `params` say. The
-  fetch stops after `:max-pages` pages, five unless `opts` say. When it
-  stops before the end, the continuation token names the next page, and
-  `params` with it read on from there. `opts` as for `call!`.
-
-  This throws nothing for what OP3 or the network does. When the call for
-  a page fails, the result has the `:error` of it, a diagnostic, with the
-  downloads of the pages before that page. The continuation token then
-  names the page that failed."
+  Nothing that OP3 or the network does throws. When the call for a page
+  fails, the result has its :error, a diagnostic, with the downloads of
+  the pages before that page. The continuation token then names the page
+  that failed."
   ([token params]
    (fetch-downloads! token params {}))
   ([token params opts]

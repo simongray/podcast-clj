@@ -3,28 +3,29 @@
   the listener, asked for over a relay of Nostr.
 
   The listener gets a connection URI from the wallet, and gives it to the
-  app. `parse` reads the URI into a connection. The URI holds a secret
-  key, and who has it can spend from the wallet. So an app keeps it as it
-  keeps a password, and shows it to nobody. The connection hides the key
-  with `dk.simongray.podcast.util.secret`, so a connection that is printed
-  shows `#<secret>`. `uri` gives the text that an app stores.
+  app. The parse function reads the URI into a connection. The URI holds
+  a secret key, and whoever has it can spend from the wallet. So an app
+  keeps it as it keeps a password, and shows it to nobody. The connection
+  hides the key with dk.simongray.podcast.util.secret, so a connection
+  that's printed doesn't show it. The uri function gives the text that an
+  app stores.
 
-  A command is data, `{:method :params}`. `pay-invoice` pays the invoice
-  of a Lightning address, which `value.lnaddress/request-invoice!` gives.
-  `pay-keysend` pays a node, with the records of `value/records`.
-  `get-balance`, `get-info`, `make-invoice` and `lookup-invoice` are the
-  other commands of NIP-47.
+  A command is data, a map of :method and :params. The pay-invoice
+  command pays the invoice of a Lightning address, which
+  value.lnaddress/request-invoice! gives. The pay-keysend command pays a
+  node, with the records of value/records. The other commands of NIP-47
+  are get-balance, get-info, make-invoice and lookup-invoice.
 
-  `ask!` sends a command to the wallet and gives its answer. `request`
-  writes the event of a command and `answer` reads the event of the
-  wallet, for an app that holds its own connections to relays. The content
-  of each event is encrypted with NIP-44. podcast-clj does not write the
-  encryption of NIP-04, which NIP-47 keeps for old wallets. NIP-04 has no
-  check of a change, and its own text tells not to use it.
+  The ask! function sends a command to the wallet and gives its answer.
+  For an app that holds its own connections to relays, request writes the
+  event of a command and answer reads the event of the wallet. The content
+  of each event is encrypted with NIP-44. The encryption of NIP-04, which
+  NIP-47 keeps for old wallets, isn't written here. NIP-04 has no check of
+  a change, and its own text tells not to use it.
 
   NIP-47 has the commands of invoices. The command of keysend is in the
   extension NWC-04, in the repository nostr-wallet-connect/nwc. A wallet
-  names the commands that it takes in its info event, which `fetch-info!`
+  names the commands that it takes in its info event, which fetch-info!
   reads."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.crypto.nip44 :as nip44]
@@ -47,10 +48,11 @@
   {:info 13194 :request 23194 :response 23195})
 
 (def default-limits
-  "The limits of `ask!` and `fetch-info!` that their options do not set. A
-  payment over Lightning can take a minute, so the wallet has
-  `:timeout-seconds` to answer. The request of a command expires after
-  that time."
+  "The limits of ask! and fetch-info! that their options don't set.
+
+  A payment over Lightning can take a minute, so the wallet has
+  :timeout-seconds to answer. The request of a command expires after that
+  time."
   {:timeout-seconds 60})
 
 (def ^:no-doc encryption
@@ -65,8 +67,8 @@
   (boolean (and (string? x) (re-matches #"[0-9a-f]{64}" x))))
 
 (defn- query
-  "The parameters of the query string `s`, as `[name value]` in their
-  order, decoded. A name can come more than once."
+  "The parameters of the query string `s`, decoded, as pairs of a name and
+  a value in their order. A name can come more than once."
   [s]
   (for [part  (str/split (str s) #"&")
         :let  [[k v] (map http/percent-decode (str/split part #"=" 2))]
@@ -74,8 +76,8 @@
     [k v]))
 
 (defn parse
-  "The connection that the URI `uri` of Nostr Wallet Connect names. Nil
-  for a text that is no such URI.
+  "The connection that the URI `uri` of Nostr Wallet Connect names, or nil
+  for a text that isn't such a URI.
 
       {:wallet \"b889…\"                  ; the public key of the wallet service
        :relays [\"wss://relay.example\"]  ; where the wallet service listens
@@ -84,16 +86,16 @@
 
   The section Nostr Wallet Connect URI of NIP-47 defines the URI. It has
   the scheme nostr+walletconnect, one relay or more, and a secret. The
-  relays are as `nostr/relay-url` writes them, and a relay that is no URL
-  of a relay is left out.
+  relays are as nostr/relay-url writes them, and a relay that isn't the
+  URL of a relay is left out.
 
-  The secret is for this connection only. Who has it can spend from the
-  wallet, within the budget that the wallet gave the connection. It is a
-  hidden text of `secret/hide`, which does not show in a log or at a REPL.
-  The reader does not read a printed connection, so an app stores the text
-  of `uri`.
+  The secret is for this connection only. Whoever has it can spend from
+  the wallet, within the budget that the wallet gave the connection. It's
+  a hidden text of secret/hide, which doesn't show in a log or at a REPL.
+  The reader doesn't read a printed connection, so an app stores the text
+  of uri.
 
-  The URI is a claim of who wrote it. The `:lud16` is where that person
+  The URI is a claim of whoever wrote it. The :lud16 is where that person
   wants payments to go, so an app asks the listener before it uses the
   address."
   [uri]
@@ -109,19 +111,19 @@
           (seq lud16) (assoc :lud16 lud16))))))
 
 (defn ^:no-doc secret-key
-  "The secret key of the app in `connection`, as text. It is the one
-  place where the functions here read the key."
+  "The secret key of the app in `connection`, as text. It's the one place
+  where the functions here read the key."
   [connection]
   (secret/reveal (:secret connection)))
 
 (defn connection?
-  "Whether `x` is a connection, as `parse` gives one. Its keys are in
-  lower case, its wallet is a point of the curve, its secret is a secret
-  key, and each of its relays is the URL of a relay.
+  "Whether `x` is a connection, as parse gives one. Its keys are in lower
+  case, its wallet is a point of the curve, and its secret is a secret
+  key. Each of its relays is the URL of a relay.
 
-  The secret is a hidden text of `secret/hide`. A plain text is a secret
-  too, for an app that makes a connection of its own parts, but such a
-  connection shows its secret when it is printed."
+  The secret is a hidden text of secret/hide. A plain text is a secret
+  too, for an app that makes a connection of its own parts. But such a
+  connection shows its secret when it's printed."
   [x]
   (boolean (and (map? x)
                 (key-text? (:wallet x))
@@ -133,8 +135,8 @@
                 (every? #(= % (nostr/relay-url %)) (:relays x)))))
 
 (defn uri
-  "The URI of Nostr Wallet Connect for `connection`, a map as `parse`
-  gives one. A wallet service gives an app such a URI, and an app stores
+  "The URI of Nostr Wallet Connect for `connection`, a map as parse gives
+  one. A wallet service gives an app such a URI, and an app stores
   it.
 
   The text has the secret of the connection. Keep it where the app keeps
@@ -146,17 +148,17 @@
 
 (defn public-key
   "The public key of the app in `connection`, by which the wallet knows
-  the connection. It is the public key of the secret of the connection."
+  the connection. It's the public key of the secret of the connection."
   [connection]
   (secp256k1/public-key (secret-key connection)))
 
 (defn pay-invoice
-  "The command that pays the BOLT 11 invoice `invoice`, as the section
-  pay_invoice of NIP-47 defines it.
+  "The command that pays the BOLT 11 `invoice` by `opts`, as the section
+  pay_invoice of NIP-47 defines it. The `opts` are these:
 
-  `opts` can give `:msat`, the amount for an invoice that names none, and
-  `:metadata`, a map that the wallet keeps with the payment. NWC-06 names
-  keys of such metadata, such as \"comment\"."
+  - :msat, the amount for an invoice that names none
+  - :metadata, a map that the wallet keeps with the payment. NWC-06 names
+    keys of such metadata, such as \"comment\"."
   ([invoice]
    (pay-invoice invoice {}))
   ([invoice {:keys [msat metadata] :as opts}]
@@ -174,15 +176,14 @@
 
 (defn pay-keysend
   "The command that pays `payment` to `recipient` with keysend, as NWC-04
-  defines it. Nil for a recipient that is no node, and for a payment
+  defines it, or nil for a recipient that isn't a node or a payment
   without an amount.
 
-  The payment is the map of `dk.simongray.podcast.value`, and the
-  recipient is a recipient of a value block, of the type node. The command
-  has the custom records of `value/records`: the bLIP-10 record, and the
-  custom key and value of the recipient. `value/report` of the command
-  tells when the records leave out the custom key or value. Do not send
-  the command then."
+  The payment is the map of dk.simongray.podcast.value, and the recipient
+  is a recipient of a value block, of the type node. The command has the
+  custom records of value/records: the bLIP-10 record, and the custom key
+  and value of the recipient. The report of the command says when the
+  records leave out the custom key or value. Don't send the command then."
   [payment {:keys [address] :as recipient}]
   (let [[msat]  (value/amounts payment)
         records (value/records payment recipient)]
@@ -196,10 +197,10 @@
 
 (defn make-invoice
   "The command that makes an invoice for `msat` millisatoshis in the
-  wallet, as the section make_invoice of NIP-47 defines it.
+  wallet by `opts`, as the section make_invoice of NIP-47 defines it.
 
-  `opts` can give `:description`, `:description-hash`, `:expiry` in
-  seconds, and `:metadata`."
+  The `opts` can give :description, :description-hash, :expiry in
+  seconds, and :metadata."
   ([msat]
    (make-invoice msat {}))
   ([msat {:keys [description description-hash expiry metadata] :as opts}]
@@ -212,9 +213,9 @@
               metadata         (assoc "metadata" metadata))}))
 
 (defn lookup-invoice
-  "The command that asks the wallet for the state of a payment, as the
-  section lookup_invoice of NIP-47 defines it. `x` names the payment by
-  its `:invoice` or by its `:payment-hash`."
+  "The command that asks the wallet for the state of the payment `x`, as
+  the section lookup_invoice of NIP-47 defines it. The `x` names the
+  payment by its :invoice or by its :payment-hash."
   [{:keys [invoice payment-hash] :as x}]
   {:pre [(or (string? invoice) (string? payment-hash))]}
   {:method "lookup_invoice"
@@ -239,24 +240,24 @@
   (quot (inst-ms at) 1000))
 
 (defn request
-  "The event that asks the wallet of `connection` to do `command`, from
-  what `opts` give. Nil for a command with more bytes than a payload of
-  `nip44` holds.
+  "The event that asks the wallet of `connection` to do `command`, made
+  from `opts`, or nil for a command with more bytes than a payload of
+  NIP-44 holds.
 
-  It is a signed event of the kind 23194, with the command in its content,
+  It's a signed event of the kind 23194, with the command in its content,
   encrypted for the wallet. The section Request and Response Events of
-  NIP-47 defines it. `opts` has what makes the event, because nothing here
-  reads a clock or makes random bytes:
+  NIP-47 defines it. The `opts` have what makes the event, since nothing
+  here reads a clock or makes random bytes:
 
-  - `:at`, the instant of the request
-  - `:nonce`, hexadecimal text of 32 bytes that nobody can guess, for the
+  - :at, the instant of the request
+  - :nonce, hexadecimal text of 32 bytes that nobody can guess, for the
     encryption
-  - `:aux`, the same for the signature
-  - `:expires-at`, the instant after which the wallet does not do the
-    command. It is optional.
+  - :aux, the same for the signature
+  - :expires-at, the instant after which the wallet doesn't do the
+    command, which is optional
 
-  `(bytes/hex (bytes/generate! 32))` gives such bytes, new for each
-  request."
+  Use new bytes for each request, such as (bytes/hex (bytes/generate!
+  32))."
   [{:keys [wallet] :as connection} {:keys [method params] :as command} {:keys [at nonce aux expires-at] :as opts}]
   {:pre [(connection? connection) (string? method) (map? params) (inst? at)]}
   (let [secret (secret-key connection)
@@ -271,7 +272,7 @@
                     aux))))
 
 (defn ^:no-doc failure
-  "`{:error diagnostic}` for the diagnostic `d`."
+  "A map with the diagnostic `d` under :error."
   [d]
   {:error (diagnostics/describe d)})
 
@@ -303,8 +304,8 @@
    "extensions"       [:extensions :texts]})
 
 (defn- typed
-  "The JSON value `v` as the value of a field of the type `type`. Nil for
-  a value of another type."
+  "The JSON value `v` as the value of a field of the type `type`, or nil
+  for a value of another type."
   [type v]
   (case type
     :text   (when (string? v) v)
@@ -314,7 +315,7 @@
     :texts  (when (sequential? v) (vec (filter string? v)))))
 
 (defn- result
-  "The result `raw` of a wallet in the keys of podcast-clj, by `fields`."
+  "The result `raw` of a wallet in the keys of podcast-clj, by fields."
   [raw]
   (into {} (for [[k v] raw
                  :let  [[name type] (get fields k)
@@ -323,9 +324,9 @@
              [name value])))
 
 (defn answer
-  "What the event `event` of a wallet answers over `connection`, or
-  `{:error diagnostic}`. The section Request and Response Events of NIP-47
-  defines the event, of the kind 23195.
+  "What the `event` of a wallet answers over `connection`, or a map with a
+  diagnostic under :error. The section Request and Response Events of
+  NIP-47 defines the event, of the kind 23195.
 
       {:method   \"pay_invoice\"
        :request  \"5c83…\"          ; the id of the request that it answers
@@ -333,19 +334,19 @@
        :result   {\"preimage\" \"0123…\" \"fees_paid\" 1000}}
 
   The answer has the fields of the result in the keys of podcast-clj, and
-  the `:result` as the wallet gave it. An amount is in millisatoshis,
-  under `:msat` or `:fees-msat`, and a time is an instant.
+  the :result as the wallet gave it. An amount is in millisatoshis, under
+  :msat or :fees-msat, and a time is an instant.
 
-  An error of the wallet is `:value/wallet-refused`, with the `:code` of
-  NIP-47 and the `:message` of the wallet. An event that is not the signed
-  event of the wallet for this connection is `:value/wallet-unreadable`.
-  So is the result of a payment without a preimage, because a wallet gets
-  the preimage when it pays.
+  An error of the wallet is :value/wallet-refused, with the :code of
+  NIP-47 and the :message of the wallet. An event that isn't the signed
+  event of the wallet for this connection is :value/wallet-unreadable. So
+  is the result of a payment without a preimage, since a wallet gets the
+  preimage when it pays.
 
   The texts of an answer are as the wallet wrote them. Hiccup escapes
-  them, but an app that writes HTML as text must escape them itself.
-  `answer` does not know the invoice of a payment, so it does not check
-  the preimage. `ask!` checks it."
+  them, but an app that writes HTML as text must escape them itself. This
+  doesn't know the invoice of a payment, so it doesn't check the
+  preimage, but ask! does."
   [{:keys [wallet] :as connection} event]
   {:pre [(connection? connection)]}
   (let [unreadable #(failure {:id :value/wallet-unreadable :reason %})
@@ -381,17 +382,17 @@
 
 (defn info-request
   "The request that asks the relay at `url` for the info event of the
-  wallet of `connection`, for `nostr/call!`."
-  [{:keys [wallet]} url]
+  wallet of `connection`, for nostr/call!."
+  [{:keys [wallet] :as connection} url]
   {:url url :filters [{"kinds" [(:info kinds)] "authors" [wallet] "limit" 1}]})
 
 (defn info
-  "What the info event `event` of a wallet tells, as the section Info
-  Event of NIP-47 defines it:
+  "What the info `event` of a wallet tells, as the section Info Event of
+  NIP-47 defines it:
 
-      {:methods    [\"pay_invoice\" \"get_balance\"]  ; the commands that it takes
-       :encryption [\"nip44_v2\" \"nip04\"]           ; the encryptions that it reads
-       :extensions [\"02\" \"04\"]}                   ; the extensions of NWC that it has
+      {:methods    [\"pay_invoice\" \"get_balance\"] ; the commands it takes
+       :encryption [\"nip44_v2\" \"nip04\"]          ; the encryptions it reads
+       :extensions [\"02\" \"04\"]}                  ; its extensions of NWC
 
   A wallet that names no encryption reads that of NIP-04 only, as the
   section Encryption of NIP-47 tells."
@@ -403,13 +404,13 @@
      :extensions (words (tag "extensions"))}))
 
 (defn problem
-  "Why the wallet with the info `info` does not take `command` from
-  podcast-clj, as `{:error diagnostic}`. Nil when it takes the command,
-  and when `info` is nil, because the app does not know the wallet then.
+  "Why the wallet with the `info` doesn't take `command` from podcast-clj,
+  as a map with a diagnostic under :error. It's nil when the wallet takes
+  the command, and when `info` is nil, since the wallet is unknown then.
 
-  The diagnostic is `:value/wallet-unsupported`. The wallet does not name
-  the method of the command, or it does not read NIP-44 version 2."
-  [info {:keys [method]}]
+  The diagnostic is :value/wallet-unsupported. The wallet doesn't name
+  the method of the command, or it doesn't read NIP-44 version 2."
+  [info {:keys [method] :as command}]
   (when info
     (cond
       (not (some #{encryption} (:encryption info)))
@@ -419,25 +420,26 @@
       (failure {:id :value/wallet-unsupported :method method :methods (:methods info)}))))
 
 (defn- sent!
-  "What the relay of `request` answers, as `{:value response}` or `{:error
-  e}`; deferred."
-  [{:keys [send allow? timeout-seconds]} request]
+  "Send `request` to its relay by `opts`, and give the answer as a map of
+  the :value or the :error, in a future or a promise."
+  [{:keys [send allow? timeout-seconds] :as opts} request]
   (async/attempt #(send (assoc request :allow? allow? :timeout-seconds timeout-seconds))))
 
 (defn- from-relays!
-  "What `read` gives for the response of the first relay of `relays` that
-  answers the request `(request-of url)`, or `{:error diagnostic}`;
-  deferred.
+  "Send the request that `request-of` makes to each of `relays` in turn,
+  with `opts` and the failures so far in `tried`. Give what `read` makes
+  of the first answer, in a future or a promise.
 
-  The next relay gets the request when a relay gives no connection, and
-  when `read` gives nil for its response. `read` gives nil for a response
-  that tells that the request did not reach the wallet. `tried` has what
-  went wrong at the relays before: the `:url`, the `:reason`, and whether
-  the relay `:answered?`.
+  The next relay gets the request when a relay gives no connection, or
+  when `read` gives nil for its response. The `read` function gives nil
+  for a response that says that the request didn't reach the wallet. Each
+  failure in `tried` has the :url, the :reason, and whether the relay
+  :answered?. When no relay is left, the result has a diagnostic under
+  :error.
 
-  An exchange that failed after its event went out has `:sent?` in the
-  data of its exception. `read` then gets a response without events, so
-  that it decides as for a relay that has no answer."
+  An exchange that failed after its event went out has :sent? in the data
+  of its exception. The `read` function then gets a response without
+  events, so the response is read as for a relay that has no answer."
   [opts request-of read relays tried]
   (if-let [[url & more] (seq relays)]
     (async/then (sent! opts (request-of url))
@@ -457,8 +459,8 @@
     (failure {:id :value/wallet-unreachable :relays tried})))
 
 (defn- prepared
-  "`opts` of `ask!` and `fetch-info!` over their defaults: the limits, the send
-  function, the guard of the relays, the clock and the random bytes."
+  "The `opts` of ask! and fetch-info! over their defaults: the limits, the
+  send function, the guard of the relays, the clock and the random bytes."
   [opts]
   (merge default-limits
          {:send   nostr/call!
@@ -468,16 +470,16 @@
          opts))
 
 (defn fetch-info!
-  "What the wallet of `connection` tells of itself, as `info` reads its
-  info event, or `{:error diagnostic}`. On the JVM the map, in
+  "Fetch what the wallet of `connection` tells of itself with `opts`, as
+  info reads its info event. On the JVM it gives the info, and in
   ClojureScript a promise of it.
 
   A wallet gives its info event to its relays, and they keep it. When no
-  relay has the event, the error is `:value/no-wallet-info`, of the level
-  info. When no relay answers, it is `:value/wallet-unreachable`.
+  relay has the event, the :error is :value/no-wallet-info, of the level
+  info. When no relay answers, it's :value/wallet-unreachable.
 
-  `opts` are those of `ask!`. An app asks once for each connection, and
-  gives the info to `ask!` as `:info`."
+  The `opts` are those of ask!. Fetch the info once for each connection,
+  and give it to ask! as :info."
   ([connection]
    (fetch-info! connection {}))
   ([{:keys [wallet relays] :as connection} opts]
@@ -497,18 +499,18 @@
                      read))))))
 
 (defn- answered
-  "What the response `response` of a relay tells of the request event
-  `event` with the command `command`, as `answer` reads it, or `{:error
-  diagnostic}`.
+  "What the `response` of a relay tells of the request `event` with the
+  `command` over `connection`, as answer reads it. The request expires at
+  `expires-at`, and a failure gives a map with a diagnostic under :error.
 
-  Nil when the request did not reach the wallet through this relay: the
-  event did not go out, or the relay refused it. Only then can another
-  relay get the event. In each other case without an answer, the wallet
-  can have the request, and the result is `:value/wallet-silent`.
+  It's nil when the request didn't reach the wallet through this relay:
+  the event didn't go out, or the relay refused it. Only then can another
+  relay get the event. In any other case without an answer, the wallet
+  can have the request, and the error is :value/wallet-silent.
 
-  The answer to the payment of an invoice has `:proven?`, which tells
+  The answer to the payment of an invoice has :proven?, which tells
   whether its preimage is the proof of that invoice."
-  [connection {:keys [method params]} event expires-at {:keys [events refused sent?]}]
+  [connection {:keys [method params] :as command} event expires-at {:keys [events refused sent?] :as response}]
   (let [read (some-> (first events) (->> (answer connection)))]
     (cond
       (and (empty? events) (or refused (not sent?)))
@@ -530,54 +532,53 @@
       read)))
 
 (defn ask!
-  "Ask the wallet of `connection` to do `command`, and give its answer as
-  `answer` reads it, or `{:error diagnostic}`. On the JVM the map, in
-  ClojureScript a promise of it.
+  "Ask the wallet of `connection` to do `command` with `opts`, and give its
+  answer as answer reads it, or a map with a diagnostic under :error. On
+  the JVM it gives the answer, and in ClojureScript a promise of it.
 
       (ask! connection (pay-invoice \"lnbc500n1…\"))
-      ;; => {:method \"pay_invoice\" :preimage \"0123…\" :proven? true :fees-msat 1000 …}
+      ;; => {:method \"pay_invoice\" :preimage \"0123…\" :proven? true …}
 
-  The answer to `pay-invoice` has `:proven?`. It is true when the preimage
-  is the proof of the invoice, as `lnaddress/proves?` tells. When it is
-  false, the wallet tells that it paid, and it gave no proof. Do not pay
-  again then, because the wallet can have paid. Tell the listener, who
-  knows the wallet. A keysend payment has no such proof, because the
-  wallet of the sender makes its preimage.
+  The answer to pay-invoice has :proven?. It's true when the preimage is
+  the proof of the invoice, as lnaddress/proves? tells. When it's false,
+  the wallet says that it paid, and it gave no proof. Don't pay again
+  then, since the wallet can have paid, and tell the listener, who knows
+  the wallet. A keysend payment has no such proof, since the wallet of
+  the sender makes its preimage.
 
   The request goes to the first relay of the connection. The next relay
-  gets it only when the event did not leave the app, or when the relay
+  gets it only when the event didn't leave the app, or when the relay
   refused the event. So the wallet gets a command once. The request
-  expires after `:timeout-seconds`, and a wallet does not do a command
-  that expired. A relay can give the wallet the same event again, and the
+  expires after :timeout-seconds, and a wallet doesn't do a command that
+  expired. A relay can give the wallet the same event again, and the
   expiry is the end of that too.
 
   When the wallet gives no answer in time, the error is
-  `:value/wallet-silent`. The request went out, so the wallet can do the
-  command until `:expires-at`. Do not send a payment again before that
-  time, and some time more, because the clocks of the app and the wallet
-  differ. After it, `lookup-invoice` tells whether the wallet paid an
-  invoice.
+  :value/wallet-silent. The request went out, so the wallet can do the
+  command until :expires-at. Don't send a payment again before that time,
+  and some time more, since the clocks of the app and the wallet differ.
+  After it, lookup-invoice tells whether the wallet paid an invoice.
 
   A command with more bytes than a request holds gives
-  `:value/command-too-large`, and no request goes out. A feed chooses the
+  :value/command-too-large, and no request goes out. A feed chooses the
   titles in the record of a payment, so a feed can make a command large.
 
-  `opts`:
+  The `opts` are these:
 
-  - `:info`, what `fetch-info!` gave for the connection. Without it, `ask!` asks
-    the relays for the info event first. A wallet that does not take the
-    command gives `:value/wallet-unsupported`, and no request goes out.
-  - `:timeout-seconds`, in the place of that of `default-limits`
-  - `:send`, a function that sends a request map to a relay, in the place
-    of `nostr/call!`. Its response has `:sent? true` when the event of the
-    request went out, as the response of `nostr/call!` has. Without
-    `:sent?`, the next relay gets the event.
-  - `:allow?`, a predicate of the URL of a relay. It is `nostr/public?`,
-    so nothing goes to the network of the app. A wallet on the own network
-    needs `(constantly true)`.
-  - `:now`, a function that gives the instant of now, and `:random`, a
-    function that gives a number of random bytes. They are the clock and
-    `bytes/generate!`."
+  - :info, what fetch-info! gave for the connection. Without it, this
+    asks the relays for the info event first. A wallet that doesn't take
+    the command gives :value/wallet-unsupported, and no request goes out.
+  - :timeout-seconds, in place of that of default-limits
+  - :send, a function that sends a request map to a relay, in place of
+    nostr/call!. Its response has :sent? true when the event of the
+    request went out, as the response of nostr/call! has. Without
+    :sent?, the next relay gets the event.
+  - :allow?, a predicate of the URL of a relay. It's nostr/public? by
+    default, so nothing goes to a private network. For a wallet on your
+    own network, give (constantly true).
+  - :now, a function that gives the instant of now, the clock by default
+  - :random, a function that gives a number of random bytes,
+    bytes/generate! by default"
   ([connection command]
    (ask! connection command {}))
   ([{:keys [wallet relays] :as connection} command opts]

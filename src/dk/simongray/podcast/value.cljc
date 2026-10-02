@@ -1,18 +1,24 @@
 (ns dk.simongray.podcast.value
-  "Value for value: the arithmetic of `podcast:value` blocks, and the record
-  of a payment. Which block applies to an item, who is paid at a given
-  moment of playback once `valueTimeSplit`s are taken into account, and how
-  an amount divides into shares and fees. No payments are made here; that
-  is a client's business.
+  "Value for value: the arithmetic of podcast:value blocks, and the record
+  of a payment.
 
-  Value blocks and recipients are the maps `dk.simongray.podcast.feed`
-  produces: `{:type \"lightning\" :method \"keysend\" :suggested 0.00000005
-  :recipients [{:type \"node\" :address \"…\" :split 99 :fee false}]
-  :time-splits [...]}`.
+  The functions here give the block that applies to an item, and who is
+  paid at a moment of playback, with the time splits of valueTimeSplit.
+  They divide an amount into shares and fees, and make no payment, which
+  is up to you.
+
+  Value blocks and recipients are the maps that dk.simongray.podcast.feed
+  gives, e.g.:
+
+      {:type        \"lightning\"
+       :method      \"keysend\"
+       :suggested   0.00000005
+       :recipients  [{:type \"node\" :address \"…\" :split 99 :fee false}]
+       :time-splits [...]}
 
   A payment is a map of what an app sends with a payment to one recipient.
   It has one shape for the bLIP-10 record of a keysend payment and for the
-  RSS Payment Metadata of `value.metadata`:
+  RSS Payment Metadata of value.metadata:
 
       {:action         :boost    ; :boost, :stream or :auto
        :msat           25000     ; to this recipient
@@ -24,8 +30,8 @@
        :app-name       \"…\"  :sender-name \"…\"
        :recipient-name \"…\"}
 
-  `boostagram` writes the bLIP-10 record of a keysend payment, and
-  `parse-boostagram` reads a record that a node received. The texts of a
+  The boostagram function writes the bLIP-10 record of a keysend payment,
+  and parse-boostagram reads a record that a node received. The texts of a
   payment are as its sender wrote them. Hiccup escapes them, but an app
   that writes HTML as text must escape them itself."
   (:require [clojure.set :as set]
@@ -37,8 +43,8 @@
 
 (defn effective
   "The value block that applies to `item` in `feed`: the item's own when it
-  declares one, else the feed's. With `type`, only blocks of that type
-  (e.g. \"lightning\") count."
+  declares one, or else the feed's. With `type`, only blocks of that type
+  count, e.g. \"lightning\"."
   ([feed item]
    (or (first (:podcast/values item))
        (first (:podcast/values feed))))
@@ -54,14 +60,14 @@
 
 (defn ^:no-doc split-of
   "The split of `recipient` as a number no less than zero: zero when it
-  gives none that is a number, as when \"12.5\" did not read as a whole
+  gives none that's a number, as when \"12.5\" didn't read as a whole
   number."
   [recipient]
   (let [split (:split recipient)]
     (if (and (number? split) (pos? split)) split 0)))
 
 (defn time-split-at
-  "The `valueTimeSplit` of `block` in effect `seconds` into playback, if any."
+  "The valueTimeSplit of `block` in effect `seconds` into playback, if any."
   [block seconds]
   (some (fn [{:keys [start-time duration] :as split}]
           (when (and (number? start-time) (number? duration)
@@ -72,11 +78,14 @@
 ;; podcast:valueTimeSplit: remotePercentage is 100 and remoteStartTime is 0
 ;; when the split has none
 (defn recipients-at
-  "Who is paid `seconds` into playback of media governed by `block`, as
-  `{:recipients [...]}`: the block's own recipients, or inside a time split
-  its fee recipients plus the split's. Inside a split that points at a
-  remote item, the fee recipients alone, with `{:remote-item :percentage
-  :start-time :offset}` under `:remote` for the caller to resolve."
+  "Who is paid `seconds` into the playback of media under `block`, as a
+  map of :recipients.
+
+  Outside a time split, they're the recipients of the block. Inside one,
+  they're its fee recipients and those of the split. Inside a split that
+  points at a remote item, they're the fee recipients alone. Then :remote
+  holds the :remote-item, :percentage, :start-time and :offset, for you to
+  resolve."
   [block seconds]
   (let [recipients (:recipients block)
         fees       (filter fee? recipients)]
@@ -97,13 +106,14 @@
   (transduce (comp (remove fee?) (map split-of)) + 0 recipients))
 
 (defn with-remote
-  "Fold the `remote` value block a time split pointed at into `at`, the
-  result of `recipients-at` for `block` at that moment: `{:recipients
-  [...]}` with the fees of both blocks, the remote block's non-fee
-  recipients for the split's percentage and the block's own for the rest,
-  their splits rescaled to whole shares that express that. Without a
-  `remote` block the block's own recipients apply; outside a remote split
-  `at` is returned as it is."
+  "The recipients of `at`, the result of recipients-at for `block`, with
+  the `remote` value block that a time split pointed at folded in.
+
+  The result is a map of :recipients with the fees of both blocks. The
+  non-fee recipients of the remote block get the percentage of the split,
+  and those of the block get the rest. Their splits are rescaled to whole
+  shares that express this. Without a `remote` block, the recipients of
+  the block apply. Outside a remote split, `at` stays as it is."
   [block at remote]
   (if-let [{:keys [percentage]} (:remote at)]
     (let [local  (remove fee? (:recipients block))
@@ -123,14 +133,18 @@
     at))
 
 (defn payments
-  "Divide `amount` (an integer count of the smallest unit, e.g. sats) among
-  `recipients` the way the podcast:value specification prescribes, in its
-  part Payment calculation: each fee recipient
-  takes its split as a percentage off the top, and the rest is shared among
-  the others by their splits. Returns `[{:recipient r :amount n} ...]` with
-  whole-unit amounts; a rounding remainder goes to the largest share. A
-  split that is not a number counts as none, a fee takes at most all, and
-  the fees stop where the amount runs out, so that no amount is negative."
+  "The shares of `amount` that `recipients` get, as the podcast:value
+  specification prescribes in its part Payment calculation. The `amount`
+  is a whole number of the smallest unit, e.g. sats.
+
+  Each fee recipient takes its split as a percentage off the top, and the
+  others share the rest by their splits. The result is a vector of maps
+  of the :recipient and its :amount in whole units. A rounding remainder
+  goes to the largest share. So that no amount is negative:
+
+  - a split that isn't a number counts as none
+  - a fee takes at most all
+  - the fees stop where the amount runs out"
   [recipients amount]
   (let [fees      (filter fee? recipients)
         shares    (remove fee? recipients)
@@ -160,16 +174,16 @@
                       paid)))))
 
 (defn sats
-  "The `:suggested` amount of `block`, given in BTC, as whole satoshis; nil
-  when it has none."
+  "The :suggested amount of `block`, given in BTC, as whole satoshis, or
+  nil when it has none."
   [block]
   (when-let [btc (:suggested block)]
     (when (number? btc)
       (long (Math/round (* btc 100000000.0))))))
 
 (def ^:no-doc boostagram-keys
-  "The name in a bLIP-10 record of each key of a payment that is not simply
-  its snake_case."
+  "The name in a bLIP-10 record of each key of a payment whose name there
+  isn't just its snake_case."
   {:feed-guid      "guid"
    :feed-url       "url"
    :feed-id        "feedID"
@@ -182,8 +196,8 @@
    :group          "boost_uuid"})
 
 (defn ^:no-doc json-value
-  "`v` as a value that JSON holds: a keyword as its name, an instant as ISO
-  8601 text, and anything else as it is."
+  "The value `v` as a value that JSON holds: a keyword as its name, an
+  instant as ISO 8601 text, and anything else as it is."
   [v]
   (cond
     (keyword? v) (name v)
@@ -191,10 +205,11 @@
     :else        v))
 
 (defn ^:no-doc json-record
-  "The JSON object of `payment` in the names of a format: each key by its
-  name in `names`, or else by its snake_case, and a string key as it is.
-  The keys of `derived`, which the format writes its own way, and nil
-  values are left out."
+  "The JSON object of `payment` in the `names` of a format, without the
+  keys of `derived`, which the format writes its own way, and nil values.
+
+  Each key has its name in `names`, or else its snake_case, and a string
+  key stays as it is."
   [payment names derived]
   (into {} (for [[k v] payment
                  :when (and (some? v) (not (contains? derived k)))]
@@ -211,10 +226,12 @@
       (subs s 0 (if (and (pos? n) (high? (dec n))) (dec n) n)))))
 
 (defn ^:no-doc amounts
-  "The amounts of `payment` in millisatoshis, `[amount total]`: its `:msat`,
-  or else its `:sats`, and its `:total-msat`, or else its `:total-sats`, or
-  else the amount itself. Nil when it has no amount."
-  [{:keys [msat total-msat sats total-sats]}]
+  "The amount and the total of `payment` in millisatoshis, as a pair, or
+  nil when it has no amount.
+
+  The amount is its :msat, or else its :sats. The total is its
+  :total-msat, or else its :total-sats, or else the amount itself."
+  [{:keys [msat total-msat sats total-sats] :as payment}]
   (let [amount (cond (number? msat) (long msat) (number? sats) (* 1000 (long sats)))
         total  (cond (number? total-msat) (long total-msat) (number? total-sats) (* 1000 (long total-sats)) :else amount)]
     (when amount
@@ -222,15 +239,20 @@
 
 (defn boostagram
   "The bLIP-10 record of `payment`, which an app attaches to a keysend
-  payment as the custom record 7629169. It is a map with the string keys
-  of the record, for `dk.simongray.podcast.util.json/write-str`.
+  payment as the custom record 7629169. It's a map with the string keys
+  of the record, for dk.simongray.podcast.util.json/write-str.
 
-  `:position`, seconds into the episode, becomes ts and time. `:action`
-  becomes action, boost when it is absent. `:msat` and `:total-msat` become
-  value_msat and value_msat_total, and `:sats` and `:total-sats` count in
-  sats in their place. `:speed` becomes text, as bLIP-10 writes it. The
-  other keys of a payment get the names of the record, any other key its
-  snake_case, and a string key stays as it is. Nil values are left out."
+  The keys of the payment become these:
+
+  - :position, seconds into the episode, becomes ts and time
+  - :action becomes action, boost when it's absent
+  - :msat and :total-msat become value_msat and value_msat_total, and
+    :sats and :total-sats count in sats in their place
+  - :speed becomes text, as bLIP-10 writes it
+  - the other keys of a payment get the names of the record, any other
+    key its snake_case, and a string key stays as it is
+
+  Nil values are left out."
   [{:keys [position action speed] :as payment}]
   (let [record         (json-record payment boostagram-keys #{:position :action :speed :msat :total-msat :sats :total-sats})
         clock          (time/format-timestamp position)
@@ -245,7 +267,7 @@
   "The custom records of a keysend payment of `payment` to `recipient`, as
   a map from the type of each record to its text.
 
-  They are the bLIP-10 record under 7629169, with the name of the
+  They're the bLIP-10 record under 7629169, with the name of the
   recipient, and the custom key and value of the recipient. A node that
   holds many wallets finds the wallet by these.
 
@@ -254,10 +276,10 @@
   out the type of the bLIP-10 record, and the type of the preimage of
   keysend, 5482373484.
 
-  `report` tells when the records leave out the custom key or the custom
+  The report says when the records leave out the custom key or the custom
   value of the recipient. A payment with such records reaches the node,
-  and not the wallet. So do not send it."
-  [payment {recipient-name :name :keys [custom-key custom-value]}]
+  and not the wallet, so don't send it."
+  [payment {recipient-name :name :keys [custom-key custom-value] :as recipient}]
   (let [k       (some-> custom-key str str/trim parse-long)
         custom? (and k (<= 65536 k) (not (contains? #{7629169 5482373484} k)) (some? custom-value))
         asked?  (or (some? custom-key) (some? custom-value))]
@@ -300,14 +322,18 @@
    "remote_item_guid"   :text})
 
 (defn ^:no-doc typed
-  "The JSON value `v` of a field of `type`, :text, :int, :msat, :number or
-  :decimal, as `[value how]`. `how` is :as-text for a number that came as
-  text where the format writes a number, :rounded for an amount in
-  millisatoshis with a fraction, and :unreadable for a value that is not
-  of the type. Nil and blank text are no value.
+  "The JSON value `v` of a field of `type`, as a pair of the value and how
+  it was read. The type is :text, :int, :msat, :number or :decimal.
 
-  A number below zero is not of its type. The formats have numbers for
-  amounts, positions and ids, and none of these is below zero."
+  How it was read is nil, or one of these:
+
+  - :as-text, a number that came as text where the format writes a number
+  - :rounded, an amount in millisatoshis with a fraction
+  - :unreadable, a value that isn't of the type
+
+  Nil and blank text are no value. A number below zero isn't of its type,
+  since the formats have numbers for amounts, positions and ids, and none
+  of these is below zero."
   [type v]
   (let [n     (cond
                 (number? v)                                        v
@@ -325,9 +351,9 @@
       :else                                            [n (when text? :as-text)])))
 
 (defn ^:no-doc json-object
-  "The JSON object that `x` holds: a map as it is, or the object in JSON
-  text or in the UTF-8 bytes of it, as a node gives a custom record. Nil
-  for anything else."
+  "The JSON object that `x` holds, or nil for anything else. It's a map as
+  it is, or the object in JSON text or in its UTF-8 bytes, as a node gives
+  a custom record."
   [x]
   (let [o (cond
             (map? x)                                    x
@@ -338,8 +364,8 @@
       o)))
 
 (defn ^:no-doc read-fields
-  "The fields of the JSON object `raw` that `types` names, each as `[value
-  how]`, as `typed` reads it."
+  "The fields of the JSON object `raw` that `types` names, each as a pair
+  of its value and how it was read, as typed reads it."
   [raw types]
   (into {} (for [[k v] raw
                  :let  [type (get types k)]
@@ -347,24 +373,24 @@
              [k (typed type v)])))
 
 (defn ^:no-doc other-fields
-  "The fields of the JSON object `raw` that `types` does not name, but those
-  with no value."
+  "The fields of the JSON object `raw` that `types` doesn't name, except
+  those with no value."
   [raw types]
   (into {} (remove (fn [[k v]] (or (contains? types k) (nil? v)))) raw))
 
 (defn ^:no-doc payment-of
   "The payment of the `read` fields, each under the key that `names` gives
-  it, or else under its kebab-case, but the fields of `own`, which a format
-  reads its own way."
+  it, or else under its kebab-case. The fields of `own`, which a format
+  reads its own way, are left out."
   [read names own]
   (into {} (for [[k [x]] read
                  :when (and (some? x) (not (contains? own k)))]
              [(get names k (keyword (str/replace k "_" "-"))) x])))
 
 (defn ^:no-doc field-diagnostics
-  "The diagnostics of the `read` fields and the `other` ones: numbers
-  written as text, values not of their type but in the fields of
-  `forgiven`, and fields that the format does not define."
+  "The diagnostics of the `read` fields and the `other` ones. They tell of
+  numbers written as text, of values not of their type, except in the
+  fields of `forgiven`, and of fields that the format doesn't define."
   [read other forgiven]
   (let [of      #(vec (sort (for [[k [_ how]] read :when (and (= % how) (not (contains? forgiven k)))] k)))
         as-text (of :as-text)
@@ -378,8 +404,8 @@
 
 (def ^:no-doc boostagram-aliases
   "The other names that apps give fields of a bLIP-10 record, and the name
-  of each: the camelCase of Alby Hub, the names of RSS Payment Metadata
-  that BoostMeBitch writes, and names for the position."
+  of each. They're the camelCase of Alby Hub, the names of RSS Payment
+  Metadata that BoostMeBitch writes, and names for the position."
   {"feedId"         "feedID"
    "itemId"         "itemID"
    "feed_guid"      "guid"
@@ -393,7 +419,8 @@
 
 (defn ^:no-doc unaliased
   "The JSON object `raw` with each field of another name in `aliases` under
-  its own name, where `raw` has none, as `[object aliases-taken]`."
+  its own name, where `raw` has none. It gives the object and the aliases
+  that it took, as a pair."
   [raw aliases]
   (reduce-kv (fn [[o taken :as acc] alias field]
                (if (and (contains? o alias) (not (contains? o field)))
@@ -403,10 +430,12 @@
              aliases))
 
 (defn ^:no-doc read-action
-  "The action that the text `s` names, `[action diagnostic]`: :boost,
-  :stream or :auto, and :stream for the streaming that Podverse writes,
-  with a diagnostic. Any other action is no action, since the text comes
-  from a stranger, and the diagnostic holds it."
+  "The action that the text `s` names, and a diagnostic, as a pair. The
+  action is :boost, :stream or :auto, and :stream for the streaming that
+  Podverse writes, with a diagnostic.
+
+  Any other action counts as none, since the text comes from a stranger,
+  and the diagnostic holds it."
   [s]
   (when-let [s (some-> s str/trim str/lower-case not-empty)]
     (case s
@@ -415,7 +444,7 @@
       [nil {:id :value/unknown-action :action s}])))
 
 (defn parse-boostagram
-  "The payment that the bLIP-10 `record` describes, as `boostagram` takes
+  "The payment that the bLIP-10 `record` describes, as boostagram takes
   it.
 
   The record is JSON text, or the UTF-8 bytes of that text, as a node
@@ -426,11 +455,11 @@
   other fields keep their names. The report tells what the reader forgave.
   Real apps write numbers as text, amounts with a fraction, and fields
   under other names. They write the guid of the episode as the itemID, and
-  the action under another name. A record that is not a JSON object reads
+  the action under another name. A record that isn't a JSON object reads
   as no payment.
 
-  The record is what the sender claims. `as-received` puts it next to what
-  the node received."
+  The record is what the sender claims, and as-received puts it next to
+  what the node received."
   [record]
   (if-let [given (json-object record)]
     (let [[raw aliases] (unaliased given boostagram-aliases)
@@ -467,14 +496,14 @@
   (:podcast/report (meta payment)))
 
 (defn as-received
-  "`payment`, as its sender claims it, with the amount that the node of the
-  recipient received: the `:msat` of `received`.
+  "The `payment`, as its sender claims it, with the amount that the node of
+  the recipient received, the :msat of `received`.
 
   The report tells where a claim differs from what the node knows: another
-  amount, or another recipient than the `:address` of `received`. Anyone
+  amount, or another recipient than the :address of `received`. Anyone
   can send a record, or name metadata, with a payment of one satoshi, so
   what the node received is the fact."
-  [payment {:keys [msat address]}]
+  [payment {:keys [msat address] :as received}]
   (let [claimed (:msat payment)
         to      (:recipient-address payment)]
     (vary-meta (cond-> payment (some? msat) (assoc :msat msat))
