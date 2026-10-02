@@ -97,7 +97,7 @@
   [{:keys [player] :as state}]
   [:section
    [:h2 "History"]
-   (if (empty? (:episodes player))
+   (if (empty? (player/episodes player))
      [:p.muted "Nothing played yet."]
      [:ul.compact
       (for [id (player/history player)

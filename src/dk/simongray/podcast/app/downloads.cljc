@@ -162,7 +162,7 @@
    :in-progress (into #{}
                       (keep (fn [[id {:keys [position played?]}]]
                               (when (and (not played?) (number? position) (pos? position)) id)))
-                      (:episodes state))})
+                      (player/episodes state))})
 
 (defn- context
   "The map that plan passes to its helpers, from the player `state`, the

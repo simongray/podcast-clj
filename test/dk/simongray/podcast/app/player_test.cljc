@@ -78,6 +78,21 @@
       (let [again (player/mark-unplayed (player/mark-played s a t2) a t3)]
         (is (not (player/played? again a)))
         (is (= 0 (:position (player/episode again a))))))
+    (testing "a later report of the position from a device that hasn't seen the mark leaves the mark"
+      (let [done   (player/mark-played s a t2)
+            behind (player/progress (assoc s :device "laptop") a 700 3600 t3)
+            both   (player/merge done behind)]
+        (is (player/played? both a))
+        (is (= 700 (:position (player/episode both a))))
+        (is (= {a (player/episode both a)} (player/episodes both)))))
+    (testing "a mark that an older version kept in the entry of the episode"
+      (let [old   (assoc-in s [:episodes a] {:position 3590 :played? true :played-at t1 :updated-at t1 :device "old"})
+            moved (player/progress old a 100 3600 t2)]
+        (is (player/played? old a))
+        (is (= t1 (:played-at (player/episode old a))))
+        (is (player/played? moved a) "moves to an entry of its own at the next write")
+        (is (not (contains? (get-in moved [:episodes a]) :played?)))
+        (is (= {:played? true :played-at t1} (select-keys (get-in moved [:played a]) [:played? :played-at])))))
     (is (= [b a] (player/history (-> s (player/progress b 10 t2)))))
     (is (= [a b] (player/history (-> s (player/mark-played a t1) (player/mark-played b t2) (player/progress a 5 t3))))
         "an episode heard again comes first again")))
@@ -150,6 +165,12 @@
             "a place between distinct ranks is found")
         (is (= [b c e d ["feed-x" "x"]] (player/queue (player/move (player/enqueue both ["feed-x" "x"] t3) ["feed-x" "x"] 3 t3)))
             "a place between two tied ranks is after both of them")))
+    (testing "two devices that append several episodes at once keep each batch together"
+      (let [d       ["feed-d" "d1"]
+            e       ["feed-d" "d2"]
+            phone3  (player/append (player/state "phone") [:queue] [a b c] t0)
+            laptop3 (player/append (player/state "laptop") [:queue] [d e] t1)]
+        (is (= [d e a b c] (player/queue (player/merge phone3 laptop3)) (player/queue (player/merge laptop3 phone3))))))
     (testing "ranks stay short as a queue grows, at its end and at its front"
       (let [long   (reduce (fn [s i] (player/enqueue s ["f" (str i)] t0)) (player/state "x") (range 2000))
             played (reduce (fn [s i] (:state (player/step s [:play ["g" (str i)]] t0))) long (range 200))
@@ -202,7 +223,8 @@
             {:keys [state added]} (player/refresh s before grown "https://a/rss" t1)]
         (is (= 3000 (count added)))
         (is (= (into [["feed-b" "b1"]] added) (player/queue state)) "after what the queue holds, in their order")
-        (is (= 3 (apply max (map (comp count :rank) (vals (:queue state))))))))
+        (is (= 6 (apply max (map (comp count :rank) (vals (:queue state)))))
+            "three digits, after the three of the device's block")))
     (testing "else, when the settings ask for it, the inbox, the newest first"
       (let [{:keys [state]} (player/refresh (player/configure s "feed-a" {:inbox? true} t0) before after "https://a/rss" t1)]
         (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (player/inbox state)))
@@ -427,6 +449,7 @@
     (is (= {url {:title "Picks" :folder "Picks"}} (player/lists s)))
     (testing "a first parse subscribes to the shows the state does not know, into the list's folder"
       (is (= [(g "https://pc20/rss")] (:added r1)))
+      (is (= t1 (:clock (:state r1))) "all at the same stamp")
       (is (= {"Picks" [(g "https://pc20/rss")] nil [(g "https://mine/rss")]} (player/folders (:state r1)))
           "the listener's own show stays where it was"))
     (testing "later parses add the shows that join, and report the ones that leave"
@@ -519,8 +542,8 @@
             again (player/from-list-feed long "Drive" (feed 9000) t3)
             ranks #(map :rank (vals (get-in % [:playlists "Drive"])))]
         (is (= (into [c a b] (for [i (range 9000)] ["feed-l" (str i)])) (player/playlist again "Drive")))
-        (is (= 5 (apply max (map count (ranks long))) (apply max (map count (ranks again))))
-            "the ranks of many episodes are short")))
+        (is (= 8 (apply max (map count (ranks long))) (apply max (map count (ranks again))))
+            "the ranks of many episodes are short: five digits after the three of the device's block")))
     (testing "as a list feed of the podcast namespace, and back"
       (let [feed (player/to-list-feed s "Drive" {:url "https://me.example/drive.xml"})]
         (is (= {:rss/version "2.0" :rss/title "Drive" :rss/description "Drive" :rss/link "https://me.example/drive.xml"
@@ -718,6 +741,8 @@
     (is (= {"n1" "new" "n2" "phone"} (update-vals (:bookmarks merged) :text))
         "an app's own stamped entries merge like the library's")
     (is (= "light" (:theme merged)) "what is not stamped stays the local device's")
+    (is (= "the value at [:theme] is not in a stamped entry" (player/problem (assoc (player/state "phone") :theme "light")))
+        "so problem names it")
     (is (= 2 (:zoom merged)) "unless only the other device has it")
     (is (= (dissoc (player/merge laptop phone) :device :theme) (dissoc merged :device :theme)))))
 
@@ -758,7 +783,8 @@
                            [{:ratings {a {:rating 3 :worst 3 :best 3 :updated-at t0 :device "x"}}}
                             #"not a number of the scale"]
                            [{:filters {"F" {:criteria [:where] :updated-at t0 :device "x"}}} #"criteria of the filter \"F\""]
-                           [{:tags {"feed-a" "Tech"}} #"\[:tags \"feed-a\"\] is not a map"]]]
+                           [{:tags {"feed-a" "Tech"}} #"\[:tags \"feed-a\"\] is not a map"]
+                           [{:app/notes {"n1" "text"}} #"\[:app/notes \"n1\"\] is not in a stamped entry"]]]
       (is (re-find found (str (player/problem state))) (pr-str state))))
   (testing "an entry without a stamp, which two devices merge to two different states"
     (let [here  {:device "a" :stars {a {:removed? false}}}
@@ -806,6 +832,14 @@
       (is (not= (get-in s [:notes "x" :updated-at]) (get-in s [:notes "y" :updated-at]))
           "two entries of the app's own, written through write, are never stamped alike")
       (is (= (get-in s [:notes "y" :updated-at]) (:clock s))))
+    (testing "an import of many shows stamps them all at once, so the clock stays at the time"
+      (let [list {:subscriptions (vec (for [i (range 300)]
+                                        {:xml-url (str "https://x/" i) :text (str i) :path ["News"] :category ["Tech"]}))}
+            s    (player/from-opml (player/state "phone") list t1)]
+        (is (= 300 (count (player/subscriptions s))))
+        (is (= t1 (:clock s)))
+        (is (= #{t1} (set (map :updated-at (concat (vals (:subscriptions s)) (mapcat vals (vals (:tags s))))))))
+        (is (nil? (player/problem s)) "and leaves nothing of the import in the state")))
     (testing "retiring a device from another"
       (let [laptop (player/retire (player/state "laptop-id") "phone-id" t2)
             merged (player/merge s laptop)]

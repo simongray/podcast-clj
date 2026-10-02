@@ -127,24 +127,42 @@
     after              (below after)
     :else              (midpoint "" nil)))
 
+(defn- tag-digits
+  "Two digits from the string `tag`, the same on every platform."
+  [tag]
+  (let [n (reduce (fn [h c] (mod (+ (* 31 h) #?(:clj (int c) :cljs (.charCodeAt c 0))) 3844)) 0 tag)]
+    (str (nth digits (quot n 62)) (nth digits (mod n 62)))))
+
 (defn after
-  "The `n` ranks that come after the rank `before`, in order. With nil for
-  `before`, they're the first `n` ranks of a list. Anything that isn't a
-  rank throws.
+  "The `n` ranks that come after the rank `before`, in order, in a block of
+  their own for the `tag` if given. With nil for `before`, they're the
+  first `n` ranks of a list. Anything that isn't a rank throws.
 
   Each rank is what between gives after the rank before it. So the ranks
   of many items are short: 8,000 ranks have five digits at most.
 
       (after \"V\" 3)   ;=> (\"W\" \"X\" \"Y\")
       (after nil 2)    ;=> (\"V\" \"W\")
-      (after \"x\" 3)   ;=> (\"y\" \"z01\" \"z02\")"
-  [before n]
-  (when-not (or (nil? before) (= "" before) (rank? before))
-    (throw (ex-info "Not a rank" {:before before})))
-  (->> (or (not-empty before) (below (midpoint "" nil)))
-       (iterate above)
-       rest
-       (take n)))
+      (after \"x\" 3)   ;=> (\"y\" \"z01\" \"z02\")
+
+  Items that two devices add after the same rank at the same time get the
+  same ranks, so they mix. With a `tag`, such as the device's id, the
+  ranks share a block after `before`, named by two digits of the tag, so
+  each device's items stay together. One rank needs no block.
+
+      (after \"V\" 3 \"phone\")   ;=> (\"Wf8V\" \"Wf8W\" \"Wf8X\")"
+  ([before n]
+   (when-not (or (nil? before) (= "" before) (rank? before))
+     (throw (ex-info "Not a rank" {:before before})))
+   (->> (or (not-empty before) (below (midpoint "" nil)))
+        (iterate above)
+        rest
+        (take n)))
+  ([before n tag]
+   (if (< n 2)
+     (after before n)
+     (let [block (str (between before nil) (tag-digits (str tag)))]
+       (map #(str block %) (after nil n))))))
 
 (comment
   (take 40 (iterate #(between % nil) (between nil nil)))

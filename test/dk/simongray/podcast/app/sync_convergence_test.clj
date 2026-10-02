@@ -132,7 +132,7 @@
    :tagged        (player/tagged state)
    :queue         (player/queue state)
    :inbox         (player/inbox state)
-   :episodes      (:episodes state)
+   :episodes      (player/episodes state)
    :starred       (player/starred state)
    :bookmarks     (player/bookmarks state)
    :filters       (player/filters state)

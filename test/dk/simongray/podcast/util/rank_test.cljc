@@ -80,7 +80,15 @@
           "and the ranks of the next items are no longer")))
   (testing "what is not a rank"
     (doseq [x ["V0" "V!" "0" 5]]
-      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"Not a rank" (rank/after x 2)) (pr-str x)))))
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"Not a rank" (rank/after x 2)) (pr-str x))))
+  (testing "with a tag, the ranks of two devices after the same rank stay in blocks of their own"
+    (let [phone  (rank/after "V" 3 "phone")
+          laptop (rank/after "V" 3 "laptop")]
+      (is (= ["Wf8V" "Wf8W" "Wf8X"] phone) "the same on every platform")
+      (is (= (concat laptop phone) (sort (concat phone laptop))))
+      (is (in-order? (concat ["V"] laptop phone ["X"])) "after the rank, and before the next one")
+      (is (every? rank/rank? (rank/after "x" 500 "phone")))
+      (is (= ["W"] (rank/after "V" 1 "phone")) "one rank needs no block"))))
 
 #?(:clj
    (def ranks

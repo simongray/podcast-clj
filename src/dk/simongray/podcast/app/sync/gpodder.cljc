@@ -352,7 +352,7 @@
   another kind, or one no later than what `state` has of the episode,
   changes nothing, so that an action read back does no harm."
   [state id {:keys [action position total timestamp device] :as a} author]
-  (let [stamp (some-> (get-in state [:episodes id :updated-at]) inst-ms)
+  (let [stamp (some-> (player/episode state id) :updated-at inst-ms)
         act   (case action
                 "play" (when (number? position)
                          #(player/progress % id position (when (and (number? total) (pos? total)) total) timestamp))
@@ -572,19 +572,19 @@
   `state`, and never what came from a server."
   [state pushed names device]
   (let [ours?   #(or (= (:device %) (:device state)) (contains? (:devices state) (:device %)))
-        changed (fn [k]
-                  (for [[id e] (get state k)
+        changed (fn [k entries]
+                  (for [[id e] entries
                         :let  [stamp (some-> (:updated-at e) inst-ms)]
                         :when (and stamp (not= stamp (get-in pushed [k id])) (ours? e))]
                     [id e]))
         public  #(first (http/split-credentials %))
         urls    (fn [pred]
-                  (distinct (for [[_ e] (changed :subscriptions)
+                  (distinct (for [[_ e] (changed :subscriptions (:subscriptions state))
                                   :when (and (pred e) (http/web-url? (:url e)))]
                               (public (:url e)))))
         adds    (vec (urls (complement :removed?)))
         drops   (if pushed (vec (remove (set adds) (urls :removed?))) [])
-        told    (for [[[g _ :as id] e] (changed :episodes)
+        told    (for [[[g _ :as id] e] (changed :episodes (player/episodes state))
                       :let [podcast (some-> ((:feed-url names) g) public)
                             media   ((:episode-url names) id)]]
                   (if (and (http/web-url? podcast) (http/web-url? media))
@@ -603,7 +603,7 @@
   next push tries it again."
   [call! {:keys [device batch-size] :as opts} session state {:keys [pushed urls] :as ctx}]
   (let [{:keys [subscriptions actions unnamed]} (pushing state pushed (namer opts state) device)
-        stamps (fn [k] (update-vals (get state k) #(some-> (:updated-at %) inst-ms)))
+        stamps (fn [entries] (update-vals entries #(some-> (:updated-at %) inst-ms)))
         sent   (fn [rewrites call body]
                  (async/then rewrites
                              (fn [rewrites]
@@ -617,8 +617,8 @@
              (partition-all batch-size actions))
      (fn [rewrites]
        {:ctx    (assoc ctx
-                       :pushed {:subscriptions (stamps :subscriptions)
-                                :episodes      (apply dissoc (stamps :episodes) unnamed)}
+                       :pushed {:subscriptions (stamps (:subscriptions state))
+                                :episodes      (apply dissoc (stamps (player/episodes state)) unnamed)}
                        :urls   (into (or urls {}) (for [[sent new] rewrites :when (and new (not= sent new))] [new sent])))
         :report (cond-> (vec (for [[sent new] rewrites :when (nil? new)]
                                (diagnostics/describe {:id :sync/rejected-url :level :warning :url sent})))

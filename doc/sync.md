@@ -122,7 +122,9 @@ a set with tombstones for its removals, and the clock is a max register, so
 the state is their product and the merge is its join. When two entries have
 the same stamp, the device id decides, and then the printed entry, so every
 platform makes the same choice. Entries that an app adds to the state sync
-with no change to podcast-clj, as long as `player/write` stamps them.
+with no change to podcast-clj, as long as `player/write` stamps them. A
+value outside a stamped entry would never agree across devices, so the sync
+leaves out a document that holds one.
 
 ### Devices
 
@@ -141,7 +143,9 @@ Last-writer-wins trusts the clocks of the devices. The state keeps
 later than the clock is stamped a millisecond after it, as a hybrid logical
 clock does. A convergence test showed why this is needed: without it, a
 device could write an entry that lost to one it had already merged, keep
-its own anyway, and never agree with the other devices again.
+its own anyway, and never agree with the other devices again. An OPML
+import or a followed list writes all its entries with one stamp, or the
+millisecond steps would move the clock ahead of the time.
 
 A clock that's a few seconds off does no harm. A clock that's years ahead
 spreads its year to every device through the merge, so the stamps no longer
@@ -159,7 +163,9 @@ string with room for another rank between any two. A removal is a
 tombstone. Additions on two devices both survive, a finished episode stays
 removed, and only two devices that move the same episode at the same time
 need a winner, the later one. Ranks stay short at the ends of the list,
-where most episodes are added. Playlists work the same way.
+where most episodes are added. Episodes that one device appends at once
+share a block of ranks named after the device, so batches that two devices
+append at the same time don't mix. Playlists work the same way.
 
 ### Listening counts
 
@@ -177,7 +183,9 @@ field, so a skip amount changed on one device and a playback rate changed
 on another both survive. The settings of a subscription are kept apart from
 it, so they survive an unsubscription. The folder is one of these settings,
 so a show that two devices move at the same time ends up in the later
-folder, never in two.
+folder, never in two. Likewise, an episode's position and its played mark
+are separate entries, so a position from a device that hasn't seen the mark
+doesn't undo it.
 
 The inbox, stars, bookmarks, clips, saved filters, tags and followed lists
 are sets with tombstones, like the subscriptions, so two tags added on two

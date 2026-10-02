@@ -10,7 +10,8 @@
        :settings      {feed-guid {:skip-intro {:value 20} ...}}
        :tags          {feed-guid {\"Tech\" {:removed? false}}}
        :lists         {url {:title :folder :removed?}}  ; followed OPML lists
-       :episodes      {id {:position :duration :played? :played-at}}
+       :episodes      {id {:position :duration :reported-at}}
+       :played        {id {:played? true :played-at}}
        :queue         {id {:rank \"V\" :removed? false}}
        :playlists     {name {id {:rank \"V\" :removed? false}}}
        :inbox         {id {:removed? false}}
@@ -77,9 +78,9 @@
 (defn- write-each
   "The `state` with each path and function of `writes` applied at `at` as
   write applies one, all with the same stamp, which becomes the state's
-  clock."
+  clock. Within at-once, the stamp is that of at-once."
   [state writes at]
-  (let [at (after state at)]
+  (let [at (or (::at state) (after state at))]
     (-> (reduce (fn [s [path f]] (update-in s path #(stamp state (f %) at))) state writes)
         (assoc :clock at))))
 
@@ -91,6 +92,18 @@
   own with it, which merge then reconciles like the rest."
   [state path f at]
   (write-each state [[path f]] at))
+
+(defn ^:no-doc at-once
+  "The `state` after `f` with every write in `f` stamped at the same
+  instant, as one write at `at` would be.
+
+  The `f` takes the state. Without at-once, each write in a series is a
+  millisecond after the one before it, so a long series moves the clock
+  ahead of the time."
+  [state at f]
+  (if (contains? state ::at)
+    (f state)
+    (dissoc (f (assoc state ::at (after state at))) ::at)))
 
 (defn episode-id
   "The id of `item` in the `feed` at `url`: [feed-guid item-guid]."
@@ -455,15 +468,44 @@
   step says otherwise."
   60)
 
-(defn episode
-  "The entry of the episode `id` in `state`, or nil."
+(declare stamp-ms)
+
+(defn ^:no-doc played-mark
+  "The played mark of the episode `id` in `state`: its entry under :played,
+  or the mark that an older version kept in the episode's entry, whichever
+  is later."
   [state id]
-  (get-in state [:episodes id]))
+  (let [m (get-in state [:played id])
+        e (get-in state [:episodes id])]
+    (if (and (contains? e :played?) (> (stamp-ms e) (stamp-ms m)))
+      (select-keys e [:played? :played-at :updated-at :device])
+      m)))
+
+(defn episode
+  "The entry of the episode `id` in `state` with its played mark, or nil.
+
+  The position and the mark are entries of their own, so that a report of
+  the position from another device never undoes a mark. The entry has the
+  stamp and the device of the later of the two."
+  [state id]
+  (let [e (get-in state [:episodes id])
+        m (played-mark state id)]
+    (when (or e m)
+      (clojure.core/merge (dissoc e :played? :played-at)
+                          (select-keys m [:played? :played-at])
+                          (select-keys (if (> (stamp-ms m) (stamp-ms e)) m e) [:updated-at :device])))))
+
+(defn episodes
+  "The entries of the episodes of `state` by id, as episode gives them."
+  [state]
+  (into {}
+        (map (fn [id] [id (episode state id)]))
+        (distinct (concat (keys (:episodes state)) (keys (:played state))))))
 
 (defn played?
   "Whether the episode `id` counts as played in `state`."
   [state id]
-  (boolean (:played? (episode state id))))
+  (boolean (:played? (played-mark state id))))
 
 (defn- heard-to-the-end?
   [position duration threshold]
@@ -478,6 +520,24 @@
     (when (and e (not (:removed? e)))
       [[[:inbox id] #(assoc % :removed? true)]])))
 
+(defn ^:no-doc migrated
+  "The writes that move a played mark that an older version kept in the
+  entry of the episode `id` in `state` to an entry of its own, if it's
+  the later mark."
+  [state id]
+  (let [e (get-in state [:episodes id])]
+    (when (contains? e :played?)
+      (cond-> [[[:episodes id] #(dissoc % :played? :played-at)]]
+        (> (stamp-ms e) (stamp-ms (get-in state [:played id])))
+        (conj [[:played id] (constantly (select-keys e [:played? :played-at]))])))))
+
+(defn ^:no-doc marked-as
+  "The writes that mark the episode `id` of `state` as `played?` at `at`.
+  A played episode leaves the inbox."
+  [state id played? at]
+  (into [[[:played id] (constantly (if played? {:played? true :played-at (time/date at)} {:played? false}))]]
+        (when played? (out-of-inbox state id))))
+
 (defn progress
   "Record in `state` that the listener is `position` seconds into the
   episode `id` at `at`, with its `duration` if known and the `opts` below.
@@ -491,29 +551,31 @@
    (progress state id position duration at {}))
   ([state id position duration at opts]
    {:pre [(map? opts)]}
-   (let [e (cond-> (assoc (or (episode state id) {}) :position position :reported-at (time/date at))
-             duration (assoc :duration duration))
-         e (if (and (not (:played? e))
-                    (heard-to-the-end? position (:duration e) (:played-threshold opts played-threshold)))
-             (assoc e :played? true :played-at (time/date at))
-             e)]
-     (write-each state (into [[[:episodes id] (constantly e)]] (when (:played? e) (out-of-inbox state id))) at))))
+   (let [duration (or duration (:duration (episode state id)))
+         done?    (and (not (played? state id))
+                       (heard-to-the-end? position duration (:played-threshold opts played-threshold)))]
+     (write-each state
+                 (concat (migrated state id)
+                         [[[:episodes id] #(cond-> (assoc (or % {}) :position position :reported-at (time/date at))
+                                              duration (assoc :duration duration))]]
+                         (when done? (marked-as state id true at)))
+                 at))))
 
 (defn mark-played
   "Mark the episode `id` in `state` as played at `at`, which takes it out
   of the inbox."
   [state id at]
-  (write-each state (into [[[:episodes id] #(assoc (or % {}) :played? true :played-at (time/date at))]]
-                          (out-of-inbox state id))
-              at))
+  (write-each state (concat (migrated state id) (marked-as state id true at)) at))
 
 (defn mark-unplayed
   "Mark the episode `id` in `state` as not played at `at`, with its
   position back at the start."
   [state id at]
-  (write state [:episodes id]
-         #(-> (or % {}) (assoc :played? false :position 0 :reported-at (time/date at)) (dissoc :played-at))
-         at))
+  (write-each state
+              (concat (migrated state id)
+                      [[[:episodes id] #(assoc (or % {}) :position 0 :reported-at (time/date at))]]
+                      (marked-as state id false at))
+              at))
 
 (defn skip
   "Move `seconds` forward, or back when negative, in the episode `id` of
@@ -594,7 +656,7 @@
   "The episode ids in `state`, most recently played or touched first: an
   episode heard again comes first again."
   [state]
-  (->> (:episodes state)
+  (->> (episodes state)
        (sort-by (fn [[_ e]] (- (or (some-> (later-inst (:played-at e) (:updated-at e)) inst-ms) 0))))
        (map key)))
 
@@ -981,14 +1043,16 @@
   ranked entries at `path` in `state`, e.g. the queue or a playlist.
 
   An episode that's already there stays where it is. The ranks come from
-  rank/after, which keeps them short for many episodes."
+  rank/after, which keeps them short for many episodes. They're in a block
+  of the state's device, so that episodes that another device appends at
+  the same time don't mix with them."
   [state path ids]
   (let [entries (get-in state path)
         held?   (fn [id] (let [e (get entries id)] (and e (not (:removed? e)))))
         fresh   (remove held? (distinct ids))]
     (map (fn [id rank] [(conj path id) (constantly {:rank rank :removed? false})])
          fresh
-         (rank/after (last-rank entries) (count fresh)))))
+         (rank/after (last-rank entries) (count fresh) (:device state)))))
 
 (defn ^:no-doc append
   "The `state` with the episodes `ids` at the end of the ranked entries at
@@ -1161,19 +1225,21 @@
       (when (string? guid) (not-empty (str/trim guid)))
       (guid/from-url xml-url)))
 
-(defn- joined
-  "The result `acc` of refresh-list with the show of `outline` subscribed
-  to at `at`, in `folder` if any. Nothing changes when the list had the
-  show before, in `was`, or the state has it."
-  [{:keys [state names] :as acc} {:keys [xml-url title text] :as outline} was folder at]
-  (let [g (named names outline)]
-    (if (or (was g) (get-in state [:subscriptions g]))
-      acc
-      (-> acc
-          (assoc :state (cond-> (subscribe state g {:url xml-url :title (or title text)} at)
-                          folder (configure g {:folder folder} at))
-                 :names (assoc names (normal-url xml-url) g))
-          (update :added conj g)))))
+(defn- joining
+  "The shows of the OPML `list` that join `state`, as pairs of feed guid
+  and outline in the order of the list. The `names` are as by-url gives
+  them, and a show that the list had before, in `was`, doesn't join."
+  [state names was list]
+  (:joining (reduce (fn [{:keys [names joined] :as acc} {:keys [xml-url] :as outline}]
+                      (let [g (named names outline)]
+                        (if (or (was g) (get-in state [:subscriptions g]) (joined g))
+                          acc
+                          (-> acc
+                              (assoc-in [:names (normal-url xml-url)] g)
+                              (update :joined conj g)
+                              (update :joining conj [g outline])))))
+                    {:names names :joined #{} :joining []}
+                    (outlines list))))
 
 (defn refresh-list
   "Note in `state` at `at` a new parse `after` of the OPML list at `url`,
@@ -1187,13 +1253,15 @@
   that the listener doesn't follow."
   [state url before after at]
   (if-let [{:keys [folder]} (get (lists state) url)]
-    (let [names  (by-url state)
-          guids  (fn [list] (map #(named names %) (outlines list)))
-          was    (set (guids before))
-          is     (set (guids after))
-          result (reduce #(joined %1 %2 was folder at) {:state state :names names :added []} (outlines after))]
-      {:state (:state result)
-       :added (:added result)
+    (let [names (by-url state)
+          guids (fn [list] (map #(named names %) (outlines list)))
+          is    (set (guids after))
+          joins (joining state names (set (guids before)) after)
+          join  (fn [state [g {:keys [xml-url title text]}]]
+                  (cond-> (subscribe state g {:url xml-url :title (or title text)} at)
+                    folder (configure g {:folder folder} at)))]
+      {:state (at-once state at #(reduce join % joins))
+       :added (mapv first joins)
        :left  (into [] (comp (distinct) (remove is) (filter #(subscribed? state %))) (guids before))})
     {:state state :added [] :left []}))
 
@@ -1270,17 +1338,17 @@
    (from-opml state list at {}))
   ([state list at opts]
    {:pre [(map? opts)]}
-   (let [around (wrapper list (:wrappers opts wrappers))
-         folder (fn [path] (last (if (and around (= around (first path))) (rest path) path)))
-         state  (:state (reduce #(imported %1 %2 (folder (:path %2)) at)
-                                {:state state :names (by-url state)}
-                                (outlines list)))]
-     (reduce (fn [state {:keys [url text path]}]
-               (if (contains? (lists state) url)
-                 state
-                 (follow-list state url {:title text :folder (folder path)} at)))
-             state
-             (:includes list)))))
+   (let [around  (wrapper list (:wrappers opts wrappers))
+         folder  (fn [path] (last (if (and around (= around (first path))) (rest path) path)))
+         feeds   (fn [state]
+                   (:state (reduce #(imported %1 %2 (folder (:path %2)) at)
+                                   {:state state :names (by-url state)}
+                                   (outlines list))))
+         include (fn [state {:keys [url text path]}]
+                   (if (contains? (lists state) url)
+                     state
+                     (follow-list state url {:title text :folder (folder path)} at)))]
+     (at-once state at #(reduce include (feeds %) (:includes list))))))
 
 (defn- key-order
   "A comparison of the keys `a` and `b` of mixed types: keywords first, as
@@ -1359,7 +1427,7 @@
     wins whole, even when it's a tombstone
   - a map of entries merges entry by entry, down through nested maps
   - an instant is a max register
-  - any other value is that of `a`
+  - any other value is that of `a`, which is why problem names one
 
   The merge is commutative, associative and idempotent, so it's safe to
   apply in any order and any number of times. Of two listening counts of
@@ -1373,7 +1441,7 @@
   "The keys of a state that hold maps of entries, in the order problem
   checks them. Each has the depth of its entries, e.g. 2 for bookmarks,
   which are by episode and second."
-  [[:subscriptions 1] [:settings 2] [:tags 2] [:lists 1] [:episodes 1] [:queue 1]
+  [[:subscriptions 1] [:settings 2] [:tags 2] [:lists 1] [:episodes 1] [:played 1] [:queue 1]
    [:playlists 2] [:inbox 1] [:stars 1] [:bookmarks 2] [:clips 2] [:ratings 1]
    [:filters 1] [:listened 3] [:preferences 1] [:devices 1] [:retired 1]])
 
@@ -1403,6 +1471,16 @@
               (entry-problem [k] depth entries)
               (str k " is not a map"))))
         collections))
+
+(defn- value-problem
+  "A description of the first value in `v`, at `path`, that is neither a
+  map nor in a stamped entry. Merge keeps each device's own such value, so
+  the devices never agree on it."
+  [path v]
+  (cond
+    (or (nil? v) (stamped? v)) nil
+    (map? v)                   (some (fn [[k x]] (value-problem (conj path k) x)) v)
+    :else                      (str "the value at " (pr-str path) " is not in a stamped entry")))
 
 (defn- stamp-problem
   "A description of the first entry in `v`, at `path`, whose stamp isn't
@@ -1490,8 +1568,8 @@
   "The checks of problem, in order. Each takes a state that is a map and
   returns a description of the first problem of its kind, or nil, and
   relies on the checks before it."
-  [clock-problem collection-problem #(stamp-problem [] %) rank-problem seen-problem
-   key-problem mark-problem count-problem criteria-problem])
+  [clock-problem collection-problem #(value-problem [] (dissoc % :device :clock)) #(stamp-problem [] %)
+   rank-problem seen-problem key-problem mark-problem count-problem criteria-problem])
 
 (defn problem
   "A description of what in `state` breaks the rules that merge and the
@@ -1501,6 +1579,8 @@
   bad value makes a function throw, or two devices disagree. The rules:
 
   - The state and its collections are maps, and the clock is an instant.
+  - Besides the device and the clock, the state holds only maps, down to
+    stamped entries.
   - Each entry of a collection has a stamp, which is an instant.
   - Each rank in the queue and in a playlist is a rank.
   - What a device has seen is a map of instants.
