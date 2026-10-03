@@ -10,8 +10,10 @@ target/
 dev-resources/corpus/
 # the inspector's sync folder, served over WebDAV at /dav/
 dev-resources/sync/
-# the data of the podcast server, when it runs from here
+# the data of the podcast server, when it runs from here, and its settings
+# for docker compose
 /data/
+server/.env
 
 # ClojureScript tooling
 node_modules/

@@ -1,0 +1,6 @@
+# The image of the podcast server needs only what builds its jar
+*
+!deps.edn
+!build.clj
+!src
+!server

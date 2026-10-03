@@ -1,10 +1,12 @@
 (ns build
-  "Build and release the library:
+  "Build and release the library, and build the podcast server:
 
       clojure -T:build jar       ; target/podcast-<version>.jar with its pom
       clojure -T:build install   ; into the local Maven repository
       clojure -T:build deploy    ; to Clojars, with CLOJARS_USERNAME and
-                                 ; CLOJARS_PASSWORD (a deploy token) set"
+                                 ; CLOJARS_PASSWORD (a deploy token) set
+      clojure -T:build server    ; target/podcast-server.jar, to run with
+                                 ; java -jar"
   (:require [clojure.tools.build.api :as b]))
 
 (def lib
@@ -77,3 +79,22 @@
    {:installer :remote
     :artifact  (b/resolve-path jar-file)
     :pom-file  (b/pom-path {:lib lib :class-dir class-dir})}))
+
+(def server-jar
+  "The jar of the podcast server, with everything that it needs."
+  "target/podcast-server.jar")
+
+(defn server
+  "Build the podcast server as one jar, compiled ahead of time so that it
+  starts fast."
+  [_]
+  (let [basis     (b/create-basis {:project "deps.edn" :aliases [:server]})
+        class-dir "target/server-classes"]
+    (b/delete {:path class-dir})
+    (b/compile-clj {:basis      basis
+                    :ns-compile '[podcast-server.service]
+                    :class-dir  class-dir})
+    (b/uber {:class-dir class-dir
+             :uber-file server-jar
+             :basis     basis
+             :main      'podcast-server.service})))

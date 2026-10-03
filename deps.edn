@@ -24,11 +24,13 @@
           :exec-fn       inspector.service/start!}
 
   ;; The self-hosted podcast server: the parts of a podcast app that must
-  ;; run on a server, for a client that runs in the browser.
+  ;; run on a server, for a client that runs in the browser. It logs to
+  ;; stderr through slf4j-simple.
   :server {:extra-paths   ["server"]
            :override-deps {org.clojure/clojure {:mvn/version "1.12.5"}}
            :extra-deps    {io.pedestal/pedestal.service {:mvn/version "0.8.2-beta-11"}
-                           io.pedestal/pedestal.jetty   {:mvn/version "0.8.2-beta-11"}}
+                           io.pedestal/pedestal.jetty   {:mvn/version "0.8.2-beta-11"}
+                           org.slf4j/slf4j-simple       {:mvn/version "2.0.18"}}
            :main-opts     ["-m" "podcast-server.service"]}
 
   ;; REPL-driven development: everything on the classpath, including the

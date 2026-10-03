@@ -1,0 +1,24 @@
+# The podcast server on a machine where Tailscale runs, with tailscale
+# serve in front of it. Give the two settings below in a file .env next to
+# this one, and start it from this folder with:
+#
+#     docker compose up -d --build
+services:
+  podcast-server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    # this machine alone reaches it, and tailscale serve brings the tailnet
+    ports:
+      - "127.0.0.1:8400:8400"
+    environment:
+      PODCAST_SERVER_NAMES: ${PODCAST_SERVER_NAMES:?the name of the machine on the tailnet, e.g. pi.example.ts.net}
+      PODCAST_SERVER_CLIENT: /client
+      JDK_JAVA_OPTIONS: -Xmx256m
+    volumes:
+      - data:/data
+      - ${PODCAST_CLIENT_DIR:?the folder of the built files of the client}:/client:ro
+
+volumes:
+  data:

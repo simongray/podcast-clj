@@ -28,7 +28,8 @@
             [io.pedestal.http.secure-headers :as secure-headers]
             [io.pedestal.interceptor :as interceptor]
             [io.pedestal.service.interceptors :as interceptors]
-            [io.pedestal.service.resources :as resources]))
+            [io.pedestal.service.resources :as resources])
+  (:gen-class))
 
 (def defaults
   "The settings of the server, which the given settings replace one by one:
