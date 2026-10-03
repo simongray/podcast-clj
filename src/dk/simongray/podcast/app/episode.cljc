@@ -12,7 +12,6 @@
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]))
@@ -91,7 +90,7 @@
                     (resolve/properties show item)
                     (chosen show item opts)
                     {:guid (feed/item-guid item)})
-       feed-guid                 (assoc :id (profile/episode-id show url item))
+       feed-guid                 (assoc :id (feed/episode-id show url item))
        (and notes (wanted? :notes)) (assoc :notes notes)
        (and text (wanted? :text))   (assoc :text text)
        own                       (assoc :chapters own)

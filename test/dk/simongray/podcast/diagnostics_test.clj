@@ -1,7 +1,7 @@
 (ns dk.simongray.podcast.diagnostics-test
   "The catalogue of diagnostics and the source agree: every id the code
   raises is catalogued at the level the code gives it, and nothing is
-  catalogued that the code never raises."
+  catalogued that the code never raises. Also the summary of a report."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
@@ -51,3 +51,12 @@
       (is (= level (:level (diagnostics/by-id id))) (str id))))
   (testing "every entry documented"
     (is (every? (comp seq :doc) diagnostics/catalogue))))
+
+(deftest summarizing-diagnostics
+  (let [diagnostics [{:id :a :level :warning :message "m" :path [:rss/items 0]}
+                     {:id :a :level :warning :message "m" :path [:rss/items 1]}
+                     {:id :b :level :info :tag :x}]
+        summary     (diagnostics/summarize diagnostics)]
+    (is (= [[:a 2] [:b 1]] (map (juxt :id :count) summary)))
+    (is (= {:id :a :level :warning :message "m" :path [:rss/items 0]} (:example (first summary))))
+    (is (= [] (diagnostics/summarize [])))))

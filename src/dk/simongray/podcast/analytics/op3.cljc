@@ -20,8 +20,8 @@
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.publish :as publish]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
@@ -111,7 +111,7 @@
    (with-prefix feed {}))
   ([feed opts]
    (let [opts (merge {:podcast-guid (:podcast/guid feed)} opts)]
-     (feed/update-media-urls feed #(or (prefix % opts) %)))))
+     (publish/update-media-urls feed #(or (prefix % opts) %)))))
 
 (def endpoints
   "The calls of the API, by the names of OP3, with their parameters:

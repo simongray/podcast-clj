@@ -438,3 +438,13 @@
     (cond-> diagnostic
       (and doc (not (:message diagnostic)))  (assoc :message doc)
       (and level (not (:level diagnostic))) (assoc :level level))))
+
+(defn summarize
+  "Group `diagnostics` by id and message, most frequent first: one row per
+  kind, with its :count and its first occurrence as :example."
+  [diagnostics]
+  (->> (group-by (juxt :id :message) diagnostics)
+       (map (fn [[_ [example :as group]]]
+              (-> (select-keys example [:id :level :message])
+                  (assoc :count (count group) :example example))))
+       (sort-by (fn [{:keys [count id]}] [(- count) (str id)]))))

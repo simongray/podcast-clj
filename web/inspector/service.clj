@@ -588,7 +588,7 @@
             item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
         (if item
           (text "application/edn; charset=utf-8"
-                (pr-str {:id         (profile/episode-id feed url item)
+                (pr-str {:id         (feed/episode-id feed url item)
                          :title      (resolve/title item)
                          :feed-title (resolve/title feed)
                          :enclosure  (:url (resolve/enclosure item))

@@ -370,9 +370,9 @@
 
 (defn episode-id
   "The id of the episode `item` of `feed` in `library`, [feed-guid
-  item-guid], as profile/episode-id gives it with the URL of the feed."
+  item-guid], as feed/episode-id gives it with the URL of the feed."
   [library feed item]
-  (profile/episode-id feed (get (urls library) feed) item))
+  (feed/episode-id feed (get (urls library) feed) item))
 
 (defn- item-of
   "The entry of the feed `feed-guid` in `library` and its item

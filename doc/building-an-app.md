@@ -781,7 +781,7 @@ too, and the requirements of PSP-1 or Apple Podcasts as `:requirements`:
 (def result
   (check/check-files! feed {:url url :items 10 :requirements :apple}))
 
-(podcast/summarize (:report result))
+(diagnostics/summarize (:report result))
 ;; => ({:id :check/cors :level :warning :count 10 …}
 ;;     {:id :check/ranges :level :error :count 3 …} …)
 
@@ -879,11 +879,11 @@ on from.
 ## Serve the feed of a show
 
 This section is for hosts. Write a feed with `podcast/emit`. A long feed is
-slow to fetch, so split it with `feed/pages` into documents linked as RFC
+slow to fetch, so split it with `publish/pages` into documents linked as RFC
 5005 describes:
 
 ```clojure
-(def documents (feed/pages feed {:kind :archived :page-size 100}))
+(def documents (publish/pages feed {:kind :archived :page-size 100}))
 
 (map :url documents)
 ;; => ("https://example.org/feed.xml"            ; the newest items
@@ -907,11 +907,11 @@ about each change:
 ```
 
 A private feed has a token for each subscriber. You make and check the
-tokens on your server, and `feed/for-subscriber` writes one into the URLs
+tokens on your server, and `publish/for-subscriber` writes one into the URLs
 of the feed. The result is also closed to the directories:
 
 ```clojure
-(def private (feed/for-subscriber feed "k3J9x2"))
+(def private (publish/for-subscriber feed "k3J9x2"))
 
 (get-in private [:rss/items 0 :rss/enclosure :url])
 ;; => "https://media.example.org/54.mp3?token=k3J9x2"

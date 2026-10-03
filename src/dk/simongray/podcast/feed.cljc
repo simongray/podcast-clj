@@ -16,13 +16,10 @@
   Nothing throws on a bad value, which stays a string, and the report says
   so. The report is in the metadata of the result under :podcast/report,
   and the report function reads it."
-  (:require [clojure.string :as str]
-            [dk.simongray.podcast.diagnostics :as diagnostics]
+  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.spec :as spec]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.xml :as xml]))
 
 ;; The parse threads a context `ctx`: the `:registry` being interpreted, the
@@ -409,6 +406,11 @@
   (or (not-empty (:podcast/guid feed))
       (when url (guid/from-url url))))
 
+(defn episode-id
+  "The id of `item` in the `feed` at `url`: [feed-guid item-guid]."
+  [feed url item]
+  [(feed-guid feed url) (item-guid item)])
+
 (defn- identified
   "The `items` that have an identity, and of those that share one, the
   first."
@@ -503,194 +505,6 @@
     (let [{:keys [items report]} (reduce with-page {:items [] :seen #{} :report [] :first? true} pages)]
       (vary-meta (cond-> first-page (seq items) (assoc :rss/items items))
                  assoc :podcast/report report))))
-
-(def page-size
-  "How many items a document of pages holds, unless its options give
-  another :page-size."
-  100)
-
-(def ^:no-doc document-rels
-  "The link relations of RFC 5005 that tie the documents of one feed
-  together, and self, the link of a document to itself. Section 3 has
-  those of a paged feed, and section 4 those of an archived feed."
-  #{"self" "first" "last" "previous" "next" "prev-archive" "next-archive" "current"})
-
-(defn ^:no-doc document-link?
-  "Whether the atom:link `link` has one of the document-rels."
-  [link]
-  (contains? document-rels (some-> (:rel link) str/lower-case)))
-
-(defn- document
-  "One document of `feed` for pages, at `url`, with the `items` alone and
-  the `links` of the document, as a map of :url and :feed.
-
-  The `links` have the URL of each link relation of the document, and a
-  relation without a URL is left out. They take the place of the links of
-  document-rels that the feed has."
-  [feed url items links]
-  (let [type  (or (some #(when (= "self" (some-> (:rel %) str/lower-case)) (:type %)) (:atom/links feed))
-                  "application/rss+xml")
-        links (for [[rel href] (cons ["self" url] links)
-                    :when href]
-                {:rel rel :href href :type type})]
-    {:url  url
-     :feed (-> (dissoc feed :fh/complete :fh/archive)
-               (assoc :rss/items (vec items)
-                      :atom/links (into (vec links) (remove document-link?) (:atom/links feed))))}))
-
-(defn- paged
-  "The documents of `feed` as a paged feed, as section 3 of RFC 5005
-  defines it, with `size` items to a page. The first page is at `url`, and
-  page n is at what `page-url` gives for n."
-  [feed size url page-url]
-  (let [chunks (vec (partition-all size (:rss/items feed)))
-        n      (max 1 (count chunks))
-        at     #(if (= 1 %) url (page-url %))]
-    (vec (for [k (range 1 (inc n))]
-           (document feed (at k) (get chunks (dec k))
-                     [["first" (at 1)]
-                      ["last" (at n)]
-                      ["previous" (when (< 1 k) (at (dec k)))]
-                      ["next" (when (< k n) (at (inc k)))]])))))
-
-(defn- archived
-  "The documents of `feed` as an archived feed, as section 4 of RFC 5005
-  defines it, at `url` and the URLs from `page-url`. Each document holds
-  `size` items.
-
-  The subscription document at `url` has the newest items, and the
-  archives come after it, the newest first. Archive n is at what
-  `page-url` gives for n, and its items are counted from the oldest item.
-
-  Section 4 says that the items of an archive don't change, and a
-  document links to an archive only when the archive is complete. The
-  section doesn't say how to divide the items. Here, an archive becomes a
-  document once the feed has an item that's newer than all of its items.
-  The items of an archive then don't change when the feed gets an item."
-  [feed size url page-url]
-  (let [items    (vec (:rss/items feed))
-        oldest   (vec (rseq items))
-        archives (quot (max 0 (dec (count items))) size)
-        archive  (fn [k]
-                   (-> (document feed (page-url k)
-                                 (rseq (subvec oldest (* (dec k) size) (* k size)))
-                                 [["current" url]
-                                  ["prev-archive" (when (< 1 k) (page-url (dec k)))]
-                                  ["next-archive" (when (< k archives) (page-url (inc k)))]])
-                       (assoc-in [:feed :fh/archive] true)))]
-    (into [(document feed url (take size items)
-                     [["prev-archive" (when (pos? archives) (page-url archives))]])]
-          (map archive)
-          (range archives 0 -1))))
-
-(defn pages
-  "The documents that a host serves for `feed` when it's too long for one
-  document, as RFC 5005 defines them, with the `opts` below.
-
-  Each is a map of :url and :feed, in the order that a reader fetches
-  them, and join-pages makes one feed of them again. The `opts` are:
-
-  - :kind, :paged by default, or :archived
-  - :page-size, the number of items in a document, page-size by default
-  - :url, the URL of the feed, where its first document is, by default
-    the atom:link rel=self of the feed
-  - :page-url, a function of a number that gives the URL of that page or
-    archive, by default :url with the query parameter page or archive
-
-  The pages of a paged feed, as in section 3 of the RFC, change with each
-  new item. An archived feed, as in section 4, has a subscription document
-  with the newest items, and archives that don't change. A reader fetches
-  each archive once. Pages count from 1, the first page, and archives from
-  1, the oldest.
-
-  The items are in the order of the feed, the newest first. Each document
-  has the channel of the feed, and the links of RFC 5005 in its
-  atom:links. An archive has fh:archive."
-  ([feed]
-   (pages feed {}))
-  ([feed {:keys [kind url page-url] :or {kind :paged} :as opts}]
-   {:pre [(map? opts)]}
-   (let [size     (:page-size opts page-size)
-         self     (some #(when (= "self" (some-> (:rel %) str/lower-case)) (:href %)) (:atom/links feed))
-         url      (or url self)
-         param    (case kind :paged "page" :archived "archive")
-         page-url (or page-url #(http/with-query url {param %}))]
-     (when-not (string? url)
-       (throw (ex-info "The pages of a feed need its URL, as :url or as its atom:link rel=self" {:feed feed})))
-     (when-not (and (integer? size) (pos? size))
-       (throw (ex-info "The size of a page is a whole number above 0" {:page-size size})))
-     (case kind
-       :paged    (paged feed size url page-url)
-       :archived (archived feed size url page-url)))))
-
-(defn update-media-urls
-  "The `feed` with the URL of each enclosure, and of each source of an
-  alternate enclosure, replaced by what `f` gives for it.
-
-  A value that isn't a string stays as it is. A host uses this to put a
-  prefix or a token on the URLs of its media files."
-  [feed f]
-  (let [rewritten #(if (string? %) (f %) %)
-        sources   (fn [alternate]
-                    (cond-> alternate
-                      (:sources alternate)
-                      (update :sources (partial mapv #(cond-> % (:uri %) (update :uri rewritten))))))
-        item      (fn [item]
-                    (cond-> item
-                      (get-in item [:rss/enclosure :url])  (update-in [:rss/enclosure :url] rewritten)
-                      (:podcast/alternate-enclosures item) (update :podcast/alternate-enclosures
-                                                                   (partial mapv sources))))]
-    (cond-> feed
-      (:rss/items feed) (update :rss/items (partial mapv item)))))
-
-(def token-param
-  "The name of the query parameter that holds the token of a subscriber,
-  unless the options of for-subscriber give another :param."
-  "token")
-
-(defn for-subscriber
-  "The `feed` as the private feed of the subscriber with the `token`, with
-  the `opts` below.
-
-  The host makes and keeps the tokens, and serves this feed at a URL with
-  the token. The token can be a hidden text of
-  dk.simongray.podcast.util.secret, and the feed has it in its URLs as
-  plain text. It goes into the query of each URL of a media file, and of
-  each link of the feed to its own documents. Each request then tells who
-  the subscriber is. A URL that isn't an http or https URL gets no token.
-
-  The feed is closed to the public, and podcast:block, itunes:block and
-  googleplay:block keep it out of the directories. It names no WebSub hub,
-  since a subscriber would give the URL of the feed to the hub. No
-  standard defines the token of a subscriber, so the query parameter is a
-  choice that the options can replace. The `opts` are:
-
-  - :param, the name of the query parameter, token-param by default
-  - :with-token, a function of a URL and the token that gives the URL of
-    the subscriber, for a host that has the token in the path
-  - :own?, a predicate of a URL, where the URLs that it refuses get no
-    token, e.g. the media files on the server of another company
-  - :block?, false for a feed that stays as open as it was"
-  ([feed token]
-   (for-subscriber feed token {}))
-  ([feed token {:keys [param with-token own? block?]
-                :or   {param token-param own? (constantly true) block? true}
-                :as   opts}]
-   {:pre [(map? opts)]}
-   (let [token      (secret/reveal token)
-         with-token (or with-token #(http/with-query %1 {param %2}))
-         personal   #(if (and (http/web-url? %) (own? %)) (with-token % token) %)
-         hub?       #(= "hub" (some-> (:rel %) str/lower-case))
-         links      (fn [links]
-                      (into []
-                            (comp (remove #(and block? (hub? %)))
-                                  (map #(cond-> % (document-link? %) (update :href personal))))
-                            links))]
-     (cond-> (update-media-urls feed personal)
-       (:atom/links feed) (update :atom/links links)
-       block?             (assoc :podcast/blocks [{:content true}]
-                                 :itunes/block true
-                                 :googleplay/block true)))))
 
 (comment
   (-> "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">

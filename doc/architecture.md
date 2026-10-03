@@ -10,7 +10,7 @@ This page explains how each part of podcast-clj is built.
 ```
   5  high level   app.library  app.show  app.episode  app.feeds
   4  root         dk.simongray.podcast
-  3  companions   feed.resolve  feed.check  feed.discovery  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  search  downloads  sync  sync.*
+  3  companions   feed.resolve  feed.check  feed.discovery  feed.publish  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  search  downloads  sync  sync.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.quirks
   0  primitives   util.*  crypto.*  feed.guid  diagnostics
@@ -110,7 +110,8 @@ where the model has a vector. `feed/normalize` expands it, and `emit` and
 
 Identity is a function, not a field. `feed/feed-guid` gives the
 `podcast:guid`, or the UUIDv5 of the feed URL, and `feed/item-guid` gives
-the `<guid>`, or the enclosure URL. `feed/diff` compares two parses of a
+the `<guid>`, or the enclosure URL. The id of an episode is the pair of
+the two, from `feed/episode-id`, and `feed/diff` compares two parses of a
 feed by this identity.
 
 

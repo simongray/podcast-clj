@@ -32,7 +32,8 @@
   dk.simongray.podcast.util.crdt, so merge joins the profiles of a
   listener's devices, and compact drops the tombstones that every device
   has seen. A feed is identified by its
-  podcast:guid, and an episode by its id, [feed-guid item-guid]."
+  podcast:guid, and an episode by its id, [feed-guid item-guid], as
+  feed/episode-id gives it."
   (:refer-clojure :exclude [merge])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed :as feed]
@@ -72,11 +73,6 @@
    :filters        {:depth 1 :compact? true}
    :listened       {:depth 3 :count :seconds}
    :preferences    {:depth 1}})
-
-(defn episode-id
-  "The id of `item` in the `feed` at `url`: [feed-guid item-guid]."
-  [feed url item]
-  [(feed/feed-guid feed url) (feed/item-guid item)])
 
 (def default-settings
   "The settings of a subscription until configure changes them:

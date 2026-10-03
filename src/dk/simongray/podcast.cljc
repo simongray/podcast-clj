@@ -528,16 +528,6 @@
          (async/then #(page-feeds! % url typed? (cond-> opts credentials (assoc :credentials credentials))))
          (async/then #(result % url guid))))))
 
-(defn summarize
-  "Group `diagnostics` by id and message, most frequent first: one row per
-  kind, with its :count and its first occurrence as :example."
-  [diagnostics]
-  (->> (group-by (juxt :id :message) diagnostics)
-       (map (fn [[_ [example :as group]]]
-              (-> (select-keys example [:id :level :message])
-                  (assoc :count (count group) :example example))))
-       (sort-by (fn [{:keys [count id]}] [(- count) (str id)]))))
-
 #?(:clj
    (comment
      (def f (parse (slurp "test/resources/feeds/namespace-example.xml")))

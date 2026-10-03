@@ -134,7 +134,7 @@
    (let [chapters (or chapters (resolve/embedded-chapters item))
          title    (resolve/title item)
          show     (resolve/title feed)
-         id       (profile/episode-id feed url item)]
+         id       (feed/episode-id feed url item)]
      (when (nil? (first id))
        (throw (ex-info "A feed without a podcast:guid needs :url, or its episodes share ids with those of other shows"
                        {:title show})))
@@ -589,7 +589,7 @@
 (defn ^:no-doc episode-id
   "The episode id of `item` in `feed`, with the feed URL from `ctx`."
   [ctx feed item]
-  (profile/episode-id feed (url-of ctx feed) item))
+  (feed/episode-id feed (url-of ctx feed) item))
 
 (defn ^:no-doc entry
   "The entry of `item` in `feed`, from the profile in `ctx`."

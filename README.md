@@ -68,7 +68,9 @@ gives its SRT transcripts the type `application/srt`, and uses the deprecated
 `podcast:images`:
 
 ```clojure
-(map :id (podcast/summarize (podcast/report feed)))
+(require '[dk.simongray.podcast.diagnostics :as diagnostics])
+
+(map :id (diagnostics/summarize (podcast/report feed)))
 ;; => (:quirk/explicit-value :quirk/transcript-type :quirk/deprecated-images)
 ```
 

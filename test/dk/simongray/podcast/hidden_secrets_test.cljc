@@ -6,7 +6,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.directory.podcastindex :as index]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.publish :as publish]
             [dk.simongray.podcast.sync.encrypted :as encrypted]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.sync.webdav :as webdav]
@@ -56,7 +56,7 @@
   (testing "the private feed of a subscriber"
     (let [show {:rss/title "T"
                 :rss/items [{:rss/title "E" :rss/enclosure {:url "https://example.org/1.mp3" :type "audio/mpeg" :length 1}}]}]
-      (is (= (feed/for-subscriber show password) (feed/for-subscriber show hidden)))))
+      (is (= (publish/for-subscriber show password) (publish/for-subscriber show hidden)))))
   (testing "an event of Nostr"
     (let [event {"kind" 1 "created_at" 1790000000 "content" "Hi"}
           aux   (apply str (repeat 64 "5"))]

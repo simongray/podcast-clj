@@ -3,11 +3,11 @@
   Rendered to strings by Replicant in the service namespace."
   (:require [clojure.pprint :as pprint]
             [clojure.string :as str]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
@@ -123,14 +123,14 @@
 
 (defn diagnostics-table
   "A table of report or validation `diagnostics`, one row per kind as
-  `podcast/summarize` groups them, with the count and one example."
+  `diagnostics/summarize` groups them, with the count and one example."
   [diagnostics]
   (if (empty? diagnostics)
     [:p.muted "None."]
     [:table
      [:thead [:tr [:th "Level"] [:th "Diagnostic"] [:th "Count"] [:th "Example"]]]
      [:tbody
-      (for [{:keys [id level message example] n :count} (podcast/summarize diagnostics)]
+      (for [{:keys [id level message example] n :count} (diagnostics/summarize diagnostics)]
         [:tr
          [:td {:class (level-class level)} (name (or level :info))]
          [:td [:code (str id)]]
