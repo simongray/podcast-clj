@@ -189,11 +189,14 @@
 
 (defn ^:no-doc attempted
   "The result of calling `f` as the :value. When it throws, the :error is
-  the diagnostic `id` about `url`, with the reason."
+  the diagnostic `id` about `url`, with the reason. A platform without an
+  XML parser isn't the fault of the answer, so that error is thrown."
   [id url f]
   (try
     {:value (f)}
     (catch #?(:clj Exception :cljs :default) e
+      (when (= ::xml/no-parser (:type (ex-data e)))
+        (throw e))
       {:error (diagnostics/describe {:id id :url url :reason (async/explain e)})})))
 
 (defn- joined

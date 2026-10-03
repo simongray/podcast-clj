@@ -37,6 +37,9 @@
   (testing "a feed that declares no guid has the guid of its URL, as the Podcast Index gives it"
     (is (= {:feed-url "https://example.org/feed.xml" :podcast-guid (guid/from-url "https://example.org/feed.xml")}
            (links/ids {:rss/title "No links"} nil {:url "https://example.org/feed.xml"}))))
+  (testing "but a show from a directory only has the guid that it knows the feed declares"
+    (is (= {:feed-url feed-url :apple-id "1584274529"}
+           (links/ids {:atom/links [{:rel "self" :href feed-url}] :directory/source :apple :directory/id "1584274529"}))))
   (is (= {} (links/ids {:rss/title "Nothing"})) "a show that nothing names")
   (is (= {} (links/ids {} {:rss/guid {:content ""}}))))
 

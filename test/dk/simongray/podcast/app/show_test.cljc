@@ -8,6 +8,7 @@
             [dk.simongray.podcast.app.show :as show]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.secret :as secret]))
 
 (def feed
@@ -27,12 +28,16 @@
 
 (defn- answering
   "A sender that answers by the first entry of `answers` whose pattern the
-  URL matches, and throws for a URL that matches none, noting each URL
-  in `log`."
+  URL matches, as bytes when the request asks for them, and throws for a
+  URL that matches none, noting each URL in `log`."
   [answers log]
-  (fn [{:keys [url]}]
+  (fn [{:keys [url as]}]
     (swap! log conj url)
-    (or (some (fn [[pattern answer]] (when (re-find pattern url) (assoc answer :headers {}))) answers)
+    (or (some (fn [[pattern answer]]
+                (when (re-find pattern url)
+                  (cond-> (assoc answer :headers {})
+                    (= :bytes as) (update :body bytes/encode))))
+              answers)
         (throw (ex-info (str "No route to " url) {:url url})))))
 
 (deftest what-the-feed-says
@@ -48,6 +53,8 @@
     (testing "the episodes in listening order, and the seasons"
       (is (= ["Episode 3 - The Future" "Episode 2 - The Present" "Episode 1 - The Past"]
              (map :rss/title (:episodes v))))
+      (is (nil? (:rss/items v)) "in place of the items")
+      (is (= 3 (count (:rss/items (show/view feed {:except #{:episodes}})))))
       (is (= [1] (map :season (:seasons v)))))
     (testing "the podroll and the publisher, as the feed names them"
       (is (= ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "396d9ae0-da7e-5557-b894-b606231fa3ea"] (map :feed-guid (:podroll v))))
@@ -75,10 +82,16 @@
                        (is (nil? (:error (:publisher v)))))
                      (is (= 3 (count @log)) "two lookups and the publisher feed"))))
      (fn []
-       (async/then (show/fetch-linked-shows! (show/view feed) {:send (answering [[#"publisherexample" {:status 404 :body ""}]] log)})
+       (async/then (show/fetch-linked-shows! (show/view feed) {:send (answering [[#"publisherexample" {:status 404 :body ""}]
+                                                                                  [#"pc20" {:status 200 :body (fixture "feeds/namespace-example.xml")}]
+                                                                                  [#"feedurl" {:status 404 :body ""}]]
+                                                                                 log)})
                    (fn [v]
-                     (testing "without credentials the podroll is not asked, and a publisher feed that is gone has :error"
-                       (is (nil? (:podroll v)) "the page keeps the podroll of the view")
+                     (testing "without credentials, the podroll comes from the feeds at its URLs, without their items"
+                       (is (= "Podcasting 2.0 Namespace Example" (:rss/title (:show (first (:podroll v))))))
+                       (is (nil? (:rss/items (:show (first (:podroll v))))))
+                       (is (= [:fetch/unreachable 404] ((juxt :id :status) (:error (second (:podroll v)))))))
+                     (testing "and a publisher feed that is gone has :error"
                        (is (= [:fetch/unreachable 404] ((juxt :id :status) (:error (:publisher v)))))
                        (is (nil? (:confirmed? (:publisher v))))))))
      (fn []
@@ -86,3 +99,38 @@
          (async/then (show/fetch-linked-shows! (show/view feed) {:send (answering [[#"publisherexample" {:status 200 :body other}]] log)})
                      (fn [v]
                        (is (false? (:confirmed? (:publisher v))) "a publisher feed that does not list the show"))))))))
+
+(defn- ranges
+  "A sender that serves the bytes of the feed `xml` by the range that each
+  request asks for, noting each range in `asked`."
+  [xml asked]
+  (let [b (bytes/encode xml)]
+    (fn [{:keys [range]}]
+      (swap! asked conj range)
+      (let [[start end] range]
+        {:status        206
+         :headers       {}
+         :body          (bytes/copy b start (min (inc end) (bytes/length b)))
+         :content-range {:start start :total (bytes/length b)}}))))
+
+(deftest the-head-of-a-feed-in-a-podroll
+  (let [items (apply str (repeat 1000 "<item><title>An episode</title><guid>g</guid></item>"))
+        xml   #(str "<rss version=\"2.0\"><channel><title>Recommended</title><description>" % "</description>"
+                    items "</channel></rss>")
+        view  {:podroll [{:feed-guid "f" :feed-url "https://example.org/feed.xml"}]}
+        short (atom [])
+        long  (atom [])]
+    (run
+     (fn []
+       (async/then (show/fetch-linked-shows! view {:send (ranges (xml "A show.") short)})
+                   (fn [v]
+                     (testing "the show, read from the first 64 KB of a feed of more"
+                       (is (= "Recommended" (:rss/title (:show (first (:podroll v))))))
+                       (is (nil? (:rss/items (:show (first (:podroll v))))))
+                       (is (= [[0 65536]] @short) "one request, which read! widens to 64 KB")))))
+     (fn []
+       (async/then (show/fetch-linked-shows! view {:send (ranges (xml (apply str (repeat 70000 "x"))) long)})
+                   (fn [v]
+                     (testing "and from more, when the channel goes on past them"
+                       (is (= "Recommended" (:rss/title (:show (first (:podroll v))))))
+                       (is (= 2 (count @long))))))))))

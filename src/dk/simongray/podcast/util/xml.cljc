@@ -256,6 +256,16 @@
   (when (> depth max-depth)
     (throw (malformed (str "elements nest deeper than " max-depth " levels") nil))))
 
+#?(:cljs
+   (defn- dom-parser
+     "A DOMParser of the platform. Without one, it throws with the :type
+     ::no-parser, since that's no fault of the XML."
+     []
+     (if (exists? js/DOMParser)
+       (js/DOMParser.)
+       (throw (ex-info "No DOMParser to read XML with. In Node, install one as globalThis.DOMParser, e.g. that of @xmldom/xmldom."
+                       {:type ::no-parser})))))
+
 (defn- document
   "The document in `xml`, ready to read.
 
@@ -266,9 +276,10 @@
 
   In JavaScript, `xml` is a string, and the result is the root element of
   the DOM that the DOMParser of the platform builds. That's the one of the
-  browser, or one that a host such as Node has installed as js/DOMParser.
-  Browsers report errors as a parsererror element, and other
-  implementations throw or give a document without a root."
+  browser, or one that a host such as Node has installed as js/DOMParser,
+  and without one it throws with the :type ::no-parser. Browsers report
+  errors as a parsererror element, and other implementations throw or
+  give a document without a root."
   [xml]
   #?(:clj
      (let [factory (doto (XMLInputFactory/newInstance)
@@ -292,8 +303,9 @@
          (instance? Reader xml)      (.createXMLStreamReader factory ^Reader xml)
          :else                       (throw (ex-info "Cannot parse XML from this value" {:type (type xml)}))))
      :cljs
-     (let [doc    (try
-                    (.parseFromString (js/DOMParser.) (strip-bom xml) "text/xml")
+     (let [parser (dom-parser)
+           doc    (try
+                    (.parseFromString parser (strip-bom xml) "text/xml")
                     (catch :default e
                       (throw (malformed (or (ex-message e) (str e)) e))))
            errors (.getElementsByTagName doc "parsererror")

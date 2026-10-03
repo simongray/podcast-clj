@@ -146,19 +146,25 @@
   The `fetched` is the result of dk.simongray.podcast/fetch! or a parsed
   feed, and the `opts` are as profile/configure takes them, besides :at.
 
-  It throws when the feed declares the guid of another subscription, at
-  another URL, since the feed would take that subscription over. The
-  ex-data is the diagnostic that profile/takeover gives. To replace the
-  other subscription, unsubscribe from it first."
+  It throws when `fetched` has no feed, e.g. after a fetch that failed,
+  and when the feed declares the guid of another subscription, at another
+  URL, since the feed would take that subscription over. The ex-data is
+  the diagnostic of the fetch, or the one that profile/takeover gives. To
+  replace the other subscription, unsubscribe from it first."
   ([library url fetched]
    (subscribe library url fetched {}))
   ([library url fetched opts]
-   {:pre [(map? (:feed (fetch-result fetched))) (map? opts)]}
+   {:pre [(map? opts)]}
    (let [now      (time-of library opts)
          settings (dissoc opts :at :now)
          result   (fetch-result fetched)
          feed     (:feed result)
          guid     (feed/feed-guid feed url)]
+     (when-not (map? feed)
+       (let [failed (or (:error result)
+                        (diagnostics/describe {:id :fetch/status :url url :status (:status result)
+                                               :message (str "No feed to subscribe to: " url " answered " (:status result))}))]
+         (throw (ex-info (:message failed) failed))))
      (when-let [taken (profile/takeover (:profile library) guid url)]
        (throw (ex-info (:message taken) taken)))
      (-> library

@@ -290,7 +290,7 @@
         (is (= 200 status))
         (is (str/includes? body "The charts, dk, Technology"))
         (is (str/includes? body "Jagten på det evige liv"))
-        (is (str/includes? body "fyyd has no chart by category") "a directory without such a chart tells so")))))
+        (is (str/includes? body "fyyd has no chart by country") "a directory without such a chart tells so")))))
 
 (defn- hive-fixture
   "The recorded answer of a Hive node to the JSON-RPC `body`, with the head

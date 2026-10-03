@@ -102,8 +102,13 @@
       (is (= show (get-in lib [:feeds guid :feed])))
       (is (nil? (get-in lib [:feeds guid :etag])) "no validators")
       (is (= [guid] (keys (library/subscriptions lib))))))
-  (testing "a fetch that gave no feed"
-    (is (thrown? #?(:clj Throwable :cljs js/Error) (library/subscribe library url {:status 404 :url url}))))
+  (testing "a fetch that gave no feed throws its diagnostic"
+    (let [thrown (fn [fetched]
+                   (try (library/subscribe library url fetched)
+                        nil
+                        (catch #?(:clj Exception :cljs :default) e (ex-data e))))]
+      (is (= [:fetch/status 404] ((juxt :id :status) (thrown {:status 404 :url url}))))
+      (is (= :fetch/unreachable (:id (thrown {:url url :error {:id :fetch/unreachable :url url}}))))))
   (testing "the views of the library"
     (is (= "Podcasting 2.0 Namespace Example" (:title (library/show library guid))))
     (is (= 3 (count (:episodes (library/show library guid)))))
@@ -124,7 +129,8 @@
        (fn []
          (async/then (library/fetch-linked-shows! library guid {:send down})
                      (fn [linked]
-                       (is (= [:publisher] (keys linked)) "no credentials of the index: the publisher feed alone")
+                       (is (= [:podroll :publisher] (sort (keys linked))) "no credentials of the index: the feeds themselves")
+                       (is (every? #(= :fetch/unreachable (:id (:error %))) (:podroll linked)))
                        (is (= :fetch/unreachable (:id (:error (:publisher linked)))))))))))
   (testing "unsubscribing"
     (let [lib (library/unsubscribe library guid)]

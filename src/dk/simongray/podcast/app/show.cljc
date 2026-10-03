@@ -29,7 +29,7 @@
     has one or `opts` give the :url of the feed
   - :notes, the description as Hiccup, and :text, as plain text
   - :episodes, the items in listening order, as resolve/episodes gives
-    them
+    them, in place of :rss/items
   - :seasons, as resolve/seasons gives them
   - :links, links to the show in other apps, as links/links gives them
 
@@ -50,7 +50,7 @@
        guid                         (assoc :guid guid)
        (and notes (wanted? :notes)) (assoc :notes notes)
        (and notes (wanted? :text))  (assoc :text (html/text notes))
-       (wanted? :episodes)          (assoc :episodes (vec (resolve/episodes show)))
+       (wanted? :episodes)          (-> (dissoc :rss/items) (assoc :episodes (vec (resolve/episodes show))))
        (wanted? :seasons)           (assoc :seasons (vec (resolve/seasons show)))
        (wanted? :links)             (assoc :links (links/links (links/ids show nil {:url url})))))))
 
@@ -77,41 +77,116 @@
                                     answers)]
                     (cond-> item found (assoc :show found)))))))
 
+(defn- parsed
+  "The feed in the text `s` from `url`, as a map of the :feed, or of an
+  :error when it doesn't parse."
+  [url s]
+  (let [{:keys [value error]} (podcast/attempted :fetch/malformed url #(podcast/parse s))]
+    (if error {:error error} {:feed value})))
+
+(defn- feed-at!
+  "Fetch and parse the feed at `url` with `opts`, and give a map of the
+  :feed, or of an :error when it couldn't, in a future or a promise."
+  [url {:keys [send] :as opts}]
+  (async/then (http/sent! send {:url url :headers {"Accept" "application/rss+xml, application/xml;q=0.9, */*;q=0.1"}} opts)
+              (fn [{:keys [value error]}]
+                (cond
+                  error                                    {:error (unreachable url error nil)}
+                  (not (<= 200 (long (:status value)) 299)) {:error (unreachable url nil (:status value))}
+                  :else                                    (parsed url (str (:body value)))))))
+
+(defn- held
+  "How many bytes the view `v` holds from the start of the file on."
+  [v]
+  (loop [p 0]
+    (if-let [[o b] (bytes/part-at v p)]
+      (recur (+ o (bytes/length b)))
+      p)))
+
+(defn- feed-text
+  "The text of the bytes `b` of a feed, as fetch! reads a feed: by the
+  charset that it declares on the JVM, and as UTF-8 in JavaScript."
+  [b]
+  #?(:clj  (http/decode {} b)
+     :cljs (bytes/decode b 0 (bytes/length b) :utf8)))
+
+(defn- channel-head
+  "A reading of the view `v` of a feed: the text of the feed cut before its
+  first item and closed, or the bytes that it needs to find that item."
+  [v]
+  (bytes/reading
+   #(let [n          (held v)
+          [_ before] (re-find #"(?s)^(.*?)<item[\s/>]" (bytes/text v 0 n :latin1))]
+      (cond
+        before           {:text (str (feed-text (bytes/slice v 0 (count before))) "</channel></rss>")}
+        (= n (:total v)) {:text (feed-text (bytes/slice v 0 n))}
+        :else            (bytes/need v n (inc n))))))
+
+;; TODO: Reconsider the design of these fetches. The podroll reads only the
+;; start of each feed, tens of KB instead of the MB of a whole feed.
+;; find-feeds!, OPML previews and the guid check before subscribing fetch
+;; whole feeds for a title or a guid, and could do the same. The trade-offs:
+;; - RSS lets channel elements come after the episodes, so the start of a
+;;   feed can miss some. It's enough for a title and artwork, but not for
+;;   deciding anything about the show.
+;; - Stored as a feed, it would look like a show without episodes.
+;; - It only works for encodings like UTF-8, where the first <item> can be
+;;   found before decoding.
+;; - Made public, it needs a name and a mark that tells it from a feed.
+(defn- head-at!
+  "Read the feed at `url` with `opts` up to its first item, most often
+  from the first 64 KB alone, and give a map of the :feed without its
+  items, or of an :error, in a future or a promise."
+  [url opts]
+  (async/then (http/read-by-ranges! url channel-head opts)
+              (fn [{:keys [text error] :as result}]
+                (cond
+                  text  (parsed url text)
+                  error {:error (diagnostics/describe (assoc (select-keys error [:url :status :reason]) :id :fetch/unreachable))}
+                  :else {:error (assoc (first (bytes/report result)) :url url)}))))
+
+(defn- podroll-show!
+  "Give the remote `item` of a podroll with its :show, in a future or a
+  promise: from the Podcast Index with the :index of `opts`, or else from
+  the head of the feed at its URL, without the items. An item that names
+  no URL stays as it is without the :index, and one whose feed fails has
+  an :error."
+  [item opts]
+  (cond
+    (:index opts)    (known-show! item opts)
+    (:feed-url item) (async/then (head-at! (:feed-url item) opts)
+                                 (fn [{:keys [feed error]}]
+                                   (if error
+                                     (assoc item :error error)
+                                     (assoc item :show feed))))
+    :else            item))
+
 (defn- publisher-feed!
   "Fetch the :feed of the publisher `item` of the show `view` with `opts`,
   and give the item with it, in a future or a promise.
 
   The item also has the :shows of the publisher feed, and :confirmed? when that
   feed lists the show, or an :error when the feed couldn't be fetched."
-  [item {:keys [guid] :as view} {:keys [send] :as opts}]
-  (let [url (:feed-url item)]
-    (async/then (http/sent! send {:url url :headers {"Accept" "application/rss+xml, application/xml;q=0.9, */*;q=0.1"}} opts)
-                (fn [{:keys [value error]}]
-                  (cond
-                    error
-                    (assoc item :error (unreachable url error nil))
-
-                    (not (<= 200 (long (:status value)) 299))
-                    (assoc item :error (unreachable url nil (:status value)))
-
-                    :else
-                    (async/then (async/attempt #(podcast/parse (str (:body value))))
-                                (fn [{parsed :value error :error}]
-                                  (if error
-                                    (assoc item :error (diagnostics/describe {:id :fetch/malformed :url url :reason (async/explain error)}))
-                                    (let [shows (vec (resolve/remote-items parsed))]
-                                      (assoc item
-                                             :feed       parsed
-                                             :shows      shows
-                                             :confirmed? (boolean (some #(= guid (:feed-guid %)) shows))))))))))))
+  [item {:keys [guid] :as view} opts]
+  (async/then (feed-at! (:feed-url item) opts)
+              (fn [{:keys [feed error]}]
+                (if error
+                  (assoc item :error error)
+                  (let [shows (vec (resolve/remote-items feed))]
+                    (assoc item
+                           :feed       feed
+                           :shows      shows
+                           :confirmed? (boolean (some #(= guid (:feed-guid %)) shows))))))))
 
 (defn fetch-linked-shows!
   "Fetch the shows that the `view` of a show links to, with the `opts`
   below, for a page to merge into the view. Returns a map, in
   ClojureScript as a promise:
 
-  - :podroll has each recommended show with its :show from the Podcast
-    Index, when `opts` give the :index credentials.
+  - :podroll has each recommended show with its :show, the feed without
+    its items. It comes from the Podcast Index when `opts` give the :index
+    credentials, or else from the start of the feed at the URL that the
+    podroll names, as far as its first item.
   - :publisher has the :feed of the publisher, its :shows, and
     :confirmed?, which says whether the publisher feed lists this show.
     The podcast namespace asks apps to show the other shows of a publisher
@@ -134,8 +209,8 @@
                          :now  time/now}
                         opts)
          wanted? (complement except)]
-     (async/then (async/all force [(delay (when (and (wanted? :podroll) (:index opts))
-                                            (async/all #(known-show! % opts) (:podroll view))))
+     (async/then (async/all force [(delay (when (wanted? :podroll)
+                                            (async/all #(podroll-show! % opts) (:podroll view))))
                                    (delay (when (and (wanted? :publisher) (:feed-url (:publisher view)))
                                             (publisher-feed! (:publisher view) view opts)))])
                  (fn [[podroll publisher]]

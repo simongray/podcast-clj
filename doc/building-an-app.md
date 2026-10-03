@@ -109,15 +109,16 @@ credentials, and combines the results into one entry per show:
 ```
 
 For the charts, use `directory/fetch-chart!`, optionally for one category
-of Apple Podcasts. A source without a chart for the category ends up under
-`:failed`:
+of Apple Podcasts. A source without a chart for the category, the country
+or the language ends up under `:failed`:
 
 ```clojure
 (def chart
   (directory/fetch-chart! {:category "Technology" :country "dk" :limit 10}))
 
 (map resolve/title (:results chart))
-(:failed chart)  ; => {:fyyd "fyyd has no chart by category"}
+(:failed chart)
+;; => {:fyyd "fyyd has no chart by country" :gpodder "gpodder.net has no chart by country"}
 ```
 
 The Podcast Index has no names for subcategories like Tech News, so give a
@@ -306,14 +307,16 @@ the rows of an episode list are much cheaper as `(library/episode @lib id
 {:except #{:notes :text :chapters :links}})`.
 
 For the shows that a show recommends in its podroll, and the feed of its
-publisher, merge in `library/fetch-linked-shows!`. Only show the
-publisher's other shows when `:confirmed?` is true, since the publisher's
-feed must list this show too:
+publisher, merge in `library/fetch-linked-shows!`. It reads each show of
+the podroll from the start of its feed, most often the first 64 KB, or
+from the Podcast Index when the config has its credentials as `:index`.
+Only show the publisher's other shows when `:confirmed?` is true, since
+the publisher's feed must list this show too:
 
 ```clojure
 (def linked (library/fetch-linked-shows! @lib guid))
 
-(map :title (:podroll linked))
+(map (comp :rss/title :show) (:podroll linked))
 (when (:confirmed? (:publisher linked))
   (:shows (:publisher linked)))
 ```

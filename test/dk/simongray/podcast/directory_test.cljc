@@ -5,7 +5,6 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.directory :as directory]
-            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
@@ -79,6 +78,26 @@
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :episodes {:q "x"})))
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request :apple :trending {:country "Denmark"})))))
 
+(deftest the-chart-of-a-country-or-language
+  (let [refused? (fn [source params]
+                   (try (directory/request source :trending params {:credentials {:key "K" :secret "S"} :auth-date 1700000000})
+                        false
+                        (catch #?(:clj Exception :cljs js/Error) e (ex-message e))))]
+    (testing "each source narrows its chart by what it can take"
+      (is (false? (refused? :apple {:country "dk"})))
+      (is (false? (refused? :fyyd {:country "dk" :language "da"})))
+      (is (false? (refused? :podcastindex {:language "da"}))))
+    (testing "and gives none for a country or a language that it can't take, since that chart would be of other shows"
+      (is (= "Apple Podcasts has no chart by language" (refused? :apple {:language "da"})))
+      (is (= "fyyd has no chart by country" (refused? :fyyd {:country "dk"})))
+      (is (= "gpodder.net has no chart by country" (refused? :gpodder {:country "dk" :language "da"})))
+      (is (false? (refused? :gpodder {})) "the chart of everywhere"))))
+
+(deftest at-most-the-limit
+  (run #(async/then (directory/call! :gpodder :search {:q "podcasting" :limit 2} {:send (constantly {:status 200 :body gpodder-search})})
+                    (fn [shows]
+                      (is (= 2 (count shows)) "from gpodder.net too, which takes no limit")))))
+
 (deftest the-chart-of-a-category
   (let [credentials {:credentials {:key "K" :secret "S"} :auth-date 1700000000}
         url         (fn [source params] (:url (directory/request source :trending params credentials)))
@@ -144,7 +163,7 @@
                   (str/includes? url "/api/2/tag/")       {:status 200 :body gpodder-toplist}
                   :else                                   {:status 500 :body ""}))]
     (run (fn []
-           (async/then (directory/fetch-chart! {:category "Technology" :country "dk" :limit 2 :send send})
+           (async/then (directory/fetch-chart! {:category "Technology" :limit 2 :send send})
                        (fn [{:keys [results failed]}]
                          (is (= {:fyyd "fyyd has no chart by category"} failed) "a source without such a chart tells so")
                          (is (some #(str/includes? % "genre=1318") @asked))
@@ -192,7 +211,7 @@
       (is (= "Podcasting Explained! 2.0: The Podcast" (:rss/title show)))
       (is (= "Steven Christianson" (:itunes/author show)))
       (is (= "https://anchor.fm/s/10eab8b28/podcast/rss" (resolve/self-url show)))
-      (is (= (guid/from-url "https://anchor.fm/s/10eab8b28/podcast/rss") (:podcast/guid show)) "the guid the feed would get")
+      (is (nil? (:podcast/guid show)) "no guess at the guid that the feed declares")
       (is (= [{:text "How To"} {:text "Education"}] (:itunes/categories show)) "Apple's umbrella genre left out")
       (is (false? (:itunes/explicit show)))
       (is (inst? (:rss/pub-date show)))
@@ -226,7 +245,7 @@
       (is (= "Podcasting 2.0" (:rss/title show)))
       (is (= "Podcast Index LLC" (:itunes/author show)))
       (is (= pc20-url (resolve/self-url show)))
-      (is (= (guid/from-url pc20-url) (:podcast/guid show)))
+      (is (nil? (:podcast/guid show)) "the feed declares another than its URL gives")
       (is (= "en" (:rss/language show)))
       (is (= "http://podcastindex.org" (:rss/link show)))
       (is (inst? (:rss/pub-date show)))
@@ -296,8 +315,14 @@
       (is (= "1584274529" (:directory/id pc20)) "but the first source's own keys stay")
       (is (= [{:apple "1875035030"}] (map :directory/sources (rest shows)))))
     (testing "two feeds of one show keep their own entries"
-      (let [twin (assoc (first fyyd) :podcast/guid "another-guid" :directory/id 1)]
+      (let [twin (assoc (first fyyd) :atom/links [{:rel "self" :href "https://example.org/opus.xml"}] :directory/id 1)]
         (is (= 2 (count (directory/combine [(first fyyd) twin]))))))
+    (testing "the guid that a feed declares meets the guid of its URL"
+      (let [index  {:rss/title "Podcasting 2.0" :podcast/guid "917393e3-1b1e-5cef-ace4-edaa54e1f810"
+                    :atom/links [{:rel "self" :href pc20-url}] :directory/source :podcastindex :directory/id 920666}
+            [show :as shows] (directory/combine [(first fyyd) index])]
+        (is (= 1 (count shows)))
+        (is (= "917393e3-1b1e-5cef-ace4-edaa54e1f810" (:podcast/guid show)) "the declared guid, filled in")))
     (testing "a chart entry without a feed matches by title and author and gains the feed"
       (let [chart {:rss/title "Podcasting 2.0" :itunes/author "Podcast Index LLC"
                    :directory/source :apple :directory/id "1584274529" :directory/rank 1}
@@ -309,7 +334,6 @@
       (let [chart  (first (directory/response :apple :trending apple-charts))
             lookup {:rss/title "MØRKELAND" :itunes/author "Camilla og Kristine"
                     :atom/links [{:rel "self" :href "https://example.com/morkeland.xml"}]
-                    :podcast/guid (guid/from-url "https://example.com/morkeland.xml")
                     :directory/source :apple :directory/id "1350835571"}
             [show :as shows] (directory/combine [chart lookup])]
         (is (= 1 (count shows)))

@@ -197,7 +197,9 @@
 
   The podcast:guid is that of the feed, or else the guid that the podcast
   namespace derives from the URL, as feed/feed-guid gives it. The Podcast
-  Index derives the same guid for a feed that declares none."
+  Index derives the same guid for a feed that declares none. A show from a
+  directory has only the guid that the directory knows the feed declares,
+  since the feed may declare another than its URL gives."
   ([show]
    (ids show nil {}))
   ([show item]
@@ -209,7 +211,7 @@
                             (when (= k (:directory/source show)) (:directory/id show))))]
      (into {} (remove (comp nil? val))
            {:feed-url                url
-            :podcast-guid            (feed/feed-guid show url)
+            :podcast-guid            (if (:directory/source show) (:podcast/guid show) (feed/feed-guid show url))
             :apple-id                (or (source :apple) (:index/itunes-id show))
             :podcastindex-id         (or (source :podcastindex) (:index/id show))
             :episode-guid            (not-empty (get-in item [:rss/guid :content]))

@@ -297,7 +297,15 @@ source that fails ends up under `:failed` instead of throwing.
 A chart can be for one category, but each source names categories its own
 way. The Podcast Index silently gives the chart of all categories for a
 name it doesn't know. A chart of the wrong shows is worse than none, so
-podcast-clj puts that source under `:failed` instead.
+podcast-clj puts that source under `:failed` instead. It does the same
+with a source that can't narrow its chart to the country or the language
+asked for, such as gpodder.net, which has one chart for the whole world.
+
+A directory knows the URL of a feed, but rarely the guid that the feed
+declares, and a feed that moved keeps the guid of its first URL. So a
+result only has the guid that the directory says the feed declares, and
+`combine` tells feeds apart by that guid and by the one that the URL
+gives.
 
 `directory.podcastindex` signs its requests for an instant the caller gives,
 and maps the objects of the index onto the model, so a feed from the index

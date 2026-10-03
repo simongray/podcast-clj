@@ -16,7 +16,9 @@
   - :rss/title, :itunes/author and :itunes/image
   - the URL of the feed as the :atom/links entry with rel self, which
     resolve/self-url reads
-  - :podcast/guid as declared, or derived from that URL
+  - :podcast/guid when the directory knows the one that the feed declares.
+    A guid derived from the URL would be a guess, since a feed that
+    moved keeps the guid of its first URL.
   - keys in the directory namespace for what only the directory knows,
     such as :directory/source, :directory/id and the record itself as
     :directory/raw
@@ -35,6 +37,7 @@
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]))
@@ -121,7 +124,8 @@
   - :lookup takes the :id of the show at the source, which for
     gpodder.net is the feed URL and for Apple can be several ids at once
   - :trending takes :limit, with :country for Apple and :language for
-    fyyd and the Podcast Index
+    fyyd and the Podcast Index. A source that can take neither of those
+    that are given throws, since its chart would be of the wrong shows.
 
   The :trending endpoint also takes :category, for the chart of one
   category. It's a name of the categories of Apple Podcasts, such as
@@ -256,6 +260,17 @@
                                {:max limit :lang language :cat (some-> category index/category-filter)}
                                opts))))
 
+(defn- check-region
+  "Throw when `params` ask the source with the entry `e` for a chart of a
+  :country or :language that it can't narrow its chart to, since a chart
+  of the wrong shows is worse than none."
+  [e params]
+  (let [narrows (case (:api e) :apple #{:country} (:fyyd :podcastindex) #{:language} #{})
+        asked   (filter params [:country :language])]
+    (when-let [k (when (not-any? narrows asked) (first asked))]
+      (throw (ex-info (str (:name e (name (:id e))) " has no chart by " (name k))
+                      {:source (:id e) k (get params k)})))))
+
 (defn request
   "The request map for `endpoint` at `source` with `params` and `opts`, a
   map of :method, :url and :headers. See endpoints for each endpoint and
@@ -277,6 +292,8 @@
                                (contains? params :category) (update :category #(category-for e %)))]
      (when-not (contains? endpoints endpoint)
        (throw (ex-info (str "An endpoint the directories do not answer: " endpoint) {:endpoint endpoint})))
+     (when (= :trending endpoint)
+       (check-region e params))
      (case api
        :apple        (apple-request e endpoint params)
        :fyyd         (fyyd-request e endpoint params)
@@ -295,13 +312,10 @@
         m))
 
 (defn- with-feed-url
-  "The `show` with `feed-url` as its self link, and the guid that the
-  podcast namespace derives from the URL unless it declares one."
+  "The `show` with `feed-url` as its self link."
   [show feed-url]
-  (if (str/blank? (str feed-url))
-    show
-    (cond-> (assoc show :atom/links [{:rel "self" :href feed-url}])
-      (not (:podcast/guid show)) (assoc :podcast/guid (guid/from-url feed-url)))))
+  (cond-> show
+    (not (str/blank? (str feed-url))) (assoc :atom/links [{:rel "self" :href feed-url}])))
 
 (defn- apple-explicit
   "The iTunes explicit flag of Apple's advisory `rating`. The chart JSON of
@@ -448,22 +462,32 @@
   [show]
   (into {} (remove #(= "directory" (namespace (key %)))) show))
 
+(defn- guids
+  "The guids that identify the feed of `show`: the one it declares, and
+  the one that the podcast namespace derives from its URL."
+  [show]
+  (remove nil? [(:podcast/guid show) (some-> (resolve/self-url show) guid/from-url)]))
+
+(defn- indexed
+  "The `state` with the entry at `i` found by each guid of `show`."
+  [state show i]
+  (update state :by-guid into (map #(vector % i)) (guids show)))
+
 (defn- same-as
   "The position in the entries of `state` of the entry that `show` is the
   same as, or nil. It's the first entry that has:
 
   - the id of `show` at the same source
-  - its guid, declared or derived from the feed URL
+  - a guid of its feed, declared or derived from the feed URL
   - its title and author, when either of them has no guid
 
   Two feeds of one show keep their own entries."
   [{:keys [entries by-id by-guid by-name] :as state} show]
-  (let [guid (:podcast/guid show)]
-    (or (get by-id [(:directory/source show) (:directory/id show)])
-        (when guid (get by-guid guid))
-        (when-let [i (get by-name (name-of show))]
-          (when (or (nil? guid) (nil? (:podcast/guid (entries i))))
-            i)))))
+  (or (get by-id [(:directory/source show) (:directory/id show)])
+      (some by-guid (guids show))
+      (when-let [i (get by-name (name-of show))]
+        (when (or (empty? (guids show)) (empty? (guids (entries i))))
+          i))))
 
 (defn combine
   "One entry per show across `results` from several sources, in the order
@@ -482,16 +506,16 @@
                (if-let [i (same-as state show)]
                  (let [merged (-> (merge (own-keys show) (entries i))
                                   (update :directory/sources merge found))]
-                   (cond-> (-> state
-                               (assoc-in [:entries i] merged)
-                               (assoc-in [:by-id source-id] i))
-                     (:podcast/guid merged) (assoc-in [:by-guid (:podcast/guid merged)] i)))
+                   (-> state
+                       (assoc-in [:entries i] merged)
+                       (assoc-in [:by-id source-id] i)
+                       (indexed merged i)))
                  (let [i (count entries)]
-                   (cond-> (-> state
-                               (update :entries conj (assoc show :directory/sources found))
-                               (assoc-in [:by-id source-id] i)
-                               (assoc-in [:by-name (name-of show)] i))
-                     (:podcast/guid show) (assoc-in [:by-guid (:podcast/guid show)] i))))))
+                   (-> state
+                       (update :entries conj (assoc show :directory/sources found))
+                       (assoc-in [:by-id source-id] i)
+                       (assoc-in [:by-name (name-of show)] i)
+                       (indexed show i))))))
            {:entries [] :by-id {} :by-guid {} :by-name {}}
            results)))
 
@@ -512,10 +536,12 @@
     so a directory that doesn't answer costs little.
 
   A 404 gives no shows. Any other status that isn't a success throws with
-  the :type ::failed, so a refused key doesn't look like an empty answer."
+  the :type ::failed, so a refused key doesn't look like an empty answer.
+  The shows are at most the :limit of `params`, since gpodder.net takes
+  no limit."
   ([source endpoint params]
    (call! source endpoint params {}))
-  ([source endpoint params {:keys [send] :or {send http/call!} :as opts}]
+  ([source endpoint {:keys [limit] :as params} {:keys [send] :or {send http/call!} :as opts}]
    {:pre [(map? opts)]}
    (let [opts (cond-> opts (not (:auth-date opts)) (assoc :auth-date (quot (inst-ms (time/now)) 1000)))
          req  (assoc (request source endpoint params opts) :timeout-seconds (:timeout-seconds opts 15))
@@ -523,7 +549,7 @@
      (async/then (send req)
                  (fn [{:keys [status body]}]
                    (cond
-                     (<= 200 status 299) (response source endpoint body)
+                     (<= 200 status 299) (cond->> (response source endpoint body) limit (into [] (take limit)))
                      (= 404 status)      []
                      :else               (throw (ex-info (str (name id) " answered " status)
                                                          {:type ::failed :source id :status status}))))))))
@@ -598,7 +624,7 @@
 
   The `opts` are those of search!, and :category, for the charts of one
   category, as endpoints tells. A source that has no chart of the
-  category is in :failed, with the reason."
+  category, the :country or the :language is in :failed, with the reason."
   ([]
    (fetch-chart! {}))
   ([opts]
