@@ -93,7 +93,8 @@
                       (is (= [200 "audio/mpeg" 1000] ((juxt :status :type :length) head)))
                       (is (= [206 {:start 0 :end 1 :total 1000}] ((juxt :status :range) get)))
                       (is (= #{["HEAD" nil] ["GET" "bytes=0-1"]} (set @requests)))
-                      (is (= #{http/user-agent} @agents) "outside a browser, each request names podcast-clj")))
+                      (is (= (if http/browser? #{nil} #{http/user-agent}) @agents)
+                          "each request names podcast-clj, unless a browser sends its own User-Agent")))
              (.catch (fn [e] (is false (str "rejected: " e))))
              (.finally (fn []
                          (set! (.-fetch js/globalThis) real)
