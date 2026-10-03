@@ -18,16 +18,21 @@ kept in one map, the library, which fits in an atom:
                                  :config {:languages ["da" "en"]}})))
 
 (swap! lib library/subscribe url (podcast/fetch! url))
-(reset! lib (library/refresh! @lib))
-(reset! lib (library/sync! @lib backends))
+(swap! lib library/merge (library/refresh! @lib))
+(swap! lib library/merge (library/sync! @lib backends))
 ```
 
-Change it with `swap!` for the pure functions and `reset!` for the ones
-that fetch, which in ClojureScript return a promise. Each of them returns
-the library along with what it did: `:effects` after `step`, `:refresh`
-after `refresh!` and `:sync` after `sync!`. The `:config` given to `make`
-holds the options that the other library functions use, and the
-docstring of `app.library` lists them.
+Change it with `swap!`, and put what `refresh!` and `sync!` return into
+it with `library/merge`, which keeps what the listener did while they
+fetched. In ClojureScript they return a promise:
+`(.then (library/refresh! @lib) #(swap! lib library/merge %))`.
+
+Each function returns the library along with what it did: `:effects`
+after `step`, `:refresh` after `refresh!` and `:sync` after `sync!`. The
+`:config` given to `make` holds the options that the other library
+functions use, and the docstring of `app.library` lists them. When the
+config holds functions, save the library as EDN without its `:config`,
+and assoc the config back when you read it.
 
 The parts of the library work with the namespaces they come from, e.g.
 every function of `profile` takes `(:profile @lib)`. The profile is a
@@ -189,7 +194,7 @@ feed with `profile/takeover` first.
 ## Keep the feeds current
 
 ```clojure
-(reset! lib (library/refresh! @lib))
+(swap! lib library/merge (library/refresh! @lib))
 
 (:refresh @lib)
 ;; => {:at #inst "…" :added [[feed-guid item-guid] …] :moved {} :report []}
@@ -222,7 +227,7 @@ seconds:
         polled (podping/poll! block {:writers writers})
         guids  (feeds/affected (:feeds @lib) (:pings polled))]
     (when (seq guids)
-      (reset! lib (library/refresh! @lib {:guids guids})))
+      (swap! lib library/merge (library/refresh! @lib {:guids guids})))
     polled))
 
 (def polled (podping/poll! nil))  ; starts at the head of the chain
@@ -621,7 +626,7 @@ this is safe.
   [(webdav/backend root {:credentials creds :opml? true :app "my-app"})
    (file/backend "/Users/simon/Dropbox/Podcasts" {:app "my-app"})])
 
-(reset! lib (library/sync! @lib backends))
+(swap! lib library/merge (library/sync! @lib backends))
 (library/next-sync @lib)  ; when to sync again
 ```
 
@@ -697,7 +702,7 @@ load the folder with `<input type="file" webkitdirectory>`:
 (library/document @lib)  ; => {:name "8f1c….edn" :body "{:version 1 …}"}
 
 (.then (library/sync! @lib [(file/backend (.-files input))])
-       #(reset! lib %))
+       #(swap! lib library/merge %))
 ```
 
 A backend over the files of an input only reads them. Check for the

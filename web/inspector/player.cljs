@@ -85,11 +85,13 @@
       (update :titles merge (:titles other))))
 
 (defn with-synced
-  "The page `state` with `library`, the library that `library/sync!` gave:
-  it has what the listener did during the step merged in, the tombstones
-  compacted, and the step under `:sync`, which the queue page shows."
+  "The page `state` with `library`, the library that `library/sync!` gave,
+  merged into its own, and the result of the sync under `:synced` for the
+  queue page."
   [state library]
-  (assoc state :library library :syncing? false :synced (select-keys (:sync library) [:at :failed :report])))
+  (-> state
+      (update :library library/merge library)
+      (assoc :syncing? false :synced (select-keys (:sync library) [:at :failed :report]))))
 
 (defn- save!
   [state]

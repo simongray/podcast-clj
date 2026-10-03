@@ -234,7 +234,7 @@ Such tombstones are dropped once they're 30 days old, which leaves room for
 a device that joins with a state of its own. Played marks and listening
 counts are never dropped, since the listener still sees them. After a
 sync, the result is merged into the current state, which brings back the
-dropped tombstones, so `library/sync!` compacts again afterwards.
+dropped tombstones, so `library/merge` compacts again afterwards.
 
 While the listener follows a list, the tombstones of unsubscriptions stay.
 A feed never gives a new device old episodes, but a list subscribes to

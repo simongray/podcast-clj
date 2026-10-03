@@ -15,11 +15,15 @@
        :sleep         {:episodes 1}    ; the sleep timer of this device, if set
        :config        {…}}             ; given once to make
 
-  Keep the library in an atom: swap! it with the pure functions, and
-  reset! it with refresh! and sync!, which fetch. Each returns the library
-  along with what it did, under :effects, :refresh or :sync.
-  The profile is a CRDT, so change it only with the functions of
-  profile, never with assoc or dissoc.
+  Keep the library in an atom and swap! it. The listener can change it
+  while refresh! or sync! fetches, so merge their result in, which keeps
+  those changes:
+
+      (swap! lib merge (refresh! @lib))
+
+  Each function returns the library along with what it did, under
+  :effects, :refresh or :sync. The profile is a CRDT, so change it only
+  with the functions of profile, never with assoc or dissoc.
 
   The config holds the options that the functions take, given once:
 
@@ -36,10 +40,13 @@
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
   Each function also takes the same keys as options, for one call.
+  A config with functions doesn't print as EDN, so save the library
+  without its :config, and assoc the config back when you read it.
 
   Each change is stamped with the time of the clock, or with the :at of
   the options, an instant. Give :at for an event that you handle later,
   e.g. in a background task, since it needs the time it happened."
+  (:refer-clojure :exclude [merge])
   (:require [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.feeds :as feeds]
@@ -65,9 +72,9 @@
    :list-seconds 86400})
 
 (defn- options
-  "The `opts` of a call over the config of `library`."
+  "The `opts` of a call over the config of `library` and the defaults."
   [library opts]
-  (merge (:config library) opts))
+  (clojure.core/merge default-config (:config library) opts))
 
 (defn ^:no-doc time-of
   "The instant of a call to `library` with `opts`: their :at, or else the
@@ -86,7 +93,7 @@
   ([device {:keys [config] :as opts}]
    {:pre [(map? opts)]}
    (let [description (dissoc opts :config :at)
-         config      (merge default-config config)]
+         config      (clojure.core/merge default-config config)]
      {:device        device
       :profile       (cond-> (profile/make device)
                        (seq description) (crdt/identify description (time-of {:config config} opts)))
@@ -189,7 +196,7 @@
   at `now`, applied as profile/refresh-list does, and kept with the ETag
   and Last-Modified of `fetched`."
   [library url list now {:keys [etag last-modified] :as fetched}]
-  (let [seconds (:list-seconds (:config library))
+  (let [seconds (:list-seconds (options library {}))
         entry   (cond-> {:list list :fetched-at now :next-check (time/->inst (+ (inst-ms now) (* 1000 seconds)))}
                   etag          (assoc :etag etag)
                   last-modified (assoc :last-modified last-modified))]
@@ -260,7 +267,7 @@
     (async/then (async/all (fn [url] (async/then (fetched-list! url (get-in library [:fetched-lists url]) opts) #(vector url %))) due)
                 (fn [results]
                   (reduce (fn [{:keys [library] :as acc} [url {:keys [list unchanged? error] :as fetched}]]
-                            (let [seconds (:list-seconds (:config library))
+                            (let [seconds (:list-seconds (options library {}))
                                   later   (time/->inst (+ (inst-ms now) (* 1000 seconds)))]
                               (cond
                                 error      (-> acc
@@ -349,7 +356,7 @@
 
   It fetches the followed lists, the feeds of new subscriptions, and the
   feeds whose next check has come. Returns the library with the step under
-  :refresh, in ClojureScript as a promise.
+  :refresh, in ClojureScript as a promise, to swap! in with merge.
 
       {:at     #inst \"…\"
        :added  [[feed-guid item-guid] …]   ; the new episodes
@@ -367,7 +374,7 @@
   ([library opts]
    {:pre [(map? opts)]}
    (let [now  (time-of library opts)
-         opts (merge {:send http/call! :fetch podcast/fetch!} (options library opts))]
+         opts (clojure.core/merge {:send http/call! :fetch podcast/fetch!} (options library opts))]
      (async/then (lists-refreshed! library now opts)
                  (fn [{library :library report :report}]
                    (async/then (fetched-new! library now opts)
@@ -482,7 +489,7 @@
   ([library event opts]
    {:pre [(map? opts)]}
    (let [now  (time-of library opts)
-         opts (merge (select-keys library [:sleep]) opts)
+         opts (clojure.core/merge (select-keys library [:sleep]) opts)
          {:keys [state effects sleep]} (profile/step (:profile library) event now opts)]
      (cond-> (assoc (dissoc library :sleep) :profile state :effects effects)
        sleep (assoc :sleep sleep)))))
@@ -508,7 +515,7 @@
 
   It syncs as sync/sync! does, keeps the cursors for the next sync, and
   compacts the tombstones. Returns the library with the step under
-  :sync, in ClojureScript as a promise.
+  :sync, in ClojureScript as a promise, to swap! in with merge.
 
       {:cursors  {…}         ; those of the stores, for the next step
        :at       #inst \"…\"
@@ -530,6 +537,53 @@
                             :profile profile
                             :sync (cond-> {:cursors cursors :at now :clock (:clock profile) :failures failures :report report}
                                     (seq failed) (assoc :failed failed)))))))))
+
+(defn- newer
+  "Of `a` and `b`, two maps with an instant under `k`, the newer one, or
+  `b` when `a` isn't newer."
+  [k a b]
+  (if (pos? (compare (k a) (k b))) a b))
+
+(defn- merged-entries
+  "The entries of `mine`, each replaced by that of `theirs` unless it was
+  fetched later, and the entries that only `theirs` has where `keep?`
+  holds for their key."
+  [mine theirs keep?]
+  (reduce-kv (fn [acc k entry]
+               (cond
+                 (contains? mine k) (assoc acc k (newer :fetched-at (get mine k) entry))
+                 (keep? k)          (assoc acc k entry)
+                 :else              acc))
+             mine
+             theirs))
+
+(defn merge
+  "The `library` with `result` merged in, where `result` is what refresh!
+  or sync! gave for an earlier value of `library`, e.g.
+
+      (swap! lib merge (refresh! @lib))
+
+  The profiles merge as profile/merge does, so nothing that the listener
+  did while those fetched is lost. Of two entries of a feed or a list,
+  the later fetch wins, and one that only `result` has is kept while the
+  merged profile subscribes to it or follows it. The later :refresh and
+  :sync are kept too, and the rest is that of `library`."
+  [library result]
+  (let [profile (profile/merge (:profile library) (:profile result))
+        synced  (newer :at (:sync library) (:sync result))
+        refresh (newer :at (:refresh library) (:refresh result))
+        feeds   (merged-entries (:feeds library) (:feeds result) (profile/subscriptions profile))
+        lists   (merged-entries (:fetched-lists library) (:fetched-lists result) (profile/lists profile))
+        changed (remove #(identical? (get-in library [:feeds % :feed]) (get-in feeds [% :feed])) (keys feeds))]
+    (reduce reindexed
+            (cond-> (assoc library
+                           :profile (cond-> profile
+                                      (not= synced (:sync library)) (profile/compact (:at synced)))
+                           :feeds feeds
+                           :fetched-lists lists)
+              synced  (assoc :sync synced)
+              refresh (assoc :refresh refresh))
+            changed)))
 
 (defn next-sync
   "When `library` should sync again, with `opts`, as sync/next-at says:
@@ -587,5 +641,5 @@
      (def id (let [[feed item] (first (episodes lib {:order :newest :limit 1}))]
                (episode-id lib feed item)))
      (:effects (step lib [:progress id 60 3600]))
-     (select-keys (merge (episode lib id) (read-files! lib id)) [:title :duration :chapters])
+     (select-keys (clojure.core/merge (episode lib id) (read-files! lib id)) [:title :duration :chapters])
      #_.))

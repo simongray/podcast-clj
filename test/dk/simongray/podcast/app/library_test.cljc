@@ -4,6 +4,7 @@
   shows, the events of the player, the sync between two devices and the
   downloads."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
+            #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.library :as library]
@@ -40,6 +41,10 @@
   (-> show
       (assoc :podcast/guid "0ther-guid" :rss/title "Other")
       (update :rss/items (fn [items] [(assoc (first items) :rss/guid {:content "o1"} :rss/title "Other one")]))))
+
+(def newer
+  "The show with a new episode."
+  (update show :rss/items conj (assoc (first (:rss/items show)) :rss/guid {:content "new"} :rss/title "New one" :rss/pub-date #inst "2026-09-30T00:00:00Z")))
 
 (def library
   (-> (library/make "phone" {:name "Phone" :config {:languages ["es"] :now (constantly now)}})
@@ -151,7 +156,6 @@
   (let [lib     (library/follow library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks"})
         later   (at 86400)
         asked   (atom [])
-        newer   (update show :rss/items conj (assoc (first (:rss/items show)) :rss/guid {:content "new"} :rss/title "New one" :rss/pub-date #inst "2026-09-30T00:00:00Z"))
         fetch   (fn [url _]
                   (swap! asked conj url)
                   (case url
@@ -272,6 +276,52 @@
                                    (testing "the laptop learns the subscription of the phone"
                                      (is (= 2 (count (library/subscriptions lib))))
                                      (is (nil? (:feed (get (library/subscriptions lib) guid))) "a feed to fetch at the next refresh!"))))))))))
+
+(deftest merging-what-a-fetch-gave
+  (let [id      [guid "https://example.com/ep0003"]
+        fetch   (fn [url _] {:status 200 :url url :feed newer :etag "\"v2\""})
+        indexed (-> (library/make "phone" {:config {:search? true :now (constantly now)}})
+                    (library/subscribe url fresh {:auto-queue? true}))
+        backend (store/backend (store/memory (atom {})) {:app "test"})]
+    (run
+     (fn []
+       (async/then (library/refresh! indexed {:at (at 86400) :fetch fetch})
+                   (fn [result]
+                     (testing "what the listener did during a refresh stays, with what the refresh found"
+                       (let [meanwhile (-> indexed
+                                           (library/step [:progress id 100 3600] {:at (at 86410)})
+                                           (update :profile profile/star id (at 86420)))
+                             merged    (library/merge meanwhile result)]
+                         (is (= 100 (profile/resume-position (:profile merged) guid id)))
+                         (is (= [id] (profile/starred (:profile merged))))
+                         (is (= [[guid "new"]] (profile/queue (:profile merged))) "the new episode, queued")
+                         (is (= [[guid "new"]] (:added (:refresh merged))))
+                         (is (= "\"v2\"" (get-in merged [:feeds guid :etag])))
+                         (is (= [guid "new"] (:id (first (library/search merged "new one")))) "and indexed")
+                         (is (= (:effects meanwhile) (:effects merged)) "the effects of the last step")))
+                     (testing "a show that the listener left during a refresh doesn't come back"
+                       (let [gone (library/merge (library/unsubscribe indexed guid {:at (at 86410)}) result)]
+                         (is (= {} (library/subscriptions gone)))
+                         (is (= {} (:feeds gone)))))
+                     (testing "a show that the listener subscribed to during a refresh stays"
+                       (let [joined (library/subscribe indexed other-url {:status 200 :url other-url :feed other} {:at (at 86410)})]
+                         (is (= #{guid "0ther-guid"} (set (keys (:feeds (library/merge joined result)))))))))))
+     (fn []
+       (async/then (library/sync! library [backend] {:at (at 10)})
+                   (fn [result]
+                     (testing "what the listener did during a sync stays, with the step of the sync"
+                       (let [merged (library/merge (update library :profile profile/star id (at 12)) result)]
+                         (is (= [id] (profile/starred (:profile merged))))
+                         (is (= (:sync result) (:sync merged)))
+                         (is (= (at 20) (library/next-sync merged {:at (at 12)})) "soon, since it changed")))))))))
+
+(deftest a-library-read-back-without-its-config
+  (let [saved (dissoc library :config)
+        lib   (assoc saved :config {:now (constantly now)})]
+    (is (= saved (edn/read-string (pr-str saved))) "EDN without the clock of the config")
+    (is (= (at 86400) (get-in (library/follow lib "https://example.org/picks.opml" picks)
+                              [:fetched-lists "https://example.org/picks.opml" :next-check]))
+        "the defaults stand in for what the config leaves out")))
 
 (deftest a-document-to-save-by-hand
   (let [{:keys [name body]} (library/document library {:app "test"})

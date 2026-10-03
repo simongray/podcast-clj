@@ -149,7 +149,7 @@ of it and a put would lose data.
 - The `:state` doesn't include what the listener did during the step.
   Merge it into the current state with `profile/merge`, then compact with
   `profile/compact`, since the merge brings back the tombstones that the
-  step removed. The function `library/sync!` does both.
+  step removed. For a library, `library/merge` does both.
 - On the JVM, `sync!` returns the map, and in ClojureScript a promise of
   it.
 - Its options are `:cursors`, those of the last step, and `:compact`,

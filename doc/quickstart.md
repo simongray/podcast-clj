@@ -43,11 +43,14 @@ Each change is stamped with its time, which the functions of
 `app.library` read from the clock.
 
 The library is plain EDN, so you can save `@lib` like any other value and
-read it back at the next start. Change it with `swap!` and the functions of
-`app.library` and `profile`, but never `assoc` into `:profile`. The
-profile is a CRDT, so that the listener's devices can merge their changes
-without conflicts: each write stamps what it changed with the time and the
-device, and a removal is a tombstone. [Syncing](sync.md) explains how.
+read it back at the next start. If its `:config` holds functions, such as
+the `:send` of a web page, save the library without its `:config`, and
+assoc the config back when you read it. Change it with `swap!` and the
+functions of `app.library` and `profile`, but never `assoc` into
+`:profile`. The profile is a CRDT, so that the listener's devices can
+merge their changes without conflicts: each write stamps what it changed
+with the time and the device, and a removal is a tombstone.
+[Syncing](sync.md) explains how.
 
 ## The episodes
 
@@ -113,10 +116,11 @@ time, like `enqueue` here.
 To check for new episodes, call `refresh!`. It fetches whatever is due:
 the feeds, the lists that the listener follows, and the feeds of new
 subscriptions. The new episodes of a show with `:auto-queue?` go to the
-queue. Since it fetches, put the result back with `reset!`:
+queue. The listener can change the library while it fetches, so put the
+result into the atom with `library/merge`, which keeps those changes:
 
 ```clojure
-(reset! lib (library/refresh! @lib))
+(swap! lib library/merge (library/refresh! @lib))
 (:refresh @lib)
 ;; => {:at #inst "…" :added [] :moved {} :report []}
 ```
@@ -136,7 +140,7 @@ a store, and so is a WebDAV collection:
 (def folder
   (file/backend "/Users/simon/Dropbox/Podcasts" {:app "quickstart"}))
 
-(reset! lib (library/sync! @lib [folder]))
+(swap! lib library/merge (library/sync! @lib [folder]))
 (select-keys (:sync @lib) [:at :failed :report])
 ;; => {:at #inst "…" :report []}
 (library/next-sync @lib)  ; when to sync again

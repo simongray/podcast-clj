@@ -119,13 +119,15 @@ A call that changes the library returns a new version along with what it did:
 (:effects (swap! lib library/step [:progress id 754 3600]))
 ;; => []
 
-;; fetch the feeds that are due for a check, and list the new episodes
-(reset! lib (library/refresh! @lib))
+;; fetch the feeds that are due for a check, merge in what came without losing
+;; what the listener did meanwhile, and list the new episodes
+(swap! lib library/merge (library/refresh! @lib))
 (:added (:refresh @lib))
-;; => [id …]
+;; => [], since nothing is due right after subscribing
 
 ;; sync the profile with the listener's other devices through a Dropbox folder
-(reset! lib (library/sync! @lib [(file/backend "/Users/simon/Dropbox/Podcasts")]))
+(swap! lib library/merge
+       (library/sync! @lib [(file/backend "/Users/simon/Dropbox/Podcasts")]))
 
 ;; the listener's profile: the subscriptions, queue, progress, stars and more
 (:profile @lib)

@@ -103,8 +103,9 @@
       (let [merged (shell/with-other-tab mine other)]
         (is (= [a b] (profile/queue (get-in merged [:library :profile]))))
         (is (= {a {:title "A"} b {:title "B"}} (:titles merged)))))
-    (testing "a sync step gives the page the library of the result, and the state of the step"
+    (testing "a sync step merges its result into the page's library, and gives the state of the step"
       (let [synced (shell/with-synced mine (assoc (:library other) :sync {:at (t 40) :report []}))]
-        (is (= [b] (profile/queue (get-in synced [:library :profile]))))
+        (is (= [a b] (profile/queue (get-in synced [:library :profile]))) "what this tab did meanwhile stays")
+        (is (= {:at (t 40) :report []} (get-in synced [:library :sync])))
         (is (false? (:syncing? synced)))
         (is (= {:at (t 40) :report []} (:synced synced)))))))
