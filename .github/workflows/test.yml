@@ -43,7 +43,7 @@ jobs:
           clojure -M:cljs compile test
 
       - name: Lint
-        run: clojure -Sdeps '{:deps {clj-kondo/clj-kondo {:mvn/version "2026.08.04"}}}' -M -m clj-kondo.main --lint src test dev web build.clj
+        run: clojure -Sdeps '{:deps {clj-kondo/clj-kondo {:mvn/version "2026.08.04"}}}' -M -m clj-kondo.main --lint src test dev web server build.clj
 
   floor:
     name: Java 11, Clojure 1.11, the floor the library declares
