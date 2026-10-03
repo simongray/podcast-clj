@@ -540,7 +540,7 @@ own before it waits for any of them.
 ## The inspector
 
 The inspector in `web/inspector/` is a small Pedestal service and the first
-client of podcast-clj. It lives outside the library, so the jar doesn't
+client of podcast-clj. It lives outside `src`, so the jar doesn't
 contain Pedestal, and it uses only the public API. Give it a feed URL and
 it shows the model, the report, the validation and the XML written back,
 next to the resolved properties and their sources. It also searches the
@@ -557,5 +557,5 @@ real feeds, companion files and media files, kept outside Git, are parsed,
 round-tripped and validated, and every gap they found came with a test.
 Generative tests cover the merge of the profile, the order of ranks,
 devices that sync in random order, and the round trip of feeds generated
-from the Malli schemas. CI also runs the library tests on Java 11 with
-Clojure 1.11, the oldest versions podcast-clj supports.
+from the Malli schemas. CI also runs the tests without the inspector on
+Java 11 with Clojure 1.11, the oldest versions podcast-clj supports.

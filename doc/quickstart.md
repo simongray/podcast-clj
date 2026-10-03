@@ -3,7 +3,8 @@
 This page goes from a feed URL to a queue, an episode page, a player and a
 sync, at a REPL on the JVM. Each step is one call that returns data. [How
 to build a podcast app](building-an-app.md) explains each call in more
-depth, and what to use when you need more control.
+depth, and what to use when you need more control. The feed is live, so
+your outputs will show newer episodes than these.
 
 Add podcast-clj to your `deps.edn` as a Git dependency, with the SHA of the
 latest commit on `master`:
@@ -27,20 +28,20 @@ subscribe to a show:
 (def url "https://feeds.podcastindex.org/pc20.xml")
 
 (def lib (atom (library/make "laptop" {:name "Laptop"})))
-(swap! lib library/subscribe url (podcast/fetch! url) {:auto-queue? true})
 
-(keys (library/subscriptions @lib))
+(-> (swap! lib library/subscribe url (podcast/fetch! url) {:auto-queue? true})
+    library/subscriptions
+    keys)
 ;; => ("917393e3-1b1e-5cef-ace4-edaa54e1f810")
 ```
 
 Here the id of the device is `"laptop"`. In an app, make one id per
 installation and keep it. The call to `podcast/fetch!` fetched and parsed
 the feed. Then `subscribe` kept the feed along with its ETag and
-Last-Modified, added the subscription with its settings, and named the show
-by its guid.
-
-Each change is stamped with its time, which the functions of
-`app.library` read from the clock.
+Last-Modified, added the subscription, and named the show by its guid. The
+subscription's setting `:auto-queue?` puts the show's new episodes in the
+listener's queue. Each `swap!` returns the whole library, with the feed in it,
+so the examples look only at the part that a step changed.
 
 The library is plain EDN, so you can save `@lib` like any other value and
 read it back at the next start. If its `:config` holds functions, such as
@@ -65,6 +66,8 @@ Pick episodes across all the shows, in the order you want:
 (def id
   (let [[show item] (first episodes)]
     (library/episode-id @lib show item)))
+
+id
 ;; => ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"]
 ```
 
@@ -98,11 +101,10 @@ element. Send each of its events to `step`, which returns the library
 with the effects to apply under `:effects`:
 
 ```clojure
-(swap! lib library/update-profile profile/enqueue id)
-(profile/queue (:profile @lib))
+(-> (swap! lib library/update-profile profile/enqueue id) :profile profile/queue)
 ;; => [["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"]]
 
-(:effects (swap! lib library/step [:progress id 754 3600]))  ; => []
+(:effects (swap! lib library/step [:progress id 754 (:duration page)]))  ; => []
 (:effects (swap! lib library/step [:skip id :forward]))
 ;; => [[:seek ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"] 784]]
 ```
@@ -120,14 +122,15 @@ queue. The listener can change the library while it fetches, so put the
 result into the atom with `library/merge`, which keeps those changes:
 
 ```clojure
-(swap! lib library/merge (library/refresh! @lib))
-(:refresh @lib)
+(:refresh (swap! lib library/merge (library/refresh! @lib)))
 ;; => {:at #inst "…" :added [] :moved {} :report []}
 ```
 
 Nothing is due right after subscribing, so in an app, call `refresh!` from
 a timer. The result under `:refresh` lists the new episodes, the feeds that
-moved, and the fetches that failed. A feed that failed stays as it was, and
+moved, and the fetches that failed. Once the show has a new episode,
+`:added` holds its id, e.g. `[["917393e3-…" "PC20-274"]]`, and the episode
+is in the queue. A feed that failed stays as it was, and
 waits longer before the next try.
 
 ## The other devices
@@ -140,8 +143,9 @@ a store, and so is a WebDAV collection:
 (def folder
   (file/backend "/Users/simon/Dropbox/Podcasts" {:app "quickstart"}))
 
-(swap! lib library/merge (library/sync! @lib [folder]))
-(select-keys (:sync @lib) [:at :failed :report])
+(-> (swap! lib library/merge (library/sync! @lib [folder]))
+    :sync
+    (select-keys [:at :failed :report]))
 ;; => {:at #inst "…" :report []}
 (library/next-sync @lib)  ; when to sync again
 ```
@@ -159,4 +163,5 @@ WebDAV servers keep their folders.
   with the lower-level functions for more control.
 - [Principles](principles.md): what guides the design of podcast-clj.
 - [Namespaces](namespaces.md): a line for each namespace.
-- Print `@lib` to see what the library holds.
+- Look at `(keys @lib)` and `(:profile @lib)` to see what the library
+  holds.

@@ -48,9 +48,9 @@ the time it happened as the option `:at`.
 
 The examples call each namespace by the last part of its name, e.g.
 `library` is `dk.simongray.podcast.app.library`, except `nostr-comments`
-for `comments.nostr`. The examples run on the JVM. In ClojureScript, the functions that send
-requests return promises, and [Namespaces](namespaces.md) marks the
-functions that only exist on the JVM.
+for `comments.nostr`, and [the last section](#the-namespaces-of-the-examples)
+requires them all. The examples run on the JVM, and in ClojureScript the
+functions that send requests return promises.
 
 
 ## What you build yourself
@@ -63,6 +63,22 @@ functions that only exist on the JVM.
 - Draw the user interface.
 - For a host, keep the server logs and the lists of user agents, data
   centres and bots that counting downloads needs.
+
+
+## Where it runs
+
+- **On the JVM**, everything works. A few functions exist only there,
+  e.g. `podping/poll!`, and [Namespaces](namespaces.md) says which.
+- **In a browser**, the requests go through a proxy on your server, as the
+  next section shows, and the rest runs in the page.
+- **In Node**, install a `DOMParser`, e.g. that of `@xmldom/xmldom` as
+  `globalThis.DOMParser`. The folder store needs Node 20.16 or 22.3 and
+  later.
+- **On a server of your own**, run the proxy of a web page, the callbacks
+  of WebSub, and the sync over WebDAV or the gpodder API if you serve it.
+
+In ClojureScript, add podcast-clj to `deps.edn` and let shadow-cljs read
+it with `:deps true`. There are no npm packages to install.
 
 
 ## Send requests from a web page
@@ -137,25 +153,31 @@ In a browser, give `search!` the `:send` of the proxy.
 
 With `:max-pages`, `fetch!` also reads the older pages of a paged feed,
 which is only needed on the first fetch. The last argument holds the
-settings of the subscription, as `profile/configure` takes them.
+settings of the subscription, as `profile/configure` takes them, e.g.
+`:auto-queue?` puts the show's new episodes in the listener's queue.
 
 A failing network or server doesn't make `fetch!` throw. When it gets no
 answer or no feed, the result has an `:error` diagnostic. A status such as
 404 is an answer, so it comes back as `:status` without an error. Check
-the result before you subscribe:
+the result before you subscribe, since `library/subscribe` throws the
+diagnostic of a result without a feed:
 
 ```clojure
 (def result (podcast/fetch! url))
 (:error result)  ; => nil, or e.g. {:id :fetch/unreachable :reason "…" …}
 ```
 
+On a server that fetches feeds for its users, give `fetch!` the option
+`{:allow? http/public?}`, so that a URL that someone types can't reach
+your own network.
+
 If the listener gives a show's website, a domain or a link from another app
 instead of a feed, find the feeds with `podcast/find-feeds!`:
 
 ```clojure
-(def found (podcast/find-feeds! "freakshow.fm"))
+(def candidates (podcast/find-feeds! "freakshow.fm"))
 
-(map (juxt :title :url :found-by) (:feeds found))
+(map (juxt :title :url :found-by) (:feeds candidates))
 ;; => (["Freak Show" "https://freakshow.fm/feed/mp3" :link]
 ;;     ["Freak Show" "https://freakshow.fm/feed/opus" :link]
 ;;     ["Freak Show" "https://freakshow.fm/feed" :link] …)
@@ -185,7 +207,7 @@ credentials, use `http/split-credentials`. Wrap the password with
 
 In a browser, give `fetch!` the `:send` of the proxy.
 
-Without the library, `feeds/add` keeps the feed along with its ETag and
+Without `app.library`, `feeds/add` keeps the feed along with its ETag and
 Last-Modified, and `profile/subscribe` adds the subscription. Every id in
 the profile uses the guid that `feed/feed-guid` gives a feed. A feed can
 declare the guid of another subscription and take it over, so check a new
@@ -216,8 +238,8 @@ credentials of a private feed by its URL, so no password is stored in the
 library and none goes to another feed.
 
 Podping tells which feeds have changed, so they can be fetched at once.
-Keep the last block that you read and the writers, and poll every few
-seconds:
+On the JVM, keep the last block that you read and the writers, and poll
+every few seconds:
 
 ```clojure
 (defn podping-step!
@@ -235,7 +257,9 @@ seconds:
 ```
 
 When no node answers, the result has an `:error` and the block it got to,
-so the next poll continues from there.
+so the next poll continues from there. ClojureScript has no `poll!`, but
+the nodes answer a web page, so read the blocks with `podping/call!` and
+their pings with `podping/pings`.
 
 A server can instead have the feeds pushed to it by a WebSub hub, which
 needs a public callback URL. The result of `fetch!` has `:websub` when the
@@ -321,7 +345,7 @@ the publisher's feed must list this show too:
   (:shows (:publisher linked)))
 ```
 
-Without the library, `show/view` and `episode/view` take a parsed feed
+Without `app.library`, `show/view` and `episode/view` take a parsed feed
 directly. Where the vocabularies overlap, `resolve/properties` gives one
 value for each property, and each accessor of `feed.resolve`, such as
 `resolve/transcript` or `resolve/podroll`, gives one of them on its own.
@@ -358,7 +382,9 @@ function:
     :hashtag (str "/tags/" (http/encode tag))
     nil))
 
-(comments/hiccup thread comment {:link comment-link})
+(def reply (first (:replies (comments/tree thread))))
+
+(comments/hiccup thread reply {:link comment-link})
 ;; => [[:p {} "Good episode, " [:a {:href "/profiles/activitypub/…"} "@ann"]
 ;;      " " [:a {:href "/tags/podcast"} "#podcast"]]]
 ```
@@ -545,7 +571,7 @@ The last word counts as a prefix, so this works for search as you type.
 The index of a show with 200 episodes takes about two megabytes, so on a
 phone with many shows you may want to leave it off.
 
-Without the library, build the index from the feeds yourself:
+Without `app.library`, build the index from the feeds yourself:
 
 ```clojure
 (defn index-feeds
@@ -951,7 +977,10 @@ slow to fetch, so split it with `publish/pages` into documents linked as RFC
 5005 describes:
 
 ```clojure
-(def documents (publish/pages feed {:kind :archived :page-size 100}))
+(def documents
+  (publish/pages feed {:url       "https://example.org/feed.xml"
+                       :kind      :archived
+                       :page-size 100}))
 
 (map :url documents)
 ;; => ("https://example.org/feed.xml"            ; the newest items
@@ -960,8 +989,9 @@ slow to fetch, so split it with `publish/pages` into documents linked as RFC
 ```
 
 The archives don't change when a new episode comes out, so apps fetch each
-one only once. Give the URLs of your server as `:page-url`, a function of
-the page number.
+one only once. Give the feed's URL as `:url` when the feed doesn't name
+its own, and other URLs for the archives as `:page-url`, a function of the
+page number.
 
 To push changes through WebSub, name the hub in the feed and tell it
 about each change:
@@ -1017,3 +1047,50 @@ For another instance of a service, give its address:
 A gpodder server with other paths takes them as `:api`, and a directory
 that changed its requirements takes them as `:requirements`, e.g.
 `(assoc-in (:apple check/requirements) [:artwork :sizes] [1400 4000])`.
+
+
+## The namespaces of the examples
+
+```clojure
+(ns my.app
+  (:require [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.analytics :as analytics]
+            [dk.simongray.podcast.analytics.op3 :as op3]
+            [dk.simongray.podcast.app.episode :as episode]
+            [dk.simongray.podcast.app.feeds :as feeds]
+            [dk.simongray.podcast.app.library :as library]
+            [dk.simongray.podcast.app.show :as show]
+            [dk.simongray.podcast.comments :as comments]
+            [dk.simongray.podcast.comments.nostr :as nostr-comments]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.directory :as directory]
+            [dk.simongray.podcast.directory.links :as links]
+            [dk.simongray.podcast.directory.podcastindex :as podcastindex]
+            [dk.simongray.podcast.downloads :as downloads]
+            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.check :as check]
+            [dk.simongray.podcast.feed.publish :as publish]
+            [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.format.chapters :as chapters]
+            [dk.simongray.podcast.format.html :as html]
+            [dk.simongray.podcast.format.opml :as opml]
+            [dk.simongray.podcast.format.transcript :as transcript]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.search :as search]
+            [dk.simongray.podcast.sync.encrypted :as encrypted]
+            [dk.simongray.podcast.sync.file :as file]
+            [dk.simongray.podcast.sync.gpodder :as gpodder]
+            [dk.simongray.podcast.sync.store :as store]
+            [dk.simongray.podcast.sync.webdav :as webdav]
+            [dk.simongray.podcast.updates.podping :as podping]
+            [dk.simongray.podcast.updates.websub :as websub]
+            [dk.simongray.podcast.util.crdt :as crdt]
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.proxy :as proxy]
+            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.value :as value]
+            [dk.simongray.podcast.value.lnaddress :as lnaddress]
+            [dk.simongray.podcast.value.metadata :as metadata]
+            [dk.simongray.podcast.value.nwc :as nwc]
+            [dk.simongray.podcast.value.webln :as webln]))
+```

@@ -87,6 +87,10 @@ and `feed.resolve` gives one normalised answer across them:
 **NOTE:** with `org.jsoup/jsoup` on the classpath,
 podcast-clj on the JVM also reads feeds that are _not_ well-formed XML.
 
+**NOTE:** in ClojureScript, shadow-cljs reads the dependency from `deps.edn`
+with `:deps true`. There are no npm packages to install, but Node needs a
+`DOMParser`, e.g. that of `@xmldom/xmldom` as `globalThis.DOMParser`.
+
 
 An app in a few lines
 ---------------------
@@ -101,11 +105,10 @@ A call that changes the library returns a new version along with what it did:
 (require '[dk.simongray.podcast.app.library :as library]
          '[dk.simongray.podcast.sync.file :as file])
 
-;; make a library for this device, and subscribe to a show whose new
-;; episodes go into the queue
+;; make a library for this device, and subscribe to a show
 (def url "https://feeds.podcastindex.org/pc20.xml")
-(def lib (atom (library/make "laptop" {:name "Laptop"})))
-(swap! lib library/subscribe url (podcast/fetch! url) {:auto-queue? true})
+(def lib (atom (-> (library/make "laptop" {:name "Laptop"})
+                   (library/subscribe url (podcast/fetch! url)))))
 
 ;; the id of the newest episode
 (def id (let [[show item] (first (library/episodes @lib {:order :newest}))]
@@ -121,13 +124,14 @@ A call that changes the library returns a new version along with what it did:
 
 ;; fetch the feeds that are due for a check, merge in what came without losing
 ;; what the listener did meanwhile, and list the new episodes
-(swap! lib library/merge (library/refresh! @lib))
-(:added (:refresh @lib))
-;; => [], since nothing is due right after subscribing
+(-> (swap! lib library/merge (library/refresh! @lib)) :refresh :added)
+;; => [] right after subscribing, since nothing is due yet.
+;;    Later, the new episodes: [["917393e3-…" "PC20-274"]]
 
 ;; sync the profile with the listener's other devices through a Dropbox folder
-(swap! lib library/merge
-       (library/sync! @lib [(file/backend "/Users/simon/Dropbox/Podcasts")]))
+(def dropbox (file/backend "/Users/simon/Dropbox/Podcasts"))
+(-> (swap! lib library/merge (library/sync! @lib [dropbox])) :sync :report)
+;; => []
 
 ;; the listener's profile: the subscriptions, queue, progress, stars and more
 (:profile @lib)
@@ -164,7 +168,8 @@ Understand:
 Background:
 
 - [Podcasting and Clojure, September 2026](doc/podcasting-and-clojure-2026.md):
-  the ecosystem that podcast-clj was built for, and how its features compared.
+  the ecosystem that podcast-clj was built for, from Podcasting 2.0 to its
+  directories and services, and how its features compared.
 
 
 Development
@@ -205,7 +210,6 @@ Not built yet
   namespace against the store contract.
 - A JSON form of the sync documents, for clients in other languages.
 - A lenient XML parser for JavaScript.
-- A folder store for Node.
 - The extensions of Nostr Wallet Connect other than keysend: notifications,
   hold invoices, payment history and BOLT 12 offers.
 
