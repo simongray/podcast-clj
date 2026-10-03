@@ -305,11 +305,10 @@ a media encoder.
 | Sync over the local network, with no server | Podcini | Out |
 | The sync services of the apps | Pocket Casts, Castro, Podverse, Apple Podcasts | Out |
 
-Most open-source apps sync through the gpodder API. In 2023, gpodder.net
-stopped its directory and now only syncs devices, and self-hosted servers
-speak the same API. The API names shows and episodes by URL, which makes
-identity the hard part, and the Nextcloud app adds an optional episode
-guid.
+Most open-source apps sync through the gpodder API, which gpodder.net and
+self-hosted servers speak. The API names shows and episodes by URL, which
+makes identity the hard part, and the Nextcloud app adds an optional
+episode guid.
 
 AntennaPod, Funkwhale, Kasts, Podfriend and the Nextcloud app started the
 Open Podcast API in 2022, to sync subscriptions, progress, favourites and

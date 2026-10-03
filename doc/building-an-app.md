@@ -75,7 +75,8 @@ functions that send requests return promises.
   next section shows, and the rest runs in the page.
 - **In Node**, install a `DOMParser`, e.g. that of `@xmldom/xmldom` as
   `globalThis.DOMParser`. The folder store needs Node 20.16 or 22.3 and
-  later.
+  later, and Nostr comments and wallets need the global `WebSocket` of
+  Node 22.
 - **On a server of your own**, run the proxy of a web page, the callbacks
   of WebSub, and the sync over WebDAV or the gpodder API if you serve it.
 
@@ -690,9 +691,10 @@ Each sync removes the tombstones that every device has seen, once they're
 30 days old. A device that stopped syncing blocks this. Such devices are
 listed by `crdt/lagging`, and `crdt/retire` removes one.
 
-To keep in step with AntennaPod, Kasts and other apps of the gpodder API,
-add a gpodder server as a backend. For the GPodder Sync app of Nextcloud,
-give `:api :nextcloud`:
+To share the subscriptions and the progress of episodes with AntennaPod,
+Kasts and other apps of the gpodder API, add a gpodder server as a backend.
+The API carries nothing else, e.g. no queue or stars. For the GPodder Sync
+app of Nextcloud, give `:api :nextcloud`:
 
 ```clojure
 (defn feeds-by-url
@@ -948,8 +950,8 @@ file needs to count, which `analytics/threshold` works out:
 The requests that didn't count are under `:dropped`, by reason. Here
 `data-center?` is your own predicate, built from lists of data centres,
 VPNs and bots, as the IAB asks. A day is a calendar day in UTC, and
-`:window :rolling` counts the 24 hours from a listener's first request
-instead.
+`:window :rolling` or `:extending` counts the 24 hours from a listener's
+first or last request instead.
 
 
 ## Measure the downloads with OP3

@@ -65,7 +65,7 @@ follows.
 | `sync.webdav.server` | JVM. A Ring handler that serves any store over WebDAV. |
 | `sync.encrypted` | Any store, with its documents encrypted at rest and readable on both platforms. |
 | `sync.gpodder` | The gpodder API as a backend, for gpodder.net, the GPodder Sync app for Nextcloud and other servers, with `identities` to map between URLs and guids. |
-| `sync.gpodder.server` | The gpodder API as a Ring handler over a profile, for AntennaPod, Kasts and gPodder. |
+| `sync.gpodder.server` | The gpodder API as a Ring handler over the profile of one listener, for AntennaPod, Kasts and gPodder. |
 
 ## Feeds
 
@@ -98,8 +98,8 @@ follows.
 
 | Namespace | Contents |
 |---|---|
-| `format.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters from the timestamps in show notes, with `at` for the chapter at a position and `jump` for the target of a jump to the next or previous one. |
-| `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers. |
+| `format.chapters` | JSON Chapters and Podlove Simple Chapters, read and written, and chapters from the timestamps in show notes, with `at` for the chapter at a position and `jump` for the target of a jump to the next or previous one. |
+| `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers, and `emit-srt`, `emit-vtt` and `emit-json` to write the first three. |
 | `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
 | `format.html` | HTML in descriptions as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. |
 | `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. |
@@ -125,7 +125,7 @@ follows.
 | `value` | Splits, fees and time splits, and one shape for a payment, with `boostagram` and `parse-boostagram` for the bLIP-10 record, `records` for the custom records of a keysend payment, and `as-received` to check a record against what the node received. |
 | `value.lnaddress` | Lightning addresses: `request-invoice!` gets an invoice with LNURL-pay and checks its amount, `fetch-node!` gets the node for keysend, and `proves?` checks a preimage against an invoice. |
 | `value.metadata` | The RSS Payment Metadata: the comment of a payment to a Lightning address, and the `x-rss-payment` header that `fetch!` reads. |
-| `value.nwc` | Nostr Wallet Connect (NIP-47), for paying from the listener's wallet. Read a connection URI with `parse`, make a command such as `pay-invoice`, and send it with `ask!`, which returns the answer. |
+| `value.nwc` | Nostr Wallet Connect (NIP-47), for paying from the listener's wallet. Read a connection URI with `parse`, make a command such as `pay-invoice` or `get-balance`, and send it with `ask!`, which returns the answer. |
 | `value.webln` | WebLN, the wallet interface of a web page. In ClojureScript, `pay-invoice!` and `pay-keysend!` call the provider. |
 
 ## Analytics
@@ -148,7 +148,7 @@ follows.
 | `util.proxy` | A proxy on your own server for the requests of a web page: `handler` is its Ring handler, on the JVM, and `sender` gives the page a `:send` that sends each request through it. |
 | `util.bytes` | Bytes on both platforms, and `read!`, which fetches the byte ranges that a reader asks for until it's done. Also hex, SHA-1, SHA-256 and HMAC. |
 | `util.async` | Futures on the JVM and promises in JavaScript behind one API, `all` and `in-groups` to make calls at the same time, and `iteration` for paged APIs on both platforms. |
-| `util.nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `call!` for one exchange with a relay. |
+| `util.nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `call!` for one exchange with a relay, which can also publish an event. |
 | `util.secret` | Secrets that print as `#<secret>`: `hide`, `reveal` and `hidden?`. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |
 | `util.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |

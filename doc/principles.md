@@ -21,7 +21,8 @@ These principles guide the design of podcast-clj, its API and its code.
   ways, and an app has to show them anyway. Each workaround is a named
   quirk that can be switched off for strict parsing, and every repair goes
   in a report. Nothing is dropped silently: unknown elements are kept as
-  Hiccup, so `emit` writes back what `parse` read.
+  Hiccup, so `emit` writes back the content that `parse` read, and the
+  report names anything that couldn't be kept.
 - **Sync without a server.** The listener's profile is a CRDT, so devices
   merge their changes without conflicts. Any place that can hold files is
   enough to sync through, even a plain folder.

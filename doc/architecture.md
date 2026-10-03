@@ -101,8 +101,10 @@ RSS 2.0 is the only container, so `parse` refuses Atom and RSS 1.0.
 The model is plain maps with a key namespace per vocabulary, so
 `:rss/title` and `:itunes/title` can both be present and each keeps what
 the feed said. Unknown elements stay as Hiccup and unknown attributes as
-strings, so `emit` writes back what `parse` read. The report names the two
-exceptions.
+strings, so `emit` writes back what `parse` read, in canonical form. XML
+comments and processing instructions such as `xml-stylesheet` are dropped,
+and the report names every other loss, e.g. a second copy of an element
+that the spec allows once.
 
 A producer can write shorthand, e.g. `{:rss/guid "x"}`, or a single value
 where the model has a vector. `feed/normalize` expands it, and `emit` and
@@ -226,6 +228,14 @@ request from a browser comes from the user's own device anyway, but a Node
 server that fetches untrusted URLs should give these functions its own
 `:send`.
 
+### Untrusted XML
+
+A feed can come from anyone, and XML lets a document make its parser read
+local files or expand a few entities into gigabytes. So the JVM parser
+reads no DTDs and resolves no external entities, and the reader stops at
+a fixed depth of nesting on both platforms, before it can overflow the
+stack.
+
 ### The proxy for a web page
 
 A page can only read the answers of servers that allow it, so
@@ -281,7 +291,7 @@ what stops them.
 | Whoever writes a connection URI | Name a relay on the app's network | `:allow?` is `nostr/public?`. |
 | A wallet | Claim it paid without paying | For an invoice, `ask!` checks the preimage against the payment hash, and the answer has `:proven?`. Keysend has no such proof. |
 | Whoever reads the app's logs | Find the secret of a connection | podcast-clj puts it in no event, diagnostic or exception, and a printed connection shows `#<secret>`. Keeping the URI safe in storage is up to the app. |
-| Whoever times the app | Learn bits of the secret key from many signatures | `sign` and `shared-x` aren't constant-time, so an app only signs when the listener pays. |
+| Whoever times the app | Learn bits of the secret key from many signatures | Little, since `sign`, `public-key` and `shared-x` aren't constant-time. Every command uses them, so don't poll the wallet, e.g. for its balance. |
 
 
 ## Directories and the Podcast Index
@@ -427,18 +437,19 @@ lists what can go wrong on purpose.
 ## Analytics
 
 A download isn't a listen, but advertisers pay by downloads, so hosts count
-them. `analytics` counts them from a host's request logs, by version 2.2 of
+them. `analytics` counts them from a host's request logs, by version 2.3 of
 the Podcast Measurement Technical Guidelines of the IAB Tech Lab, in pure
 functions. Filters drop what can't be a download, such as HEAD requests,
 bots and two-byte requests. `threshold` gives the bytes of one minute of a
 file, and the requests of one listener for one file within 24 hours make
 one download.
 
-The guidelines leave some choices to the host. podcast-clj counts a
-calendar day in UTC as the window, as OP3 does, and `:rolling` gives a
-24-hour window instead. Lists of bots, data centres and VPNs change often,
-so podcast-clj keeps no copy: `user-agents` reads the list of the OPAWG,
-and the host passes the rest as `:exclude?`.
+The guidelines leave some choices to the host. By default, the window is a
+calendar day in UTC, as OP3 counts it, and `:rolling` or `:extending` gives
+the 24 hours from a listener's first or last request instead. Lists of
+bots, data centres and VPNs change often, so podcast-clj keeps no copy:
+`user-agents` reads the list of the OPAWG, and the host passes the rest as
+`:exclude?`.
 
 OP3 is a free service that counts downloads through a URL prefix.
 `op3/prefix` writes the prefix, and the client reads the downloads of OP3
