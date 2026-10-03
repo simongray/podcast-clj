@@ -23,16 +23,17 @@
 
   The poll! function is the one step of a poller. It reads the pings in
   the blocks since the last one read, a hundred blocks to a request,
-  verifies them, and says where to continue from. On the JVM it sends the
-  requests itself, trying the public nodes in turn. In ClojureScript,
-  call! sends one with fetch, which the nodes allow from any origin.
+  verifies them, and says where to continue from. It's on the JVM only. In
+  ClojureScript, send each request with call!, since the nodes answer a
+  page from any origin. On both platforms, call! tries the public nodes in
+  turn.
 
   A host announces a change through podping.cloud, and notify-request
   builds that call with the token that the host was given."
   (:require [clojure.string :as str]
-            #?@(:clj [[dk.simongray.podcast.diagnostics :as diagnostics]
-                      [dk.simongray.podcast.util.async :as async]])
+            #?(:clj [dk.simongray.podcast.diagnostics :as diagnostics])
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.secret :as secret]
@@ -219,50 +220,48 @@
                     (http/query-string {:url url :reason reason :medium medium}))
       :headers {"Authorization" (secret/hide token) "User-Agent" http/user-agent}})))
 
+(defn- call-node!
+  "Send `call` with `params` to `node` as `opts` say, and give the body of
+  the answer, in ClojureScript in a promise. It throws for each failure
+  that call! lists."
+  [call params node {:keys [send timeout-seconds] :or {send http/call! timeout-seconds 10}}]
+  (-> (request call params {:node node})
+      (assoc :timeout-seconds timeout-seconds)
+      send
+      (async/then (fn [{:keys [status body]}]
+                    (when-not (= 200 status)
+                      (throw (ex-info (str "answered " status) {:status status})))
+                    (result body)
+                    body))))
+
 (defn call!
   "Send `call` with `params` as `opts` say, and give the body, for
   head-block, pings or writers to read.
 
-  On the JVM, the HTTP client of podcast-clj tries each node in turn until
-  one answers. The `opts` are these:
+  Each node is tried in turn until one answers. The `opts` are these:
 
   - :nodes, the nodes to try, nodes by default
   - :node, the one node to try
   - :timeout-seconds, the time that each node gets, 10 by default
+  - :send, the function that sends each request, http/call! by default
 
   A node fails on an exception, a status other than 200, or an answer
   that isn't JSON or holds a JSON-RPC error, which proxies send with a
   200. When every node fails, the exception names them all.
 
-  In ClojureScript, fetch sends it to the :node of `opts`, which the
-  public nodes allow from any origin, and the body comes in a promise."
+  In ClojureScript, the body comes in a promise, which is rejected with
+  that exception. The public nodes answer a page from any origin."
   [call params opts]
   {:pre [(map? opts)]}
-  #?(:clj
-     (let [candidates (if-let [node (:node opts)] [node] (or (:nodes opts) nodes))
-           timeout    (:timeout-seconds opts 10)
-           ask!       (fn [node]
-                        (try
-                          (let [{:keys [status body]} (http/call! (assoc (request call params {:node node})
-                                                                         :timeout-seconds timeout))]
-                            (if (= 200 status)
-                              (do (result body)
-                                  {:body body})
-                              {:failure (str "answered " status)}))
-                          (catch Exception e
-                            {:failure (async/explain e)})))]
-       (loop [[node & more] candidates
-              failures      []]
-         (let [{:keys [body failure]} (ask! node)]
-           (cond
-             body       body
-             (seq more) (recur more (conj failures [node failure]))
-             :else      (throw (ex-info (str "No node answered " (name call))
-                                        {:type ::unavailable :failures (conj failures [node failure])}))))))
-     :cljs
-     (let [{:keys [url headers body]} (http/revealed (request call params opts))]
-       (-> (js/fetch url (clj->js {:method "POST" :headers headers :body body}))
-           (.then (fn [res] (.text res)))))))
+  (letfn [(call-in-turn! [[node & more :as candidates] failures]
+            (if (empty? candidates)
+              (throw (ex-info (str "No node answered " (name call))
+                              {:type ::unavailable :failures failures}))
+              (async/then (async/attempt #(call-node! call params node opts))
+                          (fn [{:keys [value error]}]
+                            (or value
+                                (call-in-turn! more (conj failures [node (async/explain error)])))))))]
+    (call-in-turn! (if-let [node (:node opts)] [node] (or (:nodes opts) nodes)) [])))
 
 #?(:clj
    (defn ^:no-doc attempted
@@ -333,7 +332,7 @@
        that a fork can't take back
      - :writers from the last step, so the step doesn't read them again
      - :verify? false, to keep each ping, whatever account wrote it
-     - :nodes, :node and :timeout-seconds, as call! takes them
+     - :nodes, :node, :timeout-seconds and :send, as call! takes them
 
      The :block is the last block that a node answered with, so the next
      step reads a block that an answer left out.

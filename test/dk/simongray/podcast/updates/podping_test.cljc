@@ -1,12 +1,13 @@
 (ns dk.simongray.podcast.updates.podping-test
   "The podping consumer: the calls to a Hive node, the pings read out of
-  blocks, the writers, the URLs a ping concerns, and on the JVM the poll
-  with its fallback across nodes."
+  blocks, the writers, the URLs a ping concerns, the fallback across
+  nodes, and on the JVM the poll."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.test-support :refer [fixture]]
+            [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.updates.podping :as podping]
+            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]))
 
@@ -142,29 +143,27 @@
            (:url (podping/notify-request "t" "https://x/f" {:gateway "https://ping.example.org/?key=1"})))
         "a query of its own stays")))
 
-#?(:clj
-   (defn- node-answering
-     "A stand-in for the HTTP client: `answers` by node URL, a function of
-     the request body returning a body, or a status to fail with."
-     [answers]
-     (fn [{:keys [url body]}]
-       (let [answer (get answers url)]
-         (cond
-           (fn? answer)     {:status 200 :url url :body (answer body)}
-           (number? answer) {:status answer :url url :body "<html>down</html>"}
-           :else            (throw (ex-info "connection refused" {:url url})))))))
+(defn- node-answering
+  "A stand-in for the HTTP client: `answers` by node URL, a function of
+  the request body returning a body, or a status to fail with."
+  [answers]
+  (fn [{:keys [url body]}]
+    (let [answer (get answers url)]
+      (cond
+        (fn? answer)     {:status 200 :url url :body (answer body)}
+        (number? answer) {:status answer :url url :body "<html>down</html>"}
+        :else            (throw (ex-info "connection refused" {:url url}))))))
 
-#?(:clj
-   (defn- chain
-     "A node that answers as the fixtures do, with the head at `head`."
-     [head]
-     (fn [body]
-       (cond
-         (str/includes? body "get_dynamic_global_properties")
-         (json/write-str {"jsonrpc" "2.0" "id" 1 "result" {"head_block_number" head "last_irreversible_block_num" (- head 15)
-                                                           "time" "2026-09-26T16:57:24"}})
-         (str/includes? body "get_block_range") blocks
-         (str/includes? body "get_following")   following))))
+(defn- chain
+  "A node that answers as the fixtures do, with the head at `head`."
+  [head]
+  (fn [body]
+    (cond
+      (str/includes? body "get_dynamic_global_properties")
+      (json/write-str {"jsonrpc" "2.0" "id" 1 "result" {"head_block_number" head "last_irreversible_block_num" (- head 15)
+                                                        "time" "2026-09-26T16:57:24"}})
+      (str/includes? body "get_block_range") blocks
+      (str/includes? body "get_following")   following)))
 
 #?(:clj
    (deftest polling
@@ -214,20 +213,76 @@
              (is (= 25 (count (:writers step))))
              (is (= :podping/unavailable (:id (:error step))))))))))
 
-#?(:clj
-   (deftest falling-back-across-nodes
-     (testing "a node that fails is passed over"
-       (with-redefs [http/call! (node-answering {"https://api.hive.blog"         502
-                                                 "https://api.deathwing.me"      nil
-                                                 "https://api.openhive.network"  (chain 110255080)})]
-         (is (= 110255080 (:block (podping/head-block (podping/call! :head-block {} {})))))))
-     (testing "and so is one that answers 200 with an error, as a proxy does"
-       (with-redefs [http/call! (node-answering {"https://api.hive.blog"         (constantly "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32003,\"message\":\"Unable to acquire database lock\"}}")
-                                                 "https://api.deathwing.me"      (constantly "<html>maintenance</html>")
-                                                 "https://api.openhive.network"  (chain 110255080)})]
-         (is (= 110255080 (:block (podping/head-block (podping/call! :head-block {} {})))))))
-     (testing "when none answers, the failures are named"
-       (with-redefs [http/call! (node-answering {})]
-         (let [e (try (podping/call! :head-block {} {:nodes ["https://a" "https://b"]}) (catch Exception e e))]
-           (is (= :dk.simongray.podcast.updates.podping/unavailable (:type (ex-data e))))
-           (is (= ["https://a" "https://b"] (map first (:failures (ex-data e))))))))))
+(deftest falling-back-across-nodes
+  (let [sent    (atom [])
+        record  (fn [send] (fn [request] (swap! sent conj request) (send request)))
+        failing {"https://api.hive.blog"        502
+                 "https://api.deathwing.me"     nil
+                 "https://api.openhive.network" (chain 110255080)}
+        locked  (json/write-str {"jsonrpc" "2.0" "id" 1 "error" {"code" -32003 "message" "Unable to acquire database lock"}})
+        proxied {"https://api.hive.blog"        (constantly locked)
+                 "https://api.deathwing.me"     (constantly "<html>maintenance</html>")
+                 "https://api.openhive.network" (chain 110255080)}
+        head    (comp :block podping/head-block)]
+    (run #(async/then (podping/call! :head-block {} {:send (record (node-answering failing))})
+                      (fn [body]
+                        (is (= 110255080 (head body)) "a node that fails is passed over")
+                        (is (= (take 3 podping/nodes) (map :url @sent)) "in the order of nodes")
+                        (is (= [10 10 10] (map :timeout-seconds @sent)) "with 10 seconds for each")))
+         #(async/then (podping/call! :head-block {} {:send (node-answering proxied)})
+                      (fn [body]
+                        (is (= 110255080 (head body)) "and so is one that answers 200 with an error, as a proxy does")))
+         #(async/then (async/attempt (fn [] (podping/call! :head-block {} {:send  (node-answering {})
+                                                                            :nodes ["https://a" "https://b"]})))
+                      (fn [{:keys [error]}]
+                        (is (= ::podping/unavailable (:type (ex-data error))))
+                        (is (= [["https://a" "connection refused"] ["https://b" "connection refused"]]
+                               (:failures (ex-data error)))
+                            "when none answers, the failures are named"))))))
+
+#?(:cljs
+   (defn- hanging
+     "A promise of a 504 in five seconds, unless `signal` aborts it first,
+     which is noted in the atom `sent` with the `url`. The timer keeps Node
+     running, as a connection would, and the timer of a signal doesn't."
+     [sent url signal]
+     (js/Promise. (fn [resolve reject]
+                    (let [late (js/setTimeout #(resolve (js/Response. "" #js {:status 504})) 5000)]
+                      (.addEventListener signal "abort" (fn []
+                                                          (js/clearTimeout late)
+                                                          (swap! sent conj [url :aborted])
+                                                          (reject (.-reason signal)))))))))
+
+#?(:cljs
+   (defn- fetch-answering
+     "A stand-in for js/fetch over node-answering with `answers`, which
+     notes the URL and the method of each request in the atom `sent`. A
+     node whose answer is :hang answers as hanging does."
+     [sent answers]
+     (let [answer (node-answering answers)]
+       (fn [url init]
+         (swap! sent conj [url (.-method init)])
+         (if (= :hang (get answers url))
+           (hanging sent url (.-signal init))
+           (.then (js/Promise.resolve nil)
+                  (fn [_]
+                    (let [{:keys [status body]} (answer {:url url :body (.-body init)})]
+                      (js/Response. body #js {:status status})))))))))
+
+#?(:cljs
+   (deftest the-global-fetch-by-default
+     (let [original (.-fetch js/globalThis)
+           sent     (atom [])
+           answers  {"https://api.hive.blog"        502
+                     "https://api.deathwing.me"     :hang
+                     "https://api.openhive.network" (chain 110255080)}]
+       (run (fn []
+              (set! (.-fetch js/globalThis) (fetch-answering sent answers))
+              (-> (podping/call! :head-block {} {:timeout-seconds 0.1})
+                  (.then (fn [body]
+                           (is (= 110255080 (:block (podping/head-block body))))
+                           (is (= (let [[a b c] podping/nodes]
+                                    [[a "POST"] [b "POST"] [b :aborted] [c "POST"]])
+                                  @sent)
+                               "through http/call! and js/fetch, past a node that takes too long")))
+                  (.finally #(set! (.-fetch js/globalThis) original))))))))
