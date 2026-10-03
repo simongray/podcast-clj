@@ -302,7 +302,7 @@
    {:id :sync/clock-skew :level :warning
     :doc "A device wrote its document more than a minute ahead of the clock of this device."}
    {:id :sync/shared-device :level :warning
-    :doc "The document of this device changed without this device writing it, so two installations use the same device id."}
+    :doc "The document of this device changed without this device writing it, so two installations, or two tabs of one page, use the same device id."}
    {:id :sync/retired-device :level :warning
     :doc "This device was retired from another device, so nothing was written for it."}
    {:id :sync/conflict :level :warning

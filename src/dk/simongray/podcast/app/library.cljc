@@ -511,7 +511,11 @@
       (update-profile library (fn [state now]
                                 (-> state
                                     (profile/tag guid \"Daily\" now)
-                                    (profile/star id now))))"
+                                    (profile/star id now))))
+
+  It takes no :at, so for an event that you handle later, call the
+  function with the time it happened: (update library :profile
+  profile/enqueue id at)."
   [library f & args]
   (update library :profile #(apply f % (concat args [(time-of library {})]))))
 

@@ -247,27 +247,29 @@
     :else                          (check :store/put true "A document can be written and gets a version.")))
 
 (defn- refusing-stale-versions
-  "The check that the answer `stale` to a put of the probe with a stale
-  version gives, for a `shared?` document or not.
+  "The check that the answers `stale` and `taken` give, to puts of the
+  probe with a stale version and with none, for a `shared?` document or
+  not.
 
-  The check is advisory for a store that can list, and a store that can't
+  A put with no version expects no document, and the probe is there. The
+  check is advisory for a store that can list, and a store that can't
   needs it for its one shared document."
-  [stale shared?]
-  (let [refuses? (:conflict? (:value stale))]
+  [stale taken shared?]
+  (let [refuses? (every? (comp :conflict? :value) [stale taken])
+        missed   (if (:conflict? (:value stale)) "a put that expects no document" "a stale version")]
     (check :store/conflicts refuses?
            (cond
-             (and refuses? shared?) "A stale version is refused, so one shared document is safe."
-             refuses?               "A stale version is refused, so one shared document would be safe too."
-             shared?                "The store does not refuse a stale version, so one shared document can lose writes."
-             :else                  "The store does not refuse a stale version; keep one document per device, which is the default."))))
+             (and refuses? shared?) "Stale writes are refused, so one shared document is safe."
+             refuses?               "Stale writes are refused, so one shared document would be safe too."
+             shared?                (str "The store does not refuse " missed ", so one shared document can lose writes.")
+             :else                  (str "The store does not refuse " missed "; keep one document per device, which is the default.")))))
 
 (defn- reading-back
   "The check that the fetch of the probe in `answers` gives. It expects the
-  body as written, with the version of the last write, or of the stale
-  put when that went through."
-  [{:keys [put stale fetched] :as answers}]
+  body as written, with the version of the last put that went through."
+  [{:keys [put stale taken fetched] :as answers}]
   (let [{:keys [body version]} (:value fetched)
-        written (or (:version (:value stale)) (:version (:value put)))]
+        written (some (comp :version :value) [taken stale put])]
     (check :store/fetch (and (= "probe" body) (= version written))
            (cond
              (:error fetched)       (str "The document could not be read back: " (async/explain (:error fetched)))
@@ -288,10 +290,10 @@
 (defn- assess
   "The checks from the `answers` of the probe, by step, for a store that
   `lists?` and `deletes?`, or not."
-  [{:keys [listing put stale fetched delete] :as answers} lists? deletes?]
+  [{:keys [listing put stale taken fetched delete] :as answers} lists? deletes?]
   (cond-> (reachability listing lists?)
     put                          (conj (writing put))
-    stale                        (conj (refusing-stale-versions stale (not lists?)))
+    stale                        (conj (refusing-stale-versions stale taken (not lists?)))
     fetched                      (conj (reading-back answers))
     delete                       (conj (deleting answers))
     (and fetched (not deletes?)) (conj (check :store/delete false (str "The store cannot delete documents; remove " probe-name " by hand.")))))
@@ -319,7 +321,7 @@
                 {:id :store/authenticated …}
                 {:id :store/listing …}
                 {:id :store/put …}        ; a probe written, with a version
-                {:id :store/conflicts …}  ; a stale version refused, or not
+                {:id :store/conflicts …}  ; stale writes refused, or not
                 {:id :store/fetch …}      ; the probe read back as written
                 {:id :store/delete …}]}   ; the probe removed
 
@@ -327,13 +329,15 @@
   probe-name, written and removed, and nothing is written to a store that
   can't be reached. A store without :list is reached with a fetch, and
   tried for the one shared document that backend gives it, which needs a
-  stale version refused. A store without :delete keeps the probe. The
+  put refused both with a stale version and with an :if-version of nil
+  while the document is there. A store without :delete keeps the probe. The
   store's errors tell refused credentials apart from other failures when
   they have a :status, as those of the WebDAV store do."
   [{:keys [fetch put list delete] :as store}]
   (async/then (probe (cond-> [[:listing (or list #(fetch probe-name))]
                               [:put     #(put probe-name "probe" {})]
                               [:stale   #(put probe-name "probe" {:if-version "\"no-such-version\""})]
+                              [:taken   #(put probe-name "probe" {:if-version nil})]
                               [:fetched #(fetch probe-name)]]
                        delete (conj [:delete #(delete probe-name)]
                                     [:gone   #(fetch probe-name)])))

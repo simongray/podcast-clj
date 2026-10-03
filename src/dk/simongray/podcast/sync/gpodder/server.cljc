@@ -317,11 +317,11 @@
 
 (defn handler
   "A Ring handler that serves the gpodder API over the profile in the
-  atom :state of `opts`:
+  atom :state of `opts`, for one listener:
 
   - :state, the atom, e.g. (atom (profile/make \"gpodder-server\"))
   - :authorized?, a function of a user and a password that says whether
-    to let them in
+    to let them in, and everyone it lets in shares the one state
   - :sync, a function of the state that brings it in step with the
     listener's devices, before and after each call
   - :identities, as for gpodder/backend
@@ -345,7 +345,12 @@
   A :sync gives a state, not a promise of one. In ClojureScript, where
   sync! gives a promise, sync in the app and merge the result into the
   atom. The server merges what it writes with what the app put in the atom
-  in between."
+  in between.
+
+  For a site with many listeners, make a handler for each, with a state,
+  an :authorized? and a :sync of its own, and pass each request to the
+  handler of the user in its path. Keep each handler while the site runs,
+  since it holds the sessions and the times that the changes arrived."
   [{:keys [state authorized?] sync! :sync :as opts}]
   {:pre [(some? state) (fn? authorized?)]}
   ;; TODO: keep the arrival times, the sessions and the devices in the store,

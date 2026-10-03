@@ -44,7 +44,9 @@ only with the functions of `profile`, e.g.
 Each change is stamped with its time, which the functions of
 `app.library` read from the clock, the setting `:now`, so a test can fix
 it. For an event that you handle later, e.g. in a background task, give
-the time it happened as the option `:at`.
+the time it happened as the option `:at`. Since `update-profile` takes no
+options, call the function of `profile` with that time instead, e.g.
+`(swap! lib update :profile profile/enqueue id at)`.
 
 The examples call each namespace by the last part of its name, e.g.
 `library` is `dk.simongray.podcast.app.library`, except `nostr-comments`
@@ -705,9 +707,11 @@ give `:api :nextcloud`:
 
 To serve a store from your own Clojure server, mount the Ring handler of
 `sync.webdav.server`, and for the gpodder API that of
-`sync.gpodder.server`. To sync through a service that has no store
-yet, write one: [Sync reference](sync-reference.md) gives the contract,
-a map of two to four functions.
+`sync.gpodder.server`. Each serves one listener, so give each listener a
+handler of their own behind your login, as their docstrings show. To sync
+through a service that has no store yet, write one: [Sync
+reference](sync-reference.md) gives the contract, a map of two to four
+functions.
 
 ### Sync through a folder in a browser
 

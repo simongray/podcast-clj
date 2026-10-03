@@ -128,10 +128,11 @@ A call that changes the library returns a new version along with what it did:
 ;; => [] right after subscribing, since nothing is due yet.
 ;;    Later, the new episodes: [["917393e3-…" "PC20-274"]]
 
-;; sync the profile with the listener's other devices through a Dropbox folder
+;; sync the profile with the listener's other devices through a Dropbox folder,
+;; and see what failed and what the step reported
 (def dropbox (file/backend "/Users/simon/Dropbox/Podcasts"))
-(-> (swap! lib library/merge (library/sync! @lib [dropbox])) :sync :report)
-;; => []
+(-> (swap! lib library/merge (library/sync! @lib [dropbox])) :sync (select-keys [:failed :report]))
+;; => {:report []}
 
 ;; the listener's profile: the subscriptions, queue, progress, stars and more
 (:profile @lib)

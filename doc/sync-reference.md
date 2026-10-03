@@ -34,9 +34,10 @@ token:
   one shared document.
 
 To test a store against this contract, use `store/check!`. It writes a
-probe document, and for a store without `:list`, it checks that a stale
-version is refused, as one shared document needs. A store without
-`:delete` keeps the probe document.
+probe document, and for a store without `:list`, it checks that a put
+with a stale version and a put with an `:if-version` of nil are both
+refused, as one shared document needs. A store without `:delete` keeps
+the probe document.
 
 Each store namespace has two constructors: `store` makes the store over a
 place, and `backend` makes the store and the backend in one call, with the
@@ -106,8 +107,8 @@ Each device writes only its own document, `<device-id>.edn`. A step of
 6. Delete the documents of retired devices.
 
 If the document of this device changed since the last step, another
-installation is using the same device id, and the report has
-`:sync/shared-device`. If the document is gone from the store, the next
+installation, or another tab of the same page, is using the same device
+id, and the report has `:sync/shared-device`. If the document is gone from the store, the next
 push writes it again.
 
 

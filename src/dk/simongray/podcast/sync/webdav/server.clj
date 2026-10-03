@@ -92,15 +92,18 @@
   The version is nil when the document isn't there. The headers are by
   lower-case name, and the options have an :if-version
   only when the headers ask for one. If-Match: * asks for the current
-  version, or for one that no document has when there's none. The result
-  is :failed when If-Match lists no strong tag, since no version matches
-  it."
+  version, or for one that no document has when there's none. A tag
+  matches the current version by its printed form, so a version can be any
+  value, e.g. a number. The result is :failed when If-Match lists no
+  strong tag, since no version matches it."
   [headers current]
   (let [if-match (some-> (get headers "if-match") str/trim)]
     (cond
       (= "*" if-match)                      {:if-version (or current "*")}
       if-match                              (if-let [versions (seq (strong-versions if-match))]
-                                              {:if-version (or (some #{current} versions) (first versions))}
+                                              {:if-version (if (and current (some #{(str current)} versions))
+                                                             current
+                                                             (first versions))}
                                               :failed)
       (= "*" (get headers "if-none-match")) {:if-version nil}
       :else                                 {})))
@@ -213,7 +216,15 @@
   everything below it. Whether the router passes a request for the
   collection with its trailing slash, and the body of a put unread,
   depends on the router. The :max-bytes of `opts` is the most that a put
-  can send, 32 MB by default, far more than the state of any listener."
+  can send, 32 MB by default, far more than the state of any listener.
+
+  The handler checks no credentials, so mount it behind your login. For a
+  site with many listeners, give each the store of their own documents,
+  e.g. by making the handler for each request, which costs little, with
+  a function store-of of your own from a user to their store:
+
+      (fn [request]
+        ((handler (store-of (:user request)) \"/dav/\") request))"
   ([store base]
    (handler store base {}))
   ([store base {:keys [max-bytes] :or {max-bytes (* 32 1024 1024)} :as opts}]

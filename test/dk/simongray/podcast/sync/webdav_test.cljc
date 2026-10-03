@@ -204,6 +204,22 @@
          (is (= 405 (:status (handler (ring :mkcol "/dav/")))) "the collection is there, and MKCOL is for an unmapped URL"))
        (testing "a percent sign that starts no escape is part of the name"
          (is (= 404 (:status (handler (ring :get "/dav/100%.edn")))))))
+     (testing "a version that isn't a string, e.g. the version of a row"
+       (let [documents (atom {"a.edn" {:body "{}" :version 7}})
+             numbered  {:fetch (fn [name] (get @documents name))
+                        :put   (fn [name body {:keys [if-version] :as opts}]
+                                 (let [current (:version (get @documents name))]
+                                   (if (and (contains? opts :if-version) (not= if-version current))
+                                     {:conflict? true}
+                                     (let [version (inc (or current 0))]
+                                       (swap! documents assoc name {:body body :version version})
+                                       {:version version}))))
+                        :name  "rows"}
+             handler   (server/handler numbered "/dav/")
+             etag      (get-in (handler (ring :get "/dav/a.edn")) [:headers "ETag"])]
+         (is (= "\"7\"" etag))
+         (is (= 204 (:status (handler (ring :put "/dav/a.edn" :body "{}" :headers {"If-Match" etag})))))
+         (is (= 412 (:status (handler (ring :put "/dav/a.edn" :body "{}" :headers {"If-Match" etag})))) "and no longer")))
      (testing "If-Match: *, and the size of a put"
        (let [handler (server/handler (store/memory) "/dav/" {:max-bytes 8})]
          (is (= 412 (:status (handler (ring :put "/dav/a.edn" :body "{}" :headers {"If-Match" "*"})))) "no document to match")

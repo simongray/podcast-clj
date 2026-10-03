@@ -100,6 +100,12 @@
   []
   (update (store/memory) :put (fn [put] (fn [name body _] (put name body {})))))
 
+(defn- careless
+  "A memory store that takes an :if-version of nil for none, and so writes
+  over a document that a put expects not to be there."
+  []
+  (update (store/memory) :put (fn [put] (fn [name body opts] (put name body (cond-> opts (nil? (:if-version opts)) (dissoc :if-version)))))))
+
 #?(:clj
    (deftest checking-a-store
      (testing "a store that does everything"
@@ -128,7 +134,10 @@
          (is (= [false] (map :ok? (filter #(= :store/listing (:id %)) checks)))))
        (let [{:keys [ok? checks]} (store/check! (dissoc (forgetful) :list))]
          (is (not ok?) "one shared document needs a stale version refused")
-         (is (= [false] (map :ok? (filter #(= :store/conflicts (:id %)) checks))))))
+         (is (= [false] (map :ok? (filter #(= :store/conflicts (:id %)) checks)))))
+       (let [{:keys [ok? checks]} (store/check! (dissoc (careless) :list))]
+         (is (not ok?) "and a put refused that expects no document, while there is one")
+         (is (str/includes? (:message (first (filter #(= :store/conflicts (:id %)) checks))) "expects no document"))))
      (testing "a store that cannot delete is usable, and keeps the probe"
        (let [documents            (atom {})
              {:keys [ok? checks]} (store/check! (dissoc (store/memory documents) :delete))]

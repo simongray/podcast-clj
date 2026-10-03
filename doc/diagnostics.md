@@ -158,7 +158,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:sync/newer-format` | warning | A document was written by a newer version of podcast-clj than this one reads, and was left out. |
 | `:sync/malformed-state` | error | The profile of this device holds a value that the other devices can't merge, e.g. from an assoc, so the step wrote nothing. The :error says where. |
 | `:sync/clock-skew` | warning | A device wrote its document more than a minute ahead of the clock of this device. |
-| `:sync/shared-device` | warning | The document of this device changed without this device writing it, so two installations use the same device id. |
+| `:sync/shared-device` | warning | The document of this device changed without this device writing it, so two installations, or two tabs of one page, use the same device id. |
 | `:sync/retired-device` | warning | This device was retired from another device, so nothing was written for it. |
 | `:sync/conflict` | warning | The shared document changed during every attempt to write it, so the step ended without writing. |
 | `:sync/unknown-episodes` | info | Episode actions from a gpodder server name episodes of feeds that aren't fetched yet. They wait in the cursor, and the next pull tries them again. |
