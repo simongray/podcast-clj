@@ -100,11 +100,12 @@
   []
   (update (store/memory) :put (fn [put] (fn [name body _] (put name body {})))))
 
-(defn- careless
-  "A memory store that takes an :if-version of nil for none, and so writes
-  over a document that a put expects not to be there."
-  []
-  (update (store/memory) :put (fn [put] (fn [name body opts] (put name body (cond-> opts (nil? (:if-version opts)) (dissoc :if-version)))))))
+#?(:clj
+   (defn- careless
+     "A memory store that takes an :if-version of nil for none, and so writes
+     over a document that a put expects not to be there."
+     []
+     (update (store/memory) :put (fn [put] (fn [name body opts] (put name body (cond-> opts (nil? (:if-version opts)) (dissoc :if-version))))))))
 
 #?(:clj
    (deftest checking-a-store
