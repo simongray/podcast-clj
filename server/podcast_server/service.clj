@@ -9,8 +9,12 @@
     page read
   - /dav/, a folder of sync documents over WebDAV, as a store for the
     client's library/sync!
+  - /api/2, the gpodder API, for AntennaPod and other apps of that API
   - the client's own files from a folder, so that the client and the
     server have the same origin
+
+  The server is one of the listener's devices too, as podcast-server.device
+  has it, so that it keeps the listener's feeds current.
 
   It checks no credentials. Reach it only through a private network, e.g.
   with tailscale serve, and give it the name that it has there. It answers
@@ -28,7 +32,8 @@
             [io.pedestal.http.secure-headers :as secure-headers]
             [io.pedestal.interceptor :as interceptor]
             [io.pedestal.service.interceptors :as interceptors]
-            [io.pedestal.service.resources :as resources])
+            [io.pedestal.service.resources :as resources]
+            [podcast-server.device :as device])
   (:gen-class))
 
 (def defaults
@@ -128,14 +133,21 @@
                                                     (assoc request :uri index :path-info index))
                          :else                    request))))}))
 
-(defn routes
-  "The routes of the proxy and the sync folder in the `data-dir` of the
-  settings, in Pedestal's set syntax."
+(defn sync-store
+  "The store of the sync folder in the `data-dir` of the settings."
   [{:keys [data-dir] :as settings}]
-  (let [dav (webdav-server/handler (file/store (io/file data-dir "sync")) "/dav/")]
+  (file/store (io/file data-dir "sync")))
+
+(defn routes
+  "The routes of the proxy, the sync folder `store` and the gpodder API,
+  in Pedestal's set syntax. The gpodder API names episodes by the feeds
+  in `lib`, an atom of the server's library."
+  [store lib]
+  (let [dav (webdav-server/handler store "/dav/")]
     #{["/proxy" :any (proxy/handler) :route-name ::proxy]
       ["/dav" :any dav :route-name ::dav-collection]
-      ["/dav/*path" :any dav :route-name ::dav]}))
+      ["/dav/*path" :any dav :route-name ::dav]
+      ["/api/2/*path" :any (device/gpodder-handler store lib) :route-name ::gpodder]}))
 
 (defn client-routes
   "The routes of the files in `client-dir`, or none when it's nil. Each
@@ -149,18 +161,20 @@
     #{}))
 
 (defn connector
-  "A Jetty connector of the server with `settings`, not yet started."
-  [{:keys [host port names client-dir] :as settings}]
+  "A Jetty connector of the server with `settings`, over the sync folder
+  `store` and the server's library `lib`, an atom; not yet started."
+  [{:keys [host port names client-dir] :as settings} store lib]
   (-> (conn/default-connector-map host port)
       (conn/with-interceptors [interceptors/log-request
                                interceptors/not-found
                                (secure-headers/secure-headers {:content-security-policy-settings policy})
                                (private-only names)
                                folders])
-      (conn/with-routes (routes settings) (client-routes client-dir))
+      (conn/with-routes (routes store lib) (client-routes client-dir))
       (jetty/create-connector nil)))
 
-(defonce ^{:doc "The running connector, nil when stopped."}
+(defonce ^{:doc "The running server as its :connector, :library and the
+  :steps that keep the library current, or nil when stopped."}
   server
   (atom nil))
 
@@ -170,16 +184,21 @@
    (start! {}))
   ([settings]
    (when-not @server
-     (let [{:keys [host port] :as settings} (merge defaults settings)]
-       (reset! server (conn/start! (connector settings)))
+     (let [{:keys [host port] :as settings} (merge defaults settings)
+           store (sync-store settings)
+           lib   (atom (device/make))]
+       (reset! server {:connector (conn/start! (connector settings store lib))
+                       :library   lib
+                       :steps     (device/start! lib store)})
        (println (str "Podcast server on http://" host ":" port "/"))))
    @server))
 
 (defn stop!
   "Stop the server."
   []
-  (when-let [s @server]
-    (conn/stop! s)
+  (when-let [{:keys [connector steps]} @server]
+    (device/stop! steps)
+    (conn/stop! connector)
     (reset! server nil)))
 
 (defn -main

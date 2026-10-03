@@ -7,6 +7,10 @@ listener's devices sync through. It also serves the files of your client,
 so that the client and the server have the same origin, and you only
 write the client.
 
+The server is one of the listener's devices too. It syncs every minute and
+keeps the listener's feeds current, and it serves the gpodder API over
+them, so that AntennaPod and other apps of that API sync with the rest.
+
 The server is for one listener, and it has no login. Reach it only through
 a private network, e.g. your tailnet.
 
@@ -76,6 +80,26 @@ The documents are kept in the Docker volume `data`. You don't need to back
 them up: each device holds the whole profile and writes it again at its
 next sync, while an old copy can bring back what the devices have since
 forgotten.
+
+The server keeps the feeds in memory, which takes about twice the size of
+their XML. The heap is 512 MB in `compose.yaml`, so raise it if you follow
+many large feeds.
+
+
+AntennaPod and other gpodder apps
+---------------------------------
+
+Set up the app's sync with gpodder.net, but give the server's address in
+place of gpodder.net, e.g. https://pi.example.ts.net:8443, and any user
+name and password. The app then shares the subscriptions and the progress
+of episodes with your other devices. The gpodder API carries nothing else,
+e.g. no queue or stars.
+
+The gpodder API names an episode by the URL of its media file, which the
+server finds in the feeds that it fetched. So a play from another device
+reaches the app once the server has fetched that episode's feed, and the
+episodes of a private feed never do, since the server has no passwords.
+When the server restarts, the app gets every play once more.
 
 
 Settings

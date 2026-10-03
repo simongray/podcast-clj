@@ -11,6 +11,7 @@
             [dk.simongray.podcast.test-support :refer [with-temp-dir]]
             [dk.simongray.podcast.util.http :as http]
             [io.pedestal.connector.test :refer [response-for]]
+            [podcast-server.device :as device]
             [podcast-server.service :as service]))
 
 (defn- connector
@@ -22,11 +23,12 @@
       (.mkdirs client)
       (spit (io/file client "index.html") "<!doctype html><script src=\"/app.js\"></script>")
       (spit (io/file client "app.js") "console.log(1)"))
-    (service/connector (assoc service/defaults
-                              :port 0
-                              :names #{"pi.example.ts.net"}
-                              :data-dir (io/file dir "data")
-                              :client-dir (when client? client)))))
+    (let [settings (assoc service/defaults
+                          :port 0
+                          :names #{"pi.example.ts.net"}
+                          :data-dir (io/file dir "data")
+                          :client-dir (when client? client))]
+      (service/connector settings (service/sync-store settings) (atom (device/make))))))
 
 (deftest the-settings
   (is (= service/defaults (service/settings {})))
