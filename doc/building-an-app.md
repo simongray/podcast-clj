@@ -14,12 +14,12 @@ kept in one map, the library, which fits in an atom:
 
 ```clojure
 (def lib
-  (atom (library/make device-id now {:name     "Phone"
-                                     :settings {:languages ["da" "en"]}})))
+  (atom (library/make device-id {:name     "Phone"
+                                 :settings {:languages ["da" "en"]}})))
 
-(swap! lib library/subscribe url (podcast/fetch! url) now)
-(reset! lib (library/refresh! @lib now))
-(reset! lib (library/sync! @lib backends now))
+(swap! lib library/subscribe url (podcast/fetch! url))
+(reset! lib (library/refresh! @lib))
+(reset! lib (library/sync! @lib backends))
 ```
 
 Change it with `swap!` for the pure functions and `reset!` for the ones
@@ -33,13 +33,17 @@ The parts of the library work with the namespaces they come from, e.g.
 every function of `app.player` takes `(:player @lib)`. The player state is
 a CRDT, so that devices can merge their changes without conflicts. Change
 it only with the functions of `app.player`, e.g.
-`(swap! lib update :player player/enqueue id now)`, and never with `assoc`
-or `dissoc`.
+`(swap! lib library/update-player player/enqueue id)`, and never with
+`assoc` or `dissoc`.
+
+Each change is stamped with its time, which the functions of
+`app.library` read from the clock, the setting `:now`, so a test can fix
+it. For an event that you handle later, e.g. in a background task, give
+the time it happened as the option `:at`.
 
 The examples call each namespace by the last part of its name, e.g.
 `library` is `dk.simongray.podcast.app.library`, except `nostr-comments`
-for `comments.nostr`. The current time is `now`, a `java.util.Date`. The
-examples run on the JVM. In ClojureScript, the functions that send
+for `comments.nostr`. The examples run on the JVM. In ClojureScript, the functions that send
 requests return promises, and [Namespaces](namespaces.md) marks the
 functions that only exist on the JVM.
 
@@ -98,7 +102,7 @@ the CORS policy of each directory.
 ## Subscribe to a show
 
 ```clojure
-(swap! lib library/subscribe url (podcast/fetch! url {:max-pages 20}) now
+(swap! lib library/subscribe url (podcast/fetch! url {:max-pages 20})
        {:auto-queue? true})
 ```
 
@@ -150,7 +154,7 @@ the player state uses the guid that `feed/feed-guid` gives a feed.
 ## Keep the feeds current
 
 ```clojure
-(reset! lib (library/refresh! @lib now))
+(reset! lib (library/refresh! @lib))
 
 (:refresh @lib)
 ;; => {:at #inst "…" :added [[feed-guid item-guid] …] :moved {} :report []}
@@ -179,12 +183,12 @@ seconds:
 (defn podping-step!
   "Read the pings after the last result `polled`, and refresh the feeds of
   `lib` that they name."
-  [lib polled now]
+  [lib polled]
   (let [{:keys [block writers]} polled
         polled (podping/poll! block {:writers writers})
         guids  (feeds/affected (:feeds @lib) (:pings polled))]
     (when (seq guids)
-      (reset! lib (library/refresh! @lib now {:guids guids})))
+      (reset! lib (library/refresh! @lib {:guids guids})))
     polled))
 
 (def polled (podping/poll! nil))  ; starts at the head of the chain
@@ -223,7 +227,7 @@ A network or a critic can publish a list of shows as OPML. When a listener
 follows it, the shows that join the list become subscriptions:
 
 ```clojure
-(swap! lib library/follow list-url (opml/parse body) now
+(swap! lib library/follow list-url (opml/parse body)
        {:title "Picks" :folder "Picks"})
 ```
 
@@ -356,12 +360,12 @@ media element. Send each event of the media element to `library/step`,
 and do the effects it returns:
 
 ```clojure
-(swap! lib update :player player/enqueue id now)
+(swap! lib library/update-player player/enqueue id)
 
-(:effects (swap! lib library/step [:progress id 1234 3600] now))  ; => []
-(:effects (swap! lib library/step [:skip id :forward] now))
+(:effects (swap! lib library/step [:progress id 1234 3600]))  ; => []
+(:effects (swap! lib library/step [:skip id :forward]))
 ;; => [[:seek id 1264]]
-(:effects (swap! lib library/step [:ended id] now))
+(:effects (swap! lib library/step [:ended id]))
 ;; => [[:play next-id]]
 ```
 
@@ -407,7 +411,7 @@ working example.
 ## Download episodes
 
 ```clojure
-(library/plan @lib files now)
+(library/plan @lib files)
 ;; => {:download [{:id [guid "ep-3"] :url "https://…" :reason :rule …}]
 ;;     :delete   [{:id [guid "ep-1"] :bytes 50117331 :reason :played}]
 ;;     :waiting  []}
@@ -430,13 +434,14 @@ of `search/episodes`:
   {:download? true
    :episodes  {:where {:duration [600 nil]} :limit 3}})
 
-(swap! lib update :player
-       #(-> %
-            (player/prefer {:downloads {:default      {:played 86400}
-                                        :queue        3
-                                        :max-episodes 50}}
-                           now)
-            (player/configure guid {:downloads show-rule} now)))
+(swap! lib library/update-player
+       (fn [state now]
+         (-> state
+             (player/prefer {:downloads {:default      {:played 86400}
+                                         :queue        3
+                                         :max-episodes 50}}
+                            now)
+             (player/configure guid {:downloads show-rule} now))))
 ```
 
 Here a played file goes after a day, the first three episodes of the queue
@@ -523,19 +528,20 @@ The player state also holds how the listener organises shows and
 episodes, and it syncs like the rest:
 
 ```clojure
-(swap! lib update :player
-       #(-> %
-            (player/configure guid {:folder "News" :inbox? true} now)
-            (player/tag guid "Daily" now)
-            (player/star id now)
-            (player/bookmark id 754 "The interview starts" now)
-            (player/rate-episode id 5 now)
-            (player/clip id 754 42.5 "The best answer" now)
-            (player/add-to-playlist "Road trip" id now)
-            (player/save-filter "Starred"
-                                {:where {:starred? true :status :unplayed}
-                                 :order :newest}
-                                now)))
+(swap! lib library/update-player
+       (fn [state now]
+         (-> state
+             (player/configure guid {:folder "News" :inbox? true} now)
+             (player/tag guid "Daily" now)
+             (player/star id now)
+             (player/bookmark id 754 "The interview starts" now)
+             (player/rate-episode id 5 now)
+             (player/clip id 754 42.5 "The best answer" now)
+             (player/add-to-playlist "Road trip" id now)
+             (player/save-filter "Starred"
+                                 {:where {:starred? true :status :unplayed}
+                                  :order :newest}
+                                 now))))
 ```
 
 Each has a function to read it back, such as `player/folders`,
@@ -561,7 +567,7 @@ first:
 ```clojure
 (let [criteria (get (player/filters (:player @lib)) "Starred")]
   (when-not (search/problem criteria)
-    (library/episodes @lib (assoc criteria :at now))))
+    (library/episodes @lib criteria)))
 ```
 
 
@@ -582,8 +588,8 @@ this is safe.
   [(webdav/backend root {:credentials creds :opml? true :app "my-app"})
    (file/backend "/Users/simon/Dropbox/Podcasts" {:app "my-app"})])
 
-(reset! lib (library/sync! @lib backends now))
-(library/next-sync @lib now)  ; when to sync again
+(reset! lib (library/sync! @lib backends))
+(library/next-sync @lib)  ; when to sync again
 ```
 
 A store can be a WebDAV collection or a folder that a sync client such as

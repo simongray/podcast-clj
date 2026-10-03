@@ -96,7 +96,7 @@
   (let [t      #(time/->inst (+ (inst-ms #inst "2026-01-01T00:00:00Z") (* % 24 60 60 1000)))
         a      ["feed" "a"]
         b      ["feed" "b"]
-        page   (fn [device id at] {:library (update (library/make device (t 0)) :player player/enqueue id at) :titles {}})
+        page   (fn [device id at] {:library (update (library/make device {:at (t 0)}) :player player/enqueue id at) :titles {}})
         mine   (assoc-in (page "browser" a (t 0)) [:titles a] {:title "A"})
         other  (assoc-in (page "browser" b (t 1)) [:titles b] {:title "B"})]
     (testing "another tab's state joins this one's, titles and all"

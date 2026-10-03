@@ -12,7 +12,8 @@
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def default-limits
   "The limits of fetch-linked-shows! when its options don't set them: how
@@ -130,7 +131,7 @@
    {:pre [(map? opts)]}
    (let [opts    (merge default-limits
                         {:send http/call!
-                         :now  #?(:clj #(java.util.Date.) :cljs #(js/Date.))}
+                         :now  time/now}
                         opts)
          wanted? (complement except)]
      (async/then (async/all [(when (and (wanted? :podroll) (:index opts))

@@ -44,9 +44,10 @@ These principles guide the design of podcast-clj, its API and its code.
 - **The app's state is one map.** The subscriptions, feeds, queue and play
   progress of an app are kept in one map that fits in an atom, and each
   change returns the new map along with what it did.
-- **Pure unless marked.** Only functions that end in `!` do I/O or read the
-  clock. Requests are plain maps built and read by pure functions, so any
-  HTTP client can send them.
+- **Pure unless marked.** Only functions that end in `!` do I/O. A function
+  that needs the time takes it, except the high-level ones, which read a
+  clock that a test can fix. Requests are plain maps built and read by pure
+  functions, so any HTTP client can send them.
 - **Errors are data.** Functions that do I/O return their failures as data
   instead of throwing, so one failed request doesn't lose the rest. Only
   the low-level functions that send a single request throw.

@@ -465,7 +465,7 @@
   (merge default-limits
          {:send   nostr/call!
           :allow? nostr/public?
-          :now    #?(:clj #(java.util.Date.) :cljs #(js/Date.))
+          :now    time/now
           :random bytes/generate!}
          opts))
 

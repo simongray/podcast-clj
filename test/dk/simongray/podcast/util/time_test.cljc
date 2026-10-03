@@ -2,6 +2,11 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.util.time :as time]))
 
+(deftest the-clock
+  (let [t (time/now)]
+    (is (= t (time/date t)) "an instant of the platform")
+    (is (< (inst-ms #inst "2026-01-01") (inst-ms t)))))
+
 (deftest civil-arithmetic
   (is (= 0 (time/days-from-civil 1970 1 1)))
   (is (= [1970 1 1] (time/civil-from-days 0)))

@@ -1182,7 +1182,7 @@
                            last-modified (assoc "If-Modified-Since" last-modified)
                            auth          (assoc "Authorization" auth))
             response     (call! (assoc opts :url url :headers headers))
-            wait         (not-before (:headers response) (java.util.Date.))]
+            wait         (not-before (:headers response) (time/now))]
         (cond-> (assoc response
                        :etag          (header (:headers response) "etag")
                        :last-modified (header (:headers response) "last-modified"))

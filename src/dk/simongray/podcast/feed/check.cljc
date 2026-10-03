@@ -31,7 +31,8 @@
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def ^:no-doc overlays
   "The top-level domains of overlay networks, whose hosts only their own
@@ -806,7 +807,7 @@
    (let [own-send     (:send opts)
          {:keys [url credentials profile concurrency send max-files max-seconds now] :as opts}
          (merge default-limits
-                {:send http/call! :now #?(:clj #(java.util.Date.) :cljs #(js/Date.))}
+                {:send http/call! :now time/now}
                 opts)
          [url in-url] (http/split-credentials url)
          auth         (http/authorization (or credentials in-url))

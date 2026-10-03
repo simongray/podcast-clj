@@ -37,10 +37,6 @@
   app
   (atom nil))
 
-(defn- now
-  []
-  (js/Date.))
-
 (defn- audio-element
   []
   (js/document.getElementById "player"))
@@ -56,7 +52,7 @@
   "A state for this browser, under an id of its own, so that its documents
   never meet another device's."
   []
-  {:library (library/make (str (random-uuid)) (now) {:name "browser"})
+  {:library (library/make (str (random-uuid)) {:name "browser"})
    :titles  {}})
 
 (defn- upgraded
@@ -66,7 +62,7 @@
   [{:keys [player sync-ctx] :as state}]
   (if (and player (not (:library state)))
     (-> (dissoc state :player :sync-ctx)
-        (assoc :library (assoc (library/make (:device player) (now)) :player player :sync {:ctx sync-ctx})))
+        (assoc :library (assoc (library/make (:device player)) :player player :sync {:ctx sync-ctx})))
     state))
 
 (defn- read-state
@@ -117,11 +113,11 @@
   the inspector's folder; the result is shown on the queue page."
   []
   (swap! app assoc :syncing? true)
-  (-> (library/sync! (:library @app) [(backend)] (now))
+  (-> (library/sync! (:library @app) [(backend)])
       (.then (fn [library] (swap! app with-synced library)))
       (.catch (fn [e]
                 (swap! app assoc :syncing? false
-                       :synced {:at (now) :failed {"inspector" (str e)} :report []})))))
+                       :synced {:at (time/now) :failed {"inspector" (str e)} :report []})))))
 
 (defn- perform!
   "Carry out the `effects` `player/step` returned: seek the audio element
@@ -139,7 +135,7 @@
 (defn dispatch!
   "Run the player `event` through the library, and perform its effects."
   [event]
-  (perform! (get-in (swap! app update :library library/step event (now)) [:library :effects])))
+  (perform! (get-in (swap! app update :library library/step event) [:library :effects])))
 
 (defn- timed
   "The `library` with its sleep timer set to `n` episodes, or without one
@@ -153,7 +149,7 @@
   "Apply the player operation `f` to the player state of the library,
   with `args` and the time."
   [f & args]
-  (swap! app update-in [:library :player] #(apply f % (concat args [(now)]))))
+  (swap! app update :library #(apply library/update-player % f args)))
 
 (defn- play!
   "Make the episode `id` the current one, at the front of the queue, and

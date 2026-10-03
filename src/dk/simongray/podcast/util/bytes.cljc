@@ -18,6 +18,7 @@
   done, and report gives the diagnostics of a reading."
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.time :as time]
             #?(:cljs [goog.crypt.Hmac])
             #?(:cljs [goog.crypt.Sha1])
             #?(:cljs [goog.crypt.Sha256]))
@@ -599,7 +600,7 @@
    (read! fetch read {}))
   ([fetch read opts]
    (let [{:keys [max-bytes max-seconds max-rounds now] :as limits}
-         (merge default-limits {:now #?(:clj #(java.util.Date.) :cljs #(js/Date.))} opts)
+         (merge default-limits {:now time/now} opts)
          deadline (when max-seconds (+ (inst-ms (now)) (* 1000 max-seconds)))
          in-time? #(or (nil? deadline) (< (inst-ms (now)) deadline))
          step     (fn step [v {:keys [round previous room walk whole?]}]

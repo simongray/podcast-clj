@@ -40,8 +40,8 @@
       (update :rss/items (fn [items] [(assoc (first items) :rss/guid {:content "o1"} :rss/title "Other one")]))))
 
 (def library
-  (-> (library/make "phone" now {:name "Phone" :settings {:languages ["es"]}})
-      (library/subscribe url fresh now {:auto-queue? true})))
+  (-> (library/make "phone" {:name "Phone" :settings {:languages ["es"] :now (constantly now)}})
+      (library/subscribe url fresh {:auto-queue? true})))
 
 (def picks
   "An OPML list with the other show."
@@ -50,14 +50,36 @@
                    "</body></opml>")))
 
 (deftest a-fresh-library
-  (let [lib (library/make "phone" now {:name "Phone" :platform "ios"})]
+  (let [lib (library/make "phone" {:name "Phone" :platform "ios" :at now})]
     (is (= "phone" (:device lib)))
     (is (= {:name "Phone" :platform "ios"} (dissoc (get (crdt/devices (:player lib)) "phone") :updated-at :device)))
+    (is (= now (:clock (:player lib))))
     (is (nil? (:index lib)) "no index unless the settings say so")
     (is (= {} (:feeds lib)))
     (is (= library/default-settings (:settings lib)))
-    (is (some? (:index (library/make "phone" now {:settings {:search? true}}))))
-    (is (= now (library/next-sync lib now)) "due at once before the first sync")))
+    (is (some? (:index (library/make "phone" {:settings {:search? true}}))))
+    (is (= now (library/next-sync lib {:at now})) "due at once before the first sync")))
+
+(deftest the-clock
+  (let [id      [guid "https://example.com/ep0003"]
+        clock   #(:clock (:player %))
+        clocked (assoc-in library [:settings :now] #(at 60))]
+    (testing "each change is stamped with the time of the clock in the settings"
+      (is (= (at 60) (clock (library/unsubscribe clocked guid))))
+      (is (= (at 60) (clock (library/update-player clocked player/enqueue [guid "new"]))))
+      (is (= (at 60) (clock (library/update-player clocked (fn [p t] (player/star p id t))))) "a series of changes")
+      (is (= (at 60) (library/next-sync clocked)))
+      (is (= 3 (count (library/episodes clocked {:where {:age [0 nil]}}))) "the criteria that need the time"))
+    (testing "or with the :at of the options, an instant"
+      (is (= (at 120) (clock (library/unsubscribe clocked guid {:at (at 120)}))))
+      (is (= (library/step clocked [:play id]) (library/step clocked [:play id] {:at (at 60)}))))
+    (testing "and without a clock in the settings, that of the platform"
+      (is (<= (inst-ms now) (inst-ms (clock (library/unsubscribe (update library :settings dissoc :now) guid)))))
+      (is (= "tablet" (:device (library/make "tablet")))))
+    (run
+     (fn []
+       (async/then (library/sync! clocked [(store/backend (store/memory (atom {})) {:app "test"})])
+                   (fn [lib] (is (= (at 60) (get-in lib [:sync :at])))))))))
 
 (deftest subscribing
   (testing "the feed, the subscription and its settings"
@@ -69,12 +91,12 @@
       (is (true? (:auto-queue? (:settings (subs guid)))))
       (is (= show (:feed (subs guid))))))
   (testing "a parsed feed in the place of the fetch"
-    (let [lib (library/subscribe (library/make "phone" now) url show now)]
+    (let [lib (library/subscribe (library/make "phone") url show)]
       (is (= show (get-in lib [:feeds guid :feed])))
       (is (nil? (get-in lib [:feeds guid :etag])) "no validators")
       (is (= [guid] (keys (library/subscriptions lib))))))
   (testing "a fetch that gave no feed"
-    (is (thrown? #?(:clj Throwable :cljs js/Error) (library/subscribe library url {:status 404 :url url} now))))
+    (is (thrown? #?(:clj Throwable :cljs js/Error) (library/subscribe library url {:status 404 :url url}))))
   (testing "the views of the library"
     (is (= "Podcasting 2.0 Namespace Example" (:title (library/show library guid))))
     (is (= 3 (count (:episodes (library/show library guid)))))
@@ -98,33 +120,33 @@
                        (is (= [:publisher] (keys linked)) "no credentials of the index: the publisher feed alone")
                        (is (= :fetch/unreachable (:id (:error (:publisher linked)))))))))))
   (testing "unsubscribing"
-    (let [lib (library/unsubscribe library guid now)]
+    (let [lib (library/unsubscribe library guid)]
       (is (= {} (library/subscriptions lib)))
       (is (= {} (:feeds lib)))
       (is (false? (player/subscribed? (:player lib) guid))))))
 
 (deftest the-search-index
-  (let [lib (-> (library/make "phone" now {:settings {:search? true}})
-                (library/subscribe url fresh now))]
+  (let [lib (-> (library/make "phone" {:settings {:search? true}})
+                (library/subscribe url fresh))]
     (is (= 4 (count (:docs (:index lib)))) "the show and its three episodes")
     (is (= [guid "https://example.com/ep0003"] (:id (first (library/search lib "future")))))
-    (is (= 0 (count (:docs (:index (library/unsubscribe lib guid now))))))
+    (is (= 0 (count (:docs (:index (library/unsubscribe lib guid))))))
     (is (nil? (library/search library "future")) "no index, no search")))
 
 (deftest following-a-list
-  (let [lib (library/follow library "https://example.org/picks.opml" picks now {:title "Picks" :folder "Picks" :etag "\"p1\""})]
+  (let [lib (library/follow library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]
     (is (= {"https://example.org/picks.opml" {:title "Picks" :folder "Picks"}} (player/lists (:player lib))))
     (is (= "\"p1\"" (get-in lib [:lists "https://example.org/picks.opml" :etag])))
     (is (= (at 86400) (get-in lib [:lists "https://example.org/picks.opml" :next-check])))
     (is (= 2 (count (library/subscriptions lib))) "the show of the list joined")
     (is (nil? (:feed (get (library/subscriptions lib) (player/normal-url other-url)))) "not fetched yet")
-    (let [gone (library/unfollow lib "https://example.org/picks.opml" now)]
+    (let [gone (library/unfollow lib "https://example.org/picks.opml")]
       (is (= {} (player/lists (:player gone))))
       (is (= {} (:lists gone)))
       (is (= 2 (count (library/subscriptions gone))) "the subscriptions stay"))))
 
 (deftest the-step-that-fetches-what-is-due
-  (let [lib     (library/follow library "https://example.org/picks.opml" picks now {:title "Picks" :folder "Picks"})
+  (let [lib     (library/follow library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks"})
         later   (at 86400)
         asked   (atom [])
         newer   (update show :rss/items conj (assoc (first (:rss/items show)) :rss/guid {:content "new"} :rss/title "New one" :rss/pub-date #inst "2026-09-30T00:00:00Z"))
@@ -139,7 +161,7 @@
                   {:status 304 :headers {} :body ""})]
     (run
      (fn []
-       (async/then (library/refresh! lib later {:fetch fetch :send send})
+       (async/then (library/refresh! lib {:at later :fetch fetch :send send})
                    (fn [{{:keys [added moved report]} :refresh :as lib'}]
                      (testing "the list asked with its validators, and unchanged"
                        (is (some #(= ["https://example.org/picks.opml" nil] %) @asked))
@@ -159,8 +181,9 @@
                      (is (= [] report)))))
      (fn []
        (reset! asked [])
-       (async/then (library/refresh! lib later {:fetch (fn [url _] (throw (ex-info "down" {:url url})))
-                                                :send  (fn [_] (throw (ex-info "down" {})))})
+       (async/then (library/refresh! lib {:at    later
+                                          :fetch (fn [url _] (throw (ex-info "down" {:url url})))
+                                          :send  (fn [_] (throw (ex-info "down" {})))})
                    (fn [{{:keys [added report]} :refresh :as lib'}]
                      (testing "nothing comes: the library stays, and the report says why"
                        (is (= [] added))
@@ -170,7 +193,7 @@
                        (is (= 1 (:failures (get-in lib' [:feeds guid])))))))))))
 
 (deftest the-episodes-across-the-shows
-  (let [lib (library/subscribe library other-url {:status 200 :url other-url :feed other} now)]
+  (let [lib (library/subscribe library other-url {:status 200 :url other-url :feed other})]
     (is (= 4 (count (library/episodes lib))))
     (is (= #{"Other" "Podcasting 2.0 Namespace Example"} (set (map (comp :rss/title first) (library/episodes lib)))))
     (is (= ["0ther-guid" "o1"] (let [[feed item] (first (filter #(= "Other" (:rss/title (first %))) (library/episodes lib)))]
@@ -184,33 +207,33 @@
 (deftest the-events-of-the-player
   (let [id      [guid "https://example.com/ep0003"]
         lib     (update library :player player/enqueue id now)
-        stepped (library/step lib [:progress id 100 3600] now)]
+        stepped (library/step lib [:progress id 100 3600])]
     (is (= [] (:effects stepped)))
     (is (= 100 (player/resume-position (:player stepped) guid id)))
-    (is (= [[:seek id 130]] (:effects (library/step stepped [:skip id :forward] now))))
+    (is (= [[:seek id 130]] (:effects (library/step stepped [:skip id :forward]))))
     (testing "the sleep timer of the device lives in the library"
       (let [timed (assoc stepped :sleep {:episodes 2})
-            spent (library/step (assoc timed :sleep {:episodes 1}) [:ended id] now)]
-        (is (= {:episodes 1} (:sleep (library/step timed [:ended id] now))) "one episode less to go")
+            spent (library/step (assoc timed :sleep {:episodes 1}) [:ended id])]
+        (is (= {:episodes 1} (:sleep (library/step timed [:ended id]))) "one episode less to go")
         (is (= [[:stop id]] (:effects spent)))
         (is (not (contains? spent :sleep)) "the last episode ended: the timer is gone")))))
 
 (deftest keeping-two-devices-in-step
   (let [documents (atom {})
         backend   (store/backend (store/memory documents) {:app "test"})
-        laptop    (-> (library/make "laptop" now {:name "Laptop"})
-                      (library/subscribe other-url {:status 200 :url other-url :feed other} now))]
+        laptop    (-> (library/make "laptop" {:name "Laptop" :settings {:now (constantly now)}})
+                      (library/subscribe other-url {:status 200 :url other-url :feed other}))]
     (run
      (fn []
-       (async/then (library/sync! library [backend] (at 10))
+       (async/then (library/sync! library [backend] {:at (at 10)})
                    (fn [{{:keys [failed report]} :sync :as lib}]
                      (is (nil? failed))
                      (is (= [] report))
                      (is (= 1 (count @documents)) "the phone wrote its document")
                      (is (map? (get-in lib [:sync :ctx])))
                      (is (= (at 10) (get-in lib [:sync :at])))
-                     (is (= (at (+ 10 900)) (library/next-sync lib (at 10))) "idle: nothing changed since")
-                     (async/then (library/sync! laptop [backend] (at 20))
+                     (is (= (at (+ 10 900)) (library/next-sync lib {:at (at 10)})) "idle: nothing changed since")
+                     (async/then (library/sync! laptop [backend] {:at (at 20)})
                                  (fn [lib]
                                    (testing "the laptop learns the subscription of the phone"
                                      (is (= 2 (count (library/subscriptions lib))))
@@ -221,5 +244,5 @@
         lib (-> library
                 (update :player player/enqueue id now)
                 (update :player player/prefer {:downloads {:queue 1}} now))]
-    (is (= [[id :queue]] (map (juxt :id :reason) (:download (library/plan lib {} now)))))
-    (is (= [] (:download (library/plan lib {id {:bytes 1 :at now}} now))) "a file that the device has")))
+    (is (= [[id :queue]] (map (juxt :id :reason) (:download (library/plan lib {})))))
+    (is (= [] (:download (library/plan lib {id {:bytes 1 :at now}}))) "a file that the device has")))

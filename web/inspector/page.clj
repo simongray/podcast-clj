@@ -268,7 +268,7 @@
                (when (resolve/complete? feed) " · complete")
                (when (resolve/locked? feed) " · locked")
                (when (= "serial" (some-> (:itunes/type feed) str/lower-case)) " · serial")
-               (when-let [t (resolve/next-check feed (java.util.Date.))]
+               (when-let [t (resolve/next-check feed (time/now))]
                  (str " · next check " (time/format-rfc2822 t)))]
               (when-let [paths (seq (resolve/categories feed))]
                 [:div.muted (str/join " · " (map #(str/join " › " %) paths))])

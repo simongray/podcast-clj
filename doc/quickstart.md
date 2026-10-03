@@ -24,11 +24,10 @@ subscribe to a show:
          '[dk.simongray.podcast.app.player :as player]
          '[dk.simongray.podcast.app.sync.file :as file])
 
-(def now (java.util.Date.))
 (def url "https://feeds.podcastindex.org/pc20.xml")
 
-(def lib (atom (library/make "laptop" now {:name "Laptop"})))
-(swap! lib library/subscribe url (podcast/fetch! url) now {:auto-queue? true})
+(def lib (atom (library/make "laptop" {:name "Laptop"})))
+(swap! lib library/subscribe url (podcast/fetch! url) {:auto-queue? true})
 
 (keys (library/subscriptions @lib))
 ;; => ("917393e3-1b1e-5cef-ace4-edaa54e1f810")
@@ -39,6 +38,9 @@ installation and keep it. The call to `podcast/fetch!` fetched and parsed
 the feed. Then `subscribe` kept the feed along with its ETag and
 Last-Modified, added the subscription with its settings, and named the show
 by its guid.
+
+Each change is stamped with its time, which the functions of
+`app.library` read from the clock.
 
 The library is plain EDN, so you can save `@lib` like any other value and
 read it back at the next start. Change it with `swap!` and the functions of
@@ -93,17 +95,18 @@ media element. Send each of its events to `step`, which returns the library
 with the effects to apply under `:effects`:
 
 ```clojure
-(swap! lib update :player player/enqueue id now)
+(swap! lib library/update-player player/enqueue id)
 (player/queue (:player @lib))
 ;; => [["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"]]
 
-(:effects (swap! lib library/step [:progress id 754 3600] now))  ; => []
-(:effects (swap! lib library/step [:skip id :forward] now))
+(:effects (swap! lib library/step [:progress id 754 3600]))  ; => []
+(:effects (swap! lib library/step [:skip id :forward]))
 ;; => [[:seek ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"] 784]]
 ```
 
 The player state is `(:player @lib)`, which every function of `app.player`
-takes, like `enqueue` here.
+takes. To change it, `library/update-player` calls one of them with the
+time, like `enqueue` here.
 
 ## New episodes
 
@@ -113,7 +116,7 @@ subscriptions. The new episodes of a show with `:auto-queue?` go to the
 queue. Since it fetches, put the result back with `reset!`:
 
 ```clojure
-(reset! lib (library/refresh! @lib now))
+(reset! lib (library/refresh! @lib))
 (:refresh @lib)
 ;; => {:at #inst "…" :added [] :moved {} :report []}
 ```
@@ -133,10 +136,10 @@ a store, and so is a WebDAV collection:
 (def folder
   (file/backend "/Users/simon/Dropbox/Podcasts" {:app "quickstart"}))
 
-(reset! lib (library/sync! @lib [folder] now))
+(reset! lib (library/sync! @lib [folder]))
 (select-keys (:sync @lib) [:at :failed :report])
 ;; => {:at #inst "…" :report []}
-(library/next-sync @lib now)  ; when to sync again
+(library/next-sync @lib)  ; when to sync again
 ```
 
 The result under `:sync` has the cursors for the next sync, its report,

@@ -16,7 +16,8 @@
             [dk.simongray.podcast.app.player :as player]
             [dk.simongray.podcast.app.sync.gpodder :as gpodder]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.json :as json])
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.time :as time])
   #?(:clj (:import [java.nio.charset StandardCharsets]
                    [java.util Base64]
                    [java.util.concurrent.locks ReentrantLock])))
@@ -336,7 +337,7 @@
 
       (let [ctx (atom nil)]
         (fn [state]
-          (let [step (sync/sync! state [backend] (java.util.Date.) {:ctx @ctx})]
+          (let [step (sync/sync! state [backend] (time/now) {:ctx @ctx})]
             (reset! ctx (:ctx step))
             (:state step))))
 
@@ -349,7 +350,7 @@
   ;; TODO: keep the arrival times, the sessions and the devices in the store,
   ;; so that they outlive a restart
   (let [book (atom {:index {} :sessions {} :devices {} :urls {}})
-        env  (merge {:now       #?(:clj #(java.util.Date.) :cljs #(js/Date.))
+        env  (merge {:now       time/now
                      :max-bytes (* 10 1024 1024)}
                     opts
                     {:book    book

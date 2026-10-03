@@ -99,18 +99,17 @@ A call that changes the library returns a new version along with what it did:
 (require '[dk.simongray.podcast.app.library :as library]
          '[dk.simongray.podcast.app.sync.file :as file])
 
-(def now (java.util.Date.))
 (def url "https://feeds.podcastindex.org/pc20.xml")
-(def lib (atom (library/make "laptop" now {:name "Laptop"})))
-(swap! lib library/subscribe url (podcast/fetch! url) now {:auto-queue? true})
+(def lib (atom (library/make "laptop" {:name "Laptop"})))
+(swap! lib library/subscribe url (podcast/fetch! url) {:auto-queue? true})
 (def id (let [[show item] (first (library/episodes @lib {:order :newest}))]
           (library/episode-id @lib show item)))
 
 (merge (library/episode @lib id) (library/read-files! @lib id))  ; a page: the notes, the chapters, the transcript
-(:effects (swap! lib library/step [:progress id 754 3600] now))  ; => [], or what the media element must do
-(reset! lib (library/refresh! @lib now))                         ; the feeds that are due
+(:effects (swap! lib library/step [:progress id 754 3600]))      ; => [], or what the media element must do
+(reset! lib (library/refresh! @lib))                             ; the feeds that are due
 (:added (:refresh @lib))                                         ; => [id …], the new episodes
-(reset! lib (library/sync! @lib [(file/backend "/Users/simon/Dropbox/Podcasts")] now))  ; the other devices
+(reset! lib (library/sync! @lib [(file/backend "/Users/simon/Dropbox/Podcasts")]))  ; the other devices
 (:player @lib)                                                   ; the player state, for every function of app.player
 ```
 

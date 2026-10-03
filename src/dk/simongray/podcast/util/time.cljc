@@ -61,6 +61,12 @@
   #?(:clj  (java.util.Date. (long ms))
      :cljs (js/Date. ms)))
 
+(defn now
+  "The instant now, by the clock of the platform."
+  []
+  #?(:clj  (java.util.Date.)
+     :cljs (js/Date.)))
+
 (defn date
   "The instant `inst`, of any kind that inst? takes, as the instant of the
   platform: java.util.Date on the JVM, and js/Date in JavaScript.

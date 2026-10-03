@@ -64,7 +64,8 @@
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.nostr :as nostr]))
+            [dk.simongray.podcast.util.nostr :as nostr]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def protocols
   "The protocols of podcast:socialInteract whose threads fetch! reads."
@@ -568,7 +569,7 @@
          (merge default-limits
                 {:send   send!
                  :allow? public?
-                 :now    #?(:clj #(java.util.Date.) :cljs #(js/Date.))}
+                 :now    time/now}
                 opts)
          opts  (cond-> opts max-seconds (assoc ::deadline (+ (inst-ms (now)) (* 1000 max-seconds))))
          start (resumed thread)
