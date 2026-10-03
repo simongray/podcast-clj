@@ -299,18 +299,20 @@
 
   They're those that probed! gives. When `opts` ask to :read? the file,
   they're the answers to a HEAD request and to a GET of the whole file,
-  and what the file holds. The requests name the origin of the check,
-  since web players read these files."
+  one after the other as in a probe, and what the file holds. The
+  requests name the origin of the check, since web players read these
+  files."
   [send {:keys [kind url declared] :as file} {:keys [read?] :as opts}]
   (let [headers {"Origin" origin}]
     (if-not read?
       (probed! send url headers)
-      (async/then (async/all force [(delay (head! send url headers))
-                                    (delay (http/sent! send {:url url :headers headers}))])
-                  (fn [[head attempt]]
-                    (let [got (http/sent-facts attempt)]
-                      (cond-> {:head head :get got}
-                        (ok? got) (assoc :read (reading kind (or (get-in attempt [:value :body]) "") (:type declared))))))))))
+      (async/then (head! send url headers)
+                  (fn [head]
+                    (async/then (http/sent! send {:url url :headers headers})
+                                (fn [attempt]
+                                  (let [got (http/sent-facts attempt)]
+                                    (cond-> {:head head :get got}
+                                      (ok? got) (assoc :read (reading kind (or (get-in attempt [:value :body]) "") (:type declared))))))))))))
 
 (defn- probe-feed!
   "Probe the feed at the URL of `file` through `send` with `opts`, and give

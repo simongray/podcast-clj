@@ -1394,7 +1394,8 @@
   the whole file in Content-Range. A server that ignores ranges answers
   200, and two bytes of that answer are read. The HEAD request asks for
   the file as it is, not gzipped, so that its Content-Length is the size
-  of the file.
+  of the file. The two requests go one after the other, so a server sees
+  one at a time for one file.
 
   The `opts` are these:
 
@@ -1407,9 +1408,10 @@
   ([url {:keys [headers send] :or {send call!} :as opts}]
    (let [answer! (fn [request]
                    (async/then (sent! send (assoc request :url url) opts) sent-facts))]
-     (async/then (async/all answer! [{:method :head :headers (merge {"Accept-Encoding" "identity"} headers)}
-                                     {:range [0 1] :as :bytes :headers headers}])
-                 (fn [[head got]] {:head head :get got})))))
+     (async/then (answer! {:method :head :headers (merge {"Accept-Encoding" "identity"} headers)})
+                 (fn [head]
+                   (async/then (answer! {:range [0 1] :as :bytes :headers headers})
+                               (fn [got] {:head head :get got})))))))
 
 (defn ^:no-doc request-bytes
   "The bytes of the `body` of a Ring request, which is a string, bytes, a
