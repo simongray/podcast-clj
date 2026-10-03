@@ -228,6 +228,9 @@
                               ;; unless it is set by hand, and takes 0 to mean chunked
                               (if (or (= "HEAD" method) (zero? n))
                                 (do (.add (.getResponseHeaders exchange) "Content-Length" (str n))
+                                    ;; with the request body open, Java 11 closes the connection
+                                    ;; after an answer with no body, and the client reuses it
+                                    (.close (.getRequestBody exchange))
                                     (.sendResponseHeaders exchange status -1))
                                 (do (.sendResponseHeaders exchange status n)
                                     (with-open [out (.getResponseBody exchange)] (.write out part))))

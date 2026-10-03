@@ -20,7 +20,10 @@
     (.add (.getResponseHeaders exchange) k v))
   (let [bytes (.getBytes body "UTF-8")]
     (if (zero? (alength bytes))
-      (do (.sendResponseHeaders exchange status -1)
+      ;; with the request body open, Java 11 closes the connection after
+      ;; an answer with no body, and the client reuses it
+      (do (.close (.getRequestBody exchange))
+          (.sendResponseHeaders exchange status -1)
           (.close exchange))
       (do (.sendResponseHeaders exchange status (alength bytes))
           (with-open [out (.getResponseBody exchange)]

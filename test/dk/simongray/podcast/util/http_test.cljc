@@ -329,6 +329,9 @@
    (defn- redirect
      [^HttpExchange exchange status location]
      (.add (.getResponseHeaders exchange) "Location" location)
+     ;; with the request body open, Java 11 closes the connection after an
+     ;; answer with no body, and the client reuses it
+     (.close (.getRequestBody exchange))
      (.sendResponseHeaders exchange status -1)
      (.close exchange)))
 
