@@ -162,7 +162,7 @@
    :in-progress (into #{}
                       (keep (fn [[id {:keys [position played?]}]]
                               (when (and (not played?) (number? position) (pos? position)) id)))
-                      (profile/episodes state))})
+                      (profile/episode-entries state))})
 
 (defn- context
   "The map that plan passes to its helpers, from the profile `state`, the
@@ -245,7 +245,7 @@
   for a show whose feed wasn't given to plan."
   [{:keys [profile rules at] :as ctx} selected id file]
   (let [{:keys [played inactive trim?]} (rule rules (first id))
-        {:keys [played? reported-at updated-at] :as e} (profile/episode profile id)
+        {:keys [played? reported-at updated-at] :as e} (profile/episode-entry profile id)
         past?  (fn [from seconds] (and from seconds (<= (+ from (* 1000 seconds)) (inst-ms at))))
         active (some->> (instants [(:at file) reported-at updated-at]) (apply max))]
     (cond
@@ -279,7 +279,7 @@
   [{:keys [profile] :as ctx} files]
   (->> files
        (filter (fn [[id file]] (and (profile/played? profile id) (free? ctx id file))))
-       (search/sorted-by (fn [[id _]] [(or (played-ms (profile/episode profile id)) 0) (pr-str id)]))
+       (search/sorted-by (fn [[id _]] [(or (played-ms (profile/episode-entry profile id)) 0) (pr-str id)]))
        (mapv (fn [[id file]] (gone id file :room)))))
 
 (defn- dismissed?

@@ -594,7 +594,7 @@
 (defn ^:no-doc entry
   "The entry of `item` in `feed`, from the profile in `ctx`."
   [ctx feed item]
-  (profile/episode (:profile ctx) (episode-id ctx feed item)))
+  (profile/episode-entry (:profile ctx) (episode-id ctx feed item)))
 
 (defn- status
   "The status of the episode with the entry `e` of a profile: :unplayed,

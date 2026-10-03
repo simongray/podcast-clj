@@ -35,7 +35,7 @@
                                                     :state {:episodes {a {:updated-at "soon" :device "x"}}}})}]
         {:keys [state report]} (sync/reconcile (profile/make "tablet") fetched t2)]
     (is (= [[:sync/unreadable-document "poison.edn"]] (map (juxt :id :name) report)))
-    (is (= 100 (:position (profile/episode state a))) "the other documents are merged")))
+    (is (= 100 (:position (profile/episode-entry state a))) "the other documents are merged")))
 
 (deftest reading-documents
   (let [fetched [{:name "phone.edn" :body (sync/document (phone-state) t2)}
@@ -52,7 +52,7 @@
     (testing "reconciled into a state"
       (let [{:keys [state report]} (sync/reconcile (profile/make "tablet") fetched t2)]
         (is (= 3 (count report)))
-        (is (= 900 (:position (profile/episode state a))))
+        (is (= 900 (:position (profile/episode-entry state a))))
         (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions state)))))
         (is (= "tablet" (:device state)))))))
 
@@ -184,7 +184,7 @@
          (is (str/includes? (:body (@documents "subscriptions.opml")) "https://a/rss")))
        (let [laptop (sync/sync! (laptop-state) [backend] t3)]
          (testing "the second reads the first's and writes its own, merged"
-           (is (= 900 (:position (profile/episode (:state laptop) a))))
+           (is (= 900 (:position (profile/episode-entry (:state laptop) a))))
            (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions (:state laptop))))))
            (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"} (set (keys @documents))))
            (is (= (:state laptop) (:state (sync/read-document (:body (@documents "laptop.edn"))))))
@@ -267,7 +267,7 @@
                         :pull (fn [_ _ _] {:states [(laptop-state)] :cursor {} :partial? true})
                         :push (fn [_ _ _] {:cursor {}})}
                r       (sync/sync! (phone-state) [service] t3)]
-           (is (= 900 (:position (profile/episode (:state r) a))))
+           (is (= 900 (:position (profile/episode-entry (:state r) a))))
            (is (nil? (get-in (:state r) [:devices "phone" :seen "laptop"]))))))))
 
 #?(:clj
@@ -276,7 +276,7 @@
            store     (store/memory documents)]
        (sync/sync! (laptop-state) [(store/backend store)] t3)
        (let [reader (sync/sync! (phone-state) [(store/backend store {:direction :pull})] t4)]
-         (is (= 900 (:position (profile/episode (:state reader) a))) "a pull-only backend is read")
+         (is (= 900 (:position (profile/episode-entry (:state reader) a))) "a pull-only backend is read")
          (is (= ["laptop.edn"] (keys @documents)) "and not written to"))
        (let [writer (sync/sync! (phone-state) [(store/backend store {:direction :push})] t4)]
          (is (= (phone-state) (:state writer)) "a push-only backend is not read")
@@ -308,7 +308,7 @@
                                                   {:cursors (:cursors phone2)})]
            (is (= 2 @puts) "one refused, one after merging")
            (is (= [] report))
-           (is (= 1500 (:position (profile/episode state a))) "the car's progress came along")
+           (is (= 1500 (:position (profile/episode-entry state a))) "the car's progress came along")
            (is (= 2.0 (:rate (profile/preferences state))))
            (is (same? state (:state (sync/read-document (:body (@documents "state.edn"))))))))
        (testing "a document that will not stop changing is given up on, and reported"
@@ -317,7 +317,7 @@
                                                           [(store/backend busy {:document "state.edn"})]
                                                           t4)]
            (is (= [:sync/conflict] (map :id report)))
-           (is (= 1500 (:position (profile/episode state a))) "what was fetched along the way is kept")
+           (is (= 1500 (:position (profile/episode-entry state a))) "what was fetched along the way is kept")
            (is (nil? (:hash (get cursors "memory"))) "nothing was written")))
        (testing "the subscription list beside the document, when asked"
          (let [documents (atom {})
@@ -355,7 +355,7 @@
                r    (sync/sync! (phone-state) [half] t2)]
            (is (= {"half" "disk full"} (:failed r)))
            (is (= {:pulled true} (get (:cursors r) "half")))
-           (is (= 900 (:position (profile/episode (:state r) a)))))))))
+           (is (= 900 (:position (profile/episode-entry (:state r) a)))))))))
 
 #?(:clj
    (deftest backends-by-name
@@ -430,7 +430,7 @@
                       (is (nil? (:failed phone)))
                       (sync/sync! (laptop-state) [backend] t3)))
              (.then (fn [laptop]
-                      (is (= 900 (:position (profile/episode (:state laptop) a))))
+                      (is (= 900 (:position (profile/episode-entry (:state laptop) a))))
                       (is (= #{"laptop.edn" "phone.edn"} (set (keys @documents))))
                       (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions (:state laptop))))))
                       (sync/sync! (:state laptop) [{:name "broken" :pull (fn [_ _ _] (js/Promise.reject (js/Error. "offline"))) :push (fn [_ _ _] {:cursor {}})}] t4)))

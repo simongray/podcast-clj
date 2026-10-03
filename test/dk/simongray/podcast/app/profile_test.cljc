@@ -56,14 +56,14 @@
               (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
               (profile/configure "feed-a" {:skip-intro 15} t0)
               (profile/progress a 600 3600 t1))]
-    (is (= 600 (:position (profile/episode s a))))
+    (is (= 600 (:position (profile/episode-entry s a))))
     (is (not (profile/played? s a)))
     (is (= 600 (profile/resume-position s "feed-a" a)))
     (is (= 15 (profile/resume-position s "feed-a" b)) "an unstarted episode starts after the intro")
     (testing "within the threshold of the end counts as played"
       (let [done (profile/progress s a 3580 t2)]
         (is (profile/played? done a))
-        (is (= t2 (:played-at (profile/episode done a))))
+        (is (= t2 (:played-at (profile/episode-entry done a))))
         (is (= 15 (profile/resume-position done "feed-a" a)) "a played episode starts over")))
     (testing "the threshold of the app"
       (is (not (profile/played? (profile/progress s a 3580 nil t2 {:played-threshold 10}) a)))
@@ -78,19 +78,19 @@
       (is (profile/played? (profile/mark-played s b t2) b))
       (let [again (profile/mark-unplayed (profile/mark-played s a t2) a t3)]
         (is (not (profile/played? again a)))
-        (is (= 0 (:position (profile/episode again a))))))
+        (is (= 0 (:position (profile/episode-entry again a))))))
     (testing "a later report of the position from a device that hasn't seen the mark leaves the mark"
       (let [done   (profile/mark-played s a t2)
             behind (profile/progress (assoc s :device "laptop") a 700 3600 t3)
             both   (profile/merge done behind)]
         (is (profile/played? both a))
-        (is (= 700 (:position (profile/episode both a))))
-        (is (= {a (profile/episode both a)} (profile/episodes both)))))
+        (is (= 700 (:position (profile/episode-entry both a))))
+        (is (= {a (profile/episode-entry both a)} (profile/episode-entries both)))))
     (testing "a mark that an older version kept in the entry of the episode"
       (let [old   (assoc-in s [:episodes a] {:position 3590 :played? true :played-at t1 :updated-at t1 :device "old"})
             moved (profile/progress old a 100 3600 t2)]
         (is (profile/played? old a))
-        (is (= t1 (:played-at (profile/episode old a))))
+        (is (= t1 (:played-at (profile/episode-entry old a))))
         (is (profile/played? moved a) "moves to an entry of its own at the next write")
         (is (not (contains? (get-in moved [:episodes a]) :played?)))
         (is (= {:played? true :played-at t1} (select-keys (get-in moved [:played a]) [:played? :played-at])))))
@@ -100,13 +100,13 @@
 
 (deftest skipping
   (let [s (-> (profile/make "phone") (profile/progress a 100 3600 t0))]
-    (is (= 130 (:position (profile/episode (profile/skip s a 30 t1) a))))
-    (is (= 85 (:position (profile/episode (profile/skip s a -15 t1) a))))
-    (is (= 0 (:position (profile/episode (profile/skip s a -500 t1) a))) "never before the start")
-    (is (= 3600 (:position (profile/episode (profile/skip s a 5000 t1) a))) "never past the end")
-    (is (= 40 (:position (profile/episode (profile/skip (profile/make "x") c 40 t1) c))) "an unknown episode starts at zero")
+    (is (= 130 (:position (profile/episode-entry (profile/skip s a 30 t1) a))))
+    (is (= 85 (:position (profile/episode-entry (profile/skip s a -15 t1) a))))
+    (is (= 0 (:position (profile/episode-entry (profile/skip s a -500 t1) a))) "never before the start")
+    (is (= 3600 (:position (profile/episode-entry (profile/skip s a 5000 t1) a))) "never past the end")
+    (is (= 40 (:position (profile/episode-entry (profile/skip (profile/make "x") c 40 t1) c))) "an unknown episode starts at zero")
     (doseq [duration [0 ##NaN]]
-      (is (= 130 (:position (profile/episode (profile/skip (profile/progress s a 100 duration t0) a 30 t1) a)))
+      (is (= 130 (:position (profile/episode-entry (profile/skip (profile/progress s a 100 duration t0) a 30 t1) a)))
           (str "a duration of " duration " is not known, and no bound")))
     (is (= [[:seek a 3590] [:played a]] (:effects (profile/step s [:skip a 3490] t1)))
         "a skip into the end marks it played, and says so")
@@ -595,7 +595,7 @@
             ahead (play (profile/merge s0 fast))]
         (is (= {g {"2026-10" 300}} (profile/listened ahead) (profile/listened (play s0)))
             "the time is measured from the last report, and not from its stamp")
-        (is (pos? (compare (:updated-at (profile/episode ahead id)) (:reported-at (profile/episode ahead id)))))))
+        (is (pos? (compare (:updated-at (profile/episode-entry ahead id)) (:reported-at (profile/episode-entry ahead id)))))))
     (testing "a report after a pause"
       (let [paused (:state (profile/step s2 [:progress id 1500 3600] (at 610)))]
         (is (= (profile/listened s2) (profile/listened paused))
@@ -734,7 +734,7 @@
         merged (profile/merge phone laptop)]
     (is (= "phone" (:device merged)))
     (is (not (profile/subscribed? merged "feed-b")) "the later removal beats the earlier addition")
-    (is (= 900 (:position (profile/episode merged a))) "the later position wins")
+    (is (= 900 (:position (profile/episode-entry merged a))) "the later position wins")
     (is (= [a c] (profile/queue merged)) "what both devices queued survives, in the order it was queued")
     (is (= 60 (:skip-forward (profile/preferences merged))) "the later preferences win")
     (testing "the same whichever side asks, and again"
@@ -876,8 +876,8 @@
     (testing "an entry that's later than the write stays, as a merge keeps it"
       (is (= s (crdt/as-device s "gpodder:x" #(profile/subscribe % "feed-a" {:url "https://a/rss"} t2)))))
     (testing "the same as a merge of the other device's state"
-      (is (= (profile/episode (crdt/as-device s "laptop" #(profile/progress % a 100 3600 t4)) a)
-             (profile/episode (profile/merge s (profile/progress (profile/make "laptop") a 100 3600 t4)) a))))))
+      (is (= (profile/episode-entry (crdt/as-device s "laptop" #(profile/progress % a 100 3600 t4)) a)
+             (profile/episode-entry (profile/merge s (profile/progress (profile/make "laptop") a 100 3600 t4)) a))))))
 
 (deftest acknowledging-and-compacting
   (let [day    (* 24 60 60 1000)
@@ -925,7 +925,7 @@
         changes (crdt/changes-since s taken)]
     (is (= #{:device :clock :episodes :queue} (set (keys changes)))
         "what was written since the state was taken, with the device and the clock")
-    (is (= (profile/episode s a) (profile/episode changes a)))
+    (is (= (profile/episode-entry s a) (profile/episode-entry changes a)))
     (is (= s (profile/merge s changes)) "a partial state merges into the whole without changing it")
     (let [laptop (profile/subscribe (profile/make "laptop") "feed-b" {:url "https://b/rss" :title "B"} t0)]
       (is (contains? (:subscriptions (crdt/changes-since (profile/merge s laptop) taken)) "feed-b")
@@ -1008,7 +1008,7 @@
     (testing "to the next chapter of the table of contents"
       (let [{:keys [state effects]} (jump s :next)]
         (is (= (seek 600) effects) "the chapter outside the table of contents is no stop")
-        (is (= 600 (:position (profile/episode state a))))))
+        (is (= 600 (:position (profile/episode-entry state a))))))
     (testing "to the start of the chapter that plays, or to the chapter before it"
       (is (= (seek 90) (:effects (jump s :previous))))
       (is (= (seek 0) (:effects (jump (at 92) :previous))) "in the first seconds of a chapter")

@@ -98,11 +98,11 @@
   [{:keys [profile] :as state}]
   [:section
    [:h2 "History"]
-   (if (empty? (profile/episodes profile))
+   (if (empty? (profile/episode-entries profile))
      [:p.muted "Nothing played yet."]
      [:ul.compact
       (for [id (profile/history profile)
-            :let [{:keys [position played?]} (profile/episode profile id)]]
+            :let [{:keys [position played?]} (profile/episode-entry profile id)]]
         [:li {:replicant/key id}
          (episode-link state id)
          [:span.muted (str " · " (if played? "played" (str "at " (time/format-clock (or position 0)))))]

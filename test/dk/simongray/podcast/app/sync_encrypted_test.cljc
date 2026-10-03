@@ -107,7 +107,7 @@
        (is (nil? (:failed phone)))
        (is (nil? (:failed laptop)))
        (is (nil? (:failed phone2)))
-       (is (= 60 (:position (profile/episode (:state phone2) a))))
+       (is (= 60 (:position (profile/episode-entry (:state phone2) a))))
        (is (every? #(str/starts-with? (:body %) "{:encrypted") (vals (dissoc @documents store/opml-name)))
            "every document at rest is ciphertext")
        (is (str/includes? (:body (@documents store/opml-name)) "https://a/rss") "the subscription list stays readable, as asked")

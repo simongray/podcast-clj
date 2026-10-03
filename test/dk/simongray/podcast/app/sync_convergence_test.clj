@@ -133,7 +133,7 @@
    :tagged        (profile/tagged state)
    :queue         (profile/queue state)
    :inbox         (profile/inbox state)
-   :episodes      (profile/episodes state)
+   :episodes      (profile/episode-entries state)
    :starred       (profile/starred state)
    :bookmarks     (profile/bookmarks state)
    :filters       (profile/filters state)

@@ -245,7 +245,7 @@
                        (cond-> {"podcast" feed-a "episode" (str "https://a.example/" item ".mp3") "guid" item
                                 "action" "play" "position" position "total" 3600 "device" "phone"}
                          time (assoc "timestamp" time)))
-        heard        (fn [item] ((juxt :position :updated-at) (profile/episode @state ["declared-guid" item])))]
+        heard        (fn [item] ((juxt :position :updated-at) (profile/episode-entry @state ["declared-guid" item])))]
     (testing "one URL under two guids, of which one is live"
       (ask send :get "/api/2/subscriptions/simon/phone.json?since=0")
       (reset! clock t2)
@@ -360,7 +360,7 @@
           (fn [{s :state :as second-step}]
             (is (nil? (:failed second-step)))
             (is (profile/played? s [g-a "a1"]) "played to its end on the other app")
-            (is (= "gpodder:antennapod" (:device (profile/episode s [g-a "a1"]))))
+            (is (= "gpodder:antennapod" (:device (profile/episode-entry s [g-a "a1"]))))
             (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (profile/subscriptions s))))))
             (is (= 2 (count (profile/subscriptions @state))) "and nothing sent back twice")
             (async/then
@@ -408,8 +408,8 @@
         fast   (profile/star (profile/make "laptop") [g-a "a9"] t4)
         s      (-> (profile/merge (phone) fast) (profile/progress id 120 3600 t1))
         action #(gpodder/entry-action id % "https://a.example/rss" "https://a.example/1.mp3" "phone")
-        told   (fn [state] ((juxt #(get % "action") #(get % "timestamp")) (action (profile/episode state id))))]
-    (is (pos? (compare (:updated-at (profile/episode s id)) t4)) "the stamp is after the clock of the device")
+        told   (fn [state] ((juxt #(get % "action") #(get % "timestamp")) (action (profile/episode-entry state id))))]
+    (is (pos? (compare (:updated-at (profile/episode-entry s id)) t4)) "the stamp is after the clock of the device")
     (is (= ["play" "2026-01-01T01:00:00"] (told s)) "and the action names the time on that clock")
     (is (= ["play" "2026-01-01T02:00:00"] (told (profile/mark-played s id t2))) "the time of the mark as played")
     (is (= ["new" "2026-01-01T03:00:00"] (told (profile/mark-unplayed s id t3))))
@@ -434,7 +434,7 @@
      #(async/then
        (sync/sync! s [(backend send')] t2)
        (fn [{s :state :keys [cursors]}]
-         (is (= [300 "gpodder:laptop"] ((juxt :position :device) (profile/episode s [g-a "a2"]))))
+         (is (= [300 "gpodder:laptop"] ((juxt :position :device) (profile/episode-entry s [g-a "a2"]))))
          (reset! posts [])
          (async/then
           (sync/sync! s [(backend send')] t3 {:cursors cursors})
@@ -458,7 +458,7 @@
        (sync/sync! (phone) [(backend)] t2)
        (fn [first-step]
          (is (= [[:sync/unknown-episodes 1]] (map (juxt :id :count) (:report first-step))))
-         (is (nil? (profile/episode (:state first-step) [(guid/from-url "https://b.example/rss") "b1"])))
+         (is (nil? (profile/episode-entry (:state first-step) [(guid/from-url "https://b.example/rss") "b1"])))
          (async/then
           (sync/sync! (:state first-step) [(backend)] t3 {:cursors (:cursors first-step)})
           (fn [second-step]
@@ -469,7 +469,7 @@
             (async/then
              (sync/sync! (:state second-step) [(backend)] t4 {:cursors (:cursors second-step)})
              (fn [third-step]
-               (is (= 700 (:position (profile/episode (:state third-step) [(guid/from-url "https://b.example/rss") "b1"])))
+               (is (= 700 (:position (profile/episode-entry (:state third-step) [(guid/from-url "https://b.example/rss") "b1"])))
                    "once the app knows the feed, the action that waited")
                (is (empty? (:report third-step)))
                (is (nil? (:pending (get (:cursors third-step) "gpodder.example.org")))))))))))))
@@ -498,7 +498,7 @@
                                                        :else                                 :episodes)))})
         b       (backend send)
         g-b     (guid/from-url "https://b.example/rss")
-        heard   #((juxt :position :updated-at :device) (profile/episode % [g-a "a1"]))
+        heard   #((juxt :position :updated-at :device) (profile/episode-entry % [g-a "a1"]))
         soon?   #(<= (inst-ms (:clock %1)) (+ (inst-ms %2) sync/skew-tolerance))]
     (run
      #(async/then
@@ -526,7 +526,7 @@
     (ask send :post "/api/2/episodes/simon.json"
          [{"podcast" feed-a "episode" "https://a.example/1.mp3" "guid" "a1" "action" "play"
            "timestamp" 1790000005000 "position" 500 "total" 3600 "device" "tablet"}])
-    (is (= [500 t2 "gpodder:tablet"] ((juxt :position :updated-at :device) (profile/episode @state [g-a "a1"])))
+    (is (= [500 t2 "gpodder:tablet"] ((juxt :position :updated-at :device) (profile/episode-entry @state [g-a "a1"])))
         "it counts as made when it arrived")
     (is (= t2 (:clock @state)))))
 
@@ -581,8 +581,8 @@
        (sync/sync! (phone) [b] t2)
        (fn [{s :state :keys [failed]}]
          (is (nil? failed) (pr-str failed))
-         (is (= 1800 (:position (profile/episode s [g-a "a1"]))) "a PLAY of the other app, later than the phone's")
-         (is (= "gpodder:cloud" (:device (profile/episode s [g-a "a1"])))
+         (is (= 1800 (:position (profile/episode-entry s [g-a "a1"]))) "a PLAY of the other app, later than the phone's")
+         (is (= "gpodder:cloud" (:device (profile/episode-entry s [g-a "a1"])))
              "an action without a device, written in the name of the backend")
          (is (= #{feed-a} (set (map :url (vals (profile/subscriptions @state)))))))))))
 
@@ -628,7 +628,7 @@
          (testing "a full page asks for the next, three pages at most"
            (is (= 3 (count (filter #{[:get "/sync/simon/actions" nil]} @calls))))
            (is (= [2 3 4 5 6 7]
-                  (sort (keep (fn [n] (:position (profile/episode s [g-a (str "a" n)]))) (range 2 10))))))
+                  (sort (keep (fn [n] (:position (profile/episode-entry s [g-a (str "a" n)]))) (range 2 10))))))
          (testing "one action to a request of the push"
            (is (= [[:post "/sync/simon/shows" 2] [:post "/sync/simon/actions" 1] [:post "/sync/simon/actions" 1]
                    [:post "/sync/simon/actions" 1]]

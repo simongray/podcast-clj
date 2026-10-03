@@ -341,7 +341,7 @@
   another kind, or one no later than what `state` has of the episode,
   changes nothing, so that an action read back does no harm."
   [state id {:keys [action position total timestamp device] :as a} author]
-  (let [stamp (some-> (profile/episode state id) :updated-at inst-ms)
+  (let [stamp (some-> (profile/episode-entry state id) :updated-at inst-ms)
         act   (case action
                 "play" (when (number? position)
                          #(profile/progress % id position (when (and (number? total) (pos? total)) total) timestamp))
@@ -573,7 +573,7 @@
                               (public (:url e)))))
         adds    (vec (urls (complement :removed?)))
         drops   (if pushed (vec (remove (set adds) (urls :removed?))) [])
-        told    (for [[[g _ :as id] e] (changed :episodes (profile/episodes state))
+        told    (for [[[g _ :as id] e] (changed :episodes (profile/episode-entries state))
                       :let [podcast (some-> ((:feed-url names) g) public)
                             media   ((:episode-url names) id)]]
                   (if (and (http/web-url? podcast) (http/web-url? media))
@@ -607,7 +607,7 @@
      (fn [rewrites]
        {:cursor (assoc cursor
                           :pushed {:subscriptions (stamps (:subscriptions state))
-                                   :episodes      (apply dissoc (stamps (profile/episodes state)) unnamed)}
+                                   :episodes      (apply dissoc (stamps (profile/episode-entries state)) unnamed)}
                           :urls   (into (or urls {}) (for [[sent new] rewrites :when (and new (not= sent new))] [new sent])))
         :report (cond-> (vec (for [[sent new] rewrites :when (nil? new)]
                                (diagnostics/describe {:id :sync/rejected-url :level :warning :url sent})))

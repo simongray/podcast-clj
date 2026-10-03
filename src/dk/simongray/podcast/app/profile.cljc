@@ -333,7 +333,7 @@
       (select-keys e [:played? :played-at :updated-at :device])
       m)))
 
-(defn episode
+(defn episode-entry
   "The entry of the episode `id` in `state` with its played mark, or nil.
 
   The position and the mark are entries of their own, so that a report of
@@ -347,11 +347,12 @@
                           (select-keys m [:played? :played-at])
                           (select-keys (max-key crdt/stamp-ms m e) [:updated-at :device])))))
 
-(defn episodes
-  "The entries of the episodes of `state` by id, as episode gives them."
+(defn episode-entries
+  "The entries of the episodes of `state` by id, as episode-entry gives
+  them."
   [state]
   (let [ids (distinct (concat (keys (:episodes state)) (keys (:played state))))]
-    (zipmap ids (map (partial episode state) ids))))
+    (zipmap ids (map (partial episode-entry state) ids))))
 
 (defn played?
   "Whether the episode `id` counts as played in `state`."
@@ -402,7 +403,7 @@
    (progress state id position duration at {}))
   ([state id position duration at opts]
    {:pre [(map? opts)]}
-   (let [duration (or duration (:duration (episode state id)))
+   (let [duration (or duration (:duration (episode-entry state id)))
          done?    (and (not (played? state id))
                        (heard-to-the-end? position duration (:played-threshold opts played-threshold)))]
      (crdt/write-each state
@@ -440,7 +441,7 @@
    (skip state id seconds at {}))
   ([state id seconds at opts]
    {:pre [(map? opts)]}
-   (let [{:keys [position duration]} (episode state id)
+   (let [{:keys [position duration]} (episode-entry state id)
          finite?  #(and (number? %) (== % %) (not (infinite? %)))
          target   (+ (if (finite? position) position 0) seconds)
          target   (max 0 (if (and (finite? duration) (pos? duration)) (min target duration) target))]
@@ -457,7 +458,7 @@
   in UTC, and the last report is the episode's :reported-at, or else its
   stamp."
   [state id position at gap]
-  (let [{p0 :position :keys [reported-at updated-at]} (episode state id)
+  (let [{p0 :position :keys [reported-at updated-at]} (episode-entry state id)
         t0      (or reported-at updated-at)
         seconds (when (and (number? position) (number? p0) (inst? t0))
                   (let [moved (- position p0)
@@ -486,7 +487,7 @@
   the listener left it, or after the intro when it hasn't been started or
   was heard to the end."
   [state feed-guid id]
-  (let [{:keys [position played?]} (episode state id)]
+  (let [{:keys [position played?]} (episode-entry state id)]
     (if (and (number? position) (pos? position) (not played?))
       position
       (:skip-intro (settings state feed-guid)))))
@@ -498,7 +499,7 @@
   Nil when the duration is unknown, the feed skips no outro, or the outro
   is as long as the episode."
   [state feed-guid id]
-  (let [duration (:duration (episode state id))
+  (let [duration (:duration (episode-entry state id))
         outro    (:skip-outro (settings state feed-guid))]
     (when (and (number? duration) (number? outro) (< 0 outro duration))
       (- duration outro))))
@@ -507,7 +508,7 @@
   "The episode ids in `state`, most recently played or touched first: an
   episode heard again comes first again."
   [state]
-  (->> (episodes state)
+  (->> (episode-entries state)
        (sort-by (fn [[_ e]] (- (or (some-> (crdt/later-inst (:played-at e) (:updated-at e)) inst-ms) 0))))
        (map key)))
 
@@ -1296,7 +1297,7 @@
   [state state' id effects at sleep]
   (let [was       (played? state id)
         start     (outro-start state' (first id) id)
-        in-outro? #(let [p (:position (episode % id))]
+        in-outro? #(let [p (:position (episode-entry % id))]
                      (and start (number? p) (>= p start)))]
     (if (and (in-outro? state') (not (in-outro? state)))
       (update (ended state' id at sleep) :effects
@@ -1346,9 +1347,9 @@
                      {:keys [skip-forward skip-back]} (preferences state)
                      seconds (case amount :forward skip-forward :back (- skip-back) amount)
                      state'  (skip state id seconds at (select-keys opts [:played-threshold]))]
-                 (moved state state' id [[:seek id (:position (episode state' id))]] at sleep))
+                 (moved state state' id [[:seek id (:position (episode-entry state' id))]] at sleep))
      :chapter  (let [[direction doc] args
-                     position (:position (episode state id))
+                     position (:position (episode-entry state id))
                      from     (if (number? position) position 0)]
                  (if-let [target (chapters/jump doc from direction (select-keys opts [:restart]))]
                    (step state [:skip id (- target from)] at opts)

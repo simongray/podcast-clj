@@ -142,7 +142,7 @@
   [{:keys [state book names since params seconds] :as ctx}]
   (let [{:strs [podcast device]} params]
     {:status 200
-     :body   {"actions"   (vec (for [[[g _ :as id] e] (profile/episodes state)
+     :body   {"actions"   (vec (for [[[g _ :as id] e] (profile/episode-entries state)
                                      :let  [by (gpodder/device-of (:device e))]
                                      :when (and (>= (second (get-in book [:index [:episodes id]] [0 0])) (or since 0))
                                                 (or (nil? device) (= device by)))
@@ -311,7 +311,7 @@
               (cond-> index
                 (not= stamp (first (get index [k id]))) (assoc [k id] [stamp now]))))
           index
-          (for [[k entries] [[:subscriptions (:subscriptions state)] [:episodes (profile/episodes state)]]
+          (for [[k entries] [[:subscriptions (:subscriptions state)] [:episodes (profile/episode-entries state)]]
                 [id e]      entries]
             [k id e])))
 

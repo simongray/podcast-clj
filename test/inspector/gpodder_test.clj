@@ -70,7 +70,7 @@
             s       (:state browser)]
         (is (nil? (:failed browser)))
         (is (profile/subscribed? s g) "the other app's subscription, over WebDAV")
-        (is (= 300 (:position (profile/episode s [g "a1"]))))
+        (is (= 300 (:position (profile/episode-entry s [g "a1"]))))
         (let [s'      (profile/progress s [g "a1"] 1200 3600 #inst "2026-01-01T03:00:00Z")
               browser (sync/sync! s' [backend] #inst "2026-01-01T03:00:00Z" {:cursors (:cursors browser)})]
           (is (nil? (:failed browser)))

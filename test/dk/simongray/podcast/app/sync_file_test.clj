@@ -78,4 +78,4 @@
         (is (= [] (:report phone2)))
         (is (same? (:state laptop) (:state phone2)))
         (is (= (:state phone2) (:state (sync/read-document (slurp (io/file dir "phone.edn"))))))
-        (is (= 60 (:position (profile/episode (:state phone2) a))))))))
+        (is (= 60 (:position (profile/episode-entry (:state phone2) a))))))))

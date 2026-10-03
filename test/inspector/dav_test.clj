@@ -102,5 +102,5 @@
       (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"}
              (set (map #(.getName ^java.io.File %) (.listFiles (io/file *dir* "sync"))))))
       (is (same? (:state laptop) (:state phone2)))
-      (is (= 60 (:position (profile/episode (:state phone2) a))))
+      (is (= 60 (:position (profile/episode-entry (:state phone2) a))))
       (is (= "test" (:app (sync/read-document (slurp (io/file *dir* "sync" "laptop.edn")))))))))
