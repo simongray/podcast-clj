@@ -17,11 +17,12 @@
   (delay (podcast/parse (fixture "feeds/namespace-example.xml"))))
 
 (defn- ids
-  "The ids of the diagnostics of `file` with `facts`, under `profile`."
+  "The ids of the diagnostics of `file` with `facts`, under the `chosen`
+  requirements."
   ([file facts]
    (ids file facts nil))
-  ([file facts profile]
-   (set (map :id (check/verdicts file facts profile)))))
+  ([file facts chosen]
+   (set (map :id (check/verdicts file facts chosen)))))
 
 (defn- failed
   "The facts of a request or a reading that failed for `reason`."
@@ -77,7 +78,7 @@
 
 (deftest verdicts-on-media
   (is (= #{} (ids media served)) "a file served as its feed says")
-  (is (= [] (check/report [(assoc media :facts served)] :apple)) "and by the rules of a profile")
+  (is (= [] (check/report [(assoc media :facts served)] :apple)) "and by the requirements of a directory")
   (is (= [[:check/unreachable "refused"]]
          (map (juxt :id :reason) (check/verdicts media {:head (failed "refused") :get (failed "refused")} nil)))
       "with the reason of the diagnostic in the facts")
@@ -155,7 +156,7 @@
   (is (= #{:check/unreachable} (ids artwork {:head (failed "refused") :image (failed "refused")})))
   (is (= #{:file/malformed} (ids artwork (assoc square-jpeg :image {:type "image/jpeg" :report [{:id :file/malformed :level :warning}]}) :apple))
       "an image that does not read has no size to judge")
-  (testing "the artwork rules, which only a profile adds"
+  (testing "the artwork requirements, which only the chosen requirements add"
     (let [png-art (assoc square-jpeg :image {:type "image/png" :width 1200 :height 1000 :color :grayscale :alpha? true})]
       (is (= #{:check/image-type} (ids artwork png-art)))
       (is (= #{:check/image-type :check/artwork-size :check/artwork-color :check/artwork-extension}
@@ -179,7 +180,7 @@
       (is (= #{:check/artwork-type} (ids artwork (assoc-in square-jpeg [:image :process] :lossless) :apple)))
       (is (= #{:check/artwork-type} (ids artwork (update square-jpeg :image assoc :process :extended :bits 12) :apple))
           "JPEGs that browsers do not decode")))
-  (testing "the rules of a directory that the app gives"
+  (testing "the requirements of a directory that the app gives"
     (let [own   {:name    "A directory of our own"
                  :artwork {:sizes [3000 6000] :types #{"image/webp"}}
                  :levels  {:check/artwork-type :warning}}
@@ -189,9 +190,9 @@
              (set (map (juxt :id :level) (check/verdicts artwork small own))))
           "with a level of its own")
       (is (= #{:check/artwork-size}
-             (ids artwork small (assoc-in (:apple check/profiles) [:artwork :sizes] [3000 6000])))
-          "the rules of Apple Podcasts with another size")
-      (is (= #{} (ids artwork small :no-such-profile)) "a name that profiles does not have adds no rules")))
+             (ids artwork small (assoc-in (:apple check/requirements) [:artwork :sizes] [3000 6000])))
+          "the requirements of Apple Podcasts with another size")
+      (is (= #{} (ids artwork small :no-such-requirements)) "a name that requirements does not have adds nothing")))
   (testing "a podcast:image against its attributes"
     (let [image {:kind :image :url "https://a/i.webp" :path [] :declared {:sources #{:podcast}}}
           facts (fn [w h] {:head {:status 200 :type "image/webp"} :image {:type "image/webp" :width w :height h :color :rgb}})
@@ -352,7 +353,7 @@
                                          :podcast/alternate-enclosures [{:type "video/mp4" :length 200
                                                                          :integrity {:type "sri" :value (sri video)}
                                                                          :sources [{:uri (str base "/v.mp4")}]}]}]}
-                 check (fn [opts] (check/check-files! feed (merge {:url (str base "/feed.xml") :profile :apple} opts)))
+                 check (fn [opts] (check/check-files! feed (merge {:url (str base "/feed.xml") :requirements :apple} opts)))
                  found (fn [result path] (set (map :id (filter #(= (str base path) (:url %)) (:report result)))))]
              (testing "two bytes of each file, and the header of the image"
                (let [result (check {})]

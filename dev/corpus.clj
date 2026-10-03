@@ -92,7 +92,7 @@
            t0    (System/nanoTime)
            feed  (podcast/parse s)
            ms    (quot (- (System/nanoTime) t0) 1000000)
-           v     (validate/validate feed {:profile :psp-1})]
+           v     (validate/validate feed {:requirements :psp-1})]
        {:file       (.getName ^java.io.File file)
         :items      (count (:rss/items feed))
         :ms         ms
@@ -379,7 +379,7 @@
   feed at the URL that the corpus lists, so that its redirects count:
   `[{:name :files :report}]`, or `{:name :error}` for a feed that could not
   be fetched."
-  ([] (check-feeds! {:items 2 :profile :apple :read? true}))
+  ([] (check-feeds! {:items 2 :requirements :apple :read? true}))
   ([opts]
    (vec (pmap (fn [[name url]]
                 (let [{:keys [feed status error]} (podcast/fetch! url)]

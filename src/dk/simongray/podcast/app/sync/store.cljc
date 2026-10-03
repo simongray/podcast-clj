@@ -29,7 +29,7 @@
   namespace has a store function for the store over a place, and a backend
   function for the backend in one call with the options of both."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.opml :as opml]
@@ -109,11 +109,11 @@
   "Put the subscription list of `state` beside the documents of `store`,
   when `opts` ask for it and the list changed since the cursor `ctx`.
 
-  The list is what player/to-opml gives: the shows with their folders and
+  The list is what profile/to-opml gives: the shows with their folders and
   tags, and the lists that the listener follows. Returns the cursor, which
   remembers the list last mirrored."
   [{:keys [put] :as store} {:keys [opml?] :as opts} state ctx]
-  (let [list    (when opml? (player/to-opml state))
+  (let [list    (when opml? (profile/to-opml state))
         written (hash list)]
     (if (and opml? (not= written (:opml ctx)))
       (async/then (put opml-name (opml/emit list) {})
@@ -186,7 +186,7 @@
             (async/then (fetch name)
                         (fn [doc]
                           (let [{:keys [states report]} (sync/read-documents (when doc [(assoc doc :name name)]) at)
-                                merged (reduce player/merge state states)]
+                                merged (reduce profile/merge state states)]
                             (if (some #(= :sync/newer-format (:id %)) report)
                               {:ctx (assoc ctx :version (:version doc) :newer? true) :report report}
                               (async/then (put-conditionally merged (assoc ctx :version (:version doc)) (dec attempts))

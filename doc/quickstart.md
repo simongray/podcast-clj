@@ -21,7 +21,7 @@ subscribe to a show:
 ```clojure
 (require '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.app.library :as library]
-         '[dk.simongray.podcast.app.player :as player]
+         '[dk.simongray.podcast.app.profile :as profile]
          '[dk.simongray.podcast.app.sync.file :as file])
 
 (def url "https://feeds.podcastindex.org/pc20.xml")
@@ -44,8 +44,8 @@ Each change is stamped with its time, which the functions of
 
 The library is plain EDN, so you can save `@lib` like any other value and
 read it back at the next start. Change it with `swap!` and the functions of
-`app.library` and `app.player`, but never `assoc` into `:player`. The player
-state is a CRDT, so that the listener's devices can merge their changes
+`app.library` and `app.profile`, but never `assoc` into `:profile`. The
+profile is a CRDT, so that the listener's devices can merge their changes
 without conflicts: each write stamps what it changed with the time and the
 device, and a removal is a tombstone. [Syncing](sync.md) explains how.
 
@@ -66,7 +66,7 @@ Pick episodes across all the shows, in the order you want:
 ```
 
 An episode is a `[show item]` pair: the feed and its item, as
-`podcast/parse` returns them. Its id for the player is the guid of the show
+`podcast/parse` returns them. Its id in the profile is the guid of the show
 and the guid of the item.
 
 ## An episode page
@@ -90,13 +90,13 @@ For a list of episodes, use `library/episode` alone, which fetches nothing.
 
 ## The player
 
-The player state holds the queue and the progress, and you control the
-media element. Send each of its events to `step`, which returns the library
+The profile holds the queue and the progress, and you control the media
+element. Send each of its events to `step`, which returns the library
 with the effects to apply under `:effects`:
 
 ```clojure
-(swap! lib library/update-player player/enqueue id)
-(player/queue (:player @lib))
+(swap! lib library/update-profile profile/enqueue id)
+(profile/queue (:profile @lib))
 ;; => [["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"]]
 
 (:effects (swap! lib library/step [:progress id 754 3600]))  ; => []
@@ -104,8 +104,8 @@ with the effects to apply under `:effects`:
 ;; => [[:seek ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"] 784]]
 ```
 
-The player state is `(:player @lib)`, which every function of `app.player`
-takes. To change it, `library/update-player` calls one of them with the
+The profile is `(:profile @lib)`, which every function of `app.profile`
+takes. To change it, `library/update-profile` calls one of them with the
 time, like `enqueue` here.
 
 ## New episodes
@@ -128,7 +128,7 @@ waits longer before the next try.
 
 ## The other devices
 
-Each device writes its player state to a store as one document, and reads
+Each device writes its profile to a store as one document, and reads
 the documents of the other devices. A folder that a sync client mirrors is
 a store, and so is a WebDAV collection:
 

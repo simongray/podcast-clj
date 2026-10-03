@@ -100,7 +100,7 @@ Each device writes only its own document, `<device-id>.edn`. A step of
    document of this device. It needs no precondition, since no other device
    writes it.
 5. With `:opml?`, put `subscriptions.opml` if the subscription list changed.
-   The list is what `player/to-opml` gives: the shows with their folders and
+   The list is what `profile/to-opml` gives: the shows with their folders and
    tags, and the followed lists.
 6. Delete the documents of retired devices.
 
@@ -146,14 +146,14 @@ of it and a put would lose data.
 - Run one step at a time, since a step that overlaps another can write an
   older state after a newer one.
 - The `:state` doesn't include what the listener did during the step.
-  Merge it into the current state with `player/merge`, then compact with
-  `player/compact`, since the merge brings back the tombstones that the
+  Merge it into the current state with `profile/merge`, then compact with
+  `profile/compact`, since the merge brings back the tombstones that the
   step removed. The function `library/sync!` does both.
 - On the JVM, `sync!` returns the map, and in ClojureScript a promise of
   it.
 - Its options are `:ctx`, the cursors of the last step, and `:compact`,
   which is `false` to keep every tombstone, or the options of
-  `player/compact`.
+  `profile/compact`.
 
 
 ## The sync document
@@ -165,11 +165,13 @@ A sync document is an EDN map:
  :device     "8f1c9e2a-…"          ; the id of the device that wrote it
  :written-at #inst "2026-09-26T…"  ; when, by the clock of that device
  :app        "my-app"              ; the app that wrote it, optional
- :state      {…}}                  ; the whole player state of that device
+ :state      {…}}                  ; the whole profile of that device
 ```
 
-- The player state is the map that the docstring of
-  `dk.simongray.podcast.app.player` describes.
+- The profile is the map that the docstring of
+  `dk.simongray.podcast.app.profile` describes. It's a CRDT, so
+  `profile/merge` combines the profiles of any devices in any order, as
+  [The profile as a CRDT](sync.md#the-profile-as-a-crdt) explains.
 - The version only changes when the meaning of an existing key changes,
   not for new keys.
 - A reader leaves out a document with a newer version, and reports

@@ -1,8 +1,8 @@
-(ns dk.simongray.podcast.app.player
-  "What a podcast player keeps between plays, as plain data with pure
-  functions over it.
+(ns dk.simongray.podcast.app.profile
+  "The listener's profile, which syncs between their devices, as plain
+  data with pure functions over it.
 
-  The state is one map:
+  A profile is one map:
 
       {:device         \"8f1c9e2a-…\"   ; this device's id
        :clock          #inst \"…\"      ; the latest stamp written or merged
@@ -28,10 +28,10 @@
        :retired        {device-id {}}}
 
   Each write takes the time it happens at, and stamps what it changed with
-  that time and the :device of the state. The state is a CRDT of
-  dk.simongray.podcast.util.crdt, so merge joins the states of a
-  listener's devices, and compact drops the
-  tombstones that every device has seen. A feed is identified by its
+  that time and the :device of the profile. A profile is a CRDT of
+  dk.simongray.podcast.util.crdt, so merge joins the profiles of a
+  listener's devices, and compact drops the tombstones that every device
+  has seen. A feed is identified by its
   podcast:guid, and an episode by its id, [feed-guid item-guid]."
   (:refer-clojure :exclude [merge])
   (:require [clojure.string :as str]
@@ -43,15 +43,15 @@
             [dk.simongray.podcast.util.rank :as rank]
             [dk.simongray.podcast.util.time :as time]))
 
-(defn state
-  "A fresh player state for the device `device`, a stable id that tells the
+(defn make
+  "A fresh profile for the device `device`, a stable id that tells the
   listener's devices apart, made once per installation, e.g.
   (str (random-uuid))."
   [device]
   {:device device :subscriptions {} :episodes {} :queue {}})
 
 (def ^:no-doc collections
-  "The schema of the player state for dk.simongray.podcast.util.crdt: the
+  "The schema of a profile for dk.simongray.podcast.util.crdt: the
   :depth of the entries of each collection, whether compact drops its
   tombstones, and the key of the listening counts, which only grow."
   {:subscriptions  {:depth 1 :compact? true}
@@ -279,11 +279,11 @@
   "Save the `criteria` of app.search/episodes in `state` as the filter
   `name` at `at`, so that the other devices have it too.
 
-  The criteria replace a filter of the same name, without :player and
-  :url, which belong to the device. They must be data, since the state is
-  printed as EDN, so an order that's a function throws."
+  The criteria replace a filter of the same name, without :profile and
+  :url, which are the context of one search. They must be data, since
+  the profile is printed as EDN, so an order that's a function throws."
   [state name criteria at]
-  (let [criteria (dissoc criteria :player :url)]
+  (let [criteria (dissoc criteria :profile :url)]
     (when (some fn? (tree-seq coll? seq criteria))
       (throw (ex-info "A saved filter holds data only, not functions" {:name name :criteria criteria})))
     (crdt/write state [:filters name] (constantly {:criteria criteria :removed? false}) at)))
@@ -1366,7 +1366,7 @@
 
 (comment
   (def sample
-    (-> (state "laptop")
+    (-> (make "laptop")
         (subscribe "feed-1" {:url "https://example.org/feed.xml" :title "A show"} #inst "2026-01-01")
         (configure "feed-1" {:folder "Tech" :skip-outro 30} #inst "2026-01-01")
         (tag "feed-1" "news" #inst "2026-01-01")
@@ -1420,7 +1420,7 @@
 
 #?(:clj
    (comment
-     (-> (state (str (random-uuid)))
+     (-> (make (str (random-uuid)))
          (crdt/identify {:name "laptop"} #inst "2026-01-01")
          (subscribe "feed-1" {:url "https://a/rss" :title "A"} #inst "2026-01-01")
          (enqueue ["feed-1" "ep-1"] #inst "2026-01-01T01:00:00Z")

@@ -71,8 +71,8 @@ that several large hosts put on `<rss>`.
 
 Three interpreters read it: `feed/parse` turns Hiccup into the model,
 `feed/emit` writes the model back in canonical form, and `validate/validate`
-reports what breaks the specs, with the PSP-1 and Apple profiles adding
-their rules on top. The Malli schemas in `feed.schema` and the [feed
+reports what breaks the specs, with the requirements of PSP-1 and Apple
+Podcasts on top. The Malli schemas in `feed.schema` and the [feed
 model](tags.md) reference are generated from it too, so none of them can
 drift from the code.
 
@@ -155,7 +155,7 @@ keeps the list and the source in sync.
   one segment model. Real files taught the reader a few things, e.g. caption
   files only name the speaker when it changes, so the reader carries the
   name over.
-- **OPML** carries the player state in the parts of OPML 2.0 that already
+- **OPML** carries the profile in the parts of OPML 2.0 that already
   fit it: tags as categories, the time of subscription as `created`, and
   followed lists as includes. Other apps read the rest as they always did.
 - **HTML** in show notes is read by a small lenient parser that works like a
@@ -190,8 +190,9 @@ Every function that fetches has limits of size, time and requests in the
 fetch and `verdicts` turns what came back into diagnostics, both pure, and
 `check-files!` only sends. Its rules come from the standards first (RFC
 9110, RSS 2.0, the podcast namespace, and the Fetch standard for CORS), and
-the PSP-1 and Apple profiles add theirs on top. A browser hides much of an
-answer from a page, so a check sees most on the JVM or in Node.
+the requirements of PSP-1 and Apple Podcasts add theirs on top. A browser
+hides much of an answer from a page, so a check sees most on the JVM or in
+Node.
 
 
 ## Security
@@ -414,12 +415,12 @@ The rules of OP3 differ a little from those of the IAB, so the counts do
 too.
 
 
-## The player state
+## The profile
 
 Most of a podcast app's logic is the same in every app: a queue, a position
-in each episode, played marks, and subscriptions with settings. `app.player`
-keeps all of it in one map with pure functions over it, so an app only
-writes its UI.
+in each episode, played marks, and subscriptions with settings.
+`app.profile` keeps all of it in one map, the listener's profile, with pure
+functions over it, so an app only writes its UI.
 
 Each function takes the instant of its change, and stamps what it changes
 with that instant and the device id. If the instant isn't later than the
@@ -427,10 +428,10 @@ latest one in the state, it uses the next millisecond: a hybrid logical
 clock in one rule. A removal is a tombstone. `merge` reconciles two states
 entry by entry, and the later entry wins. The merge is commutative,
 associative and idempotent, which a generative test checks, so any backend
-that can store a document can sync the state. This is also why the state
-must only change through `app.player` and `util.crdt`, never with `assoc`.
-The CRDT itself is in `util.crdt`, which knows nothing of podcasts:
-`app.player` gives it the schema of its collections.
+that can store a document can sync the profile. This is also why the
+profile must only change through `app.profile` and `util.crdt`, never with
+`assoc`. The CRDT itself is in `util.crdt`, which knows nothing of
+podcasts: `app.profile` gives it the schema of its collections.
 
 `step` takes the events of a player (`:progress`, `:ended`, `:play`,
 `:skip` and `:chapter`) and returns the new state with effects for the app,
@@ -464,13 +465,13 @@ prints as EDN.
 ## Download rules
 
 No standard defines download rules. The plan in `app.downloads` is a pure
-function: it takes the player state, the feeds, the files on the device and
+function: it takes the profile, the feeds, the files on the device and
 the instant, and returns the episodes to download and the files to delete,
 each with a reason. The app downloads and deletes, and decides when, since
 it knows the network and the battery.
 
 A rule selects episodes with the same options as `search/episodes`, so rules
-need no language of their own. The rules sync in the player state, but the
+need no language of their own. The rules sync in the profile, but the
 list of files doesn't, since it belongs to one device. A rule from a later
 version of podcast-clj does nothing, because a wrong delete costs more than
 a late download.
@@ -520,7 +521,7 @@ Most tests are `.cljc` files and run on the JVM, in Node and in a browser.
 Hand-written fixtures test each quirk with its expected report. Corpora of
 real feeds, companion files and media files, kept outside Git, are parsed,
 round-tripped and validated, and every gap they found came with a test.
-Generative tests cover the merge of the player state, the order of ranks,
+Generative tests cover the merge of the profile, the order of ranks,
 devices that sync in random order, and the round trip of feeds generated
 from the Malli schemas. CI also runs the library tests on Java 11 with
 Clojure 1.11, the oldest versions podcast-clj supports.

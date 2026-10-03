@@ -4,7 +4,7 @@
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.test-support :refer [fixture]]
             [dk.simongray.podcast.util.crdt :as crdt]))
@@ -41,10 +41,10 @@
      :itunes/season 2 :itunes/episode-type "bonus"}]})
 
 (def listened
-  "A player that has started one episode and finished another."
-  (-> (player/state "phone")
-      (player/progress ["feed-guid" "s1e1"] 600 1800 t1)
-      (player/mark-played ["feed-guid" "s1e2"] t0)))
+  "A profile with one episode started and another finished."
+  (-> (profile/make "phone")
+      (profile/progress ["feed-guid" "s1e1"] 600 1800 t1)
+      (profile/mark-played ["feed-guid" "s1e2"] t0)))
 
 (defn- titles
   [opts]
@@ -82,58 +82,58 @@
   (is (= ["Season one, episode one: Café" "Season one, episode two"] (titles {:where {:text "coff"}}))
       "words in the title or the notes, the last as a prefix")
   (is (= ["Season one, episode one: Café"] (titles {:where {:text "cafe"}})))
-  (is (= ["Season one, episode one: Café"] (titles {:where {:status :in-progress} :player listened})))
-  (is (= ["Trailer" "Season two, episode one" "Bonus"] (titles {:where {:status :unplayed} :player listened})))
-  (is (= ["Season one, episode two"] (titles {:where {:status :played} :player listened})))
+  (is (= ["Season one, episode one: Café"] (titles {:where {:status :in-progress} :profile listened})))
+  (is (= ["Trailer" "Season two, episode one" "Bonus"] (titles {:where {:status :unplayed} :profile listened})))
+  (is (= ["Season one, episode two"] (titles {:where {:status :played} :profile listened})))
   (is (= ["Season one, episode one: Café" "Season one, episode two"]
-         (titles {:where {:status #{:played :in-progress} :season 1} :player listened})))
+         (titles {:where {:status #{:played :in-progress} :season 1} :profile listened})))
   (is (thrown? #?(:clj Exception :cljs js/Error) (search/where {:colour "red"})))
   (is (thrown? #?(:clj Exception :cljs js/Error) (search/where {:status :played}))
-      ":status without a player is a mistake, not an empty list")
-  (testing "the stars and the inbox of the player, and a saved filter"
+      ":status without a profile is a mistake, not an empty list")
+  (testing "the stars and the inbox of the profile, and a saved filter"
     (let [marked (-> listened
-                     (player/star ["feed-guid" "b"] t1)
+                     (profile/star ["feed-guid" "b"] t1)
                      (crdt/write [:inbox ["feed-guid" "t"]] (constantly {:removed? false}) t1)
-                     (player/save-filter "Starred" {:where {:starred? true}} t1))]
-      (is (= ["Bonus"] (titles {:where {:starred? true} :player marked})))
-      (is (= ["Trailer"] (titles {:where {:inbox? true} :player marked})))
-      (is (= ["Bonus"] (titles (assoc (get (player/filters marked) "Starred") :player marked))))
-      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:inbox\? needs the player state"
+                     (profile/save-filter "Starred" {:where {:starred? true}} t1))]
+      (is (= ["Bonus"] (titles {:where {:starred? true} :profile marked})))
+      (is (= ["Trailer"] (titles {:where {:inbox? true} :profile marked})))
+      (is (= ["Bonus"] (titles (assoc (get (profile/filters marked) "Starred") :profile marked))))
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:inbox\? needs the profile"
                             (search/where {:inbox? true})))))
   (testing "the ratings of the listener, as a range"
     (let [rated (-> listened
-                    (player/rate-episode ["feed-guid" "b"] 5 t1)
-                    (player/rate-episode ["feed-guid" "t"] 2 t1))]
-      (is (= ["Bonus"] (titles {:where {:rating [4 nil]} :player rated})))
-      (is (= ["Trailer"] (titles {:where {:rating [nil 3]} :player rated})))
-      (is (= ["Trailer" "Bonus"] (titles {:where {:rating [1 5]} :player rated}))
+                    (profile/rate-episode ["feed-guid" "b"] 5 t1)
+                    (profile/rate-episode ["feed-guid" "t"] 2 t1))]
+      (is (= ["Bonus"] (titles {:where {:rating [4 nil]} :profile rated})))
+      (is (= ["Trailer"] (titles {:where {:rating [nil 3]} :profile rated})))
+      (is (= ["Trailer" "Bonus"] (titles {:where {:rating [1 5]} :profile rated}))
           "an episode with no rating is in no range")
       (is (= [] (titles {:where  {:rating [4 nil]}
-                         :player (player/unrate-episode rated ["feed-guid" "b"] #inst "2026-03-03T00:00:00Z")})))
-      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:rating needs the player state"
+                         :profile (profile/unrate-episode rated ["feed-guid" "b"] #inst "2026-03-03T00:00:00Z")})))
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:rating needs the profile"
                             (search/where {:rating [4 nil]})))))
   (testing "ratings in the scale of the app, and a saved filter that keeps its scale"
     (let [hundred {:worst 1 :best 100}
           rated   (-> listened
-                      (player/rate-episode ["feed-guid" "b"] 90 t1 {:scale hundred})
-                      (player/rate-episode ["feed-guid" "t"] 4 t1)
-                      (player/save-filter "Best" {:where {:rating [80 nil]} :scale hundred} t1))]
-      (is (= ["Bonus"] (titles {:where {:rating [80 nil]} :scale hundred :player rated}))
+                      (profile/rate-episode ["feed-guid" "b"] 90 t1 {:scale hundred})
+                      (profile/rate-episode ["feed-guid" "t"] 4 t1)
+                      (profile/save-filter "Best" {:where {:rating [80 nil]} :scale hundred} t1))]
+      (is (= ["Bonus"] (titles {:where {:rating [80 nil]} :scale hundred :profile rated}))
           "a 4 of 1 to 5 is 75.25 of 1 to 100")
-      (is (= ["Trailer" "Bonus"] (titles {:where {:rating [4 nil]} :scale player/rating-scale :player rated})))
-      (is (= ["Trailer" "Bonus"] (titles {:where {:rating [4 nil]} :player rated}))
+      (is (= ["Trailer" "Bonus"] (titles {:where {:rating [4 nil]} :scale profile/rating-scale :profile rated})))
+      (is (= ["Trailer" "Bonus"] (titles {:where {:rating [4 nil]} :profile rated}))
           "without a scale, each rating is the number that the state has")
-      (is (= ["Bonus"] (titles (assoc (get (player/filters rated) "Best") :player rated))))
-      (is (nil? (search/problem (get (player/filters rated) "Best"))))))
+      (is (= ["Bonus"] (titles (assoc (get (profile/filters rated) "Best") :profile rated))))
+      (is (nil? (search/problem (get (profile/filters rated) "Best"))))))
   (testing "one of several texts, and criteria that an item does not meet"
     (is (= ["Trailer" "Season one, episode one: Café" "Season one, episode two" "Bonus"]
            (titles {:where {:text #{"coffee" "trailer" "bonus"}}})))
     (is (= ["Season two, episode one"] (titles {:where {:not {:text #{"coffee" "trailer" "bonus"}}}})))
     (is (= ["Season one, episode one: Café"] (titles {:where {:season 1 :not {:duration [3000 nil]}}})))
     (is (= ["Trailer" "Season two, episode one" "Bonus"]
-           (titles {:where {:not {:status #{:played :in-progress}}} :player listened})))
+           (titles {:where {:not {:status #{:played :in-progress}}} :profile listened})))
     (is (= (titles {:where {:season 1}}) (titles {:where {:not {:not {:season 1}}}})))
-    (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:status needs the player state"
+    (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:status needs the profile"
                           (search/where {:not {:status :played}})))
     (is (thrown? #?(:clj Exception :cljs js/Error) (search/where {:not {:colour "red"}}))))
   (testing "the age of an episode, in seconds before now"
@@ -147,14 +147,14 @@
       (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:age needs the instant of now"
                             (search/where {:age [nil week]})))))
   (testing "the episodes that came out after the listener subscribed"
-    (let [subscribed (player/subscribe listened "feed-guid" {:url "https://x/feed" :title "Test Show"}
-                                       #inst "2026-01-20T00:00:00Z")]
-      (is (= ["Season two, episode one" "Bonus"] (titles {:where {:since-subscription? true} :player subscribed})))
+    (let [subscribed (profile/subscribe listened "feed-guid" {:url "https://x/feed" :title "Test Show"}
+                                        #inst "2026-01-20T00:00:00Z")]
+      (is (= ["Season two, episode one" "Bonus"] (titles {:where {:since-subscription? true} :profile subscribed})))
       (is (= ["Trailer" "Season one, episode one: Café" "Season one, episode two"]
-             (titles {:where {:since-subscription? false} :player subscribed})))
-      (is (= [] (titles {:where {:since-subscription? true} :player listened}))
+             (titles {:where {:since-subscription? false} :profile subscribed})))
+      (is (= [] (titles {:where {:since-subscription? true} :profile listened}))
           "without a subscription, no episode came out after it")
-      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:since-subscription\? needs the player state"
+      (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"^:since-subscription\? needs the profile"
                             (search/where {:since-subscription? true}))))))
 
 (deftest orders
@@ -169,7 +169,7 @@
   (is (= ["Bonus" "Season one, episode one: Café" "Season one, episode two" "Season two, episode one" "Trailer"]
          (titles {:order :title})))
   (is (= ["Season one, episode one: Café" "Season one, episode two" "Trailer" "Season two, episode one" "Bonus"]
-         (titles {:order :recent :player listened}))
+         (titles {:order :recent :profile listened}))
       "last touched first, the untouched in feed order after")
   (is (= ["Bonus" "Trailer"] (titles {:order (fn [_ item] (count (:rss/title item))) :limit 2}))
       "a function is a key of its own; limit applies after ordering")
@@ -181,16 +181,16 @@
     (doseq [order (conj (vec search/orders) nil)
             where [{} {:type "full"} {:duration [nil 1800]} {:not {:text #{"coffee"}}} {:status :unplayed}]
             limit [0 1 2 10]
-            :let  [opts (cond-> {:where where :player listened} order (assoc :order order))]]
+            :let  [opts (cond-> {:where where :profile listened} order (assoc :order order))]]
       (is (= (vec (take limit (titles opts))) (titles (assoc opts :limit limit)))
-          (pr-str (dissoc opts :player) limit)))
+          (pr-str (dissoc opts :profile) limit)))
     (is (= (take 3 (search/episodes [show show] {:where {:type "full"}}))
            (search/episodes [show show] {:where {:type "full"} :limit 3}))
         "across feeds"))
   (testing "the criteria read no more items than the limit needs"
     (let [read (atom 0)
           url  (fn [_] (swap! read inc) "https://x/feed.xml")]
-      (is (= ["Bonus"] (titles {:where {:status :unplayed} :player listened :url url :order :newest :limit 1})))
+      (is (= ["Bonus"] (titles {:where {:status :unplayed} :profile listened :url url :order :newest :limit 1})))
       (is (= 1 @read))))
   (testing "a key of the app gets only the items that the criteria select"
     (is (= ["Season two, episode one" "Trailer"]
@@ -227,9 +227,9 @@
     (is (= 2 (count (search/episodes [show other] {:limit 2}))))
     (is (= ["Season one, episode one: Café"]
            (mapv (comp :rss/title second)
-                 (search/episodes [show other] {:where {:status :in-progress} :player listened
+                 (search/episodes [show other] {:where {:status :in-progress} :profile listened
                                                 :url (fn [feed] (str "https://x/" (:podcast/guid feed)))})))
-        "the url as a function of the feed, for the identities the player uses")
+        "the url as a function of the feed, for the identities the profile uses")
     (is (= ["Other" "Test Show"] (distinct (mapv (comp :rss/title first) (search/episodes [other show]))))
         "in the listening order, each show keeps its episodes together, in the order the feeds come")))
 
@@ -304,7 +304,7 @@
   (let [feed (deref example)
         item (first (:rss/items feed))
         doc  (search/item-document feed item {:url "https://example.com/feed.xml"})]
-    (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"] (:id doc)) "the identity the player uses")
+    (is (= ["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"] (:id doc)) "the identity the profile uses")
     (is (= "Episode 3 - The Future" (get-in doc [:fields :title])))
     (is (= "Podcasting 2.0 Namespace Example" (get-in doc [:fields :show])))
     (is (= "A look into the future of podcasting and how we get to Podcasting 2.0!" (get-in doc [:fields :description])))

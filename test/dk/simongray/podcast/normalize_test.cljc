@@ -45,4 +45,4 @@
         (is (re-find #"<podcast:transcript url=\"https://t/t.vtt\" type=\"text/vtt\"/>" xml))
         (is (re-find #"<podcast:person role=\"host\">Al</podcast:person>" xml))
         (is (= full (podcast/parse xml)) "and what it writes reads back as the normalized model"))
-      (is (not-any? (comp #{:validate/wrong-shape} :id) (validate/validate shorthand {:profile :psp-1}))))))
+      (is (not-any? (comp #{:validate/wrong-shape} :id) (validate/validate shorthand {:requirements :psp-1}))))))

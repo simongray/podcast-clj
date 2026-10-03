@@ -5,7 +5,7 @@
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.app.downloads :as downloads]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.util.crdt :as crdt]))
 
 (def day (* 24 60 60))
@@ -43,16 +43,16 @@
 (def now (at 28))
 
 (def subscribed
-  (-> (player/state "phone")
-      (player/subscribe "feed-a" {:url "https://example.org/a.xml" :title "A show"} (at 0))
-      (player/subscribe "feed-b" {:url "https://example.org/b.xml" :title "Another show"} (at 0))))
+  (-> (profile/make "phone")
+      (profile/subscribe "feed-a" {:url "https://example.org/a.xml" :title "A show"} (at 0))
+      (profile/subscribe "feed-b" {:url "https://example.org/b.xml" :title "Another show"} (at 0))))
 
 (defn- with-rules
   "`state` with the rules `listener` of the listener, and the rule of each
   show of `shows`, a map by feed guid."
   [state listener shows]
-  (reduce (fn [s [feed-guid rule]] (player/configure s feed-guid {:downloads rule} (at 0)))
-          (player/prefer state {:downloads listener} (at 0))
+  (reduce (fn [s [feed-guid rule]] (profile/configure s feed-guid {:downloads rule} (at 0)))
+          (profile/prefer state {:downloads listener} (at 0))
           shows))
 
 (defn- ids
@@ -85,17 +85,17 @@
     (is (nil? (downloads/problems rules)))
     (is (= rules (downloads/rules (edn/read-string (pr-str state)))) "the rules are data of the state")
     (testing "the rules of two devices merge as the settings do"
-      (let [laptop (-> (player/merge (player/state "laptop") state)
-                       (player/configure "feed-b" {:downloads {:download? true}} (at 1)))]
+      (let [laptop (-> (profile/merge (profile/make "laptop") state)
+                       (profile/configure "feed-b" {:downloads {:download? true}} (at 1)))]
         (is (= {"feed-a" {:download? true :episodes {:limit 2}} "feed-b" {:download? true}}
-               (:shows (downloads/rules (player/merge state laptop)))))))
-    (is (= {} (:shows (downloads/rules (player/unsubscribe (player/unsubscribe state "feed-a" (at 2)) "feed-b" (at 2)))))
+               (:shows (downloads/rules (profile/merge state laptop)))))))
+    (is (= {} (:shows (downloads/rules (profile/unsubscribe (profile/unsubscribe state "feed-a" (at 2)) "feed-b" (at 2)))))
         "a show that the listener left has no rule")))
 
 (deftest nothing-without-a-rule
   (is (= {:download [] :delete [] :waiting []} (plan subscribed {})))
   (is (= {:download [] :delete [] :waiting []}
-         (plan (player/mark-played subscribed ["feed-a" "a1"] (at 2)) {["feed-a" "a1"] {:bytes 100 :at (at 1)}}))))
+         (plan (profile/mark-played subscribed ["feed-a" "a1"] (at 2)) {["feed-a" "a1"] {:bytes 100 :at (at 1)}}))))
 
 (deftest the-episodes-that-a-rule-selects
   (testing "the newest episodes of a show"
@@ -105,7 +105,7 @@
              (:download (plan state {}))))
       (is (= [["feed-a" "a3"]] (ids (:download (plan state {["feed-a" "a4"] {:bytes 400 :at (at 23)}}))))
           "the device has the newest")
-      (is (= [["feed-a" "a3"]] (ids (:download (plan (player/mark-played state ["feed-a" "a4"] (at 23)) {}))))
+      (is (= [["feed-a" "a3"]] (ids (:download (plan (profile/mark-played state ["feed-a" "a4"] (at 23)) {}))))
           "a played episode is one of the two, and no download")
       (is (= [["feed-a" "a3"]] (ids (:download (plan state {["feed-a" "a4"] {:removed? true}}))))
           "a file that went does not come back")))
@@ -122,8 +122,8 @@
       (is (= [] (ids (:download (plan (state {:duration [3600 nil]}) {})))))
       (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (ids (:download (plan (state {:age [nil (* 14 day)]}) {})))))))
   (testing "the episodes that came out after the listener subscribed"
-    (let [late (-> (player/state "phone")
-                   (player/subscribe "feed-a" {:url "https://example.org/a.xml" :title "A show"} (at 10))
+    (let [late (-> (profile/make "phone")
+                   (profile/subscribe "feed-a" {:url "https://example.org/a.xml" :title "A show"} (at 10))
                    (with-rules {} {"feed-a" {:download? true :episodes {:where {:since-subscription? true}}}}))]
       (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (ids (:download (plan late {})))))))
   (testing "the inbox, and an episode that the listener dismissed"
@@ -131,12 +131,12 @@
                     (crdt/write [:inbox ["feed-a" "a4"]] (constantly {:removed? false}) (at 22))
                     (crdt/write [:inbox ["feed-a" "a3"]] (constantly {:removed? false}) (at 15)))]
       (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (ids (:download (plan state {})))))
-      (is (= [["feed-a" "a3"]] (ids (:download (plan (player/dismiss state ["feed-a" "a4"] (at 23)) {}))))))
+      (is (= [["feed-a" "a3"]] (ids (:download (plan (profile/dismiss state ["feed-a" "a4"] (at 23)) {}))))))
     (let [state (-> (with-rules subscribed {} {"feed-a" {:download? true :episodes {:limit 1}}})
                     (crdt/write [:inbox ["feed-a" "a4"]] (constantly {:removed? false}) (at 22))
-                    (player/dismiss ["feed-a" "a4"] (at 23)))]
+                    (profile/dismiss ["feed-a" "a4"] (at 23)))]
       (is (= [] (ids (:download (plan state {})))) "the listener did not want the newest")
-      (is (= [["feed-a" "a4"]] (ids (:download (plan (player/enqueue state ["feed-a" "a4"] (at 24)) {}))))
+      (is (= [["feed-a" "a4"]] (ids (:download (plan (profile/enqueue state ["feed-a" "a4"] (at 24)) {}))))
           "and then put it in the queue")))
   (testing "a show in the listening order, for a show that a listener hears from the start"
     (let [serial (assoc show :itunes/type "serial")
@@ -145,15 +145,15 @@
                                             :episodes  {:where {:status #{:unplayed :in-progress}}
                                                         :order :listening
                                                         :limit 2}}})
-                     (player/mark-played ["feed-a" "a1"] (at 2)))]
+                     (profile/mark-played ["feed-a" "a1"] (at 2)))]
       (is (= #{["feed-a" "a2"] ["feed-a" "a3"]}
              (set (ids (:download (downloads/plan state [serial] {} now)))))))))
 
 (deftest the-front-of-the-queue
   (let [state (-> (with-rules subscribed {:queue 2} {})
-                  (player/enqueue ["feed-b" "b1"] (at 11))
-                  (player/enqueue ["feed-a" "a1"] (at 12))
-                  (player/enqueue ["feed-a" "a2"] (at 13)))]
+                  (profile/enqueue ["feed-b" "b1"] (at 11))
+                  (profile/enqueue ["feed-a" "a1"] (at 12))
+                  (profile/enqueue ["feed-a" "a2"] (at 13)))]
     (is (= [{:id ["feed-b" "b1"] :url "https://example.org/b1.mp3" :type "audio/mpeg" :bytes 1000 :reason :queue}
             {:id ["feed-a" "a1"] :url "https://example.org/a1.mp3" :type "audio/mpeg" :bytes 100 :reason :queue}]
            (:download (plan state {}))))
@@ -174,8 +174,8 @@
                ["feed-a" "a2"] {:bytes 200 :at (at 9)}
                ["feed-a" "a4"] {:bytes 400 :at (at 23)}}
         heard (-> subscribed
-                  (player/mark-played ["feed-a" "a1"] (at 20))
-                  (player/progress ["feed-a" "a2"] 600 1800 (at 27)))]
+                  (profile/mark-played ["feed-a" "a1"] (at 20))
+                  (profile/progress ["feed-a" "a2"] 600 1800 (at 27)))]
     (testing "a played episode, after a time"
       (is (= [{:id ["feed-a" "a1"] :reason :played :bytes 100}]
              (:delete (plan (with-rules heard {:default {:played (* 7 day)}} {}) files))))
@@ -198,8 +198,8 @@
             "without the feed of the show, nothing tells what the rule selects")))
     (testing "the files that stay"
       (let [state (-> (with-rules heard {:default {:played 0 :inactive 0 :trim? true :episodes {:limit 0}}} {})
-                      (player/star ["feed-a" "a1"] (at 21))
-                      (player/enqueue ["feed-a" "a4"] (at 24)))
+                      (profile/star ["feed-a" "a1"] (at 21))
+                      (profile/enqueue ["feed-a" "a4"] (at 24)))
             rules (downloads/rules state)
             keep  #(assoc-in rules [:default :keep] %)]
         (is (= [["feed-a" "a2"]] (ids (:delete (plan state files)))) "an episode with a star, and one in the queue")
@@ -208,7 +208,7 @@
         (is (= [["feed-a" "a1"] ["feed-a" "a4"]]
                (ids (:delete (plan state files {:rules (keep #{:in-progress})})))))
         (is (= [["feed-a" "a2"] ["feed-a" "a4"]]
-               (ids (:delete (plan (player/add-to-playlist state "Trip" ["feed-a" "a1"] (at 25))
+               (ids (:delete (plan (profile/add-to-playlist state "Trip" ["feed-a" "a1"] (at 25))
                                    files
                                    {:rules (keep #{:playlists})})))))
         (is (= [["feed-a" "a4"]]
@@ -221,14 +221,14 @@
     (testing "a file of a show that the listener left, or that is no show of the state"
       (is (= [["feed-a" "a1"] ["feed-c" "c1"]]
              (ids (:delete (plan (-> (with-rules heard {:default {:played 0}} {})
-                                     (player/unsubscribe "feed-a" (at 26))
-                                     (player/mark-played ["feed-c" "c1"] (at 26)))
+                                     (profile/unsubscribe "feed-a" (at 26))
+                                     (profile/mark-played ["feed-c" "c1"] (at 26)))
                                  (assoc files ["feed-c" "c1"] {:bytes 10 :at (at 25)})))))))))
 
 (deftest the-room-on-the-device
   (let [state (-> (with-rules subscribed {:default {:download? true}} {})
-                  (player/mark-played ["feed-a" "a1"] (at 5))
-                  (player/mark-played ["feed-a" "a2"] (at 12)))
+                  (profile/mark-played ["feed-a" "a1"] (at 5))
+                  (profile/mark-played ["feed-a" "a2"] (at 12)))
         files {["feed-a" "a1"] {:bytes 100 :at (at 2)}
                ["feed-a" "a2"] {:bytes 200 :at (at 9)}}
         rules #(merge (downloads/rules state) %)
@@ -262,7 +262,7 @@
              (parts {:rules (rules {:max-bytes 1500 :make-room? true})}))
           "no file goes for a download that has no room after that")
       (is (= [[["feed-a" "a2"] :room nil]]
-             (:delete (update-vals (plan (player/star state ["feed-a" "a1"] (at 6)) files
+             (:delete (update-vals (plan (profile/star state ["feed-a" "a1"] (at 6)) files
                                          {:rules (rules {:max-episodes 3 :make-room? true})})
                                    #(mapv (juxt :id :reason :limit) %))))
           "a file that the rule keeps makes no room"))
@@ -277,7 +277,7 @@
   (let [many  {:podcast/guid "feed-a"
                :rss/items    (mapv #(item (str "m" %) (str "Episode " %) 1 100) (range 30000))}
         state (-> (with-rules subscribed {:default {:download? true} :max-bytes 2000100 :make-room? true} {})
-                  (player/mark-played ["feed-a" "old"] (at 5)))
+                  (profile/mark-played ["feed-a" "old"] (at 5)))
         files {["feed-a" "old"] {:bytes 100 :at (at 2)}}
         plan  (downloads/plan state [many] files now)]
     (is (= 20001 (count (:download plan))) "20,000 files have room, and one more after the played file goes")
@@ -304,7 +304,7 @@
 (deftest a-feed-without-a-guid
   (let [bare  (dissoc show :podcast/guid)
         url   "https://example.org/a.xml"
-        guid  (first (player/episode-id bare url (first (:rss/items bare))))
+        guid  (first (profile/episode-id bare url (first (:rss/items bare))))
         rules {:shows {guid {:download? true :episodes {:limit 1}}}}]
     (is (= [[guid "a4"]] (ids (:download (downloads/plan subscribed [bare] {} now {:rules rules :url url})))))
     (is (= [[guid "a4"]]
@@ -349,7 +349,7 @@
       (is (= [place] (keys (downloads/problems rules))) (pr-str rules))
       (is (re-find found (str (get (downloads/problems rules) place))) (pr-str rules))))
   (testing "a show whose rule has a problem has no plan, and the other shows have theirs"
-    (let [state (player/mark-played subscribed ["feed-a" "a1"] (at 5))
+    (let [state (profile/mark-played subscribed ["feed-a" "a1"] (at 5))
           files {["feed-a" "a1"] {:bytes 100 :at (at 2)}}
           rules {:default {:download? true :played 0 :episodes {:limit 1}}
                  :shows   {"feed-a" {:later true}}}]
@@ -364,12 +364,12 @@
       (is (= {:download [] :delete [] :waiting [] :problems {:later "the key :later is not known"}}
              (plan state {})))
       (is (= {:download [] :delete [] :waiting [] :problems {:rules "the rules are \"all\", not a map"}}
-             (plan (player/prefer subscribed {:downloads "all"} (at 0)) {}))))))
+             (plan (profile/prefer subscribed {:downloads "all"} (at 0)) {}))))))
 
 (deftest the-same-plan-for-the-same-input
   (let [state (-> (with-rules subscribed {:default {:download? true :played 0} :queue 1 :max-episodes 5} {})
-                  (player/enqueue ["feed-b" "b1"] (at 11))
-                  (player/mark-played ["feed-a" "a1"] (at 5)))
+                  (profile/enqueue ["feed-b" "b1"] (at 11))
+                  (profile/mark-played ["feed-a" "a1"] (at 5)))
         files {["feed-a" "a1"] {:bytes 100 :at (at 2)}}]
     (is (= (plan state files)
            (downloads/plan state [other show] files now)

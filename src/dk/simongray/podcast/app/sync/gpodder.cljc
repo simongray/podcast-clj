@@ -13,7 +13,7 @@
   request map, and response reads the answer, so that the tests run on
   recorded answers."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
@@ -226,7 +226,7 @@
               {:items    (into {} items)
                :by-media (into {} (for [[g item] items
                                         {media :url} (resolve/enclosures item)]
-                                    [(player/normal-url media) g]))}))})
+                                    [(profile/normal-url media) g]))}))})
 
 (defn identities
   "The ways to name the shows and episodes of `feeds`, the app's parsed
@@ -247,15 +247,15 @@
   keep the result while the app's feeds stay the same."
   [feeds]
   (let [known   (map indexed feeds)
-        by-url  (into {} (map (juxt (comp player/normal-url :url) identity)) known)
+        by-url  (into {} (map (juxt (comp profile/normal-url :url) identity)) known)
         by-guid (into {} (map (juxt :guid identity)) known)
         index   #(some-> % :index deref)]
-    {:feed-guid   #(:guid (by-url (player/normal-url %)))
+    {:feed-guid   #(:guid (by-url (profile/normal-url %)))
      :feed-url    #(:url (by-guid %))
      :episode-id  (fn [podcast media guid]
-                    (when-let [{g :guid :as known} (by-url (player/normal-url podcast))]
+                    (when-let [{g :guid :as known} (by-url (profile/normal-url podcast))]
                       (let [{:keys [items by-media]} (index known)]
-                        [g (or (when (contains? items guid) guid) (by-media (player/normal-url media)) guid media)])))
+                        [g (or (when (contains? items guid) guid) (by-media (profile/normal-url media)) guid media)])))
      :episode-url (fn [[feed-guid item-guid]]
                     (when-let [item (get (:items (index (by-guid feed-guid))) item-guid)]
                       (or (:url (:rss/enclosure item)) (:url (resolve/enclosure item)))))}))
@@ -265,7 +265,7 @@
   their own keys or by :identities, with defaults for those they lack.
 
   A feed is named by the subscription of `state` with its URL, as
-  dk.simongray.podcast.app.player/by-url finds it. Without such a
+  dk.simongray.podcast.app.profile/by-url finds it. Without such a
   subscription, :feed-guid names the feed, or else its URL does.
 
   An episode is named by :episode-id. Without that option, the guid of its
@@ -277,9 +277,9 @@
   [{:keys [identities] :as opts} state]
   (let [{:keys [feed-guid feed-url episode-id episode-url]}
         (merge (when identities (identities)) (select-keys opts [:feed-guid :feed-url :episode-id :episode-url]))
-        subscribed (comp (player/by-url state) player/normal-url)
+        subscribed (comp (profile/by-url state) profile/normal-url)
         ;; a new feed that declares a guid of its own keeps the guid of its
-        ;; URL until player/rekey moves the subscription, which app.library
+        ;; URL until profile/rekey moves the subscription, which app.library
         ;; does when it fetches the feed
         guid-of    #(or (subscribed %) (when feed-guid (feed-guid %)) (guid/from-url %))]
     {:feed-guid   guid-of
@@ -322,12 +322,12 @@
                             show  {:url url :title (:title known) :added-at at}
                             stamp (if known at (time/->inst 0))]
                         (cond-> s
-                          (not (player/subscribed? s g))
-                          (crdt/as-device (writer author) #(player/subscribe % g show stamp)))))
+                          (not (profile/subscribed? s g))
+                          (crdt/as-device (writer author) #(profile/subscribe % g show stamp)))))
         unsubscribe (fn [s url]
                       (let [g (guid-of url)]
                         (cond-> s
-                          (player/subscribed? s g) (crdt/as-device (writer author) #(player/unsubscribe % g at)))))]
+                          (profile/subscribed? s g) (crdt/as-device (writer author) #(profile/unsubscribe % g at)))))]
     (as-> state s
       (reduce subscribe s add)
       (reduce unsubscribe s remove))))
@@ -336,16 +336,16 @@
   "The `state` with the episode action `a` applied to the episode `id` at
   the time it names, by its own device or else by `author`.
 
-  A \"play\" records a position as player/progress does, and a \"new\" marks
-  the episode as not played, as player/mark-unplayed does. An action of
+  A \"play\" records a position as profile/progress does, and a \"new\" marks
+  the episode as not played, as profile/mark-unplayed does. An action of
   another kind, or one no later than what `state` has of the episode,
   changes nothing, so that an action read back does no harm."
   [state id {:keys [action position total timestamp device] :as a} author]
-  (let [stamp (some-> (player/episode state id) :updated-at inst-ms)
+  (let [stamp (some-> (profile/episode state id) :updated-at inst-ms)
         act   (case action
                 "play" (when (number? position)
-                         #(player/progress % id position (when (and (number? total) (pos? total)) total) timestamp))
-                "new"  #(player/mark-unplayed % id timestamp)
+                         #(profile/progress % id position (when (and (number? total) (pos? total)) total) timestamp))
+                "new"  #(profile/mark-unplayed % id timestamp)
                 nil)]
     (if (and act timestamp (< (or stamp 0) (inst-ms timestamp)))
       (crdt/as-device state (writer (or device author)) act)
@@ -573,7 +573,7 @@
                               (public (:url e)))))
         adds    (vec (urls (complement :removed?)))
         drops   (if pushed (vec (remove (set adds) (urls :removed?))) [])
-        told    (for [[[g _ :as id] e] (changed :episodes (player/episodes state))
+        told    (for [[[g _ :as id] e] (changed :episodes (profile/episodes state))
                       :let [podcast (some-> ((:feed-url names) g) public)
                             media   ((:episode-url names) id)]]
                   (if (and (http/web-url? podcast) (http/web-url? media))
@@ -607,7 +607,7 @@
      (fn [rewrites]
        {:ctx    (assoc ctx
                        :pushed {:subscriptions (stamps (:subscriptions state))
-                                :episodes      (apply dissoc (stamps (player/episodes state)) unnamed)}
+                                :episodes      (apply dissoc (stamps (profile/episodes state)) unnamed)}
                        :urls   (into (or urls {}) (for [[sent new] rewrites :when (and new (not= sent new))] [new sent])))
         :report (cond-> (vec (for [[sent new] rewrites :when (nil? new)]
                                (diagnostics/describe {:id :sync/rejected-url :level :warning :url sent})))

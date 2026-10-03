@@ -1,5 +1,5 @@
 (ns dk.simongray.podcast.app.sync.gpodder.server
-  "The gpodder API served over a player state, so that apps such as
+  "The gpodder API served over a profile, so that apps such as
   AntennaPod, Kasts and gPodder sync with a server of the listener.
 
   The function handler is a Ring handler for the paths of gpodder.net
@@ -13,7 +13,7 @@
   that an action that a device sends late still reaches the other
   devices."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.sync.gpodder :as gpodder]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
@@ -66,7 +66,7 @@
   context `ctx`, each with the number of the listener's subscriptions,
   since they share one list."
   [{:keys [book state] :as ctx}]
-  (let [n (count (player/subscriptions state))]
+  (let [n (count (profile/subscriptions state))]
     {:status 200
      :body   (vec (for [[id {:keys [caption type]}] (sort-by key (:devices book))]
                     {"id" id "caption" (or caption id) "type" (or type "other") "subscriptions" n}))}))
@@ -101,8 +101,8 @@
                                    :when (and (pred e)
                                               (>= (second (get-in book [:index [:subscriptions g]] [0 0])) since))]
                                (public e))))
-          live?  (into #{} (comp (map val) (remove :removed?) (map (comp player/normal-url public))) known)
-          gone   (remove (comp live? player/normal-url) (urls :removed?))]
+          live?  (into #{} (comp (map val) (remove :removed?) (map (comp profile/normal-url public))) known)
+          gone   (remove (comp live? profile/normal-url) (urls :removed?))]
       {:status 200
        :body   {"add"       (vec (urls (complement :removed?)))
                 "remove"    (if (zero? since) [] (vec gone))
@@ -142,7 +142,7 @@
   [{:keys [state book names since params seconds] :as ctx}]
   (let [{:strs [podcast device]} params]
     {:status 200
-     :body   {"actions"   (vec (for [[[g _ :as id] e] (player/episodes state)
+     :body   {"actions"   (vec (for [[[g _ :as id] e] (profile/episodes state)
                                      :let  [by (gpodder/device-of (:device e))]
                                      :when (and (>= (second (get-in book [:index [:episodes id]] [0 0])) (or since 0))
                                                 (or (nil? device) (= device by)))
@@ -223,7 +223,7 @@
   the atom. When the app changed the atom in between, `s` is
   merged with what the atom holds, so that nothing is lost."
   [state from s]
-  (swap! state #(if (identical? % from) s (player/merge s %))))
+  (swap! state #(if (identical? % from) s (profile/merge s %))))
 
 (defn ^:no-doc ring
   "The Ring response of `status` with `body` and the headers `more`. A
@@ -311,15 +311,15 @@
               (cond-> index
                 (not= stamp (first (get index [k id]))) (assoc [k id] [stamp now]))))
           index
-          (for [[k entries] [[:subscriptions (:subscriptions state)] [:episodes (player/episodes state)]]
+          (for [[k entries] [[:subscriptions (:subscriptions state)] [:episodes (profile/episodes state)]]
                 [id e]      entries]
             [k id e])))
 
 (defn handler
-  "A Ring handler that serves the gpodder API over the player state in the
+  "A Ring handler that serves the gpodder API over the profile in the
   atom :state of `opts`:
 
-  - :state, the atom, e.g. (atom (player/state \"gpodder-server\"))
+  - :state, the atom, e.g. (atom (profile/make \"gpodder-server\"))
   - :authorized?, a function of a user and a password that says whether
     to let them in
   - :step, a function of the state that brings it in step with the
@@ -374,10 +374,10 @@
 
   ;; a server over a state with one subscription, and a request of an app
   (def serve
-    (handler {:state       (atom (player/subscribe (player/state "gpodder-server")
-                                                   "feed-a"
-                                                   {:url "https://example.org/feed.xml" :title "A show"}
-                                                   #inst "2026-09-29T12:00:00Z"))
+    (handler {:state       (atom (profile/subscribe (profile/make "gpodder-server")
+                                                    "feed-a"
+                                                    {:url "https://example.org/feed.xml" :title "A show"}
+                                                    #inst "2026-09-29T12:00:00Z"))
               :authorized? (fn [user password] (= ["ann" "secret"] [user password]))}))
 
   (serve {:request-method :get

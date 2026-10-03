@@ -1,7 +1,7 @@
 (ns inspector.player
   "The inspector's player, in the browser. A library of
   dk.simongray.podcast.app.library lives here, kept in localStorage, with
-  the player state in it; inspector.player.view renders it through
+  the listener's profile in it; inspector.player.view renders it through
   Replicant; an audio element plays the current episode and reports back
   through `library/step`, whose effects seek or stop the audio, or start
   the next episode.
@@ -17,7 +17,7 @@
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
             [dk.simongray.podcast.app.library :as library]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
             [dk.simongray.podcast.util.crdt :as crdt]
@@ -27,12 +27,12 @@
 
 (def storage-key
   "Where the state lives between visits."
-  "dk.simongray.podcast.app.player")
+  "dk.simongray.podcast.app.profile")
 
 (defonce ^{:doc "The whole state of the page: `:library` (the library of the
-  listener, with the player state under `:player` and the sleep timer
+  listener, with the profile under `:profile` and the sleep timer
   under `:sleep`), `:titles` by episode id, and what the audio element
-  last reported. The player state holds the data of the episodes too,
+  last reported. The profile holds the data of the episodes too,
   under `:inspector/episodes`, for the other devices."}
   app
   (atom nil))
@@ -55,22 +55,12 @@
   {:library (library/make (str (random-uuid)) {:name "browser"})
    :titles  {}})
 
-(defn- upgraded
-  "The saved state `state` in the shape of today: one saved before the
-  library, with `:player` and `:sync-ctx` beside each other, gets a
-  library around them."
-  [{:keys [player sync-ctx] :as state}]
-  (if (and player (not (:library state)))
-    (-> (dissoc state :player :sync-ctx)
-        (assoc :library (assoc (library/make (:device player)) :player player :sync {:ctx sync-ctx})))
-    state))
-
 (defn- read-state
   "The state saved as the string `s`; nil when there is none, or it does not
   read."
   [s]
   (try
-    (some-> s reader/read-string upgraded)
+    (some-> s reader/read-string)
     (catch :default _ nil)))
 
 (defn- load-state
@@ -82,11 +72,11 @@
 
 (defn with-other-tab
   "The page `state` with `other`, the state another tab of this browser
-  saved, merged in: the player states joined as two devices' are, and the
+  saved, merged in: the profiles joined as two devices' are, and the
   titles of both. The sync cursors stay this tab's."
   [state other]
   (-> state
-      (update-in [:library :player] player/merge (get-in other [:library :player]))
+      (update-in [:library :profile] profile/merge (get-in other [:library :profile]))
       (update :titles merge (:titles other))))
 
 (defn with-synced
@@ -120,7 +110,7 @@
                        :synced {:at (time/now) :failed {"inspector" (str e)} :report []})))))
 
 (defn- perform!
-  "Carry out the `effects` `player/step` returned: seek the audio element
+  "Carry out the `effects` `profile/step` returned: seek the audio element
   to where a skip landed, stop it where the outro of the show starts, or
   start the next episode once it is rendered."
   [effects]
@@ -146,10 +136,10 @@
     (dissoc library :sleep)))
 
 (defn operate!
-  "Apply the player operation `f` to the player state of the library,
+  "Apply `f`, a function of app.profile, to the profile of the library,
   with `args` and the time."
   [f & args]
-  (swap! app update :library #(apply library/update-player % f args)))
+  (swap! app update :library #(apply library/update-profile % f args)))
 
 (defn- play!
   "Make the episode `id` the current one, at the front of the queue, and
@@ -186,10 +176,10 @@
     :skip         (let [[id amount] args] (skip! id amount))
     :ended        (dispatch! event)
     :sleep        (swap! app update :library timed (first args))
-    :play-next    (operate! player/play-next (first args))
-    :dequeue      (operate! player/dequeue (first args))
+    :play-next    (operate! profile/play-next (first args))
+    :dequeue      (operate! profile/dequeue (first args))
     :prefer       (when-let [n (parse-long (.. e -target -value))]
-                    (operate! player/prefer {(first args) n}))
+                    (operate! profile/prefer {(first args) n}))
     :sync         (sync!)
     :audio/loaded (let [[_ position] args
                         el (.-target e)]
@@ -203,16 +193,16 @@
   says: \"now\" plays it, \"next\" puts it after the current episode, and
   any other mode puts it at the end of the queue.
 
-  The data of the episode goes into the player state too, as an entry of
-  the inspector. So a device that gets the queue through a sync gets what
-  it needs to play the episode."
+  The data of the episode goes into the profile too, as an entry of the
+  inspector. So a device that gets the queue through a sync gets what it
+  needs to play the episode."
   [{:keys [id] :as episode} mode]
   (swap! app assoc-in [:titles id] episode)
   (operate! crdt/write [:inspector/episodes id] (constantly {:value episode}))
   (case mode
     "now"  (play! id)
-    "next" (operate! player/play-next id)
-    (operate! player/enqueue id)))
+    "next" (operate! profile/play-next id)
+    (operate! profile/enqueue id)))
 
 (defn- add-from-query!
   []
@@ -228,11 +218,11 @@
           (.catch #(swap! app assoc :error (str %)))))))
 
 (defn- shown
-  "The page state as the view reads it: with the player state and the
-  sleep timer of the library under `:player` and `:sleep`."
+  "The page state as the view reads it: with the profile and the sleep
+  timer of the library under `:profile` and `:sleep`."
   [state]
-  (let [{:keys [player sleep]} (:library state)]
-    (assoc state :player player :sleep sleep)))
+  (let [{:keys [profile sleep]} (:library state)]
+    (assoc state :profile profile :sleep sleep)))
 
 (defn- render!
   "Render the bar, and the queue page too when `page?`."
@@ -324,7 +314,7 @@
                      (fn [e]
                        (when (= storage-key (.-key e))
                          (when-let [other (read-state (.-newValue e))]
-                           (when-not (player/problem (get-in other [:library :player]))
+                           (when-not (profile/problem (get-in other [:library :profile]))
                              (swap! app with-other-tab other)))))))
 
 (defn ^:export init

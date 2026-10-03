@@ -37,9 +37,9 @@ are relative to `dk.simongray.podcast`.
 | The paths of the gpodder API | `app.sync.gpodder/apis` | `:api`, as a name or a map of paths | `:gpodder` |
 | The limits of a gpodder server | `app.sync.gpodder/default-limits` | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | 1000, 10, 100 and 500 |
 | The paths of statuses, for the Mastodon API | `comments.activitypub/status-paths` | `:status-paths` | the paths of four server programs |
-| The requirements of a directory for a feed | `feed.validate/profiles` | `:profile`, as a name or a map | no profile |
-| The rules of a directory for artwork and media files | `check/profiles` | `:profile`, as a name or a map | no profile |
-| The folder that an app writes around a whole OPML list | `app.player/wrappers` | `:wrappers`, a set of names or a predicate of a name | `feeds` |
+| The requirements of a directory for a feed | `feed.validate/requirements` | `:requirements`, as a name or a map | none |
+| The requirements of a directory for artwork and media files | `check/requirements` | `:requirements`, as a name or a map | none |
+| The folder that an app writes around a whole OPML list | `app.profile/wrappers` | `:wrappers`, a set of names or a predicate of a name | `feeds` |
 
 There's no default for these, so you give them:
 
@@ -316,8 +316,8 @@ the listener sets a rule.
 
 Some apps write the whole subscription list inside one outline, a wrapper
 rather than a folder of the listener's own. OPML can't tell the two apart,
-so `player/from-opml` goes by the name: a folder is a wrapper when it holds
-every feed of the list and its name is in `app.player/wrappers`, whatever
+so `profile/from-opml` goes by the name: a folder is a wrapper when it holds
+every feed of the list and its name is in `app.profile/wrappers`, whatever
 its case.
 
 | Name | App that writes it | Seen in September 2026 |
@@ -326,18 +326,18 @@ its case.
 | `feeds` | Overcast | [an export file](https://github.com/vinhnx/podcasts/blob/main/overcast.opml) |
 
 A folder with another name stays a folder, so a listener's own folder that
-holds all the shows survives, and an export from `player/to-opml` comes
+holds all the shows survives, and an export from `profile/to-opml` comes
 back as it went out. For an app that writes another name, give the names
 as `:wrappers`, or `(constantly true)` to treat every folder that holds
 every feed as a wrapper.
 
 
-## The profiles
+## The requirements of directories
 
-A profile in `feed.validate/profiles` holds the elements that a directory
-requires and recommends, for the channel and for each item. A profile in
-`check/profiles` holds the rules for artwork, and the levels of the
-diagnostics that the directory changes:
+An entry of `feed.validate/requirements` holds the elements that a
+directory requires and recommends, for the channel and for each item. An
+entry of `check/requirements` holds what it requires of artwork, and the
+levels of the diagnostics that the directory changes:
 
 | Key | Meaning |
 |---|---|

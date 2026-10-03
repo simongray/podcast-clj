@@ -7,7 +7,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.library :as library]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.test-support :refer [fixture run]]
@@ -52,8 +52,8 @@
 (deftest a-fresh-library
   (let [lib (library/make "phone" {:name "Phone" :platform "ios" :at now})]
     (is (= "phone" (:device lib)))
-    (is (= {:name "Phone" :platform "ios"} (dissoc (get (crdt/devices (:player lib)) "phone") :updated-at :device)))
-    (is (= now (:clock (:player lib))))
+    (is (= {:name "Phone" :platform "ios"} (dissoc (get (crdt/devices (:profile lib)) "phone") :updated-at :device)))
+    (is (= now (:clock (:profile lib))))
     (is (nil? (:index lib)) "no index unless the settings say so")
     (is (= {} (:feeds lib)))
     (is (= library/default-settings (:settings lib)))
@@ -62,12 +62,12 @@
 
 (deftest the-clock
   (let [id      [guid "https://example.com/ep0003"]
-        clock   #(:clock (:player %))
+        clock   #(:clock (:profile %))
         clocked (assoc-in library [:settings :now] #(at 60))]
     (testing "each change is stamped with the time of the clock in the settings"
       (is (= (at 60) (clock (library/unsubscribe clocked guid))))
-      (is (= (at 60) (clock (library/update-player clocked player/enqueue [guid "new"]))))
-      (is (= (at 60) (clock (library/update-player clocked (fn [p t] (player/star p id t))))) "a series of changes")
+      (is (= (at 60) (clock (library/update-profile clocked profile/enqueue [guid "new"]))))
+      (is (= (at 60) (clock (library/update-profile clocked (fn [p t] (profile/star p id t))))) "a series of changes")
       (is (= (at 60) (library/next-sync clocked)))
       (is (= 3 (count (library/episodes clocked {:where {:age [0 nil]}}))) "the criteria that need the time"))
     (testing "or with the :at of the options, an instant"
@@ -123,7 +123,7 @@
     (let [lib (library/unsubscribe library guid)]
       (is (= {} (library/subscriptions lib)))
       (is (= {} (:feeds lib)))
-      (is (false? (player/subscribed? (:player lib) guid))))))
+      (is (false? (profile/subscribed? (:profile lib) guid))))))
 
 (deftest the-search-index
   (let [lib (-> (library/make "phone" {:settings {:search? true}})
@@ -135,13 +135,13 @@
 
 (deftest following-a-list
   (let [lib (library/follow library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]
-    (is (= {"https://example.org/picks.opml" {:title "Picks" :folder "Picks"}} (player/lists (:player lib))))
+    (is (= {"https://example.org/picks.opml" {:title "Picks" :folder "Picks"}} (profile/lists (:profile lib))))
     (is (= "\"p1\"" (get-in lib [:lists "https://example.org/picks.opml" :etag])))
     (is (= (at 86400) (get-in lib [:lists "https://example.org/picks.opml" :next-check])))
     (is (= 2 (count (library/subscriptions lib))) "the show of the list joined")
-    (is (nil? (:feed (get (library/subscriptions lib) (player/normal-url other-url)))) "not fetched yet")
+    (is (nil? (:feed (get (library/subscriptions lib) (profile/normal-url other-url)))) "not fetched yet")
     (let [gone (library/unfollow lib "https://example.org/picks.opml")]
-      (is (= {} (player/lists (:player gone))))
+      (is (= {} (profile/lists (:profile gone))))
       (is (= {} (:lists gone)))
       (is (= 2 (count (library/subscriptions gone))) "the subscriptions stay"))))
 
@@ -173,7 +173,7 @@
                        (is (= 2 (count (:feeds lib')))))
                      (testing "the due feed fetched, its new episode found and queued, and its move applied"
                        (is (= [[guid "new"]] added))
-                       (is (= [[guid "new"]] (player/queue (:player lib'))) "auto-queue")
+                       (is (= [[guid "new"]] (profile/queue (:profile lib'))) "auto-queue")
                        (is (= {guid "https://example.com/moved.xml"} moved))
                        (is (= "https://example.com/moved.xml" (:url (get (library/subscriptions lib') guid))))
                        (is (= "https://example.com/moved.xml" (get-in lib' [:feeds guid :url])))
@@ -198,18 +198,18 @@
     (is (= #{"Other" "Podcasting 2.0 Namespace Example"} (set (map (comp :rss/title first) (library/episodes lib)))))
     (is (= ["0ther-guid" "o1"] (let [[feed item] (first (filter #(= "Other" (:rss/title (first %))) (library/episodes lib)))]
                                  (library/episode-id lib feed item)))
-        "the identity of a pair, for the player and the views")
+        "the identity of a pair, for the profile and the views")
     (is (= 2 (count (library/episodes lib {:limit 2}))))
     (let [id     [guid "https://example.com/ep0003"]
-          played (update lib :player player/mark-played id now)]
+          played (update lib :profile profile/mark-played id now)]
       (is (= 3 (count (library/episodes played {:where {:status :unplayed}})))))))
 
 (deftest the-events-of-the-player
   (let [id      [guid "https://example.com/ep0003"]
-        lib     (update library :player player/enqueue id now)
+        lib     (update library :profile profile/enqueue id now)
         stepped (library/step lib [:progress id 100 3600])]
     (is (= [] (:effects stepped)))
-    (is (= 100 (player/resume-position (:player stepped) guid id)))
+    (is (= 100 (profile/resume-position (:profile stepped) guid id)))
     (is (= [[:seek id 130]] (:effects (library/step stepped [:skip id :forward]))))
     (testing "the sleep timer of the device lives in the library"
       (let [timed (assoc stepped :sleep {:episodes 2})
@@ -242,7 +242,7 @@
 (deftest the-downloads
   (let [id  [guid "https://example.com/ep0003"]
         lib (-> library
-                (update :player player/enqueue id now)
-                (update :player player/prefer {:downloads {:queue 1}} now))]
+                (update :profile profile/enqueue id now)
+                (update :profile profile/prefer {:downloads {:queue 1}} now))]
     (is (= [[id :queue]] (map (juxt :id :reason) (:download (library/plan lib {})))))
     (is (= [] (:download (library/plan lib {id {:bytes 1 :at now}}))) "a file that the device has")))

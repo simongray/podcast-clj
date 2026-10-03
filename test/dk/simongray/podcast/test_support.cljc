@@ -9,7 +9,7 @@
             #?(:clj [clojure.string :as str])
             #?(:cljs [clojure.test :refer [is async]])
             #?(:clj [dk.simongray.podcast :as podcast])
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.util.bech32 :as bech32]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.crdt :as crdt]
@@ -71,18 +71,18 @@
   "The state of a phone that named itself and subscribed to feed-a at `t0`,
   and was 100 seconds into `a` at `t1`."
   []
-  (-> (player/state "phone")
+  (-> (profile/make "phone")
       (crdt/identify {:name "Phone"} t0)
-      (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
-      (player/progress a 100 3600 t1)))
+      (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
+      (profile/progress a 100 3600 t1)))
 
 (defn laptop-state
   "The state of a laptop that subscribed to feed-b at `t1` and was 900
   seconds into `a` at `t2`, further than the phone."
   []
-  (-> (player/state "laptop")
-      (player/subscribe "feed-b" {:url "https://b/rss" :title "B"} t1)
-      (player/progress a 900 3600 t2)))
+  (-> (profile/make "laptop")
+      (profile/subscribe "feed-b" {:url "https://b/rss" :title "B"} t1)
+      (profile/progress a 900 3600 t2)))
 
 (defn same?
   "Whether two states agree on all the listener sees: everything but whose

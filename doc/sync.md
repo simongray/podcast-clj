@@ -8,12 +8,13 @@ app](building-an-app.md#sync-the-devices-of-a-listener) shows the calls.
 
 ## Why a backend only stores documents
 
-The player state of `app.player` is one map of stamped entries, and
-`player/merge` combines the states of two devices entry by entry, keeping
+The profile of `app.profile` is one map of stamped entries, and
+`profile/merge` combines the states of two devices entry by entry, keeping
 the later entry. The merge is commutative, associative and idempotent,
-which a generative test checks, so it's a join: states merged in any order,
-any number of times, end up the same. A backend never has to resolve a
-conflict, so it only has to store documents.
+which a generative test checks, so it's a join and the profile is a CRDT:
+states merged in any order, any number of times, end up the same. A
+backend never has to resolve a conflict, so it only has to store
+documents.
 
 That makes three kinds of backend enough:
 
@@ -105,9 +106,9 @@ so podcast-clj can grow the state, and an app can add entries of its own,
 without a new version.
 
 
-## The player state as a CRDT
+## The profile as a CRDT
 
-The CRDT is `util.crdt`, which knows nothing of podcasts. `app.player`
+The CRDT is `util.crdt`, which knows nothing of podcasts. `app.profile`
 gives it a schema: how deep the entries of each collection are, which
 entries hold counts that only grow, and which tombstones compact drops.
 
@@ -247,11 +248,11 @@ restore.
 
 ### What stays out
 
-Anything that belongs to one device stays out of the player state and
-never syncs, e.g. the downloads, the sleep timer and the page that the
+Anything that belongs to one device stays out of the profile and never
+syncs, e.g. the downloads, the sleep timer and the page that the
 listener was on. The queue belongs to the listener and follows them
 between devices, as in the mainstream apps. If you want a queue per device,
-keep it outside the state.
+keep it outside the profile.
 
 
 ## The stores
@@ -269,7 +270,7 @@ AntennaPod, Kasts, gPodder and most other open-source podcast apps sync
 through the gpodder API, which gpodder.net and several self-hosted servers
 speak. It's a backend rather than a store, because the server keeps a model
 of its own. The client is `app.sync.gpodder`, and `app.sync.gpodder.server`
-serves the API over a player state.
+serves the API over a profile.
 
 Only subscriptions and episode actions cross. A played mark is sent as a
 play to the end, as AntennaPod writes it, and the action `new` marks an
@@ -316,8 +317,8 @@ comes twice does no harm.
 
 The gpodder API names a show by its feed URL and an episode by its media
 URL, but URLs change: feeds move between hosts, schemes and slashes, and
-dynamic ad insertion gives a new media URL for every request. The player
-state names them by guid, so the backend maps between the two.
+dynamic ad insertion gives a new media URL for every request. The profile
+names them by guid, so the backend maps between the two.
 
 A show is found by its URL among the subscriptions, whatever the scheme,
 case and trailing slashes, then by the guid that its feed declares, and then

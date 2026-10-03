@@ -23,12 +23,12 @@ follows.
 | `feed.spec` | The tag registry as data, which `registry` indexes or extends, and the enumerations of the specs. |
 | `feed.quirks` | The repairs for malformed XML, and the normalisations of the tree. |
 | `feed.coerce` | The value types of the registry, from strings and back. |
-| `feed.validate` | Validation against the registry, with the PSP-1 and Apple profiles. |
+| `feed.validate` | Validation against the registry, with the requirements of PSP-1 and Apple Podcasts. |
 | `feed.schema` | Malli schemas of the model, generated from the registry. Malli isn't a dependency. |
 | `feed.guid` | The `podcast:guid`: `from-url` derives it from a feed URL, and `guid?` checks one. |
 | `feed.resolve` | One answer for each property where the vocabularies overlap, with `properties` for all of them and `sources` for where each came from. Also the listening order, `blocked?` and `next-check`. |
 | `feed.discovery` | Finding the feeds of a show from what a listener types: `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. `find-feeds!` fetches with them. |
-| `feed.check` | Checks over the network of the files that a feed links to, by the standards and the PSP-1 and Apple profiles. Only `check-files!` sends requests, and `files`, `verdicts` and `report` are pure. |
+| `feed.check` | Checks over the network of the files that a feed links to, by the standards and the requirements of PSP-1 and Apple Podcasts. Only `check-files!` sends requests, and `files`, `verdicts` and `report` are pure. |
 | `diagnostics` | Every diagnostic id, with its level and meaning. |
 
 ## Formats
@@ -80,7 +80,7 @@ follows.
 | `app.show` | Everything a show page needs in one map, from `view`, and the shows of the podroll and the publisher from `fetch-linked-shows!`. |
 | `app.episode` | Everything an episode page needs in one map, from `view`, and what the chapters file, transcript and media file say from `read-files!`. |
 | `app.feeds` | The fetched feeds by guid, with their ETag, Last-Modified and next check. Use `due` for the feeds to fetch now, `refresh!` to fetch them, and `affected` for the feeds that a Podping names. |
-| `app.player` | The player state as a CRDT: the queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions and their settings, followed lists, saved filters, listening counts and devices. Use `step` for the events of a player, `merge` to combine two states, and `compact` to drop old tombstones. |
+| `app.profile` | The listener's profile, a CRDT that syncs between their devices: the queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions and their settings, followed lists, saved filters, listening counts and devices. Use `step` for the events of a player, `merge` to combine two profiles, and `compact` to drop old tombstones. |
 | `app.search` | Filters and orders of episodes as data, and a full-text index ranked by BM25. |
 | `app.downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`. |
 | `app.sync` | Sync between devices: `sync!` over any backends, `reconcile` and `next-at`. |
@@ -90,7 +90,7 @@ follows.
 | `app.sync.webdav.server` | JVM. A Ring handler that serves any store over WebDAV. |
 | `app.sync.encrypted` | Any store, with its documents encrypted at rest and readable on both platforms. |
 | `app.sync.gpodder` | The gpodder API as a backend, for gpodder.net, the GPodder Sync app for Nextcloud and other servers, with `identities` to map between URLs and guids. |
-| `app.sync.gpodder.server` | The gpodder API as a Ring handler over a player state, for AntennaPod, Kasts and gPodder. |
+| `app.sync.gpodder.server` | The gpodder API as a Ring handler over a profile, for AntennaPod, Kasts and gPodder. |
 
 ## Value for value
 
@@ -118,7 +118,7 @@ follows.
 | `util.secret` | Secrets that print as `#<secret>`: `hide`, `reveal` and `hidden?`. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |
 | `util.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |
-| `util.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The player state is one. |
+| `util.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The profile is one. |
 
 ## Cryptography
 

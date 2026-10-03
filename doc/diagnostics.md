@@ -124,12 +124,12 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:check/unverified` | info | The media file wasn't compared with its podcast:integrity, because a PGP signature needs the key of the publisher, the integrity names no hash that Subresource Integrity knows, or the whole file didn't arrive. |
 | `:check/image-type` | info | The server gives the image a different media type than its bytes have, such as image/jpg for a JPEG. Browsers go by the bytes of an image. |
 | `:check/image-size` | warning | The size of the image differs from the width, height or aspect ratio that its podcast:image declares. |
-| `:check/artwork-size` | error | The image of an itunes:image isn't a square of 1400 to 3000 pixels, as the profile requires. |
-| `:check/artwork-type` | error | The image of an itunes:image isn't JPEG or PNG, as the profile requires, or it's a JPEG that apps and browsers can't decode: lossless, hierarchical, arithmetic-coded, JPEG-LS, or with more than 8 bits per sample. |
-| `:check/artwork-color` | error | The image of an itunes:image isn't in RGB colours, as the profile requires. |
-| `:check/artwork-alpha` | error | The image of an itunes:image has an alpha channel or transparency, which the profile doesn't allow. |
-| `:check/artwork-extension` | warning | The file extension in the URL of an itunes:image doesn't match the type of its image, as the profile requires. |
-| `:check/last-modified` | warning | The server answers a HEAD request for the artwork without Last-Modified, which the profile asks for. |
+| `:check/artwork-size` | error | The image of an itunes:image isn't a square of 1400 to 3000 pixels, as the chosen requirements ask. |
+| `:check/artwork-type` | error | The image of an itunes:image isn't JPEG or PNG, as the chosen requirements ask, or it's a JPEG that apps and browsers can't decode: lossless, hierarchical, arithmetic-coded, JPEG-LS, or with more than 8 bits per sample. |
+| `:check/artwork-color` | error | The image of an itunes:image isn't in RGB colours, as the chosen requirements ask. |
+| `:check/artwork-alpha` | error | The image of an itunes:image has an alpha channel or transparency, which the chosen requirements don't allow. |
+| `:check/artwork-extension` | warning | The file extension in the URL of an itunes:image doesn't match the type of its image, as the chosen requirements ask. |
+| `:check/last-modified` | warning | The server answers a HEAD request for the artwork without Last-Modified, which the chosen requirements ask for. |
 | `:check/cors` | warning | The server doesn't let pages on other sites read the file, so web players can't show it. The Access-Control-Allow-Origin header of the answer, or of a redirect on the way, decides this, and the podcast namespace requires CORS for transcripts. |
 | `:check/empty` | error | The transcript or chapters file holds no segments or chapters in the format that the feed declares. |
 | `:check/feed-cors` | info | The server doesn't let pages on other sites read the feed, so a web app can't read it without a server of its own. |
@@ -151,8 +151,8 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:validate/unknown-element` | info | The registry doesn't know the element, so it's kept under :xml/unknown. |
 | `:validate/unknown-key` | warning | The registry doesn't define the key, e.g. the typo :rss/titel, or a key on the channel that isn't an element, since a parse keeps no attributes there. |
 | `:validate/deprecated` | info | The spec of the element has deprecated it. |
-| `:validate/profile-required` | error | An element that the chosen profile requires is missing. |
-| `:validate/profile-recommended` | warning | An element that the chosen profile recommends is missing. |
+| `:validate/required` | error | A required element of the chosen requirements is missing. |
+| `:validate/recommended` | warning | A recommended element of the chosen requirements is missing. |
 | `:sync/unreadable-document` | warning | A document in the store didn't read as a sync document, and was left out. |
 | `:sync/newer-format` | warning | A document was written by a newer version of podcast-clj than this one reads, and was left out. |
 | `:sync/clock-skew` | warning | A device wrote its document more than a minute ahead of the clock of this device. |

@@ -3,7 +3,7 @@
   show for a state, and the events their controls raise."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.util.crdt :as crdt]
             [inspector.player.view :as view]))
 
@@ -16,11 +16,11 @@
    b {:title "Second" :feed-title "Show" :url "https://x/rss" :guid "b" :enclosure "https://x/b.mp3"}})
 
 (def state
-  {:player (-> (player/state "browser")
-               (player/enqueue a t0)
-               (player/enqueue b t0)
-               (player/progress a 120 3600 t0))
-   :titles titles})
+  {:profile (-> (profile/make "browser")
+                (profile/enqueue a t0)
+                (profile/enqueue b t0)
+                (profile/progress a 120 3600 t0))
+   :titles  titles})
 
 (defn- elements
   "Every element in `hiccup` with `tag`, in document order."
@@ -34,7 +34,7 @@
   (str/join (filter string? (tree-seq sequential? seq hiccup))))
 
 (deftest the-bar
-  (is (nil? (view/bar {:player (player/state "browser") :titles {}})) "nothing queued, no bar")
+  (is (nil? (view/bar {:profile (profile/make "browser") :titles {}})) "nothing queued, no bar")
   (let [bar     (view/bar state)
         audio   (first (elements bar :audio#player))
         buttons (elements bar :button)]
@@ -66,7 +66,7 @@
           "the listener removes it"))
     (let [told (-> state
                    (update :titles dissoc a)
-                   (update :player crdt/write [:inspector/episodes a] (constantly {:value (titles a)}) t0))
+                   (update :profile crdt/write [:inspector/episodes a] (constantly {:value (titles a)}) t0))
           bar  (view/bar told)]
       (is (= "https://x/a.mp3" (:src (second (first (elements bar :audio#player)))))
           "the data that the other device wrote into the state")
@@ -84,7 +84,7 @@
         (is (= [[:play b] [:play-next b] [:dequeue b]] (map #(get-in % [1 :on :click]) (elements item :button))))
         (is (empty? (elements (second items) :button)) "the episode that plays has no button in the history"))
       (is (str/includes? (text page) "at 2:00") "the history says where the first one is")
-      (let [heard   (update state :player player/progress b 60 3600 t0)
+      (let [heard   (update state :profile profile/progress b 60 3600 t0)
             entries (filter #(str/includes? (text %) "Second") (elements (view/page heard) :li))]
         (is (= [[:play b] [:play-next b] [:dequeue b] [:play b]]
                (mapcat (fn [li] (map #(get-in % [1 :on :click]) (elements li :button))) entries))
@@ -93,7 +93,7 @@
         (is (= [15 30] (map #(get-in % [1 :value]) inputs)))
         (is (= [[:prefer :skip-back] [:prefer :skip-forward]] (map #(get-in % [1 :on :change]) inputs)))))
     (testing "the devices and the sync through the inspector's folder"
-      (let [described (update state :player crdt/identify {:name "This browser"} t0)
+      (let [described (update state :profile crdt/identify {:name "This browser"} t0)
             devices   (view/page (assoc described :synced {:at t0 :failed {"inspector" "offline"} :report [{:id :sync/clock-skew :message "ahead"}]}))]
         (is (str/includes? (text page) "No device has described itself yet."))
         (is (= [[:sync]] (map #(get-in % [1 :on :click]) (filter #(= "Sync now" (nth % 2)) (elements page :button)))))
@@ -101,7 +101,7 @@
         (is (str/includes? (text devices) "failed: {\"inspector\" \"offline\"}"))
         (is (str/includes? (text devices) ":sync/clock-skew ahead"))))
     (testing "an empty state and an error"
-      (let [empty-page (view/page {:player (player/state "browser") :titles {}})]
+      (let [empty-page (view/page {:profile (profile/make "browser") :titles {}})]
         (is (str/includes? (text empty-page) "Nothing queued."))
         (is (str/includes? (text empty-page) "Nothing played yet.")))
       (is (= [[:p.error "no such episode"]]

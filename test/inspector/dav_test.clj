@@ -6,7 +6,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
@@ -90,11 +90,11 @@
 (deftest two-devices-through-the-inspector
   (with-redefs [http/call! through-the-inspector]
     (let [backend (store/backend (webdav/store "http://inspector/dav/") {:opml? true :app "test"})
-          phone   (sync/sync! (-> (player/state "phone")
+          phone   (sync/sync! (-> (profile/make "phone")
                                   (crdt/identify {:name "Phone"} t1)
-                                  (player/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1))
+                                  (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1))
                               [backend] t2)
-          laptop  (sync/sync! (player/progress (player/state "laptop") a 60 3600 t2) [backend] t3)
+          laptop  (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t2) [backend] t3)
           phone2  (sync/sync! (:state phone) [backend] t4 {:ctx (:ctx phone)})]
       (is (nil? (:failed phone)))
       (is (nil? (:failed laptop)))
@@ -102,5 +102,5 @@
       (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"}
              (set (map #(.getName ^java.io.File %) (.listFiles (io/file *dir* "sync"))))))
       (is (same? (:state laptop) (:state phone2)))
-      (is (= 60 (:position (player/episode (:state phone2) a))))
+      (is (= 60 (:position (profile/episode (:state phone2) a))))
       (is (= "test" (:app (sync/read-document (slurp (io/file *dir* "sync" "laptop.edn")))))))))

@@ -230,17 +230,17 @@
    {:id :check/image-size :level :warning
     :doc "The size of the image differs from the width, height or aspect ratio that its podcast:image declares."}
    {:id :check/artwork-size :level :error
-    :doc "The image of an itunes:image isn't a square of 1400 to 3000 pixels, as the profile requires."}
+    :doc "The image of an itunes:image isn't a square of 1400 to 3000 pixels, as the chosen requirements ask."}
    {:id :check/artwork-type :level :error
-    :doc "The image of an itunes:image isn't JPEG or PNG, as the profile requires, or it's a JPEG that apps and browsers can't decode: lossless, hierarchical, arithmetic-coded, JPEG-LS, or with more than 8 bits per sample."}
+    :doc "The image of an itunes:image isn't JPEG or PNG, as the chosen requirements ask, or it's a JPEG that apps and browsers can't decode: lossless, hierarchical, arithmetic-coded, JPEG-LS, or with more than 8 bits per sample."}
    {:id :check/artwork-color :level :error
-    :doc "The image of an itunes:image isn't in RGB colours, as the profile requires."}
+    :doc "The image of an itunes:image isn't in RGB colours, as the chosen requirements ask."}
    {:id :check/artwork-alpha :level :error
-    :doc "The image of an itunes:image has an alpha channel or transparency, which the profile doesn't allow."}
+    :doc "The image of an itunes:image has an alpha channel or transparency, which the chosen requirements don't allow."}
    {:id :check/artwork-extension :level :warning
-    :doc "The file extension in the URL of an itunes:image doesn't match the type of its image, as the profile requires."}
+    :doc "The file extension in the URL of an itunes:image doesn't match the type of its image, as the chosen requirements ask."}
    {:id :check/last-modified :level :warning
-    :doc "The server answers a HEAD request for the artwork without Last-Modified, which the profile asks for."}
+    :doc "The server answers a HEAD request for the artwork without Last-Modified, which the chosen requirements ask for."}
    {:id :check/cors :level :warning
     :doc "The server doesn't let pages on other sites read the file, so web players can't show it. The Access-Control-Allow-Origin header of the answer, or of a redirect on the way, decides this, and the podcast namespace requires CORS for transcripts."}
    {:id :check/empty :level :error
@@ -285,10 +285,10 @@
     :doc "The registry doesn't define the key, e.g. the typo :rss/titel, or a key on the channel that isn't an element, since a parse keeps no attributes there."}
    {:id :validate/deprecated :level :info
     :doc "The spec of the element has deprecated it."}
-   {:id :validate/profile-required :level :error
-    :doc "An element that the chosen profile requires is missing."}
-   {:id :validate/profile-recommended :level :warning
-    :doc "An element that the chosen profile recommends is missing."}
+   {:id :validate/required :level :error
+    :doc "A required element of the chosen requirements is missing."}
+   {:id :validate/recommended :level :warning
+    :doc "A recommended element of the chosen requirements is missing."}
 
    ;; syncing: what a step of keeping devices in step found
    {:id :sync/unreadable-document :level :warning

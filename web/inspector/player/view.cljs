@@ -3,9 +3,9 @@
   event handlers as data, so that what the player shows is tested as data
   under Node and Replicant's dispatch performs the events.
 
-  The state is `{:player … :titles {id episode} :readout \"…\" :error \"…\"}`,
-  the player being dk.simongray.podcast.app.player's and an episode what
-  /episode.edn serves. The player state also holds the episodes that the
+  The state is `{:profile … :titles {id episode} :readout \"…\" :error \"…\"}`,
+  the profile being dk.simongray.podcast.app.profile's and an episode what
+  /episode.edn serves. The profile also holds the episodes that the
   devices of the listener added, under `:inspector/episodes`, so that a
   sync brings their data too. An event is a vector whose first element
   names it: `[:play id]`, `[:skip id :back]`, `[:ended id]`, `[:sleep 1]`,
@@ -13,7 +13,7 @@
   and from the audio element `[:audio/loaded id position]` and
   `[:audio/time id]`. The shell in inspector.player performs them."
   (:require [cljs.pprint :as pprint]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]))
 
@@ -25,10 +25,10 @@
 (defn episode-of
   "What the page `state` knows of the episode `id`: the data that
   /episode.edn served to this browser, or else the data that a device of
-  the listener wrote into the player state. Nil when no device told."
-  [{:keys [player titles]} id]
+  the listener wrote into the profile. Nil when no device told."
+  [{:keys [profile titles]} id]
   (or (get titles id)
-      (:value (get-in player [:inspector/episodes id]))))
+      (:value (get-in profile [:inspector/episodes id]))))
 
 (defn- episode-link
   "The link to the page of the episode `id`, with the title of its show.
@@ -45,11 +45,11 @@
 
   An episode that came through a sync from a device that told no data of
   it has nothing to play. The bar tells so, and the listener removes it."
-  [{:keys [player readout sleep] :as state}]
-  (when-let [id (player/current player)]
+  [{:keys [profile readout sleep] :as state}]
+  (when-let [id (profile/current profile)]
     (let [{:keys [enclosure] :as episode} (episode-of state id)
-          {:keys [skip-forward skip-back]} (player/preferences player)
-          position (player/resume-position player (first id) id)]
+          {:keys [skip-forward skip-back]} (profile/preferences profile)
+          position (profile/resume-position profile (first id) id)]
       [:div.bar
        [:span (episode-link state id)]
        (cond
@@ -74,19 +74,19 @@
          (if sleep "Play on after this episode" "Stop after this episode")]]])))
 
 (defn- up-next
-  [{:keys [player] :as state}]
-  (let [queue (rest (player/queue player))]
+  [{:keys [profile] :as state}]
+  (let [queue (rest (profile/queue profile))]
     [:section
      [:h2 "Up next"]
      (if (empty? queue)
-       [:p.muted (if (player/current player)
+       [:p.muted (if (profile/current profile)
                    "Nothing after this one. Open an item and add it."
                    "Nothing queued. Open an item and add it.")]
        [:ol
         (for [id queue]
           [:li {:replicant/key id}
            (episode-link state id)
-           (when (player/played? player id) [:span.badge "played"])
+           (when (profile/played? profile id) [:span.badge "played"])
            " "
            [:button {:on {:click [:play id]}} "Play now"]
            " "
@@ -95,23 +95,23 @@
            [:button {:on {:click [:dequeue id]}} "Remove"]])])]))
 
 (defn- history
-  [{:keys [player] :as state}]
+  [{:keys [profile] :as state}]
   [:section
    [:h2 "History"]
-   (if (empty? (player/episodes player))
+   (if (empty? (profile/episodes profile))
      [:p.muted "Nothing played yet."]
      [:ul.compact
-      (for [id (player/history player)
-            :let [{:keys [position played?]} (player/episode player id)]]
+      (for [id (profile/history profile)
+            :let [{:keys [position played?]} (profile/episode profile id)]]
         [:li {:replicant/key id}
          (episode-link state id)
          [:span.muted (str " · " (if played? "played" (str "at " (time/format-clock (or position 0)))))]
-         (when (and (episode-of state id) (not= id (player/current player)))
+         (when (and (episode-of state id) (not= id (profile/current profile)))
            (list " " [:button {:on {:click [:play id]}} "Play now"]))])])])
 
 (defn- preferences
-  [{:keys [player]}]
-  (let [{:keys [skip-forward skip-back]} (player/preferences player)
+  [{:keys [profile]}]
+  (let [{:keys [skip-forward skip-back]} (profile/preferences profile)
         field (fn [label k value]
                 [:label label " "
                  [:input {:type "number" :min 1 :max 300 :value value :style {:width "4em"}
@@ -123,8 +123,8 @@
 
 (defn- devices
   "The listener's devices and the sync through the inspector's folder."
-  [{:keys [player synced syncing?]}]
-  (let [known (crdt/devices player)]
+  [{:keys [profile synced syncing?]}]
+  (let [known (crdt/devices profile)]
     [:section
      [:h2 "Devices"]
      [:p.muted "Every device writes its own document to the inspector's folder, served over WebDAV at /dav/, and reads the others'."]
@@ -134,7 +134,7 @@
         (for [[id {:keys [name]}] (sort-by (comp str :name val) known)]
           [:li {:replicant/key id}
            (or name id)
-           (when (= id (:device player)) [:span.badge "this browser"])
+           (when (= id (:device profile)) [:span.badge "this browser"])
            " " [:span.muted id]])])
      [:p
       [:button {:on {:click [:sync]} :disabled syncing?} (if syncing? "Syncing…" "Sync now")]
@@ -152,11 +152,11 @@
 
 (defn page
   "The queue page: the detailed view of the state the bar plays from."
-  [{:keys [player error] :as state}]
+  [{:keys [profile error] :as state}]
   [:div
-   [:p.muted "The player state of dk.simongray.podcast.app.player, running in this browser and kept in localStorage; Replicant renders it, the audio element in the bar reports to it, and its effects drive the audio."]
+   [:p.muted "The listener's profile (dk.simongray.podcast.app.profile), running in this browser and kept in localStorage; Replicant renders it, the audio element in the bar reports to it, and its effects drive the audio."]
    (when error [:p.error error])
-   (when-let [id (player/current player)]
+   (when-let [id (profile/current profile)]
      [:p "Now playing: " (episode-link state id)])
    (up-next state)
    (history state)
@@ -164,4 +164,4 @@
    (devices state)
    [:section
     [:h2 "State"]
-    [:pre (with-out-str (pprint/pprint player))]]])
+    [:pre (with-out-str (pprint/pprint profile))]]])

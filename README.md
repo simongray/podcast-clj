@@ -110,12 +110,12 @@ A call that changes the library returns a new version along with what it did:
 (reset! lib (library/refresh! @lib))                             ; the feeds that are due
 (:added (:refresh @lib))                                         ; => [id …], the new episodes
 (reset! lib (library/sync! @lib [(file/backend "/Users/simon/Dropbox/Podcasts")]))  ; the other devices
-(:player @lib)                                                   ; the player state, for every function of app.player
+(:profile @lib)                                                  ; the profile, for every function of app.profile
 ```
 
-**NOTE:** the player state in `:player` is in fact a CRDT,
+**NOTE:** the profile in `:profile` is in fact a CRDT,
 allowing different devices to sync this data without conflict.
-Modify it with the functions of `app.player`, not with `assoc`.
+Modify it with the functions of `app.profile`, not with `assoc`.
 
 Documentation
 -------------

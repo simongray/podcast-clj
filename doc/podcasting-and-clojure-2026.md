@@ -271,7 +271,7 @@ Several libraries read `podcast:integrity`, but no app was found that
 checks it. Audio processing belongs to the media engine of the player.
 
 
-### The player state
+### The profile
 
 | Feature | Who has it | Verdict |
 |---|---|---|

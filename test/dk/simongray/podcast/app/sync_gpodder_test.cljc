@@ -8,7 +8,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.gpodder :as gpodder]
             [dk.simongray.podcast.app.sync.gpodder.server :as server]
@@ -162,7 +162,7 @@
   "A server over a fresh state for the user simon, with the password `app
   pass`, whose time is `clock`, an atom of the instant: `[state send]`."
   [clock]
-  (let [state (atom (player/state "server"))]
+  (let [state (atom (profile/make "server"))]
     [state (ring-send (server/handler {:state       state
                                        :authorized? (fn [user password] (= [user password] ["simon" "app pass"]))
                                        :now         #(deref clock)}))]))
@@ -245,14 +245,14 @@
                        (cond-> {"podcast" feed-a "episode" (str "https://a.example/" item ".mp3") "guid" item
                                 "action" "play" "position" position "total" 3600 "device" "phone"}
                          time (assoc "timestamp" time)))
-        heard        (fn [item] ((juxt :position :updated-at) (player/episode @state ["declared-guid" item])))]
+        heard        (fn [item] ((juxt :position :updated-at) (profile/episode @state ["declared-guid" item])))]
     (testing "one URL under two guids, of which one is live"
       (ask send :get "/api/2/subscriptions/simon/phone.json?since=0")
       (reset! clock t2)
       (swap! state #(-> %
-                        (player/subscribe "guid-of-url" {:url feed-a :title "A"} t1)
-                        (player/subscribe "declared-guid" {:url "http://A.example/rss/" :title "A"} t1)
-                        (player/unsubscribe "guid-of-url" t1)))
+                        (profile/subscribe "guid-of-url" {:url feed-a :title "A"} t1)
+                        (profile/subscribe "declared-guid" {:url "http://A.example/rss/" :title "A"} t1)
+                        (profile/unsubscribe "guid-of-url" t1)))
       (is (= {"add" ["http://A.example/rss/"] "remove" []}
              (select-keys (second (ask send :get "/api/2/subscriptions/simon/phone.json?since=1767229200")) ["add" "remove"]))
           "is not removed"))
@@ -279,24 +279,24 @@
     (is (= 401 (first (login {"Cookie" cookie}))) "a session ends after a day")))
 
 (deftest what-the-app-writes-during-a-call
-  (let [state (atom (player/state "server"))
+  (let [state (atom (profile/make "server"))
         ;; the app subscribes to B while a step runs, and the step gives the
         ;; state as it took it
         step  (fn [s]
-                (swap! state player/subscribe "b" {:url "https://b.example/rss" :title "B"} t1)
+                (swap! state profile/subscribe "b" {:url "https://b.example/rss" :title "B"} t1)
                 s)
         send  (ring-send (server/handler {:state state :authorized? (constantly true) :step step :now (constantly t2)}))]
     (ask send :post "/api/2/subscriptions/simon/phone.json" {"add" [feed-a]})
-    (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (player/subscriptions @state)))))
+    (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (profile/subscriptions @state)))))
         "stays, with what the call wrote")))
 
 (defn- phone
   "A phone of podcast-clj subscribed to feed A, 100 seconds into its first
   episode, whose item guid is a1."
   []
-  (-> (player/state "phone")
-      (player/subscribe g-a {:url feed-a :title "A"} t1)
-      (player/progress [g-a "a1"] 100 3600 t1)))
+  (-> (profile/make "phone")
+      (profile/subscribe g-a {:url feed-a :title "A"} t1)
+      (profile/progress [g-a "a1"] 100 3600 t1)))
 
 (def media
   "The media of each episode of feed A, as the app knows them."
@@ -309,15 +309,15 @@
                                opts)))
 
 (deftest names-over-the-subscriptions
-  (let [state (-> (player/state "phone")
-                  (player/subscribe "guid-of-url" {:url feed-a :title "A"} t1)
-                  (player/unsubscribe "guid-of-url" t2)
-                  (player/subscribe "declared-guid" {:url "http://A.example/rss/" :title "A"} t3))
+  (let [state (-> (profile/make "phone")
+                  (profile/subscribe "guid-of-url" {:url feed-a :title "A"} t1)
+                  (profile/unsubscribe "guid-of-url" t2)
+                  (profile/subscribe "declared-guid" {:url "http://A.example/rss/" :title "A"} t3))
         named (fn [state] ((:feed-guid (gpodder/namer {} state)) feed-a))]
     (is (= ["declared-guid" "declared-guid"]
            [(named state) (named (update state :subscriptions #(into (array-map) (reverse %))))])
         "of two subscriptions with one URL the live one, whatever their order")
-    (is (= "later" (named (player/subscribe state "later" {:url feed-a :title "A"} t4)))
+    (is (= "later" (named (profile/subscribe state "later" {:url feed-a :title "A"} t4)))
         "and of two live ones, the one that changed last")
     (is (= "gpodder.example" (:name (gpodder/backend "https://simon:p@ss@gpodder.example:8443/" {})))
         "the name of a backend is the domain of its server")))
@@ -325,16 +325,16 @@
 (deftest a-show-that-a-server-tells
   (let [clock    (atom t3)
         [_ send] (serve clock)
-        laptop   (player/subscribe (player/state "laptop") g-a {:url feed-a :title "The Show"} t1)]
+        laptop   (profile/subscribe (profile/make "laptop") g-a {:url feed-a :title "The Show"} t1)]
     (ask send :post "/api/2/subscriptions/simon/antennapod.json" {"add" [feed-a]})
     (run
      #(async/then
-       (sync/sync! (player/state "phone") [(backend send)] t3)
+       (sync/sync! (profile/make "phone") [(backend send)] t3)
        (fn [{s :state}]
          (is (= [feed-a nil t3] ((juxt :url :title :added-at) (get-in s [:subscriptions g-a])))
              "the server tells the URL of a show, and no title")
          (is (= ["The Show" t1 "laptop"]
-                ((juxt :title :added-at :device) (get-in (player/merge laptop s) [:subscriptions g-a])))
+                ((juxt :title :added-at :device) (get-in (profile/merge laptop s) [:subscriptions g-a])))
              "so the entry of a device that knows the show wins"))))))
 
 (deftest another-app-through-the-server
@@ -345,7 +345,7 @@
        (sync/sync! (phone) [(backend send)] t2)
        (fn [first-step]
          (is (nil? (:failed first-step)) (pr-str (:failed first-step)))
-         (is (= #{feed-a} (set (map :url (vals (player/subscriptions @state))))))
+         (is (= #{feed-a} (set (map :url (vals (profile/subscriptions @state))))))
          (is (= 100 (:position (get-in @state [:episodes [g-a "a1"]]))) "the progress, written by the phone")
          (is (= "gpodder:phone" (:device (get-in @state [:episodes [g-a "a1"]])))
              "in a name that no device of podcast-clj has")
@@ -359,10 +359,10 @@
           (sync/sync! (:state first-step) [(backend send)] t3 {:ctx (:ctx first-step)})
           (fn [{s :state :as second-step}]
             (is (nil? (:failed second-step)))
-            (is (player/played? s [g-a "a1"]) "played to its end on the other app")
-            (is (= "gpodder:antennapod" (:device (player/episode s [g-a "a1"]))))
-            (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (player/subscriptions s))))))
-            (is (= 2 (count (player/subscriptions @state))) "and nothing sent back twice")
+            (is (profile/played? s [g-a "a1"]) "played to its end on the other app")
+            (is (= "gpodder:antennapod" (:device (profile/episode s [g-a "a1"]))))
+            (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (profile/subscriptions s))))))
+            (is (= 2 (count (profile/subscriptions @state))) "and nothing sent back twice")
             (async/then
              (sync/sync! s [(backend send)] t4 {:ctx (:ctx second-step)})
              (fn [third-step]
@@ -374,12 +374,12 @@
         known        (atom media)
         b            (backend send :episode-url (fn [[g item]] (when (= g g-a) (@known item))))
         s            (-> (phone)
-                         (player/subscribe (guid/from-url "https://private.example/rss")
-                                           {:url "https://simon:secret@private.example/rss" :title "P"} t1)
-                         (player/progress [g-a "a3"] 50 3600 t1)
-                         (player/progress [g-a "https://a.example/?p=4"] 70 3600 t1)
-                         (player/progress [g-a "a2"] 10 1800 t1)
-                         (player/mark-played [g-a "a2"] t1))
+                         (profile/subscribe (guid/from-url "https://private.example/rss")
+                                            {:url "https://simon:secret@private.example/rss" :title "P"} t1)
+                         (profile/progress [g-a "a3"] 50 3600 t1)
+                         (profile/progress [g-a "https://a.example/?p=4"] 70 3600 t1)
+                         (profile/progress [g-a "a2"] 10 1800 t1)
+                         (profile/mark-played [g-a "a2"] t1))
         told         (fn []
                        (let [[_ {actions "actions"}] (ask send :get "/api/2/episodes/simon.json?since=0")]
                          (set (map (fn [{:strs [episode position total]}] [episode position total]) actions))))]
@@ -388,11 +388,11 @@
        (sync/sync! s [b] t2)
        (fn [{:keys [report failed ctx]}]
          (is (nil? failed))
-         (is (contains? (set (map :url (vals (player/subscriptions @state)))) "https://private.example/rss")
+         (is (contains? (set (map :url (vals (profile/subscriptions @state)))) "https://private.example/rss")
              "a URL without the credentials it held")
          (is (= [[:sync/unnamed-episodes 2]] (map (juxt :id :count) report))
              "the episodes whose media the app does not know, also one whose guid is a URL")
-         (is (player/played? @state [g-a "a2"]) "a played episode as a play to its end")
+         (is (profile/played? @state [g-a "a2"]) "a played episode as a play to its end")
          (is (= #{["https://a.example/1.mp3" 100 3600] ["https://a.example/2.mp3" 1800 1800]} (told)))
          (swap! known assoc "a3" "https://a.example/3.mp3")
          (async/then
@@ -405,14 +405,14 @@
 (deftest the-time-of-an-action
   (let [id     [g-a "a1"]
         ;; a device with a fast clock, which moves the clock of the phone ahead
-        fast   (player/star (player/state "laptop") [g-a "a9"] t4)
-        s      (-> (player/merge (phone) fast) (player/progress id 120 3600 t1))
+        fast   (profile/star (profile/make "laptop") [g-a "a9"] t4)
+        s      (-> (profile/merge (phone) fast) (profile/progress id 120 3600 t1))
         action #(gpodder/entry-action id % "https://a.example/rss" "https://a.example/1.mp3" "phone")
-        told   (fn [state] ((juxt #(get % "action") #(get % "timestamp")) (action (player/episode state id))))]
-    (is (pos? (compare (:updated-at (player/episode s id)) t4)) "the stamp is after the clock of the device")
+        told   (fn [state] ((juxt #(get % "action") #(get % "timestamp")) (action (profile/episode state id))))]
+    (is (pos? (compare (:updated-at (profile/episode s id)) t4)) "the stamp is after the clock of the device")
     (is (= ["play" "2026-01-01T01:00:00"] (told s)) "and the action names the time on that clock")
-    (is (= ["play" "2026-01-01T02:00:00"] (told (player/mark-played s id t2))) "the time of the mark as played")
-    (is (= ["new" "2026-01-01T03:00:00"] (told (player/mark-unplayed s id t3))))
+    (is (= ["play" "2026-01-01T02:00:00"] (told (profile/mark-played s id t2))) "the time of the mark as played")
+    (is (= ["new" "2026-01-01T03:00:00"] (told (profile/mark-unplayed s id t3))))
     (is (= "2026-01-01T01:00:00" (get (action {:position 10 :updated-at t1 :device "phone"}) "timestamp"))
         "an entry that holds no time of the device tells its stamp")))
 
@@ -426,7 +426,7 @@
                    (send request))
         ;; the laptop of the listener is a device of podcast-clj that the
         ;; phone knows, and an app sends an action in its name
-        s        (player/merge (phone) (crdt/identify (player/state "laptop") {:name "Laptop"} t1))]
+        s        (profile/merge (phone) (crdt/identify (profile/make "laptop") {:name "Laptop"} t1))]
     (ask send :post "/api/2/episodes/simon.json"
          [{"podcast" feed-a "episode" "https://a.example/2.mp3" "guid" "a2" "action" "play"
            "timestamp" "2026-01-01T01:30:00" "position" 300 "total" 1800 "device" "laptop"}])
@@ -434,13 +434,13 @@
      #(async/then
        (sync/sync! s [(backend send')] t2)
        (fn [{s :state :keys [ctx]}]
-         (is (= [300 "gpodder:laptop"] ((juxt :position :device) (player/episode s [g-a "a2"]))))
+         (is (= [300 "gpodder:laptop"] ((juxt :position :device) (profile/episode s [g-a "a2"]))))
          (reset! posts [])
          (async/then
           (sync/sync! s [(backend send')] t3 {:ctx ctx})
           (fn [{s :state}]
             (is (= [] @posts) "no push sends it back")
-            (is (nil? (get-in (crdt/acknowledge (player/state "tablet") [s] t3) [:devices "tablet" :seen "laptop"]))
+            (is (nil? (get-in (crdt/acknowledge (profile/make "tablet") [s] t3) [:devices "tablet" :seen "laptop"]))
                 "and it is not what the laptop wrote"))))))))
 
 (deftest episodes-the-app-does-not-know-yet
@@ -458,7 +458,7 @@
        (sync/sync! (phone) [(backend)] t2)
        (fn [first-step]
          (is (= [[:sync/unknown-episodes 1]] (map (juxt :id :count) (:report first-step))))
-         (is (nil? (player/episode (:state first-step) [(guid/from-url "https://b.example/rss") "b1"])))
+         (is (nil? (profile/episode (:state first-step) [(guid/from-url "https://b.example/rss") "b1"])))
          (async/then
           (sync/sync! (:state first-step) [(backend)] t3 {:ctx (:ctx first-step)})
           (fn [second-step]
@@ -469,7 +469,7 @@
             (async/then
              (sync/sync! (:state second-step) [(backend)] t4 {:ctx (:ctx second-step)})
              (fn [third-step]
-               (is (= 700 (:position (player/episode (:state third-step) [(guid/from-url "https://b.example/rss") "b1"])))
+               (is (= 700 (:position (profile/episode (:state third-step) [(guid/from-url "https://b.example/rss") "b1"])))
                    "once the app knows the feed, the action that waited")
                (is (empty? (:report third-step)))
                (is (nil? (:pending (get (:ctx third-step) "gpodder.example.org")))))))))))))
@@ -498,7 +498,7 @@
                                                        :else                                 :episodes)))})
         b       (backend send)
         g-b     (guid/from-url "https://b.example/rss")
-        heard   #((juxt :position :updated-at :device) (player/episode % [g-a "a1"]))
+        heard   #((juxt :position :updated-at :device) (profile/episode % [g-a "a1"]))
         soon?   #(<= (inst-ms (:clock %1)) (+ (inst-ms %2) sync/skew-tolerance))]
     (run
      #(async/then
@@ -526,7 +526,7 @@
     (ask send :post "/api/2/episodes/simon.json"
          [{"podcast" feed-a "episode" "https://a.example/1.mp3" "guid" "a1" "action" "play"
            "timestamp" 1790000005000 "position" 500 "total" 3600 "device" "tablet"}])
-    (is (= [500 t2 "gpodder:tablet"] ((juxt :position :updated-at :device) (player/episode @state [g-a "a1"])))
+    (is (= [500 t2 "gpodder:tablet"] ((juxt :position :updated-at :device) (profile/episode @state [g-a "a1"])))
         "it counts as made when it arrived")
     (is (= t2 (:clock @state)))))
 
@@ -534,16 +534,16 @@
   (let [clock        (atom t2)
         [state send] (serve clock)
         s            (-> (phone)
-                         (player/subscribe (guid/from-url "https://b.example/rss") {:url "https://b.example/rss" :title "B"} t1)
-                         (player/unsubscribe (guid/from-url "https://b.example/rss") t1))]
+                         (profile/subscribe (guid/from-url "https://b.example/rss") {:url "https://b.example/rss" :title "B"} t1)
+                         (profile/unsubscribe (guid/from-url "https://b.example/rss") t1))]
     (ask send :post "/api/2/subscriptions/simon/antennapod.json" {"add" ["https://b.example/rss"]})
     (run
      #(async/then
        (sync/sync! s [(backend send)] t2)
        (fn [{s :state}]
-         (is (player/subscribed? s (guid/from-url "https://b.example/rss"))
+         (is (profile/subscribed? s (guid/from-url "https://b.example/rss"))
              "a show the other app has, which this device left long ago")
-         (is (= 2 (count (player/subscriptions @state))) "and still on the server"))))))
+         (is (= 2 (count (profile/subscriptions @state))) "and still on the server"))))))
 
 (defn- nextcloud
   "A send in the shape of the GPodder Sync app for Nextcloud, over the server
@@ -581,10 +581,10 @@
        (sync/sync! (phone) [b] t2)
        (fn [{s :state :keys [failed]}]
          (is (nil? failed) (pr-str failed))
-         (is (= 1800 (:position (player/episode s [g-a "a1"]))) "a PLAY of the other app, later than the phone's")
-         (is (= "gpodder:cloud" (:device (player/episode s [g-a "a1"])))
+         (is (= 1800 (:position (profile/episode s [g-a "a1"]))) "a PLAY of the other app, later than the phone's")
+         (is (= "gpodder:cloud" (:device (profile/episode s [g-a "a1"])))
              "an action without a device, written in the name of the backend")
-         (is (= #{feed-a} (set (map :url (vals (player/subscriptions @state)))))))))))
+         (is (= #{feed-a} (set (map :url (vals (profile/subscriptions @state)))))))))))
 
 (deftest a-server-with-paths-and-limits-of-its-own
   (let [calls   (atom [])
@@ -616,8 +616,8 @@
                                   :max-pages   3
                                   :batch-size  1})
         state   (-> (phone)
-                    (player/progress [g-a "b1"] 10 3600 t1)
-                    (player/progress [g-a "b2"] 20 3600 t1))]
+                    (profile/progress [g-a "b1"] 10 3600 t1)
+                    (profile/progress [g-a "b2"] 20 3600 t1))]
     (run
      #(async/then
        (sync/sync! state [own] t2)
@@ -628,7 +628,7 @@
          (testing "a full page asks for the next, three pages at most"
            (is (= 3 (count (filter #{[:get "/sync/simon/actions" nil]} @calls))))
            (is (= [2 3 4 5 6 7]
-                  (sort (keep (fn [n] (:position (player/episode s [g-a (str "a" n)]))) (range 2 10))))))
+                  (sort (keep (fn [n] (:position (profile/episode s [g-a (str "a" n)]))) (range 2 10))))))
          (testing "one action to a request of the push"
            (is (= [[:post "/sync/simon/shows" 2] [:post "/sync/simon/actions" 1] [:post "/sync/simon/actions" 1]
                    [:post "/sync/simon/actions" 1]]

@@ -10,8 +10,9 @@
   The checks follow the standards first: HTTP as RFC 9110 has it, the
   attributes of RSS 2.0 and of the podcast namespace, and the CORS rules
   of the Fetch standard. The CORS rules decide what a web player on
-  another site can read. A profile adds the rules of a directory, as in
-  dk.simongray.podcast.feed.validate, e.g. :apple for Apple Podcasts.
+  another site can read. The :requirements option adds those of a
+  directory, as in dk.simongray.podcast.feed.validate, e.g. :apple for
+  Apple Podcasts.
 
   A check moves as few bytes as it can. It moves two bytes of each file,
   from which dk.simongray.podcast.util.http/probe! learns the facts of the
@@ -373,15 +374,15 @@
                     (mapv #(or (by-index %) (waiting %) (attempted {:error (ex-info "The file was not checked." {})}))
                           (range (count files))))))))
 
-(def profiles
-  "The rules that a check adds for a standard or a directory, by the
-  profile names of dk.simongray.podcast.feed.validate.
+(def requirements
+  "The requirements that a check adds for a standard or a directory, by
+  the names that dk.simongray.podcast.feed.validate/requirements uses.
 
-  A profile gives the size, type, colors and file extension of the artwork
-  of an itunes:image, and the levels that it raises above those of the
-  catalogue. They're the rules of PSP-1, and of Apple's A Podcaster's
-  Guide to RSS, as of September 2026. The functions verdicts, report and
-  check-files! take a profile by its name here, or as a map of rules of
+  Each gives the size, type, colors and file extension of the artwork of
+  an itunes:image, and the levels that it raises above those of the
+  catalogue. They're the requirements of PSP-1, and of Apple's A
+  Podcaster's Guide to RSS, as of September 2026. The functions verdicts,
+  report and check-files! take them by their name here, or as a map of
   this shape."
   {:psp-1 {:name    "Podcast Standards Project PSP-1"
            :artwork {:sizes [1400 3000] :types #{"image/jpeg" "image/png"} :colors #{:rgb :indexed}
@@ -393,47 +394,47 @@
 
 (defn ^:no-doc diagnostic
   "The diagnostic `id` about `file`, with the `details`, at the level of
-  the catalogue unless the rules of `profile` raise it."
-  [{:keys [url path] :as file} profile id & {:as details}]
+  the catalogue unless `requirements` raise it."
+  [{:keys [url path] :as file} requirements id & {:as details}]
   (merge {:id    id
-          :level (or (get-in profile [:levels id]) (:level (diagnostics/by-id id)))
+          :level (or (get-in requirements [:levels id]) (:level (diagnostics/by-id id)))
           :url   url
           :path  path}
          (present details)))
 
 (defn ^:no-doc reaching
   "The diagnostics of how the `answer` to a request for `file` reached it,
-  or failed to, by the rules of `profile`.
+  or failed to, by `requirements`.
 
   It's nil when the answer came without a detour worth telling. A
   redirect that the client didn't follow is a downgrade when it leaves
   https for http, one too many after five, and otherwise its status."
-  [file profile {:keys [error status location redirects permanent-url] answered :url :as answer}]
+  [file requirements {:keys [error status location redirects permanent-url] answered :url :as answer}]
   (let [redirect? (and (integer? status) (= 3 (quot status 100)))]
     (cond
       error
-      [(diagnostic file profile :check/unreachable :reason (why answer))]
+      [(diagnostic file requirements :check/unreachable :reason (why answer))]
 
       (and redirect? location
            (str/starts-with? (str/lower-case (str answered)) "https:")
            (str/starts-with? (str/lower-case location) "http:"))
-      [(diagnostic file profile :check/downgrade :location location)]
+      [(diagnostic file requirements :check/downgrade :location location)]
 
       (and redirect? (<= 5 (count redirects)))
-      [(diagnostic file profile :check/redirects :location location)]
+      [(diagnostic file requirements :check/redirects :location location)]
 
       (not (ok? answer))
-      [(diagnostic file profile :check/status :status status)]
+      [(diagnostic file requirements :check/status :status status)]
 
       permanent-url
-      [(diagnostic file profile :check/moved :moved-to permanent-url)])))
+      [(diagnostic file requirements :check/moved :moved-to permanent-url)])))
 
 (defn ^:no-doc head-verdict
-  "The diagnostic of the answer `head` to a HEAD request for `file`, by the
-  rules of `profile`, when the request didn't succeed."
-  [file profile head]
+  "The diagnostic of the answer `head` to a HEAD request for `file`, by
+  `requirements`, when the request didn't succeed."
+  [file requirements head]
   (when (and head (not (ok? head)))
-    [(diagnostic file profile :check/head :status (:status head) :reason (why head))]))
+    [(diagnostic file requirements :check/head :status (:status head) :reason (why head))]))
 
 (defn ^:no-doc passed-on
   "The diagnostics in the `report` of a reader of `file` that warn of more
@@ -444,12 +445,12 @@
     (merge d (select-keys file [:url :path]))))
 
 (defn ^:no-doc type-verdict
-  "The diagnostic of the media type `served` for `file`, by the rules of
-  `profile`, when it differs from the one that the feed declares."
-  [file profile served]
+  "The diagnostic of the media type `served` for `file`, by
+  `requirements`, when it differs from the one that the feed declares."
+  [file requirements served]
   (let [declared (http/media-type (get-in file [:declared :type]))]
     (when (and declared served (not= declared served))
-      [(diagnostic file profile :check/type :declared declared :served served)])))
+      [(diagnostic file requirements :check/type :declared declared :served served)])))
 
 (defn- as-is?
   "Whether the `answer` sends the file as it is, not in a content coding
@@ -459,18 +460,18 @@
 
 (defn- length-verdict
   "The diagnostic of a media `file` whose size, as the answers `get` and
-  `head` give it, differs from the length that the feed declares, by the
-  rules of `profile`.
+  `head` give it, differs from the length that the feed declares, by
+  `requirements`.
 
   A length of 0 says that the feed doesn't know the length, as the RSS
   Best Practices Profile, section 4.1.1.20.5, has it."
-  [{:keys [declared] :as file} profile get head]
+  [{:keys [declared] :as file} requirements get head]
   (let [length (:length declared)
         served (or (get-in get [:range :total])
                    (when (and (= 200 (:status get)) (as-is? get)) (:length get))
                    (when (as-is? head) (:length head)))]
     (when (and (number? length) (pos? length) (number? served) (not= length served))
-      [(diagnostic file profile :check/length :declared length :served served)])))
+      [(diagnostic file requirements :check/length :declared length :served served)])))
 
 (defn- ranged?
   "Whether the `answer` to a request for the first two bytes of a file is
@@ -483,17 +484,16 @@
 
 (defn- ranges-verdict
   "The diagnostic of an audio or video `file` whose server doesn't answer
-  a request for a byte range, `get`, with that range, by the rules of
-  `profile`."
-  [{:keys [declared] :as file} profile get]
+  a request for a byte range, `get`, with that range, by `requirements`."
+  [{:keys [declared] :as file} requirements get]
   (when (and (re-find #"^(?:audio|video)/" (or (http/media-type (:type declared)) (:type get) ""))
              (not (ranged? get)))
-    [(diagnostic file profile :check/ranges :status (:status get))]))
+    [(diagnostic file requirements :check/ranges :status (:status get))]))
 
 (defn- media-reading-verdicts
   "The diagnostics of what reading the media `file` found, `media`, against
-  what the feed declares, by the rules of `profile`."
-  [{:keys [declared] :as file} profile media]
+  what the feed declares, by `requirements`."
+  [{:keys [declared] :as file} requirements media]
   (let [expected (formats (http/media-type (:type declared)))
         stated   (:duration declared)
         measured (:duration media)
@@ -503,42 +503,42 @@
       nil
 
       (:error media)
-      [(diagnostic file profile :check/unread :reason (why media))]
+      [(diagnostic file requirements :check/unread :reason (why media))]
 
       :else
       (concat
        (when (and expected (if (:format media) (not= expected (:format media)) unknown?))
-         [(diagnostic file profile :check/format :declared (:type declared) :format (:format media))])
+         [(diagnostic file requirements :check/format :declared (:type declared) :format (:format media))])
        (when (and (number? stated) (number? measured) (> (abs (- stated measured)) (max 10 (* 0.02 stated))))
-         [(diagnostic file profile :check/duration :declared stated :measured measured)])
+         [(diagnostic file requirements :check/duration :declared stated :measured measured)])
        ;; a format that the reader does not know is :check/format already
        (passed-on file (remove #(= :file/unknown-format (:id %)) (:report media)))))))
 
 (defn- integrity-verdict
   "The diagnostic of the check of the media `file` against its
-  podcast:integrity, `integrity`, by the rules of `profile`. It's for a
-  file that doesn't match it, or one that couldn't be checked."
-  [file profile {:keys [valid? algorithm] :as integrity}]
+  podcast:integrity, `integrity`, by `requirements`. It's for a file that
+  doesn't match it, or one that couldn't be checked."
+  [file requirements {:keys [valid? algorithm] :as integrity}]
   (cond
     (nil? integrity) nil
-    (false? valid?)  [(diagnostic file profile :check/integrity :algorithm algorithm)]
-    (not valid?)     [(diagnostic file profile :check/unverified :reason (why integrity))]))
+    (false? valid?)  [(diagnostic file requirements :check/integrity :algorithm algorithm)]
+    (not valid?)     [(diagnostic file requirements :check/unverified :reason (why integrity))]))
 
 (defn- media-verdicts
-  "The diagnostics of the media `file` from its `facts`, by the rules of
-  `profile`."
-  [file profile {:keys [head get media integrity] :as facts}]
+  "The diagnostics of the media `file` from its `facts`, by
+  `requirements`."
+  [file requirements {:keys [head get media integrity] :as facts}]
   (if-not (ok? get)
-    (reaching file profile get)
+    (reaching file requirements get)
     (let [head' (when (ok? head) head)]
       (concat
-       (reaching file profile get)
-       (head-verdict file profile head)
-       (type-verdict file profile (or (:type get) (:type head')))
-       (length-verdict file profile get head')
-       (ranges-verdict file profile get)
-       (media-reading-verdicts file profile media)
-       (integrity-verdict file profile integrity)))))
+       (reaching file requirements get)
+       (head-verdict file requirements head)
+       (type-verdict file requirements (or (:type get) (:type head')))
+       (length-verdict file requirements get head')
+       (ranges-verdict file requirements get)
+       (media-reading-verdicts file requirements media)
+       (integrity-verdict file requirements integrity)))))
 
 (defn- ratio
   "The aspect ratio that the podcast:image attribute `s` gives, such as 1/1
@@ -560,14 +560,14 @@
 
 (defn- size-verdict
   "The diagnostic of an image `file` whose size in pixels, from the header
-  `image`, differs from what its podcast:image declares, by the rules of
-  `profile`.
+  `image`, differs from what its podcast:image declares, by
+  `requirements`.
 
   The podcast namespace takes a podcast:image without a size as square.
   But the model gives the images of the deprecated podcast:images as
   podcast:image elements too, and those make no such claim, so only a
   declared size counts."
-  [{:keys [declared] :as file} profile {:keys [width height] :as image}]
+  [{:keys [declared] :as file} requirements {:keys [width height] :as image}]
   (let [{w :width h :height aspect :aspect-ratio} declared
         stated (or (ratio aspect)
                    (when (and (number? w) (number? h) (pos? h)) (/ w (double h))))]
@@ -575,7 +575,7 @@
                (or (and (number? w) (not= w width))
                    (and (number? h) (not= h height))
                    (and stated (> (abs (- stated (/ width (double height)))) (* 0.01 stated)))))
-      [(diagnostic file profile :check/image-size
+      [(diagnostic file requirements :check/image-size
                    :declared (select-keys declared [:width :height :aspect-ratio])
                    :actual {:width width :height height})])))
 
@@ -606,54 +606,54 @@
   {"jpg" "image/jpeg" "jpeg" "image/jpeg" "png" "image/png"})
 
 (defn- artwork-verdicts
-  "The diagnostics of the image `file`, an itunes:image, by the artwork
-  rules of `profile`. They come from the answer `head` to a HEAD request
-  and the header `image` as it's shown.
+  "The diagnostics of the image `file`, an itunes:image, by the artwork of
+  `requirements`. They come from the answer `head` to a HEAD request and
+  the header `image` as it's shown.
 
   The type of the image is the one that its bytes give, or else the one
   that the server gives."
-  [{:keys [url] :as file} profile head {:keys [width height color] :as image}]
-  (let [{:keys [sizes types colors extension? alpha? last-modified?]} (:artwork profile)
+  [{:keys [url] :as file} requirements head {:keys [width height color] :as image}]
+  (let [{:keys [sizes types colors extension? alpha? last-modified?]} (:artwork requirements)
         [least most] sizes
         type (or (:type image) (when (ok? head) (:type head)))
         ext  (extension url)]
     (concat
      (when (and sizes width (not (and height (= width height) (<= least width) (<= width most))))
-       [(diagnostic file profile :check/artwork-size :width width :height height)])
+       [(diagnostic file requirements :check/artwork-size :width width :height height)])
      (when (and types type (not (and (types type) (decodable? image))))
-       [(diagnostic file profile :check/artwork-type :type type :process (:process image) :bits (:bits image))])
+       [(diagnostic file requirements :check/artwork-type :type type :process (:process image) :bits (:bits image))])
      (when (and colors color (not (colors color)))
-       [(diagnostic file profile :check/artwork-color :color color)])
+       [(diagnostic file requirements :check/artwork-color :color color)])
      (when (and (false? alpha?) (:alpha? image))
-       [(diagnostic file profile :check/artwork-alpha)])
+       [(diagnostic file requirements :check/artwork-alpha)])
      (when (and extension? ext type (not= type (extension-types ext)))
-       [(diagnostic file profile :check/artwork-extension :extension ext :type type)])
+       [(diagnostic file requirements :check/artwork-extension :extension ext :type type)])
      (when (and last-modified? (ok? head) (not (:last-modified head)))
-       [(diagnostic file profile :check/last-modified)]))))
+       [(diagnostic file requirements :check/last-modified)]))))
 
 (defn- image-verdicts
-  "The diagnostics of the image `file` from its `facts`, by the rules of
-  `profile`."
-  [{{:keys [sources]} :declared :as file} profile {:keys [head image] :as facts}]
+  "The diagnostics of the image `file` from its `facts`, by
+  `requirements`."
+  [{{:keys [sources]} :declared :as file} requirements {:keys [head image] :as facts}]
   (cond
     (and (:error image) (not (ok? head)))
-    (reaching file profile head)
+    (reaching file requirements head)
 
     (:error image)
-    [(diagnostic file profile :check/unread :reason (why image))]
+    [(diagnostic file requirements :check/unread :reason (why image))]
 
     :else
     (let [image (shown image)]
       (concat
-       (when (ok? head) (reaching file profile head))
-       (head-verdict file profile head)
+       (when (ok? head) (reaching file requirements head))
+       (head-verdict file requirements head)
        (passed-on file (:report image))
        (when (and (ok? head) (:type head) (:type image) (not= (:type head) (:type image)))
-         [(diagnostic file profile :check/image-type :served (:type head) :actual (:type image))])
+         [(diagnostic file requirements :check/image-type :served (:type head) :actual (:type image))])
        (when (contains? sources :podcast)
-         (size-verdict file profile image))
+         (size-verdict file requirements image))
        (when (contains? sources :itunes)
-         (artwork-verdicts file profile head image))))))
+         (artwork-verdicts file requirements head image))))))
 
 (defn- barrier
   "The first answer on the way to the `answer` to a request for `url` that
@@ -679,48 +679,48 @@
             a))))))
 
 (defn ^:no-doc cors-verdict
-  "The diagnostic `id` of `file`, by the rules of `profile`, when a page of
-  another site can't read the answer `get` to a request for `url`.
+  "The diagnostic `id` of `file`, by `requirements`, when a page of another
+  site can't read the answer `get` to a request for `url`.
 
   The :allowed of the diagnostic names the origins that the answer that
   stops it allows, and the :at names the redirect that it is."
-  [file profile id url get]
+  [file requirements id url get]
   (when-let [a (barrier url get)]
-    [(diagnostic file profile id :allowed (:cors a) :at (when-not (identical? a get) (:url a)))]))
+    [(diagnostic file requirements id :allowed (:cors a) :at (when-not (identical? a get) (:url a)))]))
 
 (defn- text-verdicts
   "The diagnostics of the transcript or chapters `file` from its `facts`,
-  by the rules of `profile`."
-  [{:keys [url] :as file} profile {:keys [head get read] :as facts}]
+  by `requirements`."
+  [{:keys [url] :as file} requirements {:keys [head get read] :as facts}]
   (if-not (ok? get)
-    (reaching file profile get)
+    (reaching file requirements get)
     (concat
-     (reaching file profile get)
-     (head-verdict file profile head)
-     (type-verdict file profile (:type get))
-     (cors-verdict file profile :check/cors url get)
+     (reaching file requirements get)
+     (head-verdict file requirements head)
+     (type-verdict file requirements (:type get))
+     (cors-verdict file requirements :check/cors url get)
      (cond
-       (:error read)                    [(diagnostic file profile :check/unread :reason (why read))]
-       (and read (zero? (:count read))) [(diagnostic file profile :check/empty)])
+       (:error read)                    [(diagnostic file requirements :check/unread :reason (why read))]
+       (and read (zero? (:count read))) [(diagnostic file requirements :check/empty)])
      (passed-on file (:report read)))))
 
 (defn- feed-verdicts
-  "The diagnostics of the feed `file` from its `facts`, by the rules of
-  `profile`.
+  "The diagnostics of the feed `file` from its `facts`, by
+  `requirements`.
 
   A server needn't send the ETag and Last-Modified in a 206, so those of
   the answer to HEAD count too. A browser hides the ETag of an answer from
   another site."
-  [{:keys [url] :as file} profile {:keys [head get] :as facts}]
+  [{:keys [url] :as file} requirements {:keys [head get] :as facts}]
   (if-not (ok? get)
-    (reaching file profile get)
+    (reaching file requirements get)
     (concat
-     (reaching file profile get)
-     (head-verdict file profile head)
-     (cors-verdict file profile :check/feed-cors url get)
+     (reaching file requirements get)
+     (head-verdict file requirements head)
+     (cors-verdict file requirements :check/feed-cors url get)
      (when-not (or (:etag get) (:last-modified get) (:filtered? get)
                    (and (ok? head) (or (:etag head) (:last-modified head))))
-       [(diagnostic file profile :check/validators)]))))
+       [(diagnostic file requirements :check/validators)]))))
 
 (def ^:no-doc judges
   "The function that gives the diagnostics of a file from its facts, by the
@@ -732,32 +732,32 @@
    :feed       feed-verdicts})
 
 (defn verdicts
-  "The diagnostics that the `facts` about `file` call for, by the rules of
-  the standards and of `profile`, if any.
+  "The diagnostics that the `facts` about `file` call for, by the
+  standards and the `chosen` requirements, if any.
 
   The function files gives the file, and check-files! gives the facts.
   Each diagnostic has the :url of the file and the :path of the element
-  that names it. The `profile` is a name in profiles, or a map of rules of
-  the shape of its entries."
-  [{:keys [kind] :as file} facts profile]
-  (let [rules (if (map? profile) profile (get profiles profile))
-        judge (get judges kind (constantly []))]
+  that names it. The `chosen` requirements are a name in requirements, or
+  a map of the shape of its entries."
+  [{:keys [kind] :as file} facts chosen]
+  (let [chosen (if (map? chosen) chosen (get requirements chosen))
+        judge  (get judges kind (constantly []))]
     (->> (cond
            (:unchecked facts) []
-           (:error facts)     [(diagnostic file rules :check/unreachable :reason (why facts))]
-           :else              (judge file rules facts))
+           (:error facts)     [(diagnostic file chosen :check/unreachable :reason (why facts))]
+           :else              (judge file chosen facts))
          (mapv diagnostics/describe))))
 
 (defn report
-  "The diagnostics of the checked `files`, by the rules of `profile`.
+  "The diagnostics of the checked `files`, by the `chosen` requirements.
 
-  Each file has its :facts, as check-files! gives them, and the `profile`
-  is what verdicts takes. So several profiles can judge one check, and no
-  request goes out again. The files that a limit of the check left out
-  have no diagnostics of their own, and one :check/unchecked counts them
-  for each limit."
-  [files profile]
-  (into (vec (mapcat #(verdicts % (:facts %) profile) files))
+  Each file has its :facts, as check-files! gives them, and the `chosen`
+  requirements are what verdicts takes. So several requirements can judge
+  one check, and no request goes out again. The files that a limit of the
+  check left out have no diagnostics of their own, and one
+  :check/unchecked counts them for each limit."
+  [files chosen]
+  (into (vec (mapcat #(verdicts % (:facts %) chosen) files))
         (for [[limit n] (frequencies (keep (comp :unchecked :facts) files))]
           (diagnostics/describe {:id :check/unchecked :level :warning :limit limit :count n}))))
 
@@ -773,7 +773,8 @@
   - :url, the URL of the feed, which is checked too
   - :credentials, of a private feed, as http/fetch! takes them
   - :items, how many of the newest items to check the files of, or :all
-  - :profile, a name in profiles whose rules to add, or a map of rules
+  - :requirements, a name in requirements whose checks to add, or a map
+    of the shape of its entries
   - :read?, whether to read what the files hold: the format and duration
     of media files, and transcripts and chapters whole
   - :integrity?, whether to fetch whole each file with a podcast:integrity
@@ -807,7 +808,7 @@
    (check-files! feed {}))
   ([feed opts]
    (let [own-send     (:send opts)
-         {:keys [url credentials profile concurrency send max-files max-seconds now] :as opts}
+         {:keys [url credentials requirements concurrency send max-files max-seconds now] :as opts}
          (merge default-limits
                 {:send http/call! :now time/now}
                 opts)
@@ -825,7 +826,7 @@
                                        (map #(assoc % :facts {:unchecked :max-files}))
                                        far)]
                      {:files  checked
-                      :report (report checked profile)}))))))
+                      :report (report checked requirements)}))))))
 
 (comment
   (def feed

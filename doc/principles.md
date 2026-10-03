@@ -22,9 +22,9 @@ These principles guide the design of podcast-clj, its API and its code.
   quirk that can be switched off for strict parsing, and every repair goes
   in a report. Nothing is dropped silently: unknown elements are kept as
   Hiccup, so `emit` writes back what `parse` read.
-- **Sync without a server.** The player state is a CRDT, so devices merge
-  their changes without conflicts. Any place that can hold files is enough
-  to sync through, even a plain folder.
+- **Sync without a server.** The listener's profile is a CRDT, so devices
+  merge their changes without conflicts. Any place that can hold files is
+  enough to sync through, even a plain folder.
 - **One codebase.** Almost everything is `.cljc` and runs on the JVM, in
   Node and in the browser. Platform code lives in small adapters, and in
   ClojureScript a function that sends requests returns a promise.

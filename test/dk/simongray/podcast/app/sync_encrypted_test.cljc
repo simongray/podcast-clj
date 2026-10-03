@@ -4,7 +4,7 @@
   other platform opening here, and two devices kept in step through an
   encrypting store."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            #?@(:clj [[dk.simongray.podcast.app.player :as player]
+            #?@(:clj [[dk.simongray.podcast.app.profile :as profile]
                       [dk.simongray.podcast.app.sync :as sync]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
@@ -100,18 +100,18 @@
            backend   (fn [pass]
                        (encrypted/backend (store/memory documents)
                                           {:passphrase pass :iterations 1000 :opml? true :except #{store/opml-name}}))
-           phone     (sync/sync! (player/subscribe (player/state "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
+           phone     (sync/sync! (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
                                  [(backend passphrase)] t1)
-           laptop    (sync/sync! (player/progress (player/state "laptop") a 60 3600 t1) [(backend passphrase)] t2)
+           laptop    (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [(backend passphrase)] t2)
            phone2    (sync/sync! (:state phone) [(backend passphrase)] t3 {:ctx (:ctx phone)})]
        (is (nil? (:failed phone)))
        (is (nil? (:failed laptop)))
        (is (nil? (:failed phone2)))
-       (is (= 60 (:position (player/episode (:state phone2) a))))
+       (is (= 60 (:position (profile/episode (:state phone2) a))))
        (is (every? #(str/starts-with? (:body %) "{:encrypted") (vals (dissoc @documents store/opml-name)))
            "every document at rest is ciphertext")
        (is (str/includes? (:body (@documents store/opml-name)) "https://a/rss") "the subscription list stays readable, as asked")
-       (let [{:keys [failed]} (sync/sync! (player/state "tablet") [(backend "wrong")] t3)]
+       (let [{:keys [failed]} (sync/sync! (profile/make "tablet") [(backend "wrong")] t3)]
          (is (str/includes? (get failed "memory") "does not open"))))))
 
 #?(:cljs

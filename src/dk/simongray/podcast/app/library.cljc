@@ -2,10 +2,10 @@
   "The subscriptions, feeds, queue and play progress of an app, in one map.
 
   Each part is a value of its own namespace, e.g. every function of
-  app.player takes (:player library):
+  app.profile takes (:profile library):
 
       {:device   \"…\"                ; the id of this device
-       :player   {…}                ; the player state, a CRDT
+       :profile  {…}                ; the profile, a CRDT that syncs
        :feeds    {guid {…}}         ; the feeds, as app.feeds keeps them
        :lists    {url {…}}          ; the followed OPML lists
        :index    {…}                ; the search index, with :search?
@@ -18,8 +18,8 @@
   Keep the library in an atom: swap! it with the pure functions, and
   reset! it with refresh! and sync!, which fetch. Each returns the library
   along with what it did, under :effects, :refresh or :sync.
-  The player state is a CRDT, so change it only with the functions of
-  app.player, never with assoc or dissoc.
+  The profile is a CRDT, so change it only with the functions of
+  app.profile, never with assoc or dissoc.
 
   The settings are the options that the functions take, given once:
 
@@ -43,7 +43,7 @@
   (:require [dk.simongray.podcast.app.downloads :as downloads]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.feeds :as feeds]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.app.show :as show]
             [dk.simongray.podcast.app.sync :as sync]
@@ -86,7 +86,7 @@
    (let [description (dissoc opts :settings :at)
          settings    (merge default-settings settings)]
      {:device   device
-      :player   (cond-> (player/state device)
+      :profile  (cond-> (profile/make device)
                   (seq description) (crdt/identify description (time-of {:settings settings} opts)))
       :feeds    {}
       :lists    {}
@@ -135,7 +135,7 @@
   and the settings in `opts`.
 
   The `fetched` is the result of dk.simongray.podcast/fetch! or a parsed
-  feed, and the `opts` are as player/configure takes them, besides :at."
+  feed, and the `opts` are as profile/configure takes them, besides :at."
   ([library url fetched]
    (subscribe library url fetched {}))
   ([library url fetched opts]
@@ -147,37 +147,37 @@
          guid     (feed/feed-guid feed url)]
      (-> library
          (update :feeds feeds/add url result now (:cadence (:settings library) {}))
-         (update :player player/subscribe guid {:url url :title (resolve/title feed)} now)
-         (cond-> (seq settings) (update :player player/configure guid settings now))
+         (update :profile profile/subscribe guid {:url url :title (resolve/title feed)} now)
+         (cond-> (seq settings) (update :profile profile/configure guid settings now))
          (reindexed guid)))))
 
 (defn unsubscribe
   "The `library` unsubscribed from the feed `guid`, with `opts`. The feed
-  and its search documents go, and the player state keeps a record of the
+  and its search documents go, and the profile keeps a record of the
   subscription."
   ([library guid]
    (unsubscribe library guid {}))
   ([library guid opts]
    {:pre [(map? opts)]}
    (-> library
-       (update :player player/unsubscribe guid (time-of library opts))
+       (update :profile profile/unsubscribe guid (time-of library opts))
        (update :feeds dissoc guid)
        (cond-> (:index library) (update :index unindexed guid)))))
 
 (defn subscriptions
   "The live subscriptions of `library` by guid, each as
-  player/subscriptions gives it, with its :settings filled in by
-  player/settings, and its :feed once it's fetched."
+  profile/subscriptions gives it, with its :settings filled in by
+  profile/settings, and its :feed once it's fetched."
   [library]
-  (let [player (:player library)]
+  (let [profile (:profile library)]
     (into {} (map (fn [[guid sub]]
-                    [guid (cond-> (assoc sub :settings (player/settings player guid))
+                    [guid (cond-> (assoc sub :settings (profile/settings profile guid))
                             (get-in library [:feeds guid]) (assoc :feed (get-in library [:feeds guid :feed])))]))
-          (player/subscriptions player))))
+          (profile/subscriptions profile))))
 
 (defn- listed
   "The `library` with the parse `list` of the OPML list at `url`, fetched
-  at `now`, applied as player/refresh-list does, and kept with the ETag
+  at `now`, applied as profile/refresh-list does, and kept with the ETag
   and Last-Modified of `fetched`."
   [library url list now {:keys [etag last-modified] :as fetched}]
   (let [seconds (:list-seconds (:settings library))
@@ -185,7 +185,7 @@
                   etag          (assoc :etag etag)
                   last-modified (assoc :last-modified last-modified))]
     (-> library
-        (update :player #(:state (player/refresh-list % url (get-in library [:lists url :list]) list now)))
+        (update :profile #(:state (profile/refresh-list % url (get-in library [:lists url :list]) list now)))
         (assoc-in [:lists url] entry))))
 
 (defn follow
@@ -193,7 +193,7 @@
   with the `opts` below.
 
   The `opts` give the :etag and :last-modified of the fetch, and the
-  :title and :folder of the list as player/follow-list takes them. The
+  :title and :folder of the list as profile/follow-list takes them. The
   shows of the list become subscriptions, which refresh! fetches."
   ([library url list]
    (follow library url list {}))
@@ -201,7 +201,7 @@
    {:pre [(map? list) (map? opts)]}
    (let [now (time-of library opts)]
      (-> library
-         (update :player player/follow-list url (select-keys opts [:title :folder]) now)
+         (update :profile profile/follow-list url (select-keys opts [:title :folder]) now)
          (listed url list now opts)))))
 
 (defn unfollow
@@ -211,7 +211,7 @@
   ([library url opts]
    {:pre [(map? opts)]}
    (-> library
-       (update :player player/unfollow-list url (time-of library opts))
+       (update :profile profile/unfollow-list url (time-of library opts))
        (update :lists dissoc url))))
 
 (defn- fetched-list!
@@ -268,18 +268,18 @@
   "The guids and URLs of the live subscriptions of `library` that have no
   feed yet."
   [library]
-  (for [[guid {:keys [url]}] (player/subscriptions (:player library))
+  (for [[guid {:keys [url]}] (profile/subscriptions (:profile library))
         :when (and url (not (contains? (:feeds library) guid)))]
     [guid url]))
 
 (defn- known
   "The `library` with the feed of `result`, fetched from `url` at `now` for
   the subscription `guid`, which moves to the guid that the feed declares,
-  as player/rekey does."
+  as profile/rekey does."
   [library guid url result now]
   (let [declared (feed/feed-guid (:feed result) url)]
     (-> library
-        (update :player player/rekey guid declared now)
+        (update :profile profile/rekey guid declared now)
         (update :feeds feeds/add url result now (:cadence (:settings library) {}))
         (reindexed declared))))
 
@@ -311,23 +311,23 @@
 
 (defn- applied
   "The `library` with the `result` of app.feeds/refresh! applied to the
-  player at `now`, as a map of the :library and what was :added and
+  profile at `now`, as a map of the :library and what was :added and
   :moved."
   [library {:keys [feeds changed moved] :as result} now]
   (let [before (:feeds library)
         library (assoc library :feeds feeds)
         result (reduce (fn [acc guid]
                          (let [{:keys [feed url]} (get feeds guid)
-                               {:keys [state added]} (player/refresh (:player (:library acc)) (get-in before [guid :feed]) feed url now)]
+                               {:keys [state added]} (profile/refresh (:profile (:library acc)) (get-in before [guid :feed]) feed url now)]
                            (-> acc
-                               (assoc-in [:library :player] state)
+                               (assoc-in [:library :profile] state)
                                (update :library reindexed guid)
                                (update :added into added))))
                        {:library library :added []}
                        changed)]
     (reduce (fn [acc [guid new-url]]
               (let [title (resolve/title (get-in feeds [guid :feed]))]
-                (update-in acc [:library :player] player/subscribe guid {:url new-url :title title} now)))
+                (update-in acc [:library :profile] profile/subscribe guid {:url new-url :title title} now)))
             (assoc result :moved moved)
             moved)))
 
@@ -370,9 +370,9 @@
 
 (defn episode-id
   "The id of the episode `item` of `feed` in `library`, [feed-guid
-  item-guid], as player/episode-id gives it with the URL of the feed."
+  item-guid], as profile/episode-id gives it with the URL of the feed."
   [library feed item]
-  (player/episode-id feed (get (urls library) feed) item))
+  (profile/episode-id feed (get (urls library) feed) item))
 
 (defn- item-of
   "The entry of the feed `feed-guid` in `library` and its item
@@ -436,7 +436,7 @@
   item] pairs.
 
   The selection and the order are those of search/episodes across all
-  the feeds. The criteria read the player state of the library, and the
+  the feeds. The criteria read the profile of the library, and the
   time of its clock unless the `opts` give :at.
 
       (episodes library {:where {:status :unplayed} :order :listening})"
@@ -445,7 +445,7 @@
   ([library opts]
    {:pre [(map? opts)]}
    (search/episodes (map :feed (vals (:feeds library)))
-                    (assoc opts :player (:player library) :url (urls library) :at (time-of library opts)))))
+                    (assoc opts :profile (:profile library) :url (urls library) :at (time-of library opts)))))
 
 (defn search
   "The episodes and shows of `library` that match the query `q`, best
@@ -460,9 +460,9 @@
 
 (defn step
   "The `library` after the player `event`, with `opts`, both as
-  player/step takes them.
+  profile/step takes them.
 
-  It has the new player state, the :effects to apply, and what's left of
+  It has the new profile, the :effects to apply, and what's left of
   the :sleep timer of this device. The `opts` go over the :sleep of
   the library."
   ([library event]
@@ -471,24 +471,24 @@
    {:pre [(map? opts)]}
    (let [now  (time-of library opts)
          opts (merge (select-keys library [:sleep]) opts)
-         {:keys [state effects sleep]} (player/step (:player library) event now opts)]
-     (cond-> (assoc (dissoc library :sleep) :player state :effects effects)
+         {:keys [state effects sleep]} (profile/step (:profile library) event now opts)]
+     (cond-> (assoc (dissoc library :sleep) :profile state :effects effects)
        sleep (assoc :sleep sleep)))))
 
-(defn update-player
-  "The `library` with its player state replaced by what `f` gives for it,
-  the `args` and the time of the clock, in that order.
+(defn update-profile
+  "The `library` with its profile replaced by what `f` gives for it, the
+  `args` and the time of the clock, in that order.
 
-  It suits most functions of app.player, e.g. (update-player library
-  player/enqueue id). For a series of changes at one time, give a function
-  of the player state and the time:
+  It suits most functions of app.profile, e.g. (update-profile library
+  profile/enqueue id). For a series of changes at one time, give a
+  function of the profile and the time:
 
-      (update-player library (fn [state now]
-                               (-> state
-                                   (player/tag guid \"Daily\" now)
-                                   (player/star id now))))"
+      (update-profile library (fn [state now]
+                                (-> state
+                                    (profile/tag guid \"Daily\" now)
+                                    (profile/star id now))))"
   [library f & args]
-  (update library :player #(apply f % (concat args [(time-of library {})]))))
+  (update library :profile #(apply f % (concat args [(time-of library {})]))))
 
 (defn sync!
   "Sync `library` with the listener's other devices through `backends`,
@@ -500,7 +500,7 @@
 
       {:ctx      {…}         ; the cursors of the stores, for the next step
        :at       #inst \"…\"
-       :clock    #inst \"…\"   ; the clock of the player state after the step
+       :clock    #inst \"…\"   ; the clock of the profile after the step
        :failures 0           ; the steps in a row that failed
        :failed   {…}         ; the backends that failed, when any did
        :report   [...]}"
@@ -509,37 +509,37 @@
   ([library backends opts]
    {:pre [(map? opts)]}
    (let [now    (time-of library opts)
-         before (:player library)]
+         before (:profile library)]
      (async/then (sync/sync! before backends now (assoc opts :ctx (get-in library [:sync :ctx])))
                  (fn [{:keys [state ctx failed report]}]
-                   (let [player   (-> before (player/merge state) (player/compact now))
+                   (let [profile  (-> before (profile/merge state) (profile/compact now))
                          failures (if (seq failed) (inc (get-in library [:sync :failures] 0)) 0)]
                      (assoc library
-                            :player player
-                            :sync (cond-> {:ctx ctx :at now :clock (:clock player) :failures failures :report report}
+                            :profile profile
+                            :sync (cond-> {:ctx ctx :at now :clock (:clock profile) :failures failures :report report}
                                     (seq failed) (assoc :failed failed)))))))))
 
 (defn next-sync
   "When `library` should sync again, with `opts`, as sync/next-at says:
-  right away before the first step, and sooner when the player state
-  changed since the last step."
+  right away before the first step, and sooner when the profile changed
+  since the last step."
   ([library]
    (next-sync library {}))
   ([library opts]
    {:pre [(map? opts)]}
    (let [{:keys [at clock failures]} (:sync library)]
-     (sync/next-at (when at {:at at :changed? (not= clock (:clock (:player library))) :failures failures})
+     (sync/next-at (when at {:at at :changed? (not= clock (:clock (:profile library))) :failures failures})
                    (time-of library opts)))))
 
 (defn plan
   "The episodes to download and the files to delete on this device with
-  `files`. It's what downloads/plan gives for the player state and feeds
-  of `library`, with the `opts`."
+  `files`. It's what downloads/plan gives for the profile and feeds of
+  `library`, with the `opts`."
   ([library files]
    (plan library files {}))
   ([library files opts]
    {:pre [(map? opts)]}
-   (downloads/plan (:player library) (map :feed (vals (:feeds library))) files (time-of library opts)
+   (downloads/plan (:profile library) (map :feed (vals (:feeds library))) files (time-of library opts)
                    (assoc opts :url (urls library)))))
 
 #?(:clj

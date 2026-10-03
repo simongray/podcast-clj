@@ -6,7 +6,7 @@
             #?(:clj [dk.simongray.podcast.util.http :as http])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.app.sync.webdav :as webdav]
@@ -251,7 +251,7 @@
            (is (nil? (:failed laptop)))
            (is (= #{"podcast.edn" store/probe-name} (set (keys @documents)))
                "one shared document, and the probe that the store cannot delete")
-           (is (= 900 (:position (player/episode (:state laptop) a)))))))))
+           (is (= 900 (:position (profile/episode (:state laptop) a)))))))))
 
 #?(:clj
    (deftest checking-a-collection
@@ -285,7 +285,7 @@
                phone2  (sync/sync! (:state phone) [backend] t3 {:ctx (:ctx phone)})]
            (is (nil? (:failed phone)) "the collection was made on the first put")
            (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"} (set (keys (dissoc @documents ::created)))))
-           (is (= 900 (:position (player/episode (:state phone2) a))))
+           (is (= 900 (:position (profile/episode (:state phone2) a))))
            (is (same? (:state laptop) (:state phone2)))
            (is (= "dav.example.org" (:name backend)) "named after the host")
            (is (= {"laptop.edn" "\"1\"" "phone.edn" "\"2\""} (:versions (get (:ctx phone2) "dav.example.org")))
@@ -317,8 +317,8 @@
                       (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))
                       (sync/sync! (laptop-state) [backend] t3)))
              (.then (fn [laptop]
-                      (is (= 900 (:position (player/episode (:state laptop) a))))
-                      (is (= #{"feed-a" "feed-b"} (set (keys (player/subscriptions (:state laptop))))))
+                      (is (= 900 (:position (profile/episode (:state laptop) a))))
+                      (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions (:state laptop))))))
                       (is (= #{"phone.edn" "laptop.edn"} (set (keys (dissoc @documents ::created)))))
                       (store/check! (webdav/store "https://dav.example.org/dav/" {:fetch (fetch-stand-in documents)}))))
              (.then (fn [{:keys [ok? checks]}]

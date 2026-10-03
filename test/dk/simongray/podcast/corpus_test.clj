@@ -18,7 +18,7 @@
       (is (string? (:rss/title feed)))
       (is (every? map? (:rss/items feed)))
       (is (= feed (podcast/parse (podcast/emit feed))) "lossless round trip")
-      (is (vector? (validate/validate feed {:profile :psp-1}))))))
+      (is (vector? (validate/validate feed {:requirements :psp-1}))))))
 
 (def companions-dir
   (io/file "dev-resources/corpus/companions"))

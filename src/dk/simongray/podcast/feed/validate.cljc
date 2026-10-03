@@ -11,9 +11,9 @@
   - a broken structure, e.g. an alternate enclosure without a source
   - an element that the registry doesn't know
 
-  A profile in the options adds the required and recommended elements of a
-  directory or a standard. The profile :psp-1 is the baseline of the
-  Podcast Standards Project, and :apple is that of Apple Podcasts.
+  The :requirements option adds the required and recommended elements of
+  a directory or a standard: :psp-1 for the baseline of the Podcast
+  Standards Project, and :apple for Apple Podcasts.
 
   A diagnostic has the shape of those of the parse report: an :id, a
   :level of :error, :warning or :info, a :path into the feed, and a
@@ -261,15 +261,14 @@
      (diagnostic :validate/missing-enclosure :warning [:rss/items i :rss/enclosure]
               "the item has no enclosure, so there is nothing to play"))))
 
-(def profiles
-  "The required and recommended elements of each profile, for the channel
-  and for an item.
+(def requirements
+  "The required and recommended elements of the channel and of an item,
+  for each standard or directory by name.
 
   A requirement is a model key, or a vector of a key, a predicate of its
   value, and a description. They're the requirements of PSP-1, and of
   Apple's A Podcaster's Guide to RSS, as of September 2026. The function
-  validate takes a profile by its name here, or as a map of requirements
-  of this shape."
+  validate takes them by their name here, or as a map of this shape."
   {:psp-1 {:name    "Podcast Standards Project PSP-1"
            :channel {:required    [[:atom/links #(some (comp #{"self"} :rel) %) "atom:link rel=self"]
                                    :rss/title :rss/description :rss/link :rss/language
@@ -286,49 +285,49 @@
                      :recommended [:rss/pub-date :rss/description :itunes/duration
                                    :rss/link :itunes/image :itunes/explicit]}}})
 
-(defn- requirement-diagnostics
-  [level id m requirements path]
-  (for [req requirements
+(defn- missing-diagnostics
+  [level id m reqs path]
+  (for [req reqs
         :when (map? m)
         :let [[k pred label] (if (vector? req) req [req nil (xml/qname req)])]
         :when (not (and (some? (get m k)) (or (nil? pred) (pred (get m k)))))]
     (diagnostic id level (conj path k) (str label " is " (if (= :error level) "required" "recommended")))))
 
-(defn- profile-diagnostics
-  [feed profile]
-  (let [{:keys [channel item]} (if (map? profile) profile (profiles profile))]
+(defn- requirements-diagnostics
+  [feed chosen]
+  (let [{:keys [channel item]} (if (map? chosen) chosen (requirements chosen))]
     (concat
-     (requirement-diagnostics :error :validate/profile-required feed (:required channel) [])
-     (requirement-diagnostics :warning :validate/profile-recommended feed (:recommended channel) [])
+     (missing-diagnostics :error :validate/required feed (:required channel) [])
+     (missing-diagnostics :warning :validate/recommended feed (:recommended channel) [])
      (mapcat (fn [[i it]]
                (concat
-                (requirement-diagnostics :error :validate/profile-required it (:required item) [:rss/items i])
-                (requirement-diagnostics :warning :validate/profile-recommended it (:recommended item) [:rss/items i])))
+                (missing-diagnostics :error :validate/required it (:required item) [:rss/items i])
+                (missing-diagnostics :warning :validate/recommended it (:recommended item) [:rss/items i])))
              (map-indexed vector (:rss/items feed))))))
 
 (defn validate
   "The diagnostics of `feed` with the `opts` below: the checks of the
-  registry, the basics of RSS 2.0, and the requirements of a profile.
+  registry, the basics of RSS 2.0, and the requirements that `opts` name.
 
   - :registry, the tag registry to check against, spec/default by default
-  - :profile, a name in profiles, or a map of requirements of the shape of
-    its entries
+  - :requirements, a name in requirements, or a map of the shape of its
+    entries
 
   The feed is normalized first, so the shorthand that emit takes passes
   here too."
   ([feed]
    (validate feed {}))
-  ([feed {:keys [profile registry] :or {registry spec/default} :as opts}]
+  ([feed {chosen :requirements :keys [registry] :or {registry spec/default} :as opts}]
    {:pre [(map? opts)]}
-   (when (and profile (not (map? profile)) (not (contains? profiles profile)))
-     (throw (ex-info (str "Unknown profile " profile) {:profile profile :profiles (set (keys profiles))})))
+   (when (and chosen (not (map? chosen)) (not (contains? requirements chosen)))
+     (throw (ex-info (str "Unknown requirements " chosen) {:requirements chosen :known (set (keys requirements))})))
    (let [registry (spec/registry registry)
          feed     (feed/normalize feed {:registry registry})]
      (vec (concat (rss-diagnostics feed)
                   (children-diagnostics registry :channel feed [])
                   (unknown-key-diagnostics registry :channel nil feed [])
-                  (when profile
-                    (profile-diagnostics feed profile)))))))
+                  (when chosen
+                    (requirements-diagnostics feed chosen)))))))
 
 (defn valid?
   "Whether validate finds no errors in `feed`, with the `opts` of
@@ -341,5 +340,5 @@
 (comment
   (validate {:rss/version "2.0" :rss/title "T"
              :podcast/values [{:type "lightning" :method "keysend"}]}
-            {:profile :psp-1})
+            {:requirements :psp-1})
   #_.)

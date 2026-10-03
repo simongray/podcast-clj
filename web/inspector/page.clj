@@ -219,7 +219,7 @@
 
 (def orders
   "The orders the feed page offers: those of `search/orders` that need no
-  player state, which the server does not have."
+  profile, which the server does not have."
   [:listening :newest :oldest :shortest :longest :title])
 
 (defn- selection-form
@@ -248,12 +248,12 @@
 
 (defn feed-page
   "The inspector page for `feed`, fetched from `url`, with its parse
-  `report`, validated against `profile`, its items filtered and ordered
-  by `selection`, the options of `search/episodes`."
-  [{:keys [url feed report profile status selection]}]
+  `report`, validated against `requirements`, its items filtered and
+  ordered by `selection`, the options of `search/episodes`."
+  [{:keys [url feed report requirements status selection]}]
   (let [items      (search/episodes feed (or selection {}))
         total      (count (:rss/items feed))
-        validation (validate/validate feed {:profile profile})]
+        validation (validate/validate feed {:requirements requirements})]
     (layout (or (resolve/title feed) url)
             [:header
              (when-let [img (resolve/artwork feed)]
@@ -278,19 +278,19 @@
             [:p
              [:a {:href (feed-href "/feed.edn" url)} "model as EDN"] " · "
              [:a {:href (feed-href "/feed.xml" url)} "round-tripped XML"] " · "
-             [:a {:href (feed-href "/check" url {:profile (some-> profile name)})} "check the files over the network"] " · "
+             [:a {:href (feed-href "/check" url {:requirements (some-> requirements name)})} "check the files over the network"] " · "
              (when (some #(op3/prefixed? (get-in % [:rss/enclosure :url])) (:rss/items feed))
                (list [:a {:href (str op3/origin "/show/" (feed/feed-guid feed url))} "downloads at OP3"] " · "))
-             "profile: "
+             "requirements: "
              (for [p [nil :psp-1 :apple]]
-               (list (if (= p profile)
+               (list (if (= p requirements)
                        [:strong (if p (name p) "none")]
-                       [:a {:href (feed-href "/feed" url {:profile (some-> p name)})} (if p (name p) "none")])
+                       [:a {:href (feed-href "/feed" url {:requirements (some-> p name)})} (if p (name p) "none")])
                      " "))]
             [:h2 "Parse report"]
             [:p.muted "What the parser had to repair, normalize or give up on. An empty report means the feed is written the way the standards say."]
             (diagnostics-table report)
-            [:h2 (str "Validation" (when profile (str " against " (:name (validate/profiles profile)))))]
+            [:h2 (str "Validation" (when requirements (str " against " (:name (validate/requirements requirements)))))]
             (diagnostics-table validation)
             [:h2 "Resolved"]
             [:p.muted "One answer per property where the vocabularies overlap, and the fields it was read from; a default names none."]
@@ -374,22 +374,22 @@
 
 (defn check-page
   "The check over the network of `feed`, fetched from `url`, against
-  `profile`: the diagnostics of `result`, from `check/check-files!`, and the
-  files it fetched, of the newest `items`, with their integrity when
-  `integrity?`."
-  [{:keys [url feed profile items integrity? result]}]
+  `requirements`: the diagnostics of `result`, from `check/check-files!`,
+  and the files it fetched, of the newest `items`, with their integrity
+  when `integrity?`."
+  [{:keys [url feed requirements items integrity? result]}]
   (let [files  (:files result)
         hashed (count (filter #(get-in % [:declared :integrity]) files))
         judged (count (filter #(boolean? (get-in % [:facts :integrity :valid?])) files))
         by-url (group-by :url (:report result))]
     (layout (str "Check · " (or (resolve/title feed) url))
             [:h1 (or (resolve/title feed) "(untitled)")]
-            [:p [:a {:href (feed-href "/feed" url {:profile (some-> profile name)})} "back to the feed"] " · "
-             "profile: "
+            [:p [:a {:href (feed-href "/feed" url {:requirements (some-> requirements name)})} "back to the feed"] " · "
+             "requirements: "
              (for [p [nil :psp-1 :apple]]
-               (list (if (= p profile)
+               (list (if (= p requirements)
                        [:strong (if p (name p) "none")]
-                       [:a {:href (feed-href "/check" url {:profile (some-> p name) :items items
+                       [:a {:href (feed-href "/check" url {:requirements (some-> p name) :items items
                                                            :integrity (when integrity? "1")})}
                         (if p (name p) "none")])
                      " "))]
@@ -402,7 +402,7 @@
                     [:span.muted (str judged " of the " hashed " files with a podcast:integrity were fetched whole "
                                       "and checked against it.")]
                     (list (str hashed " files have a podcast:integrity. ")
-                          [:a {:href (feed-href "/check" url {:profile (some-> profile name) :items items :integrity "1"})}
+                          [:a {:href (feed-href "/check" url {:requirements (some-> requirements name) :items items :integrity "1"})}
                            "Check them against it"]
                           [:span.muted " (this fetches each of them whole)."]))])
             [:h2 "Diagnostics"]
@@ -700,7 +700,7 @@
 (defn queue-page
   "The shell of the play queue: the browser player, written in
   ClojureScript in inspector.player, mounts into it and
-  keeps the player state in the browser."
+  keeps the listener's profile in the browser."
   []
   (layout "Queue"
           [:h1 "Play queue"]

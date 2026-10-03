@@ -3,7 +3,7 @@
   contract, and two devices kept in step through it."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.file :as file]
             [dk.simongray.podcast.app.sync.store :as store]
@@ -62,15 +62,15 @@
         (is (empty? (.list (io/file dir "new"))) "and the probe is gone"))
       (let [b (file/backend dir {:opml? true :name "Folder"})]
         (is (= "Folder" (:name b)))
-        (is (nil? (:failed (sync/sync! (player/state "phone") [b] t1))))))))
+        (is (nil? (:failed (sync/sync! (profile/make "phone") [b] t1))))))))
 
 (deftest two-devices-through-a-folder
   (with-temp-dir
     (fn [dir]
       (let [backend (store/backend (file/store dir) {:opml? true})
-            phone   (sync/sync! (player/subscribe (player/state "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
+            phone   (sync/sync! (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
                                 [backend] t1)
-            laptop  (sync/sync! (player/progress (player/state "laptop") a 60 3600 t1) [backend] t2)
+            laptop  (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [backend] t2)
             phone2  (sync/sync! (:state phone) [backend] t3 {:ctx (:ctx phone)})]
         (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"}
                (set (map #(.getName ^java.io.File %) (.listFiles (io/file dir))))))
@@ -78,4 +78,4 @@
         (is (= [] (:report phone2)))
         (is (same? (:state laptop) (:state phone2)))
         (is (= (:state phone2) (:state (sync/read-document (slurp (io/file dir "phone.edn"))))))
-        (is (= 60 (:position (player/episode (:state phone2) a))))))))
+        (is (= 60 (:position (profile/episode (:state phone2) a))))))))

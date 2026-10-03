@@ -5,7 +5,7 @@
   (:require [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.store :as store]
             [dk.simongray.podcast.util.crdt :as crdt]))
@@ -56,33 +56,33 @@
 (defn- apply-operation
   [state [kind x y z]]
   (case kind
-    :subscribe            (player/subscribe state x {:url (str "https://" x "/rss") :title x} y)
-    :unsubscribe          (player/unsubscribe state x y)
-    :progress             (player/progress state x y 3600 z)
-    :enqueue              (player/enqueue state x y)
-    :play-next            (player/play-next state x y)
-    :dequeue              (player/dequeue state x y)
-    :advance              (player/advance state x)
-    :prefer               (player/prefer state {:skip-forward x} y)
-    :configure            (player/configure state x {:skip-intro y} z)
+    :subscribe            (profile/subscribe state x {:url (str "https://" x "/rss") :title x} y)
+    :unsubscribe          (profile/unsubscribe state x y)
+    :progress             (profile/progress state x y 3600 z)
+    :enqueue              (profile/enqueue state x y)
+    :play-next            (profile/play-next state x y)
+    :dequeue              (profile/dequeue state x y)
+    :advance              (profile/advance state x)
+    :prefer               (profile/prefer state {:skip-forward x} y)
+    :configure            (profile/configure state x {:skip-intro y} z)
     :identify             (crdt/identify state {:name x} y)
-    :star                 (player/star state x y)
-    :unstar               (player/unstar state x y)
-    :bookmark             (player/bookmark state x y "A bookmark" z)
-    :unbookmark           (player/unbookmark state x y z)
+    :star                 (profile/star state x y)
+    :unstar               (profile/unstar state x y)
+    :bookmark             (profile/bookmark state x y "A bookmark" z)
+    :unbookmark           (profile/unbookmark state x y z)
     :arrive               (crdt/write state [:inbox x] (constantly {:removed? false}) y)
-    :dismiss              (player/dismiss state x y)
-    :folder               (player/configure state x {:folder y} z)
-    :tag                  (player/tag state x y z)
-    :untag                (player/untag state x y z)
-    :follow-list          (player/follow-list state x {:title x :folder y} z)
-    :unfollow-list        (player/unfollow-list state x y)
-    :save-filter          (player/save-filter state x {:where {:starred? true}} y)
-    :remove-filter        (player/remove-filter state x y)
-    :add-to-playlist      (player/add-to-playlist state x y z)
-    :remove-from-playlist (player/remove-from-playlist state x y z)
-    :rename-playlist      (player/rename-playlist state "P" x y)
-    :listen               (:state (player/step state [:progress x y 3600] z))))
+    :dismiss              (profile/dismiss state x y)
+    :folder               (profile/configure state x {:folder y} z)
+    :tag                  (profile/tag state x y z)
+    :untag                (profile/untag state x y z)
+    :follow-list          (profile/follow-list state x {:title x :folder y} z)
+    :unfollow-list        (profile/unfollow-list state x y)
+    :save-filter          (profile/save-filter state x {:where {:starred? true}} y)
+    :remove-filter        (profile/remove-filter state x y)
+    :add-to-playlist      (profile/add-to-playlist state x y z)
+    :remove-from-playlist (profile/remove-from-playlist state x y z)
+    :rename-playlist      (profile/rename-playlist state "P" x y)
+    :listen               (:state (profile/step state [:progress x y 3600] z))))
 
 (def schedule
   "What happens next: a device syncs, or applies an operation."
@@ -102,7 +102,7 @@
         backend   (store/backend store)
         ticks     (atom 100)
         now!      (fn [] (java.util.Date. (* 1000 (long (swap! ticks inc)))))
-        world     (atom (mapv (fn [d] {:state (player/state d) :ctx nil}) devices))
+        world     (atom (mapv (fn [d] {:state (profile/make d) :ctx nil}) devices))
         sync-one! (fn [i]
                     (swap! world update i
                            (fn [{:keys [state ctx]}]
@@ -124,20 +124,20 @@
   inbox, the episodes, the stars, the bookmarks, the saved filters, the
   counts of listening and the preferences."
   [state]
-  {:subscriptions (player/subscriptions state)
-   :lists         (player/lists state)
-   :playlists     (player/playlists state)
-   :listened      (player/listened state)
+  {:subscriptions (profile/subscriptions state)
+   :lists         (profile/lists state)
+   :playlists     (profile/playlists state)
+   :listened      (profile/listened state)
    :settings      (:settings state)
-   :folders       (player/folders state)
-   :tagged        (player/tagged state)
-   :queue         (player/queue state)
-   :inbox         (player/inbox state)
-   :episodes      (player/episodes state)
-   :starred       (player/starred state)
-   :bookmarks     (player/bookmarks state)
-   :filters       (player/filters state)
-   :preferences   (player/preferences state)})
+   :folders       (profile/folders state)
+   :tagged        (profile/tagged state)
+   :queue         (profile/queue state)
+   :inbox         (profile/inbox state)
+   :episodes      (profile/episodes state)
+   :starred       (profile/starred state)
+   :bookmarks     (profile/bookmarks state)
+   :filters       (profile/filters state)
+   :preferences   (profile/preferences state)})
 
 (defn- tombstones
   "How many tombstones `state` holds that a compaction drops. Those of the
@@ -145,7 +145,7 @@
   only for a listener who follows none."
   [state]
   (let [flat (cond-> [:lists :queue :queue-moves :inbox :stars :filters]
-               (empty? (player/lists state)) (conj :subscriptions))]
+               (empty? (profile/lists state)) (conj :subscriptions))]
     (count (filter :removed? (concat (mapcat (comp vals state) flat)
                                      (mapcat vals (mapcat (comp vals state) [:bookmarks :tags :playlists :playlist-moves])))))))
 
@@ -163,4 +163,4 @@
           far    (java.util.Date. (* 1000 3600))]
       (and (apply = states)
            (every? zero? (map tombstones states))
-           (every? (fn [s] (= (seen-by-the-listener s) (seen-by-the-listener (player/compact s far {:keep-for 0})))) states)))))
+           (every? (fn [s] (= (seen-by-the-listener s) (seen-by-the-listener (profile/compact s far {:keep-for 0})))) states)))))

@@ -98,17 +98,17 @@
     (with-redefs [http/fetch! (fn [url & _] {:status 200 :url url :body example})
                   check/check-files! (fn [_ opts]
                                 (swap! runs conj opts)
-                                {:files files :report (check/report files (:profile opts))})]
+                                {:files files :report (check/report files (:requirements opts))})]
       (let [{:keys [status body]} (get* "/check" "url" "https://example.com/check.xml" "items" "3")]
         (is (= 200 status))
         (is (= [{:url "https://example.com/check.xml" :items 3 :read? true :integrity? false}] @runs))
         (is (str/includes? body "check/ranges") "the findings of each file")
         (is (str/includes? body "UnresolvedAddressException") "the reason a file did not come")
-        (is (not (str/includes? body "artwork-size")) "no profile, no artwork rules")
+        (is (not (str/includes? body "artwork-size")) "no requirements, no artwork checks")
         (is (not (re-find #"href=\"[^\"]*script:" body)) "a URL that runs a script is no link"))
-      (let [body (:body (get* "/check" "url" "https://example.com/check.xml" "items" "3" "profile" "apple"))]
+      (let [body (:body (get* "/check" "url" "https://example.com/check.xml" "items" "3" "requirements" "apple"))]
         (is (str/includes? body "check/artwork-size"))
-        (is (= 1 (count @runs)) "another profile judges the same check again, and sends no request"))
+        (is (= 1 (count @runs)) "other requirements judge the same check again, and send no request"))
       (get* "/check" "url" "https://example.com/check.xml" "items" "999" "integrity" "1")
       (is (= [50 true] ((juxt :items :integrity?) (last @runs))) "at most 50 items"))))
 
@@ -204,9 +204,9 @@
         (is (str/includes? body "A &quot;quoted&quot; show"))
         (is (str/includes? body "value=\"say &quot;hi&quot;\""))
         (is (not (str/includes? body "&#39;")))))
-    (testing "a parameter given twice counts once, and a profile or an order the page does not offer is left out"
+    (testing "a parameter given twice counts once, and requirements or an order the page does not offer are left out"
       (is (= 200 (:status (response-for @connector :get "/feed?url=https%3A%2F%2Fexample.com%2Fquoted.xml&url=x"))))
-      (is (= 200 (:status (get* "/feed" "url" "https://example.com/quoted.xml" "profile" "bogus"))))
+      (is (= 200 (:status (get* "/feed" "url" "https://example.com/quoted.xml" "requirements" "bogus"))))
       (is (= 200 (:status (get* "/feed" "url" "https://example.com/quoted.xml" "order" "recent")))))))
 
 (deftest fetching-once

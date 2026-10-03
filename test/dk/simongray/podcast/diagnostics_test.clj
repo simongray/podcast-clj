@@ -33,13 +33,13 @@
 (defn- levels-in-source
   "The `[id level]` pairs visible at the sites that raise diagnostics: map
   literals, the `diagnostic` helpers of the validator and companions, and
-  the profile requirements."
+  the chosen requirements."
   []
   (concat (for [[_ id level] (re-seq #"\{:id (:[a-z][a-z0-9]*/[a-z0-9-]+) :level (:[a-z]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])
           (for [[_ id level] (re-seq #"\(diagnostic (:[a-z][a-z0-9]*/[a-z0-9-]+) (:[a-z]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])
-          (for [[_ level id] (re-seq #"\(requirement-diagnostics (:[a-z]+) (:validate/[a-z-]+)" source)]
+          (for [[_ level id] (re-seq #"\(missing-diagnostics (:[a-z]+) (:validate/[a-z-]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])))
 
 (deftest the-catalogue-matches-the-source

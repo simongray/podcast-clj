@@ -47,9 +47,9 @@
            (ids (validate/validate (feed {:remote-item {:feed-guid "g" :medium "podcast"}})))))
     (is (= {} (ids (validate/validate (feed {:remote-item {:feed-guid "g" :medium "publisher"}})))))))
 
-(deftest an-unknown-profile-is-refused
+(deftest unknown-requirements-are-refused
   (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
-               (validate/validate {:rss/version "2.0"} {:profile :bogus}))))
+               (validate/validate {:rss/version "2.0"} {:requirements :bogus}))))
 
 (deftest rss-basics
   (let [v (validate/validate (podcast/parse "<rss version=\"0.91\"><channel><item><enclosure url=\"https://a\"/></item></channel></rss>"))]
@@ -57,31 +57,31 @@
   (is (= {:validate/missing-enclosure 1}
          (ids (validate/validate (podcast/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><item><title>E</title></item></channel></rss>"))))))
 
-(deftest profiles
+(deftest requirements
   (let [f (podcast/parse @example)]
     (testing "the specification example against PSP-1"
-      (let [v (validate/validate f {:profile :psp-1})]
-        (is (= 1 (:validate/profile-required (ids v))))
-        (is (= [:atom/links] (:path (first (filter (comp #{:validate/profile-required} :id) v)))))
-        (is (= 3 (:validate/profile-recommended (ids v))))))
+      (let [v (validate/validate f {:requirements :psp-1})]
+        (is (= 1 (:validate/required (ids v))))
+        (is (= [:atom/links] (:path (first (filter (comp #{:validate/required} :id) v)))))
+        (is (= 3 (:validate/recommended (ids v))))))
     (testing "and against Apple"
-      (is (validate/valid? f {:profile :apple}))
+      (is (validate/valid? f {:requirements :apple}))
       (is (= [[:rss/items 0 :rss/guid]]
-             (->> (validate/validate (update-in f [:rss/items 0] dissoc :rss/guid) {:profile :apple})
-                  (filter (comp #{:validate/profile-required} :id))
+             (->> (validate/validate (update-in f [:rss/items 0] dissoc :rss/guid) {:requirements :apple})
+                  (filter (comp #{:validate/required} :id))
                   (map :path)))
           "Apple requires the guid of an episode"))
     (testing "and against the requirements that an app gives"
       (let [own {:name    "A directory of our own"
                  :channel {:required [:podcast/guid :itunes/new-feed-url] :recommended [:podcast/locked]}
                  :item    {:required [:podcast/transcripts]}}
-            v   (validate/validate f {:profile own})]
-        (is (= [[:itunes/new-feed-url]] (map :path (filter (comp #{:validate/profile-required} :id) v)))
+            v   (validate/validate f {:requirements own})]
+        (is (= [[:itunes/new-feed-url]] (map :path (filter (comp #{:validate/required} :id) v)))
             "what the channel lacks")
-        (is (nil? (:validate/profile-recommended (ids v))))
-        (is (= (validate/validate f {:profile :apple})
-               (validate/validate f {:profile (:apple validate/profiles)}))
-            "an entry of profiles is a profile")))))
+        (is (nil? (:validate/recommended (ids v))))
+        (is (= (validate/validate f {:requirements :apple})
+               (validate/validate f {:requirements (:apple validate/requirements)}))
+            "an entry of requirements, given as a map")))))
 
 (deftest unknown-elements-are-reported
   (let [f (podcast/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><mystery/></channel></rss>")
@@ -128,12 +128,12 @@
            :rss/items       ["not an item"
                              {:rss/title "E" :rss/guid "abc"
                               :rss/enclosure {:url "https://a/1.mp3" :type "audio/mpeg"}}]}
-        v (validate/validate f {:profile :psp-1})]
+        v (validate/validate f {:requirements :psp-1})]
     (is (= 3 (:validate/wrong-shape (ids v))) "a map for a scalar, a string for a map, a string for an item")
     (is (= #{[:rss/title] [:itunes/image] [:rss/items 0]}
            (set (map :path (filter (comp #{:validate/wrong-shape} :id) v)))))
     (is (not (validate/valid? f)))
-    (is (some (comp #{:validate/profile-required} :id) v) "the profile is still checked around the wrong shapes")
+    (is (some (comp #{:validate/required} :id) v) "the requirements are still checked around the wrong shapes")
     (is (not-any? (comp #{:validate/wrong-shape} :id)
                   (validate/validate {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"
                                       :rss/items [{:rss/title "E" :rss/guid "abc" :podcast/season 2}]}))

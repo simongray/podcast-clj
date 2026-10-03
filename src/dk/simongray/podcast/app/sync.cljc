@@ -1,6 +1,6 @@
 (ns dk.simongray.podcast.app.sync
-  "Syncing the player state between a listener's devices, over any number
-  of backends.
+  "Syncing the profile between a listener's devices, over any number of
+  backends.
 
   A backend is a map of two functions and a name, and doc/sync.md explains
   the design:
@@ -21,7 +21,7 @@
   writes a device's whole state as a document, read-document reads it
   back, and reconcile merges what the other devices wrote."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]
@@ -52,7 +52,7 @@
   :written-at, :app and :state.
 
   It throws ::malformed when `s` isn't an envelope, or when it's of this
-  format version and player/problem finds a problem in its state."
+  format version and profile/problem finds a problem in its state."
   [s]
   (let [envelope (try
                    (when (string? s) (edn/read-string s))
@@ -62,8 +62,8 @@
                      (throw (ex-info "The document is not EDN" {:type ::malformed} e))))]
     (when-not (and (map? envelope) (integer? (:version envelope)) (map? (:state envelope)))
       (throw (ex-info "The document is not a sync document" {:type ::malformed})))
-    (when-let [problem (and (<= (:version envelope) version) (player/problem (:state envelope)))]
-      (throw (ex-info (str "The document holds a state the player cannot take: " problem)
+    (when-let [problem (and (<= (:version envelope) version) (profile/problem (:state envelope)))]
+      (throw (ex-info (str "The document holds a profile that can't be merged: " problem)
                       {:type ::malformed})))
     envelope))
 
@@ -112,12 +112,12 @@
 
 (defn- settle
   "The `state` with the whole `states` acknowledged at `at`, and compacted
-  with the options `compact` of player/compact unless `compact` is false."
+  with the options `compact` of profile/compact unless `compact` is false."
   [state states at compact]
   (let [acknowledged (crdt/acknowledge state states at)]
     (if (false? compact)
       acknowledged
-      (player/compact acknowledged at (or compact {})))))
+      (profile/compact acknowledged at (or compact {})))))
 
 (defn reconcile
   "The `state` with the documents `fetched` merged in at `at` with `opts`,
@@ -126,13 +126,13 @@
   The documents are as read-documents takes them. What they tell is
   acknowledged in the device registry, and the tombstones that every
   device has seen are compacted away. The :compact of `opts` is false to
-  keep the tombstones, or else the options of player/compact."
+  keep the tombstones, or else the options of profile/compact."
   ([state fetched at]
    (reconcile state fetched at {}))
   ([state fetched at {:keys [compact] :as opts}]
    {:pre [(map? opts)]}
    (let [{:keys [states report]} (read-documents fetched at)]
-     {:state  (settle (reduce player/merge state states) states at compact)
+     {:state  (settle (reduce profile/merge state states) states at compact)
       :report report})))
 
 (def default-cadence
@@ -187,7 +187,7 @@
                  [backend value])
         states (mapcat (comp :states second) ok)
         whole  (mapcat (fn [[_ result]] (when-not (:partial? result) (:states result))) ok)]
-    {:state  (settle (reduce player/merge state states) whole at compact)
+    {:state  (settle (reduce profile/merge state states) whole at compact)
      :ok     (vec ok)
      :failed (into {} (for [[backend {:keys [error]}] (map vector backends results) :when error]
                         [(:name backend) (async/explain error)]))
@@ -206,7 +206,7 @@
         learned (keep (fn [[_ _ push]] (:state push)) pushes)
         failed  (into failed (for [[backend _ _ error] pushes :when error] [(:name backend) (async/explain error)]))]
     (cond-> {:state  (if (seq learned)
-                       (settle (reduce player/merge state learned) learned at compact)
+                       (settle (reduce profile/merge state learned) learned at compact)
                        state)
              :ctx    (reduce (fn [m [backend pull push error]]
                                (assoc m (:name backend) (if error (:ctx pull) (:ctx push))))
@@ -232,7 +232,7 @@
 
   - :ctx, the cursors of the last step
   - :compact, false to keep the tombstones that every device has seen, or
-    else the options of player/compact
+    else the options of profile/compact
 
   A backend whose pull fails isn't pushed to and keeps its cursor, and one
   whose push fails keeps the cursor of its pull. The state is only ever
@@ -241,7 +241,7 @@
   Run one step at a time, since a step that overlaps another can write an
   older state after a newer one. What the listener did during a step
   isn't in its :state, so don't put the result in place of the state.
-  Merge it into the state as it is by then, with player/merge. Then
+  Merge it into the state as it is by then, with profile/merge. Then
   compact as the step did, since the merge brings back the tombstones
   that the step dropped.
 

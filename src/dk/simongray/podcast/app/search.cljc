@@ -13,7 +13,7 @@
   finds \"Café\", and the results are ranked by BM25 per field."
   (:refer-clojure :exclude [remove])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.html :as html]
@@ -134,7 +134,7 @@
    (let [chapters (or chapters (resolve/embedded-chapters item))
          title    (resolve/title item)
          show     (resolve/title feed)
-         id       (player/episode-id feed url item)]
+         id       (profile/episode-id feed url item)]
      (when (nil? (first id))
        (throw (ex-info "A feed without a podcast:guid needs :url, or its episodes share ids with those of other shows"
                        {:title show})))
@@ -587,17 +587,17 @@
   (if (fn? url) (url feed) url))
 
 (defn ^:no-doc episode-id
-  "The player id of `item` in `feed`, with the feed URL from `ctx`."
+  "The episode id of `item` in `feed`, with the feed URL from `ctx`."
   [ctx feed item]
-  (player/episode-id feed (url-of ctx feed) item))
+  (profile/episode-id feed (url-of ctx feed) item))
 
 (defn ^:no-doc entry
-  "The player entry of `item` in `feed`, from the player state in `ctx`."
+  "The entry of `item` in `feed`, from the profile in `ctx`."
   [ctx feed item]
-  (player/episode (:player ctx) (episode-id ctx feed item)))
+  (profile/episode (:profile ctx) (episode-id ctx feed item)))
 
 (defn- status
-  "The status of the episode with the player entry `e`: :unplayed,
+  "The status of the episode with the entry `e` of a profile: :unplayed,
   :in-progress or :played."
   [{:keys [position played?] :as e}]
   (cond played?                                  :played
@@ -636,10 +636,10 @@
 
 (defn- since-subscription?
   "Whether `item` of `feed` came out after the listener subscribed to the
-  feed, by the player state in `ctx`."
+  feed, by the profile in `ctx`."
   [ctx feed item]
   (let [[feed-guid] (episode-id ctx feed item)
-        added       (get-in ctx [:player :subscriptions feed-guid :added-at])
+        added       (get-in ctx [:profile :subscriptions feed-guid :added-at])
         published   (resolve/published item)]
     (boolean (and (inst? added) published (> (inst-ms published) (inst-ms added))))))
 
@@ -667,13 +667,13 @@
    :not         (fn [v ctx] (complement (where v ctx)))
    :status      (fn [v ctx] (fn [feed item] (in? v (status (entry ctx feed item)))))
    :starred?    (fn [v ctx]
-                  (fn [feed item] (= (boolean v) (player/starred? (:player ctx) (episode-id ctx feed item)))))
+                  (fn [feed item] (= (boolean v) (profile/starred? (:profile ctx) (episode-id ctx feed item)))))
    :inbox?      (fn [v ctx]
-                  (fn [feed item] (= (boolean v) (player/in-inbox? (:player ctx) (episode-id ctx feed item)))))
+                  (fn [feed item] (= (boolean v) (profile/in-inbox? (:profile ctx) (episode-id ctx feed item)))))
    :rating      (fn [v ctx]
                   (let [opts (select-keys ctx [:scale])]
                     (fn [feed item]
-                      (within? v (player/rating (:player ctx) (episode-id ctx feed item) opts)))))
+                      (within? v (profile/rating (:profile ctx) (episode-id ctx feed item) opts)))))
    :since-subscription?
    (fn [v ctx] (fn [feed item] (= (boolean v) (since-subscription? ctx feed item))))})
 
@@ -700,7 +700,7 @@
     subscribed
 
   An empty map takes every item. The criteria about the listener need the
-  player state as :player in `ctx`. For feeds without a podcast:guid, they
+  profile as :profile in `ctx`. For feeds without a podcast:guid, they
   also need the :url, a string or a function of the feed. The :age needs
   the current time as :at, and with :scale, the :rating is in that scale."
   ([criteria]
@@ -710,9 +710,9 @@
      (when (seq unknown)
        (throw (ex-info (str "Criteria the library does not know: " (str/join ", " unknown))
                        {:criteria (vec unknown)})))
-     (when-let [k (and (not (:player ctx))
+     (when-let [k (and (not (:profile ctx))
                        (some #{:status :starred? :inbox? :rating :since-subscription?} (keys criteria)))]
-       (throw (ex-info (str k " needs the player state under :player") {:criteria criteria})))
+       (throw (ex-info (str k " needs the profile under :profile") {:criteria criteria})))
      (when (and (contains? criteria :age) (not (inst? (:at ctx))))
        (throw (ex-info ":age needs the instant of now under :at" {:criteria criteria})))
      (let [tests (mapv (fn [[k v]] ((criterion k) v ctx)) criteria)]
@@ -729,7 +729,7 @@
 
 (defn- last-heard-ms
   "When the listener last touched `item` of `feed`, in milliseconds, from
-  the player state in `ctx`."
+  the profile in `ctx`."
   [ctx feed item]
   (let [{:keys [played-at updated-at]} (entry ctx feed item)]
     (some-> (or played-at updated-at) inst-ms)))
@@ -744,14 +744,14 @@
   - :shortest and :longest, by duration
   - :title, alphabetically
   - :recent, by when the listener last touched the episode, which needs
-    :player in `ctx`
+    :profile in `ctx`
 
   Items without the property sort last."
   ([k]
    (order k {}))
   ([k ctx]
-   (when (and (= :recent k) (not (:player ctx)))
-     (throw (ex-info ":recent needs the player state under :player" {:order k})))
+   (when (and (= :recent k) (not (:profile ctx)))
+     (throw (ex-info ":recent needs the profile under :profile" {:order k})))
    (case k
      :listening resolve/listening-key
      :newest    (fn [_ item] (- (or (published-ms item) ##-Inf)))
@@ -776,7 +776,7 @@
   - :where, criteria as where takes them, or else every item
   - :order, as order takes it, :listening by default
   - :limit, the most items
-  - :player, :url, :at and :scale, the context that where and order need
+  - :profile, :url, :at and :scale, the context that where and order need
 
   For a collection of feeds, the result is [feed item] pairs in one order,
   e.g. for an inbox, with :url as a function of the feed. With a :limit
@@ -786,7 +786,7 @@
    (episodes feed {}))
   ([feed {:keys [limit] :as opts}]
    {:pre [(map? opts)]}
-   (let [ctx       (select-keys opts [:player :url :scale :at])
+   (let [ctx       (select-keys opts [:profile :url :scale :at])
          pred      (where (or (:where opts) {}) ctx)
          k         (or (:order opts) :listening)
          key       (order k ctx)
@@ -832,7 +832,7 @@
       in-where                                in-where
       (not (or (nil? order) (orders order)))  (str "the order " (pr-str order) " is not known")
       (not (or (nil? limit) (number? limit))) (str "the limit is " (pr-str limit) ", not a number")
-      (not (or (nil? scale) (player/scale? scale)))
+      (not (or (nil? scale) (profile/scale? scale)))
       (str "the scale is " (pr-str scale) ", not a scale of ratings"))))
 
 #?(:clj

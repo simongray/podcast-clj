@@ -12,10 +12,10 @@
                    :limit 3}
        :played    86400}
 
-  The rules sync in the player state, and a device with rules of its own
+  The rules sync in the profile, and a device with rules of its own
   gives them to plan as :rules."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]))
@@ -69,11 +69,11 @@
 (defn rules
   "The rules that `state` holds, over default-rules: the listener's
   preference :downloads, with the setting :downloads of each show as its
-  rule, as player/prefer and player/configure write them."
+  rule, as profile/prefer and profile/configure write them."
   [state]
-  (let [listener (:downloads (player/preferences state))
-        shows    (into {} (for [feed-guid (keys (player/subscriptions state))
-                                :let [rule (:downloads (player/settings state feed-guid))]
+  (let [listener (:downloads (profile/preferences state))
+        shows    (into {} (for [feed-guid (keys (profile/subscriptions state))
+                                :let [rule (:downloads (profile/settings state feed-guid))]
                                 :when (some? rule)]
                             [feed-guid rule]))]
     (if (or (nil? listener) (map? listener))
@@ -156,25 +156,25 @@
   "The episode ids of `state` under each name in keeps, e.g. the starred
   ones under :starred."
   [state]
-  {:starred     (set (player/starred state))
-   :queued      (set (player/queue state))
-   :playlists   (into #{} cat (vals (player/playlists state)))
+  {:starred     (set (profile/starred state))
+   :queued      (set (profile/queue state))
+   :playlists   (into #{} cat (vals (profile/playlists state)))
    :in-progress (into #{}
                       (keep (fn [[id {:keys [position played?]}]]
                               (when (and (not played?) (number? position) (pos? position)) id)))
-                      (player/episodes state))})
+                      (profile/episodes state))})
 
 (defn- context
-  "The map that plan passes to its helpers, from the player `state`, the
+  "The map that plan passes to its helpers, from the profile `state`, the
   device's `files`, the instant `at` and the `opts` of plan.
 
-  It has what search/where needs: the player state as :player, the
+  It has what search/where needs: the profile as :profile, the
   instant :at and the :url of a feed. It also has the :files, the :rules
   with their :problems, and the :held episodes."
   [state files at opts]
   (let [rules (:rules opts (rules state))]
     (merge (select-keys opts [:scale :enclosure :estimate])
-           {:player   state
+           {:profile  state
             :at       at
             :url      (:url opts resolve/self-url)
             :files    (or files {})
@@ -232,7 +232,7 @@
   (seq (map inst-ms (filter inst? xs))))
 
 (defn- played-ms
-  "When the listener played the episode of the player entry `e`, in
+  "When the listener played the episode of the entry `e` of a profile, in
   milliseconds: its :played-at, or else its stamp."
   [{:keys [played-at updated-at] :as e}]
   (first (instants [played-at updated-at])))
@@ -243,9 +243,9 @@
 
   The reason is :played, :inactive or :trimmed. The `selected` ids are nil
   for a show whose feed wasn't given to plan."
-  [{:keys [player rules at] :as ctx} selected id file]
+  [{:keys [profile rules at] :as ctx} selected id file]
   (let [{:keys [played inactive trim?]} (rule rules (first id))
-        {:keys [played? reported-at updated-at] :as e} (player/episode player id)
+        {:keys [played? reported-at updated-at] :as e} (profile/episode profile id)
         past?  (fn [from seconds] (and from seconds (<= (+ from (* 1000 seconds)) (inst-ms at))))
         active (some->> (instants [(:at file) reported-at updated-at]) (apply max))]
     (cond
@@ -276,24 +276,24 @@
   "The plan entries for the `files` that can go to make room for a
   download, the earliest played first. They're the files of played
   episodes that the rules of `ctx` allow deleting."
-  [{:keys [player] :as ctx} files]
+  [{:keys [profile] :as ctx} files]
   (->> files
-       (filter (fn [[id file]] (and (player/played? player id) (free? ctx id file))))
-       (search/sorted-by (fn [[id _]] [(or (played-ms (player/episode player id)) 0) (pr-str id)]))
+       (filter (fn [[id file]] (and (profile/played? profile id) (free? ctx id file))))
+       (search/sorted-by (fn [[id _]] [(or (played-ms (profile/episode profile id)) 0) (pr-str id)]))
        (mapv (fn [[id file]] (gone id file :room)))))
 
 (defn- dismissed?
   "Whether the listener took the episode `id` out of the inbox of `state`
   without queueing it."
   [state id]
-  (boolean (and (:removed? (get-in state [:inbox id])) (not (player/queued? state id)))))
+  (boolean (and (:removed? (get-in state [:inbox id])) (not (profile/queued? state id)))))
 
 (defn- wanted?
-  "Whether to download the episode `id`, by the player and files of `ctx`.
+  "Whether to download the episode `id`, by the profile and files of `ctx`.
   It's false when the device has or had the file, or when the listener
   played or dismissed the episode."
-  [{:keys [player files] :as ctx} id]
-  (not (or (contains? files id) (player/played? player id) (dismissed? player id))))
+  [{:keys [profile files] :as ctx} id]
+  (not (or (contains? files id) (profile/played? profile id) (dismissed? profile id))))
 
 (defn- download
   "The plan entry for downloading the `item` of the episode `id` for
@@ -315,8 +315,8 @@
   `queue` value asks for: all, a number of them, or none."
   [state queue]
   (cond
-    (true? queue)   (player/queue state)
-    (number? queue) (vec (take queue (player/queue state)))
+    (true? queue)   (profile/queue state)
+    (number? queue) (vec (take queue (profile/queue state)))
     :else           []))
 
 (defn- downloads
@@ -325,8 +325,8 @@
 
   These are the front of the queue, in order, and then the episodes that
   the shows' rules select, the newest first."
-  [{:keys [player rules] :as ctx} selected feeds]
-  (let [queued (front player (:queue rules))
+  [{:keys [profile rules] :as ctx} selected feeds]
+  (let [queued (front profile (:queue rules))
         chosen (->> selected
                     (filter (fn [[feed-guid _]] (:download? (rule rules feed-guid))))
                     (mapcat val)
@@ -467,14 +467,14 @@
 
   ;; the newest two episodes without a rerun, and a played file goes after a day
   (def state
-    (-> (player/state "phone")
-        (player/subscribe "feed-1" {:url "https://example.org/feed.xml" :title "A show"} #inst "2026-09-01")
-        (player/prefer {:downloads {:default {:played 86400} :max-episodes 50}} #inst "2026-09-01")
-        (player/configure "feed-1"
-                          {:downloads {:download? true
-                                       :episodes  {:where {:not {:text #{"rerun"}}} :limit 2}}}
-                          #inst "2026-09-01")
-        (player/mark-played ["feed-1" "ep-1"] #inst "2026-09-20")))
+    (-> (profile/make "phone")
+        (profile/subscribe "feed-1" {:url "https://example.org/feed.xml" :title "A show"} #inst "2026-09-01")
+        (profile/prefer {:downloads {:default {:played 86400} :max-episodes 50}} #inst "2026-09-01")
+        (profile/configure "feed-1"
+                           {:downloads {:download? true
+                                        :episodes  {:where {:not {:text #{"rerun"}}} :limit 2}}}
+                           #inst "2026-09-01")
+        (profile/mark-played ["feed-1" "ep-1"] #inst "2026-09-20")))
 
   (rules state)
   (rule (rules state) "feed-1")

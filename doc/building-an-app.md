@@ -30,10 +30,10 @@ after `refresh!` and `:sync` after `sync!`. The `:settings` given to
 docstring of `app.library` lists them.
 
 The parts of the library work with the namespaces they come from, e.g.
-every function of `app.player` takes `(:player @lib)`. The player state is
-a CRDT, so that devices can merge their changes without conflicts. Change
-it only with the functions of `app.player`, e.g.
-`(swap! lib library/update-player player/enqueue id)`, and never with
+every function of `app.profile` takes `(:profile @lib)`. The profile is a
+CRDT, so that devices can merge their changes without conflicts. Change it
+only with the functions of `app.profile`, e.g.
+`(swap! lib library/update-profile profile/enqueue id)`, and never with
 `assoc` or `dissoc`.
 
 Each change is stamped with its time, which the functions of
@@ -108,7 +108,7 @@ the CORS policy of each directory.
 
 With `:max-pages`, `fetch!` also reads the older pages of a paged feed,
 which is only needed on the first fetch. The last argument holds the
-settings of the subscription, as `player/configure` takes them.
+settings of the subscription, as `profile/configure` takes them.
 
 A failing network or server doesn't make `fetch!` throw. When it gets no
 answer or no feed, the result has an `:error` diagnostic. A status such as
@@ -159,8 +159,8 @@ from other origins. Fetch the XML through your own server, and give it to
 `podcast/parse`.
 
 Without the library, `feeds/add` keeps the feed along with its ETag and
-Last-Modified, and `player/subscribe` adds the subscription. Every id in
-the player state uses the guid that `feed/feed-guid` gives a feed.
+Last-Modified, and `profile/subscribe` adds the subscription. Every id in
+the profile uses the guid that `feed/feed-guid` gives a feed.
 
 
 ## Keep the feeds current
@@ -247,7 +247,7 @@ After that, `refresh!` fetches the list again once a day. A show that
 leaves the list stays a subscription, since the listener may still like
 it. A show that the listener unsubscribed from doesn't come back, and a
 show is recognised by its feed URL, so it isn't added twice. In the OPML
-from `player/to-opml`, the followed lists are includes.
+from `profile/to-opml`, the followed lists are includes.
 
 
 ## Build the show and episode pages
@@ -367,12 +367,12 @@ such as its `:uri`, a `nostr:` URI that opens a Nostr app on the device.
 
 ## Play episodes
 
-The player state holds the queue and the progress, and you control the
-media element. Send each event of the media element to `library/step`,
-and do the effects it returns:
+The profile holds the queue and the progress, and you control the media
+element. Send each event of the media element to `library/step`, and do
+the effects it returns:
 
 ```clojure
-(swap! lib library/update-player player/enqueue id)
+(swap! lib library/update-profile profile/enqueue id)
 
 (:effects (swap! lib library/step [:progress id 1234 3600]))  ; => []
 (:effects (swap! lib library/step [:skip id :forward]))
@@ -397,7 +397,7 @@ The effects are `[:seek id position]`, `[:play id]`, `[:stop id]` and
 ```
 
 To start an episode where the listener stopped, or after its intro, ask
-`player/resume-position`. To pick the file to play, use
+`profile/resume-position`. To pick the file to play, use
 `resolve/enclosure`, e.g. with `{:types ["audio/opus" "audio/mpeg"]
 :max-bitrate 64000}`.
 
@@ -436,7 +436,7 @@ deleting and choosing when to do it are up to you, since podcast-clj
 knows nothing about the network or the battery. Make a plan after each
 refresh, and when the listener plays or queues an episode.
 
-The rules live in the player state, so they sync: the listener's rules are
+The rules live in the profile, so they sync: the listener's rules are
 the preference `:downloads`, and the rule of a show is the setting
 `:downloads` of its subscription. A rule selects episodes with the options
 of `search/episodes`:
@@ -446,14 +446,14 @@ of `search/episodes`:
   {:download? true
    :episodes  {:where {:duration [600 nil]} :limit 3}})
 
-(swap! lib library/update-player
+(swap! lib library/update-profile
        (fn [state now]
          (-> state
-             (player/prefer {:downloads {:default      {:played 86400}
-                                         :queue        3
-                                         :max-episodes 50}}
-                            now)
-             (player/configure guid {:downloads show-rule} now))))
+             (profile/prefer {:downloads {:default      {:played 86400}
+                                          :queue        3
+                                          :max-episodes 50}}
+                             now)
+             (profile/configure guid {:downloads show-rule} now))))
 ```
 
 Here a played file goes after a day, the first three episodes of the queue
@@ -536,39 +536,39 @@ When a feed changes, update the index with `search/add` and
 
 ## Organize the shows and episodes
 
-The player state also holds how the listener organises shows and
-episodes, and it syncs like the rest:
+The profile also holds how the listener organises shows and episodes,
+and it syncs like the rest:
 
 ```clojure
-(swap! lib library/update-player
+(swap! lib library/update-profile
        (fn [state now]
          (-> state
-             (player/configure guid {:folder "News" :inbox? true} now)
-             (player/tag guid "Daily" now)
-             (player/star id now)
-             (player/bookmark id 754 "The interview starts" now)
-             (player/rate-episode id 5 now)
-             (player/clip id 754 42.5 "The best answer" now)
-             (player/add-to-playlist "Road trip" id now)
-             (player/save-filter "Starred"
-                                 {:where {:starred? true :status :unplayed}
-                                  :order :newest}
-                                 now))))
+             (profile/configure guid {:folder "News" :inbox? true} now)
+             (profile/tag guid "Daily" now)
+             (profile/star id now)
+             (profile/bookmark id 754 "The interview starts" now)
+             (profile/rate-episode id 5 now)
+             (profile/clip id 754 42.5 "The best answer" now)
+             (profile/add-to-playlist "Road trip" id now)
+             (profile/save-filter "Starred"
+                                  {:where {:starred? true :status :unplayed}
+                                   :order :newest}
+                                  now))))
 ```
 
-Each has a function to read it back, such as `player/folders`,
-`player/tagged`, `player/inbox`, `player/starred`, `player/bookmarks`,
-`player/clips` and `player/playlist`.
+Each has a function to read it back, such as `profile/folders`,
+`profile/tagged`, `profile/inbox`, `profile/starred`, `profile/bookmarks`,
+`profile/clips` and `profile/playlist`.
 
 - A show is in one folder at most, but it can have many tags. Both go into
-  OPML with `player/to-opml`, and `player/from-opml` reads them back,
+  OPML with `profile/to-opml`, and `profile/from-opml` reads them back,
   including the OPML of other apps.
 - Ratings are from 1 to 5 by default, and `:scale` takes another one, such
   as `{:worst 0 :best 1}` for thumbs. Each rating keeps its scale, so
-  `player/rating` can give it in yours.
+  `profile/rating` can give it in yours.
 - A playlist can be written as a list feed of the podcast namespace with
-  `player/to-list-feed`, so other Podcasting 2.0 apps can play it.
-- The seconds heard of each show by month are in `player/listened`, for
+  `profile/to-list-feed`, so other Podcasting 2.0 apps can play it.
+- The seconds heard of each show by month are in `profile/listened`, for
   statistics. Report the position at least every 30 seconds while an
   episode plays, or it isn't counted.
 
@@ -577,7 +577,7 @@ have saved it with a newer version, so check it with `search/problem`
 first:
 
 ```clojure
-(let [criteria (get (player/filters (:player @lib)) "Starred")]
+(let [criteria (get (profile/filters (:profile @lib)) "Starred")]
   (when-not (search/problem criteria)
     (library/episodes @lib criteria)))
 ```
@@ -585,7 +585,7 @@ first:
 
 ## Sync the devices of a listener
 
-Each device writes its whole player state as one document to a store, and
+Each device writes its whole profile as one document to a store, and
 reads the documents of the other devices. [Syncing](sync.md) explains why
 this is safe.
 
@@ -775,17 +775,17 @@ To check a feed before you publish it, or one that a podcaster submits,
 use `check/check-files!`. It fetches the media files, images, transcripts
 and chapters files of the newest items, and tells whether they reach a
 listener as the feed says. Give it the feed's URL to check the feed itself
-too, and a profile for the rules of PSP-1 or Apple Podcasts:
+too, and the requirements of PSP-1 or Apple Podcasts as `:requirements`:
 
 ```clojure
 (def result
-  (check/check-files! feed {:url url :items 10 :profile :apple}))
+  (check/check-files! feed {:url url :items 10 :requirements :apple}))
 
 (podcast/summarize (:report result))
 ;; => ({:id :check/cors :level :warning :count 10 …}
 ;;     {:id :check/ranges :level :error :count 3 …} …)
 
-(check/report (:files result) :psp-1)  ; another profile, no new requests
+(check/report (:files result) :psp-1)  ; other requirements, no new requests
 ```
 
 Without `:read? true`, it only sends a HEAD request and asks for the first
@@ -947,5 +947,5 @@ For another instance of a service, give its address:
 ```
 
 A gpodder server with other paths takes them as `:api`, and a directory
-that changed its rules takes them as a profile, e.g.
-`(assoc-in (:apple check/profiles) [:artwork :sizes] [1400 4000])`.
+that changed its requirements takes them as `:requirements`, e.g.
+`(assoc-in (:apple check/requirements) [:artwork :sizes] [1400 4000])`.

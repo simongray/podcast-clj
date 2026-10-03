@@ -7,7 +7,7 @@
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
-            [dk.simongray.podcast.app.player :as player]
+            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.app.sync.file :as file]
@@ -165,21 +165,22 @@
 
 (defn feed-page
   "The inspection of the feed named by the `url` query parameter, validated
-  against the `profile` parameter when it names one, its items filtered and
-  ordered as the `q`, `season`, `type` and `order` parameters ask."
+  against the requirements that the `requirements` parameter names, if
+  any, its items filtered and ordered as the `q`, `season`, `type` and
+  `order` parameters ask."
   [request]
   (with-feed request
     (fn [loaded]
-      (let [profile (some-> (get-in request [:query-params :profile]) not-empty keyword)]
+      (let [requirements (some-> (get-in request [:query-params :requirements]) not-empty keyword)]
         (html (page/feed-page (assoc loaded
-                                     :profile (when (contains? validate/profiles profile) profile)
+                                     :requirements (when (contains? validate/requirements requirements) requirements)
                                      :selection (selection (:query-params request)))))))))
 
 (defn- checked
   "The check over the network of `feed`, fetched from `url`, for its newest
   `items`, reading what the files hold, and their integrity when
   `integrity?`: reused for `cache-seconds` while the feed is the same, so
-  that the page judges one check by each profile."
+  that the page judges one check by each choice of requirements."
   [url feed items integrity?]
   (let [now (System/currentTimeMillis)]
     (:value (cached [:check url items integrity?]
@@ -192,20 +193,20 @@
 (defn check-page
   "The check over the network of the files that the feed named by the `url`
   query parameter links to, for its newest `items` (default 5, at most 50),
-  against the `profile` parameter when it names one, reading what the files
-  hold, and with the `integrity` parameter, checking each file that has a
-  podcast:integrity against it."
+  against the requirements that the `requirements` parameter names, if
+  any, reading what the files hold, and with the `integrity` parameter,
+  checking each file that has a podcast:integrity against it."
   [request]
   (with-feed request
     (fn [{:keys [url feed]}]
-      (let [{:keys [profile items integrity]} (:query-params request)
-            profile    (some-> profile not-empty keyword)
-            profile    (when (contains? check/profiles profile) profile)
-            items      (or (some-> items parse-long (max 1) (min 50)) 5)
-            integrity? (= "1" integrity)
+      (let [{:keys [requirements items integrity]} (:query-params request)
+            requirements (some-> requirements not-empty keyword)
+            requirements (when (contains? check/requirements requirements) requirements)
+            items        (or (some-> items parse-long (max 1) (min 50)) 5)
+            integrity?   (= "1" integrity)
             {:keys [files]} (checked url feed items integrity?)]
-        (html (page/check-page {:url url :feed feed :profile profile :items items :integrity? integrity?
-                                :result {:files files :report (check/report files profile)}}))))))
+        (html (page/check-page {:url url :feed feed :requirements requirements :items items :integrity? integrity?
+                                :result {:files files :report (check/report files requirements)}}))))))
 
 (defn feed-edn
   "The parsed feed as pretty-printed EDN."
@@ -587,7 +588,7 @@
             item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
         (if item
           (text "application/edn; charset=utf-8"
-                (pr-str {:id         (player/episode-id feed url item)
+                (pr-str {:id         (profile/episode-id feed url item)
                          :title      (resolve/title item)
                          :feed-title (resolve/title feed)
                          :enclosure  (:url (resolve/enclosure item))
@@ -635,7 +636,7 @@
   (let [ctx     (atom nil)
         backend (store/backend sync-store)]
     (gpodder-server/handler
-     {:state       (atom (player/state "inspector-gpodder"))
+     {:state       (atom (profile/make "inspector-gpodder"))
       :authorized? (constantly true)
       :identities  #(gpodder/identities (cached-feeds))
       :step        (fn [state]
