@@ -103,6 +103,13 @@
       (is (= {:url "https://m/1.mp4" :type "video/mp4" :length 99 :source :media}
              (resolve/enclosure {:media/contents [{:url "https://m/1.mp4" :type "video/mp4" :file-size 99}]})))
       (is (nil? (resolve/enclosure {}))))
+    (testing "no picture of a blog post, or other content that doesn't play"
+      (is (nil? (resolve/enclosure {:media/contents [{:url "https://m/post.jpg" :medium "image"}]})))
+      (is (nil? (resolve/enclosure {:media/contents [{:url "https://m/post.png" :type "image/png"}]})))
+      (is (nil? (resolve/enclosure {:media/group {:contents [{:url "https://m/a.pdf" :medium "Document"}]}})))
+      (is (= "https://m/1.mp3"
+             (:url (resolve/enclosure {:media/contents [{:url "https://m/cover.jpg" :medium "image"}
+                                                        {:url "https://m/1.mp3" :medium "audio"}]})))))
     (testing "transcripts by type preference"
       (is (= "https://example.com/episode1/transcript.vtt" (:url (resolve/transcript item))))
       (is (= "https://example.com/ep3/transcript.txt" (:url (resolve/transcript nil item {:types ["text/plain"]}))))

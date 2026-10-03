@@ -219,13 +219,23 @@
       (number? e)        (assoc :episode e)
       (:display episode) (assoc :episode-display (:display episode)))))
 
+;; Media RSS 1.5.1 (2009), media:content: the medium is image, audio,
+;; video, document or executable
+(defn- playable?
+  "Whether the Media RSS `content` can be played, which an image, a
+  document or an executable can't, by its medium or its type."
+  [{:keys [medium type]}]
+  (not (or (#{"image" "document" "executable"} (some-> medium str/lower-case))
+           (some-> type str/lower-case (str/starts-with? "image/")))))
+
 (defn enclosures
   "All that `item` offers to play, the most conventional first.
 
   The enclosure comes first, then each source of an alternateEnclosure,
-  then the Media RSS contents of the item and of its media:group. Each is
-  a map with the :url and the :source, which is :enclosure, :alternate or
-  :media.
+  then the Media RSS contents of the item and of its media:group that
+  aren't images, documents or executables, e.g. the picture of a blog
+  post. Each is a map with the :url and the :source, which is :enclosure,
+  :alternate or :media.
 
   It has what else the feed declares, e.g. the :type, :length, :bitrate,
   :title and :default. An alternate also has its :integrity, which
@@ -243,7 +253,7 @@
                  (assoc :url uri :source :alternate))
        content-type (assoc :transport content-type)))
    (for [{:keys [url file-size] :as content} (media-contents item)
-         :when url]
+         :when (and url (playable? content))]
      (cond-> (-> content (dissoc :file-size) (assoc :source :media))
        file-size (assoc :length file-size)))))
 
