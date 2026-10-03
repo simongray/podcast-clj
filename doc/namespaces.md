@@ -1,13 +1,34 @@
 # Namespaces
 
 Every namespace is under the root namespace, `dk.simongray.podcast`, and
-grouped by subject: `feed`, `format`, `directory`, `updates`, `comments`,
-`analytics`, `profile`, `search`, `downloads`, `sync` and `value`. The
-`app` namespaces are built from all of these, and the `util` and `crypto`
-namespaces have nothing specific to podcasts. Names in the tables are
-relative to the root, and everything runs on the JVM and in ClojureScript
-unless the table says JVM. [Principles](principles.md) has the rules that
-every namespace follows.
+they come in three kinds:
+
+- **Where you start.** The root namespace reads and writes feeds. The `app`
+  namespaces combine the rest into a few calls for an app: one call each to
+  subscribe to a show, refresh the feeds, play an episode, sync the
+  listener's devices, or get everything that a show page or an episode
+  page needs. The subscriptions, feeds, queue and play progress are all in
+  one map, the library.
+- **One part of podcasting each.** The other namespaces each cover one
+  part, such as the feed model in `feed`, the listener's profile in
+  `profile` and payments in `value`. Many of them are named for the
+  standard they implement, e.g. `format.opml`, `updates.websub` or
+  `value.nwc`. Use them when you need one part, or more control than the
+  `app` namespaces give, or when you're not building an app, e.g. for a
+  host that serves its feeds or a server that syncs profiles.
+- **Not specific to podcasts.** The `util` and `crypto` namespaces hold
+  general tools, e.g. HTTP, XML, JSON, dates, a CRDT and the cryptography
+  that Nostr uses.
+
+The `app` namespaces are built from all the others, and nothing outside
+`app` requires them, so you can use any other namespace without them.
+[Architecture](architecture.md#layers) explains the rule, which a test
+checks.
+
+The tables follow the same order. Names in them are relative to the root,
+and everything runs on the JVM and in ClojureScript unless the table says
+JVM. [Principles](principles.md) has the rules that every namespace
+follows.
 
 
 ## The root namespace
@@ -15,64 +36,6 @@ every namespace follows.
 | Namespace | Contents |
 |---|---|
 | `dk.simongray.podcast` | Parsing and writing feeds: `parse`, `emit`, `report` and `parse-tree`. On the JVM, `fetch!` fetches and parses a feed in one call. `find-feeds!` finds the feeds of a show from a domain, a web page or a link of an app. |
-
-## Feeds
-
-| Namespace | Contents |
-|---|---|
-| `feed` | Hiccup to feed maps and back, the identity of feeds, items and episodes, and `diff` between two parses. |
-| `feed.publish` | What a host does to a feed before serving it: `pages` splits a long feed as RFC 5005 describes, `for-subscriber` makes a private feed, and `update-media-urls` rewrites the URLs of the media files. |
-| `feed.spec` | The tag registry as data, which `registry` indexes or extends, and the enumerations of the specs. |
-| `feed.quirks` | The repairs for malformed XML, and the normalisations of the tree. |
-| `feed.coerce` | The value types of the registry, from strings and back. |
-| `feed.validate` | Validation against the registry, with the requirements of PSP-1 and Apple Podcasts. |
-| `feed.schema` | Malli schemas of the model, generated from the registry. Malli isn't a dependency. |
-| `feed.guid` | The `podcast:guid`: `from-url` derives it from a feed URL, and `guid?` checks one. |
-| `feed.resolve` | One answer for each property where the vocabularies overlap, with `properties` for all of them and `sources` for where each came from. Also the listening order, `blocked?` and `next-check`. |
-| `feed.discovery` | Finding the feeds of a show from what a listener types: `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. `find-feeds!` fetches with them. |
-| `feed.check` | Checks over the network of the files that a feed links to, by the standards and the requirements of PSP-1 and Apple Podcasts. Only `check-files!` sends requests, and `files`, `verdicts` and `report` are pure. |
-| `diagnostics` | Every diagnostic id, with its level and meaning, and `summarize`, which groups a report by kind. |
-
-## Formats
-
-| Namespace | Contents |
-|---|---|
-| `format.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters from the timestamps in show notes, with `at` for the chapter at a position and `jump` for the target of a jump to the next or previous one. |
-| `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers. |
-| `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
-| `format.html` | HTML in descriptions as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. |
-| `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. |
-| `format.media` | The duration, chapters and artwork of a media file, read with byte ranges by `read!`. Also `verify!`, which checks a file against its `podcast:integrity`. |
-| `format.media.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |
-| `format.media.mp3` | The MPEG audio frames of an MP3 file, and its duration. |
-| `format.media.mp4` | The boxes of an MP4 or M4A file: its duration, chapters and artwork. |
-
-## Directories and updates
-
-| Namespace | Contents |
-|---|---|
-| `directory` | Search and charts across Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results. On the JVM, `search!` and `fetch-chart!` ask them all at once. |
-| `directory.podcastindex` | The Podcast Index API, with signed requests and answers mapped onto the feed model. On the JVM, `fetch-remote-item!` and `fetch-remote-value!` resolve remote items. |
-| `directory.links` | Links to a show or an episode in other apps: `ids` reads the ids of a show, `links` writes the links, `link-ids` reads the ids back from a link, and `at-time` links to a moment in an episode. |
-| `updates.podping` | Podping: request maps for the Hive chain, and pings read from blocks and checked against the known writers. On the JVM, `poll!` reads the latest pings. For hosts, there's `notify-request`. |
-| `updates.websub` | WebSub, for a server: `discover` finds the hubs of a feed, `request` and `call!` subscribe, and `handler` is a Ring handler for the callback. For hosts, there's `publish-request`. |
-
-## Comments
-
-| Namespace | Contents |
-|---|---|
-| `comments` | Comment threads from ActivityPub, the AT Protocol and Nostr, in one shape. Pick the thread of an episode with `thread` and read it with `fetch!`, and a second `fetch!` continues where the first stopped. For display, `tree` arranges the comments, and `parts`, `hiccup` and `text` give the content of a comment. |
-| `comments.activitypub` | ActivityPub threads, with each post fetched from its own server, and the Mastodon API when a server won't give the root post. |
-| `comments.atproto` | AT Protocol threads from an AppView, with the labels of the protocol, and `at-uri` to split an at URI. |
-| `comments.nostr` | Nostr threads from relays, with verified events only. The thread about a show or an episode comes from `about`, by its NIP-73 id. |
-| `comments.common` | What the readers share: values from JSON answers, problems with an answer, and safe HTML for a post. |
-
-## Analytics
-
-| Namespace | Contents |
-|---|---|
-| `analytics` | Download counts from the request logs of a host, by the rules of the IAB, with `downloads`. Also `threshold`, for the bytes of a minute of a file, and `user-agents` and `identify`, which name apps and bots from the OPAWG list. |
-| `analytics.op3` | OP3: `with-prefix` puts its prefix on the enclosures of a feed, and `call!` and `fetch-downloads!` read its API. |
 
 ## Apps
 
@@ -104,6 +67,57 @@ every namespace follows.
 | `sync.gpodder` | The gpodder API as a backend, for gpodder.net, the GPodder Sync app for Nextcloud and other servers, with `identities` to map between URLs and guids. |
 | `sync.gpodder.server` | The gpodder API as a Ring handler over a profile, for AntennaPod, Kasts and gPodder. |
 
+## Feeds
+
+| Namespace | Contents |
+|---|---|
+| `feed` | Hiccup to feed maps and back, the identity of feeds, items and episodes, and `diff` between two parses. |
+| `feed.resolve` | One answer for each property where the vocabularies overlap, with `properties` for all of them and `sources` for where each came from. Also the listening order, `blocked?` and `next-check`. |
+| `feed.discovery` | Finding the feeds of a show from what a listener types: `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. `find-feeds!` fetches with them. |
+| `feed.check` | Checks over the network of the files that a feed links to, by the standards and the requirements of PSP-1 and Apple Podcasts. Only `check-files!` sends requests, and `files`, `verdicts` and `report` are pure. |
+| `feed.validate` | Validation against the registry, with the requirements of PSP-1 and Apple Podcasts. |
+| `feed.publish` | What a host does to a feed before serving it: `pages` splits a long feed as RFC 5005 describes, `for-subscriber` makes a private feed, and `update-media-urls` rewrites the URLs of the media files. |
+| `feed.guid` | The `podcast:guid`: `from-url` derives it from a feed URL, and `guid?` checks one. |
+| `feed.spec` | The tag registry as data, which `registry` indexes or extends, and the enumerations of the specs. |
+| `feed.quirks` | The repairs for malformed XML, and the normalisations of the tree. |
+| `feed.coerce` | The value types of the registry, from strings and back. |
+| `feed.schema` | Malli schemas of the model, generated from the registry. Malli isn't a dependency. |
+| `diagnostics` | Every diagnostic id, with its level and meaning, and `summarize`, which groups a report by kind. |
+
+## Directories and updates
+
+| Namespace | Contents |
+|---|---|
+| `directory` | Search and charts across Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results. On the JVM, `search!` and `fetch-chart!` ask them all at once. |
+| `directory.podcastindex` | The Podcast Index API, with signed requests and answers mapped onto the feed model. On the JVM, `fetch-remote-item!` and `fetch-remote-value!` resolve remote items. |
+| `directory.links` | Links to a show or an episode in other apps: `ids` reads the ids of a show, `links` writes the links, `link-ids` reads the ids back from a link, and `at-time` links to a moment in an episode. |
+| `updates.podping` | Podping: request maps for the Hive chain, and pings read from blocks and checked against the known writers. On the JVM, `poll!` reads the latest pings. For hosts, there's `notify-request`. |
+| `updates.websub` | WebSub, for a server: `discover` finds the hubs of a feed, `request` and `call!` subscribe, and `handler` is a Ring handler for the callback. For hosts, there's `publish-request`. |
+
+## Formats
+
+| Namespace | Contents |
+|---|---|
+| `format.chapters` | JSON Chapters, Podlove Simple Chapters, and chapters from the timestamps in show notes, with `at` for the chapter at a position and `jump` for the target of a jump to the next or previous one. |
+| `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers. |
+| `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
+| `format.html` | HTML in descriptions as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. |
+| `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. |
+| `format.media` | The duration, chapters and artwork of a media file, read with byte ranges by `read!`. Also `verify!`, which checks a file against its `podcast:integrity`. |
+| `format.media.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |
+| `format.media.mp3` | The MPEG audio frames of an MP3 file, and its duration. |
+| `format.media.mp4` | The boxes of an MP4 or M4A file: its duration, chapters and artwork. |
+
+## Comments
+
+| Namespace | Contents |
+|---|---|
+| `comments` | Comment threads from ActivityPub, the AT Protocol and Nostr, in one shape. Pick the thread of an episode with `thread` and read it with `fetch!`, and a second `fetch!` continues where the first stopped. For display, `tree` arranges the comments, and `parts`, `hiccup` and `text` give the content of a comment. |
+| `comments.activitypub` | ActivityPub threads, with each post fetched from its own server, and the Mastodon API when a server won't give the root post. |
+| `comments.atproto` | AT Protocol threads from an AppView, with the labels of the protocol, and `at-uri` to split an at URI. |
+| `comments.nostr` | Nostr threads from relays, with verified events only. The thread about a show or an episode comes from `about`, by its NIP-73 id. |
+| `comments.common` | What the readers share: values from JSON answers, problems with an answer, and safe HTML for a post. |
+
 ## Value for value
 
 | Namespace | Contents |
@@ -113,6 +127,13 @@ every namespace follows.
 | `value.metadata` | The RSS Payment Metadata: the comment of a payment to a Lightning address, and the `x-rss-payment` header that `fetch!` reads. |
 | `value.nwc` | Nostr Wallet Connect (NIP-47), for paying from the listener's wallet. Read a connection URI with `parse`, make a command such as `pay-invoice`, and send it with `ask!`, which returns the answer. |
 | `value.webln` | WebLN, the wallet interface of a web page. In ClojureScript, `pay-invoice!` and `pay-keysend!` call the provider. |
+
+## Analytics
+
+| Namespace | Contents |
+|---|---|
+| `analytics` | Download counts from the request logs of a host, by the rules of the IAB, with `downloads`. Also `threshold`, for the bytes of a minute of a file, and `user-agents` and `identify`, which name apps and bots from the OPAWG list. |
+| `analytics.op3` | OP3: `with-prefix` puts its prefix on the enclosures of a feed, and `call!` and `fetch-downloads!` read its API. |
 
 ## Utilities
 
