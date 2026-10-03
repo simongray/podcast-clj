@@ -7,6 +7,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.library :as library]
+            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync.store :as store]
@@ -191,6 +192,29 @@
                        (is (= 3 (count report)) "the list, the new subscription and the due feed")
                        (is (= show (get-in lib' [:feeds guid :feed])))
                        (is (= 1 (:failures (get-in lib' [:feeds guid])))))))))))
+
+(deftest a-feed-that-declares-the-guid-of-another
+  (let [evil-url "https://evil.example/feed.xml"
+        sent     (atom [])
+        fetch    (fn [u opts]
+                   (swap! sent conj [u (:credentials opts)])
+                   {:status 200 :url u :feed show})
+        listed   (library/update-profile library profile/subscribe (feed/feed-guid {} evil-url) {:url evil-url})]
+    (testing "subscribing to it throws, and names the subscription it would take over"
+      (let [e (try (library/subscribe library evil-url show)
+                   nil
+                   (catch #?(:clj Exception :cljs :default) e e))]
+        (is (= [:fetch/guid-taken evil-url guid url] ((juxt :id :url :feed-guid :other-url) (ex-data e))))))
+    (testing "the same feed at another form of its URL takes nothing over"
+      (let [lib (library/subscribe library "http://example.com/feed.xml/" show)]
+        (is (= ["http://example.com/feed.xml/"] (map :url (vals (library/subscriptions lib)))))))
+    (run #(async/then (library/refresh! listed {:at (at 60) :fetch fetch :credentials-of {url {:username "ann"}}})
+                      (fn [{{:keys [report]} :refresh :as lib'}]
+                        (is (= [[:fetch/guid-taken evil-url guid url]] (map (juxt :id :url :feed-guid :other-url) report))
+                            "a show from a list or another device that declares it is left out, and the report says why")
+                        (is (= url (:url (get (library/subscriptions lib') guid)) (get-in lib' [:feeds guid :url]))
+                            "the subscription keeps its URL")
+                        (is (= [[evil-url nil]] @sent) "and the credentials of the private feed go by its URL only"))))))
 
 (deftest the-episodes-across-the-shows
   (let [lib (library/subscribe library other-url {:status 200 :url other-url :feed other})]

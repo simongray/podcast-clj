@@ -183,9 +183,9 @@ waits longer before the next try.
 When to check a feed again depends on its update frequency, its `ttl` or
 the interval between its episodes, as `resolve/next-check` reads them. The
 setting `:cadence` changes the defaults, and `:credentials-of` gives the
-credentials of a private feed by its guid, so no password is stored in the
-library. In ClojureScript, give `:fetch`, a function that fetches through
-your own server.
+credentials of a private feed by its URL, so no password is stored in the
+library and none goes to another feed. In ClojureScript, give `:fetch`, a
+function that fetches through your own server.
 
 Podping tells which feeds have changed, so they can be fetched at once.
 Keep the last block that you read and the writers, and poll every few

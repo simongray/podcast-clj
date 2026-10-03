@@ -190,8 +190,9 @@
     (affected feeds pings) after a Podping
   - :fetch, a function that works like dk.simongray.podcast/fetch!, which
     ClojureScript needs, e.g. to fetch through your own server
-  - :credentials-of, a function from a guid to the :credentials of a
-    private feed, so that no password is stored in the feeds
+  - :credentials-of, a function from the URL of a private feed to its
+    :credentials, so that no password is stored in the feeds and none
+    goes to another URL
   - :parallel, how many feeds to fetch at once, and :cadence
   - :timeout-seconds, :max-bytes, :user-agent and :allow?, as fetch!
     takes them"
@@ -209,7 +210,7 @@
          common (select-keys opts [:timeout-seconds :max-bytes :user-agent :allow?])
          fetch1 (fn [guid]
                   (let [{:keys [url etag last-modified]} (get feeds guid)
-                        credentials (when credentials-of (credentials-of guid))
+                        credentials (when credentials-of (credentials-of url))
                         fetch-opts  (cond-> (assoc common :etag etag :last-modified last-modified)
                                       credentials (assoc :credentials credentials))]
                     (async/then (async/attempt #(fetch url fetch-opts))

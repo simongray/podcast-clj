@@ -115,7 +115,7 @@
                    (throw (ex-info "refused" {:url url}))))]
     (run
      (fn []
-       (async/then (feeds/refresh! three later {:fetch fetch :credentials-of {"c1" {:username "ann"}} :allow? :any})
+       (async/then (feeds/refresh! three later {:fetch fetch :credentials-of {"https://example.org/c.xml" {:username "ann"}} :allow? :any})
                    (fn [{:keys [feeds changed moved report]}]
                      (testing "each due feed fetched with its validators, and the options of every fetch"
                        (is (= 3 (count @asked)))

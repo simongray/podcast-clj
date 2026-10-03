@@ -36,6 +36,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:fetch/malformed` | warning | The server answered with something that isn't an RSS feed: the body isn't XML, or its root element isn't rss. |
 | `:fetch/page-failed` | warning | A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it. |
 | `:fetch/status` | warning | The server answered with a status that isn't a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row. |
+| `:fetch/guid-taken` | warning | The feed declares the podcast:guid of another subscription, at another URL, and would take that subscription over, so it isn't added. To replace the other subscription, unsubscribe from it first. |
 | `:discovery/unreadable` | warning | The text isn't a URL, a domain or a link of an app, so there's nothing to fetch. It may be words to search a directory with. |
 | `:discovery/not-found` | warning | No feed was found: the page names none, and none of the other places that were tried has one. |
 | `:repair/leading-junk` | warning | Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed. |

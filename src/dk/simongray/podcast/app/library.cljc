@@ -26,7 +26,7 @@
       {:fetch          f              ; in place of podcast/fetch!
        :send           f              ; in place of http/call!
        :allow?         http/public?   ; which URLs a request may go to
-       :credentials-of f              ; the credentials of a private feed
+       :credentials-of f              ; the credentials of a private feed, by URL
        :index          {…}            ; the credentials of the Podcast Index
        :languages      [\"da\" \"en\"]    ; of the listener, for transcripts
        :search?        false          ; whether to keep the search index
@@ -130,12 +130,26 @@
     {:feed x}
     x))
 
+(defn- takeover
+  "The diagnostic for a feed at `url` that declares the guid `guid`, when
+  `library` has a live subscription to that guid at another URL, which
+  the feed would take over. Nil when it has none."
+  [library guid url]
+  (when-let [other (:url (get (profile/subscriptions (:profile library)) guid))]
+    (when (not= (profile/normal-url other) (profile/normal-url url))
+      (diagnostics/describe {:id :fetch/guid-taken :url url :feed-guid guid :other-url other}))))
+
 (defn subscribe
   "The `library` subscribed to the feed at `url`, with what was `fetched`
   and the settings in `opts`.
 
   The `fetched` is the result of dk.simongray.podcast/fetch! or a parsed
-  feed, and the `opts` are as profile/configure takes them, besides :at."
+  feed, and the `opts` are as profile/configure takes them, besides :at.
+
+  It throws when the feed declares the guid of another subscription, at
+  another URL, since the feed would take that subscription over. The
+  ex-data is the diagnostic :fetch/guid-taken. To replace the other
+  subscription, unsubscribe from it first."
   ([library url fetched]
    (subscribe library url fetched {}))
   ([library url fetched opts]
@@ -145,6 +159,8 @@
          result   (fetch-result fetched)
          feed     (:feed result)
          guid     (feed/feed-guid feed url)]
+     (when-let [taken (takeover library guid url)]
+       (throw (ex-info (:message taken) taken)))
      (-> library
          (update :feeds feeds/add url result now (:cadence (:config library) {}))
          (update :profile profile/subscribe guid {:url url :title (resolve/title feed)} now)
@@ -289,11 +305,12 @@
 
   The result is a map of the :library and the :report. The :parallel of
   `opts` feeds are fetched at a time, as app.feeds/refresh! fetches them.
-  A feed that couldn't be fetched is tried again next time."
+  A feed that couldn't be fetched, or that would take another
+  subscription over, is tried again next time."
   [library now {:keys [fetch credentials-of parallel] :or {parallel feeds/default-parallel} :as opts}]
   (let [common (select-keys opts [:timeout-seconds :max-bytes :user-agent :allow?])
         fetch1 (fn [[guid url]]
-                 (let [credentials (when credentials-of (credentials-of guid))]
+                 (let [credentials (when credentials-of (credentials-of url))]
                    (async/then (async/attempt #(fetch url (cond-> common credentials (assoc :credentials credentials))))
                                (fn [{:keys [value error]}]
                                  [guid url (if error
@@ -302,10 +319,12 @@
     (async/then (async/in-groups fetch1 parallel (unfetched library))
                 (fn [results]
                   (reduce (fn [acc [guid url result]]
-                            (cond
-                              (:feed result)  (update acc :library known guid url result now)
-                              (:error result) (update acc :report conj (assoc (:error result) :feed-guid guid))
-                              :else           (update acc :report conj (diagnostics/describe {:id :fetch/status :url url :status (:status result) :feed-guid guid}))))
+                            (let [taken (when (:feed result) (takeover (:library acc) (feed/feed-guid (:feed result) url) url))]
+                              (cond
+                                taken           (update acc :report conj taken)
+                                (:feed result)  (update acc :library known guid url result now)
+                                (:error result) (update acc :report conj (assoc (:error result) :feed-guid guid))
+                                :else           (update acc :report conj (diagnostics/describe {:id :fetch/status :url url :status (:status result) :feed-guid guid})))))
                           {:library library :report []}
                           results)))))
 

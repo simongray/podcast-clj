@@ -34,6 +34,8 @@
     :doc "A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it."}
    {:id :fetch/status :level :warning
     :doc "The server answered with a status that isn't a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row."}
+   {:id :fetch/guid-taken :level :warning
+    :doc "The feed declares the podcast:guid of another subscription, at another URL, and would take that subscription over, so it isn't added. To replace the other subscription, unsubscribe from it first."}
 
    ;; finding the feeds of a show
    {:id :discovery/unreadable :level :warning
