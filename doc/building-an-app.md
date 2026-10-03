@@ -254,6 +254,12 @@ setting `:cadence` changes the defaults, and `:credentials-of` gives the
 credentials of a private feed by its URL, so no password is stored in the
 library and none goes to another feed.
 
+The library keeps every feed whole, which takes about twice the size of
+its XML in memory. A device that never shows the feeds, such as a server
+that only syncs and refreshes, can keep a small part of each with the
+setting `:keep feeds/slim`. That part still tells when to check the feed
+and which episodes are new.
+
 Podping tells which feeds have changed, so they can be fetched at once.
 On the JVM, keep the last block that you read and the writers, and poll
 every few seconds:

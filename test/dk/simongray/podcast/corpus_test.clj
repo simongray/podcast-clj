@@ -7,6 +7,7 @@
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.app.feeds-test :refer [same-for-slim?]]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.transcript :as transcript]
@@ -19,6 +20,12 @@
       (is (every? map? (:rss/items feed)))
       (is (= feed (podcast/parse (podcast/emit feed))) "lossless round trip")
       (is (vector? (validate/validate feed {:requirements :psp-1}))))))
+
+(deftest every-corpus-feed-slim
+  (doseq [{:keys [name feed]} @corpus-feeds]
+    (testing name
+      (is (same-for-slim? feed (update feed :rss/items #(vec (drop 3 %))) "https://example.com/feed.xml"
+                          #inst "2026-10-01T00:00:00Z")))))
 
 (def companions-dir
   (io/file "dev-resources/corpus/companions"))

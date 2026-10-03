@@ -36,12 +36,18 @@
        :search?        false          ; whether to keep the search index
        :cadence        {…}            ; as app.feeds takes it
        :parallel       8              ; how many feeds are fetched at once
+       :keep           app.feeds/slim ; what to keep of each feed, all by default
        :now            f              ; the clock, util.time/now by default
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
   Each function also takes the same keys as options, for one call.
   A config with functions doesn't print as EDN, so save the library
   without its :config, and assoc the config back when you read it.
+
+  With :keep app.feeds/slim, a library holds a fraction of each feed,
+  which is enough to sync and refresh. The functions that show the feeds,
+  such as episodes, show, episode and search, then lack the titles and the
+  rest, so it's for a device that never shows them, such as a server.
 
   Each change is stamped with the time of the clock, or with the :at of
   the options, an instant. Give :at for an event that you handle later,
@@ -130,6 +136,13 @@
       (assoc library :index (reduce search/add (unindexed index guid) (when feed (documents feed url)))))
     library))
 
+(defn- kept
+  "The `library` with the feed `guid` cut down to what `keep` gives of it,
+  once nothing else needs the whole feed."
+  [library guid keep]
+  (cond-> library
+    (and keep (get-in library [:feeds guid :feed])) (update-in [:feeds guid :feed] keep)))
+
 (defn- fetch-result
   "The result of a fetch that the `x` given to subscribe stands for. It's
   `x` itself, or a map with `x` as the :feed when `x` is a parsed feed,
@@ -171,7 +184,8 @@
          (update :feeds feeds/add url result now (:cadence (:config library) {}))
          (update :profile profile/subscribe guid {:url url :title (resolve/title feed)} now)
          (cond-> (seq settings) (update :profile profile/configure guid settings now))
-         (reindexed guid)))))
+         (reindexed guid)
+         (kept guid (:keep (:config library)))))))
 
 (defn unsubscribe
   "The `library` unsubscribed from the feed `guid`, with `opts`. The feed
@@ -296,14 +310,17 @@
 
 (defn- known
   "The `library` with the feed of `result`, fetched from `url` at `now` for
-  the subscription `guid`, which moves to the guid that the feed declares,
-  as profile/rekey does."
-  [library guid url result now]
+  the subscription `guid`, and cut down by `keep`.
+
+  The subscription moves to the guid that the feed declares, as
+  profile/rekey does."
+  [library guid url result now keep]
   (let [declared (feed/feed-guid (:feed result) url)]
     (-> library
         (update :profile profile/rekey guid declared now)
         (update :feeds feeds/add url result now (:cadence (:config library) {}))
-        (reindexed declared))))
+        (reindexed declared)
+        (kept declared keep))))
 
 (defn- fetched-new!
   "Fetch the feeds of the new subscriptions of `library` at `now` with
@@ -313,7 +330,7 @@
   `opts` feeds are fetched at a time, as app.feeds/refresh! fetches them.
   A feed that couldn't be fetched, or that would take another
   subscription over, is tried again next time."
-  [library now {:keys [fetch credentials-of parallel] :or {parallel feeds/default-parallel} :as opts}]
+  [library now {:keys [fetch credentials-of parallel keep] :or {parallel feeds/default-parallel} :as opts}]
   (let [common (select-keys opts [:send :timeout-seconds :max-bytes :user-agent :allow?])
         fetch1 (fn [[guid url]]
                  (let [credentials (when credentials-of (credentials-of url))]
@@ -328,7 +345,7 @@
                             (let [taken (when (:feed result) (profile/takeover (get-in acc [:library :profile]) (feed/feed-guid (:feed result) url) url))]
                               (cond
                                 taken           (update acc :report conj taken)
-                                (:feed result)  (update acc :library known guid url result now)
+                                (:feed result)  (update acc :library known guid url result now keep)
                                 (:error result) (update acc :report conj (assoc (:error result) :feed-guid guid))
                                 :else           (update acc :report conj (diagnostics/describe {:id :fetch/status :url url :status (:status result) :feed-guid guid})))))
                           {:library library :report []}
@@ -336,9 +353,9 @@
 
 (defn- applied
   "The `library` with the `result` of app.feeds/refresh! applied to the
-  profile at `now`, as a map of the :library and what was :added and
-  :moved."
-  [library {:keys [feeds changed moved] :as result} now]
+  profile at `now`, and the fresh feeds cut down by `keep`, as a map of
+  the :library and what was :added and :moved."
+  [library {:keys [feeds changed moved] :as result} now keep]
   (let [before (:feeds library)
         library (assoc library :feeds feeds)
         result (reduce (fn [acc guid]
@@ -347,6 +364,7 @@
                            (-> acc
                                (assoc-in [:library :profile] state)
                                (update :library reindexed guid)
+                               (update :library kept guid keep)
                                (update :added into added))))
                        {:library library :added []}
                        changed)]
@@ -387,7 +405,7 @@
                                (fn [{library :library report-new :report}]
                                  (async/then (feeds/refresh! (:feeds library) now (select-keys opts [:guids :fetch :credentials-of :parallel :cadence :send :timeout-seconds :max-bytes :user-agent :allow?]))
                                              (fn [step]
-                                               (let [{:keys [library added moved]} (applied library step now)]
+                                               (let [{:keys [library added moved]} (applied library step now (:keep opts))]
                                                  (assoc library :refresh {:at     now
                                                                           :added  added
                                                                           :moved  moved

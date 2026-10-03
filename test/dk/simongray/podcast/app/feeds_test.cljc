@@ -7,6 +7,10 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.feeds :as feeds]
+            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.time :as time]))
@@ -45,6 +49,37 @@
       (is (= [guid] (feeds/due (feeds/add {} url silent now {:silent 3600}) (at 3600))) "the cadence given"))
     (is (= [guid] (feeds/due {guid {:url url :feed show}} now)) "an entry without a next check is due")
     (is (thrown? #?(:clj Throwable :cljs js/Error) (feeds/add {} url {:status 404 :url url} now)) "no feed to add")))
+
+(defn same-for-slim?
+  "Whether the slim `feed` at `url` gives what the whole one gives: the
+  next check at `at`, the new episodes since `before`, and the names of
+  the gpodder API."
+  [feed before url at]
+  (let [thin  (feeds/slim feed)
+        names (gpodder/identities {url feed})
+        slim  (gpodder/identities {url thin})]
+    (and (= (resolve/next-check feed at) (resolve/next-check thin at))
+         (= (profile/new-episodes before feed url) (profile/new-episodes (feeds/slim before) feed url))
+         (every? (fn [item]
+                   (let [id    (feed/episode-id feed url item)
+                         media (:url (resolve/enclosure item))]
+                     (and (= ((:episode-url names) id) ((:episode-url slim) id))
+                          (= ((:episode-id names) url media nil) ((:episode-id slim) url media nil)))))
+                 (:rss/items feed)))))
+
+(deftest what-slim-keeps
+  (let [before (update show :rss/items #(vec (rest %)))]
+    (is (seq (profile/new-episodes before show url)) "the example has a new episode to find")
+    (is (< (count (pr-str (feeds/slim show))) (quot (count (pr-str show)) 2)))
+    (doseq [[what f] [["the example" show]
+                      ["a ttl" (assoc show :rss/ttl 60)]
+                      ["a syndication period" (assoc show :sy/update-period "hourly" :sy/update-frequency 2)]
+                      ["a complete feed" (assoc show :itunes/complete true)]
+                      ["an update frequency" (assoc show :podcast/update-frequency {:content "Weekly" :rrule {:freq "WEEKLY"}})]
+                      ["no items" (assoc show :rss/items [])]]]
+      (testing what
+        (is (same-for-slim? f before url now))
+        (is (same-for-slim? f before url (at (* 365 86400))) "a year later")))))
 
 (deftest a-complete-feed
   (let [complete (assoc show :itunes/complete true)

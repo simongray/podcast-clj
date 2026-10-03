@@ -7,6 +7,7 @@
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.format.opml :as opml]
@@ -55,6 +56,34 @@
   (opml/parse (str "<opml version=\"2.0\"><head><title>Picks</title></head><body>"
                    "<outline type=\"rss\" text=\"Other\" xmlUrl=\"" other-url "\"/>"
                    "</body></opml>")))
+
+(deftest a-slim-library
+  (let [make    (fn [config]
+                  (-> (library/make "phone" {:name "Phone" :config (assoc config :now (constantly now))})
+                      (library/follow "https://example.org/picks.opml" picks {:title "Picks"})
+                      (library/subscribe url fresh {:auto-queue? true})))
+        fetch   (fn [u _]
+                  (case u
+                    "https://example.com/feed.xml"  {:status 200 :url u :feed newer :etag "\"v2\""}
+                    "https://example.org/other.xml" {:status 200 :url u :feed other}))
+        send    (fn [_] {:status 304 :headers {} :body ""})
+        entries (fn [lib] (update-vals (:feeds lib) #(dissoc % :feed)))
+        both    (fn [libs opts] (async/all #(library/refresh! % opts) libs))]
+    (is (= (feeds/slim show) (get-in (make {:keep feeds/slim}) [:feeds guid :feed])) "a subscription keeps the slim feed")
+    (run
+     (fn []
+       (async/then (both [(make {}) (make {:keep feeds/slim})] {:at (at 86400) :fetch fetch :send send})
+                   (fn [[full thin]]
+                     (is (= [[guid "new"]] (:added (:refresh thin))) "the new episode, found from the slim feed")
+                     (is (= (:refresh full) (:refresh thin)))
+                     (is (= (:profile full) (:profile thin)) "the episode queued alike")
+                     (is (= (entries full) (entries thin)) "the same ETags and next checks")
+                     (is (= (update-vals (:feeds full) (comp feeds/slim :feed)) (update-vals (:feeds thin) :feed))
+                         "each feed slim, the new subscription's too")
+                     (async/then (both [full thin] {:at (at (* 30 86400)) :fetch (fn [u _] {:status 304 :url u}) :send send})
+                                 (fn [[full thin]]
+                                   (is (= 2 (count (:feeds thin))))
+                                   (is (= (entries full) (entries thin)) "the same next checks after a 304")))))))))
 
 (deftest a-fresh-library
   (let [lib (library/make "phone" {:name "Phone" :platform "ios" :at now})]

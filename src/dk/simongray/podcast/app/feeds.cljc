@@ -15,7 +15,8 @@
                      :status       200}}
 
   The new episodes of a changed feed are found by
-  dk.simongray.podcast.profile/refresh."
+  dk.simongray.podcast.profile/refresh. A device that never shows the
+  feeds can keep only what slim gives of each, which is enough for that."
   (:require [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
@@ -112,6 +113,25 @@
    (let [cadence (merge default-cadence cadence)
          guid    (feed/feed-guid (:feed result) url)]
      (assoc feeds guid (fetched (get feeds guid {}) url result now cadence)))))
+
+(defn- slim-item
+  "The part of `item` that slim keeps: its guid, date and media."
+  [item]
+  (cond-> (select-keys item [:rss/guid :rss/pub-date :rss/enclosure :podcast/alternate-enclosures :media/contents])
+    (:media/group item) (assoc :media/group (select-keys (:media/group item) [:contents]))))
+
+(defn slim
+  "The part of `feed` that keeping it current needs: what says when to
+  check it again, and the guid, date and media of each item.
+
+  A device that only syncs and refreshes, such as a server, can keep this
+  in place of the whole feed, with the :keep of app.library. It gives the
+  same next check, the same new episodes for profile/refresh and the same
+  names for the gpodder API, but no titles, descriptions or the rest."
+  [feed]
+  (-> (select-keys feed [:podcast/guid :itunes/complete :podcast/update-frequency
+                         :rss/ttl :sy/update-period :sy/update-frequency])
+      (assoc :rss/items (mapv slim-item (:rss/items feed)))))
 
 (defn due
   "The guids of the feeds of `feeds` that are due at `now`, the earliest
