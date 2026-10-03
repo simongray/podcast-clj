@@ -79,6 +79,9 @@ functions that send requests return promises.
   Node 22.
 - **On a server of your own**, run the proxy of a web page, the callbacks
   of WebSub, and the sync over WebDAV or the gpodder API if you serve it.
+- **In a desktop app on Electron**, the main process is Node and the
+  window is a browser, and **in a PWA or a Capacitor app**, the page is a
+  browser.
 
 In ClojureScript, add podcast-clj to `deps.edn` and let shadow-cljs read
 it with `:deps true`. There are no npm packages to install.
@@ -754,6 +757,43 @@ wherever it arrives. [Sync reference](sync-reference.md#folders-in-a-browser-as-
 has what each browser can do, and the inspector's player in
 `web/inspector/player.cljs` does all of the above.
 
+### Sync the listeners of a website
+
+On a website, each browser is a device with a library of its own, and
+your server keeps each listener's documents behind your login. A page
+that syncs with its own origin sends the cookie of your login along, and
+needs no CORS:
+
+```clojure
+;; on the server, a folder of documents for each listener
+(defn dav
+  "The WebDAV handler of the listener who sent `request`."
+  [request]
+  (let [store (file/store (str "sync/" (user-id request)))]
+    ((webdav-server/handler store "/dav/") request)))
+
+;; in the page
+(store/backend (webdav/store (str js/location.origin "/dav/")))
+```
+
+Here `user-id` is your own function that gives the id that your login
+found for the request. It goes into a path, so never use a name that the
+user typed. Mount `dav` for `/dav` and everything below it, as the
+inspector does in `web/inspector/service.clj`. A table in your database
+can take the place of the folders, as a store of your own.
+
+In the page:
+
+- Keep the device id under a key of its own, so that a library that
+  fails to save doesn't make a new device.
+- Keep the library in IndexedDB, since a large feed takes more than
+  localStorage holds, and keep one for each account.
+- Let one tab sync at a time, e.g. with `navigator.locks`, and before each
+  step, merge in the library that the last step saved, since the tabs
+  share the device id.
+- Offer to retire the devices that `crdt/lagging` lists, since private
+  windows and cleared site data leave devices that never sync again.
+
 
 ## Pay value for value
 
@@ -1118,6 +1158,7 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav :as webdav]
+            [dk.simongray.podcast.sync.webdav.server :as webdav-server]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.updates.websub :as websub]
             [dk.simongray.podcast.util.crdt :as crdt]
