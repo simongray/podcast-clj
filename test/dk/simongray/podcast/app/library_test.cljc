@@ -40,7 +40,7 @@
       (update :rss/items (fn [items] [(assoc (first items) :rss/guid {:content "o1"} :rss/title "Other one")]))))
 
 (def library
-  (-> (library/make "phone" {:name "Phone" :settings {:languages ["es"] :now (constantly now)}})
+  (-> (library/make "phone" {:name "Phone" :config {:languages ["es"] :now (constantly now)}})
       (library/subscribe url fresh {:auto-queue? true})))
 
 (def picks
@@ -54,17 +54,17 @@
     (is (= "phone" (:device lib)))
     (is (= {:name "Phone" :platform "ios"} (dissoc (get (crdt/devices (:profile lib)) "phone") :updated-at :device)))
     (is (= now (:clock (:profile lib))))
-    (is (nil? (:index lib)) "no index unless the settings say so")
+    (is (nil? (:index lib)) "no index unless the config says so")
     (is (= {} (:feeds lib)))
-    (is (= library/default-settings (:settings lib)))
-    (is (some? (:index (library/make "phone" {:settings {:search? true}}))))
+    (is (= library/default-config (:config lib)))
+    (is (some? (:index (library/make "phone" {:config {:search? true}}))))
     (is (= now (library/next-sync lib {:at now})) "due at once before the first sync")))
 
 (deftest the-clock
   (let [id      [guid "https://example.com/ep0003"]
         clock   #(:clock (:profile %))
-        clocked (assoc-in library [:settings :now] #(at 60))]
-    (testing "each change is stamped with the time of the clock in the settings"
+        clocked (assoc-in library [:config :now] #(at 60))]
+    (testing "each change is stamped with the time of the clock in the config"
       (is (= (at 60) (clock (library/unsubscribe clocked guid))))
       (is (= (at 60) (clock (library/update-profile clocked profile/enqueue [guid "new"]))))
       (is (= (at 60) (clock (library/update-profile clocked (fn [p t] (profile/star p id t))))) "a series of changes")
@@ -73,8 +73,8 @@
     (testing "or with the :at of the options, an instant"
       (is (= (at 120) (clock (library/unsubscribe clocked guid {:at (at 120)}))))
       (is (= (library/step clocked [:play id]) (library/step clocked [:play id] {:at (at 60)}))))
-    (testing "and without a clock in the settings, that of the platform"
-      (is (<= (inst-ms now) (inst-ms (clock (library/unsubscribe (update library :settings dissoc :now) guid)))))
+    (testing "and without a clock in the config, that of the platform"
+      (is (<= (inst-ms now) (inst-ms (clock (library/unsubscribe (update library :config dissoc :now) guid)))))
       (is (= "tablet" (:device (library/make "tablet")))))
     (run
      (fn []
@@ -103,10 +103,10 @@
     (is (nil? (library/show library "nope")))
     (let [id [guid "https://example.com/ep0003"]]
       (is (= "Episode 3 - The Future" (:title (library/episode library id))))
-      (is (= "text/vtt" (:type (:transcript (library/episode library id)))) "the languages of the settings choose the Spanish one")
+      (is (= "text/vtt" (:type (:transcript (library/episode library id)))) "the languages of the config choose the Spanish one")
       (is (= "text/plain" (:type (:transcript (library/episode library id {:languages ["en"] :transcript-types ["text/plain"]})))))
       (is (nil? (library/episode library [guid "nope"])))))
-  (testing "what the network adds to the views, asked with the settings of the library"
+  (testing "what the network adds to the views, asked with the config of the library"
     (let [down (fn [_] (throw (ex-info "down" {})))]
       (run
        (fn []
@@ -126,7 +126,7 @@
       (is (false? (profile/subscribed? (:profile lib) guid))))))
 
 (deftest the-search-index
-  (let [lib (-> (library/make "phone" {:settings {:search? true}})
+  (let [lib (-> (library/make "phone" {:config {:search? true}})
                 (library/subscribe url fresh))]
     (is (= 4 (count (:docs (:index lib)))) "the show and its three episodes")
     (is (= [guid "https://example.com/ep0003"] (:id (first (library/search lib "future")))))
@@ -136,13 +136,13 @@
 (deftest following-a-list
   (let [lib (library/follow library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]
     (is (= {"https://example.org/picks.opml" {:title "Picks" :folder "Picks"}} (profile/lists (:profile lib))))
-    (is (= "\"p1\"" (get-in lib [:lists "https://example.org/picks.opml" :etag])))
-    (is (= (at 86400) (get-in lib [:lists "https://example.org/picks.opml" :next-check])))
+    (is (= "\"p1\"" (get-in lib [:fetched-lists "https://example.org/picks.opml" :etag])))
+    (is (= (at 86400) (get-in lib [:fetched-lists "https://example.org/picks.opml" :next-check])))
     (is (= 2 (count (library/subscriptions lib))) "the show of the list joined")
     (is (nil? (:feed (get (library/subscriptions lib) (profile/normal-url other-url)))) "not fetched yet")
     (let [gone (library/unfollow lib "https://example.org/picks.opml")]
       (is (= {} (profile/lists (:profile gone))))
-      (is (= {} (:lists gone)))
+      (is (= {} (:fetched-lists gone)))
       (is (= 2 (count (library/subscriptions gone))) "the subscriptions stay"))))
 
 (deftest the-step-that-fetches-what-is-due
@@ -165,7 +165,7 @@
                    (fn [{{:keys [added moved report]} :refresh :as lib'}]
                      (testing "the list asked with its validators, and unchanged"
                        (is (some #(= ["https://example.org/picks.opml" nil] %) @asked))
-                       (is (= (at (* 2 86400)) (get-in lib' [:lists "https://example.org/picks.opml" :next-check]))))
+                       (is (= (at (* 2 86400)) (get-in lib' [:fetched-lists "https://example.org/picks.opml" :next-check]))))
                      (testing "the feed of the new subscription fetched and kept, under the guid that it declares"
                        (is (= "Other" (:rss/title (:feed (get (library/subscriptions lib') "0ther-guid")))))
                        (is (= #{guid "0ther-guid"} (set (keys (library/subscriptions lib')))) "the guid of the URL is gone")
@@ -221,7 +221,7 @@
 (deftest keeping-two-devices-in-step
   (let [documents (atom {})
         backend   (store/backend (store/memory documents) {:app "test"})
-        laptop    (-> (library/make "laptop" {:name "Laptop" :settings {:now (constantly now)}})
+        laptop    (-> (library/make "laptop" {:name "Laptop" :config {:now (constantly now)}})
                       (library/subscribe other-url {:status 200 :url other-url :feed other}))]
     (run
      (fn []

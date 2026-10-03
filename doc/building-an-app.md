@@ -14,8 +14,8 @@ kept in one map, the library, which fits in an atom:
 
 ```clojure
 (def lib
-  (atom (library/make device-id {:name     "Phone"
-                                 :settings {:languages ["da" "en"]}})))
+  (atom (library/make device-id {:name   "Phone"
+                                 :config {:languages ["da" "en"]}})))
 
 (swap! lib library/subscribe url (podcast/fetch! url))
 (reset! lib (library/refresh! @lib))
@@ -25,8 +25,8 @@ kept in one map, the library, which fits in an atom:
 Change it with `swap!` for the pure functions and `reset!` for the ones
 that fetch, which in ClojureScript return a promise. Each of them returns
 the library along with what it did: `:effects` after `step`, `:refresh`
-after `refresh!` and `:sync` after `sync!`. The `:settings` given to
-`make` are the options that the other library functions use, and the
+after `refresh!` and `:sync` after `sync!`. The `:config` given to `make`
+holds the options that the other library functions use, and the
 docstring of `app.library` lists them.
 
 The parts of the library work with the namespaces they come from, e.g.
@@ -504,7 +504,7 @@ media fragment on the URL of the media file:
 
 ## Search the episodes
 
-With `:search? true` in its settings, the library keeps a full-text index
+With `:search? true` in its config, the library keeps a full-text index
 of every feed:
 
 ```clojure

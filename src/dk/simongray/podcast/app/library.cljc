@@ -4,16 +4,16 @@
   Each part is a value of its own namespace, e.g. every function of
   app.profile takes (:profile library):
 
-      {:device   \"…\"                ; the id of this device
-       :profile  {…}                ; the profile, a CRDT that syncs
-       :feeds    {guid {…}}         ; the feeds, as app.feeds keeps them
-       :lists    {url {…}}          ; the followed OPML lists
-       :index    {…}                ; the search index, with :search?
-       :sync     {:ctx {…} …}       ; the cursors and report of the last sync
-       :refresh  {:added […] …}     ; the new episodes, moves and report
-       :effects  [[:seek id 784]]   ; the effects of the last step, to apply
-       :sleep    {:episodes 1}      ; the sleep timer of this device, if set
-       :settings {…}}               ; given once to make
+      {:device        \"…\"              ; the id of this device
+       :profile       {…}              ; the profile, a CRDT that syncs
+       :feeds         {guid {…}}       ; the feeds, as app.feeds keeps them
+       :fetched-lists {url {…}}        ; the followed OPML lists, as fetched
+       :index         {…}              ; the search index, with :search?
+       :sync          {:ctx {…} …}     ; the last sync's cursors and report
+       :refresh       {:added […] …}   ; the new episodes, moves and report
+       :effects       [[:seek id 784]] ; the effects of the last step, to apply
+       :sleep         {:episodes 1}    ; the sleep timer of this device, if set
+       :config        {…}}             ; given once to make
 
   Keep the library in an atom: swap! it with the pure functions, and
   reset! it with refresh! and sync!, which fetch. Each returns the library
@@ -21,7 +21,7 @@
   The profile is a CRDT, so change it only with the functions of
   app.profile, never with assoc or dissoc.
 
-  The settings are the options that the functions take, given once:
+  The config holds the options that the functions take, given once:
 
       {:fetch          f              ; in place of podcast/fetch!
        :send           f              ; in place of http/call!
@@ -56,20 +56,20 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]))
 
-(def default-settings
-  "The settings that a library has when make isn't given them. The
+(def default-config
+  "The config that a library has when make isn't given one. The
   :list-seconds is how long a fetched OPML list stays current."
   {:search?      false
    :list-seconds 86400})
 
 (defn- options
-  "The `opts` of a call over the settings of `library`."
+  "The `opts` of a call over the config of `library`."
   [library opts]
-  (merge (:settings library) opts))
+  (merge (:config library) opts))
 
 (defn ^:no-doc time-of
   "The instant of a call to `library` with `opts`: their :at, or else the
-  time of the clock, the :now of the options or of the settings."
+  time of the clock, the :now of the options or of the config."
   [library opts]
   (or (:at opts) ((:now (options library opts) time/now))))
 
@@ -78,21 +78,21 @@
 
   The `device` is a stable id that tells the listener's devices apart,
   made once per installation. The `opts` describe the device for the other
-  devices, such as its :name and :platform, and give the :settings."
+  devices, such as its :name and :platform, and give the :config."
   ([device]
    (make device {}))
-  ([device {:keys [settings] :as opts}]
+  ([device {:keys [config] :as opts}]
    {:pre [(map? opts)]}
-   (let [description (dissoc opts :settings :at)
-         settings    (merge default-settings settings)]
-     {:device   device
-      :profile  (cond-> (profile/make device)
-                  (seq description) (crdt/identify description (time-of {:settings settings} opts)))
-      :feeds    {}
-      :lists    {}
-      :index    (when (:search? settings) (search/index))
-      :sync     {}
-      :settings settings})))
+   (let [description (dissoc opts :config :at)
+         config      (merge default-config config)]
+     {:device        device
+      :profile       (cond-> (profile/make device)
+                       (seq description) (crdt/identify description (time-of {:config config} opts)))
+      :feeds         {}
+      :fetched-lists {}
+      :index         (when (:search? config) (search/index))
+      :sync          {}
+      :config        config})))
 
 (defn urls
   "A map from each feed of `library` to its URL, which search/episodes and
@@ -146,7 +146,7 @@
          feed     (:feed result)
          guid     (feed/feed-guid feed url)]
      (-> library
-         (update :feeds feeds/add url result now (:cadence (:settings library) {}))
+         (update :feeds feeds/add url result now (:cadence (:config library) {}))
          (update :profile profile/subscribe guid {:url url :title (resolve/title feed)} now)
          (cond-> (seq settings) (update :profile profile/configure guid settings now))
          (reindexed guid)))))
@@ -180,13 +180,13 @@
   at `now`, applied as profile/refresh-list does, and kept with the ETag
   and Last-Modified of `fetched`."
   [library url list now {:keys [etag last-modified] :as fetched}]
-  (let [seconds (:list-seconds (:settings library))
+  (let [seconds (:list-seconds (:config library))
         entry   (cond-> {:list list :fetched-at now :next-check (time/->inst (+ (inst-ms now) (* 1000 seconds)))}
                   etag          (assoc :etag etag)
                   last-modified (assoc :last-modified last-modified))]
     (-> library
-        (update :profile #(:state (profile/refresh-list % url (get-in library [:lists url :list]) list now)))
-        (assoc-in [:lists url] entry))))
+        (update :profile #(:state (profile/refresh-list % url (get-in library [:fetched-lists url :list]) list now)))
+        (assoc-in [:fetched-lists url] entry))))
 
 (defn follow
   "The `library` following the OPML list at `url`, whose parse is `list`,
@@ -212,7 +212,7 @@
    {:pre [(map? opts)]}
    (-> library
        (update :profile profile/unfollow-list url (time-of library opts))
-       (update :lists dissoc url))))
+       (update :fetched-lists dissoc url))))
 
 (defn- fetched-list!
   "Fetch the OPML list at `url` with `opts` and the ETag and Last-Modified
@@ -245,21 +245,21 @@
   apply them, in a future or a promise. The result is a map of the
   :library and the :report."
   [library now opts]
-  (let [due (for [[url entry] (:lists library)
+  (let [due (for [[url entry] (:fetched-lists library)
                   :when (<= (inst-ms (:next-check entry)) (inst-ms now))]
               url)]
-    (async/then (async/all (fn [url] (async/then (fetched-list! url (get-in library [:lists url]) opts) #(vector url %))) due)
+    (async/then (async/all (fn [url] (async/then (fetched-list! url (get-in library [:fetched-lists url]) opts) #(vector url %))) due)
                 (fn [results]
                   (reduce (fn [{:keys [library] :as acc} [url {:keys [list unchanged? error] :as fetched}]]
-                            (let [seconds (:list-seconds (:settings library))
+                            (let [seconds (:list-seconds (:config library))
                                   later   (time/->inst (+ (inst-ms now) (* 1000 seconds)))]
                               (cond
                                 error      (-> acc
-                                               (assoc-in [:library :lists url :next-check] later)
+                                               (assoc-in [:library :fetched-lists url :next-check] later)
                                                (update :report conj (assoc error :list url)))
                                 unchanged? (-> acc
-                                               (assoc-in [:library :lists url :fetched-at] now)
-                                               (assoc-in [:library :lists url :next-check] later))
+                                               (assoc-in [:library :fetched-lists url :fetched-at] now)
+                                               (assoc-in [:library :fetched-lists url :next-check] later))
                                 :else      (assoc acc :library (listed library url list now fetched)))))
                           {:library library :report []}
                           results)))))
@@ -280,7 +280,7 @@
   (let [declared (feed/feed-guid (:feed result) url)]
     (-> library
         (update :profile profile/rekey guid declared now)
-        (update :feeds feeds/add url result now (:cadence (:settings library) {}))
+        (update :feeds feeds/add url result now (:cadence (:config library) {}))
         (reindexed declared))))
 
 (defn- fetched-new!
@@ -346,8 +346,8 @@
        :report [...]}                     ; the fetches that failed, and why
 
   Nothing is thrown for what the network or a server does. The `opts` are
-  settings for this call, and :guids, the feeds to fetch instead of those
-  that are due, e.g. after a Podping:
+  the config for this call, and :guids, the feeds to fetch instead of
+  those that are due, e.g. after a Podping:
 
       (app.feeds/affected (:feeds library) pings)"
   ([library]
@@ -395,7 +395,7 @@
   "Fetch the shows that the show `guid` of `library` links to, with `opts`
   for this call, for a page to merge into the view that show gives.
 
-  The result is that of app.show/fetch-linked-shows! with the settings of
+  The result is that of app.show/fetch-linked-shows! with the config of
   the library, or nil when the library has no such feed. The `opts` are
   those of app.show/fetch-linked-shows!."
   ([library guid]
@@ -410,7 +410,7 @@
   with `opts`.
 
   The `id` is [feed-guid item-guid], and the view uses the :languages
-  of the settings. Returns nil when the library has no such episode."
+  of the config. Returns nil when the library has no such episode."
   ([library id]
    (episode library id {}))
   ([library id opts]
@@ -421,7 +421,7 @@
   "Read the files of the episode `id` of `library`, with `opts` for this
   call, for a page to merge into the view that episode gives.
 
-  The result is that of app.episode/read-files! with the settings of the
+  The result is that of app.episode/read-files! with the config of the
   library, or nil when the library has no such episode. The `opts` are
   those of app.episode/read-files!."
   ([library id]
@@ -451,7 +451,7 @@
   "The episodes and shows of `library` that match the query `q`, best
   first, with the `opts` of search/query.
 
-  The library has an index when its settings have :search?, and
+  The library has an index when its config has :search?, and
   without one, this returns nil."
   ([library q]
    (search library q {}))
@@ -547,7 +547,7 @@
      (require '[dk.simongray.podcast :as podcast])
      (def url "https://feeds.podcastindex.org/pc20.xml")
 
-     (def lib (-> (make "dev-laptop" {:name "Laptop" :settings {:languages ["da" "en"]}})
+     (def lib (-> (make "dev-laptop" {:name "Laptop" :config {:languages ["da" "en"]}})
                   (subscribe url (podcast/fetch! url {:max-pages 2}) {:auto-queue? true})))
 
      (keys (subscriptions lib))

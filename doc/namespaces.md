@@ -76,7 +76,7 @@ follows.
 
 | Namespace | Contents |
 |---|---|
-| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the settings that every call uses. Most apps need only `subscribe`, `refresh!`, `episodes`, `show`, `episode`, `step`, `sync!` and `plan`. |
+| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `subscribe`, `refresh!`, `episodes`, `show`, `episode`, `step`, `sync!` and `plan`. |
 | `app.show` | Everything a show page needs in one map, from `view`, and the shows of the podroll and the publisher from `fetch-linked-shows!`. |
 | `app.episode` | Everything an episode page needs in one map, from `view`, and what the chapters file, transcript and media file say from `read-files!`. |
 | `app.feeds` | The fetched feeds by guid, with their ETag, Last-Modified and next check. Use `due` for the feeds to fetch now, `refresh!` to fetch them, and `affected` for the feeds that a Podping names. |
