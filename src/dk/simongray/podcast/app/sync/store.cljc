@@ -76,13 +76,13 @@
 
 (defn- pull-documents
   "The per-device pull from `store` for `state` at `at`: the documents that
-  changed since the cursor `ctx`, fetched at once and read.
+  changed since `cursor`, fetched at once and read.
 
   The documents are the .edn files of the listing, and one without a
   version there is always fetched. The report notes when this device's own
   document changed under it, and when the document is gone from the store,
   the push writes it again."
-  [{:keys [list fetch] :as store} state {:keys [versions] :as ctx} at]
+  [{:keys [list fetch] :as store} state {:keys [versions] :as cursor} at]
   (async/then (list)
               (fn [listing]
                 (let [own       (document-name (:device state))
@@ -98,8 +98,8 @@
                                 (let [fetched (keep :value results)
                                       {:keys [states report]} (sync/read-documents fetched at)]
                                   {:states states
-                                   :ctx    (cond-> (assoc ctx :versions (-> (into {} (map (juxt :name :version)) documents)
-                                                                            (into (map (juxt :name :version)) fetched)))
+                                   :cursor (cond-> (assoc cursor :versions (-> (into {} (map (juxt :name :version)) documents)
+                                                                               (into (map (juxt :name :version)) fetched)))
                                              gone? (dissoc :hash))
                                    :report (cond-> report
                                              (and (contains? versions own) (some #(and (= own (:name %)) (some? (:version %))) stale))
@@ -107,96 +107,96 @@
 
 (defn- mirror-opml
   "Put the subscription list of `state` beside the documents of `store`,
-  when `opts` ask for it and the list changed since the cursor `ctx`.
+  when `opts` ask for it and the list changed since `cursor`.
 
   The list is what profile/to-opml gives: the shows with their folders and
   tags, and the lists that the listener follows. Returns the cursor, which
   remembers the list last mirrored."
-  [{:keys [put] :as store} {:keys [opml?] :as opts} state ctx]
+  [{:keys [put] :as store} {:keys [opml?] :as opts} state cursor]
   (let [list    (when opml? (profile/to-opml state))
         written (hash list)]
-    (if (and opml? (not= written (:opml ctx)))
+    (if (and opml? (not= written (:opml cursor)))
       (async/then (put opml-name (opml/emit list) {})
-                  (fn [_] (assoc ctx :opml written)))
-      ctx)))
+                  (fn [_] (assoc cursor :opml written)))
+      cursor)))
 
 (defn- push-document
   "The per-device push of `state` to `store` at `at`, with the :app of
-  `opts` and the cursor `ctx`.
+  `opts` and `cursor`.
 
   It writes this device's document when the state changed since the
   cursor, and deletes the documents of retired devices."
-  [{:keys [put delete] :as store} opts state {:keys [versions] :as ctx} at]
+  [{:keys [put delete] :as store} opts state {:keys [versions] :as cursor} at]
   (let [own     (document-name (:device state))
         written (hash state)
         retired (filter #(contains? versions (document-name %)) (keys (:retired state)))]
-    (async/then (when (not= written (:hash ctx))
+    (async/then (when (not= written (:hash cursor))
                   (put own (sync/document state at (select-keys opts [:app])) {}))
                 (fn [result]
                   (async/then (async/all (when delete (map #(delete (document-name %)) retired)))
                               (fn [_]
-                                {:ctx (cond-> (assoc ctx
-                                                     :hash written
-                                                     :versions (reduce dissoc versions (map document-name retired)))
-                                        result (assoc-in [:versions own] (:version result)))}))))))
+                                {:cursor (cond-> (assoc cursor
+                                                        :hash written
+                                                        :versions (reduce dissoc versions (map document-name retired)))
+                                           result (assoc-in [:versions own] (:version result)))}))))))
 
 (defn- pull-shared
   "The shared pull from `store`: the document `name`, read at `at`, when
-  its version isn't the one in the cursor `ctx`.
+  its version isn't the one in `cursor`.
 
   When the document is gone from the store, the push writes it again. A
   document of a newer format is marked in the cursor, so that the push
   leaves it alone."
-  [{:keys [fetch] :as store} name {:keys [version] :as ctx} at]
+  [{:keys [fetch] :as store} name {:keys [version] :as cursor} at]
   (async/then (fetch name)
               (fn [doc]
                 (cond
                   (nil? doc)
-                  {:states [] :ctx (cond-> ctx version (dissoc :version :hash)) :report []}
+                  {:states [] :cursor (cond-> cursor version (dissoc :version :hash)) :report []}
 
                   (= version (:version doc))
-                  {:states [] :ctx ctx :report []}
+                  {:states [] :cursor cursor :report []}
 
                   :else
                   (let [{:keys [states report]} (sync/read-documents [(assoc doc :name name)] at)
                         newer? (some #(= :sync/newer-format (:id %)) report)]
                     {:states states
-                     :ctx    (cond-> (assoc ctx :version (:version doc))
+                     :cursor (cond-> (assoc cursor :version (:version doc))
                                newer?       (assoc :newer? true)
                                (not newer?) (dissoc :newer?))
                      :report report})))))
 
 (defn- push-shared
   "The shared push of `state` to the document `name` in `store` at `at`,
-  with the :app of `opts`, on condition of the version in the cursor `ctx`.
+  with the :app of `opts`, on condition of the version in `cursor`.
 
   On a conflict, the document is fetched, merged and put again, up to
   three more times. The merged state comes back for the caller. A
   document of a newer format is left alone, since writing over it would
   lose what this library can't read."
-  [{:keys [fetch put] :as store} name opts state ctx at]
-  (letfn [(put-conditionally [state {:keys [version] :as ctx} attempts]
+  [{:keys [fetch put] :as store} name opts state cursor at]
+  (letfn [(put-conditionally [state {:keys [version] :as cursor} attempts]
             (async/then (put name (sync/document state at (select-keys opts [:app])) {:if-version version})
                         (fn [{:keys [conflict?] :as result}]
                           (cond
-                            (not conflict?)  {:ctx (assoc ctx :version (:version result) :hash (hash state))}
-                            (zero? attempts) {:ctx ctx :report [(describe {:id :sync/conflict :name name})]}
-                            :else            (merge-and-retry state ctx attempts)))))
-          (merge-and-retry [state ctx attempts]
+                            (not conflict?)  {:cursor (assoc cursor :version (:version result) :hash (hash state))}
+                            (zero? attempts) {:cursor cursor :report [(describe {:id :sync/conflict :name name})]}
+                            :else            (merge-and-retry state cursor attempts)))))
+          (merge-and-retry [state cursor attempts]
             (async/then (fetch name)
                         (fn [doc]
                           (let [{:keys [states report]} (sync/read-documents (when doc [(assoc doc :name name)]) at)
                                 merged (reduce profile/merge state states)]
                             (if (some #(= :sync/newer-format (:id %)) report)
-                              {:ctx (assoc ctx :version (:version doc) :newer? true) :report report}
-                              (async/then (put-conditionally merged (assoc ctx :version (:version doc)) (dec attempts))
+                              {:cursor (assoc cursor :version (:version doc) :newer? true) :report report}
+                              (async/then (put-conditionally merged (assoc cursor :version (:version doc)) (dec attempts))
                                           (fn [next]
                                             (-> next
                                                 (assoc :state merged)
                                                 (update :report #(into (vec report) %))))))))))]
-    (if (or (:newer? ctx) (= (hash state) (:hash ctx)))
-      {:ctx ctx}
-      (put-conditionally state ctx 3))))
+    (if (or (:newer? cursor) (= (hash state) (:hash cursor)))
+      {:cursor cursor}
+      (put-conditionally state cursor 3))))
 
 (def probe-name
   "The document that check! writes and removes, which isn't an .edn file,
@@ -372,26 +372,26 @@
      (when (and (= :per-device strategy) (not (:list store)))
        (throw (ex-info "A store without :list cannot hold a document per device" {:name (:name store)})))
      {:name (or (:name opts) (:name store))
-      :pull (fn [state ctx at]
+      :pull (fn [state cursor at]
               (if pull?
                 (case strategy
-                  :per-device (pull-documents store state ctx at)
-                  :shared     (pull-shared store document ctx at))
-                {:states [] :ctx ctx :report []}))
-      :push (fn [state ctx at]
+                  :per-device (pull-documents store state cursor at)
+                  :shared     (pull-shared store document cursor at))
+                {:states [] :cursor cursor :report []}))
+      :push (fn [state cursor at]
               (cond
                 (not push?)
-                {:ctx ctx}
+                {:cursor cursor}
 
                 (crdt/retired? state (:device state))
-                {:ctx ctx :report [(describe {:id :sync/retired-device :device (:device state)})]}
+                {:cursor cursor :report [(describe {:id :sync/retired-device :device (:device state)})]}
 
                 :else
                 (async/then (case strategy
-                              :per-device (push-document store opts state ctx at)
-                              :shared     (push-shared store document opts state ctx at))
+                              :per-device (push-document store opts state cursor at)
+                              :shared     (push-shared store document opts state cursor at))
                             (fn [{:keys [report] :as pushed}]
                               (if (some #(= :sync/conflict (:id %)) report)
                                 pushed
-                                (async/then (mirror-opml store opts (:state pushed state) (:ctx pushed))
-                                            #(assoc pushed :ctx %)))))))})))
+                                (async/then (mirror-opml store opts (:state pushed state) (:cursor pushed))
+                                            #(assoc pushed :cursor %)))))))})))

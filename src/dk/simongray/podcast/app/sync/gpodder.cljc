@@ -408,8 +408,8 @@
 
 (defn- pulled
   "What a pull for `state` gives at `at`, from the subscription changes
-  `subs` and the `episodes` actions since the cursor `ctx`, with the `opts`
-  of the backend.
+  `subs` and the `episodes` actions since `cursor`, with the `opts` of the
+  backend.
 
   They're applied to `state` as their devices made them, and the result
   is what changed, a partial state. The actions of episodes that the app
@@ -421,19 +421,19 @@
   its device. A change to the subscriptions counts as made at `at` at the
   latest, whatever time the server gives. An action that names no feed,
   media or readable time is left out, and the report counts such actions."
-  [state ctx subs episodes {:keys [name max-pending] :as opts} at]
+  [state cursor subs episodes {:keys [name max-pending] :as opts} at]
   (let [names   (namer opts state)
-        local   #(get (:urls ctx) % %)
+        local   #(get (:urls cursor) % %)
         told    (or (:timestamp subs) (quot (inst-ms at) 1000))
         ;; the API tells no time of a change to the subscriptions: one counts
         ;; as made when the pull before saw none, and at the first pull as
         ;; made then, so that the first sync joins two lists
-        since   (time/->inst (min (inst-ms at) (* 1000 (or (:subscriptions ctx) told))))
+        since   (time/->inst (min (inst-ms at) (* 1000 (or (:subscriptions cursor) told))))
         id-of   (fn [{:keys [podcast episode guid]}] ((:episode-id names) (local podcast) (local episode) guid))
         changed (apply-subscriptions state {:add (map local (:add subs)) :remove (map local (:remove subs))}
                                      names name since)
         ;; a server tells an action again in the day before the cursor
-        told-of (distinct (concat (:pending ctx) (:actions episodes)))
+        told-of (distinct (concat (:pending cursor) (:actions episodes)))
         whole?  (every-pred :podcast :episode :timestamp)
         actions (sort-by (comp inst-ms :timestamp) (filter whole? told-of))
         [s unnamed] (reduce (fn [[s unnamed] a]
@@ -443,14 +443,14 @@
                             [changed []]
                             (remove #(ahead? % at) actions))
         pending (vec (take-last max-pending unnamed))
-        more    (- (count pending) (count (:pending ctx)))
+        more    (- (count pending) (count (:pending cursor)))
         broken  (count (remove whole? told-of))
         counted (fn [d n] (diagnostics/describe (assoc d :count n)))]
     {:states   [(crdt/changes-since s state)]
      :partial? true
-     :ctx      (cond-> (-> ctx
+     :cursor   (cond-> (-> cursor
                            (dissoc :pending)
-                           (assoc :subscriptions told :episodes (or (:timestamp episodes) (:episodes ctx))))
+                           (assoc :subscriptions told :episodes (or (:timestamp episodes) (:episodes cursor))))
                  (seq pending) (assoc :pending pending))
      :report   (cond-> (vec (ahead-report (filter #(ahead? % at) actions) name at))
                  (pos? more)   (conj (counted {:id :sync/unknown-episodes :level :info} more))
@@ -471,34 +471,34 @@
 
 (defn- registered!
   "Register the device of `opts` through `call!` in the `session`, and give
-  the cursor `ctx` with it, in a future or a promise.
+  `cursor` with it, in a future or a promise.
 
-  Nothing is sent when `ctx` says that the device is registered, or when
+  Nothing is sent when `cursor` says that the device is registered, or when
   the API keeps no devices."
-  [call! {:keys [api device] :as opts} session ctx]
-  (if (or (not (:register (paths api))) (= device (:registered ctx)))
-    ctx
+  [call! {:keys [api device] :as opts} session cursor]
+  (if (or (not (:register (paths api))) (= device (:registered cursor)))
+    cursor
     ;; TODO: link the device to the account's others through
     ;; sync-devices, since gpodder.net keeps subscriptions per device
-    (async/then (call! :register {:session session}) (fn [_] (assoc ctx :registered device)))))
+    (async/then (call! :register {:session session}) (fn [_] (assoc cursor :registered device)))))
 
 (defn- start!
   "Start a step with `call!` and `opts`, with the session in the atom
-  `session`, and give the cursor `ctx`, in a future or a promise.
+  `session`, and give `cursor`, in a future or a promise.
 
   On a server whose API has a login, it logs in and puts the new session
   in the atom. The login sends the session of the step before, which the
   server can keep. Then it registers the device as registered! does."
-  [call! {:keys [api] :as opts} session ctx]
+  [call! {:keys [api] :as opts} session cursor]
   (if-not (:login (paths api))
-    (registered! call! opts nil ctx)
+    (registered! call! opts nil cursor)
     (async/then (async/attempt #(call! :login {:session @session}))
                 (fn [{:keys [value error]}]
                   ;; a server without a login answers otherwise, and does without one
                   (when (= 401 (:status (ex-data error)))
                     (throw error))
                   (reset! session value)
-                  (registered! call! opts value ctx)))))
+                  (registered! call! opts value cursor)))))
 
 (defn- subscriptions!
   "Ask with `call!` in the `session` for the changes to the subscriptions
@@ -538,17 +538,17 @@
     (page {:actions []} since 1)))
 
 (defn- pull!
-  "Pull what changed for `state` since the cursors of `ctx` at `at`, with
-  `call!` in the `session` and `opts`. The result is as pulled gives it,
-  in a future or a promise."
-  [call! opts session state ctx at]
-  (async/then (start! call! opts session ctx)
-              (fn [ctx]
-                (async/then (async/all force [(delay (subscriptions! call! opts @session (or (:subscriptions ctx) 0)))
+  "Pull what changed for `state` since `cursor` at `at`, with `call!` in
+  the `session` and `opts`. The result is as pulled gives it, in a future
+  or a promise."
+  [call! opts session state cursor at]
+  (async/then (start! call! opts session cursor)
+              (fn [cursor]
+                (async/then (async/all force [(delay (subscriptions! call! opts @session (or (:subscriptions cursor) 0)))
                                               ;; a day back, since servers select actions by the time they
                                               ;; name, not the time they arrived, and so miss a late one
-                                              (delay (episode-pages call! opts @session (max 0 (- (or (:episodes ctx) 0) 86400))))])
-                            (fn [[subs episodes]] (pulled state ctx subs episodes opts at))))))
+                                              (delay (episode-pages call! opts @session (max 0 (- (or (:episodes cursor) 0) 86400))))])
+                            (fn [[subs episodes]] (pulled state cursor subs episodes opts at))))))
 
 (defn- pushing
   "What a push of `state` sends for `device`, given the stamps `pushed` of
@@ -585,12 +585,12 @@
 
 (defn- push!
   "Push what pushing gives of `state` with `call!` in the `session` and
-  `opts`, and give the cursor `ctx`, in a future or a promise.
+  `opts`, and give `cursor`, in a future or a promise.
 
   The cursor gets the stamps of this push and the URLs that the server
   rewrote. An episode that the push didn't name has no stamp in it, so the
   next push tries it again."
-  [call! {:keys [device batch-size] :as opts} session state {:keys [pushed urls] :as ctx}]
+  [call! {:keys [device batch-size] :as opts} session state {:keys [pushed urls] :as cursor}]
   (let [{:keys [subscriptions actions unnamed]} (pushing state pushed (namer opts state) device)
         stamps (fn [entries] (update-vals entries #(some-> (:updated-at %) inst-ms)))
         sent   (fn [rewrites call body]
@@ -605,10 +605,10 @@
              ;; no error of it
              (partition-all batch-size actions))
      (fn [rewrites]
-       {:ctx    (assoc ctx
-                       :pushed {:subscriptions (stamps (:subscriptions state))
-                                :episodes      (apply dissoc (stamps (profile/episodes state)) unnamed)}
-                       :urls   (into (or urls {}) (for [[sent new] rewrites :when (and new (not= sent new))] [new sent])))
+       {:cursor (assoc cursor
+                          :pushed {:subscriptions (stamps (:subscriptions state))
+                                   :episodes      (apply dissoc (stamps (profile/episodes state)) unnamed)}
+                          :urls   (into (or urls {}) (for [[sent new] rewrites :when (and new (not= sent new))] [new sent])))
         :report (cond-> (vec (for [[sent new] rewrites :when (nil? new)]
                                (diagnostics/describe {:id :sync/rejected-url :level :warning :url sent})))
                   (seq unnamed)
@@ -654,12 +654,12 @@
                             {:name name})
          with-device #(assoc opts :device (or device (:device %)))]
      {:name name
-      :pull (fn [state ctx at]
+      :pull (fn [state cursor at]
               (let [opts (with-device state)]
-                (pull! (caller root opts) opts session state ctx at)))
-      :push (fn [state ctx _]
+                (pull! (caller root opts) opts session state cursor at)))
+      :push (fn [state cursor _]
               (let [opts (with-device state)]
-                (push! (caller root opts) opts session state ctx)))})))
+                (push! (caller root opts) opts session state cursor)))})))
 
 (comment
   (request :subscriptions "https://gpodder.net"

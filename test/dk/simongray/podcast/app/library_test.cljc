@@ -230,7 +230,7 @@
                      (is (nil? failed))
                      (is (= [] report))
                      (is (= 1 (count @documents)) "the phone wrote its document")
-                     (is (map? (get-in lib [:sync :ctx])))
+                     (is (map? (get-in lib [:sync :cursors])))
                      (is (= (at 10) (get-in lib [:sync :at])))
                      (is (= (at (+ 10 900)) (library/next-sync lib {:at (at 10)})) "idle: nothing changed since")
                      (async/then (library/sync! laptop [backend] {:at (at 20)})

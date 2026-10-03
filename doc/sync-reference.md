@@ -47,8 +47,8 @@ options of both.
 A backend is a map of two functions and a name, which `sync!` calls:
 
 ```clojure
-{:pull (fn [state ctx at]) ; {:states […] :ctx ctx' :report […] :partial? false}
- :push (fn [state ctx at]) ; {:ctx ctx' :state state' :report […]}
+{:pull (fn [state cursor at]) ; {:states […] :cursor cursor' :report […] :partial? false}
+ :push (fn [state cursor at]) ; {:cursor cursor' :state state' :report […]}
  :name "gpodder.net"}
 ```
 
@@ -133,10 +133,10 @@ of it and a put would lose data.
 ## The result of `sync!`
 
 ```clojure
-{:state  merged                ; the local state with the pulled states merged
- :ctx    {"Nextcloud" {…} …}   ; the cursors by backend name
- :failed {"Dropbox" "…"}       ; the backends that failed, with the message
- :report [...]}                ; the diagnostics of the step
+{:state   merged                ; the local state with the pulled states merged
+ :cursors {"Nextcloud" {…} …}   ; by backend name
+ :failed  {"Dropbox" "…"}       ; the backends that failed, with the message
+ :report  [...]}                ; the diagnostics of the step
 ```
 
 - There's no `:failed` when no backend failed.
@@ -151,7 +151,7 @@ of it and a put would lose data.
   step removed. The function `library/sync!` does both.
 - On the JVM, `sync!` returns the map, and in ClojureScript a promise of
   it.
-- Its options are `:ctx`, the cursors of the last step, and `:compact`,
+- Its options are `:cursors`, those of the last step, and `:compact`,
   which is `false` to keep every tombstone, or the options of
   `profile/compact`.
 
@@ -289,10 +289,10 @@ sends both.
 On both platforms, `app.sync.gpodder.server/handler` serves the API as a
 Ring handler under `/api/2`: the login, the devices, the subscription
 changes and the episode actions. It takes the atom of the server's state,
-`:authorized?`, a `:step` that syncs the state, and the same lookups as the
-backend. The `:step` returns a state, not a promise, so in ClojureScript,
-where `sync!` returns a promise, sync separately and merge the result into
-the atom.
+`:authorized?`, a `:sync` function that syncs the state, and the same
+lookups as the backend. The `:sync` function returns a state, not a
+promise, so in ClojureScript, where `sync!` returns a promise, sync
+separately and merge the result into the atom.
 
 
 ## Where the stores are, as of September 2026

@@ -9,7 +9,7 @@
        :feeds         {guid {…}}       ; the feeds, as app.feeds keeps them
        :fetched-lists {url {…}}        ; the followed OPML lists, as fetched
        :index         {…}              ; the search index, with :search?
-       :sync          {:ctx {…} …}     ; the last sync's cursors and report
+       :sync          {:cursors {…} …} ; the last sync's cursors and report
        :refresh       {:added […] …}   ; the new episodes, moves and report
        :effects       [[:seek id 784]] ; the effects of the last step, to apply
        :sleep         {:episodes 1}    ; the sleep timer of this device, if set
@@ -492,13 +492,13 @@
 
 (defn sync!
   "Sync `library` with the listener's other devices through `backends`,
-  with the `opts` of sync/sync! except :ctx.
+  with the `opts` of sync/sync! except :cursors.
 
   It syncs as sync/sync! does, keeps the cursors for the next sync, and
   compacts the tombstones. Returns the library with the step under
   :sync, in ClojureScript as a promise.
 
-      {:ctx      {…}         ; the cursors of the stores, for the next step
+      {:cursors  {…}         ; those of the stores, for the next step
        :at       #inst \"…\"
        :clock    #inst \"…\"   ; the clock of the profile after the step
        :failures 0           ; the steps in a row that failed
@@ -510,13 +510,13 @@
    {:pre [(map? opts)]}
    (let [now    (time-of library opts)
          before (:profile library)]
-     (async/then (sync/sync! before backends now (assoc opts :ctx (get-in library [:sync :ctx])))
-                 (fn [{:keys [state ctx failed report]}]
+     (async/then (sync/sync! before backends now (assoc opts :cursors (get-in library [:sync :cursors])))
+                 (fn [{:keys [state cursors failed report]}]
                    (let [profile  (-> before (profile/merge state) (profile/compact now))
                          failures (if (seq failed) (inc (get-in library [:sync :failures] 0)) 0)]
                      (assoc library
                             :profile profile
-                            :sync (cond-> {:ctx ctx :at now :clock (:clock profile) :failures failures :report report}
+                            :sync (cond-> {:cursors cursors :at now :clock (:clock profile) :failures failures :report report}
                                     (seq failed) (assoc :failed failed)))))))))
 
 (defn next-sync

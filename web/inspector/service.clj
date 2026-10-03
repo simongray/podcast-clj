@@ -633,16 +633,16 @@
   fetched. It lets in any user name and password, since the inspector
   listens on localhost alone."
   [sync-store]
-  (let [ctx     (atom nil)
+  (let [cursors (atom nil)
         backend (store/backend sync-store)]
     (gpodder-server/handler
      {:state       (atom (profile/make "inspector-gpodder"))
       :authorized? (constantly true)
       :identities  #(gpodder/identities (cached-feeds))
-      :step        (fn [state]
-                     (let [step (sync/sync! state [backend] (java.util.Date.) {:ctx @ctx})]
-                       (reset! ctx (:ctx step))
-                       (:state step)))})))
+      :sync        (fn [state]
+                     (let [result (sync/sync! state [backend] (java.util.Date.) {:cursors @cursors})]
+                       (reset! cursors (:cursors result))
+                       (:state result)))})))
 
 (defn routes
   "The inspector's routes, in Pedestal's set syntax, the WebDAV ones and the

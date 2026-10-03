@@ -95,7 +95,7 @@
                                   (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1))
                               [backend] t2)
           laptop  (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t2) [backend] t3)
-          phone2  (sync/sync! (:state phone) [backend] t4 {:ctx (:ctx phone)})]
+          phone2  (sync/sync! (:state phone) [backend] t4 {:cursors (:cursors phone)})]
       (is (nil? (:failed phone)))
       (is (nil? (:failed laptop)))
       (is (= [] (:report phone2)))

@@ -190,14 +190,14 @@
            (is (= (:state laptop) (:state (sync/read-document (:body (@documents "laptop.edn"))))))
            (is (str/includes? (:body (@documents "subscriptions.opml")) "https://b/rss")))
          (testing "the first catches up, and writes nothing more while nothing changes"
-           (let [phone2  (sync/sync! (:state phone) [backend] t4 {:ctx (:ctx phone)})
+           (let [phone2  (sync/sync! (:state phone) [backend] t4 {:cursors (:cursors phone)})
                  written (:version (@documents "phone.edn"))
-                 phone3  (sync/sync! (:state phone2) [backend] t4 {:ctx (:ctx phone2)})]
+                 phone3  (sync/sync! (:state phone2) [backend] t4 {:cursors (:cursors phone2)})]
              (is (same? (:state laptop) (:state phone2)))
              (is (= "2" written) "written again with what it learned")
              (is (= written (:version (@documents "phone.edn"))))
-             (is (= (:ctx phone2) (:ctx phone3)))
-             (is (= {"laptop.edn" "1" "phone.edn" "2"} (:versions (get (:ctx phone3) "memory")))
+             (is (= (:cursors phone2) (:cursors phone3)))
+             (is (= {"laptop.edn" "1" "phone.edn" "2"} (:versions (get (:cursors phone3) "memory")))
                  "the cursor follows the documents, not the subscription list")))))))
 
 #?(:clj
@@ -205,8 +205,8 @@
      (let [documents (atom {})
            backend   (store/backend (store/memory documents) {:opml? true})
            mirror    #(get @documents store/opml-name)
-           step      (fn [{:keys [ctx]} state at]
-                       (assoc (sync/sync! state [backend] at {:ctx ctx}) :mirror (:version (mirror))))
+           step      (fn [{:keys [cursors]} state at]
+                       (assoc (sync/sync! state [backend] at {:cursors cursors}) :mirror (:version (mirror))))
            began     (step nil (phone-state) t2)
            heard     (step began (profile/progress (:state began) a 500 3600 t3) t3)
            sorted    (step heard
@@ -229,11 +229,11 @@
            laptop    (sync/sync! (laptop-state) [backend] t3)]
        (testing "a device that finds its own document changed under it"
          ((:put (store/memory documents)) "phone.edn" (sync/document (profile/make "phone") t3) {})
-         (let [{:keys [report]} (sync/sync! (:state phone) [backend] t4 {:ctx (:ctx phone)})]
+         (let [{:keys [report]} (sync/sync! (:state phone) [backend] t4 {:cursors (:cursors phone)})]
            (is (= [:sync/shared-device] (map :id report)))))
        (testing "a retired device's document is deleted, and it writes no more"
-         (let [laptop2 (sync/sync! (crdt/retire (:state laptop) "phone" t4) [backend] t4 {:ctx (:ctx laptop)})
-               phone2  (sync/sync! (:state phone) [backend] t4 {:ctx (:ctx phone)})]
+         (let [laptop2 (sync/sync! (crdt/retire (:state laptop) "phone" t4) [backend] t4 {:cursors (:cursors laptop)})
+               phone2  (sync/sync! (:state phone) [backend] t4 {:cursors (:cursors phone)})]
            (is (= ["laptop.edn"] (keys @documents)))
            (is (nil? (:failed laptop2)))
            (is (crdt/retired? (:state phone2) "phone") "it learns of its retirement")
@@ -248,24 +248,24 @@
            phone     (profile/unsubscribe (phone-state) "feed-a" t2)
            p1        (sync/sync! phone [backend] t3)
            _         (sync/sync! (laptop-state) [backend] t3)
-           p2        (sync/sync! (:state p1) [backend] far {:ctx (:ctx p1)})]
+           p2        (sync/sync! (:state p1) [backend] far {:cursors (:cursors p1)})]
        (is (contains? (:subscriptions (:state p1)) "feed-a") "the tombstone travels")
        (is (= {"phone" t2} (get-in (sync/read-document (:body (@documents "laptop.edn"))) [:state :devices "laptop" :seen]))
            "the laptop acknowledges what it merged from the phone")
        (is (not (contains? (:subscriptions (:state p2)) "feed-a")) "and the tombstone goes once the laptop has seen it")
-       (is (contains? (:subscriptions (:state (sync/sync! (:state p1) [backend] far {:ctx (:ctx p1) :compact false}))) "feed-a")
+       (is (contains? (:subscriptions (:state (sync/sync! (:state p1) [backend] far {:cursors (:cursors p1) :compact false}))) "feed-a")
            "unless compaction is turned off")
-       (is (contains? (:subscriptions (:state (sync/sync! (:state p1) [backend] t4 {:ctx (:ctx p1)}))) "feed-a")
+       (is (contains? (:subscriptions (:state (sync/sync! (:state p1) [backend] t4 {:cursors (:cursors p1)}))) "feed-a")
            "or the tombstone is too fresh")
        (testing "a device alone forgets nothing, however often it syncs"
          (let [alone (store/backend (store/memory))
                s1    (sync/sync! phone [alone] far {:compact {:keep-for 0}})
-               s2    (sync/sync! (:state s1) [alone] far {:ctx (:ctx s1) :compact {:keep-for 0}})]
+               s2    (sync/sync! (:state s1) [alone] far {:cursors (:cursors s1) :compact {:keep-for 0}})]
            (is (contains? (:subscriptions (:state s2)) "feed-a"))))
        (testing "a partial pull is merged but acknowledges nothing"
          (let [service {:name "service"
-                        :pull (fn [_ _ _] {:states [(laptop-state)] :ctx {} :partial? true})
-                        :push (fn [_ _ _] {:ctx {}})}
+                        :pull (fn [_ _ _] {:states [(laptop-state)] :cursor {} :partial? true})
+                        :push (fn [_ _ _] {:cursor {}})}
                r       (sync/sync! (phone-state) [service] t3)]
            (is (= 900 (:position (profile/episode (:state r) a))))
            (is (nil? (get-in (:state r) [:devices "phone" :seen "laptop"]))))))))
@@ -289,10 +289,10 @@
            backend   (store/backend shared {:document "state.edn"})
            phone     (sync/sync! (phone-state) [backend] t2)
            laptop    (sync/sync! (laptop-state) [backend] t3)
-           phone2    (sync/sync! (:state phone) [backend] t4 {:ctx (:ctx phone)})]
+           phone2    (sync/sync! (:state phone) [backend] t4 {:cursors (:cursors phone)})]
        (is (= ["state.edn"] (keys @documents)))
        (is (same? (:state laptop) (:state phone2)))
-       (is (= {:version "2" :hash (hash (:state laptop))} (get (:ctx laptop) "memory")))
+       (is (= {:version "2" :hash (hash (:state laptop))} (get (:cursors laptop) "memory")))
        (is (thrown? Exception (store/backend shared {:strategy :per-device})) "one document per device needs a listing")
        (testing "a document that changes between the fetch and the put is merged and put again"
          (let [car    (profile/progress (profile/make "car") a 1500 3600 t4)
@@ -305,7 +305,7 @@
                {:keys [state report]} (sync/sync! (profile/prefer (:state phone2) {:rate 2.0} t4)
                                                   [(store/backend sneaky {:document "state.edn"})]
                                                   t4
-                                                  {:ctx (:ctx phone2)})]
+                                                  {:cursors (:cursors phone2)})]
            (is (= 2 @puts) "one refused, one after merging")
            (is (= [] report))
            (is (= 1500 (:position (profile/episode state a))) "the car's progress came along")
@@ -313,19 +313,19 @@
            (is (same? state (:state (sync/read-document (:body (@documents "state.edn"))))))))
        (testing "a document that will not stop changing is given up on, and reported"
          (let [busy (assoc shared :put (fn [_ _ _] {:conflict? true}))
-               {:keys [state report ctx]} (sync/sync! (profile/prefer (:state phone2) {:rate 3.0} t4)
-                                                      [(store/backend busy {:document "state.edn"})]
-                                                      t4)]
+               {:keys [state report cursors]} (sync/sync! (profile/prefer (:state phone2) {:rate 3.0} t4)
+                                                          [(store/backend busy {:document "state.edn"})]
+                                                          t4)]
            (is (= [:sync/conflict] (map :id report)))
            (is (= 1500 (:position (profile/episode state a))) "what was fetched along the way is kept")
-           (is (nil? (:hash (get ctx "memory"))) "nothing was written")))
+           (is (nil? (:hash (get cursors "memory"))) "nothing was written")))
        (testing "the subscription list beside the document, when asked"
          (let [documents (atom {})
                backend   (store/backend (dissoc (store/memory documents) :list) {:opml? true})
                phone     (sync/sync! (phone-state) [backend] t2)]
            (is (= #{"podcast.edn" "subscriptions.opml"} (set (keys @documents))))
            (is (str/includes? (:body (@documents "subscriptions.opml")) "https://a/rss"))
-           (sync/sync! (:state phone) [backend] t3 {:ctx (:ctx phone)})
+           (sync/sync! (:state phone) [backend] t3 {:cursors (:cursors phone)})
            (is (= "1" (:version (@documents "subscriptions.opml"))) "and not again while the subscriptions stay")))
        (testing "a retired device writes nothing"
          (let [documents (atom {})
@@ -333,7 +333,7 @@
                phone     (sync/sync! (phone-state) [backend] t2)
                _         (sync/sync! (crdt/retire (laptop-state) "phone" t3) [backend] t3)
                written   (:version (@documents "podcast.edn"))
-               phone2    (sync/sync! (profile/prefer (:state phone) {:rate 2.0} t4) [backend] t4 {:ctx (:ctx phone)})]
+               phone2    (sync/sync! (profile/prefer (:state phone) {:rate 2.0} t4) [backend] t4 {:cursors (:cursors phone)})]
            (is (crdt/retired? (:state phone2) "phone") "it learns of its retirement")
            (is (= [:sync/retired-device] (map :id (:report phone2))))
            (is (= written (:version (@documents "podcast.edn"))) "and the shared document stays as it was"))))))
@@ -343,18 +343,18 @@
      (let [good   (store/backend (store/memory) {:name "good"})
            broken {:name "broken"
                    :pull (fn [_ _ _] (throw (ex-info "connection refused" {})))
-                   :push (fn [_ _ _] {:ctx {}})}
-           result (sync/sync! (phone-state) [good broken] t2 {:ctx {"broken" {:token 1}}})]
+                   :push (fn [_ _ _] {:cursor {}})}
+           result (sync/sync! (phone-state) [good broken] t2 {:cursors {"broken" {:token 1}}})]
        (is (= {"broken" "connection refused"} (:failed result)))
-       (is (= {:token 1} (get (:ctx result) "broken")) "a backend that fails keeps its cursor")
-       (is (contains? (:ctx result) "good"))
+       (is (= {:token 1} (get (:cursors result) "broken")) "a backend that fails keeps its cursor")
+       (is (contains? (:cursors result) "good"))
        (testing "a push that fails keeps the cursor of its pull, and what it pulled"
          (let [half {:name "half"
-                     :pull (fn [_ _ _] {:states [(laptop-state)] :ctx {:pulled true} :report []})
+                     :pull (fn [_ _ _] {:states [(laptop-state)] :cursor {:pulled true} :report []})
                      :push (fn [_ _ _] (throw (ex-info "disk full" {})))}
                r    (sync/sync! (phone-state) [half] t2)]
            (is (= {"half" "disk full"} (:failed r)))
-           (is (= {:pulled true} (get (:ctx r) "half")))
+           (is (= {:pulled true} (get (:cursors r) "half")))
            (is (= 900 (:position (profile/episode (:state r) a)))))))))
 
 #?(:clj
@@ -388,14 +388,14 @@
              b         (store/backend (store/memory documents))
              r         (sync/sync! (phone-state) [b] t2)]
          (reset! documents {})
-         (sync/sync! (:state r) [b] t3 {:ctx (:ctx r)})
+         (sync/sync! (:state r) [b] t3 {:cursors (:cursors r)})
          (is (= ["phone.edn"] (keys @documents)))))
      (testing "and so is the shared document"
        (let [documents (atom {})
              b         (store/backend (dissoc (store/memory documents) :list))
              r         (sync/sync! (phone-state) [b] t2)]
          (reset! documents {})
-         (sync/sync! (:state r) [b] t3 {:ctx (:ctx r)})
+         (sync/sync! (:state r) [b] t3 {:cursors (:cursors r)})
          (is (= ["podcast.edn"] (keys @documents)))))
      (testing "a shared document of a newer format is left as it is"
        (let [documents (atom {})
@@ -405,7 +405,7 @@
              r         (sync/sync! (phone-state) [(store/backend s)] t2)]
          (is (= [:sync/newer-format] (map :id (:report r))))
          (is (= newer (:body (@documents "podcast.edn"))))
-         (sync/sync! (:state r) [(store/backend s)] t3 {:ctx (:ctx r)})
+         (sync/sync! (:state r) [(store/backend s)] t3 {:cursors (:cursors r)})
          (is (= newer (:body (@documents "podcast.edn"))) "the next step too")))))
 
 #?(:clj
@@ -433,7 +433,7 @@
                       (is (= 900 (:position (profile/episode (:state laptop) a))))
                       (is (= #{"laptop.edn" "phone.edn"} (set (keys @documents))))
                       (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions (:state laptop))))))
-                      (sync/sync! (:state laptop) [{:name "broken" :pull (fn [_ _ _] (js/Promise.reject (js/Error. "offline"))) :push (fn [_ _ _] {:ctx {}})}] t4)))
+                      (sync/sync! (:state laptop) [{:name "broken" :pull (fn [_ _ _] (js/Promise.reject (js/Error. "offline"))) :push (fn [_ _ _] {:cursor {}})}] t4)))
              (.then (fn [r] (is (= {"broken" "offline"} (:failed r)))))
              (.catch (fn [e] (is false (str "the promise was rejected: " e))))
              (.finally done))))))

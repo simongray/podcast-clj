@@ -71,7 +71,7 @@
             phone   (sync/sync! (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
                                 [backend] t1)
             laptop  (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [backend] t2)
-            phone2  (sync/sync! (:state phone) [backend] t3 {:ctx (:ctx phone)})]
+            phone2  (sync/sync! (:state phone) [backend] t3 {:cursors (:cursors phone)})]
         (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"}
                (set (map #(.getName ^java.io.File %) (.listFiles (io/file dir))))))
         (is (nil? (:failed phone2)))

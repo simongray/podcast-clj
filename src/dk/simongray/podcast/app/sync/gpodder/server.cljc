@@ -5,8 +5,8 @@
   The function handler is a Ring handler for the paths of gpodder.net
   under /api/2. The server is a device of podcast-clj, whose state holds
   what the apps send, with each entry written by the device of the app. A
-  :step that you give keeps that state in step with the other devices of
-  the listener.
+  :sync function that you give keeps that state in step with the other
+  devices of the listener.
 
   The listener has one list of subscriptions, as in the GPodder Sync app
   for Nextcloud. A change counts from the time that it arrived here, so
@@ -322,7 +322,7 @@
   - :state, the atom, e.g. (atom (profile/make \"gpodder-server\"))
   - :authorized?, a function of a user and a password that says whether
     to let them in
-  - :step, a function of the state that brings it in step with the
+  - :sync, a function of the state that brings it in step with the
     listener's devices, before and after each call
   - :identities, as for gpodder/backend
   - :feed-guid, :feed-url, :episode-id and :episode-url, each way on its
@@ -333,19 +333,20 @@
 
   A request has Basic credentials or the session of a login, and the user
   in the path must be the one who logged in. A session lasts a day. The
-  calls run one at a time, as sync steps must, so :step can be:
+  calls run one at a time, as sync steps must, so :sync can be:
 
-      (let [ctx (atom nil)]
+      (let [cursors (atom nil)]
         (fn [state]
-          (let [step (sync/sync! state [backend] (time/now) {:ctx @ctx})]
-            (reset! ctx (:ctx step))
-            (:state step))))
+          (let [result (sync/sync! state [backend] (time/now)
+                                   {:cursors @cursors})]
+            (reset! cursors (:cursors result))
+            (:state result))))
 
-  A :step gives a state, not a promise of one. In ClojureScript, where
+  A :sync gives a state, not a promise of one. In ClojureScript, where
   sync! gives a promise, sync in the app and merge the result into the
   atom. The server merges what it writes with what the app put in the atom
   in between."
-  [{:keys [state authorized? step] :as opts}]
+  [{:keys [state authorized?] sync! :sync :as opts}]
   {:pre [(some? state) (fn? authorized?)]}
   ;; TODO: keep the arrival times, the sessions and the devices in the store,
   ;; so that they outlive a restart
@@ -355,9 +356,9 @@
                     opts
                     {:book    book
                      :settle! (fn [at]
-                                (when step
+                                (when sync!
                                   (let [from @state]
-                                    (put! state from (step from))))
+                                    (put! state from (sync! from))))
                                 (let [settled @state]
                                   (swap! book update :index arrived settled (inst-ms at))
                                   settled))})

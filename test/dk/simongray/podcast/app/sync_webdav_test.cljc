@@ -282,13 +282,13 @@
          (let [backend (store/backend (webdav/store "https://dav.example.org/dav") {:opml? true})
                phone   (sync/sync! (phone-state) [backend] t2)
                laptop  (sync/sync! (laptop-state) [backend] t3)
-               phone2  (sync/sync! (:state phone) [backend] t3 {:ctx (:ctx phone)})]
+               phone2  (sync/sync! (:state phone) [backend] t3 {:cursors (:cursors phone)})]
            (is (nil? (:failed phone)) "the collection was made on the first put")
            (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"} (set (keys (dissoc @documents ::created)))))
            (is (= 900 (:position (profile/episode (:state phone2) a))))
            (is (same? (:state laptop) (:state phone2)))
            (is (= "dav.example.org" (:name backend)) "named after the host")
-           (is (= {"laptop.edn" "\"1\"" "phone.edn" "\"2\""} (:versions (get (:ctx phone2) "dav.example.org")))
+           (is (= {"laptop.edn" "\"1\"" "phone.edn" "\"2\""} (:versions (get (:cursors phone2) "dav.example.org")))
                "the ETags are the versions"))))))
 
 #?(:cljs

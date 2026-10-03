@@ -282,10 +282,10 @@
   (let [state (atom (profile/make "server"))
         ;; the app subscribes to B while a step runs, and the step gives the
         ;; state as it took it
-        step  (fn [s]
+        sync! (fn [s]
                 (swap! state profile/subscribe "b" {:url "https://b.example/rss" :title "B"} t1)
                 s)
-        send  (ring-send (server/handler {:state state :authorized? (constantly true) :step step :now (constantly t2)}))]
+        send  (ring-send (server/handler {:state state :authorized? (constantly true) :sync sync! :now (constantly t2)}))]
     (ask send :post "/api/2/subscriptions/simon/phone.json" {"add" [feed-a]})
     (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (profile/subscriptions @state)))))
         "stays, with what the call wrote")))
@@ -356,7 +356,7 @@
               [{"podcast" feed-a "episode" "https://a.example/1.mp3" "guid" "a1" "action" "play"
                 "timestamp" "2026-01-01T02:30:00" "started" 3500 "position" 3600 "total" 3600 "device" "antennapod"}])
          (async/then
-          (sync/sync! (:state first-step) [(backend send)] t3 {:ctx (:ctx first-step)})
+          (sync/sync! (:state first-step) [(backend send)] t3 {:cursors (:cursors first-step)})
           (fn [{s :state :as second-step}]
             (is (nil? (:failed second-step)))
             (is (profile/played? s [g-a "a1"]) "played to its end on the other app")
@@ -364,7 +364,7 @@
             (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (profile/subscriptions s))))))
             (is (= 2 (count (profile/subscriptions @state))) "and nothing sent back twice")
             (async/then
-             (sync/sync! s [(backend send)] t4 {:ctx (:ctx second-step)})
+             (sync/sync! s [(backend send)] t4 {:cursors (:cursors second-step)})
              (fn [third-step]
                (is (= s (:state third-step)) "a step with nothing new changes nothing"))))))))))
 
@@ -386,7 +386,7 @@
     (run
      #(async/then
        (sync/sync! s [b] t2)
-       (fn [{:keys [report failed ctx]}]
+       (fn [{:keys [report failed cursors]}]
          (is (nil? failed))
          (is (contains? (set (map :url (vals (profile/subscriptions @state)))) "https://private.example/rss")
              "a URL without the credentials it held")
@@ -396,7 +396,7 @@
          (is (= #{["https://a.example/1.mp3" 100 3600] ["https://a.example/2.mp3" 1800 1800]} (told)))
          (swap! known assoc "a3" "https://a.example/3.mp3")
          (async/then
-          (sync/sync! s [b] t3 {:ctx ctx})
+          (sync/sync! s [b] t3 {:cursors cursors})
           (fn [{:keys [report]}]
             (is (= [[:sync/unnamed-episodes 1]] (map (juxt :id :count) report)))
             (is (contains? (told) ["https://a.example/3.mp3" 50 3600])
@@ -433,11 +433,11 @@
     (run
      #(async/then
        (sync/sync! s [(backend send')] t2)
-       (fn [{s :state :keys [ctx]}]
+       (fn [{s :state :keys [cursors]}]
          (is (= [300 "gpodder:laptop"] ((juxt :position :device) (profile/episode s [g-a "a2"]))))
          (reset! posts [])
          (async/then
-          (sync/sync! s [(backend send')] t3 {:ctx ctx})
+          (sync/sync! s [(backend send')] t3 {:cursors cursors})
           (fn [{s :state}]
             (is (= [] @posts) "no push sends it back")
             (is (nil? (get-in (crdt/acknowledge (profile/make "tablet") [s] t3) [:devices "tablet" :seen "laptop"]))
@@ -460,19 +460,19 @@
          (is (= [[:sync/unknown-episodes 1]] (map (juxt :id :count) (:report first-step))))
          (is (nil? (profile/episode (:state first-step) [(guid/from-url "https://b.example/rss") "b1"])))
          (async/then
-          (sync/sync! (:state first-step) [(backend)] t3 {:ctx (:ctx first-step)})
+          (sync/sync! (:state first-step) [(backend)] t3 {:cursors (:cursors first-step)})
           (fn [second-step]
-            (is (= 1 (count (:pending (get (:ctx second-step) "gpodder.example.org"))))
+            (is (= 1 (count (:pending (get (:cursors second-step) "gpodder.example.org"))))
                 "the server tells the action again, and it waits once")
             (is (empty? (:report second-step)) "and the report told of it before")
             (swap! knows conj (guid/from-url "https://b.example/rss"))
             (async/then
-             (sync/sync! (:state second-step) [(backend)] t4 {:ctx (:ctx second-step)})
+             (sync/sync! (:state second-step) [(backend)] t4 {:cursors (:cursors second-step)})
              (fn [third-step]
                (is (= 700 (:position (profile/episode (:state third-step) [(guid/from-url "https://b.example/rss") "b1"])))
                    "once the app knows the feed, the action that waited")
                (is (empty? (:report third-step)))
-               (is (nil? (:pending (get (:ctx third-step) "gpodder.example.org")))))))))))))
+               (is (nil? (:pending (get (:cursors third-step) "gpodder.example.org")))))))))))))
 
 (deftest times-after-the-pull
   (let [play    (fn [device time position]
@@ -503,7 +503,7 @@
     (run
      #(async/then
        (sync/sync! (phone) [b] t2)
-       (fn [{s :state :keys [report ctx]}]
+       (fn [{s :state :keys [report cursors]}]
          (is (= [700 #inst "2026-01-01T02:00:30Z" "gpodder:watch"] (heard s))
              "an action within a minute of the pull counts")
          (is (= #{[:sync/future-actions "tablet" 1] [:sync/future-actions "watch" 1] [:sync/malformed-actions nil 2]}
@@ -513,7 +513,7 @@
              "a change to the subscriptions counts as made at the pull")
          (is (soon? s t2) "so the clock of the state stays with the clock of the device")
          (async/then
-          (sync/sync! s [b] t3 {:ctx ctx})
+          (sync/sync! s [b] t3 {:cursors cursors})
           (fn [{s :state :keys [report]}]
             (is (= [600 #inst "2026-01-01T02:10:00Z" "gpodder:watch"] (heard s)) "an action whose time has come")
             (is (= #{[:sync/future-actions "tablet"] [:sync/malformed-actions nil]}
@@ -646,7 +646,7 @@
                      (send request)))]
     (run
      #(async/then
-       (sync/sync! (phone) [(backend send' :name "cloud")] t2 {:ctx {"cloud" {:registered "phone" :subscriptions 5}}})
+       (sync/sync! (phone) [(backend send' :name "cloud")] t2 {:cursors {"cloud" {:registered "phone" :subscriptions 5}}})
        (fn [{:keys [failed]}]
          (is (nil? failed))
          (is (= ["subscriptions" "devices" "subscriptions"] (take 3 (filter #{"subscriptions" "devices"} @calls)))

@@ -5,13 +5,13 @@
   A backend is a map of two functions and a name, and doc/sync.md explains
   the design:
 
-      {:pull (fn [state ctx at])  ; the states of the other devices
-       :push (fn [state ctx at])  ; writes the merged state
+      {:pull (fn [state cursor at])  ; the states of the other devices
+       :push (fn [state cursor at])  ; writes the merged state
        :name \"Nextcloud\"}
 
-  A pull returns a map of the :states to merge, the next :ctx and a
+  A pull returns a map of the :states to merge, the next :cursor and a
   :report. It has :partial? when the states are changes since the cursor
-  rather than whole states. A push returns the next :ctx and a :report, and
+  rather than whole states. A push returns the next :cursor and a :report, and
   a :state when it learned more while writing. Both take the instant of
   the step and never read a clock.
 
@@ -195,24 +195,24 @@
 
 (defn- finished
   "The result of a step from the pulls `so-far`, the push `results` and the
-  last cursors `ctx`, settled at `at` with `compact`.
+  last `cursors`, settled at `at` with `compact`.
 
   There is one push result per backend that didn't fail. The state has
   what a push learned merged in, acknowledged and compacted, and the new
   cursors are by backend name. The failures and the reports are those of
   both the pulls and the pushes."
-  [{:keys [state ok failed report] :as so-far} ctx results at compact]
+  [{:keys [state ok failed report] :as so-far} cursors results at compact]
   (let [pushes  (map (fn [[backend pull] {:keys [value error]}] [backend pull value error]) ok results)
         learned (keep (fn [[_ _ push]] (:state push)) pushes)
         failed  (into failed (for [[backend _ _ error] pushes :when error] [(:name backend) (async/explain error)]))]
-    (cond-> {:state  (if (seq learned)
-                       (settle (reduce profile/merge state learned) learned at compact)
-                       state)
-             :ctx    (reduce (fn [m [backend pull push error]]
-                               (assoc m (:name backend) (if error (:ctx pull) (:ctx push))))
-                             (or ctx {})
-                             pushes)
-             :report (into report (mapcat (fn [[_ _ push]] (:report push))) pushes)}
+    (cond-> {:state   (if (seq learned)
+                        (settle (reduce profile/merge state learned) learned at compact)
+                        state)
+             :cursors (reduce (fn [m [backend pull push error]]
+                                (assoc m (:name backend) (if error (:cursor pull) (:cursor push))))
+                              (or cursors {})
+                              pushes)
+             :report  (into report (mapcat (fn [[_ _ push]] (:report push))) pushes)}
       (seq failed) (assoc :failed failed))))
 
 (defn sync!
@@ -222,15 +222,15 @@
 
   It returns this, in ClojureScript as a promise:
 
-      {:state  merged
-       :ctx    {\"Nextcloud\" {…} …}  ; the cursors by backend name
-       :failed {\"Dropbox\" \"…\"}    ; the backends that failed, if any
-       :report [...]}               ; what reading and writing found
+      {:state   merged
+       :cursors {\"Nextcloud\" {…} …}  ; by backend name
+       :failed  {\"Dropbox\" \"…\"}    ; the backends that failed, if any
+       :report  [...]}               ; what reading and writing found
 
   In ClojureScript, each function of a backend can return a value or a
   promise. The `opts` are:
 
-  - :ctx, the cursors of the last step
+  - :cursors, those of the last step
   - :compact, false to keep the tombstones that every device has seen, or
     else the options of profile/compact
 
@@ -249,15 +249,15 @@
   and the same name twice throws."
   ([state backends at]
    (sync! state backends at {}))
-  ([state backends at {:keys [ctx compact] :as opts}]
+  ([state backends at {:keys [cursors compact] :as opts}]
    {:pre [(map? opts)]}
    (when-let [twice (seq (for [[name n] (frequencies (map :name backends)) :when (< 1 n)] name))]
      (throw (ex-info (str "The backends of one sync need distinct names, and these are not: " (pr-str twice))
                      {:names twice})))
-   (async/then (async/all (map (fn [{:keys [pull name]}] (async/attempt #(pull state (get ctx name) at))) backends))
+   (async/then (async/all (map (fn [{:keys [pull name]}] (async/attempt #(pull state (get cursors name) at))) backends))
                (fn [results]
                  (let [so-far (pulled state backends results at compact)
                        merged (:state so-far)]
-                   (async/then (async/all (map (fn [[{:keys [push]} pull]] (async/attempt #(push merged (:ctx pull) at)))
+                   (async/then (async/all (map (fn [[{:keys [push]} pull]] (async/attempt #(push merged (:cursor pull) at)))
                                                (:ok so-far)))
-                               (fn [pushes] (finished so-far ctx pushes at compact))))))))
+                               (fn [pushes] (finished so-far cursors pushes at compact))))))))
