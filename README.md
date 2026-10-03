@@ -153,6 +153,7 @@ and syncing also record what they did in it:
 **NOTE:** the profile in `:profile` is in fact a CRDT,
 allowing different devices to sync this data without conflict.
 Modify it with the functions of `profile`, not with `assoc`.
+[Syncing](doc/sync.md) explains how the devices merge.
 
 Documentation
 -------------

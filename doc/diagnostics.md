@@ -155,12 +155,12 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:validate/deprecated` | info | The spec of the element has deprecated it. |
 | `:validate/required` | error | A required element of the chosen requirements is missing. |
 | `:validate/recommended` | warning | A recommended element of the chosen requirements is missing. |
-| `:sync/unreadable-document` | warning | A document in the store didn't read as a sync document, and was left out. |
+| `:sync/unreadable-document` | warning | A document in the store didn't read as a sync document, and was left out until its device writes one that reads. |
 | `:sync/newer-format` | warning | A document was written by a newer version of podcast-clj than this one reads, and was left out. |
 | `:sync/malformed-state` | error | The profile of this device holds a value that the other devices can't merge, e.g. from an assoc, so the step wrote nothing. The :error says where. |
-| `:sync/clock-skew` | warning | A device wrote its document more than a minute ahead of the clock of this device. |
+| `:sync/clock-skew` | warning | A device wrote its document more than a minute ahead of the clock of this device. When every other device is named, the clock of this device is probably behind. |
 | `:sync/shared-device` | warning | The document of this device changed without this device writing it, so two installations, or two tabs of one page, use the same device id. |
-| `:sync/retired-device` | warning | This device was retired from another device, so nothing was written for it. |
+| `:sync/retired-device` | warning | This device was retired from another device, so nothing was written for it. Its changes no longer reach the other devices, so make a new library with a new device id to sync again. |
 | `:sync/conflict` | warning | The shared document changed during every attempt to write it, so the step ended without writing. |
 | `:sync/unknown-episodes` | info | Episode actions from a gpodder server name episodes of feeds that aren't fetched yet. They wait in the cursor, and the next pull tries them again. |
 | `:sync/future-actions` | warning | Episode actions from a gpodder server name a time more than a minute after the pull, as a device with a fast clock writes them, so they changed nothing. |

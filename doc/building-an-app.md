@@ -25,7 +25,9 @@ kept in one map, the library, which fits in an atom:
 Change it with `swap!`, and put what `refresh!` and `sync!` return into
 it with `library/merge`, which keeps what the listener did while they
 fetched. In ClojureScript they return a promise:
-`(.then (library/refresh! @lib) #(swap! lib library/merge %))`.
+`(.then (library/refresh! @lib) #(swap! lib library/merge %))`. Make the
+`device-id` once for each installation, e.g. with `(str (random-uuid))`,
+and keep it.
 
 Each function returns the library along with what it did: `:effects`
 after `step`, `:refresh` after `refresh!` and `:sync` after `sync!`. The
@@ -36,8 +38,9 @@ and assoc the config back when you read it.
 
 The parts of the library work with the namespaces they come from, e.g.
 every function of `profile` takes `(:profile @lib)`. The profile is a
-CRDT, so that devices can merge their changes without conflicts. Change it
-only with the functions of `profile`, e.g.
+CRDT, so that devices can merge their changes in any order, and where two
+changed the same thing, the later change wins. Change it only with the
+functions of `profile`, e.g.
 `(swap! lib library/update-profile profile/enqueue id)`, and never with
 `assoc` or `dissoc`.
 
@@ -676,8 +679,11 @@ this is safe.
 A store can be a WebDAV collection or a folder that a sync client such as
 Dropbox mirrors. [Sync reference](sync-reference.md) has the URLs and
 paths of some providers. Sync when the app starts, when it goes to the
-background, and after a series of changes. A button in the settings
-screen can test a store with `store/check!`.
+background, and after a series of changes. After any change, the
+position of a playing episode included, `library/next-sync` asks for a
+sync within seconds, so while an episode plays, sync when it pauses
+instead. A button in the settings screen can test a store with
+`store/check!`.
 
 To keep the documents encrypted on the server, wrap the store with
 `encrypted/backend`, and use `:except` to leave the subscription list

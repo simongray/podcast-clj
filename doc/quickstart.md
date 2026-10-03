@@ -49,9 +49,9 @@ the `:send` of a web page, save the library without its `:config`, and
 assoc the config back when you read it. Change it with `swap!` and the
 functions of `app.library` and `profile`, but never `assoc` into
 `:profile`. The profile is a CRDT, so that the listener's devices can
-merge their changes without conflicts: each write stamps what it changed
-with the time and the device, and a removal is a tombstone.
-[Syncing](sync.md) explains how.
+merge their changes in any order: each write stamps what it changed with
+the time and the device, the later of two changes wins, and a removal is
+a tombstone. [Syncing](sync.md) explains how.
 
 ## The episodes
 

@@ -294,17 +294,17 @@
 
    ;; syncing: what a step of keeping devices in step found
    {:id :sync/unreadable-document :level :warning
-    :doc "A document in the store didn't read as a sync document, and was left out."}
+    :doc "A document in the store didn't read as a sync document, and was left out until its device writes one that reads."}
    {:id :sync/newer-format :level :warning
     :doc "A document was written by a newer version of podcast-clj than this one reads, and was left out."}
    {:id :sync/malformed-state :level :error
     :doc "The profile of this device holds a value that the other devices can't merge, e.g. from an assoc, so the step wrote nothing. The :error says where."}
    {:id :sync/clock-skew :level :warning
-    :doc "A device wrote its document more than a minute ahead of the clock of this device."}
+    :doc "A device wrote its document more than a minute ahead of the clock of this device. When every other device is named, the clock of this device is probably behind."}
    {:id :sync/shared-device :level :warning
     :doc "The document of this device changed without this device writing it, so two installations, or two tabs of one page, use the same device id."}
    {:id :sync/retired-device :level :warning
-    :doc "This device was retired from another device, so nothing was written for it."}
+    :doc "This device was retired from another device, so nothing was written for it. Its changes no longer reach the other devices, so make a new library with a new device id to sync again."}
    {:id :sync/conflict :level :warning
     :doc "The shared document changed during every attempt to write it, so the step ended without writing."}
    {:id :sync/unknown-episodes :level :info

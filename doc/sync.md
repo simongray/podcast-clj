@@ -6,17 +6,27 @@ formats, and [How to build a podcast
 app](building-an-app.md#sync-the-devices-of-a-listener) shows the calls.
 
 
-## Why a backend only stores documents
+## How devices merge
 
-The listener's profile is one map of stamped entries, and
-`profile/merge` combines the states of two devices entry by entry, keeping
-the later entry. The merge is commutative, associative and idempotent,
-which a generative test checks, so it's a join and the profile is a CRDT:
-states merged in any order, any number of times, end up the same. A
-backend never has to resolve a conflict, so it only has to store
-documents.
+Each device keeps the listener's profile: their subscriptions, queue,
+progress, stars and the rest. Each change in it is stamped with its time
+and the device that made it, and a removal stays as a marker, a
+tombstone, so that an older addition from another device can't bring the
+item back. To sync, a device merges the profiles of the others into its
+own, entry by entry, and where two devices changed the same entry, the
+later change wins.
 
-That makes three kinds of backend enough:
+For example, the phone and the laptop are both offline. On the phone, the
+listener stars an episode and listens to it up to 30:00. Later, on the
+laptop, they unsubscribe from another show and rewind the episode to
+2:00. Once both have synced, both have the star, the unsubscription and
+the position 2:00, since the rewind came last.
+
+The merge gives the same result in any order, any number of times, which
+a generative test checks. In CRDT terms, it's commutative, associative and
+idempotent, so it's a join, and the profile is a CRDT. Nobody has to
+resolve a conflict, so the backend, the place that the devices sync
+through, only has to store documents. Three kinds of backend are enough:
 
 - **One document per device.** Each device writes only its own document and
   reads the documents of the others, so no two devices ever write the same
@@ -80,10 +90,11 @@ left out too, because this version can't understand all of it.
 
 The engine schedules nothing. Call `sync!` when the app starts, when it
 goes to the background, after a series of changes, and when a file watcher
-or the service says that something changed, and `next-at` suggests when to
-sync next. Only run one step at a time, since a step that overlaps another
-can write an older state after a newer one. A file watcher also sees the
-writes of the step itself, so let such a call wait until the step ends.
+or the service says that something changed. For when to sync next, ask
+`next-at`, or `library/next-sync` for a library. Only run one step at a
+time, since a step that overlaps another can write an older state after a
+newer one. A file watcher also sees the writes of the step itself, so let
+such a call wait until the step ends.
 
 For control over the I/O, e.g. in an iOS background task with a time
 budget, do the steps yourself: list, fetch, `reconcile` and put.
@@ -251,9 +262,10 @@ every show that the state doesn't know, so a new device needs the tombstone
 to know that the listener left a show.
 
 A device that stops syncing blocks compaction until it's retired, and
-`crdt/lagging` lists such devices. A device restored from a backup can
-still bring back what the others forgot, so retire its old id before the
-restore.
+`crdt/lagging` lists such devices. A profile restored from a backup can
+bring back what the others forgot, so rather than restore one, make a new
+library with a new device id, which gets everything from the other
+devices at its first sync, and retire the old id.
 
 ### What stays out
 

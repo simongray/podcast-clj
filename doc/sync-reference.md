@@ -134,6 +134,11 @@ of it and a put would lose data.
 
 ## The result of `sync!`
 
+This is the result of `sync/sync!`. For a library, `library/sync!` keeps
+the step under `:sync`, without the `:state`, which went into the
+profile, and with the `:at`, `:clock` and `:failures` that
+`library/next-sync` reads.
+
 ```clojure
 {:state   merged                ; the local state with the pulled states merged
  :cursors {"Nextcloud" {…} …}   ; by backend name
