@@ -4,7 +4,6 @@
   Use view for what the feed says about the episode, and merge in
   read-files! for what its chapters file, transcript and media file say."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory.links :as links]
             [dk.simongray.podcast.feed :as feed]
@@ -13,6 +12,7 @@
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
+            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]))
@@ -57,7 +57,7 @@
   in, and these keys:
 
   - :guid, the guid of the item
-  - :id, its id for app.profile, when the feed has a guid or `opts` give
+  - :id, its id for the profile, when the feed has a guid or `opts` give
     the :url of the feed
   - :notes, the show notes as Hiccup, and :text, as plain text
   - :chapters, the :source and :document of the chapters in the feed

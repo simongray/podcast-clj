@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.sync-gpodder-test
+(ns dk.simongray.podcast.sync.gpodder-test
   "The gpodder API: the calls as request maps, the answers read as
   gpodder.net and the GPodder Sync app for Nextcloud write them, the names
   of shows and episodes over parsed feeds, the server's rules, and devices
@@ -8,11 +8,11 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.sync :as sync]
-            [dk.simongray.podcast.app.sync.gpodder :as gpodder]
-            [dk.simongray.podcast.app.sync.gpodder.server :as server]
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync :as sync]
+            [dk.simongray.podcast.sync.gpodder :as gpodder]
+            [dk.simongray.podcast.sync.gpodder.server :as server]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]

@@ -1,12 +1,12 @@
-(ns dk.simongray.podcast.app.sync-file-test
+(ns dk.simongray.podcast.sync.file-test
   "A folder as a document store, on a temporary directory: the store's
   contract, and two devices kept in step through it."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.sync :as sync]
-            [dk.simongray.podcast.app.sync.file :as file]
-            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync :as sync]
+            [dk.simongray.podcast.sync.file :as file]
+            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 a same? with-temp-dir]]))
 
 (deftest a-folder-store

@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.sync.encrypted
+(ns dk.simongray.podcast.sync.encrypted
   "Any document store, with its documents encrypted at rest.
 
   A server or a synced folder then holds only ciphertext, and nothing else
@@ -25,7 +25,7 @@
   envelopes of the other."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
-            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.secret :as secret])
   #?(:clj (:import [java.nio.charset StandardCharsets]
@@ -214,7 +214,7 @@
   - :iterations, the PBKDF2 iterations of the key, default-iterations by
     default
   - :except, the names of documents to leave in the clear, e.g.
-    dk.simongray.podcast.app.sync.store/opml-name for a subscription list
+    dk.simongray.podcast.sync.store/opml-name for a subscription list
     that other apps should read
 
   A key is derived once for each salt and iteration count, and cached.
@@ -261,9 +261,9 @@
       (:delete inner) (assoc :delete (:delete inner)))))
 
 (defn backend
-  "A backend for dk.simongray.podcast.app.sync/sync! over `inner` with its
+  "A backend for dk.simongray.podcast.sync/sync! over `inner` with its
   documents encrypted, with the `opts` of store and of
-  dk.simongray.podcast.app.sync.store/backend."
+  dk.simongray.podcast.sync.store/backend."
   [inner opts]
   {:pre [(map? opts)]}
   (store/backend (store inner (select-keys opts [:passphrase :iterations :except]))

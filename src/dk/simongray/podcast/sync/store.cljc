@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.sync.store
+(ns dk.simongray.podcast.sync.store
   "Document stores, and backends over them.
 
   A store is a map of functions over named documents with versions:
@@ -18,7 +18,7 @@
   tests or for an app that keeps the documents itself.
 
   The function backend turns any store into a backend for
-  dk.simongray.podcast.app.sync/sync!. By default, every device writes its
+  dk.simongray.podcast.sync/sync!. By default, every device writes its
   own document, named after its device id, and reads those of the others.
   So no two devices write the same document, and a folder that any sync
   client mirrors is a complete backend. A store without :list holds one
@@ -29,10 +29,10 @@
   namespace has a store function for the store over a place, and a backend
   function for the backend in one call with the options of both."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.opml :as opml]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]))
 
@@ -346,7 +346,7 @@
                    :checks checks}))))
 
 (defn backend
-  "A backend for dk.simongray.podcast.app.sync/sync! over `store`, with the
+  "A backend for dk.simongray.podcast.sync/sync! over `store`, with the
   `opts` below:
 
   - :strategy, :per-device for a document per device, or :shared for one

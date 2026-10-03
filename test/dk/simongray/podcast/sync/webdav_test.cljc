@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.sync-webdav-test
+(ns dk.simongray.podcast.sync.webdav-test
   "The WebDAV store: the calls as request maps, the answers read, in the
   shape Nextcloud writes them and in another prefix, and two devices kept
   in step through a server standing in for one, on both platforms."
@@ -6,11 +6,11 @@
             #?(:clj [dk.simongray.podcast.util.http :as http])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.sync :as sync]
-            [dk.simongray.podcast.app.sync.store :as store]
-            [dk.simongray.podcast.app.sync.webdav :as webdav]
-            #?(:clj [dk.simongray.podcast.app.sync.webdav.server :as server])
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync :as sync]
+            [dk.simongray.podcast.sync.store :as store]
+            [dk.simongray.podcast.sync.webdav :as webdav]
+            #?(:clj [dk.simongray.podcast.sync.webdav.server :as server])
             #?(:cljs [dk.simongray.podcast.util.http :as http])
             [dk.simongray.podcast.test-support :refer [t2 t3 a phone-state laptop-state fixture #?@(:clj [same?])]]))
 

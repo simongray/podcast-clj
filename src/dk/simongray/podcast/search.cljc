@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.search
+(ns dk.simongray.podcast.search
   "Finding episodes, by filtering and ordering the items of feeds with
   criteria given as data, or by full-text search.
 
@@ -13,11 +13,11 @@
   finds \"Café\", and the results are ranked by BM25 per field."
   (:refer-clojure :exclude [remove])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.format.transcript :as transcript]))
+            [dk.simongray.podcast.format.transcript :as transcript]
+            [dk.simongray.podcast.profile :as profile]))
 
 (def ^:no-doc ligatures
   "The letters that decomposition leaves whole, and how fold spells them

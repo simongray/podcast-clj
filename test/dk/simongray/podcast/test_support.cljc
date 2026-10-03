@@ -9,7 +9,7 @@
             #?(:clj [clojure.string :as str])
             #?(:cljs [clojure.test :refer [is async]])
             #?(:clj [dk.simongray.podcast :as podcast])
-            [dk.simongray.podcast.app.profile :as profile]
+            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.bech32 :as bech32]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.crdt :as crdt]

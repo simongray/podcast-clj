@@ -2,7 +2,7 @@
   "The subscriptions, feeds, queue and play progress of an app, in one map.
 
   Each part is a value of its own namespace, e.g. every function of
-  app.profile takes (:profile library):
+  profile takes (:profile library):
 
       {:device        \"…\"              ; the id of this device
        :profile       {…}              ; the profile, a CRDT that syncs
@@ -19,7 +19,7 @@
   reset! it with refresh! and sync!, which fetch. Each returns the library
   along with what it did, under :effects, :refresh or :sync.
   The profile is a CRDT, so change it only with the functions of
-  app.profile, never with assoc or dissoc.
+  profile, never with assoc or dissoc.
 
   The config holds the options that the functions take, given once:
 
@@ -40,17 +40,17 @@
   Each change is stamped with the time of the clock, or with the :at of
   the options, an instant. Give :at for an event that you handle later,
   e.g. in a background task, since it needs the time it happened."
-  (:require [dk.simongray.podcast.app.downloads :as downloads]
-            [dk.simongray.podcast.app.episode :as episode]
+  (:require [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.feeds :as feeds]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.app.show :as show]
-            [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.downloads :as downloads]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.opml :as opml]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.search :as search]
+            [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
@@ -479,7 +479,7 @@
   "The `library` with its profile replaced by what `f` gives for it, the
   `args` and the time of the clock, in that order.
 
-  It suits most functions of app.profile, e.g. (update-profile library
+  It suits most functions of profile, e.g. (update-profile library
   profile/enqueue id). For a series of changes at one time, give a
   function of the profile and the time:
 

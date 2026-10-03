@@ -97,7 +97,7 @@ A call that changes the library returns a new version along with what it did:
 
 ```clojure
 (require '[dk.simongray.podcast.app.library :as library]
-         '[dk.simongray.podcast.app.sync.file :as file])
+         '[dk.simongray.podcast.sync.file :as file])
 
 (def url "https://feeds.podcastindex.org/pc20.xml")
 (def lib (atom (library/make "laptop" {:name "Laptop"})))
@@ -110,12 +110,12 @@ A call that changes the library returns a new version along with what it did:
 (reset! lib (library/refresh! @lib))                             ; the feeds that are due
 (:added (:refresh @lib))                                         ; => [id …], the new episodes
 (reset! lib (library/sync! @lib [(file/backend "/Users/simon/Dropbox/Podcasts")]))  ; the other devices
-(:profile @lib)                                                  ; the profile, for every function of app.profile
+(:profile @lib)                                                  ; the profile, for every function of profile
 ```
 
 **NOTE:** the profile in `:profile` is in fact a CRDT,
 allowing different devices to sync this data without conflict.
-Modify it with the functions of `app.profile`, not with `assoc`.
+Modify it with the functions of `profile`, not with `assoc`.
 
 Documentation
 -------------

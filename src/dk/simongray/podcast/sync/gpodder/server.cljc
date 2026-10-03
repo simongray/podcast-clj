@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.sync.gpodder.server
+(ns dk.simongray.podcast.sync.gpodder.server
   "The gpodder API served over a profile, so that apps such as
   AntennaPod, Kasts and gPodder sync with a server of the listener.
 
@@ -13,8 +13,8 @@
   that an action that a device sends late still reaches the other
   devices."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.sync.gpodder :as gpodder]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time])

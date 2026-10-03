@@ -14,8 +14,9 @@
 (def layers
   "The layer of each namespace, by its name under `prefix`: the primitives,
   the vocabulary, the feed model with its interpreters, the companions with
-  the formats, the app and the directories, the root namespace, and the
-  views of an app, the only namespaces that require the root namespace."
+  the formats, the profile, sync and the directories, the root namespace,
+  and the high level under app, the only namespaces that require the root
+  namespace."
   {"diagnostics" 0 "feed.guid" 0
    "util.async" 0 "util.bech32" 0 "util.bytes" 0 "util.crdt" 0 "util.http" 0 "util.json" 0 "util.rank" 0
    "util.nostr" 0 "util.secret" 0 "util.time" 0 "util.time.rrule" 0 "util.xml" 0 "util.xml.jsoup" 0
@@ -26,9 +27,9 @@
    "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.html" 3 "format.image" 3
    "format.media" 3 "format.media.id3" 3 "format.media.mp3" 3 "format.media.mp4" 3
    "value" 3 "value.lnaddress" 3 "value.metadata" 3 "value.nwc" 3 "value.webln" 3
-   "app.profile" 3 "app.search" 3 "app.downloads" 3
-   "app.sync" 3 "app.sync.store" 3 "app.sync.file" 3 "app.sync.webdav" 3 "app.sync.webdav.server" 3
-   "app.sync.encrypted" 3 "app.sync.gpodder" 3 "app.sync.gpodder.server" 3
+   "profile" 3 "search" 3 "downloads" 3
+   "sync" 3 "sync.store" 3 "sync.file" 3 "sync.webdav" 3 "sync.webdav.server" 3
+   "sync.encrypted" 3 "sync.gpodder" 3 "sync.gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "directory.links" 3
    "updates.podping" 3 "updates.websub" 3
    "comments" 3 "comments.activitypub" 3 "comments.atproto" 3 "comments.common" 3
@@ -111,3 +112,8 @@
   (doseq [ns    (keys @graph)
           :when (re-find #"^(util|crypto)\." ns)]
     (is (zero? (get layers ns -1)) (str ns " is under util or crypto, so it is a primitive"))))
+
+(deftest a-name-shows-the-high-level
+  (doseq [ns (keys @graph)]
+    (is (= (str/starts-with? ns "app.") (= 5 (get layers ns)))
+        (str ns " is in layer " (get layers ns) ", and app holds layer 5 and nothing else"))))

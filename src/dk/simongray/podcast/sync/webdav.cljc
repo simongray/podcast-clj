@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.sync.webdav
+(ns dk.simongray.podcast.sync.webdav
   "A WebDAV collection (RFC 4918) as a document store, e.g. on Nextcloud,
   ownCloud, Seafile, Synology, Box, Fastmail or a Hetzner storage box.
 
@@ -10,16 +10,16 @@
 
   An app calls backend with the URL of the collection and the
   credentials, and tests the store with
-  dk.simongray.podcast.app.sync.store/check!, e.g. from the settings.
+  dk.simongray.podcast.sync.store/check!, e.g. from the settings.
   Below that, request builds each call as a request map, and response
   reads the answer. That way, a browser can send the requests with fetch
   when the server's origin allows it, and the tests run on recorded
   answers. The function store gives the store over a collection, with the
   credentials closed over. The other side is
-  dk.simongray.podcast.app.sync.webdav.server, which serves any store over
+  dk.simongray.podcast.sync.webdav.server, which serves any store over
   WebDAV."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.xml :as xml]))
@@ -232,9 +232,9 @@
       :delete (fn [name] (call! :delete name {}))})))
 
 (defn backend
-  "A backend for dk.simongray.podcast.app.sync/sync! over the collection at
+  "A backend for dk.simongray.podcast.sync/sync! over the collection at
   `root`, with the `opts` of store and of
-  dk.simongray.podcast.app.sync.store/backend:
+  dk.simongray.podcast.sync.store/backend:
 
       (backend \"https://dav.example.org/podcasts/\"
                {:credentials {:username \"simon\" :password \"app-password\"}

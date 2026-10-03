@@ -15,7 +15,7 @@
                      :status       200}}
 
   The new episodes of a changed feed are found by
-  dk.simongray.podcast.app.profile/refresh."
+  dk.simongray.podcast.profile/refresh."
   (:require #?(:clj [dk.simongray.podcast :as podcast])
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]

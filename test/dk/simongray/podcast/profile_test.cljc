@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.profile-test
+(ns dk.simongray.podcast.profile-test
   "The profile: subscriptions, progress, the queue, the playlists and
   the inbox, stars, bookmarks, folders, tags, followed lists, saved filters
   and the counts of listening, refreshes, OPML and list feeds, merging and
@@ -6,10 +6,10 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.opml :as opml]
+            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 t4 a]]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]))

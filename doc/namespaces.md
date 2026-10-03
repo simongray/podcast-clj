@@ -2,11 +2,12 @@
 
 Every namespace is under the root namespace, `dk.simongray.podcast`, and
 grouped by subject: `feed`, `format`, `directory`, `updates`, `comments`,
-`analytics`, `app` and `value`. The `util` and `crypto` namespaces have
-nothing specific to podcasts. Names in the tables are relative to the root,
-and everything runs on the JVM and in ClojureScript unless the table says
-JVM. [Principles](principles.md) has the rules that every namespace
-follows.
+`analytics`, `profile`, `search`, `downloads`, `sync` and `value`. The
+`app` namespaces are built from all of these, and the `util` and `crypto`
+namespaces have nothing specific to podcasts. Names in the tables are
+relative to the root, and everything runs on the JVM and in ClojureScript
+unless the table says JVM. [Principles](principles.md) has the rules that
+every namespace follows.
 
 
 ## The root namespace
@@ -80,17 +81,27 @@ follows.
 | `app.show` | Everything a show page needs in one map, from `view`, and the shows of the podroll and the publisher from `fetch-linked-shows!`. |
 | `app.episode` | Everything an episode page needs in one map, from `view`, and what the chapters file, transcript and media file say from `read-files!`. |
 | `app.feeds` | The fetched feeds by guid, with their ETag, Last-Modified and next check. Use `due` for the feeds to fetch now, `refresh!` to fetch them, and `affected` for the feeds that a Podping names. |
-| `app.profile` | The listener's profile, a CRDT that syncs between their devices: the queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions and their settings, followed lists, saved filters, listening counts and devices. Use `step` for the events of a player, `merge` to combine two profiles, and `compact` to drop old tombstones. |
-| `app.search` | Filters and orders of episodes as data, and a full-text index ranked by BM25. |
-| `app.downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`. |
-| `app.sync` | Sync between devices: `sync!` over any backends, `reconcile` and `next-at`. |
-| `app.sync.store` | The store contract, `memory`, `backend` for any store, and `check!` to test a store. |
-| `app.sync.file` | JVM. A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. |
-| `app.sync.webdav` | A WebDAV collection as a store. |
-| `app.sync.webdav.server` | JVM. A Ring handler that serves any store over WebDAV. |
-| `app.sync.encrypted` | Any store, with its documents encrypted at rest and readable on both platforms. |
-| `app.sync.gpodder` | The gpodder API as a backend, for gpodder.net, the GPodder Sync app for Nextcloud and other servers, with `identities` to map between URLs and guids. |
-| `app.sync.gpodder.server` | The gpodder API as a Ring handler over a profile, for AntennaPod, Kasts and gPodder. |
+
+## Profile, search and downloads
+
+| Namespace | Contents |
+|---|---|
+| `profile` | The listener's profile, a CRDT that syncs between their devices: the queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions and their settings, followed lists, saved filters, listening counts and devices. Use `step` for the events of a player, `merge` to combine two profiles, and `compact` to drop old tombstones. |
+| `search` | Filters and orders of episodes as data, and a full-text index ranked by BM25. |
+| `downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`. |
+
+## Sync
+
+| Namespace | Contents |
+|---|---|
+| `sync` | Sync between devices: `sync!` over any backends, `reconcile` and `next-at`. |
+| `sync.store` | The store contract, `memory`, `backend` for any store, and `check!` to test a store. |
+| `sync.file` | JVM. A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. |
+| `sync.webdav` | A WebDAV collection as a store. |
+| `sync.webdav.server` | JVM. A Ring handler that serves any store over WebDAV. |
+| `sync.encrypted` | Any store, with its documents encrypted at rest and readable on both platforms. |
+| `sync.gpodder` | The gpodder API as a backend, for gpodder.net, the GPodder Sync app for Nextcloud and other servers, with `identities` to map between URLs and guids. |
+| `sync.gpodder.server` | The gpodder API as a Ring handler over a profile, for AntennaPod, Kasts and gPodder. |
 
 ## Value for value
 

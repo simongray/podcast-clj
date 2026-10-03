@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.profile-merge-test
+(ns dk.simongray.podcast.profile-merge-test
   "The merge of profiles is commutative, associative and idempotent
   for whatever states devices can produce, an app's own stamped entries
   included, which is what lets syncing apply it in any order and any
@@ -6,7 +6,7 @@
   (:require [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [dk.simongray.podcast.app.profile :as profile]
+            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.crdt :as crdt]))
 
 (def instants

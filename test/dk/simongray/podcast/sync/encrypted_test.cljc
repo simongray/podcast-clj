@@ -1,15 +1,15 @@
-(ns dk.simongray.podcast.app.sync-encrypted-test
+(ns dk.simongray.podcast.sync.encrypted-test
   "Documents encrypted at rest: the envelope and its round trip, a wrong
   passphrase, plain documents passing through, an envelope sealed on the
   other platform opening here, and two devices kept in step through an
   encrypting store."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            #?@(:clj [[dk.simongray.podcast.app.profile :as profile]
-                      [dk.simongray.podcast.app.sync :as sync]])
+            #?@(:clj [[dk.simongray.podcast.profile :as profile]
+                      [dk.simongray.podcast.sync :as sync]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
-            [dk.simongray.podcast.app.sync.encrypted :as encrypted]
-            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.sync.encrypted :as encrypted]
+            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.test-support :refer [fixture #?@(:clj [t0 t1 t2 t3 a])]]))
 
 (def passphrase

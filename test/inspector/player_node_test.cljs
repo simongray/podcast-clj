@@ -7,7 +7,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing async]]
             [dk.simongray.podcast.app.library :as library]
-            [dk.simongray.podcast.app.profile :as profile]
+            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.time :as time]
             [inspector.player :as shell]))
 

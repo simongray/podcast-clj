@@ -1,10 +1,10 @@
-(ns dk.simongray.podcast.app.downloads
+(ns dk.simongray.podcast.downloads
   "The episodes to download and the files to delete on a device, by the
   listener's rules.
 
   Since plan is a pure function, downloading, deleting and choosing when
   are up to you. The rules are the kinds that podcast apps have, and a
-  rule selects its episodes with the options of app.search/episodes, as a
+  rule selects its episodes with the options of search/episodes, as a
   saved filter does:
 
       {:download? true
@@ -15,10 +15,10 @@
   The rules sync in the profile, and a device with rules of its own
   gives them to plan as :rules."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.search :as search]
             [dk.simongray.podcast.feed :as feed]
-            [dk.simongray.podcast.feed.resolve :as resolve]))
+            [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.search :as search]))
 
 (def keeps
   "What the :keep of a rule can name, whose files stay on the device:

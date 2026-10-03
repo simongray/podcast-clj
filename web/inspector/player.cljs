@@ -17,9 +17,9 @@
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
             [dk.simongray.podcast.app.library :as library]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.sync.store :as store]
-            [dk.simongray.podcast.app.sync.webdav :as webdav]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync.store :as store]
+            [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]
             [inspector.player.view :as view]
@@ -27,7 +27,7 @@
 
 (def storage-key
   "Where the state lives between visits."
-  "dk.simongray.podcast.app.profile")
+  "dk.simongray.podcast.profile")
 
 (defonce ^{:doc "The whole state of the page: `:library` (the library of the
   listener, with the profile under `:profile` and the sleep timer
@@ -136,7 +136,7 @@
     (dissoc library :sleep)))
 
 (defn operate!
-  "Apply `f`, a function of app.profile, to the profile of the library,
+  "Apply `f`, a function of profile, to the profile of the library,
   with `args` and the time."
   [f & args]
   (swap! app update :library #(apply library/update-profile % f args)))

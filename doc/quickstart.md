@@ -21,8 +21,8 @@ subscribe to a show:
 ```clojure
 (require '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.app.library :as library]
-         '[dk.simongray.podcast.app.profile :as profile]
-         '[dk.simongray.podcast.app.sync.file :as file])
+         '[dk.simongray.podcast.profile :as profile]
+         '[dk.simongray.podcast.sync.file :as file])
 
 (def url "https://feeds.podcastindex.org/pc20.xml")
 
@@ -44,7 +44,7 @@ Each change is stamped with its time, which the functions of
 
 The library is plain EDN, so you can save `@lib` like any other value and
 read it back at the next start. Change it with `swap!` and the functions of
-`app.library` and `app.profile`, but never `assoc` into `:profile`. The
+`app.library` and `profile`, but never `assoc` into `:profile`. The
 profile is a CRDT, so that the listener's devices can merge their changes
 without conflicts: each write stamps what it changed with the time and the
 device, and a removal is a tombstone. [Syncing](sync.md) explains how.
@@ -104,7 +104,7 @@ with the effects to apply under `:effects`:
 ;; => [[:seek ["917393e3-1b1e-5cef-ace4-edaa54e1f810" "PC20-272"] 784]]
 ```
 
-The profile is `(:profile @lib)`, which every function of `app.profile`
+The profile is `(:profile @lib)`, which every function of `profile`
 takes. To change it, `library/update-profile` calls one of them with the
 time, like `enqueue` here.
 

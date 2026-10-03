@@ -8,9 +8,9 @@ This page explains how each part of podcast-clj is built.
 ## Layers
 
 ```
-  5  views        app.show  app.episode  app.feeds  app.library
+  5  high level   app.library  app.show  app.episode  app.feeds
   4  root         dk.simongray.podcast
-  3  companions   feed.resolve  feed.check  feed.discovery  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  app.*
+  3  companions   feed.resolve  feed.check  feed.discovery  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  search  downloads  sync  sync.*
   2  feed model   feed  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.quirks
   0  primitives   util.*  crypto.*  feed.guid  diagnostics
@@ -19,9 +19,12 @@ This page explains how each part of podcast-clj is built.
 A namespace only requires namespaces in its own layer or below. The
 registry `feed.spec` knows nothing about parsing, `feed` knows nothing about
 HTTP, and the companion formats need only the primitives and each other.
-The views are the only namespaces that require the root namespace, because
-they call `parse` and `fetch!`. `architecture_test.clj` reads the `ns` forms
-and fails on a require that points up a layer, or on a cycle.
+The `app` namespaces are the only ones that require the root namespace,
+because they call `parse` and `fetch!`. The names show two of the layers:
+`app` holds the top layer and nothing else, and `util` and `crypto` hold
+the primitives. A test in `architecture_test.clj` reads the `ns` forms, and
+fails on a require that points up a layer, on a cycle, or on a name in the
+wrong layer.
 
 A view is a map of the results of the functions below it, under the same
 keys, e.g. `(:enclosure (episode/view show item))` is what
@@ -418,9 +421,9 @@ too.
 ## The profile
 
 Most of a podcast app's logic is the same in every app: a queue, a position
-in each episode, played marks, and subscriptions with settings.
-`app.profile` keeps all of it in one map, the listener's profile, with pure
-functions over it, so an app only writes its UI.
+in each episode, played marks, and subscriptions with settings. The
+`profile` namespace keeps all of it in one map, the listener's profile,
+with pure functions over it, so an app only writes its UI.
 
 Each function takes the instant of its change, and stamps what it changes
 with that instant and the device id. If the instant isn't later than the
@@ -429,9 +432,10 @@ clock in one rule. A removal is a tombstone. `merge` reconciles two states
 entry by entry, and the later entry wins. The merge is commutative,
 associative and idempotent, which a generative test checks, so any backend
 that can store a document can sync the profile. This is also why the
-profile must only change through `app.profile` and `util.crdt`, never with
-`assoc`. The CRDT itself is in `util.crdt`, which knows nothing of
-podcasts: `app.profile` gives it the schema of its collections.
+profile must only change through the functions of `profile` and
+`util.crdt`, never with `assoc`. The CRDT itself is in `util.crdt`, which
+knows nothing of podcasts: `profile` gives it the schema of its
+collections.
 
 `step` takes the events of a player (`:progress`, `:ended`, `:play`,
 `:skip` and `:chapter`) and returns the new state with effects for the app,
@@ -446,7 +450,7 @@ can still be one the listener likes.
 
 ## Search
 
-`app.search` keeps criteria as data. `where` turns a map like
+The `search` namespace keeps criteria as data. `where` turns a map like
 `{:season 2 :status :unplayed}` into a predicate, and `order` turns a
 keyword like `:newest` into a sort key. Each criterion reads the model
 through `feed.resolve`, so it means what the accessor means. Because the
@@ -464,7 +468,7 @@ prints as EDN.
 
 ## Download rules
 
-No standard defines download rules. The plan in `app.downloads` is a pure
+No standard defines download rules. The plan in `downloads` is a pure
 function: it takes the profile, the feeds, the files on the device and
 the instant, and returns the episodes to download and the files to delete,
 each with a reason. The app downloads and deletes, and decides when, since
@@ -488,7 +492,7 @@ a late download.
 | Instants | `java.util.Date` | `js/Date` |
 | Deferred values (`util.async`) | futures | promises |
 | HTTP | `java.net.http`, in `util.http` | `fetch` |
-| Encryption (`app.sync.encrypted`) | `javax.crypto` | WebCrypto |
+| Encryption (`sync.encrypted`) | `javax.crypto` | WebCrypto |
 
 Dates, durations and UUIDv5 are written once in `.cljc`, without `java.time`
 or js-joda, so they give the same result everywhere. The JavaScript XML

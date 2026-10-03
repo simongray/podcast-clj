@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.sync.file
+(ns dk.simongray.podcast.sync.file
   "A folder as a document store, e.g. one that a sync client mirrors.
 
   The folder can be a Git working tree, or a folder of iCloud Drive,
@@ -12,7 +12,7 @@
   the filesystem keeps time."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [dk.simongray.podcast.app.sync.store :as store])
+            [dk.simongray.podcast.sync.store :as store])
   (:import [java.io File FileNotFoundException]
            [java.nio.file CopyOption Files LinkOption StandardCopyOption]
            [java.util.concurrent ConcurrentHashMap]
@@ -98,8 +98,8 @@
                nil)}))
 
 (defn backend
-  "A backend for dk.simongray.podcast.app.sync/sync! over the folder `dir`,
-  with the `opts` of dk.simongray.podcast.app.sync.store/backend."
+  "A backend for dk.simongray.podcast.sync/sync! over the folder `dir`,
+  with the `opts` of dk.simongray.podcast.sync.store/backend."
   ([dir]
    (backend dir {}))
   ([dir opts]

@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.profile
+(ns dk.simongray.podcast.profile
   "The listener's profile, which syncs between their devices, as plain
   data with pure functions over it.
 
@@ -179,7 +179,7 @@
   The settings are the keys of default-settings, and these:
 
   - :rate, the playback rate of this show
-  - :downloads, its rule for dk.simongray.podcast.app.downloads
+  - :downloads, its rule for dk.simongray.podcast.downloads
 
   Each is an entry of its own, so two devices that change different
   settings both keep their change."
@@ -201,7 +201,7 @@
 (defn prefer
   "Change the listener's `preferences` in `state` at `at`, with the keys of
   default-preferences, and :downloads, the listener's rules for
-  dk.simongray.podcast.app.downloads."
+  dk.simongray.podcast.downloads."
   [state preferences at]
   (crdt/write-each state (for [[k v] preferences] [[:preferences k] (constantly {:value v})]) at))
 
@@ -271,12 +271,12 @@
 
 (defn filters
   "The saved filters of `state` by name, as criteria for
-  dk.simongray.podcast.app.search/episodes."
+  dk.simongray.podcast.search/episodes."
   [state]
   (into {} (keep (fn [[name e]] (when-not (:removed? e) [name (:criteria e)]))) (:filters state)))
 
 (defn save-filter
-  "Save the `criteria` of app.search/episodes in `state` as the filter
+  "Save the `criteria` of search/episodes in `state` as the filter
   `name` at `at`, so that the other devices have it too.
 
   The criteria replace a filter of the same name, without :profile and
@@ -1255,7 +1255,7 @@
   - The criteria of a saved filter are a map.
 
   Saved filters from a later version are fine here, and
-  app.search/problem says whether this version understands them."
+  search/problem says whether this version understands them."
   [state]
   (or (crdt/problem collections state)
       (some #(% state) checks)))

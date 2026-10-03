@@ -8,7 +8,7 @@ app](building-an-app.md#sync-the-devices-of-a-listener) shows the calls.
 
 ## Why a backend only stores documents
 
-The profile of `app.profile` is one map of stamped entries, and
+The listener's profile is one map of stamped entries, and
 `profile/merge` combines the states of two devices entry by entry, keeping
 the later entry. The merge is commutative, associative and idempotent,
 which a generative test checks, so it's a join and the profile is a CRDT:
@@ -69,7 +69,7 @@ four reasons:
 
 ## The engine
 
-The engine in `app.sync` is pure, and all I/O happens in the backends. A
+The engine in `sync` is pure, and all I/O happens in the backends. A
 document that doesn't read is reported and left out. So is a state with a
 value that the merge can't handle, such as a stamp that isn't an instant,
 since the merge would otherwise spread it to every device. A document from
@@ -108,8 +108,8 @@ without a new version.
 
 ## The profile as a CRDT
 
-The CRDT is `util.crdt`, which knows nothing of podcasts. `app.profile`
-gives it a schema: how deep the entries of each collection are, which
+The CRDT is `util.crdt`, which knows nothing of podcasts. The `profile`
+namespace gives it a schema: how deep the entries of each collection are, which
 entries hold counts that only grow, and which tombstones compact drops.
 
 ### Merge by shape
@@ -269,7 +269,7 @@ podcast-clj.
 AntennaPod, Kasts, gPodder and most other open-source podcast apps sync
 through the gpodder API, which gpodder.net and several self-hosted servers
 speak. It's a backend rather than a store, because the server keeps a model
-of its own. The client is `app.sync.gpodder`, and `app.sync.gpodder.server`
+of its own. The client is `sync.gpodder`, and `sync.gpodder.server`
 serves the API over a profile.
 
 Only subscriptions and episode actions cross. A played mark is sent as a
@@ -346,7 +346,7 @@ OAuth flows are up to you. The engine never sees the credentials, and no
 result, report or store name contains them.
 
 A sync document describes the listening habits of a listener, and the
-provider can read what it stores. The encrypting store, `app.sync.encrypted`,
+provider can read what it stores. The encrypting store, `sync.encrypted`,
 wraps any other store, which is what the map-of-functions design was chosen
 for. It uses AES-256-GCM with a key that PBKDF2 derives from a passphrase,
 through `javax.crypto` on the JVM and WebCrypto in a browser. Each

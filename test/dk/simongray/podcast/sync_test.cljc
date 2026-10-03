@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.sync-test
+(ns dk.simongray.podcast.sync-test
   "The sync engine: documents in their envelope and what reading them
   reports, the memory store, two devices through a folder of documents and
   through one shared document, and a step through several backends with
@@ -6,9 +6,9 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.sync :as sync]
-            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync :as sync]
+            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.test-support :refer [t2 t3 t4 a phone-state laptop-state #?@(:clj [same?])]]
             #?(:clj [dk.simongray.podcast.util.crdt :as crdt])
             [dk.simongray.podcast.util.time :as time]))

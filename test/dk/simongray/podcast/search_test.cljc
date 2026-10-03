@@ -1,11 +1,11 @@
-(ns dk.simongray.podcast.app.search-test
+(ns dk.simongray.podcast.search-test
   "Filtering and ordering by criteria as data, and the full-text index."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.search :as search]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.search :as search]
             [dk.simongray.podcast.test-support :refer [fixture]]
             [dk.simongray.podcast.util.crdt :as crdt]))
 

@@ -1,13 +1,13 @@
-(ns dk.simongray.podcast.app.sync-convergence-test
+(ns dk.simongray.podcast.sync.convergence-test
   "Devices that apply random operations and sync in random orders through
   a store end in the same state, one document per device or one shared
   document: the merge's properties carried through the engine."
   (:require [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.sync :as sync]
-            [dk.simongray.podcast.app.sync.store :as store]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync :as sync]
+            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.crdt :as crdt]))
 
 (def devices

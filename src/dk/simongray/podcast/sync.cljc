@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.sync
+(ns dk.simongray.podcast.sync
   "Syncing the profile between a listener's devices, over any number of
   backends.
 
@@ -17,12 +17,12 @@
 
   Each step of sync! pulls from every backend, merges, and pushes the
   result. Build a backend over a document store with
-  dk.simongray.podcast.app.sync.store. For a backend of your own, document
+  dk.simongray.podcast.sync.store. For a backend of your own, document
   writes a device's whole state as a document, read-document reads it
   back, and reconcile merges what the other devices wrote."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
-            [dk.simongray.podcast.app.profile :as profile]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]))

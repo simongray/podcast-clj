@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.sync.webdav.server
+(ns dk.simongray.podcast.sync.webdav.server
   "Any document store served over WebDAV (RFC 4918), for a Clojure backend
   whose browser clients sync through their own origin.
 
@@ -15,7 +15,7 @@
   A client of a store without :list or :delete leaves the same keys out of
   its WebDAV store."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.sync.webdav :as webdav]
+            [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.util.http :as http]))
 
 (defn- quoted

@@ -30,9 +30,9 @@ holds the options that the other library functions use, and the
 docstring of `app.library` lists them.
 
 The parts of the library work with the namespaces they come from, e.g.
-every function of `app.profile` takes `(:profile @lib)`. The profile is a
+every function of `profile` takes `(:profile @lib)`. The profile is a
 CRDT, so that devices can merge their changes without conflicts. Change it
-only with the functions of `app.profile`, e.g.
+only with the functions of `profile`, e.g.
 `(swap! lib library/update-profile profile/enqueue id)`, and never with
 `assoc` or `dissoc`.
 
@@ -641,8 +641,8 @@ give `:api :nextcloud`:
 ```
 
 To serve a store from your own Clojure server, mount the Ring handler of
-`app.sync.webdav.server`, and for the gpodder API that of
-`app.sync.gpodder.server`. To sync through a service that has no store
+`sync.webdav.server`, and for the gpodder API that of
+`sync.gpodder.server`. To sync through a service that has no store
 yet, write one: [Sync reference](sync-reference.md) gives the contract,
 a map of two to four functions.
 

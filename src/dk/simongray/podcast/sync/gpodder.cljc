@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.app.sync.gpodder
+(ns dk.simongray.podcast.sync.gpodder
   "The gpodder API as a sync backend, for the subscriptions and episode
   actions that a gpodder server keeps.
 
@@ -13,12 +13,12 @@
   request map, and response reads the answer, so that the tests run on
   recorded answers."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.app.profile :as profile]
-            [dk.simongray.podcast.app.sync :as sync]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
@@ -265,7 +265,7 @@
   their own keys or by :identities, with defaults for those they lack.
 
   A feed is named by the subscription of `state` with its URL, as
-  dk.simongray.podcast.app.profile/by-url finds it. Without such a
+  dk.simongray.podcast.profile/by-url finds it. Without such a
   subscription, :feed-guid names the feed, or else its URL does.
 
   An episode is named by :episode-id. Without that option, the guid of its
@@ -615,7 +615,7 @@
                   (conj (diagnostics/describe {:id :sync/unnamed-episodes :level :info :count (count unnamed)})))}))))
 
 (defn backend
-  "A backend for dk.simongray.podcast.app.sync/sync! over the gpodder API
+  "A backend for dk.simongray.podcast.sync/sync! over the gpodder API
   of the server at `root`, with the `opts` below:
 
   - :credentials, a :username and a :password, or a function that returns

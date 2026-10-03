@@ -1,11 +1,11 @@
-(ns dk.simongray.podcast.app.downloads-test
+(ns dk.simongray.podcast.downloads-test
   "The plan of the downloads and the deletes of a device, by the rules of
   the listener."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.app.downloads :as downloads]
-            [dk.simongray.podcast.app.profile :as profile]
+            [dk.simongray.podcast.downloads :as downloads]
+            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.crdt :as crdt]))
 
 (def day (* 24 60 60))

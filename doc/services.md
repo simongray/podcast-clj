@@ -34,12 +34,12 @@ are relative to `dk.simongray.podcast`.
 | The relays of Nostr | `comments.nostr/relays` | `:relays` | the [relays below](#the-relays-of-nostr) |
 | The instance of OP3 | `analytics.op3/origin` | `:origin` | `https://op3.dev` |
 | The URLs that OP3 accepts behind its prefix | `analytics.op3/accepts?` | `:accepts?`, a predicate of a URL | the rules of op3.dev |
-| The paths of the gpodder API | `app.sync.gpodder/apis` | `:api`, as a name or a map of paths | `:gpodder` |
-| The limits of a gpodder server | `app.sync.gpodder/default-limits` | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | 1000, 10, 100 and 500 |
+| The paths of the gpodder API | `sync.gpodder/apis` | `:api`, as a name or a map of paths | `:gpodder` |
+| The limits of a gpodder server | `sync.gpodder/default-limits` | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | 1000, 10, 100 and 500 |
 | The paths of statuses, for the Mastodon API | `comments.activitypub/status-paths` | `:status-paths` | the paths of four server programs |
 | The requirements of a directory for a feed | `feed.validate/requirements` | `:requirements`, as a name or a map | none |
 | The requirements of a directory for artwork and media files | `check/requirements` | `:requirements`, as a name or a map | none |
-| The folder that an app writes around a whole OPML list | `app.profile/wrappers` | `:wrappers`, a set of names or a predicate of a name | `feeds` |
+| The folder that an app writes around a whole OPML list | `profile/wrappers` | `:wrappers`, a set of names or a predicate of a name | `feeds` |
 
 There's no default for these, so you give them:
 
@@ -93,7 +93,7 @@ with a category for each source.
 
 ## The gpodder API
 
-The paths of the calls are in `app.sync.gpodder/apis`, where `{user}` is
+The paths of the calls are in `sync.gpodder/apis`, where `{user}` is
 the user name and `{device}` is the id of the device.
 
 | Call | `:gpodder` | `:nextcloud` |
@@ -288,11 +288,11 @@ The options replace these choices:
 ## The rules of the apps for downloads
 
 No standard defines how an app downloads episodes and deletes files. The
-namespace `app.downloads` has the kinds of rule that these apps have, and
+namespace `downloads` has the kinds of rule that these apps have, and
 the table gives the rules of each app as its help pages described them on
-29 September 2026, with the matching rule in `app.downloads`.
+29 September 2026, with the matching rule in `downloads`.
 
-| App | The rule of the app | In `app.downloads` |
+| App | The rule of the app | In `downloads` |
 |---|---|---|
 | [Apple Podcasts](https://support.apple.com/en-us/102243) | Automatic downloads of a number of episodes, or of the episodes of a time | `:limit` and `:age` of `:episodes` |
 | Apple Podcasts | No automatic downloads for one show | `:download?` of the rule of the show |
@@ -307,8 +307,8 @@ the table gives the rules of each app as its help pages described them on
 | [AntennaPod](https://antennapod.org/documentation/automation/deletion) | A file goes when its episode is played | `:played` of 0 |
 | AntennaPod | Old files go when a download needs room, except those in the queue and the favourites | `:make-room?`, and `:keep` |
 
-The defaults are in `app.downloads/default-rule` and
-`app.downloads/default-rules`, and they download and delete nothing until
+The defaults are in `downloads/default-rule` and
+`downloads/default-rules`, and they download and delete nothing until
 the listener sets a rule.
 
 
@@ -317,7 +317,7 @@ the listener sets a rule.
 Some apps write the whole subscription list inside one outline, a wrapper
 rather than a folder of the listener's own. OPML can't tell the two apart,
 so `profile/from-opml` goes by the name: a folder is a wrapper when it holds
-every feed of the list and its name is in `app.profile/wrappers`, whatever
+every feed of the list and its name is in `profile/wrappers`, whatever
 its case.
 
 | Name | App that writes it | Seen in September 2026 |

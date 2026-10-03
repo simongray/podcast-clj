@@ -4,7 +4,7 @@
   under Node and Replicant's dispatch performs the events.
 
   The state is `{:profile … :titles {id episode} :readout \"…\" :error \"…\"}`,
-  the profile being dk.simongray.podcast.app.profile's and an episode what
+  the profile being dk.simongray.podcast.profile's and an episode what
   /episode.edn serves. The profile also holds the episodes that the
   devices of the listener added, under `:inspector/episodes`, so that a
   sync brings their data too. An event is a vector whose first element
@@ -13,7 +13,7 @@
   and from the audio element `[:audio/loaded id position]` and
   `[:audio/time id]`. The shell in inspector.player performs them."
   (:require [cljs.pprint :as pprint]
-            [dk.simongray.podcast.app.profile :as profile]
+            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]))
 
@@ -154,7 +154,7 @@
   "The queue page: the detailed view of the state the bar plays from."
   [{:keys [profile error] :as state}]
   [:div
-   [:p.muted "The listener's profile (dk.simongray.podcast.app.profile), running in this browser and kept in localStorage; Replicant renders it, the audio element in the bar reports to it, and its effects drive the audio."]
+   [:p.muted "The listener's profile (dk.simongray.podcast.profile), running in this browser and kept in localStorage; Replicant renders it, the audio element in the bar reports to it, and its effects drive the audio."]
    (when error [:p.error error])
    (when-let [id (profile/current profile)]
      [:p "Now playing: " (episode-link state id)])
