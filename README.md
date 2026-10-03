@@ -99,18 +99,34 @@ A call that changes the library returns a new version along with what it did:
 (require '[dk.simongray.podcast.app.library :as library]
          '[dk.simongray.podcast.sync.file :as file])
 
+;; make a library for this device, and subscribe to a show whose new
+;; episodes go into the queue
 (def url "https://feeds.podcastindex.org/pc20.xml")
 (def lib (atom (library/make "laptop" {:name "Laptop"})))
 (swap! lib library/subscribe url (podcast/fetch! url) {:auto-queue? true})
+
+;; the id of the newest episode
 (def id (let [[show item] (first (library/episodes @lib {:order :newest}))]
           (library/episode-id @lib show item)))
 
-(merge (library/episode @lib id) (library/read-files! @lib id))  ; a page: the notes, the chapters, the transcript
-(:effects (swap! lib library/step [:progress id 754 3600]))      ; => [], or what the media element must do
-(reset! lib (library/refresh! @lib))                             ; the feeds that are due
-(:added (:refresh @lib))                                         ; => [id …], the new episodes
-(reset! lib (library/sync! @lib [(file/backend "/Users/simon/Dropbox/Podcasts")]))  ; the other devices
-(:profile @lib)                                                  ; the profile, for every function of profile
+;; what an episode page shows, e.g. the show notes, chapters and transcript
+(merge (library/episode @lib id) (library/read-files! @lib id))
+
+;; tell the library that the player is 754 seconds into the 3600-second
+;; episode, and get back what to do with the media element: nothing, here
+(:effects (swap! lib library/step [:progress id 754 3600]))
+;; => []
+
+;; fetch the feeds that are due for a check, and list the new episodes
+(reset! lib (library/refresh! @lib))
+(:added (:refresh @lib))
+;; => [id …]
+
+;; sync the profile with the listener's other devices through a Dropbox folder
+(reset! lib (library/sync! @lib [(file/backend "/Users/simon/Dropbox/Podcasts")]))
+
+;; the listener's profile: the subscriptions, queue, progress, stars and more
+(:profile @lib)
 ```
 
 **NOTE:** the profile in `:profile` is in fact a CRDT,
