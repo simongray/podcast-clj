@@ -89,12 +89,12 @@
     (is (= :mystery (:tag (first (filter (comp #{:validate/unknown-element} :id) v)))))))
 
 (deftest an-extended-registry
-  (let [tags (conj spec/tags {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one
-                              :attrs {:scheme {:required true}} :content :decimal})
-        xml  "<rss version=\"2.0\" xmlns:acme=\"https://acme.example\"><channel><title>T</title><link>https://t</link><description>d</description><acme:rating>4.5</acme:rating></channel></rss>"]
+  (let [elements (conj spec/elements {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one
+                                      :attrs {:scheme {:required true}} :content :decimal})
+        xml      "<rss version=\"2.0\" xmlns:acme=\"https://acme.example\"><channel><title>T</title><link>https://t</link><description>d</description><acme:rating>4.5</acme:rating></channel></rss>"]
     (testing "the validator checks a client's element by the client's registry"
       (is (= {:validate/missing-attribute 1}
-             (ids (validate/validate (podcast/parse xml {:registry tags}) {:registry tags})))))
+             (ids (validate/validate (podcast/parse xml {:registry elements}) {:registry elements})))))
     (testing "and reports it as unknown by the library's"
       (is (= {:validate/unknown-element 1} (ids (validate/validate (podcast/parse xml))))))))
 

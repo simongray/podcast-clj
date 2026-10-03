@@ -129,7 +129,7 @@ Learn more:
 Look up:
 
 - [Namespaces](doc/namespaces.md): a line for each namespace.
-- [The feed model](doc/tags.md): every element with its key and type.
+- [The feed model](doc/feed-model.md): every element with its key and type.
 - [Diagnostics](doc/diagnostics.md): every diagnostic that a report can hold.
 - [Sync reference](doc/sync-reference.md): the store contract, the documents,
   and where the sync clients keep their folders.

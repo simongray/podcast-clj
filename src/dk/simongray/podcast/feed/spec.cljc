@@ -2,7 +2,7 @@
   "The vocabulary of the library as data: every element that it
   understands.
 
-  Each entry of tags describes one XML element: what the model calls it,
+  Each entry of elements describes one XML element: what the model calls it,
   where it can appear, how often, and the types of its attributes and
   text. The parser, the emitter and the validator interpret this data, so
   adding a tag or an attribute is a change to the data here and nowhere
@@ -26,9 +26,9 @@
     when it borrows those of another element, as liveItem does with item
   - :doc, one line from the specification
 
-  The function registry indexes tags, or tags and an app's own entries,
-  into the value that every interpreter takes as the :registry of its
-  options. The registry default is tags indexed.")
+  The function registry indexes elements, or elements and an app's own
+  entries, into the value that every interpreter takes as the :registry
+  of its options. The registry default is elements indexed.")
 
 (def mediums
   "The values of podcast:medium, without the list variants."
@@ -138,7 +138,7 @@
   "Attribute shorthand: true or false."
   {:type :boolean})
 
-(def tags
+(def elements
   "Every element that the library understands, in the order of emit."
   [;; RSS 2.0, channel
    {:tag :title :key :rss/title :parent #{:channel :item} :count :one
@@ -570,11 +570,11 @@
   The index is a map of :entries, :by-tag, :by-parent and :containers, and
   a registry that's already indexed comes back as it is. Every entry needs
   a :tag, a :key, a set of :parent and a :count, or this throws. An app
-  extends the vocabulary of the library by indexing tags with its own
+  extends the vocabulary of the library by indexing elements with its own
   entries:
 
-      (registry (conj tags {:tag :acme/rating :key :acme/rating
-                            :parent #{:channel} :count :one}))"
+      (registry (conj elements {:tag :acme/rating :key :acme/rating
+                                :parent #{:channel} :count :one}))"
   [entries]
   (if (map? entries)
     entries
@@ -596,9 +596,9 @@
        :containers (into #{} (mapcat :parent) entries)})))
 
 (def default
-  "The registry of tags, which every interpreter reads unless its options
-  give another."
-  (registry tags))
+  "The registry of elements, which every interpreter reads unless its
+  options give another."
+  (registry elements))
 
 (defn entry
   "The entry of `registry` for `tag` under `parent`, or nil when none
@@ -658,5 +658,5 @@
   (entry default :podcast/remoteItem :podcast/publisher)
   (key-for (entry default :podcast/remoteItem :podcast/podroll) :podcast/podroll)
   (map :tag (entries-for default :item))
-  (registry (conj tags {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one}))
+  (registry (conj elements {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one}))
   #_.)

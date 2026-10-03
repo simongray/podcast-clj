@@ -1,5 +1,5 @@
 (ns reference
-  "Generate doc/tags.md, the reference of every element the library
+  "Generate doc/feed-model.md, the reference of every element the library
   understands, from the tag registry, and doc/diagnostics.md from the
   diagnostics catalogue. Run `(write!)` after changing either and commit the
   result."
@@ -86,7 +86,7 @@
 
 (defn- vocabulary-section
   [{:keys [title namespaces about]}]
-  (let [entries (filter #(contains? namespaces (namespace (:tag %))) spec/tags)
+  (let [entries (filter #(contains? namespaces (namespace (:tag %))) spec/elements)
         uris    (keep #(when % (str "`" % "`: " (get xml/namespaces (keyword %)))) (sort (remove nil? namespaces)))]
     (when (seq entries)
       (concat
@@ -198,10 +198,10 @@
              [""])))
 
 (defn write!
-  "Write doc/tags.md and doc/diagnostics.md."
+  "Write doc/feed-model.md and doc/diagnostics.md."
   []
-  (spit (io/file "doc/tags.md") (markdown))
-  (println "wrote doc/tags.md," (count spec/tags) "elements")
+  (spit (io/file "doc/feed-model.md") (markdown))
+  (println "wrote doc/feed-model.md," (count spec/elements) "elements")
   (spit (io/file "doc/diagnostics.md") (diagnostics-markdown))
   (println "wrote doc/diagnostics.md," (count diagnostics/catalogue) "diagnostics"))
 

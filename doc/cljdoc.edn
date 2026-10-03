@@ -2,7 +2,7 @@
                    ["Quickstart" {:file "doc/quickstart.md"}]
                    ["How to build a podcast app" {:file "doc/building-an-app.md"}]
                    ["Namespaces" {:file "doc/namespaces.md"}]
-                   ["The feed model" {:file "doc/tags.md"}]
+                   ["The feed model" {:file "doc/feed-model.md"}]
                    ["Diagnostics" {:file "doc/diagnostics.md"}]
                    ["Sync reference" {:file "doc/sync-reference.md"}]
                    ["Services and their defaults" {:file "doc/services.md"}]

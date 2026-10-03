@@ -73,8 +73,8 @@ Three interpreters read it: `feed/parse` turns Hiccup into the model,
 `feed/emit` writes the model back in canonical form, and `validate/validate`
 reports what breaks the specs, with the requirements of PSP-1 and Apple
 Podcasts on top. The Malli schemas in `feed.schema` and the [feed
-model](tags.md) reference are generated from it too, so none of them can
-drift from the code.
+model](feed-model.md) reference are generated from it too, so none of
+them can drift from the code.
 
 The registry is a value, and each interpreter takes it as `:registry`. A
 host's own elements, or a new tag that podcast-clj doesn't know yet, can be

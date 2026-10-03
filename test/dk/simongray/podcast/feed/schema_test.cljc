@@ -13,7 +13,7 @@
   (testing "every element has a schema, under its tag namespaced rss when bare"
     (is (= :rss/title (schema/ref-key :title)))
     (is (= :podcast/transcript (schema/ref-key :podcast/transcript)))
-    (is (every? #(contains? schemas (schema/ref-key (:tag %))) spec/tags))
+    (is (every? #(contains? schemas (schema/ref-key (:tag %))) spec/elements))
     (is (contains? schemas ::schema/feed)))
   (testing "every coerced type has a schema, and only those"
     (is (= coerce/coerced-types (set (keys schema/types)))))
@@ -41,13 +41,13 @@
     (is (= [:schema {:registry schemas} :podcast/value] (schema/tag :podcast/value)))))
 
 (deftest an-extended-registry
-  (let [tags     (conj spec/tags {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one
-                                  :attrs {:scheme {}} :content :decimal})
-        extended (schema/schemas {:registry tags})]
+  (let [elements (conj spec/elements {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one
+                                      :attrs {:scheme {}} :content :decimal})
+        extended (schema/schemas {:registry elements})]
     (is (= [:map [:scheme {:optional true} :string] [:content {:optional true} 'number?]
             [:xml/unknown {:optional true} schema/unknown]]
            (get extended :acme/rating)))
     (is (some #{[:acme/rating {:optional true} [:ref :acme/rating]]} (get extended ::schema/feed)))
-    (is (= [:schema {:registry extended} ::schema/feed] (schema/feed-schema {:registry tags})))
-    (is (= [:schema {:registry extended} :acme/rating] (schema/tag :acme/rating {:registry tags})))
+    (is (= [:schema {:registry extended} ::schema/feed] (schema/feed-schema {:registry elements})))
+    (is (= [:schema {:registry extended} :acme/rating] (schema/tag :acme/rating {:registry elements})))
     (is (not (contains? schemas :acme/rating)))))

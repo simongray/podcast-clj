@@ -6,11 +6,11 @@
   the repairs, and runs only when the strict parse failed. The function
   uri->alias knows the variants of namespace URIs that feeds bind their
   prefixes to. The function normalize rewrites a canonical Hiccup tree
-  into the form that the specifications describe, by the rules and the
-  rules that a registry implies.
+  into the form that the specifications describe, by the normalizations
+  and those that a registry implies.
 
-  Every rule has an id, each use of a rule goes into a report, and the
-  option :except leaves out the rules that it names."
+  Every repair and normalization has an id, each use of one goes into a
+  report, and the option :except leaves out those that it names."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.spec :as spec]
@@ -252,14 +252,14 @@
            (remove (comp except :id) repairs))))
 
 (defn- rewrite
-  "The rule `id` that replaces every element tagged `tag` by what `f` gives
-  for it."
+  "The normalization `id` that replaces every element tagged `tag` by what
+  `f` gives for it."
   [id tag f]
   {:id id :kind :rewrite :tag tag :f f})
 
 (defn- check
-  "The rule `id` that reports what `f` gives for every element tagged
-  `tag`, when it gives anything."
+  "The normalization `id` that only reports what `f` gives for every
+  element tagged `tag`, when it gives anything."
   [id tag f]
   {:id id :kind :check :tag tag :f f})
 
@@ -391,10 +391,10 @@
     (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
       {:value s})))
 
-(def rules
-  "The tree rules that hold whatever the registry, applied to every element
-  in document order, children before parents. The function registry-rules
-  adds those that a registry implies."
+(def normalizations
+  "The normalizations of the tree that hold whatever the registry, applied
+  to every element in document order, children before parents. The
+  function registry-normalizations adds those that a registry implies."
   [(rewrite :quirk/itunes-image-text :itunes/image
             (fn [[tag attrs :as element]]
               (let [href (or (:href attrs) (:url attrs) (not-empty (xml/trim (xml/text element))))]
@@ -432,17 +432,18 @@
    (check :quirk/date-format :pubDate non-canonical-date)
    (check :quirk/date-format :lastBuildDate non-canonical-date)])
 
-(defn registry-rules
-  "The rules that the tag `registry` implies: true and false rewritten as
-  yes and no in every element that it types as yes-no."
+(defn registry-normalizations
+  "The normalizations that the tag `registry` implies: true and false
+  rewritten as yes and no in every element that it types as yes-no."
   [registry]
   (for [{:keys [tag content]} (:entries registry)
         :when (= :yes-no content)]
     (rewrite :quirk/yes-no-value tag (canonical-text yes-no-values))))
 
-(defn- apply-rules
-  "The `element` with the rules of `by-tag` for its tag applied, and what
-  they did added to the `report`, or nil when a rule removed the element."
+(defn- apply-normalizations
+  "The `element` with the normalizations of `by-tag` for its tag applied,
+  and what they did added to the `report`, or nil when one removed the
+  element."
   [by-tag report element]
   (reduce (fn [element {:keys [id kind f]}]
             (if (nil? element)
@@ -460,8 +461,9 @@
           (by-tag (xml/tag element))))
 
 (defn- walk
-  "The `element` with the rules of `by-tag` applied to it and below it,
-  children before parents, and what they did added to the `report`.
+  "The `element` with the normalizations of `by-tag` applied to it and
+  below it, children before parents, and what they did added to the
+  `report`.
 
   It's the element itself when nothing below it changed, so that no
   untouched subtree is copied."
@@ -480,23 +482,25 @@
                                                                      (subvec element 2 i)))]
                       (recur (inc i) (if (and acc (some? child')) (conj! acc child') acc)))
                     acc))]
-    (apply-rules by-tag report (if rebuilt (persistent! rebuilt) element))))
+    (apply-normalizations by-tag report (if rebuilt (persistent! rebuilt) element))))
 
 (defn normalize
-  "Rewrite the canonical Hiccup `tree` by the rules, and by the
-  registry-rules of the :registry of `opts`, spec/default by default.
+  "Rewrite the canonical Hiccup `tree` by the normalizations, and by the
+  registry-normalizations of the :registry of `opts`, spec/default by
+  default.
 
-  The rules whose ids the :except of `opts` names are left out. The tree
-  keeps its metadata, with the diagnostics added under :quirks/report."
+  The normalizations whose ids the :except of `opts` names are left out.
+  The tree keeps its metadata, with the diagnostics added under
+  :quirks/report."
   ([tree]
    (normalize tree {}))
   ([tree {:keys [registry except] :or {registry spec/default except #{}} :as opts}]
    {:pre [(map? opts)]}
-   (let [by-tag (->> (into rules (registry-rules (spec/registry registry)))
+   (let [by-tag (->> (into normalizations (registry-normalizations (spec/registry registry)))
                      (remove (comp except :id))
                      (group-by :tag))
          report (volatile! [])
-         ;; a rule may remove any element but the root
+         ;; a normalization may remove any element but the root
          tree'  (or (walk by-tag report tree) tree)]
      (with-meta tree' (assoc (meta tree) :quirks/report @report)))))
 
