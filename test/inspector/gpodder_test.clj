@@ -11,6 +11,7 @@
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.test-support :refer [with-temp-dir]]
+            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [inspector.service :as service]
@@ -78,3 +79,22 @@
                  (map (juxt #(get % "guid") #(get % "position"))
                       (get (second (app cookie :get "/api/2/episodes/simon.json?since=1767229200")) "actions")))
               "and the browser's progress, told to the other app"))))))
+
+(deftest an-episode-that-a-player-added
+  (let [feed   "https://b.example/rss"
+        g      (guid/from-url feed)
+        id     [g "b1"]
+        login  (call :post "/api/2/auth/simon/login.json" :headers {"Authorization" "Basic c2ltb246eA=="})
+        cookie (first (str/split (get-in login [:headers "Set-Cookie"]) #";"))]
+    (with-redefs [http/call! through-the-inspector]
+      (let [backend (store/backend (webdav/store "http://inspector/dav/"))
+            added   {:id id :url feed :guid "b1" :enclosure "https://b.example/1.mp3"}
+            state   (-> (profile/make "browser")
+                        (profile/subscribe g {:url feed :title "B"} #inst "2026-01-01T01:00:00Z")
+                        (crdt/write [:inspector/episodes id] (constantly {:value added}) #inst "2026-01-01T01:00:00Z")
+                        (profile/progress id 600 3600 #inst "2026-01-01T01:00:01Z"))]
+        (is (nil? (:failed (sync/sync! state [backend] #inst "2026-01-01T01:00:02Z"))))))
+    (is (= [["https://b.example/1.mp3" 600]]
+           (map (juxt #(get % "episode") #(get % "position"))
+                (get (second (app cookie :get "/api/2/episodes/simon.json?since=0")) "actions")))
+        "named by the data that the player wrote, though the inspector never fetched the feed")))

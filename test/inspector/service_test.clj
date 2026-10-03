@@ -8,6 +8,7 @@
             [dk.simongray.podcast.crypto.nip44 :as nip44]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.feed.check :as check]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.test-support :refer [secret-key with-relay]]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
@@ -154,7 +155,8 @@
           (is (str/includes? body "Quantum Panhandler"))
           (is (str/includes? body "over activitypub"))
           (is (re-find #"<div class=\"notes\"><p>" body))
-          (is (str/includes? body "/thread?uri=https%3A%2F%2Fpodcastindex.social%2F%40dave%2F117294750060235480&amp;hidden=1")))
+          (is (str/includes? body "8 posts."))
+          (is (not (str/includes? body "hidden=1")) "no toggle, since no reply is hidden"))
         (let [{:keys [status body]} (get* "/thread")]
           (is (= 200 status))
           (is (str/includes? body "The address of a post"))
@@ -450,3 +452,33 @@
                 (reset! seen [])
                 (post* "/wallet" (into {"uri" uri "sats" ""} (map vec (partition 2 episode))))
                 (is (= ["get_balance"] (map #(get % "method") @seen)))))))))))
+
+(deftest a-corpus-feed-and-odd-requests
+  (let [dir  (doto (io/file (System/getProperty "java.io.tmpdir") (str "corpus-" (random-uuid))) .mkdirs)
+        self "https://example.com/self.xml"]
+    (spit (io/file dir "self.xml")
+          (str "<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\"><channel><title>S</title>"
+               "<atom:link rel=\"self\" href=\"" self "\"/>"
+               "<item><title>E</title><guid>g</guid></item><item><title>No identity</title></item>"
+               "</channel></rss>"))
+    (with-redefs [service/corpus-dir dir]
+      (testing "a corpus feed is named by its self link, not by its route"
+        (let [named (guid/from-url self)
+              body  (:body (get* "/corpus/self"))]
+          (is (str/includes? body named))
+          (is (str/includes? body (str "<a href=\"" self "\">")))
+          (is (= named (first (:id (read-string (:body (get* "/episode.edn" "url" "corpus/self" "guid" "g"))))))))
+        (is (= 404 (:status (get* "/corpus/nope")))))
+      (testing "an item is named by a guid, and no guid names none"
+        (is (= 404 (:status (get* "/item" "url" "corpus/self"))))
+        (is (= 404 (:status (get* "/episode.edn" "url" "corpus/self")))))
+      (testing "the filter keeps the requirements, and the requirements keep the filter"
+        (let [body (:body (get* "/feed" "url" "corpus/self" "requirements" "psp-1" "q" "E"))]
+          (is (str/includes? body "<input type=\"hidden\" name=\"requirements\" value=\"psp-1\">"))
+          (is (str/includes? body "requirements=apple&amp;q=E")))))
+    (testing "a field given twice, and a page that another name points at the inspector"
+      (is (= 200 (:status (response-for @connector :post "/wallet"
+                                        :headers {"content-type" "application/x-www-form-urlencoded"}
+                                        :body "uri=x&sats=1&sats=2"))))
+      (is (= 403 (:status (response-for @connector :get "/dav/" :headers {"host" "attacker.example:8300"}))))
+      (is (= 200 (:status (response-for @connector :get "/" :headers {"host" "localhost:8300"})))))))

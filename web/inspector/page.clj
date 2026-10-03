@@ -178,6 +178,14 @@
        (when (or episode episode-display) (str "E" (or episode-display episode)))
        (when-not (= "full" type) (str " " type))))
 
+(defn- size-str
+  "The size `n` in bytes, in the unit that suits it."
+  [n]
+  (cond
+    (>= n 1000000) (str (quot n 1000000) " MB")
+    (>= n 1000)    (str (quot n 1000) " KB")
+    :else          (str n " B")))
+
 (defn- item-row
   "One row of the items table, showing what an app would show: everything
   here comes through dk.simongray.podcast.feed.resolve."
@@ -201,7 +209,7 @@
         [:span.muted " · explicit"])]
      [:td (when url
             [:span [:a {:href (link url)} (or type "media")]
-             (when (number? length) [:span.muted (str " · " (quot length 1000000) " MB")])
+             (when (number? length) [:span.muted (str " · " (size-str length))])
              (when (> alternatives 1) [:span.muted (str " · " alternatives " sources")])])]
      [:td (concat
            (when-let [t (resolve/transcript item)] [[:span.badge (str "transcript " (:type t))]])
@@ -224,11 +232,14 @@
 
 (defn- selection-form
   "The form that filters and orders the items of the feed at `url`, showing
-  the current `selection`; its choices are the library's own criteria and
-  orders, so a client's UI has the same to offer."
-  [url {:keys [where order]}]
+  the current `selection` and keeping the `requirements`; its choices are
+  the library's own criteria and orders, so a client's UI has the same to
+  offer."
+  [url {:keys [where order]} requirements]
   [:form.selection {:method "get" :action "/feed"}
    [:input {:type "hidden" :name "url" :value url}]
+   (when requirements
+     [:input {:type "hidden" :name "requirements" :value (name requirements)}])
    [:input {:type "search" :name "q" :placeholder "words in the title or notes" :value (:text where)}]
    " season "
    [:input {:type "number" :name "season" :min 0 :value (:season where) :style {:width "4em"}}]
@@ -250,42 +261,51 @@
   "The inspector page for `feed`, fetched from `url`, with its parse
   `report`, validated against `requirements`, its items filtered and
   ordered by `selection`, the options of `search/episodes`."
-  [{:keys [url feed report requirements status selection]}]
+  [{:keys [url feed-url feed report requirements status selection]}]
   (let [items      (search/episodes feed (or selection {}))
         total      (count (:rss/items feed))
-        validation (validate/validate feed {:requirements requirements})]
+        validation (validate/validate feed {:requirements requirements})
+        feed-url   (or feed-url url)]
     (layout (or (resolve/title feed) url)
             [:header
-             (when-let [img (resolve/artwork feed)]
+             (when-let [img (link (resolve/artwork feed))]
                [:img {:src img :alt ""}])
              [:div
               [:h1 (or (resolve/title feed) "(untitled)")]
-              [:div.muted (resolve/author feed) " · " (:rss/language feed)
-               " · medium " (resolve/medium feed)
-               " · " total " items"
-               (when-let [live (seq (:podcast/live-items feed))] (str " · " (count live) " live"))
-               (when (resolve/explicit? feed) " · explicit")
-               (when (resolve/complete? feed) " · complete")
-               (when (resolve/locked? feed) " · locked")
-               (when (= "serial" (some-> (:itunes/type feed) str/lower-case)) " · serial")
-               (when-let [t (resolve/next-check feed (time/now))]
-                 (str " · next check " (time/format-rfc2822 t)))]
+              [:div.muted (str/join " · " (keep not-empty
+                                                [(resolve/author feed)
+                                                 (:rss/language feed)
+                                                 (str "medium " (resolve/medium feed))
+                                                 (str total " items")
+                                                 (when-let [live (seq (:podcast/live-items feed))] (str (count live) " live"))
+                                                 (when (resolve/explicit? feed) "explicit")
+                                                 (when (resolve/complete? feed) "complete")
+                                                 (when (resolve/locked? feed) "locked")
+                                                 (when (= "serial" (some-> (:itunes/type feed) str/lower-case)) "serial")
+                                                 (when-let [t (resolve/next-check feed (time/now))]
+                                                   (str "next check " (time/format-rfc2822 t)))]))]
               (when-let [paths (seq (resolve/categories feed))]
                 [:div.muted (str/join " · " (map #(str/join " › " %) paths))])
-              [:div.muted "guid " [:code (or (feed/feed-guid feed url) "?")]
+              [:div.muted "guid " [:code (or (feed/feed-guid feed feed-url) "?")]
                (when-not (:podcast/guid feed) [:span.muted " (computed from the URL)"])]
-              [:div.muted [:a {:href url} url] (when status (str " · HTTP " status))]]]
+              [:div.muted (if-let [href (link feed-url)] [:a {:href href} feed-url] feed-url)
+               (when status (str " · HTTP " status))]]]
             [:p
              [:a {:href (feed-href "/feed.edn" url)} "model as EDN"] " · "
              [:a {:href (feed-href "/feed.xml" url)} "round-tripped XML"] " · "
              [:a {:href (feed-href "/check" url {:requirements (some-> requirements name)})} "check the files over the network"] " · "
              (when (some #(op3/prefixed? (get-in % [:rss/enclosure :url])) (:rss/items feed))
-               (list [:a {:href (str op3/origin "/show/" (feed/feed-guid feed url))} "downloads at OP3"] " · "))
+               (list [:a {:href (str op3/origin "/show/" (feed/feed-guid feed feed-url))} "downloads at OP3"] " · "))
              "requirements: "
              (for [p [nil :psp-1 :apple]]
                (list (if (= p requirements)
                        [:strong (if p (name p) "none")]
-                       [:a {:href (feed-href "/feed" url {:requirements (some-> p name)})} (if p (name p) "none")])
+                       [:a {:href (feed-href "/feed" url {:requirements (some-> p name)
+                                                          :q            (get-in selection [:where :text])
+                                                          :season       (some-> (get-in selection [:where :season]) str)
+                                                          :type         (get-in selection [:where :type])
+                                                          :order        (some-> (:order selection) name)})}
+                        (if p (name p) "none")])
                      " "))]
             [:h2 "Parse report"]
             [:p.muted "What the parser had to repair, normalize or give up on. An empty report means the feed is written the way the standards say."]
@@ -303,20 +323,12 @@
             (when-let [live (seq (:podcast/live-items feed))]
               (list [:h2 "Live items"] (kv-table (zipmap (range) live))))
             [:h2 (str "Items (" (count items) (when (not= (count items) total) (str " of " total)) ")")]
-            (selection-form url selection)
+            (selection-form url selection requirements)
             [:table
              [:thead [:tr [:th "#"] [:th "Episode"] [:th "Enclosure"] [:th "Podcasting 2.0 and more"]]]
              [:tbody (map-indexed (partial item-row url feed) (take 200 items))]]
             (when (> (count items) 200)
               [:p.muted (str "Showing the first 200 of " (count items) " items.")]))))
-
-(defn- size-str
-  "The size `n` in bytes, in the unit that suits it."
-  [n]
-  (cond
-    (>= n 1000000) (str (quot n 1000000) " MB")
-    (>= n 1000)    (str (quot n 1000) " KB")
-    :else          (str n " B")))
 
 (defn- told
   "What the diagnostic `d` tells about a failure: its reason, or its
@@ -547,8 +559,8 @@
     (layout (or title "(untitled)")
             [:p [:a {:href (feed-href "/feed" url)} "← " (or (resolve/title feed) url)]]
             [:header
-             (when artwork
-               [:img {:src artwork :alt ""}])
+             (when-let [src (link artwork)]
+               [:img {:src src :alt ""}])
              [:div
               [:h1 (or title "(untitled)")]
               [:div.muted
@@ -573,7 +585,7 @@
              [:thead [:tr [:th "Source"] [:th "Type"] [:th "URL"] [:th "Details"]]]
              [:tbody
               (for [{:keys [source type url length bitrate title default]} enclosures
-                    :let [details [(when (number? length) (str (quot length 1000000) " MB"))
+                    :let [details [(when (number? length) (size-str length))
                                    (when bitrate (str bitrate " b/s"))
                                    title]]]
                 [:tr
@@ -591,6 +603,10 @@
             [:h2 "Item as data"]
             (kv-table (dissoc item :rss/description :content/encoded)))))
 
+(def result-limit
+  "How many results of a full-text query the search page shows."
+  50)
+
 (defn search-page
   "The results of the full-text query `q` over the items of the feed at
   `url`, or over the corpus without one: `results` are those of
@@ -606,6 +622,8 @@
            " "
            [:button {:type "submit"} "Search"]]
           [:p.muted "Every word must occur; the last matches as a prefix unless a space follows it; words in quotes must occur in a row. A word in a title weighs more than one in the notes; the snippet is from the notes."]
+          (when (= result-limit (count results))
+            [:p.muted (str "The " result-limit " best matches.")])
           (if (empty? results)
             [:p.muted (if (str/blank? q) "Type something to search for." "Nothing matched.")]
             [:ol.results
@@ -632,13 +650,14 @@
         chart   (fn [params] (str "/directory?" (http/query-string params)))]
     (layout (if charts? "Charts" (str "Find: " q))
             [:h1 (if charts?
-                   (str "The charts, " country (when category (str ", " category)))
+                   (str "The charts" (when country (str ", " country)) (when category (str ", " category)))
                    "Find a podcast")]
             [:form {:method "get" :action "/directory"}
              [:input {:type "search" :name "q" :value q :placeholder "words in a show's title" :required true}]
              " "
              [:button {:type "submit"} "Find"]]
             [:p.muted "Apple Podcasts, fyyd and gpodder.net, and the Podcast Index when its credentials are set, asked at once and combined into one entry per show. Charts: "
+             [:a {:href "/directory?country="} "all sources"] " · "
              [:a {:href "/directory?country=us"} "US"] " · " [:a {:href "/directory?country=dk"} "Denmark"]
              " · " [:a {:href "/directory?country=de"} "Germany"]]
             (when charts?
@@ -772,11 +791,15 @@
   shows the comments on the episode."
   [thread hidden? toggle]
   (let [about? (str/starts-with? (str (:uri thread)) "podcast:")
-        tree   (comments/tree thread {:hidden? hidden?})]
+        tree   (comments/tree thread {:hidden? hidden?})
+        ;; the root of a thread about an episode is the episode, no post
+        posts  (count (filter #(and (:read-at %) (not (and about? (= (:root thread) (:id %)))))
+                              (vals (:comments thread))))]
     (list [:p.muted "The thread of " [:code (:uri thread)] " over " (:protocol thread)
            (when (:via thread) ", read through the Mastodon API")
-           ", " (count (filter :read-at (vals (:comments thread)))) " posts. "
-           [:a {:href toggle} (if hidden? "Leave out the hidden replies" "Show the hidden replies")]]
+           ", " posts (if (= 1 posts) " post. " " posts. ")
+           (when (or hidden? (some :hidden? (vals (:comments thread))))
+             [:a {:href toggle} (if hidden? "Leave out the hidden replies" "Show the hidden replies")])]
           (cond
             (nil? tree)           [:p.muted "The inspector did not get the root post."]
             (not about?)          [:ol.comments (comment-item thread tree)]
@@ -851,11 +874,17 @@
   [answer told]
   (cond
     (nil? answer)   [:span.muted "Not asked"]
-    (:error answer) (let [{:keys [level message code reason]} (:error answer)]
+    (:error answer) (let [{:keys [level message code reason relays expires-at]} (:error answer)]
                       [:span {:class (name (or level :warning))}
                        (str/join " " (remove nil? [code reason]))
                        (when (or code reason) [:br])
-                       [:span.muted message]])
+                       [:span.muted message]
+                       (when (inst? expires-at)
+                         [:span.muted (str " It expires at " (inst-str expires-at) ".")])
+                       (when (seq relays)
+                         [:ul.compact
+                          (for [{:keys [url reason]} relays]
+                            [:li [:code url] " " reason])])])
     :else           (told answer)))
 
 (defn- wallet-facts

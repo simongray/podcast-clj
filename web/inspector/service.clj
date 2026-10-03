@@ -27,6 +27,7 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.proxy :as proxy]
             [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.nwc :as nwc]
@@ -97,21 +98,26 @@
                   (and old (= 304 status))  (assoc old :at now)
                   (and (= 200 status) body) (-> (select-keys response [:url :status :etag :last-modified])
                                                 (assoc :at now :value (read body)))
+                  (= 200 status)            (throw (ex-info (str url " answered with an empty body") {:status status}))
                   :else                     (throw (ex-info (str "HTTP " status " for " url) {:status status}))))))))
 
 (defn- load-feed
   "The parsed feed at `url`, or the corpus file when `url` names one, as
-  `{:url :feed :report :status}`, parsed again only when it changed."
+  `{:url :feed-url :feed :report :status}`, parsed again only when it
+  changed. The :feed-url is where the feed lives, which names it: `url`,
+  or the self link of a corpus file, whose `url` is only its route here."
   [url]
   (if-let [[_ name] (re-matches #"corpus/([\w.-]+)" url)]
     (let [file     (corpus-file name)
+          _        (when-not (.exists file)
+                     (throw (ex-info (str "No feed " name " in the corpus") {::status 404})))
           modified (.lastModified file)
           feed     (:value (cached [:corpus name]
                                    #(= modified (:modified %))
                                    (fn [_] {:modified modified :value (podcast/parse (slurp file))})))]
-      {:url url :feed feed :report (podcast/report feed)})
+      {:url url :feed-url (or (resolve/self-url feed) url) :feed feed :report (podcast/report feed)})
     (let [{:keys [value status]} (fetch :feed url podcast/parse)]
-      {:url url :feed value :report (podcast/report value) :status status})))
+      {:url url :feed-url url :feed value :report (podcast/report value) :status status})))
 
 (defn- html
   [hiccup]
@@ -131,7 +137,14 @@
   `heading` names, about `subject` when anything."
   [heading subject e]
   (-> (html (page/error-page heading subject (or (ex-message e) (str e))))
-      (assoc :status 502)))
+      (assoc :status (::status (ex-data e) 502))))
+
+(defn- item-in
+  "The item of `feed` whose guid is `guid`, or nil, also for a blank
+  `guid`, which would name an item without a guid or an enclosure."
+  [feed guid]
+  (when-not (str/blank? guid)
+    (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))))
 
 (defn- with-feed
   "Call `f` with the loaded feed for the `url` query parameter of `request`,
@@ -198,22 +211,28 @@
   checking each file that has a podcast:integrity against it."
   [request]
   (with-feed request
-    (fn [{:keys [url feed]}]
+    (fn [{:keys [url feed-url feed]}]
       (let [{:keys [requirements items integrity]} (:query-params request)
             requirements (some-> requirements not-empty keyword)
             requirements (when (contains? check/requirements requirements) requirements)
             items        (or (some-> items parse-long (max 1) (min 50)) 5)
             integrity?   (= "1" integrity)
-            {:keys [files]} (checked url feed items integrity?)]
+            {:keys [files]} (checked feed-url feed items integrity?)]
         (html (page/check-page {:url url :feed feed :requirements requirements :items items :integrity? integrity?
                                 :result {:files files :report (check/report files requirements)}}))))))
 
 (defn feed-edn
-  "The parsed feed as pretty-printed EDN."
+  "The parsed feed as EDN, pretty-printed for a feed of up to a hundred
+  items, since that takes about two seconds per hundred, and else on one
+  line, which an editor can format."
   [request]
   (with-feed request
     (fn [{:keys [feed]}]
-      (text "text/plain; charset=utf-8" (with-out-str (pprint/pprint feed))))))
+      (text "text/plain; charset=utf-8"
+            (if (<= (count (:rss/items feed)) 100)
+              (with-out-str (pprint/pprint feed))
+              (str ";; on one line, since pretty-printing more than a hundred items takes too long\n"
+                   (pr-str feed)))))))
 
 (defn feed-xml
   "The feed written back out canonically."
@@ -264,11 +283,11 @@
   rendered."
   [request]
   (with-feed request
-    (fn [{:keys [feed url] :as loaded}]
+    (fn [{:keys [feed feed-url] :as loaded}]
       (let [guid (get-in request [:query-params :guid])
-            item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
+            item (item-in feed guid)]
         (if item
-          (let [view (episode-view feed url item)]
+          (let [view (episode-view feed feed-url item)]
             (html (page/item-page (assoc loaded :item item :view view :remotes (remotes view)))))
           (-> (html (page/error-page "No such item in the feed" (:url loaded) (str "No item with guid " guid)))
               (assoc :status 404)))))))
@@ -284,11 +303,11 @@
 
   Each visit reads for ten seconds at most, so that the page comes soon.
   The inspector keeps a thread for `cache-seconds`. While the thread is
-  incomplete, the next visit reads on."
+  incomplete, or a read of it failed, the next visit reads on."
   [interact]
   (let [now      (System/currentTimeMillis)
         fresh?   #(< (- now (:at %)) (* 1000 cache-seconds))
-        read-on? #(some #{:comments/incomplete} (map :id (:report (:value %))))]
+        read-on? #(some #{:comments/incomplete :comments/unreachable :comments/malformed} (map :id (:report (:value %))))]
     (:value (cached [:comments interact]
                     #(and (fresh? %) (not (read-on? %)))
                     (fn [old]
@@ -309,7 +328,7 @@
   (with-feed request
     (fn [{:keys [url feed]}]
       (let [{:keys [guid hidden]} (:query-params request)
-            item      (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))
+            item      (item-in feed guid)
             interacts (when item (resolve/social-interacts feed item))
             thread    (when item
                         (or (comments/thread feed item {:appview appview})
@@ -390,13 +409,13 @@
   "The payments of a boost of `sats` with `message` for `item` of `feed`
   at `url`, from the wallet of `connection`: the share of each recipient
   of the value block, with the answer of the wallet."
-  [connection info {:keys [feed item url]} sats message]
+  [connection info {:keys [feed item feed-url]} sats message]
   (let [payment {:action     :boost
                  :total-sats sats
                  :message    (not-empty message)
                  :app-name   app-name
-                 :feed-url   url
-                 :feed-guid  (feed/feed-guid feed url)
+                 :feed-url   feed-url
+                 :feed-guid  (feed/feed-guid feed feed-url)
                  :feed-title (resolve/title feed)
                  :item-guid  (feed/item-guid item)
                  :item-title (resolve/title item)}]
@@ -407,13 +426,13 @@
                          (paid connection info (assoc payment :sats amount) recipient))}))))
 
 (defn- episode-of
-  "The episode that the parameters `url` and `guid` name, as `{:url :feed
-  :item}`. Nil when they name none."
+  "The episode that the parameters `url` and `guid` name, as `{:url
+  :feed-url :feed :item}`. Nil when they name none."
   [url guid]
-  (when-not (or (str/blank? url) (str/blank? guid))
-    (let [{:keys [feed]} (load-feed url)]
-      (when-let [item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
-        {:url url :feed feed :item item}))))
+  (when-not (str/blank? url)
+    (let [{:keys [feed feed-url]} (load-feed url)]
+      (when-let [item (item-in feed guid)]
+        {:url url :feed-url feed-url :feed feed :item item}))))
 
 (defonce ^{:doc "The tokens of the wallet forms that the inspector gave, and
   that no post used. A post that pays needs such a token, so that a form
@@ -439,7 +458,11 @@
   [request]
   (let [{:keys [url guid]} (:query-params request)]
     (try
-      (html (page/wallet-page {:episode (episode-of url guid) :token (new-token!)}))
+      (let [episode (episode-of url guid)]
+        (if (and (not (str/blank? url)) (nil? episode))
+          (-> (html (page/error-page "No such item in the feed" url (str "No item with guid " guid)))
+              (assoc :status 404))
+          (html (page/wallet-page {:episode episode :token (new-token!)}))))
       (catch Throwable e
         (failure "Could not inspect the feed" url e)))))
 
@@ -513,7 +536,7 @@
         render (fn [index feeds url]
                  (html (page/search-page {:q       q
                                           :url     url
-                                          :results (with-items (search/query index q {:limit 50}) feeds)})))]
+                                          :results (with-items (search/query index q {:limit page/result-limit}) feeds)})))]
     (if (str/blank? url)
       (try
         (let [{:keys [index feeds]} (corpus-index)]
@@ -538,8 +561,9 @@
   gives the charts of one category."
   [request]
   (let [{:keys [q country category]} (:query-params request)
-        opts (cond-> {:limit 10 :country (if (str/blank? country) "us" country)}
-               index-credentials         (assoc :credentials index-credentials)
+        opts (cond-> {:limit 10}
+               (not (str/blank? country))  (assoc :country country)
+               index-credentials           (assoc :credentials index-credentials)
                (not (str/blank? category)) (assoc :category category))]
     (try
       (let [answer (if (str/blank? q)
@@ -573,12 +597,12 @@
   player needs: its identity, titles, enclosure and duration."
   [request]
   (with-feed request
-    (fn [{:keys [feed url]}]
+    (fn [{:keys [feed url feed-url]}]
       (let [guid (get-in request [:query-params :guid])
-            item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
+            item (item-in feed guid)]
         (if item
           (text "application/edn; charset=utf-8"
-                (pr-str {:id         (feed/episode-id feed url item)
+                (pr-str {:id         (feed/episode-id feed feed-url item)
                          :title      (resolve/title item)
                          :feed-title (resolve/title feed)
                          :enclosure  (:url (resolve/enclosure item))
@@ -592,15 +616,30 @@
   (io/file "target/web/public/js"))
 
 (defn js-file
-  "A file of the compiled browser player, or a note on how to compile it."
+  "A file of the compiled browser player, with the time it was built, so
+  that a browser fetches it again only after a build; or a note on how to
+  compile the player."
   [request]
-  (let [path (str (get-in request [:path-params :path]))
-        file (io/file player-js-dir path)]
-    (if (and (not (str/includes? path "..")) (.isFile file))
-      {:status 200 :headers {"Content-Type" "application/javascript; charset=utf-8"} :body file}
+  (let [path  (str (get-in request [:path-params :path]))
+        file  (io/file player-js-dir path)
+        built (when (and (not (str/includes? path "..")) (.isFile file))
+                (time/format-rfc2822 (java.util.Date. (* 1000 (quot (.lastModified file) 1000)))))]
+    (cond
+      (nil? built)
       {:status  404
        :headers {"Content-Type" "text/plain"}
-       :body    "The browser player is not compiled; run: clojure -M:cljs compile player"})))
+       :body    (if (.isFile (io/file player-js-dir "player.js"))
+                  (str "No file " path " in the player")
+                  "The browser player is not compiled; run: clojure -M:cljs compile player")}
+
+      (= built (get-in request [:headers "if-modified-since"]))
+      {:status 304 :headers {"Last-Modified" built} :body ""}
+
+      :else
+      {:status  200
+       :headers {"Content-Type"  (if (str/ends-with? path ".map") "application/json" "application/javascript; charset=utf-8")
+                 "Last-Modified" built}
+       :body    file})))
 
 (def sync-dir
   "The folder the inspector serves over WebDAV at /dav/, for the browser
@@ -615,20 +654,42 @@
                  :when (and (= :feed kind) (map? value))]
              [url value])))
 
+(defn- added-here
+  "The ways to name the episodes that the players of the inspector added to
+  `state`, by the data that they wrote under :inspector/episodes: the URL
+  of an episode's media, and the episode of a media URL or a guid of its
+  feed."
+  [state]
+  (let [episodes (keep :value (vals (:inspector/episodes state)))]
+    {:episode-url (fn [id] (get-in state [:inspector/episodes id :value :enclosure]))
+     :episode-id  (fn [podcast media guid]
+                    (some (fn [{:keys [id url enclosure] :as episode}]
+                            (when (or (= media enclosure) (and guid (= guid (:guid episode)) (= podcast url)))
+                              id))
+                          episodes))}))
+
+(defn- either
+  "The ways to name shows and episodes of `a`, each of which falls back on
+  that of `b` when it names nothing."
+  [a b]
+  (merge-with (fn [f g] (fn [& args] (or (apply f args) (apply g args)))) a b))
+
 (defn gpodder-handler
   "The gpodder API over the listener's state in `sync-store`, for AntennaPod,
   Kasts and gPodder: the server is a device of its own, which reads the
   other devices' documents before it answers and writes its own after a
-  change, and names the shows and episodes of the feeds the inspector has
-  fetched. It lets in any user name and password, since the inspector
+  change. It names the shows and episodes of the feeds the inspector has
+  fetched lately, and the episodes that the players added, whose data are
+  in the state. It lets in any user name and password, since the inspector
   listens on localhost alone."
   [sync-store]
   (let [cursors (atom nil)
-        backend (store/backend sync-store)]
+        backend (store/backend sync-store)
+        state   (atom (profile/make "inspector-gpodder"))]
     (gpodder-server/handler
-     {:state       (atom (profile/make "inspector-gpodder"))
+     {:state       state
       :authorized? (constantly true)
-      :identities  #(gpodder/identities (cached-feeds))
+      :identities  #(either (gpodder/identities (cached-feeds)) (added-here @state))
       :sync        (fn [state]
                      (let [result (sync/sync! state [backend] (java.util.Date.) {:cursors @cursors})]
                        (reset! cursors (:cursors result))
@@ -677,12 +738,31 @@
                          request))))}))
 
 (def single-params
-  "An interceptor that keeps the first value of a query parameter given more
-  than once, so that every handler reads a string."
+  "An interceptor that keeps the first value of a query or form parameter
+  given more than once, so that every handler reads a string."
   (interceptor/interceptor
    {:name  ::single-params
     :enter (fn [context]
-             (update-in context [:request :query-params] update-vals #(if (vector? %) (first %) %)))}))
+             (reduce (fn [context k]
+                       (cond-> context
+                         (get-in context [:request k])
+                         (update-in [:request k] update-vals #(if (vector? %) (first %) %))))
+                     context
+                     [:query-params :form-params]))}))
+
+(def local-only
+  "An interceptor that answers only requests addressed to localhost, since
+  the inspector lets anyone sync and pay through it: a web page that points
+  a name of its own at 127.0.0.1 gets a 403 (DNS rebinding)."
+  (interceptor/interceptor
+   {:name  ::local-only
+    :enter (fn [context]
+             (let [host (some-> (get-in context [:request :headers "host"]) str/lower-case (str/replace #":\d+$" ""))]
+               (if (or (nil? host) (#{"localhost" "127.0.0.1" "[::1]"} host))
+                 context
+                 (assoc context :response {:status  403
+                                           :headers {"Content-Type" "text/plain"}
+                                           :body    "The inspector answers requests to localhost only."}))))}))
 
 (defonce ^{:doc "The running connector, nil when stopped."}
   server
@@ -705,7 +785,7 @@
                            {:object-src "'none'" :script-src "'self' 'unsafe-eval'"})})
        ;; ahead of the default interceptors, so that a put's body reaches
        ;; the WebDAV handler unread
-       (update :interceptors #(into [(dav/requests "/dav/") unread-bodies] %))
+       (update :interceptors #(into [local-only (dav/requests "/dav/") unread-bodies] %))
        (conn/with-interceptor single-params)
        (conn/with-routes (routes (file/store sync-dir)))
        (jetty/create-connector nil))))
