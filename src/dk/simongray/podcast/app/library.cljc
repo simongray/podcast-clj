@@ -52,6 +52,7 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.search :as search]
             [dk.simongray.podcast.sync :as sync]
+            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
@@ -541,6 +542,21 @@
    (let [{:keys [at clock failures]} (:sync library)]
      (sync/next-at (when at {:at at :changed? (not= clock (:clock (:profile library))) :failures failures})
                    (time-of library opts)))))
+
+(defn document
+  "This device's sync document in `library`, with the :app and :at of
+  `opts`, as a map of the file's :name and :body.
+
+  A backend writes the same document to its store. Where an app can't
+  write to the store, e.g. a sync folder in a browser without a folder
+  picker, the listener can save this file into it by hand."
+  ([library]
+   (document library {}))
+  ([library opts]
+   {:pre [(map? opts)]}
+   (let [{:keys [device] :as profile} (:profile library)]
+     {:name (store/document-name device)
+      :body (sync/document profile (time-of library opts) (select-keys opts [:app]))})))
 
 (defn plan
   "The episodes to download and the files to delete on this device with

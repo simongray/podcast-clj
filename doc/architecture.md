@@ -513,6 +513,7 @@ a late download.
 | Instants | `java.util.Date` | `js/Date` |
 | Deferred values (`util.async`) | futures | promises |
 | HTTP | `java.net.http`, in `util.http` | `fetch` |
+| Folders (`sync.file`) | `java.nio.file` | `node:fs` in Node, and the File System standard in a browser |
 | Encryption (`sync.encrypted`) | `javax.crypto` | WebCrypto |
 
 Dates, durations and UUIDv5 are written once in `.cljc`, without `java.time`

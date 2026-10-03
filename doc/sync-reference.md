@@ -23,7 +23,8 @@ token:
   current version of the document, and an `:if-version` of nil means that
   the document mustn't exist yet. The check and the write happen as one
   step, so of two puts with the same `:if-version`, only one succeeds. The
-  folder store guarantees this within one process.
+  folder store guarantees this within one process, and in a browser
+  across the tabs of a site.
 - A refused write returns `{:conflict? true}` rather than throwing.
 - On the JVM, each function returns its value and throws on failure. In
   ClojureScript, it can return a value or a promise.
@@ -210,9 +211,30 @@ The store of `sync.encrypted` wraps each body in this EDN map:
 | Store | Namespace | Platform | Version token |
 |---|---|---|---|
 | A map in an atom | `sync.store/memory` | both | a count of the writes |
-| A folder | `sync.file` | JVM | the modification time, as exact as the file system keeps it, and the size |
+| A folder | `sync.file` | both | the modification time, as exact as the file system keeps it, and the size |
 | A WebDAV collection | `sync.webdav` | both | the ETag |
 | Any store, encrypted | `sync.encrypted` | both | the version of the wrapped store |
+
+The folder store takes a path on the JVM and in Node. In a browser, it
+takes a `FileSystemDirectoryHandle`, or the files of a file input or a
+drop:
+
+- A handle can come from `showDirectoryPicker` or from the origin private
+  file system. A write goes through `createWritable`, whose changes reach
+  the file only when the stream closes (File System, section 2.3.2).
+- The files of an input are read only. Their store has no `:delete`, its
+  `:put` fails, and `file/backend` only pulls from them. Of a folder
+  loaded with `<input webkitdirectory>`, only the files at its top count,
+  and the folder's name is the store's name.
+- In ClojureScript, `file/query-permission!` and `file/request-permission!`
+  give `:granted`, `:prompt` or `:denied`. A path, a folder of the origin
+  private file system and the files of an input give `:granted`, since
+  there's nothing to ask for. The browser asks the listener only during a
+  click.
+- The failures that the listener can fix have a `:type` in their ex-data:
+  `::file/not-allowed` for a permission to renew, `::file/gone` for a
+  folder that was moved, deleted or unplugged, and `::file/read-only` for
+  a folder that the browser can't write to.
 
 On the JVM, `sync.webdav.server/handler` serves any store over WebDAV:
 
@@ -338,3 +360,28 @@ With "Optimize Mac Storage" on, iCloud Drive removes files that haven't
 been used for a while and leaves a hidden `.name.icloud` placeholder. The
 folder store ignores hidden files, so it can't read such a document until
 iCloud Drive downloads it again.
+
+
+## Folders in a browser, as of October 2026
+
+Which browser can do what changes over time, so check for the feature
+itself, e.g. `(exists? js/showDirectoryPicker)`, rather than for a
+browser. The versions are from MDN's compatibility data of 1 October 2026,
+and the times were measured on 3 October 2026 in Chrome 152, Firefox 156
+and Safari 26.3.
+
+| | Chrome, Edge | Firefox | Safari |
+|---|---|---|---|
+| Pick a folder, `showDirectoryPicker` | 86, and 132 on Android | No | No |
+| Ask for a folder again, `requestPermission` | 86. From 122, the listener can allow a site on every visit. | No | No |
+| Write a file, `createWritable` | 86 | 111, in the origin private file system | 26, in the origin private file system |
+| Load a folder, `<input webkitdirectory>` | Yes | Yes | Yes, and on iOS from 18.4 |
+| Modification times in the origin private file system | Milliseconds | Milliseconds | Whole seconds |
+
+Mozilla and WebKit have both stated positions against picking folders, so
+expect to sync by hand in Firefox and Safari for a while. Since Safari
+keeps whole seconds, two writes of the same size within a second there get
+the same version. Each device writes only its own document, and rarely
+twice in a second, so the default strategy of a document per device is
+hardly affected. The shared strategy is, since its writes depend on the
+version.

@@ -10,6 +10,7 @@
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
@@ -271,6 +272,13 @@
                                    (testing "the laptop learns the subscription of the phone"
                                      (is (= 2 (count (library/subscriptions lib))))
                                      (is (nil? (:feed (get (library/subscriptions lib) guid))) "a feed to fetch at the next refresh!"))))))))))
+
+(deftest a-document-to-save-by-hand
+  (let [{:keys [name body]} (library/document library {:app "test"})
+        written             (sync/read-document body)]
+    (is (= (str (:device library) ".edn") name) "the name that a backend gives it")
+    (is (= (:profile library) (:state written)))
+    (is (= ["test" now] ((juxt :app :written-at) written)) "written now, by the clock of the library")))
 
 (deftest the-downloads
   (let [id  [guid "https://example.com/ep0003"]

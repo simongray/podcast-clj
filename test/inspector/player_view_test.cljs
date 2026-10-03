@@ -89,7 +89,7 @@
         (is (= [[:play b] [:play-next b] [:dequeue b] [:play b]]
                (mapcat (fn [li] (map #(get-in % [1 :on :click]) (elements li :button))) entries))
             "an episode of the history plays again"))
-      (let [inputs (elements page :input)]
+      (let [inputs (filter #(= "number" (get-in % [1 :type])) (elements page :input))]
         (is (= [15 30] (map #(get-in % [1 :value]) inputs)))
         (is (= [[:prefer :skip-back] [:prefer :skip-forward]] (map #(get-in % [1 :on :change]) inputs)))))
     (testing "the devices and the sync through the inspector's folder"
@@ -100,6 +100,17 @@
         (is (str/includes? (text devices) "This browser"))
         (is (str/includes? (text devices) "failed: {\"inspector\" \"offline\"}"))
         (is (str/includes? (text devices) ":sync/clock-skew ahead"))))
+    (testing "the sync folder: picked, to allow again, or by hand"
+      (let [clicks (fn [s] (keep #(get-in % [1 :on :click]) (elements (view/page (merge state s)) :button)))
+            folder {:name "Podcasts" :permission :granted}]
+        (is (some #{[:folder/pick]} (clicks {:can-pick? true})))
+        (is (some #{[:folder/forget]} (clicks {:can-pick? true :folder folder})))
+        (is (some #{[:folder/allow]} (clicks {:can-pick? true :folder (assoc folder :permission :prompt)})))
+        (is (not-any? #{[:folder/pick] [:folder/allow]} (clicks {:can-pick? false}))
+            "a browser that can't pick a folder")
+        (is (some #{[:document/save]} (clicks {:can-pick? false})) "but saves by hand")
+        (is (= [[:document/load]] (map #(get-in % [1 :on :change])
+                                       (filter #(get-in % [1 :webkitdirectory]) (elements page :input)))))))
     (testing "an empty state and an error"
       (let [empty-page (view/page {:profile (profile/make "browser") :titles {}})]
         (is (str/includes? (text empty-page) "Nothing queued."))

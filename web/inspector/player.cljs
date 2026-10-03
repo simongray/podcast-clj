@@ -11,13 +11,18 @@
   page and swaps only the content below the bar, so that playback survives
   moving between pages; the queue page is the detailed view of the same
   state, and syncs it on request through the inspector's own WebDAV folder
-  at /dav/, with `library/sync!` over the WebDAV store over fetch.
+  at /dav/, with `library/sync!` over the WebDAV store over fetch. It also
+  syncs through a folder that the listener picks, where the browser can
+  pick one, and keeps the folder's handle in IndexedDB for the next visit;
+  in every browser, the listener can save this browser's document into a
+  folder and load the folder's files by hand.
 
   Built by `clojure -M:cljs compile player` and served at /js/player.js."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync.file :as file]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.util.crdt :as crdt]
@@ -98,16 +103,114 @@
   (store/backend (webdav/store (str js/location.origin "/dav/") {:name "inspector"})
                  {:opml? true :app "inspector"}))
 
+(defn- backends
+  "The backends of a sync: the inspector's folder, and the sync folder of
+  this browser while the browser lets it be used."
+  []
+  (let [{:keys [handle permission]} (:folder @app)]
+    (cond-> [(backend)]
+      (= :granted permission) (conj (file/backend handle {:name "sync folder" :opml? true :app "inspector"})))))
+
+(defn- handles!
+  "A promise of the result of `f` on the inspector's store of handles in
+  IndexedDB, in a transaction of `mode`. A handle can't go in
+  localStorage, but IndexedDB keeps it."
+  [mode f]
+  (-> (js/Promise. (fn [resolve reject]
+                     (let [request (.open js/indexedDB "inspector" 1)]
+                       (set! (.-onupgradeneeded request) #(.createObjectStore (.-result request) "handles"))
+                       (set! (.-onsuccess request) #(resolve (.-result request)))
+                       (set! (.-onerror request) #(reject (.-error request))))))
+      (.then (fn [db]
+               (js/Promise. (fn [resolve reject]
+                              (let [request (f (.objectStore (.transaction db "handles" mode) "handles"))]
+                                (set! (.-onsuccess request) #(resolve (.-result request)))
+                                (set! (.-onerror request) #(reject (.-error request))))))))))
+
+(defn- use-folder!
+  "Sync through the folder of the handle `h` from now on, as far as the
+  browser's `permission` for it allows."
+  [h permission]
+  (swap! app assoc :folder {:handle h :name (.-name h) :permission permission}))
+
+(defn- check-folder!
+  "Ask the browser again for its permission for the sync folder, which can
+  lapse, so that the page offers to renew it."
+  []
+  (when-let [h (get-in @app [:folder :handle])]
+    (.then (file/query-permission! h) #(use-folder! h %))))
+
 (defn sync!
   "One step of keeping this browser in step with the other devices through
-  the inspector's folder; the result is shown on the queue page."
+  `backends`, by default those of the backends function; the result is
+  shown on the queue page."
+  ([]
+   (sync! (backends)))
+  ([backends]
+   (swap! app assoc :syncing? true)
+   (-> (library/sync! (:library @app) backends)
+       (.then (fn [library] (swap! app with-synced library)))
+       (.catch (fn [e]
+                 (swap! app assoc :syncing? false
+                        :synced {:at (time/now) :failed {"inspector" (str e)} :report []})))
+       (.then (fn [_] (check-folder!))))))
+
+(defn- restore-folder!
+  "Take up the sync folder of the last visit, if there was one."
   []
-  (swap! app assoc :syncing? true)
-  (-> (library/sync! (:library @app) [(backend)])
-      (.then (fn [library] (swap! app with-synced library)))
+  (-> (handles! "readonly" #(.get % "sync-folder"))
+      (.then (fn [h] (when h (.then (file/query-permission! h) #(use-folder! h %)))))
+      (.catch (fn [_] nil))))
+
+(defn- pick-folder!
+  "Ask the listener for a sync folder, keep it for the next visit, and sync
+  through it."
+  []
+  (-> (js/showDirectoryPicker #js {:id "podcast-sync" :mode "readwrite"})
+      (.then (fn [h]
+               (.then (handles! "readwrite" #(.put % h "sync-folder"))
+                      (fn [_]
+                        (use-folder! h :granted)
+                        (sync!)))))
       (.catch (fn [e]
-                (swap! app assoc :syncing? false
-                       :synced {:at (time/now) :failed {"inspector" (str e)} :report []})))))
+                (when-not (= "AbortError" (.-name e))
+                  (swap! app assoc :error (str e)))))))
+
+(defn- allow-folder!
+  "Ask the listener to let the page use the sync folder again, and sync
+  through it if they do. The browser only asks during a click."
+  []
+  (let [h (get-in @app [:folder :handle])]
+    (.then (file/request-permission! h)
+           (fn [permission]
+             (use-folder! h permission)
+             (when (= :granted permission)
+               (sync!))))))
+
+(defn- forget-folder!
+  []
+  (swap! app dissoc :folder)
+  (handles! "readwrite" #(.delete % "sync-folder")))
+
+(defn- save-document!
+  "Download this browser's sync document, for the listener to put into a
+  sync folder."
+  []
+  (let [{:keys [name body]} (library/document (:library @app) {:app "inspector"})
+        url (js/URL.createObjectURL (js/Blob. #js [body] #js {:type "application/edn"}))
+        a   (js/document.createElement "a")]
+    (set! (.-href a) url)
+    (set! (.-download a) name)
+    (.click a)
+    (js/setTimeout #(js/URL.revokeObjectURL url) 60000)))
+
+(defn- load-folder!
+  "Sync with the documents among the files of the `input` that the listener
+  loaded a folder with, and empty it, so the same folder loads again."
+  [input]
+  (let [files (js/Array.from (.-files input))]
+    (set! (.-value input) "")
+    (sync! [(file/backend files {:name "loaded folder"})])))
 
 (defn- perform!
   "Carry out the `effects` `profile/step` returned: seek the audio element
@@ -172,20 +275,25 @@
   audio element's reports are read off it."
   [[kind & args :as event] e]
   (case kind
-    :play         (play! (first args))
-    :skip         (let [[id amount] args] (skip! id amount))
-    :ended        (dispatch! event)
-    :sleep        (swap! app update :library timed (first args))
-    :play-next    (operate! profile/play-next (first args))
-    :dequeue      (operate! profile/dequeue (first args))
-    :prefer       (when-let [n (parse-long (.. e -target -value))]
-                    (operate! profile/prefer {(first args) n}))
-    :sync         (sync!)
-    :audio/loaded (let [[_ position] args
-                        el (.-target e)]
-                    (when (and (pos? position) (< position (.-duration el)))
-                      (set! (.-currentTime el) position)))
-    :audio/time   (time-update! (first args) (.-target e))
+    :play          (play! (first args))
+    :skip          (let [[id amount] args] (skip! id amount))
+    :ended         (dispatch! event)
+    :sleep         (swap! app update :library timed (first args))
+    :play-next     (operate! profile/play-next (first args))
+    :dequeue       (operate! profile/dequeue (first args))
+    :prefer        (when-let [n (parse-long (.. e -target -value))]
+                     (operate! profile/prefer {(first args) n}))
+    :sync          (sync!)
+    :folder/pick   (pick-folder!)
+    :folder/allow  (allow-folder!)
+    :folder/forget (forget-folder!)
+    :document/save (save-document!)
+    :document/load (load-folder! (.-target e))
+    :audio/loaded  (let [[_ position] args
+                         el (.-target e)]
+                     (when (and (pos? position) (< position (.-duration el)))
+                       (set! (.-currentTime el) position)))
+    :audio/time    (time-update! (first args) (.-target e))
     nil))
 
 (defn- add!
@@ -319,10 +427,10 @@
 
 (defn ^:export init
   "Mount the player: load the state, watch it, route the view's events to
-  `handle!`, take over navigation and the other tabs' saves, and handle an
-  episode the URL asks to add."
+  `handle!`, take over navigation and the other tabs' saves, take up the
+  sync folder, and handle an episode the URL asks to add."
   []
-  (reset! app (load-state))
+  (reset! app (assoc (load-state) :can-pick? (exists? js/showDirectoryPicker)))
   (save! @app)
   (replicant/set-dispatch! (fn [{:replicant/keys [dom-event]} event] (handle! event dom-event)))
   (add-watch app ::render (fn [_ _ old new]
@@ -335,4 +443,5 @@
   (intercept-navigation!)
   (listen-to-other-tabs!)
   (render! true)
+  (restore-folder!)
   (add-from-query!))

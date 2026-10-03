@@ -667,6 +667,45 @@ To serve a store from your own Clojure server, mount the Ring handler of
 yet, write one: [Sync reference](sync-reference.md) gives the contract,
 a map of two to four functions.
 
+### Sync through a folder in a browser
+
+In a browser that can pick a folder, give its handle to `file/backend`.
+The browser asks the listener for permission, and only during a click:
+
+```clojure
+(defn pick-folder!
+  "Ask the listener for a sync folder, and give a promise of its backend."
+  []
+  (.then (js/showDirectoryPicker #js {:mode "readwrite"})
+         #(file/backend % {:opml? true :app "my-app"})))
+```
+
+Keep the handle in IndexedDB for the next visit, since it can't go in
+EDN. The permission can lapse between visits, so check it before a sync.
+If it's `:prompt`, show a button that renews it:
+
+```clojure
+(file/query-permission! handle)    ; => a promise of :granted, :prompt or :denied
+(file/request-permission! handle)  ; from a click
+```
+
+A browser without a folder picker can still sync through the folder by
+hand. Let the listener save this device's document into the folder, and
+load the folder with `<input type="file" webkitdirectory>`:
+
+```clojure
+(library/document @lib)  ; => {:name "8f1c….edn" :body "{:version 1 …}"}
+
+(.then (library/sync! @lib [(file/backend (.-files input))])
+       #(reset! lib %))
+```
+
+A backend over the files of an input only reads them. Check for the
+picker itself rather than for a browser, so that the app uses it
+wherever it arrives. [Sync reference](sync-reference.md#folders-in-a-browser-as-of-october-2026)
+has what each browser can do, and the inspector's player in
+`web/inspector/player.cljs` does all of the above.
+
 
 ## Pay value for value
 

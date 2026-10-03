@@ -10,8 +10,10 @@
   sync brings their data too. An event is a vector whose first element
   names it: `[:play id]`, `[:skip id :back]`, `[:ended id]`, `[:sleep 1]`,
   `[:play-next id]`, `[:dequeue id]`, `[:prefer :skip-back]`, `[:sync]`,
-  and from the audio element `[:audio/loaded id position]` and
-  `[:audio/time id]`. The shell in inspector.player performs them."
+  `[:folder/pick]`, `[:folder/allow]`, `[:folder/forget]`,
+  `[:document/save]`, `[:document/load]`, and from the audio element
+  `[:audio/loaded id position]` and `[:audio/time id]`. The shell in
+  inspector.player performs them."
   (:require [cljs.pprint :as pprint]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.crdt :as crdt]
@@ -150,6 +152,27 @@
         (for [{:keys [id message]} (:report synced)]
           [:li {:replicant/key (str id)} [:code (str id)] " " message])])]))
 
+(defn- sync-folder
+  "The sync through a folder that a sync client mirrors: a folder that the
+  browser keeps, where it can pick one, and by hand in every browser."
+  [{:keys [folder can-pick?]}]
+  (let [{:keys [name permission]} folder]
+    [:section
+     [:h2 "Sync folder"]
+     [:p.muted "A folder that a sync client mirrors, e.g. Dropbox or Syncthing, keeps the devices in step too: each device writes its own document into it."]
+     (cond
+       (not can-pick?)         [:p.muted "This browser can't keep a folder, so sync through one by hand."]
+       (nil? folder)           [:p [:button {:on {:click [:folder/pick]}} "Choose a sync folder…"]]
+       (= :granted permission) [:p "Syncing through " [:code name] " too. "
+                                [:button {:on {:click [:folder/forget]}} "Stop"]]
+       :else                   [:p "The browser needs your permission for " [:code name] " again. "
+                                [:button {:on {:click [:folder/allow]}} "Allow"] " "
+                                [:button {:on {:click [:folder/forget]}} "Stop"]])
+     [:p "By hand: "
+      [:button {:on {:click [:document/save]}} "Save this browser's document"]
+      " into the folder, and load the folder to read the others' documents: "
+      [:input {:type "file" :webkitdirectory true :on {:change [:document/load]}}]]]))
+
 (defn page
   "The queue page: the detailed view of the state the bar plays from."
   [{:keys [profile error] :as state}]
@@ -162,6 +185,7 @@
    (history state)
    (preferences state)
    (devices state)
+   (sync-folder state)
    [:section
     [:h2 "State"]
     [:pre (with-out-str (pprint/pprint profile))]]])

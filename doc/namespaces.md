@@ -60,7 +60,7 @@ follows.
 |---|---|
 | `sync` | Sync between devices: `sync!` over any backends, `reconcile` and `next-at`. |
 | `sync.store` | The store contract, `memory`, `backend` for any store, and `check!` to test a store. |
-| `sync.file` | JVM. A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. |
+| `sync.file` | A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. It takes a path on the JVM and in Node, and in a browser a folder that the listener picks or the files they load. |
 | `sync.webdav` | A WebDAV collection as a store. |
 | `sync.webdav.server` | JVM. A Ring handler that serves any store over WebDAV. |
 | `sync.encrypted` | Any store, with its documents encrypted at rest and readable on both platforms. |
