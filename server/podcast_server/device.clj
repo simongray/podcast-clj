@@ -6,8 +6,14 @@
   Each writes a sync document of its own to the server's sync folder. The
   library syncs every minute, then fetches the feeds that are due. The
   gpodder API syncs before and after each call, as
-  dk.simongray.podcast.sync.gpodder.server/handler does."
-  (:require [dk.simongray.podcast.app.library :as library]
+  dk.simongray.podcast.sync.gpodder.server/handler does.
+
+  The library keeps only the slim part of each feed, and saves what it
+  knows of the feeds to a file, so that a restart doesn't fetch them all
+  again."
+  (:require [clojure.edn :as edn]
+            [dk.simongray.podcast.app.feeds :as feeds]
+            [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
@@ -17,7 +23,9 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]
             [io.pedestal.log :as log])
-  (:import [java.util.concurrent Executors ScheduledExecutorService TimeUnit]))
+  (:import [java.io File]
+           [java.nio.file CopyOption Files StandardCopyOption]
+           [java.util.concurrent Executors ScheduledExecutorService TimeUnit]))
 
 (def step-seconds
   "How often the library syncs and checks which feeds are due."
@@ -25,12 +33,47 @@
 
 (defn make
   "The server's library, a device of the listener, with `config` over the
-  defaults. Its feeds are fetched only from the public internet."
+  defaults. Its feeds are fetched only from the public internet, and only
+  the slim part of each is kept."
   ([]
    (make {}))
   ([config]
    (library/make "podcast-server" {:name   "Podcast server"
-                                   :config (merge {:allow? http/public?} config)})))
+                                   :config (merge {:allow? http/public? :keep feeds/slim} config)})))
+
+(def saved-keys
+  "The parts of the library that the server saves between runs: what it
+  knows of the feeds and the followed lists. The profile comes back from
+  the sync documents, so it isn't saved, and nor are the cursors of the
+  last sync, which only fit the profile they were made for."
+  [:feeds :fetched-lists])
+
+(defn save!
+  "Write the saved-keys of `library` to `file`, whole or not at all."
+  [library ^File file]
+  (let [dir (.getParentFile (.getAbsoluteFile file))
+        tmp (do (.mkdirs dir) (File/createTempFile ".library-" ".tmp" dir))]
+    (try
+      (spit tmp
+            (binding [*print-length* nil *print-level* nil *print-namespace-maps* false]
+              (pr-str (select-keys library saved-keys)))
+            :encoding "UTF-8")
+      (Files/move (.toPath tmp) (.toPath file)
+                  (into-array CopyOption [StandardCopyOption/ATOMIC_MOVE StandardCopyOption/REPLACE_EXISTING]))
+      (finally
+        (.delete tmp)))))
+
+(defn restore!
+  "The `library` with what save! wrote to `file`, or the `library` as it is
+  when there's no such file or it can't be read."
+  [library ^File file]
+  (if-not (.isFile file)
+    library
+    (try
+      (merge library (select-keys (edn/read-string (slurp file :encoding "UTF-8")) saved-keys))
+      (catch Exception e
+        (log/warn :msg "The saved library couldn't be read, so its feeds are fetched again" :file (str file) :exception e)
+        library))))
 
 (defn- changed?
   "Whether the profile of `library` changed since its last sync."
@@ -58,13 +101,17 @@
 
 (defn start!
   "Run step! on `lib`, an atom of the server's library, through the sync
-  folder `store`, now and every step-seconds after. Returns the executor
-  that runs it, for stop!."
-  [lib store]
+  folder `store` now and every step-seconds after, and save! it to `file`
+  when its feeds change. Returns the executor that runs it, for stop!."
+  [lib store file]
   (let [backend (store/backend store)
         step    (fn []
                   (try
-                    (log-problems! (step! lib backend))
+                    (let [before (select-keys @lib saved-keys)
+                          after  (step! lib backend)]
+                      (log-problems! after)
+                      (when (not= before (select-keys after saved-keys))
+                        (save! after file)))
                     (catch Throwable e
                       (log/error :msg "A step of the library failed" :exception e))))]
     (doto (Executors/newSingleThreadScheduledExecutor)

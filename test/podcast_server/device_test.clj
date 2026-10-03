@@ -5,11 +5,13 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]
             [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.app.feeds :as feeds]
+            [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.store :as store]
-            [dk.simongray.podcast.test-support :refer [with-temp-dir]]
+            [dk.simongray.podcast.test-support :refer [fixture with-temp-dir]]
             [dk.simongray.podcast.util.json :as json]
             [io.pedestal.connector.test :refer [response-for]]
             [podcast-server.device :as device]
@@ -48,9 +50,39 @@
         (phone-synced! store)
         (let [library (device/step! (atom (device/make {:fetch fetch})) (store/backend store))]
           (is (nil? (get-in library [:sync :failed])))
-          (is (= "A" (get-in library [:feeds (first id) :feed :rss/title])) "the feed of the phone's subscription")
+          (is (= (feeds/slim feed) (get-in library [:feeds (first id) :feed])) "the slim feed of the phone's subscription")
           (is (= 600 (:position (profile/episode-entry (:profile library) id))) "the phone's progress")
           (is (.isFile (io/file dir "sync" "podcast-server.edn")) "the library's own document"))))))
+
+(deftest a-restart
+  (with-temp-dir
+    (fn [dir]
+      (let [store   (service/sync-store {:data-dir dir})
+            backend (store/backend store)
+            saved   (io/file dir "library.edn")
+            asked   (atom [])
+            fetch   (fn [u _] (swap! asked conj u) {:status 200 :url u :feed feed :etag "\"v1\""})]
+        (phone-synced! store)
+        (device/save! (device/step! (atom (device/make {:fetch fetch})) backend) saved)
+        (is (= [url] @asked))
+        (reset! asked [])
+        (let [library (device/step! (atom (device/restore! (device/make {:fetch fetch}) saved)) backend)]
+          (is (= [] @asked) "no fetch, since the saved feed isn't due yet")
+          (is (= "\"v1\"" (get-in library [:feeds (first id) :etag])))
+          (is (= (feeds/slim feed) (get-in library [:feeds (first id) :feed])))
+          (is (= 600 (:position (profile/episode-entry (:profile library) id))) "the profile, from the sync documents"))
+        (spit saved "{:feeds")
+        (is (= {} (:feeds (device/restore! (device/make) saved))) "a file that can't be read is left out")))))
+
+(deftest a-saved-library-reads-back
+  (with-temp-dir
+    (fn [dir]
+      (let [saved   (io/file dir "library.edn")
+            show    (podcast/parse (fixture "feeds/namespace-example.xml"))
+            library (library/subscribe (device/make) "https://example.com/feed.xml" show)]
+        (device/save! library saved)
+        (is (= (select-keys library device/saved-keys)
+               (select-keys (device/restore! (device/make) saved) device/saved-keys)))))))
 
 (deftest the-gpodder-api-names-episodes-by-the-feeds
   (with-temp-dir

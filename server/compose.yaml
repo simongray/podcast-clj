@@ -15,8 +15,7 @@ services:
     environment:
       PODCAST_SERVER_NAMES: ${PODCAST_SERVER_NAMES:?the name of the machine on the tailnet, e.g. pi.example.ts.net}
       PODCAST_SERVER_CLIENT: /client
-      # the feeds take about twice the size of their XML
-      JDK_JAVA_OPTIONS: -Xmx512m
+      JDK_JAVA_OPTIONS: -Xmx256m
     volumes:
       - data:/data
       - ${PODCAST_CLIENT_DIR:?the folder of the built files of the client}:/client:ro

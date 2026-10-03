@@ -184,12 +184,14 @@
    (start! {}))
   ([settings]
    (when-not @server
-     (let [{:keys [host port] :as settings} (merge defaults settings)
+     (let [{:keys [host port data-dir] :as settings} (merge defaults settings)
            store (sync-store settings)
-           lib   (atom (device/make))]
+           ;; beside the sync folder, since every file in it is a document
+           saved (io/file data-dir "library.edn")
+           lib   (atom (device/restore! (device/make) saved))]
        (reset! server {:connector (conn/start! (connector settings store lib))
                        :library   lib
-                       :steps     (device/start! lib store)})
+                       :steps     (device/start! lib store saved)})
        (println (str "Podcast server on http://" host ":" port "/"))))
    @server))
 

@@ -81,9 +81,10 @@ them up: each device holds the whole profile and writes it again at its
 next sync, while an old copy can bring back what the devices have since
 forgotten.
 
-The server keeps the feeds in memory, which takes about twice the size of
-their XML. The heap is 512 MB in `compose.yaml`, so raise it if you follow
-many large feeds.
+Of each feed, the server keeps only what tells when to check it again and
+the guids, dates and media of its episodes. It saves them in
+`library.edn` in the volume, so that after a restart it only asks each
+feed whether it changed.
 
 
 AntennaPod and other gpodder apps
