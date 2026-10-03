@@ -347,6 +347,9 @@
               amount (invoice-amount pr)
               action (success-action (get raw "successAction") callback)
               verify (get raw "verify")]
+          ;; LUD-06 has the wallet check the description hash too. It isn't
+          ;; checked: the service writes both the terms and the invoice, and
+          ;; some services hash other terms than they serve.
           (cond
             (nil? amount)         (error {:id :value/malformed :url url :status (:status response)})
             (not= msat (:msat amount))

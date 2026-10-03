@@ -287,6 +287,7 @@ what stops them.
 | A feed | Replace the record of the payment with a custom record | `value/records` leaves out the types that the Lightning protocol reserves. |
 | A sender | Claim a larger payment in its record or metadata | `value/as-received` takes the amount from the node and reports the difference. |
 | A Lightning address service | Give an invoice for a higher amount | `lnaddress/invoice` checks the amount. |
+| A Lightning address service | Give an invoice for other terms than it served | Nothing. LUD-06 has the wallet check the description hash, but the service writes both, so the check would stop no one, and some services hash other terms than they serve. |
 | Anyone on the network path | Change an invoice or a node | An answer over plain http is an error. |
 | Whoever writes a connection URI | Name a relay on the app's network | `:allow?` is `nostr/public?`. |
 | A wallet | Claim it paid without paying | For an invoice, `ask!` checks the preimage against the payment hash, and the answer has `:proven?`. Keysend has no such proof. |
