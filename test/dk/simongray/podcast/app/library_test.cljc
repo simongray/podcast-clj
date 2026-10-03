@@ -283,6 +283,20 @@
                                      (is (= 2 (count (library/subscriptions lib))))
                                      (is (nil? (:feed (get (library/subscriptions lib) guid))) "a feed to fetch at the next refresh!"))))))))))
 
+(deftest a-show-left-on-another-device
+  (let [backend (store/backend (store/memory (atom {})) {:app "test"})
+        laptop  (-> (library/make "laptop" {:name "Laptop" :config {:now (constantly now)}})
+                    (library/subscribe url fresh {:auto-queue? true}))
+        phone   (library/unsubscribe library guid {:at (at 10)})]
+    (run #(async/then (library/sync! phone [backend] {:at (at 20)})
+                      (fn [_]
+                        (async/then (library/sync! laptop [backend] {:at (at 30)})
+                                    (fn [result]
+                                      (let [merged (library/merge laptop result)]
+                                        (is (= {} (library/subscriptions merged)))
+                                        (is (= {} (:feeds merged)) "so refresh! no longer fetches it")
+                                        (is (= [] (library/episodes merged {})))))))))))
+
 (deftest merging-what-a-fetch-gave
   (let [id      [guid "https://example.com/ep0003"]
         fetch   (fn [url _] {:status 200 :url url :feed newer :etag "\"v2\""})

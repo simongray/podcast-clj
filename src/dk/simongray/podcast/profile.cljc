@@ -152,6 +152,30 @@
   [state feed-guid at]
   (crdt/write state [:subscriptions feed-guid] #(assoc % :removed? true) at))
 
+(defn ^:no-doc feed-author
+  "The author of what the feed `feed-guid` brings about in a state, such as
+  its new episodes in the queue, as crdt/as-device takes it. No device of
+  podcast-clj has such a name."
+  [feed-guid]
+  (str "feed:" feed-guid))
+
+(defn relocate
+  "Note in `state` that the feed `feed-guid` moved to the :url of
+  `details`, with the :title it has there, e.g. after a permanent
+  redirect.
+
+  The feed is the author of the move, which is stamped just after the last
+  write to the subscription. The move then never undoes what the listener
+  did on another device meanwhile, e.g. an unsubscription. Nothing changes
+  without a live subscription."
+  [state feed-guid {:keys [url title] :as details}]
+  (let [sub (get-in state [:subscriptions feed-guid])]
+    (cond-> state
+      (crdt/live? sub) (crdt/as-device (feed-author feed-guid)
+                                       #(crdt/write % [:subscriptions feed-guid]
+                                                    (constantly (assoc sub :url url :title title))
+                                                    (time/->inst (inc (crdt/stamp-ms sub))))))))
+
 (defn- values
   [entries]
   (into {} (map (fn [[k e]] [k (:value e)])) entries))
@@ -982,26 +1006,49 @@
       (mapv #(vector feed-guid (feed/item-guid %))
             (if oldest-first? added (reverse added))))))
 
+(defn- joined-at
+  "When each of the new episodes `ids` of the parse `feed`, oldest first,
+  joins a state at `at`, by id.
+
+  It's the episode's date of publication, but at the latest `at` for the
+  newest episode and a millisecond earlier for each one before it, so
+  that episodes without a date keep their order."
+  [feed ids at]
+  (let [dates (into {} (for [item (:rss/items feed)
+                             :let [date (:rss/pub-date item)]
+                             :when (inst? date)]
+                         [(feed/item-guid item) date]))]
+    (into {} (map-indexed (fn [i [_ item-guid :as id]]
+                            (let [latest (time/->inst (- (inst-ms at) i))]
+                              [id (min-key inst-ms (get dates item-guid latest) latest)]))
+                          (reverse ids)))))
+
 (defn refresh
   "Note in `state` at `at` a new parse `after` of the feed at `url`, which
   was `before`. The result is a map of the new :state and the episode ids
   it :added.
 
   The new episodes join the end of the queue with :auto-queue? in the
-  settings of the subscription, or else the inbox with :inbox?. An
+  settings of a live subscription, or else the inbox with :inbox?. An
   episode that's already in the state stays as the listener left it,
-  since another device can find it first."
+  since another device can find it first. The feed is the author of what
+  joins, at the episode's date of publication but never after `at`. A
+  device that finds an episode late then never undoes what the listener
+  did with it on another device."
   [state before after url at]
   (let [feed-guid (feed/feed-guid after url)
         added     (new-episodes before after url)
-        {:keys [auto-queue? inbox?]} (settings state feed-guid)
+        {:keys [auto-queue? inbox?]} (when (subscribed? state feed-guid) (settings state feed-guid))
         unknown   (remove #(or (played? state %) (contains? (:queue state) %) (contains? (:inbox state) %))
                           added)
-        state     (cond
-                    auto-queue? (crdt/append state [:queue] (queue-entries state) unknown at)
-                    inbox?      (reduce #(crdt/write %1 [:inbox %2] (constantly {:removed? false}) at) state unknown)
-                    :else       state)]
-    {:state state :added added}))
+        writes    (cond
+                    auto-queue? (crdt/appended state [:queue] (queue-entries state) unknown)
+                    inbox?      (for [id unknown] [[:inbox id] (constantly {:removed? false})])
+                    :else       [])
+        stamps    (joined-at after unknown at)
+        write     (fn [s [[_ id :as path] f]] (crdt/write s path f (stamps id)))]
+    {:state (crdt/as-device state (feed-author feed-guid) #(reduce write % writes))
+     :added added}))
 
 (defn lists
   "The OPML lists that the listener follows in `state`, as a map from URL

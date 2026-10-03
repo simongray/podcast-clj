@@ -53,6 +53,22 @@
     (gen/tuple (gen/return :rename-playlist) (gen/elements [nil "Q"]) instants)
     (gen/tuple (gen/return :listen) episode-ids (gen/choose 0 3600) instants)]))
 
+(def feed-operation
+  "A random operation of what a feed brings about, or a subscription with
+  the setting that a refresh needs."
+  (gen/one-of
+   [(gen/tuple (gen/return :subscribe-with) feed-guids (gen/elements [:auto-queue? :inbox?]) instants)
+    (gen/tuple (gen/return :refresh) feed-guids instants instants)
+    (gen/tuple (gen/return :relocate) feed-guids (gen/elements ["rss" "moved"]))]))
+
+(defn- refreshed
+  "The `state` after a refresh at `at` that finds the one episode of the
+  feed `feed-guid`, published at `published`."
+  [state feed-guid published at]
+  (let [item  {:rss/guid {:content ({"feed-a" "a1" "feed-b" "b1"} feed-guid)} :rss/pub-date published}
+        after {:podcast/guid feed-guid :rss/items [item]}]
+    (:state (profile/refresh state {:podcast/guid feed-guid :rss/items []} after (str "https://" feed-guid "/rss") at))))
+
 (defn- apply-operation
   [state [kind x y z]]
   (case kind
@@ -82,12 +98,16 @@
     :add-to-playlist      (profile/add-to-playlist state x y z)
     :remove-from-playlist (profile/remove-from-playlist state x y z)
     :rename-playlist      (profile/rename-playlist state "P" x y)
-    :listen               (:state (profile/step state [:progress x y 3600] z))))
+    :listen               (:state (profile/step state [:progress x y 3600] z))
+    :subscribe-with       (-> (profile/subscribe state x {:url (str "https://" x "/rss") :title x} z)
+                              (profile/configure x {y true} z))
+    :refresh              (refreshed state x y z)
+    :relocate             (profile/relocate state x {:url (str "https://" x "/" y) :title x})))
 
 (def schedule
   "What happens next: a device syncs, or applies an operation."
   (gen/vector (gen/tuple (gen/choose 0 (dec (count devices)))
-                         (gen/one-of [(gen/return :sync) operation]))
+                         (gen/frequency [[3 (gen/return :sync)] [2 operation] [2 feed-operation]]))
               0 20))
 
 (defn run

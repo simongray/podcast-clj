@@ -72,9 +72,11 @@ four reasons:
 The engine in `sync` is pure, and all I/O happens in the backends. A
 document that doesn't read is reported and left out. So is a state with a
 value that the merge can't handle, such as a stamp that isn't an instant,
-since the merge would otherwise spread it to every device. A document from
-a newer version of podcast-clj is left out too, because this version can't
-understand all of it.
+since the merge would otherwise spread it to every device. When this
+device's own state holds such a value, e.g. after an `assoc`, the step
+writes nothing and reports it, since the other devices would leave out
+the whole document. A document from a newer version of podcast-clj is
+left out too, because this version can't understand all of it.
 
 The engine schedules nothing. Call `sync!` when the app starts, when it
 goes to the background, after a series of changes, and when a file watcher
@@ -207,10 +209,17 @@ listener can use different scales.
 
 Every device refreshes its own feeds, so two devices can find the same new
 episode. That's why `refresh` only adds an episode to the queue or the
-inbox when the state doesn't know it yet. Otherwise, a device that's late
-would bring back an episode that the listener already played or removed.
-Followed lists work the same way for shows, which they recognise by feed
-URL.
+inbox when the state doesn't know it yet. Followed lists work the same way
+for shows, which they recognise by feed URL.
+
+A device that refreshes before it syncs doesn't know yet what the listener
+did on the others. So the feed is the author of what `refresh` adds, at
+the episode's date of publication, and whatever the listener did with the
+episode came later and wins. The move of a feed to a new URL is written
+the same way, just after the last write to its subscription, so it never
+undoes an unsubscription from another device. Once a sync brings an
+unsubscription, `library/merge` drops the show's feed, so the device stops
+fetching it.
 
 ### Compaction
 

@@ -236,7 +236,9 @@
 
   A backend whose pull fails isn't pushed to and keeps its cursor, and one
   whose push fails keeps the cursor of its pull. The state is only ever
-  merged into, so a failed step loses nothing.
+  merged into, so a failed step loses nothing. A state in which
+  profile/problem finds a problem isn't pushed, since the other devices
+  would leave it out, and the report has :sync/malformed-state.
 
   Run one step at a time, since a step that overlaps another can write an
   older state after a newer one. What the listener did during a step
@@ -256,8 +258,14 @@
                      {:names twice})))
    (async/then (async/all (map (fn [{:keys [pull name]}] (async/attempt #(pull state (get cursors name) at))) backends))
                (fn [results]
-                 (let [so-far (pulled state backends results at compact)
-                       merged (:state so-far)]
-                   (async/then (async/all (map (fn [[{:keys [push]} pull]] (async/attempt #(push merged (:cursor pull) at)))
-                                               (:ok so-far)))
-                               (fn [pushes] (finished so-far cursors pushes at compact))))))))
+                 (let [so-far  (pulled state backends results at compact)
+                       merged  (:state so-far)
+                       problem (profile/problem merged)
+                       push!   (fn [[{:keys [push]} pull]]
+                                 (if problem
+                                   {:cursor (:cursor pull)}
+                                   (push merged (:cursor pull) at)))]
+                   (async/then (async/all (map (fn [ok] (async/attempt #(push! ok))) (:ok so-far)))
+                               (fn [pushes]
+                                 (cond-> (finished so-far cursors pushes at compact)
+                                   problem (update :report conj (diagnostics/describe {:id :sync/malformed-state :error problem}))))))))))

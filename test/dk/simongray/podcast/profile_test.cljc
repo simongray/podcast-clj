@@ -50,6 +50,14 @@
         (is (= ["declared"] (keys (profile/subscriptions (profile/merge other moved)))) "the other device learns the move")
         (is (= s (profile/rekey s "feed-a" "feed-a" t2)) "the same guid changes nothing")
         (is (= s (profile/rekey s "feed-b" "declared" t2)) "no subscription, nothing to move")))
+    (testing "a feed that moved takes its subscription along, but never back from an unsubscription"
+      (let [moved  (profile/relocate s "feed-a" {:url "https://b/rss" :title "B"})
+            laptop (-> (profile/merge (profile/make "laptop") s) (profile/unsubscribe "feed-a" t2))]
+        (is (= {:url "https://b/rss" :title "B" :added-at t0} (select-keys (get (profile/subscriptions moved) "feed-a") [:url :title :added-at])))
+        (is (= "https://b/rss" (get-in (profile/merge (profile/make "laptop") moved) [:subscriptions "feed-a" :url])) "the other device learns the move")
+        (is (not (profile/subscribed? (profile/merge laptop moved) "feed-a")) "the unsubscription on the other device stays")
+        (is (= (:clock s) (:clock moved)) "the clock stays")
+        (is (= laptop (profile/relocate laptop "feed-a" {:url "https://b/rss" :title "B"})) "no subscription, nothing to move")))
     (testing "a feed at another URL that declares the guid would take the subscription over"
       (is (= [:fetch/guid-taken "https://evil/rss" "feed-a" "https://a/rss"]
              ((juxt :id :url :feed-guid :other-url) (profile/takeover s "feed-a" "https://evil/rss"))))
@@ -262,7 +270,20 @@
                          :state
                          (profile/dismiss ["feed-a" "a4"] t2))
               laptop (:state (profile/refresh (profile/merge (profile/make "laptop") inbox) before after "https://a/rss" t3))]
-          (is (= [["feed-a" "a3"]] (profile/inbox laptop)) "nor the one dismissed from the inbox"))))))
+          (is (= [["feed-a" "a3"]] (profile/inbox laptop)) "nor the one dismissed from the inbox"))))
+    (testing "nor when a device finds the episode before it learns what the listener did"
+      (let [dated  (fn [id day] (assoc (item id) :rss/pub-date (time/->inst (* day 86400000))))
+            after  {:podcast/guid "feed-a" :rss/items [(dated "a4" 4) (dated "a3" 3) (item "a2") (item "a1")]}
+            s      (profile/configure s "feed-a" {:auto-queue? true} t0)
+            phone  (-> (:state (profile/refresh s before after "https://a/rss" t1))
+                       (profile/dequeue ["feed-a" "a3"] t2))
+            laptop (:state (profile/refresh (profile/merge (profile/make "laptop") s) before after "https://a/rss" t3))]
+        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (profile/queue laptop)))
+        (is (= #{"feed:feed-a"} (set (map :device (vals (:queue laptop))))) "written as the feed")
+        (is (= [["feed-a" "a4"]] (profile/queue (profile/merge laptop phone))))))
+    (testing "nothing joins for a show that the listener left"
+      (let [left (-> (profile/configure s "feed-a" {:auto-queue? true} t0) (profile/unsubscribe "feed-a" t1))]
+        (is (= [] (profile/queue (:state (profile/refresh left before after "https://a/rss" t2)))))))))
 
 (deftest the-inbox
   (let [c2 ["feed-b" "b2"]

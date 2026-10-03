@@ -352,7 +352,7 @@
                        changed)]
     (reduce (fn [acc [guid new-url]]
               (let [title (resolve/title (get-in feeds [guid :feed]))]
-                (update-in acc [:library :profile] profile/subscribe guid {:url new-url :title title} now)))
+                (update-in acc [:library :profile] profile/relocate guid {:url new-url :title title})))
             (assoc result :moved moved)
             moved)))
 
@@ -551,17 +551,10 @@
   (if (pos? (compare (k a) (k b))) a b))
 
 (defn- merged-entries
-  "The entries of `mine`, each replaced by that of `theirs` unless it was
-  fetched later, and the entries that only `theirs` has where `keep?`
-  holds for their key."
+  "The entries of `mine` and `theirs` whose key `keep?` holds for, and of
+  two with one key, the one fetched later."
   [mine theirs keep?]
-  (reduce-kv (fn [acc k entry]
-               (cond
-                 (contains? mine k) (assoc acc k (newer :fetched-at (get mine k) entry))
-                 (keep? k)          (assoc acc k entry)
-                 :else              acc))
-             mine
-             theirs))
+  (into {} (filter (comp keep? key)) (merge-with (partial newer :fetched-at) mine theirs)))
 
 (defn merge
   "The `library` with `result` merged in, where `result` is what refresh!
@@ -570,17 +563,19 @@
       (swap! lib merge (refresh! @lib))
 
   The profiles merge as profile/merge does, so nothing that the listener
-  did while those fetched is lost. Of two entries of a feed or a list,
-  the later fetch wins, and one that only `result` has is kept while the
-  merged profile subscribes to it or follows it. The later :refresh and
-  :sync are kept too, and the rest is that of `library`."
+  did while those fetched is lost. A feed or a list stays only while the
+  merged profile subscribes to it or follows it, so one that the listener
+  left on another device goes. Of two entries of one feed or list, the
+  later fetch wins. The later :refresh and :sync are kept too, and the
+  rest is that of `library`."
   [library result]
   (let [profile (profile/merge (:profile library) (:profile result))
         synced  (newer :at (:sync library) (:sync result))
         refresh (newer :at (:refresh library) (:refresh result))
         feeds   (merged-entries (:feeds library) (:feeds result) (profile/subscriptions profile))
         lists   (merged-entries (:fetched-lists library) (:fetched-lists result) (profile/lists profile))
-        changed (remove #(identical? (get-in library [:feeds % :feed]) (get-in feeds [% :feed])) (keys feeds))]
+        changed (remove #(identical? (get-in library [:feeds % :feed]) (get-in feeds [% :feed]))
+                        (into (set (keys feeds)) (keys (:feeds library))))]
     (reduce reindexed
             (cond-> (assoc library
                            :profile (cond-> profile

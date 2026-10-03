@@ -241,6 +241,21 @@
            (is (= ["laptop.edn"] (keys @documents))))))))
 
 #?(:clj
+   (deftest a-state-that-the-others-cannot-merge
+     (let [documents (atom {})
+           backend   (store/backend (store/memory documents))
+           phone     (sync/sync! (phone-state) [backend] t2)
+           written   (:version (@documents "phone.edn"))
+           _         (sync/sync! (laptop-state) [backend] t3)
+           broken    (assoc-in (:state phone) [:queue ["feed-a" "x"]] {:rank "V"})
+           {:keys [state report failed]} (sync/sync! broken [backend] t4 {:cursors (:cursors phone)})]
+       (is (= [[:sync/malformed-state :error]] (map (juxt :id :level) report)))
+       (is (str/includes? (:error (first report)) "not stamped"))
+       (is (nil? failed))
+       (is (= written (:version (@documents "phone.edn"))) "nothing written")
+       (is (contains? (:devices state) "laptop") "but the laptop's state pulled in"))))
+
+#?(:clj
    (deftest compaction-through-a-folder
      (let [documents (atom {})
            backend   (store/backend (store/memory documents))
