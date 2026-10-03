@@ -75,30 +75,42 @@
             split))
         (:time-splits block)))
 
+(declare with-remote)
+
 ;; podcast:valueTimeSplit: remotePercentage is 100 and remoteStartTime is 0
 ;; when the split has none
 (defn recipients-at
   "Who is paid `seconds` into the playback of media under `block`, as a
-  map of :recipients.
+  map of :recipients, with the value blocks of `remotes` folded in.
 
   Outside a time split, they're the recipients of the block. Inside one,
   they're its fee recipients and those of the split. Inside a split that
-  points at a remote item, they're the fee recipients alone. Then :remote
-  holds the :remote-item, :percentage, :start-time and :offset, for you to
-  resolve."
-  [block seconds]
-  (let [recipients (:recipients block)
-        fees       (filter fee? recipients)]
-    (if-let [{:keys [remote-item remote-percentage remote-start-time] :as split}
-             (time-split-at block seconds)]
-      (if remote-item
-        {:recipients (vec fees)
-         :remote     {:remote-item remote-item
-                      :percentage  (-> (if (number? remote-percentage) remote-percentage 100) (max 0) (min 100))
-                      :start-time  (if (number? remote-start-time) remote-start-time 0)
-                      :offset      (- seconds (:start-time split))}}
-        {:recipients (into (vec fees) (:recipients split))})
-      {:recipients (vec recipients)})))
+  points at a remote item, :remote holds the :remote-item, :percentage,
+  :start-time and :offset. The `remotes` map each remote item to its value
+  block, or to nil when it has none, and with-remote folds that block in.
+  Without `remotes`, or when they lack the remote item, the recipients are
+  the fee recipients alone."
+  ([block seconds]
+   (let [recipients (:recipients block)
+         fees       (filter fee? recipients)]
+     (if-let [{:keys [remote-item remote-percentage remote-start-time] :as split}
+              (time-split-at block seconds)]
+       (if remote-item
+         {:recipients (vec fees)
+          :remote     {:remote-item remote-item
+                       :percentage  (-> (if (number? remote-percentage) remote-percentage 100)
+                                        (max 0)
+                                        (min 100))
+                       :start-time  (if (number? remote-start-time) remote-start-time 0)
+                       :offset      (- seconds (:start-time split))}}
+         {:recipients (into (vec fees) (:recipients split))})
+       {:recipients (vec recipients)})))
+  ([block seconds remotes]
+   (let [at   (recipients-at block seconds)
+         item (:remote-item (:remote at))]
+     (if (contains? remotes item)
+       (with-remote block at (get remotes item))
+       at))))
 
 (defn share-total
   "The sum of the splits of the non-fee `recipients`."
@@ -109,7 +121,8 @@
   "The recipients of `at`, the result of recipients-at for `block`, with
   the `remote` value block that a time split pointed at folded in.
 
-  The result is a map of :recipients with the fees of both blocks. The
+  The result is `at` with :recipients that hold the fees of both blocks,
+  and it keeps :remote, so that a payment can name the remote item. The
   non-fee recipients of the remote block get the percentage of the split,
   and those of the block get the rest. Their splits are rescaled to whole
   shares that express this. Without a `remote` block, the recipients of
@@ -121,15 +134,16 @@
           fees   (filter fee? (concat (:recipients block) (:recipients remote)))
           total  (share-total local)
           total' (share-total others)]
-      (if (zero? total')
-        {:recipients (vec (:recipients block))}
-        {:recipients (->> (concat fees
-                                  (for [r local]
-                                    (assoc r :split (* (split-of r) (- 100 percentage) total')))
-                                  (for [r others]
-                                    (assoc r :split (* (split-of r) percentage (max total 1)))))
-                          (remove #(and (not (fee? %)) (zero? (:split %))))
-                          vec)}))
+      (assoc at :recipients
+             (if (zero? total')
+               (vec (:recipients block))
+               (->> (concat fees
+                            (for [r local]
+                              (assoc r :split (* (split-of r) (- 100 percentage) total')))
+                            (for [r others]
+                              (assoc r :split (* (split-of r) percentage (max total 1)))))
+                    (remove #(and (not (fee? %)) (zero? (:split %))))
+                    vec))))
     at))
 
 (defn payments

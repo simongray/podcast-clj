@@ -456,6 +456,21 @@
      (episode/read-files! (episode/view feed item (assoc (options library opts) :url url :except #{:notes :text :links}))
                           (options library opts)))))
 
+(defn fetch-remote-values!
+  "Fetch the value blocks that the time splits of the episode `id` of
+  `library` point at, with `opts` for this call, for a page to merge into
+  the view that episode gives.
+
+  The result is that of app.episode/fetch-remote-values! with the config
+  of the library, or nil when the library has no such episode. The `opts`
+  are those of app.episode/fetch-remote-values!."
+  ([library id]
+   (fetch-remote-values! library id {}))
+  ([library id opts]
+   (when-let [[{:keys [feed url]} item] (item-of library id)]
+     (episode/fetch-remote-values! (episode/view feed item {:url url :except #{:notes :text :chapters :links}})
+                                   (options library opts)))))
+
 (defn episodes
   "The episodes of the shows of `library` that `opts` select, as [feed
   item] pairs.

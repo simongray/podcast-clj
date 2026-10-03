@@ -509,20 +509,21 @@
 
 (defn- time-split-section
   "One time split of `block`: who is paid during it, with the remote item
-  folded in when `remote-values` resolved it."
-  [block {:keys [remote-values index?]} {:keys [start-time duration remote-item remote-percentage] :as split}]
-  (let [at     (value/recipients-at block start-time)
-        remote (get remote-values remote-item)]
+  folded in when `remote-values` has its block."
+  [block {:keys [remote-values remote-report index?]} {:keys [start-time duration remote-item remote-percentage] :as split}]
+  (let [at      (value/recipients-at block start-time remote-values)
+        failure (some #(when (= remote-item (:remote-item %)) %) remote-report)]
     (list
      [:h3 (str "From " (time/format-clock start-time) " for " (time/format-clock duration)
                (when remote-item (str " · remote item " (:feed-guid remote-item)
                                       (when (:item-guid remote-item) (str " / " (:item-guid remote-item)))
                                       " at " (or remote-percentage 100) "%")))]
      (cond
-       (nil? remote-item)      (payments-table (:recipients at))
-       remote                  (payments-table (:recipients (value/with-remote block at remote)))
-       index?                  [:p.muted "The Podcast Index has no value block for this remote item; the feed's own recipients apply."]
-       :else                   [:p.muted "Set PODCASTINDEX_API_KEY and PODCASTINDEX_API_SECRET to resolve the remote item through the Podcast Index."]))))
+       (or (nil? remote-item) (get remote-values remote-item)) (payments-table (:recipients at))
+       (contains? remote-values remote-item) [:p.muted "No value block was found for this remote item; the feed's own recipients apply."]
+       (or index? (:feed-url remote-item))   [:p.muted (str "The value block of this remote item couldn't be fetched, so only the fees are paid: "
+                                                            (or (:reason failure) (str "status " (:status failure))))]
+       :else                                 [:p.muted "Set PODCASTINDEX_API_KEY and PODCASTINDEX_API_SECRET to resolve the remote item through the Podcast Index."]))))
 
 (defn- value-section
   [{:keys [value]} remotes]

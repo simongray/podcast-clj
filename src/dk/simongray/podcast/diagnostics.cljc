@@ -378,6 +378,10 @@
    {:id :value/custom-record :level :error
     :doc "The records of the payment leave out the custom key and value of the recipient, because the key isn't a number, it's a type that the Lightning protocol reserves, or the value is missing. The payment would reach the node but not the wallet of the recipient, so don't send it."}
 
+   ;; value: the remote items of time splits
+   {:id :value/remote-unresolved :level :warning
+    :doc "The value block of the remote item of a time split couldn't be fetched, so only the fees of that split are paid until a later fetch finds it. The Podcast Index or the remote feed didn't answer, refused the request or answered with an error, or there were neither credentials for the index nor a feed URL to ask."}
+
    ;; value: paying a Lightning address
    {:id :value/not-an-address :level :warning
     :doc "The text isn't a Lightning address of the form user@domain."}

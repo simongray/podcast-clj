@@ -24,7 +24,8 @@ The namespace of an id says which part of podcast-clj found the problem:
 - `sync`: the sync between devices
 - `podping`: a poll of the Hive chain
 - `comments`: the threads of comments
-- `value`: the records of payments, the Lightning addresses and the wallets
+- `value`: the records of payments, the remote items of time splits, the Lightning
+  addresses and the wallets
 - `analytics`: the list of user agents, and the downloads of OP3
 
 A function that sends requests also returns its failures as diagnostics, under the
@@ -193,6 +194,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:value/claimed-recipient` | warning | The sender claims that the payment went to a different recipient than the one that received it. |
 | `:value/no-metadata` | warning | The comment names no URL of metadata, or the URL answered without the x-rss-payment header. |
 | `:value/custom-record` | error | The records of the payment leave out the custom key and value of the recipient, because the key isn't a number, it's a type that the Lightning protocol reserves, or the value is missing. The payment would reach the node but not the wallet of the recipient, so don't send it. |
+| `:value/remote-unresolved` | warning | The value block of the remote item of a time split couldn't be fetched, so only the fees of that split are paid until a later fetch finds it. The Podcast Index or the remote feed didn't answer, refused the request or answered with an error, or there were neither credentials for the index nor a feed URL to ask. |
 | `:value/not-an-address` | warning | The text isn't a Lightning address of the form user@domain. |
 | `:value/unreachable` | warning | The request failed, because the server didn't answer. |
 | `:value/lnurl-error` | warning | The service of the Lightning address answered with an error, and said why. |

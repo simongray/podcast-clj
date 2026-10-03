@@ -2,10 +2,14 @@
   "Everything an episode page needs, in one map.
 
   Use view for what the feed says about the episode, and merge in
-  read-files! for what its chapters file, transcript and media file say."
+  read-files! for what its chapters file, transcript and media file say,
+  and fetch-remote-values! for the value blocks that its time splits
+  point at."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory.links :as links]
+            [dk.simongray.podcast.directory.podcastindex :as podcastindex]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.chapters :as chapters]
@@ -14,12 +18,13 @@
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.time :as time]))
 
 (def default-limits
-  "The limits of read-files! when its options don't set them: how many
-  seconds a request can take, and the most bytes of a chapters file or a
-  transcript."
+  "The limits of read-files! and fetch-remote-values! when their options
+  don't set them: how many seconds a request can take, and the most bytes
+  of a chapters file, a transcript or a feed."
   {:timeout-seconds 15
    :max-bytes       (* 16 1024 1024)})
 
@@ -213,8 +218,148 @@
              diagnostic (cond-> (vec report) error (conj error))]
          (assoc diagnostic :part part))))
 
+(defn- unresolved
+  "A map of the :error that the value block of the `remote` item of a time
+  split couldn't be fetched, with the `details` of why that aren't nil."
+  [remote details]
+  {:error (diagnostics/describe
+           (into {:id :value/remote-unresolved :remote-item remote}
+                 (remove (comp nil? val))
+                 details))})
+
+(defn- index-answer
+  "What the `attempt` of the request to `url` for the value block of the
+  `remote` item says: a map of the :value, nil when the Podcast Index has
+  no block, or a map of an :error."
+  [remote url {:keys [value error]}]
+  (let [{:keys [status body]} value
+        ok?    (and (not error) (<= 200 status 299))
+        answer (when ok?
+                 (try (podcastindex/response (str body))
+                      (catch #?(:clj Exception :cljs :default) _ nil)))
+        block  (:value answer)
+        failed #(unresolved remote (assoc % :url url))]
+    (cond
+      error               (failed {:reason (async/explain error)})
+      ;; the index doesn't take or know the guid
+      (#{400 404} status) nil
+      (not ok?)           (failed {:status status})
+      (nil? answer)       (failed {:status status :reason "The answer isn't JSON."})
+      :else               (when (and (:status answer) (seq (:recipients block)))
+                            {:value block}))))
+
+(defn- index-value!
+  "Ask the Podcast Index with `opts` for the value block of the `remote`
+  item of a time split, the item's own first and then the feed's, in a
+  future or a promise. The result is a map of the :value, nil when the
+  index has none, or of an :error."
+  [remote {:keys [index send now] :as opts}]
+  (let [requests (podcastindex/remote-value-requests
+                  index remote {:auth-date (quot (inst-ms (now)) 1000)})
+        answer!  (fn [request]
+                   (async/then (http/sent! send request opts)
+                               (partial index-answer remote (:url request))))]
+    (async/then (async/some answer! requests) #(or % {:value nil}))))
+
+(defn- feed-answer
+  "What the `attempt` of the fetch of the feed of the `remote` item says: a
+  map of the :value block of the item that it names, or else of the feed,
+  or of an :error."
+  [{:keys [feed-url item-guid] :as remote} {fetched :value thrown :error}]
+  (let [{:keys [feed status error]} fetched
+        item (some #(when (= item-guid (feed/item-guid %)) %) (:rss/items feed))]
+    (cond
+      item  {:value (resolve/value feed item)}
+      feed  {:value (resolve/value feed)}
+      :else (unresolved remote {:url    feed-url
+                                :status status
+                                :reason (if thrown
+                                          (async/explain thrown)
+                                          (:reason error))}))))
+
+(defn- feed-value!
+  "Fetch the feed of the `remote` item of a time split with the :fetch of
+  `opts`, in a future or a promise, and give what feed-answer says."
+  [remote {:keys [fetch] :as opts}]
+  (let [fetch-opts (select-keys opts [:send :allow? :timeout-seconds
+                                      :max-bytes :user-agent])]
+    (async/then (async/attempt #(fetch (:feed-url remote) fetch-opts))
+                (partial feed-answer remote))))
+
+;; podcast:remoteItem: feedGuid is the preferred address, feedUrl a fallback
+(defn- remote-value!
+  "Find the value block of the `remote` item of a time split with `opts`,
+  in a future or a promise: from the Podcast Index when `opts` give the
+  :index, and from the feed URL of the item when they don't or the index
+  has no block. The result is a map of the :value, nil when neither has a
+  block, or of an :error."
+  [{:keys [feed-guid feed-url] :as remote} opts]
+  (async/then (if (and (:index opts) feed-guid)
+                (index-value! remote opts)
+                (unresolved remote {}))
+              (fn [{:keys [value] :as asked}]
+                (if (or value (nil? feed-url))
+                  asked
+                  (feed-value! remote opts)))))
+
+(defn- once-per-url
+  "The function `fetch` of a feed, as podcast/fetch! is, made to fetch each
+  URL once, also when several calls ask for it at the same time."
+  [fetch]
+  (let [fetched (atom {})]
+    (fn [url opts]
+      (-> (swap! fetched update url #(or % (delay (fetch url opts))))
+          (get url)
+          force))))
+
+(defn- gathered
+  "What fetch-remote-values! gives for the `remotes` and what remote-value!
+  `found` for each of them, in the same order."
+  [remotes found]
+  (let [failed (keep :error found)
+        values (for [[remote {:keys [value error]}] (zipmap remotes found)
+                     :when (not error)]
+                 [remote value])]
+    (cond-> {}
+      (seq remotes) (assoc :remote-values (into {} values))
+      (seq failed)  (assoc :remote-report (vec failed)))))
+
+(defn fetch-remote-values!
+  "Fetch the value blocks that the time splits of the episode `view` point
+  at, with the `opts` below, for a page to merge into the view. Returns a
+  map, in ClojureScript as a promise:
+
+  - :remote-values, the value block of each remote item, or nil when it
+    has none, as value/recipients-at takes them
+  - :remote-report, a diagnostic for each remote item whose block
+    couldn't be fetched, which :remote-values leaves out
+
+  Each block comes from the Podcast Index when `opts` give its
+  credentials. When they don't, or the index has no block, it comes from
+  the feed URL of the remote item, if it names one. Fetch the blocks when
+  the episode starts rather than at each payment, and again for those in
+  the report. Nothing is thrown for what the network or a server does.
+  The `opts` are:
+
+  - :send and :allow?, as for any request
+  - :timeout-seconds and :max-bytes, over default-limits
+  - :index, the credentials of the Podcast Index, and :now, a function of
+    the current time to sign the requests with
+  - :fetch, in place of dk.simongray.podcast/fetch!. Each remote feed is
+    fetched once, though several songs of an album name it."
+  ([view]
+   (fetch-remote-values! view {}))
+  ([view opts]
+   {:pre [(map? opts)]}
+   (let [opts    (-> (merge default-limits
+                            {:send http/call! :now time/now :fetch podcast/fetch!}
+                            opts)
+                     (update :fetch once-per-url))
+         remotes (distinct (keep :remote-item (:time-splits (:value view))))]
+     (async/then (async/all #(remote-value! % opts) remotes)
+                 (partial gathered remotes)))))
+
 (comment
-  (require '[dk.simongray.podcast :as podcast])
   (def show (:feed (podcast/fetch! "https://feeds.podcastindex.org/pc20.xml")))
   (def item (first (resolve/episodes show)))
 
@@ -229,4 +374,11 @@
   (:duration (:media files))
   (report files)
   (keys (merge v files))
+
+  ;; the value blocks of the songs of a mix tape, which its time splits name
+  (def mixtape (:feed (podcast/fetch! "https://mikesmixtape.com/mikesmixtaperss.xml")))
+  (def songs (view mixtape (first (resolve/episodes mixtape)) {:except #{:notes :text :chapters :links}}))
+  (def remotes (fetch-remote-values! songs {:index {:key "…" :secret "…"}}))
+  (count (:remote-values remotes))
+  (:remote-report remotes)
   #_.)

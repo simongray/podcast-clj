@@ -8,7 +8,8 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.bytes :as bytes]))
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.value :as value]))
 
 (def show
   (podcast/parse (fixture "feeds/namespace-example.xml")))
@@ -127,3 +128,68 @@
      (fn []
        (async/then (source item gone)
                    #(is (= [:file [] :file/unreachable] %) "nothing else: the file, with its error"))))))
+
+(def album
+  "The feed of an album with a block of its own and one for its first song."
+  "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel>
+   <title>Album</title><podcast:guid>fd</podcast:guid>
+   <podcast:value type=\"lightning\" method=\"keysend\">
+     <podcast:valueRecipient name=\"Band\" type=\"node\" address=\"02bb\" split=\"100\"/>
+   </podcast:value>
+   <item><title>Song</title><guid isPermaLink=\"false\">song-1</guid>
+     <enclosure url=\"https://album.example/1.mp3\" length=\"1\" type=\"audio/mpeg\"/>
+     <podcast:value type=\"lightning\" method=\"keysend\">
+       <podcast:valueRecipient name=\"Singer\" type=\"node\" address=\"02cc\" split=\"100\"/>
+     </podcast:value>
+   </item></channel></rss>")
+
+(deftest the-value-blocks-of-remote-items
+  (let [log     (atom [])
+        found   {:feed-guid "fa" :item-guid "a"}
+        failing {:feed-guid "fb" :item-guid "b"}
+        missing {:feed-guid "fc"}
+        song    {:feed-guid "fd" :item-guid "song-1" :feed-url "https://album.example/feed.xml"}
+        other   {:feed-guid "fd" :item-guid "song-2" :feed-url "https://album.example/feed.xml"}
+        block   {:recipients  [{:name "Host" :type "node" :address "01" :split 100}]
+                 :time-splits (map-indexed (fn [i remote] {:start-time (* 100 i) :duration 100 :remote-item remote})
+                                           [found failing missing song other])}
+        index   "https://api.podcastindex.org/api/1.0/value/"
+        answers {(str index "byepisodeguid?podcastguid=fa&episodeguid=a")      {:status 200 :body (fixture "index/value-byepisodeguid.json")}
+                 (str index "byepisodeguid?podcastguid=fb&episodeguid=b")      {:status 500 :body ""}
+                 (str index "bypodcastguid?guid=fc")                           {:status 200 :body (fixture "index/status-false.json")}
+                 (str index "byepisodeguid?podcastguid=fd&episodeguid=song-1") {:status 400 :body (fixture "index/status-false.json")}
+                 (str index "byepisodeguid?podcastguid=fd&episodeguid=song-2") {:status 400 :body (fixture "index/status-false.json")}
+                 (str index "bypodcastguid?guid=fd")                           {:status 200 :body (fixture "index/status-false.json")}
+                 "https://album.example/feed.xml"                              {:status 200 :body album}}
+        names   #(update-vals % (fn [block] (map :name (:recipients block))))]
+    (run
+     (fn []
+       (async/then (episode/fetch-remote-values! {:value block} {:send (answering answers log) :index {:key "K" :secret "S"}})
+                   (fn [{:keys [remote-values remote-report]}]
+                     (testing "from the index, and from the feed when the index has none"
+                       (is (= {found ["Artist" "Label"] missing () song ["Singer"] other ["Band"]} (names remote-values)))
+                       (is (= 1 (count (filter #{"https://album.example/feed.xml"} @log))) "the album once"))
+                     (testing "a failure is left out and reported"
+                       (is (= [[:value/remote-unresolved failing 500]] (map (juxt :id :remote-item :status) remote-report))))
+                     (testing "as recipients-at takes them"
+                       (is (= ["Artist" "Label"] (map :name (:recipients (value/recipients-at block 50 remote-values)))))
+                       (is (= [] (:recipients (value/recipients-at block 150 remote-values))) "only the fees, as there are none")
+                       (is (= ["Host"] (map :name (:recipients (value/recipients-at block 250 remote-values)))))))))
+     (fn []
+       (reset! log [])
+       (async/then (episode/fetch-remote-values! {:value block} {:send (answering answers log)})
+                   (fn [{:keys [remote-values remote-report]}]
+                     (testing "without the index, only the feed URLs"
+                       (is (= {song ["Singer"] other ["Band"]} (names remote-values)))
+                       (is (= [found failing missing] (map :remote-item remote-report)))
+                       (is (= ["https://album.example/feed.xml"] @log))))))
+     (fn []
+       (async/then (episode/fetch-remote-values! {:value block} {:fetch (fn [url _] (throw (ex-info "Gone" {:url url})))})
+                   (fn [{:keys [remote-values remote-report]}]
+                     (testing "a fetch of its own, which throws"
+                       (is (= {} remote-values))
+                       (is (= [[song "Gone"] [other "Gone"]]
+                              (map (juxt :remote-item :reason) (filter :url remote-report))))))))
+     (fn []
+       (async/then (episode/fetch-remote-values! {:value (dissoc block :time-splits)} {:send (answering {} log)})
+                   #(is (= {} %) "nothing to merge without remote items"))))))

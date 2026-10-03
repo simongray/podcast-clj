@@ -414,6 +414,12 @@
              (map (juxt :name :split :fee) (:recipients folded))))
       (is (= {"Index" 10 "C" 20 "Host" 24 "Co-Host" 19 "Producer" 4 "A" 555 "B" 368} paid))
       (is (= 1000 (reduce + (vals paid))))
+      (is (= (:remote at) (:remote folded)) "the remote item stays named, for the payment")
+      (testing "by the remote values that recipients-at takes"
+        (let [item (:remote-item (:remote at))]
+          (is (= folded (value/recipients-at block 100 {item remote})))
+          (is (= (:recipients block) (:recipients (value/recipients-at block 100 {item nil}))) "a remote item without a block")
+          (is (= at (value/recipients-at block 100 {})) "a remote item that wasn't fetched")))
       (testing "everything to the remote side at 100 percent"
         (let [everything (value/with-remote block (assoc-in at [:remote :percentage] 100) remote)]
           (is (= ["Index" "C" "A" "B"] (map :name (:recipients everything))))))

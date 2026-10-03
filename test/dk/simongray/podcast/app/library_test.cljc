@@ -131,7 +131,19 @@
                      (fn [linked]
                        (is (= [:podroll :publisher] (sort (keys linked))) "no credentials of the index: the feeds themselves")
                        (is (every? #(= :fetch/unreachable (:id (:error %))) (:podroll linked)))
-                       (is (= :fetch/unreachable (:id (:error (:publisher linked)))))))))))
+                       (is (= :fetch/unreachable (:id (:error (:publisher linked))))))))
+       (fn []
+         (let [block {:type        "lightning" :method "keysend"
+                      :recipients  [{:name "Host" :type "node" :address "01" :split 100}]
+                      :time-splits [{:start-time 0 :duration 60 :remote-item {:feed-guid "fa" :item-guid "a"}}]}
+               split (update show :rss/items (partial mapv #(assoc % :podcast/values [block])))
+               lib   (library/subscribe (library/make "phone" {:config {:index {:key "K" :secret "S"}}}) url split)]
+           (is (nil? (library/fetch-remote-values! lib [guid "nope"])))
+           (async/then (library/fetch-remote-values! lib [guid "https://example.com/ep0003"] {:send down})
+                       (fn [{:keys [remote-values remote-report]}]
+                         (is (= {} remote-values))
+                         (is (= [:value/remote-unresolved "down"] ((juxt :id :reason) (first remote-report))))
+                         (is (re-find #"^https://api\.podcastindex\.org/" (:url (first remote-report))) "the index of the config, asked"))))))))
   (testing "unsubscribing"
     (let [lib (library/unsubscribe library guid)]
       (is (= {} (library/subscriptions lib)))

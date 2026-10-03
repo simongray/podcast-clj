@@ -10,7 +10,6 @@
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.directory :as directory]
-            [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.check :as check]
             [dk.simongray.podcast.feed.resolve :as resolve]
@@ -239,17 +238,6 @@
     (when (and (seq key) (seq secret))
       {:key key :secret (secret/hide secret) :user-agent "podcast-clj inspector"})))
 
-(defn- remote-values
-  "The value blocks the remote items of the time splits of `block` point
-  at, by remote item, resolved through the index when credentials are set;
-  a failure resolves to nil like a miss."
-  [block]
-  (when index-credentials
-    (into {} (for [{:keys [remote-item]} (:time-splits block)
-                   :when remote-item]
-               [remote-item (try (index/fetch-remote-value! index-credentials remote-item)
-                                 (catch Exception _ nil))]))))
-
 (defn- episode-view
   "The view of `item` in `feed` at `url`, with what its files say merged
   in, as `episode/view` and `episode/read-files!` give it; kept for
@@ -263,11 +251,12 @@
                         {:at now :value (merge view (episode/read-files! view))}))))))
 
 (defn- remotes
-  "The remote value blocks that the time splits of `block` point at, as
-  `remote-values` resolves them, and whether the index can be asked."
-  [block]
-  (when (seq (:time-splits block))
-    {:remote-values (remote-values block) :index? (some? index-credentials)}))
+  "The value blocks that the time splits of the episode `view` point at, as
+  `episode/fetch-remote-values!` fetches them, and whether the index can
+  be asked."
+  [view]
+  (assoc (episode/fetch-remote-values! view {:index index-credentials})
+         :index? (some? index-credentials)))
 
 (defn item-page
   "One item of the feed named by `url`, found by the `guid` parameter, with
@@ -280,7 +269,7 @@
             item (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))]
         (if item
           (let [view (episode-view feed url item)]
-            (html (page/item-page (assoc loaded :item item :view view :remotes (remotes (:value view))))))
+            (html (page/item-page (assoc loaded :item item :view view :remotes (remotes view)))))
           (-> (html (page/error-page "No such item in the feed" (:url loaded) (str "No item with guid " guid)))
               (assoc :status 404)))))))
 

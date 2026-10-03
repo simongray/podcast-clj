@@ -757,16 +757,38 @@ has what each browser can do, and the inspector's player in
 
 ## Pay value for value
 
-The value block of an episode comes from `resolve/value`, the recipients
-at a position from `value/recipients-at`, and `value/payments` divides an
-amount between them. What goes with a payment is one map, however it's
-sent:
+The value block of an episode is the `:value` of its view. A time split
+in it can pass a stretch of the episode, e.g. a song, to the recipients
+of an item in another feed. Fetch the value blocks of those items with
+`library/fetch-remote-values!` when the episode starts, rather than at
+each payment of a stream. Then `value/recipients-at` gives who is paid at
+a position, and `value/payments` divides an amount between them:
 
 ```clojure
-(def block (resolve/value show item))
+(def page (merge (library/episode @lib id)
+                 (library/fetch-remote-values! @lib id)))
 
-(value/payments (:recipients (value/recipients-at block 754)) 1000)
+(def at (value/recipients-at (:value page) 754 (:remote-values page)))
 
+(value/payments (:recipients at) 1000)
+```
+
+The blocks come from the Podcast Index when the config has the `:key`
+and `:secret` of an account as `:index`, and else from the feed URL of
+the remote item, which few feeds give. When a remote item has no block,
+the episode's own recipients get its share. A remote item whose block
+couldn't be fetched is in `:remote-report`, and until you fetch it again,
+only the fees of its split are paid.
+
+Without `app.library`, `episode/fetch-remote-values!` takes the view
+from `episode/view`. To fetch a block yourself, e.g. with
+`podcastindex/fetch-remote-value!`, fold it in with `value/with-remote`.
+
+What goes with a payment is one map, however it's sent. Inside a remote
+split, `(:remote at)` names the remote item, so add its `:feed-guid` and
+`:item-guid` as `:remote-feed-guid` and `:remote-item-guid`:
+
+```clojure
 (def payment
   {:action    :boost
    :sats      1000
