@@ -3,12 +3,14 @@ podcast-clj
 
 This is a library for making podcast software in Clojure or ClojureScript.
 
-- It parses podcast feeds & associated files according to the relevant specs,
-but supports files that break them too.
+- It parses and writes podcast feeds & associated files according to the
+relevant specs, but supports files that break them too.
 - It includes nearly every building block of a modern podcast app in its API,
 which has been designed to be highly _decomplected_.
 - It also has high-level `app.*` namespaces that compose low-level functions,
 so you can start making a podcast app fast.
+- It depends only on Clojure and data.json, and its requests are plain maps,
+so you can send them with any HTTP client.
 
 > **AI;DR** this introduction was written by a regular human, but I want to be
 > transparent here: large swaths of this library were developed with assistance
@@ -23,13 +25,21 @@ Current status
 The library already supports a wide range of podcast features:
 
 - **Feeds.** RSS 2.0, iTunes, and the `podcast` namespace of
-  [Podcasting 2.0](https://podcasting2.org) all turn into the same normalised Clojure data.
+  [Podcasting 2.0](https://podcasting2.org) all turn into the same normalised Clojure data,
+  as do Media RSS, Google Play and the other vocabularies of podcast feeds.
 - **Formats.** Support for chapters, transcripts, OPML, show notes as Hiccup
   or text, and the MP3/M4A files themselves: their chapters, duration and art.
 - **Directories and updates.** Apple Podcasts, fyyd, gpodder.net and the
   Podcast Index are all supported. Podping and WebSub are supported too.
-- **Apps.** Everything needed to create a podcast app, including sync between
-  devices through a folder, WebDAV, gpodder, or a server of your own.
+  You can also find the feed of a show from its website or a link from
+  another app.
+- **Apps.** Everything needed to create a podcast app, including a queue,
+  playlists, full-text search, download rules, and sync between devices
+  through a folder, WebDAV, or a server of your own. Through the gpodder API,
+  the subscriptions and play progress also sync with apps such as AntennaPod.
+- **Hosts.** Validation against PSP-1 and the requirements of Apple Podcasts,
+  checks of the files that a feed links to, long feeds split into pages, and
+  a private feed for each subscriber.
 - **Comments.** Get episode comments via ActivityPub, the AT Protocol, or Nostr.
 - **Analytics.** Download counts from OP3, and your own counts by the IAB guidelines.
 - **Payment integration.** Lightning addresses, keysend, the wallets of WebLN
@@ -84,8 +94,9 @@ and `feed.resolve` gives one normalised answer across them:
 ;; => {:title "Podcasting 2.0" :author "Podcast Index LLC" :categories [["News & Politics"] ["Technology"]]}
 ```
 
-**NOTE:** with `org.jsoup/jsoup` on the classpath,
-podcast-clj on the JVM also reads feeds that are _not_ well-formed XML.
+**NOTE:** on both platforms, podcast-clj repairs the most common XML errors of
+feeds, e.g. bare ampersands. With `org.jsoup/jsoup` on the classpath, it also
+reads feeds on the JVM that are still _not_ well-formed XML.
 
 **NOTE:** in ClojureScript, shadow-cljs reads the dependency from `deps.edn`
 with `:deps true`. There are no npm packages to install, but Node needs a
@@ -99,7 +110,8 @@ You can use the `app.*` namespaces to create a full-featured podcast app.
 An app keeps a listener's subscriptions, feeds, queue, and play progress in
 one map (called the podcast `library`), which fits inside an atom.
 Subscribing, playing, refreshing, and syncing are each one function call.
-A call that changes the library returns a new version along with what it did:
+A call that changes the library returns a new version, and playing, refreshing
+and syncing also record what they did in it:
 
 ```clojure
 (require '[dk.simongray.podcast.app.library :as library]
