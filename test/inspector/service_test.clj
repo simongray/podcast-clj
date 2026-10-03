@@ -4,6 +4,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.crypto.nip44 :as nip44]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
@@ -469,6 +470,10 @@
           (is (str/includes? body (str "<a href=\"" self "\">")))
           (is (= named (first (:id (read-string (:body (get* "/episode.edn" "url" "corpus/self" "guid" "g"))))))))
         (is (= 404 (:status (get* "/corpus/nope")))))
+      (testing "an item without audio can't be added to the player"
+        (let [body (:body (get* "/item" "url" "corpus/self" "guid" "g"))]
+          (is (str/includes? body "No audio to play"))
+          (is (not (str/includes? body "Play now")))))
       (testing "an item is named by a guid, and no guid names none"
         (is (= 404 (:status (get* "/item" "url" "corpus/self"))))
         (is (= 404 (:status (get* "/episode.edn" "url" "corpus/self")))))
@@ -482,3 +487,31 @@
                                         :body "uri=x&sats=1&sats=2"))))
       (is (= 403 (:status (response-for @connector :get "/dav/" :headers {"host" "attacker.example:8300"}))))
       (is (= 200 (:status (response-for @connector :get "/" :headers {"host" "localhost:8300"})))))))
+
+(deftest finding-the-feeds-of-a-text
+  (let [feed     {:rss/title "Show"}
+        answers  {"https://a.example/rss" {:feeds [{:url "https://a.example/rss" :title "A" :found-by :input :podcast? true :feed feed}]}
+                  "two.example"           {:feeds [{:url "https://two.example/mp3" :title "Two" :found-by :link :podcast? true :feed feed}
+                                                   {:url "https://two.example/opus" :title "Two" :found-by :link :podcast? true :feed feed}
+                                                   {:url "https://two.example/blog" :title "Blog" :found-by :link :podcast? false :feed feed}]}
+                  "some words"            {:feeds [] :error {:id :discovery/unreadable :message "Not an address"}}
+                  "gone.example"          {:feeds [] :error {:id :fetch/unreachable :message "No fetch" :reason "UnknownHost"}}}
+        location #(get-in % [:headers "Location"])]
+    (with-redefs [podcast/find-feeds! (fn [s _] (answers s))
+                  http/fetch!         (fn [url & _] (throw (ex-info "not this one" {:url url})))]
+      (testing "a feed, or the one podcast that a page names, is inspected at once, without a fetch of its own"
+        (is (= "/feed?url=https%3A%2F%2Fa.example%2Frss" (location (get* "/find" "q" "https://a.example/rss"))))
+        (is (= 200 (:status (get* "/feed" "url" "https://a.example/rss")))))
+      (testing "several feeds are listed, with what isn't a podcast"
+        (let [body (:body (get* "/find" "q" "two.example"))]
+          (is (str/includes? body "/feed?url=https%3A%2F%2Ftwo.example%2Fopus"))
+          (is (str/includes? body "not a podcast"))
+          (is (str/includes? body "found by link"))))
+      (testing "words go to the directories, and a failure says why"
+        (is (= "/directory?q=some%20words" (location (get* "/find" "q" "some words"))))
+        (let [body (:body (get* "/find" "q" "gone.example"))]
+          (is (str/includes? body "No fetch"))
+          (is (str/includes? body "UnknownHost"))))
+      (testing "a feed that doesn't load offers to find the feeds of its address"
+        (is (str/includes? (:body (get* "/feed" "url" "https://b.example/")) "/find?q=https%3A%2F%2Fb.example%2F")))
+      (is (str/includes? (:body (get* "/")) "action=\"/find\"")))))

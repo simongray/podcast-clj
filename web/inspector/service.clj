@@ -134,10 +134,13 @@
 
 (defn- failure
   "The error page, with the status 502, for the failure `e` of what
-  `heading` names, about `subject` when anything."
-  [heading subject e]
-  (-> (html (page/error-page heading subject (or (ex-message e) (str e))))
-      (assoc :status (::status (ex-data e) 502))))
+  `heading` names, about `subject` when anything, and with the hiccup
+  `more`, e.g. what to try instead."
+  ([heading subject e]
+   (failure heading subject e nil))
+  ([heading subject e more]
+   (-> (html (page/error-page heading subject (or (ex-message e) (str e)) more))
+       (assoc :status (::status (ex-data e) 502)))))
 
 (defn- item-in
   "The item of `feed` whose guid is `guid`, or nil, also for a blank
@@ -156,7 +159,9 @@
       (try
         (f (load-feed url))
         (catch Throwable e
-          (failure "Could not inspect the feed" url e))))))
+          (failure "Could not inspect the feed" url e
+                   [:p "If this is the address of a website or a page, "
+                    [:a {:href (str "/find?q=" (http/encode url))} "find the feeds that it names"] "."]))))))
 
 (defn home
   "The landing page: the URL form and the corpus."
@@ -256,6 +261,44 @@
         secret (System/getenv "PODCASTINDEX_API_SECRET")]
     (when (and (seq key) (seq secret))
       {:key key :secret (secret/hide secret) :user-agent "podcast-clj inspector"})))
+
+(defn- known!
+  "Keep `feed`, which find-feeds! fetched from `url`, as if the inspector
+  had fetched it, so that its page doesn't fetch it again."
+  [url feed]
+  (cached [:feed url] (constantly false)
+          (fn [_] {:url url :status 200 :value feed :at (System/currentTimeMillis)})))
+
+(defn find-page
+  "The feeds that podcast/find-feeds! finds for the text in the `q`
+  parameter: a feed URL, a website, a page or a link of an app.
+
+  When a page names no podcast, the directories are searched by its name,
+  for a feed that names the page's website as its own. The page of the
+  feed follows at once when the text is the feed, or names one podcast
+  alone. Words that name nothing go to the directory search."
+  [request]
+  (let [q (str/trim (str (get-in request [:query-params :q])))]
+    (if (str/blank? q)
+      {:status 302 :headers {"Location" "/"}}
+      (try
+        (let [opts                            (cond-> {:search [:apple :fyyd :gpodder]}
+                                                index-credentials (-> (assoc :index index-credentials)
+                                                                      (update :search conj :podcastindex)))
+              {:keys [feeds error] :as found} (podcast/find-feeds! q opts)
+              best                            (first feeds)]
+          (cond
+            (= :discovery/unreadable (:id error))
+            {:status 302 :headers {"Location" (str "/directory?q=" (http/encode q))}}
+
+            (or (= :input (:found-by best)) (= 1 (count (filter :podcast? feeds))))
+            (do (known! (:url best) (:feed best))
+                {:status 302 :headers {"Location" (str "/feed?url=" (http/encode (:url best)))}})
+
+            :else
+            (html (page/find-page (assoc found :q q)))))
+        (catch Throwable e
+          (failure "Could not find the feeds" q e))))))
 
 (defn- episode-view
   "The view of `item` in `feed` at `url`, with what its files say merged
@@ -710,6 +753,7 @@
      ["/item" :get item-page :route-name :item]
      ["/comments" :get comments-page :route-name :comments]
      ["/thread" :get thread-page :route-name :thread]
+     ["/find" :get find-page :route-name :find]
      ["/wallet" :get wallet-page :route-name :wallet]
      ["/wallet" :post wallet-asked :route-name :wallet-asked]
      ["/search" :get search-page :route-name :search]

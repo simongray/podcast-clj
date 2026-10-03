@@ -34,7 +34,7 @@
    pre{background:#f4f4f4;padding:.6rem;overflow:auto;max-height:24rem;white-space:pre-wrap}
    .error{color:#b00020} .warning{color:#a15c00} .info{color:#555}
    .muted{color:#777} .badge{display:inline-block;padding:0 .4rem;border-radius:4px;background:#e8e8e8;margin-right:.3rem;font-size:12px}
-   nav a{margin-right:1rem} form input[type=url],form input[type=search],form input[type=password]{width:60%;padding:.4rem} form button{padding:.4rem .8rem}
+   nav a{margin-right:1rem} form input[type=url],form input[type=search],form input[type=password],form input[type=text]{width:60%;padding:.4rem} form button{padding:.4rem .8rem}
    form input[type=number]{width:8rem;padding:.4rem} form input[name=message]{width:40%;padding:.4rem}
    form.selection input[type=search]{width:30%} form.selection input,form.selection select{padding:.3rem}
    .results li{margin:.6rem 0} .snippet{color:#444;max-width:80ch} mark{background:#fff3a0}
@@ -91,8 +91,8 @@
   (layout "Home"
           [:h1 "Podcast feed inspector"]
           [:p "Parse any RSS feed with the library, see what it understood, what it had to forgive, and how the feed measures up to the standards."]
-          [:form {:method "get" :action "/feed"}
-           [:input {:type "url" :name "url" :placeholder "https://example.com/feed.xml" :required true}]
+          [:form {:method "get" :action "/find"}
+           [:input {:type "text" :name "q" :placeholder "a feed, a website, or a link from a podcast app" :required true}]
            " "
            [:button {:type "submit"} "Inspect"]]
           [:form {:method "get" :action "/directory"}
@@ -572,9 +572,11 @@
               (when (seq people)
                 [:div.muted (str/join " · " (map #(str (:role %) ": " (:name %)) people))])
               [:div
-               [:a.badge {:href (into-player "now")} "Play now"]
-               [:a.badge {:href (into-player "last")} "Add to queue"]
-               [:a.badge {:href (into-player "next")} "Play next"]
+               (if (:url (resolve/enclosure item))
+                 (list [:a.badge {:href (into-player "now")} "Play now"]
+                       [:a.badge {:href (into-player "last")} "Add to queue"]
+                       [:a.badge {:href (into-player "next")} "Play next"])
+                 [:span.badge.muted "No audio to play"])
                [:a.badge {:href (feed-href "/comments" url {:guid guid})} "Comments"]
                (when value
                  [:a.badge {:href (feed-href "/wallet" url {:guid guid})} "Boost"])]]]
@@ -640,6 +642,27 @@
                   [:div.snippet
                    (for [{:keys [text match?]} (search/snippet (html/text (resolve/description item)) q)]
                      (if match? [:mark text] text))])])])))
+
+(defn find-page
+  "The `feeds` that podcast/find-feeds! found for the text `q`, best first,
+  and the `report` of what it tried in vain, or the `error` when it found
+  none."
+  [{:keys [q feeds report error]}]
+  (layout (str "Find: " q)
+          [:h1 "The feeds of " [:code q]]
+          (if (seq feeds)
+            [:ol.results
+             (for [{:keys [url title found-by podcast?]} feeds]
+               [:li
+                [:strong [:a {:href (feed-href "/feed" url)} (or title url)]]
+                (when-not podcast? (list " " [:span.badge "not a podcast"]))
+                [:br] [:span.muted url " · found by " (name found-by)]])]
+            (list [:p.warning (:message error) (when-let [reason (:reason error)] [:span.muted " " reason])]
+                  [:p "Try another address, or "
+                   [:a {:href (str "/directory?q=" (http/encode q))} "search the directories"] "."]))
+          (when (seq report)
+            (list [:h2 "What failed"]
+                  (diagnostics-table report)))))
 
 (defn directory-page
   "The shows the directories answered for the query `q`, or their charts
@@ -980,10 +1003,14 @@
 
 (defn error-page
   "The page shown when what `heading` names failed: `subject` is what it was
-  about, when anything, and `message` says why."
-  [heading subject message]
-  (layout "Error"
-          [:h1 heading]
-          (when subject [:p [:code subject]])
-          [:pre message]
-          [:p [:a {:href "/"} "Back"]]))
+  about, when anything, `message` says why, and the hiccup `more` what to
+  try instead."
+  ([heading subject message]
+   (error-page heading subject message nil))
+  ([heading subject message more]
+   (layout "Error"
+           [:h1 heading]
+           (when subject [:p [:code subject]])
+           [:pre message]
+           more
+           [:p [:a {:href "/"} "Back"]])))

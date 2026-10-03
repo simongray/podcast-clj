@@ -429,12 +429,13 @@
 (defn- swap-content!
   "Fetch the page at `url` and put its content in place of the current
   one, leaving the player bar untouched, then handle what the new page
-  asks for. A page without a content area, such as the raw EDN and XML
-  views, is navigated to for real."
+  asks for. The history gets the address that a redirect led to. A page
+  without a content area, such as the raw EDN and XML views, is
+  navigated to for real."
   [url push?]
   (-> (js/fetch url)
-      (.then #(.text %))
-      (.then (fn [html]
+      (.then (fn [response] (.then (.text response) #(vector (.-url response) %))))
+      (.then (fn [[final html]]
                (let [doc     (.parseFromString (js/DOMParser.) html "text/html")
                      content (.getElementById doc "content")
                      target  (js/document.getElementById "content")]
@@ -444,7 +445,7 @@
                    (do (some-> (js/document.getElementById "app") replicant/unmount)
                        (set! (.-innerHTML target) (.-innerHTML content))
                        (set! js/document.title (.-title doc))
-                       (when push? (js/history.pushState nil "" url))
+                       (when push? (js/history.pushState nil "" (or (not-empty final) url)))
                        (js/window.scrollTo 0 0)
                        (after-navigation!))
                    (set! js/location.href url)))))
