@@ -30,6 +30,17 @@
     (is (fn? (:push b)))
     (is (= "Nextcloud" (:name (webdav/backend "https://cloud.example.org/dav/" {:name "Nextcloud"}))))))
 
+(deftest the-requests-go-through-send
+  (let [sent    (atom nil)
+        send    (fn [request] (reset! sent request) {:status 404 :headers {}})
+        backend (webdav/backend root {:send send :timeout-seconds 5})]
+    ((:fetch (webdav/store root {:send send :timeout-seconds 5})) "phone.edn")
+    (is (= [:get (str root "phone.edn") 5] ((juxt :method :url :timeout-seconds) @sent))
+        "with the limit of time")
+    (reset! sent nil)
+    ((:pull backend) (phone-state) nil t2)
+    (is (= :propfind (:method @sent)) "the backend passes :send on")))
+
 (deftest requests
   (let [creds {:credentials {:username "simon" :password "app pass"}}
         listing (webdav/request :list root nil creds)]
@@ -307,10 +318,10 @@
                           (clj->js {:status status :headers (into {} (for [[k [v]] headers :when v] [k v]))}))))))))
 
 #?(:cljs
-   (deftest two-devices-through-a-webdav-collection-with-fetch
+   (deftest two-devices-through-a-webdav-collection-with-send
      (async done
        (let [documents (atom {})
-             backend   (store/backend (webdav/store "https://dav.example.org/dav/" {:fetch (fetch-stand-in documents)}))]
+             backend   (store/backend (webdav/store "https://dav.example.org/dav/" {:send (stand-in documents)}))]
          (-> (sync/sync! (phone-state) [backend] t2)
              (.then (fn [phone]
                       (is (nil? (:failed phone)))
@@ -320,7 +331,7 @@
                       (is (= 900 (:position (profile/episode-entry (:state laptop) a))))
                       (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions (:state laptop))))))
                       (is (= #{"phone.edn" "laptop.edn"} (set (keys (dissoc @documents ::created)))))
-                      (store/check! (webdav/store "https://dav.example.org/dav/" {:fetch (fetch-stand-in documents)}))))
+                      (store/check! (webdav/store "https://dav.example.org/dav/" {:send (stand-in documents)}))))
              (.then (fn [{:keys [ok? checks]}]
                       (is ok? (pr-str checks))
                       (is (= 7 (count checks)))
@@ -336,7 +347,7 @@
          (set! (.-fetch js/globalThis) (fetch-stand-in documents))
          (-> (sync/sync! (phone-state) [(store/backend (webdav/store "https://dav.example.org/dav/"))] t2)
              (.then (fn [phone]
-                      (is (nil? (:failed phone)) "a store without :fetch sends with js/fetch")
+                      (is (nil? (:failed phone)) "a store without :send sends with http/call!, over js/fetch")
                       (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))))
              (.catch (fn [e] (is false (str "rejected: " e))))
              (.finally (fn []

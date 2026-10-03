@@ -118,6 +118,13 @@
   [{:keys [request-method] :as ring-request}]
   (let [headers (header-names ring-request)]
     (cond
+      ;; TODO: consider sending writes to hosts that the operator names, none
+      ;; by default, so that a page can sync over WebDAV and the gpodder API.
+      ;; That takes POST, PUT, DELETE, PROPFIND and MKCOL, the request body
+      ;; within :max-bytes, Authorization to those hosts only, Sec-Fetch-Site
+      ;; same-origin for every write, and the host check in :allow?, so that
+      ;; each redirect meets it. Hosts that listeners choose would make the
+      ;; proxy a relay of writes for every account.
       (not (#{:get :head} request-method))
       (assoc-in (answer 405 "http_request_denied" "The proxy answers GET and HEAD.") [:headers "Allow"] "GET, HEAD")
 

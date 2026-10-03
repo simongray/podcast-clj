@@ -12,12 +12,12 @@
   credentials, and tests the store with
   dk.simongray.podcast.sync.store/check!, e.g. from the settings.
   Below that, request builds each call as a request map, and response
-  reads the answer. That way, a browser can send the requests with fetch
-  when the server's origin allows it, and the tests run on recorded
-  answers. The function store gives the store over a collection, with the
-  credentials closed over. The other side is
-  dk.simongray.podcast.sync.webdav.server, which serves any store over
-  WebDAV."
+  reads the answer. That way, the requests can go through any :send, and
+  the tests run on recorded answers. In a browser, the server must let the
+  page through CORS and expose the ETag. The function store gives the
+  store over a collection, with the credentials closed over. The other
+  side is dk.simongray.podcast.sync.webdav.server, which serves any store
+  over WebDAV."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.async :as async]
@@ -166,28 +166,6 @@
     (cond-> host
       (not= port (get {"http" 80 "https" 443} scheme)) (str ":" port))))
 
-(defn- sender
-  "A function that sends a request map with `opts`.
-
-  On the JVM, it's the library's HTTP client, with the :timeout-seconds,
-  30 by default. In ClojureScript, it's the :fetch given or js/fetch, with
-  the answer as a promise of a map of :status, :headers and :body."
-  [opts]
-  #?(:clj  (fn [request]
-             (http/call! (assoc request :timeout-seconds (:timeout-seconds opts 30))))
-     ;; a local named fetch would shadow the global that js/fetch compiles to
-     :cljs (let [send (or (:fetch opts) js/fetch)]
-             (fn [request]
-               (-> (let [{:keys [method url headers body]} (http/revealed request)]
-                     (send url (clj->js (cond-> {:method (str/upper-case (name method)) :headers headers}
-                                          (some? body) (assoc :body body)))))
-                   (.then (fn [res]
-                            (.then (.text res)
-                                   (fn [text]
-                                     {:status  (.-status res)
-                                      :headers {"etag" [(.get (.-headers res) "etag")]}
-                                      :body    text})))))))))
-
 (defn store
   "The store over the WebDAV collection at `root`, a URL such as
   https://dav.example.org/podcasts/, with the `opts` below:
@@ -195,19 +173,20 @@
   - :credentials, a :username and a :password, or a :token, as a map or a
     function of no arguments that returns one
   - :name, for the UI, the host by default
-  - :timeout-seconds, on the JVM, 30 by default
-  - :fetch, in ClojureScript, the fetch to send with, js/fetch by default
+  - :send, a function that sends a request map, in place of http/call!
+  - :timeout-seconds, how long a request can take, 30 by default
 
   The collection is made on the first put when it isn't there, and a
   server that answers a put without an ETag is asked for one."
   ([root]
    (store root {}))
-  ([root {:keys [credentials name] :as opts}]
+  ([root {:keys [credentials name send timeout-seconds] :as opts}]
    {:pre [(map? opts)]}
    (let [root  (if (str/ends-with? root "/") root (str root "/"))
-         send  (sender opts)
          call! (fn [call name params]
-                 (async/then (send (request call root name (assoc params :credentials credentials)))
+                 (async/then ((or send http/call!)
+                              (cond-> (request call root name (assoc params :credentials credentials))
+                                timeout-seconds (assoc :timeout-seconds timeout-seconds)))
                              #(response call %)))
          put!  (fn put! [name body params made?]
                  (async/then (call! :put name (assoc params :body body))
@@ -243,7 +222,7 @@
    (backend root {}))
   ([root opts]
    {:pre [(map? opts)]}
-   (store/backend (store root (select-keys opts [:credentials :name :timeout-seconds :fetch]))
+   (store/backend (store root (select-keys opts [:credentials :name :send :timeout-seconds]))
                   (select-keys opts [:opml? :app :direction :strategy :document :name]))))
 
 #?(:clj

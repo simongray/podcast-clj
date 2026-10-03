@@ -96,9 +96,17 @@ proxy of `util.proxy` there, and give its sender as `:send`:
 ```
 
 Every function that sends requests then works in the page as it does on
-the JVM. The proxy fetches only URLs on the public internet, and refuses
-to be opened as a page, but it fetches for anyone who can reach it, so
-put it behind your login.
+the JVM, except the sync over WebDAV and the gpodder API. The proxy
+fetches only URLs on the public internet, and refuses to be opened as a
+page, but it fetches for anyone who can reach it, so put it behind your
+login.
+
+The proxy only sends GET and HEAD, so in a page, the sync over WebDAV or
+the gpodder API reaches only a server on your own origin, e.g. that of
+`sync.webdav.server`, or one that lets your page through CORS. A WebDAV
+server must expose the ETag too. Syncing through a folder needs no
+server, as [Sync through a folder in a browser](#sync-through-a-folder-in-a-browser)
+shows.
 
 A page reaches Nostr relays by itself, so for comments, wrap the `:send`
 that `comments/fetch!` has by default: `(proxy/sender "/proxy" {:send
