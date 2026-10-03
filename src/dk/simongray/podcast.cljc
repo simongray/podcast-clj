@@ -481,41 +481,27 @@
 
 (defn find-feeds!
   "Find the feeds of a show from the text `s` that a listener types or
-  pastes, with the `opts` below. Gives a map of the :feeds, in
-  ClojureScript as a promise.
+  pastes, with the `opts` below. It gives a map of the :feeds, best first,
+  as a promise in ClojureScript.
 
-  The text can be the URL of a feed, a domain such as example.com, the
-  address of a web page, or a link that an app shares, such as one of
-  Apple Podcasts. The feeds are candidates, best first, as
-  feed.discovery/ranked orders them. Each is a map of the :url to
-  subscribe to, the :title, where it was found as :found-by, :podcast?
-  and the parsed :feed. The namespace feed.discovery tells where the
-  feeds are looked for.
-
-  Nothing is thrown for what the network or a server does. The failures
-  of the places that claim a feed are in the :report. When no feed is
-  found, the result has an :error: :discovery/unreadable,
-  :discovery/not-found, or the failure of the page.
+  The text can be a feed URL, a domain, a web page or a link that an app
+  shares. Each feed has its :url, :title, :found-by, :podcast? and the
+  parsed :feed. Failures go in the :report, and the result has an :error
+  when no feed is found.
 
   The `opts` are:
 
-  - :known, the feeds that the caller knows, as a map of each parsed feed
-    to its URL, as library/urls gives it
-  - :search, the directories to search by the name of a page that names
-    no podcast feed, as names in directory/sources or entries. None by
-    default, since a search sends the name to the directories.
-  - :lookup, the directories that look up a show that a link of an app
-    names by an id: Apple Podcasts its own ids, and the Podcast Index its
-    own ids and a podcast:guid. Both by default, as names or entries.
-  - :index, the credentials of the Podcast Index, for its lookups and its
-    search, and :now, a function of the current time to sign with
-  - :rules, rules of the caller for the address of a page, as
-    feed.discovery/rule-urls takes them
-  - :guessed-paths, in place of feed.discovery/guessed-paths, and :apps,
-    in place of directory.links/apps
-  - :send, a function that sends a request map as http/call! does
-  - :allow?, a predicate of the URLs that a request may go to, which is
-    http/public? by default
+  - :known, the feeds you already have, as library/urls gives them
+  - :search, the directories to search by a page's name, none by default
+  - :lookup, the directories that look up the id in an app's link
+  - :index, the Podcast Index credentials, and :now, the clock to sign with
+  - :rules, your rules for a page's address, as feed.discovery/rule-urls
+    takes them
+  - :guessed-paths and :apps, in place of feed.discovery/guessed-paths and
+    directory.links/apps
+  - :send, the function that sends a request, http/call! by default
+  - :allow?, a predicate of the URLs a request may go to, http/public? by
+    default
   - :timeout-seconds, :guess-timeout-seconds, :max-bytes and
     :max-candidates, over feed.discovery/default-limits
   - :user-agent, and the options of parse"
