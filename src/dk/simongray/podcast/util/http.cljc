@@ -1148,45 +1148,53 @@
   [request]
   (call! (assoc request :allow? public?)))
 
-#?(:clj
-   (defn fetch!
-     "GET the feed at `url` with `opts`, and give the response of call!,
-     with the body as text.
+(defn feed-request
+  "The request for the feed at `url` that fetch! sends with `opts`, the
+  options of fetch!.
 
-     The response also has :etag and :last-modified when the server gives
-     them. It has :not-before when the server says how long to wait, as
-     not-before reads it.
+  A user name and a password in `url` are the credentials when `opts`
+  give none, and the request goes to the URL without them, as
+  split-credentials splits them."
+  [url {:keys [etag last-modified credentials user-agent]
+        :or   {user-agent dk.simongray.podcast.util.http/user-agent}
+        :as   opts}]
+  (let [[url in-url] (split-credentials url)
+        auth         (authorization (or credentials in-url))]
+    (assoc (select-keys opts [:timeout-seconds :max-bytes :allow?])
+           :url     url
+           :headers (cond-> {"User-Agent" user-agent
+                             "Accept"     "application/rss+xml, application/xml, text/xml, */*"}
+                      etag          (assoc "If-None-Match" etag)
+                      last-modified (assoc "If-Modified-Since" last-modified)
+                      auth          (assoc "Authorization" auth)))))
 
-     The `opts` are these:
+(defn fetch!
+  "GET the feed at `url` with `opts`, and give the response with the body
+  as text, in ClojureScript as a promise.
 
-     - :etag and :last-modified from an earlier response. They go as
-       If-None-Match and If-Modified-Since, and a 304 then comes back with
-       no body.
-     - :credentials of a private feed, as authorization takes them
-     - :user-agent, to send in place of user-agent
-     - :timeout-seconds and :max-bytes, as call! takes them
+  The request is the one that feed-request gives. The response also has
+  :etag and :last-modified when the server gives them. It has :not-before
+  when the server says how long to wait, as not-before reads it.
 
-     A user name and a password in `url` are the credentials when `opts`
-     give none, and the request goes to the URL without them, as
-     split-credentials splits them."
-     ([url]
-      (fetch! url {}))
-     ([url {:keys [etag last-modified credentials user-agent]
-            :or   {user-agent dk.simongray.podcast.util.http/user-agent}
-            :as   opts}]
-      (let [[url in-url] (split-credentials url)
-            accept       "application/rss+xml, application/xml, text/xml, */*"
-            auth         (authorization (or credentials in-url))
-            headers      (cond-> {"User-Agent" user-agent "Accept" accept}
-                           etag          (assoc "If-None-Match" etag)
-                           last-modified (assoc "If-Modified-Since" last-modified)
-                           auth          (assoc "Authorization" auth))
-            response     (call! (assoc opts :url url :headers headers))
-            wait         (not-before (:headers response) (time/now))]
-        (cond-> (assoc response
-                       :etag          (header (:headers response) "etag")
-                       :last-modified (header (:headers response) "last-modified"))
-          wait (assoc :not-before wait))))))
+  The `opts` are these:
+
+  - :etag and :last-modified from an earlier response. They go as
+    If-None-Match and If-Modified-Since, and a 304 then comes back with
+    no body.
+  - :credentials of a private feed, as authorization takes them
+  - :user-agent, to send in place of user-agent
+  - :timeout-seconds, :max-bytes and :allow?, as call! takes them
+  - :send, the function that sends the request, call! by default"
+  ([url]
+   (fetch! url {}))
+  ([url {:keys [send] :or {send call!} :as opts}]
+   (async/then (send (feed-request url opts))
+               (fn [{:keys [headers] :as response}]
+                 (let [wait (not-before headers (time/now))]
+                   (cond-> (assoc response
+                                  :etag          (header headers "etag")
+                                  :last-modified (header headers "last-modified"))
+                     wait (assoc :not-before wait)))))))
 
 #?(:clj
    (defn digest!

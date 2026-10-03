@@ -36,6 +36,7 @@
   feed/episode-id gives it."
   (:refer-clojure :exclude [merge])
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.format.chapters :as chapters]
@@ -113,6 +114,21 @@
        (sort-by (fn [[g {:keys [removed? updated-at]}]]
                   [(if removed? 0 1) (or (some-> updated-at inst-ms) 0) (str g)]))
        (into {} (map (fn [[g e]] [(normal-url (:url e)) g])))))
+
+(defn takeover
+  "Check whether subscribing `state` to the feed at `url`, under the guid
+  `feed-guid` that the feed declares, would replace the subscription of
+  another feed. It gives the diagnostic :fetch/guid-taken if so, and nil
+  if not.
+
+  A feed can declare any guid, so check a new feed with it before
+  subscribe. Two forms of one URL, e.g. with http and https, count as the
+  same feed."
+  [state feed-guid url]
+  (when (subscribed? state feed-guid)
+    (let [other (get-in state [:subscriptions feed-guid :url])]
+      (when (not= (normal-url other) (normal-url url))
+        (diagnostics/describe {:id :fetch/guid-taken :url url :feed-guid feed-guid :other-url other})))))
 
 (defn subscribe
   "Subscribe `state` to the feed `feed-guid` at `at`, with the :url and

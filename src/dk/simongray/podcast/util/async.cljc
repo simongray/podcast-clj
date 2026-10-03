@@ -2,9 +2,9 @@
   "Futures on the JVM and promises in ClojureScript behind one set of
   functions, so that code that waits for answers is written once.
 
-  The then, all, attempt and iteration functions take a value, a future
-  or a promise alike, and in-groups makes calls a group at a time."
-  (:refer-clojure :exclude [iteration])
+  The then, all, some, attempt and iteration functions take a value, a
+  future or a promise alike, and in-groups makes calls a group at a time."
+  (:refer-clojure :exclude [iteration some])
   (:require [clojure.string :as str]))
 
 (defn then
@@ -44,6 +44,19 @@
             (then acc (fn [done] (then (all f group) #(into done %)))))
           []
           (partition-all n xs)))
+
+(defn some
+  "The first logical true result of `f` on the `xs`, or nil, as
+  clojure.core/some gives it. On the JVM it gives the result, and in
+  ClojureScript a promise of it.
+
+  Each call of `f` gives a value, a future or a promise, and the calls go
+  one at a time, so none is made after the first true result."
+  [f xs]
+  (reduce (fn [found x] (then found #(or % (f x))))
+          ;; a promise in ClojureScript, even when there are no xs
+          (then nil identity)
+          xs))
 
 (defn attempt
   "The result of calling `f` as a map of its :value, in a future or a

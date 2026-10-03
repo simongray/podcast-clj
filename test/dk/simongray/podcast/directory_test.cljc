@@ -7,7 +7,8 @@
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.test-support :refer [fixture]]
+            [dk.simongray.podcast.test-support :refer [fixture run]]
+            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]))
 
 (def apple-search
@@ -133,23 +134,24 @@
                                                 "{\"feed\":{\"entry\":{\"im:name\":{\"label\":\"Alone\"}}}}"))))
       (is (= [] (directory/response :apple :trending "{\"feed\":{}}"))))))
 
-#?(:clj
-   (deftest the-charts-of-a-category-combined
-     (let [asked (atom [])]
-       (with-redefs [http/call! (fn [{:keys [url]}]
-                                  (swap! asked conj url)
-                                  (cond
-                                    (str/includes? url "/rss/toppodcasts/") {:status 200 :body apple-genre-chart}
-                                    (str/includes? url "/lookup")           {:status 200 :body apple-lookup}
-                                    (str/includes? url "/api/2/tag/")       {:status 200 :body gpodder-toplist}
-                                    :else                                   {:status 500 :body ""}))]
-         (let [{:keys [results failed]} (directory/fetch-chart! {:category "Technology" :country "dk" :limit 2})]
-           (is (= {:fyyd "fyyd has no chart by category"} failed) "a source without such a chart tells so")
-           (is (some #(str/includes? % "genre=1318") @asked))
-           (is (some #(str/includes? % "lookup?id=1745048921%2C1701616757") @asked)
-               "the shows of the chart of Apple, looked up for their feeds")
-           (is (some #(str/ends-with? % "/api/2/tag/technology/2.json") @asked))
-           (is (= "Jagten på det evige liv" (:rss/title (first results)))))))))
+(deftest the-charts-of-a-category-combined
+  (let [asked (atom [])
+        send  (fn [{:keys [url]}]
+                (swap! asked conj url)
+                (cond
+                  (str/includes? url "/rss/toppodcasts/") {:status 200 :body apple-genre-chart}
+                  (str/includes? url "/lookup")           {:status 200 :body apple-lookup}
+                  (str/includes? url "/api/2/tag/")       {:status 200 :body gpodder-toplist}
+                  :else                                   {:status 500 :body ""}))]
+    (run (fn []
+           (async/then (directory/fetch-chart! {:category "Technology" :country "dk" :limit 2 :send send})
+                       (fn [{:keys [results failed]}]
+                         (is (= {:fyyd "fyyd has no chart by category"} failed) "a source without such a chart tells so")
+                         (is (some #(str/includes? % "genre=1318") @asked))
+                         (is (some #(str/includes? % "lookup?id=1745048921%2C1701616757") @asked)
+                             "the shows of the chart of Apple, looked up for their feeds")
+                         (is (some #(str/ends-with? % "/api/2/tag/technology/2.json") @asked))
+                         (is (= "Jagten på det evige liv" (:rss/title (first results))))))))))
 
 (deftest another-service
   (let [mirror (assoc (:fyyd directory/sources) :id :mirror :name "A mirror" :root "https://fyyd.example.org/0.2")
@@ -178,9 +180,9 @@
         (is (= {:fyyd 61003 :mirror 61003} (:directory/sources show)))))
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request {:api :spotify :root "https://x/"} :search {:q "x"}))
         "an API that podcast-clj does not know")
-    #?(:clj (testing "a source that fails is named by its id"
-              (with-redefs [http/call! (fn [_] {:status 500 :body "down"})]
-                (is (= [:mirror] (keys (:failed (directory/search! "x" {:sources [mirror]}))))))))))
+    (run #(async/then (directory/search! "x" {:sources [mirror] :send (constantly {:status 500 :body "down"})})
+                      (fn [{:keys [failed]}]
+                        (is (= [:mirror] (keys failed)) "a source that fails is named by its id"))))))
 
 (deftest apple
   (testing "search results"
@@ -269,14 +271,14 @@
     (is (string? (:rss/title show)))
     (is (= [] (directory/response :podcastindex :search "{\"status\": \"false\", \"description\": \"no\"}")))))
 
-#?(:clj
-   (deftest statuses
-     (testing "a refused key is a failure, named as one, not an empty answer"
-       (with-redefs [http/call! (fn [_] {:status 401 :body "{\"status\":\"false\",\"description\":\"Authorization header value is not valid\"}"})]
-         (is (= [:podcastindex] (keys (:failed (directory/search! "x" {:sources [:podcastindex] :credentials {:key "k" :secret "s"}})))))))
-     (testing "and a 404 is no shows"
-       (with-redefs [http/call! (fn [_] {:status 404 :body "Not Found"})]
-         (is (= [] (directory/call! :fyyd :lookup {:id 1})))))))
+(deftest statuses
+  (let [refused (constantly {:status 401 :body "{\"status\":\"false\",\"description\":\"Authorization header value is not valid\"}"})]
+    (run #(async/then (directory/search! "x" {:sources [:podcastindex] :credentials {:key "k" :secret "s"} :send refused})
+                      (fn [{:keys [failed]}]
+                        (is (= [:podcastindex] (keys failed)) "a refused key is a failure, named as one, not an empty answer")))
+         #(async/then (directory/call! :fyyd :lookup {:id 1} {:send (constantly {:status 404 :body "Not Found"})})
+                      (fn [shows]
+                        (is (= [] shows) "and a 404 is no shows"))))))
 
 (deftest combined
   (let [apple   (directory/response :apple :lookup apple-lookup)

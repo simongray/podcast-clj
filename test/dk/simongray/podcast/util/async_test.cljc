@@ -33,6 +33,16 @@
              (is (= ["a" "a" "a" "b" "b" "c" "x"] (sort @asked))
                  "a limit of 0 asks for the first page and keeps nothing, as clojure.core/iteration does under (take 0)"))))))
 
+(deftest the-first-true-result-in-turn
+  (let [asked (atom [])
+        ask   (fn [n]
+                (swap! asked conj n)
+                (deferred/then nil (constantly (when (even? n) (* 10 n)))))]
+    (run #(deferred/then (deferred/all [(deferred/some ask [1 2 3 4]) (deferred/some ask [1 3]) (deferred/some ask [])])
+                         (fn [[found none nothing]]
+                           (is (= [20 nil nil] [found none nothing]))
+                           (is (= [1 1 2 3] (sort @asked)) "no call after the first true result"))))))
+
 #?(:clj
    (deftest values-and-futures
      (is (= 2 (deferred/then 1 inc)))

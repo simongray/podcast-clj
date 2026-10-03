@@ -271,8 +271,8 @@ behind one shape. The results have the keys of a parsed feed, so
 `feed.resolve` works on them, and what only a directory knows goes under
 `:directory/*`. `combine` merges the answers of several sources into one
 entry per show, so a chart entry, which names no feed, gets its feed URL
-from a lookup or another source. On the JVM, `search!` asks all sources at
-once, and a source that fails ends up under `:failed` instead of throwing.
+from a lookup or another source. A search asks all sources at once, and a
+source that fails ends up under `:failed` instead of throwing.
 
 A chart can be for one category, but each source names categories its own
 way. The Podcast Index silently gives the chart of all categories for a

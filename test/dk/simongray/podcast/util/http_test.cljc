@@ -145,6 +145,25 @@
   (is (= ["https://host.example/a@b" nil] (http/split-credentials "https://host.example/a@b")) "an @ in the path is no user")
   (is (= ["https://host.example/feed.xml" nil] (http/split-credentials "https://host.example/feed.xml"))))
 
+(deftest the-request-for-a-feed
+  (let [request (http/feed-request "https://u:p@example.org/feed.xml"
+                                   {:etag "\"v1\"" :last-modified "Tue, 29 Sep 2026 10:00:00 GMT" :max-bytes 100 :max-pages 3})]
+    (is (= "https://example.org/feed.xml" (:url request)) "the URL without the credentials")
+    (is (= {"If-None-Match" "\"v1\"" "If-Modified-Since" "Tue, 29 Sep 2026 10:00:00 GMT" "Authorization" "Basic dTpw"}
+           (select-keys (:headers (http/revealed request)) ["If-None-Match" "If-Modified-Since" "Authorization"])))
+    (is (= [100 false] [(:max-bytes request) (contains? request :max-pages)]) "only the options of call!")))
+
+(deftest fetching-a-feed-through-a-send
+  (let [sent (atom nil)
+        send (fn [request]
+               (reset! sent request)
+               {:status 304 :url (:url request) :headers {"etag" ["\"v1\""] "retry-after" ["120"]}})]
+    (run #(async/then (http/fetch! "https://example.org/feed.xml" {:etag "\"v1\"" :send send})
+                      (fn [response]
+                        (is (= "\"v1\"" (get-in @sent [:headers "If-None-Match"])) "the request of feed-request")
+                        (is (= [304 "\"v1\""] ((juxt :status :etag) response)))
+                        (is (inst? (:not-before response))))))))
+
 (deftest urls-made-absolute
   (let [page "https://a.example/show/feed.xml"]
     (testing "as a browser resolves them"

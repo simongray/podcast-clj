@@ -141,6 +141,16 @@
                    (fn [_]
                      (is (= 3 (count @asked)) "one at a time reaches them all")))))))
 
+(deftest the-default-fetch
+  (let [asked (atom [])
+        send  (fn [{:keys [url headers]}]
+                (swap! asked conj [url (get headers "If-None-Match")])
+                {:status 304 :url url})]
+    (run #(async/then (feeds/refresh! feeds (at 86400) {:send send})
+                      (fn [{:keys [feeds changed report]}]
+                        (is (= [[url "\"v1\""]] @asked) "fetch! of the root namespace, through the :send")
+                        (is (= [[] [] 304] [changed report (:status (get feeds guid))])))))))
+
 #?(:clj
    (deftest fetching-at-once
      (let [many  (into {} (for [i (range 8)] [(str "g" i) {:url (str "https://example.org/" i ".xml")}]))

@@ -6,9 +6,11 @@
   of Podcasting 2.0. The strict parse comes first, and the repairs only run
   when the document is malformed, with everything they did in the report.
 
-  On the JVM, fetch! fetches and parses a feed. On both platforms,
-  find-feeds! finds the feeds of a show from what a listener types, such
-  as a domain, the address of a web page or a link of an app."
+  The fetch! function fetches and parses a feed, and find-feeds! finds the
+  feeds of a show from what a listener types, such as a domain, the
+  address of a web page or a link of an app. Both send their requests
+  with the :send of their options, and in ClojureScript they give
+  promises."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory :as directory]
@@ -16,11 +18,11 @@
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.quirks :as quirks]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.updates.websub :as websub]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.xml :as xml]
-            #?(:clj [dk.simongray.podcast.updates.websub :as websub])))
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (defn- malformed?
   [e]
@@ -144,123 +146,136 @@
    {:pre [(map? opts)]}
    (xml/emit (feed/emit feed opts))))
 
-#?(:clj
-   (defn- page!
-     "Fetch and parse the page at `url` of a paged feed with `opts`, and
-     give a map of its :url and :feed. When the page can't be read, the
-     reason is the :failure instead of the :feed."
-     [url opts]
-     (try
-       (let [{:keys [status body]} (http/fetch! url (select-keys opts [:credentials :timeout-seconds :max-bytes :user-agent :allow?]))]
-         (if (and (= 200 status) body)
-           {:url url :feed (parse body (select-keys opts [:quirks? :registry :except]))}
-           {:url url :failure (str "HTTP " status)}))
-       (catch Exception e
-         {:url url :failure (or (ex-message e) (str e))}))))
+(defn- read-page
+  "The page at `url` of a paged feed in the `response` to its request,
+  parsed with `opts`. It's a map of the :url and the :feed, or of the :url
+  and the :failure, the reason that the page can't be read."
+  [url {:keys [status body] :as response} opts]
+  (if (and (= 200 status) body)
+    (try
+      {:url url :feed (parse body (select-keys opts [:quirks? :registry :except]))}
+      (catch #?(:clj Exception :cljs :default) e
+        {:url url :failure (async/explain e)}))
+    {:url url :failure (str "HTTP " status)}))
 
-#?(:clj
-   (defn- later-pages
-     "Up to `n` pages after `feed`, the page at `url` that the URL `asked`
-     led to, fetched with `opts`. Each page is the next of the one before,
-     until a page repeats.
+(defn- page!
+  "Fetch the page at `url` of a paged feed with `opts`, and read it as
+  read-page does. Deferred."
+  [url opts]
+  (async/then (async/attempt #(http/fetch! url (select-keys opts [:credentials :timeout-seconds :max-bytes :user-agent :allow? :send])))
+              (fn [{:keys [value error]}]
+                (if error
+                  {:url url :failure (async/explain error)}
+                  (read-page url value opts)))))
 
-     The feed names its pages, so the :credentials in `opts` only go to
-     pages at the origin of `asked`, since a redirect can move `url` to
-     another origin."
-     [asked url feed n opts]
-     (let [next-of  (fn [url feed seen]
-                      (when-let [next (some->> (resolve/next-page feed) (http/absolute-url url))]
-                        (when-not (seen next)
-                          {:url next :seen (conj seen next)})))
-           opts-for (fn [page-url] (cond-> opts (not (http/same-origin? asked page-url)) (dissoc :credentials)))]
-       (into []
-             (take n)
-             (iteration (fn [k] (when k (assoc (page! (:url k) (opts-for (:url k))) :seen (:seen k))))
-                        :initk (next-of url feed #{url})
-                        :kf    (fn [{:keys [url feed seen]}] (when feed (next-of url feed seen))))))))
+(defn- later-pages
+  "Up to `n` pages after `feed`, the page at `url` that the URL `asked` led
+  to, fetched with `opts`. Each page is the next of the one before, until
+  a page repeats. Deferred.
 
-#?(:clj
-   (defn ^:no-doc attempted
-     "The result of calling `f` as the :value. When it throws, the :error is
-     the diagnostic `id` about `url`, with the reason."
-     [id url f]
-     (try
-       {:value (f)}
-       (catch Exception e
-         {:error (diagnostics/describe {:id id :url url :reason (async/explain e)})}))))
+  The feed names its pages, so the :credentials in `opts` only go to
+  pages at the origin of `asked`, since a redirect can move `url` to
+  another origin."
+  [asked url feed n opts]
+  (let [next-of  (fn [url feed seen]
+                   (when-let [next (some->> (resolve/next-page feed) (http/absolute-url url))]
+                     (when-not (seen next)
+                       {:url next :seen (conj seen next)})))
+        opts-for (fn [page-url] (cond-> opts (not (http/same-origin? asked page-url)) (dissoc :credentials)))]
+    (async/iteration (fn [k] (when k (async/then (page! (:url k) (opts-for (:url k))) #(assoc % :seen (:seen k)))))
+                     :initk (next-of url feed #{url})
+                     :kf    (fn [{:keys [url feed seen]}] (when feed (next-of url feed seen)))
+                     :limit n)))
 
-#?(:clj
-   (defn- with-pages
-     "The feed `first-page`, the page at `url` that the URL `asked` led to,
-     joined with the pages after it, up to the :max-pages of `opts`.
+(defn ^:no-doc attempted
+  "The result of calling `f` as the :value. When it throws, the :error is
+  the diagnostic `id` about `url`, with the reason."
+  [id url f]
+  (try
+    {:value (f)}
+    (catch #?(:clj Exception :cljs :default) e
+      {:error (diagnostics/describe {:id id :url url :reason (async/explain e)})})))
 
-     A later page that can't be read gets a diagnostic in the report of the
-     feed."
-     [asked url first-page {:keys [max-pages] :or {max-pages 1} :as opts}]
-     (let [pages  (when (> max-pages 1) (later-pages asked url first-page (dec max-pages) opts))
-           failed (first (remove :feed pages))]
-       (cond-> (if (seq pages)
-                 (feed/join-pages (cons first-page (keep :feed pages)))
-                 first-page)
-         failed (vary-meta update :podcast/report conj
-                           {:id :fetch/page-failed :level :warning
-                            :url (:url failed) :reason (:failure failed)})))))
+(defn- joined
+  "The feed `first-page` joined with the `pages` after it, as later-pages
+  gives them. A page that can't be read gets a diagnostic in the report of
+  the feed."
+  [first-page pages]
+  (let [failed (first (remove :feed pages))]
+    (cond-> (if (seq pages)
+              (feed/join-pages (cons first-page (keep :feed pages)))
+              first-page)
+      failed (vary-meta update :podcast/report conj
+                        {:id :fetch/page-failed :level :warning
+                         :url (:url failed) :reason (:failure failed)}))))
 
-#?(:clj
-   (defn- read-answer
-     "What fetch! gives for the 200 `response` to the request for `asked`,
-     parsed with `opts`. It's the body, the feed and its report, or an
-     :error for a body that isn't a feed."
-     [asked {:keys [url body] :as response} opts]
-     (let [{first-page :value error :error}
-           (attempted :fetch/malformed url #(parse (str body) (select-keys opts [:quirks? :registry :except])))]
-       (if error
-         (cond-> {:error error} body (assoc :body body))
-         (let [feed  (with-pages asked url first-page opts)
-               moved (resolve/new-feed-url feed)
-               hubs  (websub/discover response first-page)]
-           (cond-> {:body body :feed feed :report (report feed)}
-             moved (assoc :new-feed-url moved)
-             hubs  (assoc :websub hubs)))))))
+(defn- with-pages
+  "The feed `first-page`, the page at `url` that the URL `asked` led to,
+  joined with the pages after it, up to the :max-pages of `opts`.
+  Deferred."
+  [asked url first-page {:keys [max-pages] :or {max-pages 1} :as opts}]
+  (async/then (when (> max-pages 1) (later-pages asked url first-page (dec max-pages) opts))
+              #(joined first-page %)))
 
-#?(:clj
-   (defn fetch!
-     "Fetch the feed at `url` and parse it with the `opts` below, the one
-     step that a poller repeats:
+(defn- feed-result
+  "What fetch! gives for the 200 `response` whose body is the page
+  `first-page`, once that page is joined with the pages after it in
+  `feed`: the body, the feed and its report, and any move or WebSub hubs."
+  [{:keys [body] :as response} first-page feed]
+  (let [moved (resolve/new-feed-url feed)
+        hubs  (websub/discover response first-page)]
+    (cond-> {:body body :feed feed :report (report feed)}
+      moved (assoc :new-feed-url moved)
+      hubs  (assoc :websub hubs))))
 
-         {:status 200 :url \"…\"             ; the final URL, after redirects
-          :permanent-url \"…\"               ; when redirects moved it for good
-          :etag \"…\" :last-modified \"…\"    ; to send next time
-          :not-before #inst \"…\"            ; when the server asks you to wait
-          :body \"…\" :feed {…} :report [...] ; on a 200
-          :new-feed-url \"…\"                ; when the feed declares a move
-          :websub {:hubs [\"…\"] :topic \"…\"}  ; when the feed names a WebSub hub
-          :error {…}}                      ; when there's no answer or no feed
+(defn- read-answer
+  "What fetch! gives for the 200 `response` to the request for `asked`,
+  parsed with `opts`, as feed-result gives it, or an :error for a body
+  that isn't a feed. Deferred."
+  [asked {:keys [url body] :as response} opts]
+  (let [{first-page :value error :error}
+        (attempted :fetch/malformed url #(parse (str body) (select-keys opts [:quirks? :registry :except])))]
+    (if error
+      (cond-> {:error error} body (assoc :body body))
+      (async/then (with-pages asked url first-page opts) #(feed-result response first-page %)))))
 
-     The `opts` are:
+(defn fetch!
+  "Fetch the feed at `url` and parse it with the `opts` below, the one
+  step that a poller repeats. In ClojureScript, it gives a promise:
 
-     - :etag and :last-modified, from the last fetch
-     - :credentials, for a private feed, or else those in the `url`
-     - :max-pages, the most pages of a paged feed to fetch and join
-     - the options of http/fetch! and parse
+      {:status 200 :url \"…\"             ; the final URL, after redirects
+       :permanent-url \"…\"               ; when redirects moved it for good
+       :etag \"…\" :last-modified \"…\"    ; to send next time
+       :not-before #inst \"…\"            ; when the server asks you to wait
+       :body \"…\" :feed {…} :report [...] ; on a 200
+       :new-feed-url \"…\"                ; when the feed declares a move
+       :websub {:hubs [\"…\"] :topic \"…\"}  ; when the feed names a WebSub hub
+       :error {…}}                      ; when there's no answer or no feed
 
-     Nothing is thrown for what the network, the server or the body does.
-     The result has an :error diagnostic when there's no answer or no
-     feed, and any other status comes back as :status."
-     ([url]
-      (fetch! url {}))
-     ([url opts]
-      {:pre [(map? opts)]}
-      (let [[url in-url] (http/split-credentials url)
-            opts         (cond-> opts (and in-url (not (:credentials opts))) (assoc :credentials in-url))
-            {response :value error :error}
-            (attempted :fetch/unreachable url
-                       #(http/fetch! url (select-keys opts [:etag :last-modified :credentials :timeout-seconds :max-bytes :user-agent :allow?])))
-            result       (select-keys response [:status :url :permanent-url :etag :last-modified :not-before])]
-        (cond
-          error                      {:url url :error error}
-          (= 200 (:status response)) (merge result (read-answer url response opts))
-          :else                      result)))))
+  The `opts` are:
+
+  - :etag and :last-modified, from the last fetch
+  - :credentials, for a private feed, or else those in the `url`
+  - :max-pages, the most pages of a paged feed to fetch and join
+  - :send, the function that sends each request, http/call! by default
+  - the options of http/fetch! and parse
+
+  Nothing is thrown for what the network, the server or the body does.
+  The result has an :error diagnostic when there's no answer or no
+  feed, and any other status comes back as :status."
+  ([url]
+   (fetch! url {}))
+  ([url opts]
+   {:pre [(map? opts)]}
+   (let [[url in-url] (http/split-credentials url)
+         opts         (cond-> opts (and in-url (not (:credentials opts))) (assoc :credentials in-url))]
+     (async/then (async/attempt #(http/fetch! url (select-keys opts [:etag :last-modified :credentials :timeout-seconds :max-bytes :user-agent :allow? :send])))
+                 (fn [{response :value error :error}]
+                   (let [result (select-keys response [:status :url :permanent-url :etag :last-modified :not-before])]
+                     (cond
+                       error                      {:url url :error (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})}
+                       (= 200 (:status response)) (async/then (read-answer url response opts) #(merge result %))
+                       :else                      result)))))))
 
 (defn- discovery-request
   "The request for the feed or the web page at `url`, with the :user-agent

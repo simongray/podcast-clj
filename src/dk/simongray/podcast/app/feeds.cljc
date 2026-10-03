@@ -16,7 +16,7 @@
 
   The new episodes of a changed feed are found by
   dk.simongray.podcast.profile/refresh."
-  (:require #?(:clj [dk.simongray.podcast :as podcast])
+  (:require [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
@@ -188,26 +188,23 @@
 
   - :guids, the feeds to fetch instead of the due ones, e.g.
     (affected feeds pings) after a Podping
-  - :fetch, a function that works like dk.simongray.podcast/fetch!, which
-    ClojureScript needs, e.g. to fetch through your own server
+  - :fetch, in place of dk.simongray.podcast/fetch!
   - :credentials-of, a function from the URL of a private feed to its
     :credentials, so that no password is stored in the feeds and none
     goes to another URL
   - :parallel, how many feeds to fetch at once, and :cadence
-  - :timeout-seconds, :max-bytes, :user-agent and :allow?, as fetch!
-    takes them"
+  - :send, :timeout-seconds, :max-bytes, :user-agent and :allow?, as
+    fetch! takes them"
   ([feeds now]
    (refresh! feeds now {}))
   ([feeds now {:keys [guids fetch credentials-of parallel cadence]
-               :or   {fetch    #?(:clj podcast/fetch! :cljs nil)
+               :or   {fetch    podcast/fetch!
                       parallel default-parallel
                       cadence  {}}
                :as   opts}]
    {:pre [(map? opts)]}
-   (when-not fetch
-     (throw (ex-info "refresh! needs :fetch, a function that fetches a feed" {})))
    (let [guids  (vec (or guids (due feeds now)))
-         common (select-keys opts [:timeout-seconds :max-bytes :user-agent :allow?])
+         common (select-keys opts [:send :timeout-seconds :max-bytes :user-agent :allow?])
          fetch1 (fn [guid]
                   (let [{:keys [url etag last-modified]} (get feeds guid)
                         credentials (when credentials-of (credentials-of url))

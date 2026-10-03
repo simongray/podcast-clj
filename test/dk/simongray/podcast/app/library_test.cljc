@@ -193,6 +193,15 @@
                        (is (= show (get-in lib' [:feeds guid :feed])))
                        (is (= 1 (:failures (get-in lib' [:feeds guid])))))))))))
 
+(deftest a-new-subscription-through-the-send
+  (let [xml  (fixture "feeds/namespace-example.xml")
+        lib  (library/update-profile (library/make "phone") profile/subscribe "g" {:url url})
+        send (fn [request] {:status 200 :url (:url request) :body xml})]
+    (run #(async/then (library/refresh! lib {:at now :send send})
+                      (fn [{{:keys [report]} :refresh :as lib'}]
+                        (is (= [] report))
+                        (is (= [guid] (keys (:feeds lib'))) "fetch! by default, through the :send, without a :fetch"))))))
+
 (deftest a-feed-that-declares-the-guid-of-another
   (let [evil-url "https://evil.example/feed.xml"
         sent     (atom [])

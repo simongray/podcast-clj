@@ -49,7 +49,13 @@
         (is (= "declared" (get (profile/by-url moved) (profile/normal-url "https://a/rss"))) "the live one names the URL")
         (is (= ["declared"] (keys (profile/subscriptions (profile/merge other moved)))) "the other device learns the move")
         (is (= s (profile/rekey s "feed-a" "feed-a" t2)) "the same guid changes nothing")
-        (is (= s (profile/rekey s "feed-b" "declared" t2)) "no subscription, nothing to move")))))
+        (is (= s (profile/rekey s "feed-b" "declared" t2)) "no subscription, nothing to move")))
+    (testing "a feed at another URL that declares the guid would take the subscription over"
+      (is (= [:fetch/guid-taken "https://evil/rss" "feed-a" "https://a/rss"]
+             ((juxt :id :url :feed-guid :other-url) (profile/takeover s "feed-a" "https://evil/rss"))))
+      (is (nil? (profile/takeover s "feed-a" "http://a/rss/")) "another form of the same URL")
+      (is (nil? (profile/takeover s "feed-b" "https://evil/rss")) "a guid without a subscription")
+      (is (nil? (profile/takeover (profile/unsubscribe s "feed-a" t2) "feed-a" "https://evil/rss")) "or with a removed one"))))
 
 (deftest progress-and-played
   (let [s (-> (profile/make "phone")

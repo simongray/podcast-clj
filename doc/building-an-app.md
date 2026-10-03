@@ -51,8 +51,9 @@ functions that only exist on the JVM.
 ## What you build yourself
 
 - Store the library, and the record of the files on the device.
-- In a browser, fetch feeds and query directories yourself, since each
-  server decides what a page may fetch.
+- In a browser, a route on your own server that sends requests for the
+  page, since few feed hosts and directories let a page read their
+  answers. The functions that send requests take it as `:send`.
 - Play the media, as the effects of `library/step` say.
 - Download and delete episode files, as `library/plan` says, when the
   network and the battery allow it.
@@ -94,9 +95,8 @@ The Podcast Index has no names for subcategories like Tech News, so give a
 category for each source: `{:category {:apple "Tech News" :podcastindex
 "Technology,News"}}`.
 
-In a browser, build the request with `directory/request` and read the
-answer with `directory/response`. Whether a page may send it depends on
-the CORS policy of each directory.
+In a browser, whether a page may ask a directory depends on its CORS
+policy, so give `search!` a `:send` that goes through your own server.
 
 
 ## Subscribe to a show
@@ -154,13 +154,14 @@ credentials, use `http/split-credentials`. Wrap the password with
 (podcast/fetch! url {:credentials creds})
 ```
 
-In a browser, `fetch!` doesn't exist and few feed servers allow requests
-from other origins. Fetch the XML through your own server, and give it to
-`podcast/parse`.
+In a browser, few feed servers allow requests from other origins, so give
+`fetch!` a `:send` that sends the request through your own server.
 
 Without the library, `feeds/add` keeps the feed along with its ETag and
 Last-Modified, and `profile/subscribe` adds the subscription. Every id in
-the profile uses the guid that `feed/feed-guid` gives a feed.
+the profile uses the guid that `feed/feed-guid` gives a feed. A feed can
+declare the guid of another subscription and take it over, so check a new
+feed with `profile/takeover` first.
 
 
 ## Keep the feeds current
@@ -184,8 +185,9 @@ When to check a feed again depends on its update frequency, its `ttl` or
 the interval between its episodes, as `resolve/next-check` reads them. The
 setting `:cadence` changes the defaults, and `:credentials-of` gives the
 credentials of a private feed by its URL, so no password is stored in the
-library and none goes to another feed. In ClojureScript, give `:fetch`, a
-function that fetches through your own server.
+library and none goes to another feed. In a browser, put a `:send` that
+goes through your own server in the config of the library, and `refresh!`
+fetches each feed with it.
 
 Podping tells which feeds have changed, so they can be fetched at once.
 Keep the last block that you read and the writers, and poll every few

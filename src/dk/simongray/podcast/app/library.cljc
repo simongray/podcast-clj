@@ -40,7 +40,8 @@
   Each change is stamped with the time of the clock, or with the :at of
   the options, an instant. Give :at for an event that you handle later,
   e.g. in a background task, since it needs the time it happened."
-  (:require [dk.simongray.podcast.app.episode :as episode]
+  (:require [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.show :as show]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -130,15 +131,6 @@
     {:feed x}
     x))
 
-(defn- takeover
-  "The diagnostic for a feed at `url` that declares the guid `guid`, when
-  `library` has a live subscription to that guid at another URL, which
-  the feed would take over. Nil when it has none."
-  [library guid url]
-  (when-let [other (:url (get (profile/subscriptions (:profile library)) guid))]
-    (when (not= (profile/normal-url other) (profile/normal-url url))
-      (diagnostics/describe {:id :fetch/guid-taken :url url :feed-guid guid :other-url other}))))
-
 (defn subscribe
   "The `library` subscribed to the feed at `url`, with what was `fetched`
   and the settings in `opts`.
@@ -148,8 +140,8 @@
 
   It throws when the feed declares the guid of another subscription, at
   another URL, since the feed would take that subscription over. The
-  ex-data is the diagnostic :fetch/guid-taken. To replace the other
-  subscription, unsubscribe from it first."
+  ex-data is the diagnostic that profile/takeover gives. To replace the
+  other subscription, unsubscribe from it first."
   ([library url fetched]
    (subscribe library url fetched {}))
   ([library url fetched opts]
@@ -159,7 +151,7 @@
          result   (fetch-result fetched)
          feed     (:feed result)
          guid     (feed/feed-guid feed url)]
-     (when-let [taken (takeover library guid url)]
+     (when-let [taken (profile/takeover (:profile library) guid url)]
        (throw (ex-info (:message taken) taken)))
      (-> library
          (update :feeds feeds/add url result now (:cadence (:config library) {}))
@@ -308,7 +300,7 @@
   A feed that couldn't be fetched, or that would take another
   subscription over, is tried again next time."
   [library now {:keys [fetch credentials-of parallel] :or {parallel feeds/default-parallel} :as opts}]
-  (let [common (select-keys opts [:timeout-seconds :max-bytes :user-agent :allow?])
+  (let [common (select-keys opts [:send :timeout-seconds :max-bytes :user-agent :allow?])
         fetch1 (fn [[guid url]]
                  (let [credentials (when credentials-of (credentials-of url))]
                    (async/then (async/attempt #(fetch url (cond-> common credentials (assoc :credentials credentials))))
@@ -319,7 +311,7 @@
     (async/then (async/in-groups fetch1 parallel (unfetched library))
                 (fn [results]
                   (reduce (fn [acc [guid url result]]
-                            (let [taken (when (:feed result) (takeover (:library acc) (feed/feed-guid (:feed result) url) url))]
+                            (let [taken (when (:feed result) (profile/takeover (get-in acc [:library :profile]) (feed/feed-guid (:feed result) url) url))]
                               (cond
                                 taken           (update acc :report conj taken)
                                 (:feed result)  (update acc :library known guid url result now)
@@ -374,12 +366,12 @@
   ([library opts]
    {:pre [(map? opts)]}
    (let [now  (time-of library opts)
-         opts (merge {:send http/call!} (options library opts))]
+         opts (merge {:send http/call! :fetch podcast/fetch!} (options library opts))]
      (async/then (lists-refreshed! library now opts)
                  (fn [{library :library report :report}]
                    (async/then (fetched-new! library now opts)
                                (fn [{library :library report-new :report}]
-                                 (async/then (feeds/refresh! (:feeds library) now (select-keys opts [:guids :fetch :credentials-of :parallel :cadence :timeout-seconds :max-bytes :user-agent :allow?]))
+                                 (async/then (feeds/refresh! (:feeds library) now (select-keys opts [:guids :fetch :credentials-of :parallel :cadence :send :timeout-seconds :max-bytes :user-agent :allow?]))
                                              (fn [step]
                                                (let [{:keys [library added moved]} (applied library step now)]
                                                  (assoc library :refresh {:at     now
@@ -563,7 +555,6 @@
 
 #?(:clj
    (comment
-     (require '[dk.simongray.podcast :as podcast])
      (def url "https://feeds.podcastindex.org/pc20.xml")
 
      (def lib (-> (make "dev-laptop" {:name "Laptop" :config {:languages ["da" "en"]}})

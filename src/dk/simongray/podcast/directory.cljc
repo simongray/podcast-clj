@@ -28,11 +28,11 @@
   - :trending, the chart of the source
 
   Apple, fyyd and gpodder.net need no credentials, and the Podcast Index
-  takes its under the :credentials option. On the JVM, search! and
-  fetch-chart! ask several sources at once and combine the answers into
-  one entry per show."
+  takes its under the :credentials option. The search! and fetch-chart!
+  functions ask several sources at once and combine the answers into
+  one entry per show, in ClojureScript in a promise."
   (:require [clojure.string :as str]
-            #?(:clj [dk.simongray.podcast.util.async :as async])
+            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.util.http :as http]
@@ -495,108 +495,118 @@
            {:entries [] :by-id {} :by-guid {} :by-name {}}
            results)))
 
-#?(:clj
-   (defn- default-sources
-     "Every source that needs no credentials, and the Podcast Index when
-     `opts` have :credentials."
-     [{:keys [credentials] :as opts}]
-     (cond-> [:apple :fyyd :gpodder] credentials (conj :podcastindex))))
+(defn- default-sources
+  "Every source that needs no credentials, and the Podcast Index when
+  `opts` have :credentials."
+  [{:keys [credentials] :as opts}]
+  (cond-> [:apple :fyyd :gpodder] credentials (conj :podcastindex)))
 
-#?(:clj
-   (defn call!
-     "Send `endpoint` with `params` and `opts` to `source` by the HTTP
-     client of podcast-clj, and read the shows in the answer.
+(defn call!
+  "Send `endpoint` with `params` and `opts` to `source`, and read the shows
+  in the answer, in ClojureScript in a promise.
 
-     The `opts` are those of request, and :timeout-seconds, the time to
-     wait for an answer. It's 15 by default, so a directory that doesn't
-     answer costs little.
+  The `opts` are those of request, and these:
 
-     A 404 gives no shows. Any other status that isn't a success throws with
-     the :type ::failed, so a refused key doesn't look like an empty
-     answer."
-     ([source endpoint params]
-      (call! source endpoint params {}))
-     ([source endpoint params opts]
-      {:pre [(map? opts)]}
-      (let [opts                  (cond-> opts (not (:auth-date opts)) (assoc :auth-date (quot (System/currentTimeMillis) 1000)))
-            req                   (assoc (request source endpoint params opts) :timeout-seconds (:timeout-seconds opts 15))
-            {:keys [status body]} (http/call! req)
-            id                    (source-id source)]
-        (cond
-          (<= 200 status 299) (response source endpoint body)
-          (= 404 status)      []
-          :else               (throw (ex-info (str (name id) " answered " status)
-                                              {:type ::failed :source id :status status})))))))
+  - :send, the function that sends the request, http/call! by default
+  - :timeout-seconds, the time to wait for an answer. It's 15 by default,
+    so a directory that doesn't answer costs little.
 
-#?(:clj
-   (defn- completed!
-     "Complete the `shows` that `source` answered for `endpoint` with what
-     a chart leaves out, fetched with `opts`. Apple's chart names no feed,
-     so its entries are looked up by id in one request."
-     [source endpoint shows opts]
-     (if (and (= :apple (:api (entry source))) (= :trending endpoint) (seq shows))
-       (concat shows (call! source :lookup {:id (keep :directory/id shows)} opts))
-       shows)))
+  A 404 gives no shows. Any other status that isn't a success throws with
+  the :type ::failed, so a refused key doesn't look like an empty answer."
+  ([source endpoint params]
+   (call! source endpoint params {}))
+  ([source endpoint params {:keys [send] :or {send http/call!} :as opts}]
+   {:pre [(map? opts)]}
+   (let [opts (cond-> opts (not (:auth-date opts)) (assoc :auth-date (quot (inst-ms (time/now)) 1000)))
+         req  (assoc (request source endpoint params opts) :timeout-seconds (:timeout-seconds opts 15))
+         id   (source-id source)]
+     (async/then (send req)
+                 (fn [{:keys [status body]}]
+                   (cond
+                     (<= 200 status 299) (response source endpoint body)
+                     (= 404 status)      []
+                     :else               (throw (ex-info (str (name id) " answered " status)
+                                                         {:type ::failed :source id :status status}))))))))
 
-#?(:clj
-   (defn ^:no-doc fan-out!
-     "Ask each of `sources` for `endpoint` with `params` and `opts` at once,
-     and combine what they answer.
+(defn- completed!
+  "Complete the `shows` that `source` answered for `endpoint` with what a
+  chart leaves out, fetched with `opts`. Apple's chart names no feed, so
+  its entries are looked up by id in one request. Deferred."
+  [source endpoint shows opts]
+  (if (and (= :apple (:api (entry source))) (= :trending endpoint) (seq shows))
+    (async/then (call! source :lookup {:id (keep :directory/id shows)} opts) #(concat shows %))
+    shows))
 
-     The result is a map of the :results and, under :failed, the error
-     message of each source that failed. A source that fails costs nothing
-     but its absence."
-     [sources endpoint params opts]
-     (let [answers (async/all (map (fn [source]
-                                     (async/attempt #(completed! source endpoint (call! source endpoint params opts) opts)))
-                                   sources))
-           failed  (into {} (for [[source {:keys [error]}] (map vector sources answers) :when error]
-                              [(source-id source) (async/explain error)]))]
-       (cond-> {:results (combine (mapcat :value answers))}
-         (seq failed) (assoc :failed failed)))))
+(defn- combined
+  "The shows that `sources` answered, combined as :results, and the error
+  message of each source that failed under :failed. The `answers` are
+  attempts as async/attempt gives them, one for each of `sources`."
+  [sources answers]
+  (let [failed (into {} (for [[source {:keys [error]}] (map vector sources answers) :when error]
+                          [(source-id source) (async/explain error)]))]
+    (cond-> {:results (combine (mapcat :value answers))}
+      (seq failed) (assoc :failed failed))))
 
-#?(:clj
-   (defn search!
-     "Search the directories for the shows that match the words `q`, with
-     `opts`. It gives a map of the :results and the :failed sources.
+(defn ^:no-doc fan-out!
+  "Ask each of `sources` for `endpoint` with `params` and `opts` at once,
+  and combine what they answer, in ClojureScript in a promise.
 
-     The results have one entry for each show, and the shows that the
-     most sources have come first. The :failed map has the message of
-     each source that failed. The `opts` are these:
+  The result is a map of the :results and, under :failed, the error
+  message of each source that failed. A source that fails costs nothing
+  but its absence."
+  [sources endpoint params opts]
+  (let [ask! (fn [source]
+               (async/attempt #(async/then (call! source endpoint params opts)
+                                           (fn [shows] (completed! source endpoint shows opts)))))]
+    (async/then (async/all (map ask! sources)) #(combined sources %))))
 
-     - :sources, each a name in sources or an entry. By default, they're
-       the sources without credentials, and the Podcast Index with
-       :credentials.
-     - :limit, the number of shows from each source
-     - :country, the store of Apple, e.g. \"dk\"
-     - :language, the filter of the Podcast Index, e.g. \"da\"
-     - :credentials, the :key and :secret of the Podcast Index
-     - :timeout-seconds, the time to wait for each source"
-     ([q]
-      (search! q {}))
-     ([q opts]
-      {:pre [(map? opts)]}
-      (let [sources (or (:sources opts) (default-sources opts))
-            params  (assoc (select-keys opts [:limit :country :language]) :q q)
-            answer  (fan-out! sources :search params opts)]
-        (update answer :results #(vec (sort-by (fn [show] (- (count (:directory/sources show)))) %)))))))
+(defn- most-sources-first
+  "The `shows` as a vector, those that the most sources have first."
+  [shows]
+  (vec (sort-by #(- (count (:directory/sources %))) shows)))
 
-#?(:clj
-   (defn fetch-chart!
-     "Fetch the charts of the directories with `opts`, and combine them as
-     search! does. The shows are in the order that the sources list them.
+(defn search!
+  "Search the directories for the shows that match the words `q`, with
+  `opts`. It gives a map of the :results and the :failed sources, in
+  ClojureScript in a promise.
 
-     The `opts` are those of search!, and :category, for the charts of one
-     category, as endpoints tells. A source that has no chart of the
-     category is in :failed, with the reason."
-     ([]
-      (fetch-chart! {}))
-     ([opts]
-      {:pre [(map? opts)]}
-      (fan-out! (or (:sources opts) (default-sources opts))
-                :trending
-                (select-keys opts [:limit :country :language :category])
-                opts))))
+  The results have one entry for each show, and the shows that the most
+  sources have come first. The :failed map has the message of each
+  source that failed. The `opts` are these:
+
+  - :sources, each a name in sources or an entry. By default, they're
+    the sources without credentials, and the Podcast Index with
+    :credentials.
+  - :limit, the number of shows from each source
+  - :country, the store of Apple, e.g. \"dk\"
+  - :language, the filter of the Podcast Index, e.g. \"da\"
+  - :credentials, the :key and :secret of the Podcast Index
+  - :timeout-seconds, the time to wait for each source
+  - :send, the function that sends each request, http/call! by default"
+  ([q]
+   (search! q {}))
+  ([q opts]
+   {:pre [(map? opts)]}
+   (let [sources (or (:sources opts) (default-sources opts))
+         params  (assoc (select-keys opts [:limit :country :language]) :q q)]
+     (async/then (fan-out! sources :search params opts)
+                 #(update % :results most-sources-first)))))
+
+(defn fetch-chart!
+  "Fetch the charts of the directories with `opts`, and combine them as
+  search! does. The shows are in the order that the sources list them.
+
+  The `opts` are those of search!, and :category, for the charts of one
+  category, as endpoints tells. A source that has no chart of the
+  category is in :failed, with the reason."
+  ([]
+   (fetch-chart! {}))
+  ([opts]
+   {:pre [(map? opts)]}
+   (fan-out! (or (:sources opts) (default-sources opts))
+             :trending
+             (select-keys opts [:limit :country :language :category])
+             opts)))
 
 #?(:clj
    (comment

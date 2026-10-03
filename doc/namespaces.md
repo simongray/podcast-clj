@@ -35,7 +35,7 @@ follows.
 
 | Namespace | Contents |
 |---|---|
-| `dk.simongray.podcast` | Parsing and writing feeds: `parse`, `emit`, `report` and `parse-tree`. On the JVM, `fetch!` fetches and parses a feed in one call. `find-feeds!` finds the feeds of a show from a domain, a web page or a link of an app. |
+| `dk.simongray.podcast` | Parsing and writing feeds: `parse`, `emit`, `report` and `parse-tree`. Also `fetch!`, which fetches and parses a feed in one call, and `find-feeds!`, which finds the feeds of a show from a domain, a web page or a link of an app. |
 
 ## Apps
 
@@ -88,8 +88,8 @@ follows.
 
 | Namespace | Contents |
 |---|---|
-| `directory` | Search and charts across Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results. On the JVM, `search!` and `fetch-chart!` ask them all at once. |
-| `directory.podcastindex` | The Podcast Index API, with signed requests and answers mapped onto the feed model. On the JVM, `fetch-remote-item!` and `fetch-remote-value!` resolve remote items. |
+| `directory` | Search and charts across Apple Podcasts, fyyd, gpodder.net and the Podcast Index, with one shape for all results. Both `search!` and `fetch-chart!` ask them all at once. |
+| `directory.podcastindex` | The Podcast Index API, with signed requests and answers mapped onto the feed model, and `fetch-remote-item!` and `fetch-remote-value!`, which resolve remote items. |
 | `directory.links` | Links to a show or an episode in other apps: `ids` reads the ids of a show, `links` writes the links, `link-ids` reads the ids back from a link, and `at-time` links to a moment in an episode. |
 | `updates.podping` | Podping: request maps for the Hive chain, and pings read from blocks and checked against the known writers. On the JVM, `poll!` reads the latest pings. For hosts, there's `notify-request`. |
 | `updates.websub` | WebSub, for a server: `discover` finds the hubs of a feed, `request` and `call!` subscribe, and `handler` is a Ring handler for the callback. For hosts, there's `publish-request`. |
@@ -144,7 +144,7 @@ follows.
 | `util.json` | JSON to data and back, on both platforms. |
 | `util.time` | Dates, durations and timestamps. |
 | `util.time.rrule` | RFC 5545 recurrence rules. |
-| `util.http` | Requests as maps, and `call!`, which sends them with byte ranges and limits of size and time. Also `probe!`, which learns the facts of a file from two bytes, and `public?`, which checks that a host is on the public internet. On the JVM, `fetch!` fetches a feed with conditional requests. For another HTTP client, `revealed` unhides the credentials of a request. |
+| `util.http` | Requests as maps, and `call!`, which sends them with byte ranges and limits of size and time. Also `probe!`, which learns the facts of a file from two bytes, and `public?`, which checks that a host is on the public internet. The `fetch!` function fetches a feed with conditional requests. For another HTTP client, `revealed` unhides the credentials of a request. |
 | `util.bytes` | Bytes on both platforms, and `read!`, which fetches the byte ranges that a reader asks for until it's done. Also hex, SHA-1, SHA-256 and HMAC. |
 | `util.async` | Futures on the JVM and promises in JavaScript behind one API, `all` and `in-groups` to make calls at the same time, and `iteration` for paged APIs on both platforms. |
 | `util.nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `call!` for one exchange with a relay. |
