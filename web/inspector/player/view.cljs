@@ -11,10 +11,12 @@
   names it: `[:play id]`, `[:skip id :back]`, `[:ended id]`, `[:sleep 1]`,
   `[:play-next id]`, `[:dequeue id]`, `[:prefer :skip-back]`, `[:sync]`,
   `[:folder/pick]`, `[:folder/allow]`, `[:folder/forget]`,
-  `[:document/save]`, `[:document/load]`, and from the audio element
-  `[:audio/loaded id position]` and `[:audio/time id]`. The shell in
-  inspector.player performs them."
+  `[:document/save]`, `[:document/load]`, `[:device/retire id]`, and from
+  the audio element `[:audio/loaded id position]`, `[:audio/time id]` and
+  `[:audio/paused id]`.
+  The shell in inspector.player performs them."
   (:require [cljs.pprint :as pprint]
+            [clojure.string :as str]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]))
@@ -59,6 +61,7 @@
                                    :replicant/key id
                                    :on {:loadedmetadata [:audio/loaded id position]
                                         :timeupdate     [:audio/time id]
+                                        :pause          [:audio/paused id]
                                         :ended          [:ended id]}}]
          episode   [:span.muted "No enclosure to play."]
          :else     [:span.muted "This browser has no data of the episode. Remove it, or open its item and play it."])
@@ -124,12 +127,15 @@
      [:p (field "Skip back" :skip-back skip-back) "   " (field "Skip forward" :skip-forward skip-forward)]]))
 
 (defn- devices
-  "The listener's devices and the sync through the inspector's folder."
+  "The listener's devices and the sync through the inspector's folder. A
+  device that lags behind can be retired, since it holds back the removal
+  of tombstones."
   [{:keys [profile synced syncing?]}]
-  (let [known (crdt/devices profile)]
+  (let [known   (crdt/devices profile)
+        lagging (crdt/lagging profile)]
     [:section
      [:h2 "Devices"]
-     [:p.muted "Every device writes its own document to the inspector's folder, served over WebDAV at /dav/, and reads the others'."]
+     [:p.muted "Every device writes its own document to the inspector's folder, served over WebDAV at /dav/, and reads the others'. This browser syncs when the page opens, when it's hidden, and when it's due while nothing plays."]
      (if (empty? known)
        [:p.muted "No device has described itself yet."]
        [:ul.compact
@@ -137,14 +143,17 @@
           [:li {:replicant/key id}
            (or name id)
            (when (= id (:device profile)) [:span.badge "this browser"])
-           " " [:span.muted id]])])
+           (when (contains? lagging id) [:span.badge "behind"])
+           " " [:span.muted id]
+           (when (not= id (:device profile))
+             (list " " [:button {:on {:click [:device/retire id]}} "Retire"]))])])
      [:p
       [:button {:on {:click [:sync]} :disabled syncing?} (if syncing? "Syncing…" "Sync now")]
       (when synced
         [:span.muted
          (str " Synced at " (.toLocaleTimeString ^js (:at synced)))
          (when-let [failed (:failed synced)]
-           (str "; failed: " (pr-str failed)))
+           (str "; failed: " (str/join ", " (for [[backend message] failed] (str backend ": " message)))))
          (when (seq (:report synced))
            (str "; " (count (:report synced)) " remark" (when (> (count (:report synced)) 1) "s")))])]
      (when (seq (:report synced))

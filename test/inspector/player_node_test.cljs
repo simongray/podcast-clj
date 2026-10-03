@@ -88,7 +88,12 @@
            (.click (first (filter #(= "Play now" (.-textContent %)) (buttons app))))
            (is (= ["feed" "b"] (profile/current (get-in @shell/app [:library :profile]))))
            (is (str/includes? (.-textContent bar) "From the other tab"))
-           (is (= [["feed" "b"] ["feed" "a"]] (profile/queue (get-in @shell/app [:library :profile]))) "and the other waits")))
+           (is (= [["feed" "b"] ["feed" "a"]] (profile/queue (get-in @shell/app [:library :profile]))) "and the other waits"))
+         (testing "the browser has an id of its own and a name"
+           (is (= (get-in @shell/app [:library :device]) (.getItem js/localStorage shell/device-key)))
+           (is (string? (get-in @shell/app [:library :profile :devices (.getItem js/localStorage shell/device-key) :name])))))
+       ;; closing the window stops the player's timer of syncs
+       (.close js/window)
        (done))
      100)))
 
@@ -103,6 +108,10 @@
       (let [merged (shell/with-other-tab mine other)]
         (is (= [a b] (profile/queue (get-in merged [:library :profile]))))
         (is (= {a {:title "A"} b {:title "B"}} (:titles merged)))))
+    (testing "and the cursors of the other tab's later sync, so the next step knows what it wrote"
+      (let [step   {:at (t 40) :cursors {"inspector" {:versions {"browser.edn" "7"}}} :report []}
+            merged (shell/with-other-tab mine (assoc-in other [:library :sync] step))]
+        (is (= step (get-in merged [:library :sync])))))
     (testing "a sync step merges its result into the page's library, and gives the state of the step"
       (let [synced (shell/with-synced mine (assoc (:library other) :sync {:at (t 40) :report []}))]
         (is (= [a b] (profile/queue (get-in synced [:library :profile]))) "what this tab did meanwhile stays")

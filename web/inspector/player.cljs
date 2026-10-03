@@ -10,8 +10,10 @@
   The player sits in a bar on every page. Clicking a link fetches the next
   page and swaps only the content below the bar, so that playback survives
   moving between pages; the queue page is the detailed view of the same
-  state, and syncs it on request through the inspector's own WebDAV folder
-  at /dav/, with `library/sync!` over the WebDAV store over fetch. It also
+  state. The player syncs it through the inspector's own WebDAV folder at
+  /dav/, with `library/sync!` over the WebDAV store: when the page opens,
+  when it's hidden, when it's due while nothing plays, and on request, one
+  tab at a time, as doc/building-an-app.md advises for a website. It also
   syncs through a folder that the listener picks, where the browser can
   pick one, and keeps the folder's handle in IndexedDB for the next visit;
   in every browser, the listener can save this browser's document into a
@@ -34,6 +36,11 @@
   "Where the state lives between visits."
   "dk.simongray.podcast.profile")
 
+(def device-key
+  "Where the id of this browser lives, apart from the state, so that a state
+  that fails to save makes no new device at the next visit."
+  "dk.simongray.podcast.device")
+
 (defonce ^{:doc "The whole state of the page: `:library` (the library of the
   listener, with the profile under `:profile` and the sleep timer
   under `:sleep`), `:titles` by episode id, and what the audio element
@@ -53,35 +60,58 @@
   (when (js/isFinite x)
     (js/Math.floor x)))
 
-(defn- fresh
-  "A state for this browser, under an id of its own, so that its documents
-  never meet another device's."
+(defn- stored
+  "The string in localStorage under `k`, or nil."
+  [k]
+  (try (.getItem js/localStorage k) (catch :default _ nil)))
+
+(defn- store!
+  [k s]
+  (try (.setItem js/localStorage k s) (catch :default _ nil)))
+
+(defn- browser-name
+  "A name for this browser that the listener can tell their devices apart
+  by, e.g. \"Firefox on macOS\"."
   []
-  {:library (library/make (str (random-uuid)) {:name "browser"})
-   :titles  {}})
+  (let [agent (str (some-> js/globalThis .-navigator .-userAgent))]
+    (str (condp re-find agent
+           #"Edg/"     "Edge"
+           #"Firefox/" "Firefox"
+           #"Chrome/"  "Chrome"
+           #"Safari/"  "Safari"
+           "A browser")
+         (condp re-find agent
+           #"iPhone|iPad" " on iOS"
+           #"Android"     " on Android"
+           #"Mac OS X"    " on macOS"
+           #"Windows"     " on Windows"
+           #"Linux"       " on Linux"
+           ""))))
 
 (defn- read-state
-  "The state saved as the string `s`; nil when there is none, or it does not
-  read."
+  "The state saved as the string `s`; nil when there is none, it does not
+  read, or its profile has a problem."
   [s]
-  (try
-    (some-> s reader/read-string)
-    (catch :default _ nil)))
+  (when-let [state (try (some-> s reader/read-string) (catch :default _ nil))]
+    (when-not (profile/problem (get-in state [:library :profile]))
+      state)))
 
 (defn- load-state
+  "The state of the last visit, or a fresh one under the id of this
+  browser, which is kept from now on."
   []
-  (or (try
-        (read-state (.getItem js/localStorage storage-key))
-        (catch :default _ nil))
-      (fresh)))
+  (let [state (read-state (stored storage-key))
+        id    (or (stored device-key) (get-in state [:library :device]) (str (random-uuid)))]
+    (store! device-key id)
+    (or state {:library (library/make id) :titles {}})))
 
 (defn with-other-tab
   "The page `state` with `other`, the state another tab of this browser
-  saved, merged in: the profiles joined as two devices' are, and the
-  titles of both. The sync cursors stay this tab's."
+  saved, merged in: the libraries as library/merge merges them, the sync
+  cursors included, and the titles of both."
   [state other]
   (-> state
-      (update-in [:library :profile] profile/merge (get-in other [:library :profile]))
+      (update :library library/merge (:library other))
       (update :titles merge (:titles other))))
 
 (defn with-synced
@@ -95,9 +125,7 @@
 
 (defn- save!
   [state]
-  (try
-    (.setItem js/localStorage storage-key (pr-str (select-keys state [:library :titles])))
-    (catch :default _ nil)))
+  (store! storage-key (pr-str (select-keys state [:library :titles]))))
 
 (defn- backend
   "The inspector's WebDAV folder on this origin, as a backend."
@@ -142,20 +170,48 @@
   (when-let [h (get-in @app [:folder :handle])]
     (.then (file/query-permission! h) #(use-folder! h %))))
 
+(defn- one-at-a-time
+  "Run `f`, which gives a promise, while no other tab of this browser runs
+  it, where the browser has Web Locks."
+  [f]
+  (if (exists? js/navigator.locks)
+    (.request js/navigator.locks "inspector-sync" (fn [_] (f)))
+    (f)))
+
 (defn sync!
   "One step of keeping this browser in step with the other devices through
   `backends`, by default those of the backends function; the result is
-  shown on the queue page."
+  shown on the queue page.
+
+  The tabs of this browser share its device id, so they sync one at a
+  time, and each step starts from what the last one saved."
   ([]
    (sync! (backends)))
   ([backends]
    (swap! app assoc :syncing? true)
-   (-> (library/sync! (:library @app) backends)
-       (.then (fn [library] (swap! app with-synced library)))
+   (-> (one-at-a-time
+        (fn []
+          (when-let [other (read-state (stored storage-key))]
+            (swap! app with-other-tab other))
+          (.then (library/sync! (:library @app) backends)
+                 #(swap! app with-synced %))))
        (.catch (fn [e]
                  (swap! app assoc :syncing? false
                         :synced {:at (time/now) :failed {"inspector" (str e)} :report []})))
        (.then (fn [_] (check-folder!))))))
+
+(defn- playing?
+  []
+  (some-> (audio-element) .-paused not))
+
+(defn- sync-when-due!
+  "Sync when library/next-sync says that it's time, unless an episode
+  plays, since its position changes every few seconds then."
+  []
+  (when (and (not (:syncing? @app))
+             (not (playing?))
+             (<= (inst-ms (library/next-sync (:library @app))) (js/Date.now)))
+    (sync!)))
 
 (defn- restore-folder!
   "Take up the sync folder of the last visit, if there was one."
@@ -271,6 +327,14 @@
       (swap! app assoc :reported t)
       (dispatch! [:progress id (or (seconds t) 0) d]))))
 
+(defn- paused!
+  "Record where the audio of the episode `id` paused, and sync, since
+  nothing plays now."
+  [id el]
+  (swap! app assoc :reported (.-currentTime el))
+  (dispatch! [:progress id (or (seconds (.-currentTime el)) 0) (seconds (.-duration el))])
+  (sync!))
+
 (defn handle!
   "Perform the view's `event`, given the DOM event `e` that raised it when
   there is one: the skips and the queue operations go to the library, the
@@ -289,6 +353,8 @@
     :folder/pick   (pick-folder!)
     :folder/allow  (allow-folder!)
     :folder/forget (forget-folder!)
+    :device/retire (when (js/confirm "Retire this device? Its document goes, and it can't sync under its id again.")
+                     (operate! crdt/retire (first args)))
     :document/save (save-document!)
     :document/load (load-folder! (.-target e))
     :audio/loaded  (let [[_ position] args
@@ -296,6 +362,7 @@
                      (when (and (pos? position) (< position (.-duration el)))
                        (set! (.-currentTime el) position)))
     :audio/time    (time-update! (first args) (.-target e))
+    :audio/paused  (paused! (first args) (.-target e))
     nil))
 
 (defn- add!
@@ -424,15 +491,26 @@
                      (fn [e]
                        (when (= storage-key (.-key e))
                          (when-let [other (read-state (.-newValue e))]
-                           (when-not (profile/problem (get-in other [:library :profile]))
-                             (swap! app with-other-tab other)))))))
+                           (swap! app with-other-tab other))))))
+
+(defn- sync-on-its-own!
+  "Sync now, when the page is hidden, and when it's due."
+  []
+  (sync!)
+  (.addEventListener js/document "visibilitychange"
+                     #(when (= "hidden" (.-visibilityState js/document)) (sync!)))
+  (js/window.setInterval sync-when-due! 30000))
 
 (defn ^:export init
-  "Mount the player: load the state, watch it, route the view's events to
-  `handle!`, take over navigation and the other tabs' saves, take up the
-  sync folder, and handle an episode the URL asks to add."
+  "Mount the player: load the state, name this browser for the other
+  devices, watch the state, route the view's events to `handle!`, take
+  over navigation and the other tabs' saves, take up the sync folder,
+  handle an episode the URL asks to add, and sync on its own."
   []
   (reset! app (assoc (load-state) :can-pick? (exists? js/showDirectoryPicker)))
+  (let [{:keys [device profile]} (:library @app)]
+    (when (not= (browser-name) (get-in profile [:devices device :name]))
+      (operate! crdt/identify {:name (browser-name)})))
   (save! @app)
   (replicant/set-dispatch! (fn [{:replicant/keys [dom-event]} event] (handle! event dom-event)))
   (add-watch app ::render (fn [_ _ old new]
@@ -446,4 +524,5 @@
   (listen-to-other-tabs!)
   (render! true)
   (restore-folder!)
-  (add-from-query!))
+  (add-from-query!)
+  (sync-on-its-own!))

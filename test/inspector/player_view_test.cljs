@@ -39,7 +39,7 @@
         audio   (first (elements bar :audio#player))
         buttons (elements bar :button)]
     (is (= "https://x/a.mp3" (:src (second audio))))
-    (is (= {:loadedmetadata [:audio/loaded a 120] :timeupdate [:audio/time a] :ended [:ended a]}
+    (is (= {:loadedmetadata [:audio/loaded a 120] :timeupdate [:audio/time a] :pause [:audio/paused a] :ended [:ended a]}
            (:on (second audio)))
         "the audio element reports through events, the position to resume at included")
     (is (= [[:skip a :back] [:skip a :forward] [:ended a] [:dequeue a] [:sleep 1]]
@@ -98,8 +98,14 @@
         (is (str/includes? (text page) "No device has described itself yet."))
         (is (= [[:sync]] (map #(get-in % [1 :on :click]) (filter #(= "Sync now" (nth % 2)) (elements page :button)))))
         (is (str/includes? (text devices) "This browser"))
-        (is (str/includes? (text devices) "failed: {\"inspector\" \"offline\"}"))
-        (is (str/includes? (text devices) ":sync/clock-skew ahead"))))
+        (is (str/includes? (text devices) "failed: inspector: offline"))
+        (is (str/includes? (text devices) ":sync/clock-skew ahead"))
+        (let [phone  (crdt/identify (profile/make "phone") {:name "Phone"} t0)
+              two    (view/page (update described :profile profile/merge phone))
+              clicks (keep #(get-in % [1 :on :click]) (elements two :button))]
+          (is (str/includes? (text two) "Phonebehind") "a device that hasn't merged this one's changes lags")
+          (is (some #{[:device/retire "phone"]} clicks))
+          (is (not-any? #{[:device/retire "browser"]} clicks) "this browser can't retire itself here"))))
     (testing "the sync folder: picked, to allow again, or by hand"
       (let [clicks (fn [s] (keep #(get-in % [1 :on :click]) (elements (view/page (merge state s)) :button)))
             folder {:name "Podcasts" :permission :granted}]
