@@ -226,6 +226,26 @@ request from a browser comes from the user's own device anyway, but a Node
 server that fetches untrusted URLs should give these functions its own
 `:send`.
 
+### The proxy for a web page
+
+A page can only read the answers of servers that allow it, so
+`util.proxy` sends the requests of a page from your server. It carries
+plain HTTP and has no format of its own: the page asks for
+`/proxy?url=…`, and gets the answer of the other site. What HTTP has no
+place for travels in headers: the URL after redirects as the
+Content-Location, and a failure of the proxy itself as the Proxy-Status of
+RFC 9209. So the page gets what `http/call!` gives on the JVM, and the
+same exceptions.
+
+The answers come from other sites but have the origin of your app. So the
+proxy refuses a request that opens it as a page, or that comes from
+another site, as the Fetch Metadata headers of the browser tell, and every
+answer has a Content-Security-Policy that sandboxes it, for a browser
+that doesn't send those headers. Only the headers that the proxy lists
+pass, so no other site sets a cookie for yours, and neither the page's
+cookies nor its credentials go on. Its requests carry a Via, so it can
+refuse to fetch itself, which would multiply each request.
+
 ### Secrets
 
 An app holds the listener's secrets, like the password of a private feed, a

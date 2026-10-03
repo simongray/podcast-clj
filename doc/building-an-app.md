@@ -51,9 +51,6 @@ functions that only exist on the JVM.
 ## What you build yourself
 
 - Store the library, and the record of the files on the device.
-- In a browser, a route on your own server that sends requests for the
-  page, since few feed hosts and directories let a page read their
-  answers. The functions that send requests take it as `:send`.
 - Play the media, as the effects of `library/step` say.
 - Download and delete episode files, as `library/plan` says, when the
   network and the battery allow it.
@@ -61,6 +58,33 @@ functions that only exist on the JVM.
 - Draw the user interface.
 - For a host, keep the server logs and the lists of user agents, data
   centres and bots that counting downloads needs.
+
+
+## Send requests from a web page
+
+Few feed hosts and directories let a page of another site read their
+answers, so a page sends its requests through your own server. Mount the
+proxy of `util.proxy` there, and give its sender as `:send`:
+
+```clojure
+;; on the server, as a route of Pedestal or any other Ring router
+["/proxy" :any (proxy/handler) :route-name ::proxy]
+
+;; in the page, in the config of the library
+(library/make device-id {:config {:send (proxy/sender "/proxy")}})
+```
+
+Every function that sends requests then works in the page as it does on
+the JVM. The proxy fetches only URLs on the public internet, and refuses
+to be opened as a page, but it fetches for anyone who can reach it, so
+put it behind your login.
+
+A page reaches Nostr relays by itself, so for comments, wrap the `:send`
+that `comments/fetch!` has by default: `(proxy/sender "/proxy" {:send
+comments/send!})`. The page's cookies and credentials don't go on through
+the proxy, so to fetch a private feed through it, give the handler
+`{:forward (conj (:forward proxy/defaults) "authorization")}`, unless your
+own login uses that header.
 
 
 ## Find a show
@@ -95,8 +119,7 @@ The Podcast Index has no names for subcategories like Tech News, so give a
 category for each source: `{:category {:apple "Tech News" :podcastindex
 "Technology,News"}}`.
 
-In a browser, whether a page may ask a directory depends on its CORS
-policy, so give `search!` a `:send` that goes through your own server.
+In a browser, give `search!` the `:send` of the proxy.
 
 
 ## Subscribe to a show
@@ -154,8 +177,7 @@ credentials, use `http/split-credentials`. Wrap the password with
 (podcast/fetch! url {:credentials creds})
 ```
 
-In a browser, few feed servers allow requests from other origins, so give
-`fetch!` a `:send` that sends the request through your own server.
+In a browser, give `fetch!` the `:send` of the proxy.
 
 Without the library, `feeds/add` keeps the feed along with its ETag and
 Last-Modified, and `profile/subscribe` adds the subscription. Every id in
@@ -185,9 +207,7 @@ When to check a feed again depends on its update frequency, its `ttl` or
 the interval between its episodes, as `resolve/next-check` reads them. The
 setting `:cadence` changes the defaults, and `:credentials-of` gives the
 credentials of a private feed by its URL, so no password is stored in the
-library and none goes to another feed. In a browser, put a `:send` that
-goes through your own server in the config of the library, and `refresh!`
-fetches each feed with it.
+library and none goes to another feed.
 
 Podping tells which feeds have changed, so they can be fetched at once.
 Keep the last block that you read and the writers, and poll every few
@@ -278,8 +298,7 @@ from the feed.
 
 The option `:except` leaves out the parts that a page doesn't need, e.g.
 the rows of an episode list are much cheaper as `(library/episode @lib id
-{:except #{:notes :text :chapters :links}})`. In a browser, give `:send` to
-send the requests through your own server.
+{:except #{:notes :text :chapters :links}})`.
 
 For the shows that a show recommends in its podroll, and the feed of its
 publisher, merge in `library/fetch-linked-shows!`. Only show the

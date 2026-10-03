@@ -113,9 +113,10 @@
     (nostr/public? url)
     (http/public? url)))
 
-(defn ^:no-doc send!
+(defn send!
   "Send the request map `request` as http/call! does, or as nostr/call!
-  does when its URL is that of a relay."
+  does when its URL is that of a relay. It's the :send of fetch! by
+  default."
   [request]
   (if (nostr/relay-url (:url request))
     (nostr/call! request)

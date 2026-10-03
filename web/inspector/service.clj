@@ -26,6 +26,7 @@
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.proxy :as proxy]
             [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
@@ -647,7 +648,7 @@
 (defn routes
   "The inspector's routes, in Pedestal's set syntax, the WebDAV ones and the
   gpodder API serving `sync-store` (default the folder store over
-  `sync-dir`)."
+  `sync-dir`), and the proxy for the requests of a page."
   ([]
    (routes (file/store sync-dir)))
   ([sync-store]
@@ -670,6 +671,7 @@
      ["/dav" :any (webdav-server/handler sync-store "/dav/") :route-name :dav-collection]
      ["/dav/*path" :any (webdav-server/handler sync-store "/dav/") :route-name :dav]
      ["/api/2/*path" :any (gpodder-handler sync-store) :route-name :gpodder]
+     ["/proxy" :any (proxy/handler) :route-name :proxy]
      ["/corpus/:name" :get corpus-page :route-name :corpus]}))
 
 (def unread-bodies
