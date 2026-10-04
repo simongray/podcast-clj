@@ -212,7 +212,7 @@ its metadata. A request to such a URL can make an app on a server reach its
 own network, with its routers, internal services and cloud metadata.
 
 Each function that sends requests takes an `:allow?` predicate and puts it
-on every request map, so `http/call!` and an app's own `:send` can both
+on every request map, so `http/send!` and an app's own `:send` can both
 check it. The functions that fetch untrusted URLs default to `http/public?`,
 which refuses loopback, private and other special addresses. The functions
 that fetch a feed or the files it links to have no guard by default,
@@ -220,7 +220,7 @@ because the app chose the feed. A server that fetches feeds for other people giv
 `{:allow? http/public?}`.
 
 On the JVM, `public?` resolves the name and checks every address, and
-`http/call!` checks each redirect too. It follows redirects itself, because
+`http/send!` checks each redirect too. It follows redirects itself, because
 the JDK client sends the `Authorization` header on to other hosts. A browser
 can't resolve names and follows redirects without telling, so there
 `public?` only refuses the addresses and local names that a URL contains. A
@@ -244,7 +244,7 @@ plain HTTP and has no format of its own: the page asks for
 `/proxy?url=…`, and gets the answer of the other site. What HTTP has no
 place for travels in headers: the URL after redirects as the
 Content-Location, and a failure of the proxy itself as the Proxy-Status of
-RFC 9209. So the page gets what `http/call!` gives on the JVM, and the
+RFC 9209. So the page gets what `http/send!` gives on the JVM, and the
 same exceptions.
 
 The answers come from other sites but have the origin of your app. So the
@@ -263,7 +263,7 @@ service token or a wallet key, and it prints its data to logs and at the
 REPL. A function that takes a secret also takes it wrapped by `secret/hide`,
 which prints as `#<secret>` on both platforms. Functions that create
 secrets wrap them, including the Authorization and Cookie headers of a
-request map. `http/call!` unwraps them when it sends, and another HTTP
+request map. `http/send!` unwraps them when it sends, and another HTTP
 client needs `http/revealed` first.
 
 This only protects against printing a secret by accident. A debugger or a
@@ -407,10 +407,10 @@ ChaCha20. So `crypto.secp256k1` (the Schnorr signatures of BIP-340) and
 test vectors of their specs on both platforms. The NIP-44 encryption of
 wallet commands builds on them.
 
-A relay speaks over a WebSocket, and `call!` is one exchange: open, ask,
-read until the relay has no more, close. So a request to a relay is a map
-like any other request, and `comments/fetch!` sends both kinds in the same
-rounds.
+A relay speaks over a WebSocket, and `nostr/send!` is one exchange: open,
+ask, read until the relay has no more, close. So a request to a relay is a
+map like any other request, and `comments/fetch!` sends both kinds in the
+same rounds.
 
 
 ## Value for value

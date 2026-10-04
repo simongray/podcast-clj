@@ -194,7 +194,7 @@
    (read-files! view {}))
   ([view {:keys [except] :or {except #{}} :as opts}]
    {:pre [(map? opts)]}
-   (let [opts    (merge default-limits {:send http/call!} opts)
+   (let [opts    (merge default-limits {:send http/send!} opts)
          wanted? (complement except)
          own     (:chapters view)
          url     (:url (:enclosure view))]
@@ -352,7 +352,7 @@
   ([view opts]
    {:pre [(map? opts)]}
    (let [opts    (-> (merge default-limits
-                            {:send http/call! :now time/now :fetch podcast/fetch!}
+                            {:send http/send! :now time/now :fetch podcast/fetch!}
                             opts)
                      (update :fetch once-per-url))
          remotes (distinct (keep :remote-item (:time-splits (:value view))))]

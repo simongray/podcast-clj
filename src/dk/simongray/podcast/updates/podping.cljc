@@ -6,7 +6,7 @@
   A consumer reads blocks from any Hive API node and picks out the
   custom_json operations that the podping writers post. The request
   function builds the JSON-RPC calls as request maps that
-  dk.simongray.podcast.util.http/call! or any client can send as a POST.
+  dk.simongray.podcast.util.http/send! or any client can send as a POST.
   The pings function reads the notifications out of the blocks in an
   answer:
 
@@ -227,7 +227,7 @@
   "Send `call` with `params` to `node` as `opts` say, and give the body of
   the answer, in ClojureScript in a promise. It throws for each failure
   that call! lists."
-  [call params node {:keys [send timeout-seconds] :or {send http/call! timeout-seconds 10}}]
+  [call params node {:keys [send timeout-seconds] :or {send http/send! timeout-seconds 10}}]
   (-> (request call params {:node node})
       (assoc :timeout-seconds timeout-seconds)
       send
@@ -246,7 +246,7 @@
   - :nodes, the nodes to try, nodes by default
   - :node, the one node to try
   - :timeout-seconds, the time that each node gets, 10 by default
-  - :send, the function that sends each request, http/call! by default
+  - :send, the function that sends each request, http/send! by default
 
   A node fails on an exception, a status other than 200, or an answer
   that isn't JSON or holds a JSON-RPC error, which proxies send with a

@@ -122,7 +122,7 @@
   when it's printed.
 
   The header has the password or the token, so it's a hidden text too,
-  and a request map with it doesn't show it when printed. The call!
+  and a request map with it doesn't show it when printed. The send!
   function reads the text when it sends the request, and revealed gives
   the request with the text, for another client."
   [credentials]
@@ -158,7 +158,7 @@
   as the server needs them.
 
   The functions that write a request hide the headers Authorization and
-  Cookie, and the body of a request with a secret. The call! function
+  Cookie, and the body of a request with a secret. The send! function
   reads the text when it sends. To send a request with another client,
   take it through revealed first. A request that's revealed shows its
   credentials when it's printed."
@@ -279,7 +279,7 @@
   server that's set up wrong mustn't hold back the polling.
 
   The `headers` map lower-case names to a value or a vector of values, as
-  the responses of call! do. A Retry-After that doesn't read counts as
+  the responses of send! do. A Retry-After that doesn't read counts as
   none. The values of all the Cache-Control headers count, joined as RFC
   9110, section 5.3, joins them."
   [headers at]
@@ -314,7 +314,7 @@
 #?(:clj
    (defonce ^{:no-doc true
               :doc    "The shared HTTP client, built on first use, with a
-  connect timeout of 15 seconds. Redirects are left to call!, which
+  connect timeout of 15 seconds. Redirects are left to send!, which
   follows them."}
      client
      (delay (-> (HttpClient/newBuilder)
@@ -338,7 +338,7 @@
            (.map (.headers response)))))
 
 (def ^:no-doc default-max-bytes
-  "How much of a response body call! reads at most, unless the request
+  "How much of a response body send! reads at most, unless the request
   sets another limit: 100 MB."
   (* 100 1024 1024))
 
@@ -674,7 +674,7 @@
   (boolean (and (string? s) (re-find #"(?i)^https?://" s) (origin s))))
 
 (defn ^:no-doc timeout?
-  "Whether the exception `e` from call!, or one of its causes, is a
+  "Whether the exception `e` from send!, or one of its causes, is a
   timeout."
   [e]
   (boolean (some #(or (= ::timeout (:type (ex-data %)))
@@ -971,7 +971,7 @@
      (or (exists? js/document) (exists? js/WorkerGlobalScope))))
 
 (defn- request-headers
-  "The `headers` of a request of call! for the bytes `range`, with the
+  "The `headers` of a request of send! for the bytes `range`, with the
   Range header, and with user-agent unless they name another or the
   browser sends its own.
 
@@ -1002,7 +1002,7 @@
 
 #?(:clj
    (defn- java-answer
-     "The response map of call! for the `response` of the JDK to `request`,
+     "The response map of send! for the `response` of the JDK to `request`,
      with the body `bytes`, which came after the redirects `chain`."
      [^HttpResponse response ^bytes bytes chain
       {:keys [as max-bytes] :as request}]
@@ -1066,7 +1066,7 @@
 
 #?(:cljs
    (defn- fetch-answer
-     "A promise of the response map of call! for the fetch response `res`
+     "A promise of the response map of send! for the fetch response `res`
      to the `request`."
      [res {:keys [method url as range max-bytes] :as request}]
      (let [status   (.-status res)
@@ -1087,7 +1087,7 @@
                     (pos? (.-length b))
                     (assoc :body (if (= :bytes as) b (.decode (js/TextDecoder.) b))))))))))
 
-(defn call!
+(defn send!
   "Send the `request`, and give the response as a map of :status, :url,
   :headers and :body. On the JVM it gives the response, and in
   ClojureScript a promise of it.
@@ -1156,8 +1156,8 @@
                                               (some? body) (assoc :body (secret/reveal body)))))
                      (.then #(fetch-answer % request))))))))
 
-(defn call-public!
-  "Send the `request` with call!, but only to a host on the public
+(defn send-public!
+  "Send the `request` with send!, but only to a host on the public
   internet, as public? tells. On the JVM, the host of each redirect must
   be public too.
 
@@ -1166,7 +1166,7 @@
   functions that fetch URLs from outside sources use the same check as
   their :allow?."
   [request]
-  (call! (assoc request :allow? public?)))
+  (send! (assoc request :allow? public?)))
 
 (defn feed-request
   "The request for the feed at `url` that fetch! sends with `opts`, the
@@ -1205,11 +1205,11 @@
     no body.
   - :credentials of a private feed, as authorization takes them
   - :user-agent, to send in place of user-agent
-  - :timeout-seconds, :max-bytes and :allow?, as call! takes them
-  - :send, the function that sends the request, call! by default"
+  - :timeout-seconds, :max-bytes and :allow?, as send! takes them
+  - :send, the function that sends the request, send! by default"
   ([url]
    (fetch! url {}))
-  ([url {:keys [send] :or {send call!} :as opts}]
+  ([url {:keys [send] :or {send send!} :as opts}]
    (async/then (send (feed-request url opts))
                (fn [{:keys [headers] :as response}]
                  (let [wait (not-before headers (time/now))]
@@ -1231,7 +1231,7 @@
      The `opts` are these:
 
      - :headers of the request
-     - :allow?, as call! takes it
+     - :allow?, as send! takes it
      - :timeout-seconds, the limit of the whole exchange, 600 by default"
      ([url algorithms]
       (digest! url algorithms {}))
@@ -1293,7 +1293,7 @@
 
   The function takes a start and an end, with the end excluded. It gives
   a map of :bytes, :start and :total, or in ClojureScript a promise of
-  it. You can wrap it to log or keep what it fetches. It throws as call!
+  it. You can wrap it to log or keep what it fetches. It throws as send!
   does, and it throws ::failed with the :status for an answer that's a
   failure.
 
@@ -1307,11 +1307,11 @@
   The `opts` are these:
 
   - :headers, :timeout-seconds, :max-bytes and :allow? of the requests
-  - :send, a function that sends a request map in place of call!, as
-    call! does"
+  - :send, a function that sends a request map in place of send!, as
+    send! does"
   ([url]
    (fetcher url {}))
-  ([url {:keys [headers send] :or {send call!} :as opts}]
+  ([url {:keys [headers send] :or {send send!} :as opts}]
    (fn [start end]
      (async/then
       (send (limited {:url url :headers headers :as :bytes :range [start (dec end)]} opts))
@@ -1359,7 +1359,7 @@
   (joined headers "access-control-allow-origin"))
 
 (defn facts
-  "What the `response` of call! tells about its file, as far as it tells
+  "What the `response` of send! tells about its file, as far as it tells
   it.
 
   The facts have these keys:
@@ -1395,10 +1395,15 @@
            :cors          (cors (:headers response))
            :filtered?     (:filtered? response)})))
 
-(defn ^:no-doc try-send!
-  "Send the `request` with `send`, within the limits of `opts` that
-  limited takes. It gives the response under :value, or the exception
-  under :error, in a future or a promise."
+(defn try-send!
+  "Send the `request` with `send`, a function such as send!, and give a
+  map of the response as the :value, or of the exception as the :error
+  where `send` throws. The `opts` are the :timeout-seconds, :max-bytes
+  and :allow? to put in the request.
+
+  The map comes in a future on the JVM and in a promise in ClojureScript,
+  as async/attempt gives it, so several requests can be under way at
+  once."
   ([send request]
    (try-send! send request {}))
   ([send request opts]
@@ -1431,11 +1436,11 @@
 
   - :headers of the two requests, e.g. an Origin to learn about CORS
   - :timeout-seconds, :max-bytes and :allow? of the requests
-  - :send, a function that sends a request map in place of call!, as
-    call! does"
+  - :send, a function that sends a request map in place of send!, as
+    send! does"
   ([url]
    (probe! url {}))
-  ([url {:keys [headers send] :or {send call!} :as opts}]
+  ([url {:keys [headers send] :or {send send!} :as opts}]
    (let [answer! (fn [request]
                    (async/then (try-send! send (assoc request :url url) opts) sent-facts))]
      (async/then (answer! {:method :head :headers (merge {"Accept-Encoding" "identity"} headers)})
@@ -1487,7 +1492,7 @@
               303 "https://b.example/y")
 
   (public? "http://192.168.1.10/feed.xml")
-  (call! {:url "https://example.org/episode.mp3" :range [0 1023] :as :bytes})
+  (send! {:url "https://example.org/episode.mp3" :range [0 1023] :as :bytes})
   (probe! "https://example.org/episode.mp3")
   #_.)
 

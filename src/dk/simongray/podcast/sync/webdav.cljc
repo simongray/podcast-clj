@@ -173,7 +173,7 @@
   - :credentials, a :username and a :password, or a :token, as a map or a
     function of no arguments that returns one
   - :name, for the UI, the host by default
-  - :send, a function that sends a request map, in place of http/call!
+  - :send, a function that sends a request map, in place of http/send!
   - :timeout-seconds, how long a request can take, 30 by default
 
   The collection is made on the first put when it isn't there, and a
@@ -184,7 +184,7 @@
    {:pre [(map? opts)]}
    (let [root  (if (str/ends-with? root "/") root (str root "/"))
          call! (fn [call name params]
-                 (async/then ((or send http/call!)
+                 (async/then ((or send http/send!)
                               (cond-> (request call root name (assoc params :credentials credentials))
                                 timeout-seconds (assoc :timeout-seconds timeout-seconds)))
                              #(response call %)))

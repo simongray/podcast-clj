@@ -5,7 +5,7 @@
   On the server, handler is a Ring handler for a route of your own, e.g.
   /proxy?url=https://example.org/feed.xml. In the browser, sender gives a
   function to use as :send, which sends each request through that route
-  and gives the answer as http/call! would give it:
+  and gives the answer as http/send! would give it:
 
       ;; on the server, e.g. as a route of Pedestal
       [\"/proxy\" :any (proxy/handler) :route-name ::proxy]
@@ -30,7 +30,7 @@
   "The options of handler, which its own options replace one by one:
 
   - :allow?, the URLs that it fetches, those on the public internet
-  - :send, the function that sends a request, http/call!
+  - :send, the function that sends a request, http/send!
   - :forward, the request headers that go on to the other site
   - :expose, the response headers that come back to the page
   - :user-agent, the User-Agent of each request
@@ -38,10 +38,10 @@
     holds each body in memory
 
   Each request also has the :timeout-seconds of the options, or else that
-  of http/call!. The page's own cookies and credentials never go on,
+  of http/send!. The page's own cookies and credentials never go on,
   unless :forward names them."
   {:allow?     http/public?
-   :send       http/call!
+   :send       http/send!
    :forward    #{"accept" "if-modified-since" "if-none-match" "range"}
    :expose     #{"age" "cache-control" "content-range" "content-type" "etag" "expires" "last-modified" "link"
                  "retry-after"}
@@ -63,7 +63,7 @@
 ;; RFC 9209, section 2.3
 (def ^:no-doc errors
   "The error of the Proxy-Status of RFC 9209, and the status of the
-  answer, for each type of exception of http/call! that the proxy answers
+  answer, for each type of exception of http/send! that the proxy answers
   with. Any other failure is ::failed."
   {::http/refused   ["http_request_denied" 403]
    ::http/timeout   ["http_response_timeout" 504]
@@ -142,7 +142,7 @@
   defaults, or nil when the url parameter names no http or https URL.
 
   The request has the headers of the :forward of `opts`, the Via of the
-  proxy, and the range of the Range header, so that http/call! reads no
+  proxy, and the range of the Range header, so that http/send! reads no
   more than it asks for. Its body is bytes when the as parameter is bytes,
   and else text."
   ([ring-request]
@@ -162,7 +162,7 @@
          (= 1 (count asks)) (assoc :range asked))))))
 
 (defn ring-response
-  "The Ring response that gives the page the `response` of http/call!, with
+  "The Ring response that gives the page the `response` of http/send!, with
   the headers of the :expose of `opts`, or else of defaults.
 
   A text body goes as UTF-8, since a page reads the answers of fetch in
@@ -231,7 +231,7 @@
       (assoc :url (http/with-query base {:url url :as (when (= :bytes as) "bytes")}))))
 
 (defn- failure
-  "The exception of http/call! for `request`, which the proxy failed to
+  "The exception of http/send! for `request`, which the proxy failed to
   send, as the `proxy-status` of its answer tells. Nil when it tells of no
   failure of this proxy."
   [request proxy-status]
@@ -242,12 +242,12 @@
                 :url  (:url request)}))))
 
 (defn unproxied
-  "The `response` of the proxy to `request`, as http/call! would give it
+  "The `response` of the proxy to `request`, as http/send! would give it
   for `request` itself.
 
   The response has the :url that answered, after redirects, and the
   :permanent-url that permanent redirects led to. When the proxy failed to
-  send the request, this throws the exception that http/call! would have
+  send the request, this throws the exception that http/send! would have
   thrown, with the same :type."
   [request {:keys [headers] :as response}]
   (if-let [e (some->> (http/joined headers "proxy-status") (failure request))]
@@ -258,15 +258,15 @@
 
 (defn sender
   "A function to give as :send, which sends each request through the
-  proxy at `base`, with `opts`, and gives what http/call! would give for it.
+  proxy at `base`, with `opts`, and gives what http/send! would give for it.
 
   The `base` is the URL of the route of the proxy, e.g. /proxy in a page.
-  Each request goes with the :send of `opts`, http/call! by default. A
+  Each request goes with the :send of `opts`, http/send! by default. A
   request that isn't http or https, e.g. for a Nostr relay, which a page
   reaches by itself, goes to that :send as it is."
   ([base]
    (sender base {}))
-  ([base {:keys [send] :or {send http/call!} :as opts}]
+  ([base {:keys [send] :or {send http/send!} :as opts}]
    (fn [request]
      (if (http/web-url? (:url request))
        (async/then (send (proxied base request)) #(unproxied request %))

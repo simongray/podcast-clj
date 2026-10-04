@@ -590,7 +590,7 @@
   - :rules, your rules for a page's address, as rule-urls takes them
   - :guessed-paths and :apps, in place of guessed-paths and
     directory.links/apps
-  - :send, the function that sends a request, http/call! by default
+  - :send, the function that sends a request, http/send! by default
   - :allow?, a predicate of the URLs a request may go to, http/public? by
     default
   - :timeout-seconds, :guess-timeout-seconds, :max-bytes and
@@ -601,7 +601,7 @@
   ([s opts]
    {:pre [(map? opts)]}
    (let [opts                                (merge default-limits
-                                                    {:send          http/call!
+                                                    {:send          http/send!
                                                      :allow?        http/public?
                                                      :lookup        [:apple :podcastindex]
                                                      :guessed-paths guessed-paths

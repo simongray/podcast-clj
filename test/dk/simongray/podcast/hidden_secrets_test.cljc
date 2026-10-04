@@ -92,14 +92,14 @@
 
 (deftest a-hidden-passphrase
   (run (fn []
-         (async/then (encrypted/encrypt hidden "{:queue []}" {:iterations 1000})
+         (async/then (encrypted/encrypt "{:queue []}" hidden {:iterations 1000})
                      (fn [sealed]
                        (is (encrypted/envelope sealed))
-                       (async/then (async/all [(encrypted/decrypt hidden sealed) (encrypted/decrypt password sealed)])
+                       (async/then (async/all [(encrypted/decrypt sealed hidden) (encrypted/decrypt sealed password)])
                                    (fn [opened]
                                      (is (= ["{:queue []}" "{:queue []}"] opened)))))))
        (fn []
-         (async/then (encrypted/encrypt password "{:queue []}" {:iterations 1000})
+         (async/then (encrypted/encrypt "{:queue []}" password {:iterations 1000})
                      (fn [sealed]
-                       (async/then (encrypted/decrypt hidden sealed)
+                       (async/then (encrypted/decrypt sealed hidden)
                                    #(is (= "{:queue []}" %))))))))

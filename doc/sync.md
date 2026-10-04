@@ -91,7 +91,7 @@ left out too, because this version can't understand all of it.
 The engine schedules nothing. Call `sync!` when the app starts, when it
 goes to the background, after a series of changes, and when a file watcher
 or the service says that something changed. For when to sync next, ask
-`next-at`, or `library/next-sync` for a library. Only run one step at a
+`sync/next-sync`, or `library/next-sync` for a library. Only run one step at a
 time, since a step that overlaps another can write an older state after a
 newer one. A file watcher also sees the writes of the step itself, so let
 such a call wait until the step ends.

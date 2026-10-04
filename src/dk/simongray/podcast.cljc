@@ -103,7 +103,7 @@
   - :etag and :last-modified, from the last fetch
   - :credentials, for a private feed, or else those in the `url`
   - :max-pages, the most pages of a paged feed to fetch and join
-  - :send, the function that sends each request, http/call! by default
+  - :send, the function that sends each request, http/send! by default
   - the options of http/fetch! and rss/parse
 
   Nothing is thrown for what the network, the server or the body does.

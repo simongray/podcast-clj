@@ -43,7 +43,7 @@
   of a response that isn't a 200 without headers, or to :late for a server
   that doesn't answer in time. It fails for any other URL, and notes each
   URL in `log`. It refuses a URL that the :allow? of the request doesn't
-  take, as http/call! does."
+  take, as http/send! does."
   [answers log]
   (fn [{:keys [url allow?] :or {allow? (constantly true)}}]
     (swap! log conj url)

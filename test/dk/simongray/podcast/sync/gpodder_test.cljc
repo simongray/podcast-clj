@@ -146,10 +146,10 @@
     (is (nil? (episode-url ["y0ur-gu1d-g035-h3r3" "no-such-item"])))))
 
 (defn- ring-send
-  "A send, as `http/call!` takes a request map, to the Ring `handler`: the
+  "A send, as `http/send!` takes a request map, to the Ring `handler`: the
   answer with its header names in lower case and each value in a vector,
   as the client's are. It reads the hidden headers of the request, as a
-  client does that is not `http/call!`."
+  client does that is not `http/send!`."
   [handler]
   (fn [request]
     (let [{:keys [method url headers body]} (http/revealed request)

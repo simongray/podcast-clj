@@ -280,7 +280,7 @@ The options replace these choices:
 |---|---|---|
 | How long `ask!` waits, after which a request expires | 60 seconds, `nwc/default-limits` | `:timeout-seconds` |
 | The relays that a request can go to | The public internet, `nostr/public?` | `:allow?` |
-| What sends a request to a relay | `nostr/call!` | `:send` |
+| What sends a request to a relay | `nostr/send!` | `:send` |
 | The most bytes of an encrypted text | 65,535, `nip44/default-limits` | `:max-bytes` |
 | The WebLN provider | That of the page, `webln/provider` | `:provider` |
 

@@ -30,6 +30,12 @@ and everything runs on the JVM and in ClojureScript unless the table says
 JVM. [Principles](principles.md) has the rules that every namespace
 follows.
 
+A namespace that talks to a service has the same three steps. Its
+`request` builds a request map, a function such as `http/send!` sends the
+map and gives the response, and its `response` reads the answer. A `call!`
+does all three for a call that you name, e.g. `:search`, and the `:send`
+option replaces the function that sends.
+
 
 ## The root namespace
 
@@ -58,7 +64,7 @@ follows.
 
 | Namespace | Contents |
 |---|---|
-| `sync` | Sync between devices: `sync!` over any backends, `reconcile` and `next-at`. |
+| `sync` | Sync between devices: `sync!` over any backends, `reconcile` and `next-sync`. |
 | `sync.store` | The store contract, `memory`, `backend` for any store, and `check!` to test a store. |
 | `sync.file` | A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. It takes a path on the JVM and in Node, and in a browser a folder that the listener picks or the files they load. |
 | `sync.webdav` | A WebDAV collection as a store. |
@@ -145,11 +151,11 @@ follows.
 | `util.json` | JSON to data and back, on both platforms. |
 | `util.time` | Dates, durations and timestamps. |
 | `util.time.rrule` | RFC 5545 recurrence rules. |
-| `util.http` | Requests as maps, and `call!`, which sends them with byte ranges and limits of size and time. Also `probe!`, which learns the facts of a file from two bytes, and `public?`, which checks that a host is on the public internet. The `fetch!` function fetches a feed with conditional requests. For another HTTP client, `revealed` unhides the credentials of a request. |
+| `util.http` | Requests as maps, and `send!`, which sends them with byte ranges and limits of size and time, with `try-send!` for a failure as data. Also `probe!`, which learns the facts of a file from two bytes, and `public?`, which checks that a host is on the public internet. The `fetch!` function fetches a feed with conditional requests. For another HTTP client, `revealed` unhides the credentials of a request. |
 | `util.proxy` | A proxy on your own server for the requests of a web page: `handler` is its Ring handler, on the JVM, and `sender` gives the page a `:send` that sends each request through it. |
 | `util.bytes` | Bytes on both platforms, and `read!`, which fetches the byte ranges that a reader asks for until it's done. Also hex, SHA-1, SHA-256 and HMAC. |
 | `util.async` | Futures on the JVM and promises in JavaScript behind one API, `all` and `in-groups` to make calls at the same time, and `iteration` for paged APIs on both platforms. |
-| `util.nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `call!` for one exchange with a relay, which can also publish an event. |
+| `util.nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `send!` for one exchange with a relay, which can also publish an event. |
 | `util.secret` | Secrets that print as `#<secret>`: `hide`, `reveal` and `hidden?`. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |
 | `util.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |

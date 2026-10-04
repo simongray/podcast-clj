@@ -238,11 +238,11 @@
 
   - :origin, as request takes it
   - :timeout-seconds, for each request
-  - :send, a function that sends a request map in place of http/call!"
+  - :send, a function that sends a request map in place of http/send!"
   ([token call params]
    (call! token call params {}))
   ([token call params opts]
-   (let [{:keys [send timeout-seconds]} (merge {:send http/call! :timeout-seconds 30} opts)
+   (let [{:keys [send timeout-seconds]} (merge {:send http/send! :timeout-seconds 30} opts)
          failed (fn [status said]
                   (ex-info (str "OP3 answered " status ": " said) {:type ::failed :status status :message said}))]
      (async/then (send (assoc (request token call params opts) :timeout-seconds timeout-seconds))

@@ -47,7 +47,7 @@
             :secret (secret/hide "71a8c14c1407c113601079c4302dab36460f0ccd0ad506f1f2dc73b5100e4f3c")}
            (nwc/parse example)))
     (is (nwc/connection? (nwc/parse example)))
-    (is (= example (nwc/uri (nwc/parse example)))))
+    (is (= example (nwc/format (nwc/parse example)))))
   (testing "a connection that is printed does not show its secret"
     (let [parsed (nwc/parse example)]
       (doseq [written [(pr-str parsed) (str parsed) (pr-str [parsed]) (pr-str (ex-info "failed" {:connection parsed}))]]
@@ -59,14 +59,14 @@
     (let [plain (assoc connection :secret (secret-key 7))]
       (is (nwc/connection? plain))
       (is (= (nwc/public-key connection) (nwc/public-key plain)))
-      (is (= (nwc/uri connection) (nwc/uri plain)))))
+      (is (= (nwc/format connection) (nwc/format plain)))))
   (testing "more than one relay, a Lightning address, and the forms that wallets write"
     (let [many (str "nostr+walletconnect:" (str/upper-case wallet)
                     "?relay=wss://relay.one/&relay=WSS%3A%2F%2FRelay.Two&relay=https://no.relay&relay=wss://relay.one"
                     "&lud16=ann%40example.org&secret=" (str/upper-case (secret-key 7)) "&other=1")]
       (is (= (assoc connection :lud16 "ann@example.org") (nwc/parse (str "  " many "\n"))))
       (is (= (assoc connection :lud16 "ann@example.org")
-             (nwc/parse (nwc/uri (assoc connection :lud16 "ann@example.org")))))))
+             (nwc/parse (nwc/format (assoc connection :lud16 "ann@example.org")))))))
   (testing "what is no connection"
     (doseq [uri [nil 5 "" "nostr+walletconnect://" (str/replace example "nostr+walletconnect" "https")
                  (str/replace example #"&secret=.*" "")

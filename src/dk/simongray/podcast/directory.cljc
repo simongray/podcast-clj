@@ -531,7 +531,7 @@
 
   The `opts` are those of request, and these:
 
-  - :send, the function that sends the request, http/call! by default
+  - :send, the function that sends the request, http/send! by default
   - :timeout-seconds, the time to wait for an answer. It's 15 by default,
     so a directory that doesn't answer costs little.
 
@@ -541,7 +541,7 @@
   no limit."
   ([source call params]
    (call! source call params {}))
-  ([source call {:keys [limit] :as params} {:keys [send] :or {send http/call!} :as opts}]
+  ([source call {:keys [limit] :as params} {:keys [send] :or {send http/send!} :as opts}]
    {:pre [(map? opts)]}
    (let [opts (cond-> opts (not (:auth-date opts)) (assoc :auth-date (quot (inst-ms (time/now)) 1000)))
          req  (assoc (request source call params opts) :timeout-seconds (:timeout-seconds opts 15))
@@ -608,7 +608,7 @@
   - :language, the filter of the Podcast Index, e.g. \"da\"
   - :credentials, the :key and :secret of the Podcast Index
   - :timeout-seconds, the time to wait for each source
-  - :send, the function that sends each request, http/call! by default"
+  - :send, the function that sends each request, http/send! by default"
   ([q]
    (search! q {}))
   ([q opts]

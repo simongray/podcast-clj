@@ -180,7 +180,7 @@
   comments than the :max-comments of `opts` allows, counted from the last
   resumed.
 
-  Each request is a request map for nostr/call!, with the :url of a relay
+  Each request is a request map for nostr/send!, with the :url of a relay
   and the :filters of NIP-01."
   [{:keys [uri comments] ::comments/keys [held] :as thread} opts ask?]
   (let [opts  (merge {:batch-size batch-size} opts)
@@ -596,7 +596,7 @@
 (defn with-exchanges
   "The Nostr `thread` with the `exchanges` of one of its requests read
   into it at `at`. There's one exchange for the request, and its response
-  is the map that nostr/call! gives, or a map of the :error.
+  is the map that nostr/send! gives, or a map of the :error.
 
   The thread notes what each relay answered, so that a relay gets each
   question once. A relay that didn't answer keeps the problem of it, and

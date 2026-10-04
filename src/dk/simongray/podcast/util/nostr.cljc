@@ -13,7 +13,7 @@
   splits the content of an event into text, mentions, references, links
   and hashtags.
 
-  A relay speaks over a WebSocket. The call! function opens one, asks for
+  A relay speaks over a WebSocket. The send! function opens one, asks for
   the events of some filters, reads them until the relay has no more, and
   closes it. The received function is the pure step of that reading, for
   when you hold your own connections."
@@ -29,7 +29,7 @@
                    [java.util.concurrent TimeUnit])))
 
 (def default-limits
-  "The limits of call! that its request doesn't set. One answer has at
+  "The limits of send! that its request doesn't set. One answer has at
   most :max-events events, and the relay sends at most :max-bytes
   characters."
   {:timeout-seconds 30
@@ -41,7 +41,7 @@
   5000)
 
 (def ^:no-doc subscription
-  "The id of the one subscription of an exchange of call!."
+  "The id of the one subscription of an exchange of send!."
   "podcast-clj")
 
 (defn ^:no-doc hex-id?
@@ -410,7 +410,7 @@
   relay the event when the answer is :complete?, since the relay has the
   subscription then.
 
-  The events are only those of the subscription of call!, as the relay
+  The events are only those of the subscription of send!, as the relay
   gives them, and they aren't verified."
   [answer text {:keys [max-events max-bytes until published] :as limits}]
   (let [counted (update answer :bytes (fnil + 0) (count text))
@@ -453,7 +453,7 @@
       answer)))
 
 (defn ^:no-doc response
-  "The response of call! for the `answer` of the relay at `url`."
+  "The response of send! for the `answer` of the relay at `url`."
   [url answer]
   (merge {:url url :events []} (dissoc answer :bytes :done?)))
 
@@ -562,17 +562,17 @@
                         (throw (failure url "The relay gave no connection" e {}))))
            deadline (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
            left     #(max 0 (- deadline (System/currentTimeMillis)))
-           send!    (fn [text]
+           write!   (fn [text]
                       (.get (.sendText ^WebSocket socket text true) (left) TimeUnit/MILLISECONDS))]
        (try
          (when (:sent? messages)
            (swap! answer assoc :sent? true))
-         (send! (:first messages))
+         (write! (:first messages))
          (when (and (:later messages) (= :ready (deref ready (left) ::timeout)))
            ;; noted before it goes out: an event that failed on its way
            ;; counts as one that went out
            (swap! answer assoc :sent? true)
-           (send! (:later messages)))
+           (write! (:later messages)))
          (let [result (deref done (left) ::timeout)]
            (cond
              (= ::timeout result) (assoc @answer :timeout? true)
@@ -622,7 +622,7 @@
                     (end resolve @answer)
                     (end reject (failure url "The connection to the relay failed" (.-error e) @answer))))))))))
 
-(defn call!
+(defn send!
   "Ask the relay of the `request` for the events of its filters, and give
   what it answers. On the JVM it gives the response, and in ClojureScript
   a promise of it.
@@ -700,6 +700,6 @@
 
 #?(:clj
    (comment
-     (call! {:url "wss://relay.damus.io" :filters [about-episode] :timeout-seconds 10})
+     (send! {:url "wss://relay.damus.io" :filters [about-episode] :timeout-seconds 10})
      (map verified? (:events *1))
      #_.))

@@ -230,7 +230,7 @@
 
 #?(:clj
    (deftest a-collection-that-cannot-be-made
-     (with-redefs [http/call! (fn [{:keys [method]}] {:status (if (= :put method) 409 405) :headers {} :body ""})]
+     (with-redefs [http/send! (fn [{:keys [method]}] {:status (if (= :put method) 409 405) :headers {} :body ""})]
        (is (thrown-with-msg? Exception #"making it did not help" ((:put (webdav/store root)) "p.edn" "{}" {}))
            "a put that fails for want of the collection fails, rather than seeming written"))))
 
@@ -268,7 +268,7 @@
    (deftest two-devices-through-a-server-that-cannot-list-or-delete
      (let [documents (atom {})
            client    (dissoc (webdav/store "https://dav.example.org/dav/") :list :delete)]
-       (with-redefs [http/call! (through (server/handler (dissoc (store/memory documents) :list :delete) "/dav/"))]
+       (with-redefs [http/send! (through (server/handler (dissoc (store/memory documents) :list :delete) "/dav/"))]
          (let [{:keys [ok? checks]} (store/check! client)
                backend (store/backend client)
                phone   (sync/sync! (phone-state) [backend] {:at t2})
@@ -284,19 +284,19 @@
    (deftest checking-a-collection
      (testing "a collection that is not there yet is made for the probe"
        (let [documents (atom {})]
-         (with-redefs [http/call! (stand-in documents)]
+         (with-redefs [http/send! (stand-in documents)]
            (let [{:keys [ok? checks]} (store/check! (webdav/store "https://dav.example.org/dav/"))]
              (is ok?)
              (is (every? :ok? checks) (pr-str checks))
              (is (= {} (dissoc @documents ::created)) "the probe is gone")))))
      (testing "a server that refuses the credentials"
-       (with-redefs [http/call! (fn [_] {:status 401 :headers {} :body "Unauthorized"})]
+       (with-redefs [http/send! (fn [_] {:status 401 :headers {} :body "Unauthorized"})]
          (let [{:keys [ok? checks]} (store/check! (webdav/store "https://dav.example.org/dav/" {:credentials {:username "x" :password "y"}}))]
            (is (not ok?))
            (is (= [[:store/reachable true] [:store/authenticated false]] (map (juxt :id :ok?) checks)))
            (is (str/includes? (:message (second checks)) "401")))))
      (testing "a server that cannot be reached"
-       (with-redefs [http/call! (fn [_] (throw (java.net.ConnectException. "Connection refused")))]
+       (with-redefs [http/send! (fn [_] (throw (java.net.ConnectException. "Connection refused")))]
          (let [{:keys [ok? checks]} (store/check! (webdav/store "https://dav.example.org/dav/"))]
            (is (not ok?))
            (is (= [[:store/reachable false]] (map (juxt :id :ok?) checks)))
@@ -305,7 +305,7 @@
 #?(:clj
    (deftest two-devices-through-a-webdav-collection
      (let [documents (atom {})]
-       (with-redefs [http/call! (stand-in documents)]
+       (with-redefs [http/send! (stand-in documents)]
          (let [backend (store/backend (webdav/store "https://dav.example.org/dav") {:opml? true})
                phone   (sync/sync! (phone-state) [backend] {:at t2})
                laptop  (sync/sync! (laptop-state) [backend] {:at t3})
@@ -363,7 +363,7 @@
          (set! (.-fetch js/globalThis) (fetch-stand-in documents))
          (-> (sync/sync! (phone-state) [(store/backend (webdav/store "https://dav.example.org/dav/"))] {:at t2})
              (.then (fn [phone]
-                      (is (nil? (:failed phone)) "a store without :send sends with http/call!, over js/fetch")
+                      (is (nil? (:failed phone)) "a store without :send sends with http/send!, over js/fetch")
                       (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))))
              (.catch (fn [e] (is false (str "rejected: " e))))
              (.finally (fn []

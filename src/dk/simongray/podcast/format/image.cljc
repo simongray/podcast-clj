@@ -315,7 +315,7 @@
 
   - :fetch, a function as http/fetcher makes
   - :headers, :timeout-seconds and :send, as http/fetcher takes them
-  - :allow?, as http/call! takes it
+  - :allow?, as http/send! takes it
   - the limits of bytes/read!, with bytes/default-limits for those that
     they don't set
 

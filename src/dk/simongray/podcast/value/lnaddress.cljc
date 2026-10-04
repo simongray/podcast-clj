@@ -432,7 +432,7 @@
   lnurlp-request and the invoice-request, with the :comment of `opts`.
   The comment is text, or a function of the terms of the address that
   gives the text. The function fits a comment to the :comment-length of
-  the terms, as value.metadata/payment-comment does. The invoice has the
+  the terms, as value.metadata/format-comment does. The invoice has the
   :comment that went out, as sent-comment cut it. An invoice without one
   went out with no comment, so the recipient doesn't learn what the
   payment is for.
@@ -441,16 +441,16 @@
 
   - the limits of default-limits
   - :allow?, which URLs a request can go to
-  - :send, a function that sends a request map in place of http/call!
+  - :send, a function that sends a request map in place of http/send!
 
   The domain of an address in a feed chooses the URLs that this fetches.
-  So each request carries http/public? as its :allow?, and http/call!
+  So each request carries http/public? as its :allow?, and http/send!
   then sends nothing to a private network. To reach your own network,
   give (constantly true) as :allow?."
   ([address msat]
    (request-invoice! address msat {}))
   ([address msat {:keys [comment] :as opts}]
-   (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)]
+   (let [opts (merge default-limits {:send http/send! :allow? http/public?} opts)]
      (async/then (ask! (lnurlp-request address) address terms opts)
                  (fn [offer]
                    (cond
@@ -476,7 +476,7 @@
   ([address]
    (fetch-node! address {}))
   ([address opts]
-   (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)]
+   (let [opts (merge default-limits {:send http/send! :allow? http/public?} opts)]
      (ask! (keysend-request address) address node opts))))
 
 (comment

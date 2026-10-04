@@ -198,7 +198,7 @@
   ([view {:keys [except] :or {except #{}} :as opts}]
    {:pre [(map? opts)]}
    (let [opts    (merge default-limits
-                        {:send http/call!
+                        {:send http/send!
                          :now  time/now}
                         opts)
          wanted? (complement except)]

@@ -73,14 +73,14 @@
 (deftest when-to-sync-next
   (let [at #inst "2026-01-01T00:00:00Z"
         s  (fn [n] (time/->inst (+ (inst-ms at) (* 1000 n))))]
-    (is (= (s 900) (sync/next-at {:at at} (s 1))) "idle: a quarter of an hour")
-    (is (= (s 10) (sync/next-at {:at at :changed? true} (s 1))) "soon after a change")
-    (is (= (s 30) (sync/next-at {:at at :failures 1} (s 1))) "backing off after a failure")
-    (is (= (s 900) (sync/next-at {:at at :failures 9} (s 1))) "and no further than the last wait")
-    (is (= (s 900) (sync/next-at {:at at :failures 1 :changed? true} (s 1) {:after-failure [900]})) "a failure counts before a change")
-    (is (= (s 1000) (sync/next-at {:at at} (s 1000))) "never before now")
-    (is (= (s 5) (sync/next-at {} (s 5))) "now, when there was no step yet")
-    (is (= (s 60) (sync/next-at {:at at} (s 1) {:idle 60})) "the cadence is the app's to set")))
+    (is (= (s 900) (sync/next-sync {:at at} (s 1))) "idle: a quarter of an hour")
+    (is (= (s 10) (sync/next-sync {:at at :changed? true} (s 1))) "soon after a change")
+    (is (= (s 30) (sync/next-sync {:at at :failures 1} (s 1))) "backing off after a failure")
+    (is (= (s 900) (sync/next-sync {:at at :failures 9} (s 1))) "and no further than the last wait")
+    (is (= (s 900) (sync/next-sync {:at at :failures 1 :changed? true} (s 1) {:after-failure [900]})) "a failure counts before a change")
+    (is (= (s 1000) (sync/next-sync {:at at} (s 1000))) "never before now")
+    (is (= (s 5) (sync/next-sync {} (s 5))) "now, when there was no step yet")
+    (is (= (s 60) (sync/next-sync {:at at} (s 1) {:idle 60})) "the cadence is the app's to set")))
 
 (defn- refusing
   "A store whose every call answers as a WebDAV server refusing the

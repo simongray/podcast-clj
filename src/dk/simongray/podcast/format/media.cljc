@@ -104,7 +104,7 @@
 
   - :fetch, a function as http/fetcher makes, to fetch your own way
   - :headers, :timeout-seconds and :send, as http/fetcher takes them
-  - :allow?, as http/call! takes it
+  - :allow?, as http/send! takes it
   - :except, as read takes it
   - the limits of bytes/read!, with bytes/default-limits for those that
     they don't set
@@ -214,10 +214,10 @@
 
   Nothing that the network or the server does throws. On the JVM, the file
   streams through the digest. In ClojureScript, or with :send, the file
-  comes whole, up to the :max-bytes of http/call!. The `opts` are these:
+  comes whole, up to the :max-bytes of http/send!. The `opts` are these:
 
-  - :send, a function that sends a request map in place of http/call!
-  - :headers, :timeout-seconds and :allow?, as http/call! takes them, with
+  - :send, a function that sends a request map in place of http/send!
+  - :headers, :timeout-seconds and :allow?, as http/send! takes them, with
     a timeout of 600 seconds by default"
   ([url integrity]
    (verify! url integrity {}))
@@ -233,7 +233,7 @@
        #?(:clj  (if send
                   (fetch-whole! send url metadata algorithm opts)
                   (stream! url metadata algorithm opts))
-          :cljs (fetch-whole! (or send http/call!) url metadata algorithm opts))))))
+          :cljs (fetch-whole! (or send http/send!) url metadata algorithm opts))))))
 
 (comment
   ;; an MP3 file of 20 frames of 128 kbit/s, with no tag

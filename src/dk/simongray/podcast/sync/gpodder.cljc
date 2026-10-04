@@ -461,7 +461,7 @@
   `root` with `opts`, and reads the answer, in a future or a promise."
   [root {:keys [send timeout-seconds device caption type] :as opts}]
   (fn [call params]
-    (async/then ((or send http/call!)
+    (async/then ((or send http/send!)
                  (cond-> (request call root (merge (select-keys opts [:api :credentials])
                                                    {:device device}
                                                    (when (= :register call) {:body {"caption" caption "type" type}})
@@ -633,7 +633,7 @@
   - :page-size, :max-pages, :batch-size and :max-pending, over
     default-limits
   - :timeout-seconds, how long a request can take
-  - :send, a function that sends a request map, in place of http/call!
+  - :send, a function that sends a request map, in place of http/send!
 
   A pull gives the subscription changes and episode actions since its
   cursors, as a partial state. A push sends what the devices of

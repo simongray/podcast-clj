@@ -189,9 +189,9 @@
   "The envelope string for `body` under `passphrase`, with a fresh salt and
   IV and the :iterations of `opts`, in ClojureScript as a promise. The
   iterations default to default-iterations."
-  ([passphrase body]
-   (encrypt passphrase body {}))
-  ([passphrase body {:keys [iterations] :or {iterations default-iterations} :as opts}]
+  ([body passphrase]
+   (encrypt body passphrase {}))
+  ([body passphrase {:keys [iterations] :or {iterations default-iterations} :as opts}]
    {:pre [(map? opts)]}
    (seal-with #(derive-key passphrase %1 %2) (random-bytes 16) iterations body)))
 
@@ -201,7 +201,7 @@
 
   A passphrase that doesn't open it throws ::locked, or in ClojureScript,
   rejects the promise with it."
-  [passphrase s]
+  [s passphrase]
   (open-with #(derive-key passphrase %1 %2) nil s))
 
 (defn store
@@ -276,7 +276,7 @@
 
 #?(:clj
    (comment
-     (def sealed (encrypt "correct horse battery staple" "{:version 1 :state {}}" {:iterations 1000}))
-     (decrypt "correct horse battery staple" sealed)
+     (def sealed (encrypt "{:version 1 :state {}}" "correct horse battery staple" {:iterations 1000}))
+     (decrypt sealed "correct horse battery staple")
      (store/check! (store (store/memory) "hunter2" {:iterations 1000}))
      #_.))

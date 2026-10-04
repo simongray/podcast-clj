@@ -169,11 +169,11 @@
 
   The `opts` are these:
 
-  - :timeout-seconds, :max-bytes and :allow?, as http/call! takes them
-  - :send, a function that sends a request map in place of http/call!"
+  - :timeout-seconds, :max-bytes and :allow?, as http/send! takes them
+  - :send, a function that sends a request map in place of http/send!"
   ([request]
    (call! request {}))
-  ([request {:keys [send] :or {send http/call!} :as opts}]
+  ([request {:keys [send] :or {send http/send!} :as opts}]
    {:pre [(map? opts)]}
    (async/then (send (http/limited request opts))
                (fn [{:keys [status url body]}]

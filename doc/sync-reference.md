@@ -283,7 +283,7 @@ platforms, and takes these options:
 | `:name` | The name of the backend | the domain of the server |
 | `:page-size`, `:max-pages`, `:batch-size`, `:max-pending` | The limits of the server and of the cursor, see [Services and their defaults](services.md#the-gpodder-api) | 1000, 10, 100 and 500 |
 | `:timeout-seconds` | How long each request can take | 30 |
-| `:send` | A function that sends a request map, in place of `http/call!` | `http/call!` |
+| `:send` | A function that sends a request map, in place of `http/send!` | `http/send!` |
 
 What crosses, in each direction:
 

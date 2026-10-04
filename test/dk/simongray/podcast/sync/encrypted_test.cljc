@@ -50,15 +50,15 @@
 
 #?(:clj
    (deftest sealing-and-opening
-     (let [sealed (encrypted/encrypt passphrase plaintext {:iterations 1000})]
+     (let [sealed (encrypted/encrypt plaintext passphrase {:iterations 1000})]
        (is (encrypted/envelope sealed))
-       (is (= plaintext (encrypted/decrypt passphrase sealed)))
-       (is (not= sealed (encrypted/encrypt passphrase plaintext {:iterations 1000})) "a fresh salt and IV every time")
-       (is (= plaintext (encrypted/decrypt "whatever" plaintext)) "a plain document passes through")
-       (is (thrown-with-msg? Exception #"does not open" (encrypted/decrypt "wrong" sealed)))
-       (is (= ::encrypted/locked (:type (ex-data (try (encrypted/decrypt "wrong" sealed) (catch Exception e e))))))
-       (is (= in-the-jvm-envelope (encrypted/decrypt passphrase sealed-by-the-jvm)))
-       (is (= in-the-webcrypto-envelope (encrypted/decrypt passphrase sealed-by-webcrypto))
+       (is (= plaintext (encrypted/decrypt sealed passphrase)))
+       (is (not= sealed (encrypted/encrypt plaintext passphrase {:iterations 1000})) "a fresh salt and IV every time")
+       (is (= plaintext (encrypted/decrypt plaintext "whatever")) "a plain document passes through")
+       (is (thrown-with-msg? Exception #"does not open" (encrypted/decrypt sealed "wrong")))
+       (is (= ::encrypted/locked (:type (ex-data (try (encrypted/decrypt sealed "wrong") (catch Exception e e))))))
+       (is (= in-the-jvm-envelope (encrypted/decrypt sealed-by-the-jvm passphrase)))
+       (is (= in-the-webcrypto-envelope (encrypted/decrypt sealed-by-webcrypto passphrase))
            "an envelope WebCrypto sealed opens on the JVM"))))
 
 #?(:clj
@@ -123,19 +123,19 @@
      (async done
        (let [documents (atom {})
              s         (encrypted/store (store/memory documents) passphrase {:iterations 1000})]
-         (-> (encrypted/encrypt passphrase plaintext {:iterations 1000})
+         (-> (encrypted/encrypt plaintext passphrase {:iterations 1000})
              (.then (fn [sealed]
                       (is (encrypted/envelope sealed))
-                      (encrypted/decrypt passphrase sealed)))
+                      (encrypted/decrypt sealed passphrase)))
              (.then (fn [opened]
                       (is (= plaintext opened))
-                      (encrypted/decrypt passphrase sealed-by-the-jvm)))
+                      (encrypted/decrypt sealed-by-the-jvm passphrase)))
              (.then (fn [opened]
                       (is (= in-the-jvm-envelope opened) "an envelope the JVM sealed opens with WebCrypto")
-                      (encrypted/decrypt passphrase sealed-by-webcrypto)))
+                      (encrypted/decrypt sealed-by-webcrypto passphrase)))
              (.then (fn [opened]
                       (is (= in-the-webcrypto-envelope opened))
-                      (-> (encrypted/decrypt "wrong" sealed-by-the-jvm)
+                      (-> (encrypted/decrypt sealed-by-the-jvm "wrong")
                           (.then (fn [_] (is false "the wrong passphrase opened it")))
                           (.catch (fn [e] (is (str/includes? (ex-message e) "does not open")))))))
              (.then (fn [_] ((:put s) "phone.edn" plaintext {})))

@@ -145,7 +145,7 @@
    :idle          900
    :after-failure [30 60 300 900]})
 
-(defn next-at
+(defn next-sync
   "When to sync again at `at`, after the last sync `step`, with the waits
   of `cadence`.
 
@@ -155,7 +155,7 @@
   defaults to default-cadence. The library schedules nothing, so run the
   sync from a timer of your own."
   ([step at]
-   (next-at step at {}))
+   (next-sync step at {}))
   ([{:keys [changed? failures] synced-at :at :as step} at cadence]
    {:pre [(map? cadence)]}
    (let [{:keys [after-change idle after-failure]} (merge default-cadence cadence)

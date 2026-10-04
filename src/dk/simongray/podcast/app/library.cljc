@@ -28,7 +28,7 @@
   The config holds the options that the functions take, given once:
 
       {:fetch          f              ; in place of podcast/fetch!
-       :send           f              ; in place of http/call!
+       :send           f              ; in place of http/send!
        :allow?         http/public?   ; which URLs a request may go to
        :credentials-of f              ; the credentials of a private feed, by URL
        :index          {…}            ; the credentials of the Podcast Index
@@ -402,7 +402,7 @@
   ([library opts]
    {:pre [(map? opts)]}
    (let [at   (time-of library opts)
-         opts (clojure.core/merge {:send http/call! :fetch podcast/fetch!} (options library opts))]
+         opts (clojure.core/merge {:send http/send! :fetch podcast/fetch!} (options library opts))]
      (async/then (refresh-lists! library at opts)
                  (fn [{library :library report :report}]
                    (async/then (fetch-new-feeds! library at opts)
@@ -628,7 +628,7 @@
             changed)))
 
 (defn next-sync
-  "When `library` should sync again, with `opts`, as sync/next-at says:
+  "When `library` should sync again, with `opts`, as sync/next-sync says:
   right away before the first step, and sooner when the profile changed
   since the last step."
   ([library]
@@ -636,7 +636,7 @@
   ([library opts]
    {:pre [(map? opts)]}
    (let [{:keys [at clock failures]} (:sync library)]
-     (sync/next-at (when at {:at at :changed? (not= clock (:clock (:profile library))) :failures failures})
+     (sync/next-sync (when at {:at at :changed? (not= clock (:clock (:profile library))) :failures failures})
                    (time-of library opts)))))
 
 (defn document

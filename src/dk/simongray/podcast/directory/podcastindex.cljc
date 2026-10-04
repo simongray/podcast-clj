@@ -11,7 +11,7 @@
 
   The key and the secret never leave your process. Nothing here reads a
   clock but call!, fetch-remote-value! and fetch-remote-item!, which send
-  with the :send of their options, http/call! by default.
+  with the :send of their options, http/send! by default.
 
   A value time split points at a remote item. Its value block is found by
   remote-value-requests, the requests to try in order, or by
@@ -416,7 +416,7 @@
 
   - :base-url, as request takes it
   - :auth-date, as request takes it, the time of the clock by default
-  - :send, the function that sends the request, http/call! by default
+  - :send, the function that sends the request, http/send! by default
 
   In a browser, the call works only where the CORS policy of the API
   allows it, or through a :send that goes through your own server."
@@ -424,7 +424,7 @@
    (call! credentials call {} {}))
   ([credentials call params]
    (call! credentials call params {}))
-  ([credentials call params {:keys [send] :or {send http/call!} :as opts}]
+  ([credentials call params {:keys [send] :or {send http/send!} :as opts}]
    (async/then (send (request credentials call params (dated opts)))
                (comp response :body))))
 
@@ -437,7 +437,7 @@
   until one answers with a block."
   ([credentials remote-item]
    (fetch-remote-value! credentials remote-item {}))
-  ([credentials remote-item {:keys [send] :or {send http/call!} :as opts}]
+  ([credentials remote-item {:keys [send] :or {send http/send!} :as opts}]
    (async/some #(async/then (send %) (comp block-in :body))
                (remote-value-requests credentials remote-item (dated opts)))))
 
@@ -450,7 +450,7 @@
   remote-item-requests, and they go at once."
   ([credentials item]
    (fetch-remote-item! credentials item {}))
-  ([credentials item {:keys [send] :or {send http/call!} :as opts}]
+  ([credentials item {:keys [send] :or {send http/send!} :as opts}]
    (async/then (async/all send (remote-item-requests credentials item (dated opts))) item-in)))
 
 (comment

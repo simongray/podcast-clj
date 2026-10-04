@@ -7,8 +7,8 @@
   a secret key, and whoever has it can spend from the wallet. So an app
   keeps it as it keeps a password, and shows it to nobody. The connection
   hides the key with dk.simongray.podcast.util.secret, so a connection
-  that's printed doesn't show it. The uri function gives the text that an
-  app stores.
+  that's printed doesn't show it. The format function gives the text that
+  an app stores.
 
   A command is data, a map of :method and :params. The pay-invoice
   command pays the invoice of a Lightning address, which
@@ -27,6 +27,7 @@
   extension NWC-04, in the repository nostr-wallet-connect/nwc. A wallet
   names the commands that it takes in its info event, which fetch-info!
   reads."
+  (:refer-clojure :exclude [format])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.crypto.nip44 :as nip44]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
@@ -134,7 +135,7 @@
                 (seq (:relays x))
                 (every? #(= % (nostr/relay-url %)) (:relays x)))))
 
-(defn uri
+(defn format
   "The URI of Nostr Wallet Connect for `connection`, a map as parse gives
   one. A wallet service gives an app such a URI, and an app stores
   it.
@@ -382,7 +383,7 @@
 
 (defn info-request
   "The request that asks the relay at `url` for the info event of the
-  wallet of `connection`, for nostr/call!."
+  wallet of `connection`, for nostr/send!."
   [{:keys [wallet] :as connection} url]
   {:url url :filters [{"kinds" [(:info kinds)] "authors" [wallet] "limit" 1}]})
 
@@ -457,7 +458,7 @@
   send function, the guard of the relays, the clock and the random bytes."
   [opts]
   (merge default-limits
-         {:send   nostr/call!
+         {:send   nostr/send!
           :allow? nostr/public?
           :now    time/now
           :random bytes/generate!}
@@ -564,8 +565,8 @@
     the command gives :value/wallet-unsupported, and no request goes out.
   - :timeout-seconds, in place of that of default-limits
   - :send, a function that sends a request map to a relay, in place of
-    nostr/call!. Its response has :sent? true when the event of the
-    request went out, as the response of nostr/call! has. Without
+    nostr/send!. Its response has :sent? true when the event of the
+    request went out, as the response of nostr/send! has. Without
     :sent?, the next relay gets the event.
   - :allow?, a predicate of the URL of a relay. It's nostr/public? by
     default, so nothing goes to a private network. For a wallet on your

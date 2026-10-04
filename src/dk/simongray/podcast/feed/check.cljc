@@ -786,8 +786,8 @@
   - :integrity?, whether to fetch whole each file with a podcast:integrity
   - :max-files, :max-seconds, :concurrency, :timeout-seconds and
     :max-bytes, the limits
-  - :allow?, which URLs a request can go to, as for http/call!
-  - :send, how to send the requests, in place of http/call!
+  - :allow?, which URLs a request can go to, as for http/send!
+  - :send, how to send the requests, in place of http/send!
   - :now, a function that gives the time, the clock by default
 
   The credentials go only with the requests for the feed, and so do a
@@ -816,7 +816,7 @@
    (let [own-send     (:send opts)
          {:keys [url credentials requirements concurrency send max-files max-seconds now] :as opts}
          (merge default-limits
-                {:send http/call! :now time/now}
+                {:send http/send! :now time/now}
                 opts)
          [url in-url] (http/split-credentials url)
          auth         (http/authorization (or credentials in-url))

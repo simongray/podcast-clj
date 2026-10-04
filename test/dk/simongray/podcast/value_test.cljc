@@ -317,7 +317,7 @@
        (fn []
          (let [log     (atom [])
                payment {:action :boost :message "Great episode"}
-               fitted  #(metadata/payment-comment payment "https://app.example/payments/1" %)
+               fitted  #(metadata/format-comment payment "https://app.example/payments/1" %)
                short   (fn [{:keys [url] :as request}]
                          (if (str/includes? url "/.well-known/")
                            (update (recorded request) :body #(json/write-str (assoc (json/read-str %) "commentAllowed" 40)))
@@ -386,20 +386,20 @@
         "blank ids are no ids")
     (is (= [:value/no-podcast] (map :id (value/report payment))))
     (is (= payment (metadata/parse-header (json/write-str example-metadata))) "JSON that is not encoded")
-    (is (= payment (metadata/parse-header (metadata/header payment))) "a round trip"))
+    (is (= payment (metadata/parse-header (metadata/format-header payment))) "a round trip"))
   (is (= {"action" "stream" "value_msat" 10000 "value_msat_total" 10000 "timestamp" "2026-09-28T12:00:00Z"}
          (metadata/record {:action :stream :sats 10 :timestamp #inst "2026-09-28T12:00:00Z"})))
   (is (= [{} [:value/not-an-object]] ((juxt identity #(map :id (value/report %))) (metadata/parse-header "%7B"))))
   (testing "the comment of a payment"
     (let [url "https://fountain.fm/show/2JCkApiUwyBj2eOG7JJI?payment=DBBhBwUise1bcfoHRCC3"]
-      (is (= (str "rss::payment::boost " url " Great episode!") (metadata/payment-comment {:message "Great episode!"} url)))
-      (is (= (str "rss::payment::stream " url) (metadata/payment-comment {:action :stream :message " "} url 200)))
-      (is (= (str "rss::payment::boost " url " Grea…") (metadata/payment-comment {:message "Great episode!"} url 100))
+      (is (= (str "rss::payment::boost " url " Great episode!") (metadata/format-comment {:message "Great episode!"} url)))
+      (is (= (str "rss::payment::stream " url) (metadata/format-comment {:action :stream :message " "} url 200)))
+      (is (= (str "rss::payment::boost " url " Grea…") (metadata/format-comment {:message "Great episode!"} url 100))
           "a message that is cut ends in an ellipsis")
-      (is (= (str "rss::payment::boost " url) (metadata/payment-comment {:message "Great episode!"} url 96))
+      (is (= (str "rss::payment::boost " url) (metadata/format-comment {:message "Great episode!"} url 96))
           "no room for a character of the message and the ellipsis")
-      (is (nil? (metadata/payment-comment {:message "Hi"} url 90)) "no room for the URL")
-      (is (nil? (metadata/payment-comment {:message "Hi"} "ftp://example.com/p" 200)))
+      (is (nil? (metadata/format-comment {:message "Hi"} url 90)) "no room for the URL")
+      (is (nil? (metadata/format-comment {:message "Hi"} "ftp://example.com/p" 200)))
       (is (= {:action :boost :url url :message "Great episode!"}
              (metadata/parse-comment (str "rss::payment::boost " url " Great episode!"))))
       (is (= {:action :stream :url url} (metadata/parse-comment (str "rss::payment::stream " url))))
@@ -426,7 +426,7 @@
                     (swap! asked conj request)
                     {:status 200 :url (:url request) :headers (if header {"x-rss-payment" [header]} {}) :body "<p>"}))]
     (run #(async/then
-           (metadata/fetch! url {:send (send (metadata/header payment))})
+           (metadata/fetch! url {:send (send (metadata/format-header payment))})
            (fn [found]
              (is (= payment found))
              (is (= [0 1] (:range (first @asked))) "two bytes of the page")

@@ -310,11 +310,11 @@
 (deftest a-request-that-is-refused
   (let [refused? (fn [request]
                    #?(:clj  (try
-                              (nostr/call! request)
+                              (nostr/send! request)
                               false
                               (catch Exception e
                                 (= ::nostr/refused (:type (ex-data e)))))
-                      :cljs (-> (nostr/call! request)
+                      :cljs (-> (nostr/send! request)
                                 (.then (constantly false))
                                 (.catch #(= ::nostr/refused (:type (ex-data %)))))))
         check    (fn [request]
@@ -342,7 +342,7 @@
        (with-relay answer log
          (fn [url]
            (testing "the events of a relay, the long ones too, until the relay has no more"
-             (let [response (nostr/call! {:url url :filters [{"#t" ["all"]} {"kinds" [1]}]})]
+             (let [response (nostr/send! {:url url :filters [{"#t" ["all"]} {"kinds" [1]}]})]
                (is (= {:url url :complete? true :notices ["be kind"]} (dissoc response :events)))
                (is (= notes (:events response)))
                (is (every? nostr/verified? (:events response)))
@@ -352,21 +352,21 @@
                    (Thread/sleep 20)
                    (recur (dec tries))))
                (is (= [["REQ" nostr/subscription {"#t" ["all"]} {"kinds" [1]}] ["CLOSE" nostr/subscription]] @log))))
-           (is (= {:url url :events [] :complete? true} (nostr/call! {:url (str url "/") :filters [{"#t" ["none"]}]})))
+           (is (= {:url url :events [] :complete? true} (nostr/send! {:url (str url "/") :filters [{"#t" ["none"]}]})))
            (is (= {:url url :events [] :closed "auth-required: tell who you are"}
-                  (nostr/call! {:url url :filters [{"#t" ["closed"]}]})))
+                  (nostr/send! {:url url :filters [{"#t" ["closed"]}]})))
            (testing "the limits of a request"
              (is (= {:count 3 :truncated :max-events}
-                    (let [response (nostr/call! {:url url :filters [{"#t" ["all"]}] :max-events 3})]
+                    (let [response (nostr/send! {:url url :filters [{"#t" ["all"]}] :max-events 3})]
                       {:count (count (:events response)) :truncated (:truncated response)})))
-             (is (= :max-bytes (:truncated (nostr/call! {:url url :filters [{"#t" ["all"]}] :max-bytes 2000})))))
+             (is (= :max-bytes (:truncated (nostr/send! {:url url :filters [{"#t" ["all"]}] :max-bytes 2000})))))
            (testing "a relay that sends an event, and then nothing"
-             (let [response (nostr/call! {:url url :filters [{"#t" ["silent"]}] :timeout-seconds 1})]
+             (let [response (nostr/send! {:url url :filters [{"#t" ["silent"]}] :timeout-seconds 1})]
                (is (= {:url url :events [(first notes)] :timeout? true} response))))))
        (testing "a relay that is not there"
          (is (= ::nostr/failed
                 (try
-                  (nostr/call! {:url "ws://127.0.0.1:1" :filters [{}] :timeout-seconds 2})
+                  (nostr/send! {:url "ws://127.0.0.1:1" :filters [{}] :timeout-seconds 2})
                   (catch Exception e
                     (:type (ex-data e))))))))))
 
@@ -396,28 +396,28 @@
          (fn [url]
            (testing "the answer to the event, which comes after the end of the stored events"
              (let [{:keys [event filters] :as asked} (request url "pay")
-                   response (nostr/call! asked)]
+                   response (nostr/send! asked)]
                (is (= {:url url :complete? true :sent? true :accepted? true :events [(reply event)]} response))
                (is (= [(into ["REQ" nostr/subscription] filters) ["EVENT" event]] (take 2 @log))
                    "the relay has the subscription before the event goes out")))
            (testing "a relay that refuses the event"
              (is (= {:url url :complete? true :sent? true :events [] :refused "blocked: not on the list"}
-                    (nostr/call! (request url "refuse")))))
+                    (nostr/send! (request url "refuse")))))
            (testing "a relay that takes the event, and then has no answer"
              (is (= {:url url :complete? true :sent? true :accepted? true :events [] :timeout? true}
-                    (nostr/call! (assoc (request url "silent") :timeout-seconds 1)))))
+                    (nostr/send! (assoc (request url "silent") :timeout-seconds 1)))))
            (testing "a relay that refuses the subscription gets no event"
              (reset! log [])
              (is (= {:url url :events [] :closed "auth-required: tell who you are"}
-                    (nostr/call! (request url "closed"))))
+                    (nostr/send! (request url "closed"))))
              (is (empty? (events))))
            (testing "a relay that does not tell that it has the subscription gets no event"
              (reset! log [])
              (is (= {:url url :events [] :timeout? true}
-                    (nostr/call! (assoc (request url "mute") :timeout-seconds 1))))
+                    (nostr/send! (assoc (request url "mute") :timeout-seconds 1))))
              (is (empty? (events))))
            (testing "an event without filters: it goes out at once, and the exchange ends when the relay takes it"
              (is (= {:url url :sent? true :accepted? true :events []}
-                    (nostr/call! (dissoc (request url "silent") :filters))))
+                    (nostr/send! (dissoc (request url "silent") :filters))))
              (is (= {:url url :sent? true :events [] :refused "blocked: not on the list"}
-                    (nostr/call! (dissoc (request url "refuse") :filters))))))))))
+                    (nostr/send! (dissoc (request url "refuse") :filters))))))))))

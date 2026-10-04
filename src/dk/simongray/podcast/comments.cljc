@@ -114,13 +114,13 @@
     (http/public? url)))
 
 (defn send!
-  "Send the request map `request` as http/call! does, or as nostr/call!
+  "Send the request map `request` as http/send! does, or as nostr/send!
   does when its URL is that of a relay. It's the :send of fetch! by
   default."
   [request]
   (if (nostr/relay-url (:url request))
-    (nostr/call! request)
-    (http/call! request)))
+    (nostr/send! request)
+    (http/send! request)))
 
 (defn ^:no-doc spared-origins
   "The origins that the reading of `thread` asks no more: those of the
@@ -187,7 +187,7 @@
 
   A server that didn't answer in time, or that answered 429, gets no more
   requests until the next resumed. Each request is a request map for
-  http/call!, or for nostr/call! when its URL is that of a relay, and each
+  http/send!, or for nostr/send! when its URL is that of a relay, and each
   URL comes once."
   ([thread]
    (requests thread {}))
@@ -212,7 +212,7 @@
   The exchanges are the exchange of the request and, for a collection, the
   exchanges of the pages that next-page names after it. Each exchange is a
   map of the :request and the :response. The response is the map that
-  http/call! gives, or a map of the :error when the request failed. Such
+  http/send! gives, or a map of the :error when the request failed. Such
   a response is also :timeout? when the request took too long, and
   :retry? when a later request can get an answer."
   [thread exchanges at]
@@ -538,7 +538,7 @@
   - :timeout-seconds, for each request
   - :max-bytes, of each answer
   - :allow?, which URLs a request can go to
-  - :send, in place of http/call! and nostr/call!
+  - :send, in place of http/send! and nostr/send!
   - :now, a function that gives the time, the clock by default
 
   The requests go out in rounds. The root post comes first, then the posts
@@ -553,16 +553,16 @@
 
   The servers of a thread choose the URLs that this fetches. So each
   request carries a guard as its :allow?, which is http/public? for a
-  server and nostr/public? for a relay. With these guards, http/call! and
-  nostr/call! send nothing to a private network. To reach your own
+  server and nostr/public? for a relay. With these guards, http/send! and
+  nostr/send! send nothing to a private network. To reach your own
   network, give (constantly true) as :allow?. A :send keeps to the
   :timeout-seconds and the :allow? of each request. A :send that signs
   its requests can also read the servers that answer only signed
   requests.
 
   A request to a relay has the :url of the relay and the :filters of
-  NIP-01, and nostr/call! sends it over a WebSocket. Your :send gets such
-  requests too, and answers them as nostr/call! does."
+  NIP-01, and nostr/send! sends it over a WebSocket. Your :send gets such
+  requests too, and answers them as nostr/send! does."
   ([thread]
    (fetch! thread {}))
   ([thread opts]

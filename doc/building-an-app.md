@@ -863,17 +863,17 @@ node but not the recipient's wallet:
 Pay a recipient of type `lnaddress` with an invoice from
 `lnaddress/request-invoice!`, which also checks its amount. Put the
 payment's metadata in the comment, by serving the header of
-`metadata/header` at a URL of your own and naming that URL:
+`metadata/format-header` at a URL of your own and naming that URL:
 
 ```clojure
 (def invoice
   (lnaddress/request-invoice!
     "ann@getalby.com" 50000
     {:comment (fn [{:keys [comment-length]}]
-                (metadata/payment-comment payment url comment-length))}))
+                (metadata/format-comment payment url comment-length))}))
 ;; => {:invoice "lnbc500n1…" :msat 50000 :comment "rss::payment::boost …"}
 
-{"x-rss-payment" (metadata/header payment)}  ; the header to serve at url
+{"x-rss-payment" (metadata/format-header payment)}  ; the header to serve at url
 ```
 
 If the comment doesn't fit, none is sent and the invoice has no
@@ -900,7 +900,7 @@ you would a password:
 ;; => {:method "pay_invoice" :preimage "…" :proven? true :fees-msat 1000}
 ```
 
-The text to store comes from `nwc/uri`. When `:proven?` is false, the
+The text to store comes from `nwc/format`. When `:proven?` is false, the
 wallet says it paid but gave no proof, so don't pay again, and tell the
 listener instead. An answer with an `:error` says whether the request went
 out:

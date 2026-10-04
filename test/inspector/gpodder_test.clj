@@ -65,7 +65,7 @@
                              "timestamp" "2026-01-01T01:00:00" "started" 0 "position" 300 "total" 3600
                              "device" "antennapod"}]))))
     (is (.isFile (io/file *dir* "sync" "inspector-gpodder.edn")) "the server writes its document to the folder")
-    (with-redefs [http/call! through-the-inspector]
+    (with-redefs [http/send! through-the-inspector]
       (let [backend (store/backend (webdav/store "http://inspector/dav/"))
             browser (sync/sync! (profile/make "browser") [backend] {:at #inst "2026-01-01T02:00:00Z"})
             s       (:state browser)]
@@ -86,7 +86,7 @@
         id     [g "b1"]
         login  (call :post "/api/2/auth/simon/login.json" :headers {"Authorization" "Basic c2ltb246eA=="})
         cookie (first (str/split (get-in login [:headers "Set-Cookie"]) #";"))]
-    (with-redefs [http/call! through-the-inspector]
+    (with-redefs [http/send! through-the-inspector]
       (let [backend (store/backend (webdav/store "http://inspector/dav/"))
             added   {:id id :url feed :guid "b1" :enclosure "https://b.example/1.mp3"}
             state   (-> (profile/make "browser")

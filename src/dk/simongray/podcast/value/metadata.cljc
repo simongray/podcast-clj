@@ -10,9 +10,8 @@
 
   The URL answers with the header x-rss-payment, which holds the whole
   payment as JSON. The app that pays writes the comment with
-  payment-comment, and serves the header that the header function writes.
-  The host that receives the payment reads the comment with
-  parse-comment. The fetch! function gets the header, and parse-header
+  format-comment, and serves the header that format-header writes. The
+  host that receives the payment reads the comment with parse-comment. The fetch! function gets the header, and parse-header
   reads it. A payment is the map of dk.simongray.podcast.value.
 
   The sender writes the metadata, and the page at the URL is public. So
@@ -59,7 +58,7 @@
                    "action" (name (or action :boost)))
       amount (assoc "value_msat" amount "value_msat_total" total))))
 
-(defn header
+(defn format-header
   "The value of the header x-rss-payment for `payment`: its record as
   JSON, URI-encoded as encodeURIComponent does."
   [payment]
@@ -128,7 +127,7 @@
                                    (conj {:id :value/no-podcast})))}))
       (with-meta {} {:podcast/report [(diagnostics/describe {:id :value/not-an-object})]}))))
 
-(defn payment-comment
+(defn format-comment
   "The comment of a payment to a Lightning address that names the metadata
   of `payment` at `url`, at most `max-length` characters long, as
   JavaScript counts them.
@@ -139,7 +138,7 @@
   when it's cut. The comment is nil when `url` isn't an http or https
   URL, or when the comment doesn't fit without the message."
   ([payment url]
-   (payment-comment payment url ##Inf))
+   (format-comment payment url ##Inf))
   ([{:keys [action message] :as payment} url max-length]
    (when (http/origin url)
      (let [head (str prefix (name (or action :boost)) " " url)
@@ -193,17 +192,17 @@
 
   - the limits of default-limits
   - :allow?, which URLs the request can go to
-  - :send, a function that sends a request map in place of http/call!
+  - :send, a function that sends a request map in place of http/send!
 
   The sender of the payment chooses the URL. So the request carries
-  http/public? as its :allow?, and http/call! then sends nothing to a
+  http/public? as its :allow?, and http/send! then sends nothing to a
   private network. To reach your own network, give (constantly true) as
   :allow?. A browser reads the header only when the server exposes it
   with CORS."
   ([url]
    (fetch! url {}))
   ([url opts]
-   (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)]
+   (let [opts (merge default-limits {:send http/send! :allow? http/public?} opts)]
      (async/then (when (http/origin url)
                    (http/try-send! (:send opts) (request url) opts))
                  (fn [{:keys [value error]}]
@@ -224,13 +223,13 @@
 
   ;; what the app that pays writes
   (record sample)
-  (header sample)
-  (payment-comment sample "https://example.org/p/1")
-  (payment-comment sample "https://example.org/p/1" 50)
+  (format-header sample)
+  (format-comment sample "https://example.org/p/1")
+  (format-comment sample "https://example.org/p/1" 50)
 
   ;; what the host that receives the payment reads
   (parse-comment "rss::payment::boost https://example.org/p/1 Great episode!")
-  (parse-header (header sample))
+  (parse-header (format-header sample))
   (value/report (parse-header "{\"action\": \"streaming\", \"value_msat\": \"1000\"}"))
 
   (fetch! "https://example.org/p/1")

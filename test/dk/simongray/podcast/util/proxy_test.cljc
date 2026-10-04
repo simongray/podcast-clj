@@ -1,7 +1,7 @@
 (ns dk.simongray.podcast.util.proxy-test
   "The proxy for the requests of a web page: what goes on to the other
   site, what comes back to the page, what it refuses, its failures as the
-  exceptions of http/call!, and fetch! through it, with the HTTP between
+  exceptions of http/send!, and fetch! through it, with the HTTP between
   the page and the proxy played in memory."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
@@ -22,7 +22,7 @@
   (bytes/of [0x49 0x44 0x33 0x04]))
 
 (def answers
-  "What the other sites answer, by URL, as http/call! gives it."
+  "What the other sites answer, by URL, as http/send! gives it."
   {"https://a.example/feed.xml" {:status        200
                                  :url           "https://b.example/feed.xml"
                                  :permanent-url "https://b.example/feed.xml"
@@ -36,8 +36,8 @@
                                  :body    mp3}})
 
 (defn- upstream
-  "A stand-in for http/call! that answers from answers, notes each request
-  in the atom `sent`, and throws as call! does for a URL it doesn't know."
+  "A stand-in for http/send! that answers from answers, notes each request
+  in the atom `sent`, and throws as send! does for a URL it doesn't know."
   [sent]
   (fn [{:keys [url] :as request}]
     (swap! sent conj request)
@@ -144,14 +144,14 @@
     (run #(async/then (podcast/fetch! "https://a.example/feed.xml" {:send send :credentials {:username "ann" :password "p"}})
                       (fn [{:keys [status url permanent-url etag feed]}]
                         (is (= [200 "https://b.example/feed.xml" "https://b.example/feed.xml" "\"v1\""] [status url permanent-url etag])
-                            "the answer as http/call! gives it, with the URLs that the redirects led to")
+                            "the answer as http/send! gives it, with the URLs that the redirects led to")
                         (is (= "Blåbær" (:rss/title feed)))
                         (is (not (contains? (:headers (first @sent)) "authorization"))
                             "the credentials of a feed don't go on, unless :forward names them")))
          #(async/then (podcast/fetch! "https://private.example/feed.xml" {:send send})
                       (fn [{:keys [error]}]
                         (is (= :fetch/unreachable (:id error)))
-                        (is (str/includes? (:reason error) "is not allowed") "a refusal of the proxy, as call! reports one")))
+                        (is (str/includes? (:reason error) "is not allowed") "a refusal of the proxy, as send! reports one")))
          #(do (reset! sent [])
               (async/then (send {:url "https://a.example/ep.mp3" :as :bytes :range [0 3]})
                           (fn [{:keys [status body]}]

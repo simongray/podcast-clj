@@ -274,7 +274,7 @@
             (str/includes? url "api.podcastindex.org")        "index/search-byterm.json"))))
 
 (deftest the-directories
-  (with-redefs [http/call! (fn [{:keys [url]}] {:status 200 :url url :body (directory-fixture url)})]
+  (with-redefs [http/send! (fn [{:keys [url]}] {:status 200 :url url :body (directory-fixture url)})]
     (testing "a search across the directories, combined, each result linking to its feed"
       (let [{:keys [status body]} (get* "/directory" "q" "podcasting 2.0")]
         (is (= 200 status))
@@ -309,14 +309,14 @@
               (str/includes? body "get_following")    "podping/following.json")))))
 
 (deftest the-podpings
-  (with-redefs [http/call! (fn [{:keys [url body]}] {:status 200 :url url :body (hive-fixture body)})]
+  (with-redefs [http/send! (fn [{:keys [url body]}] {:status 200 :url url :body (hive-fixture body)})]
     (let [{:keys [status body]} (get* "/podping")]
       (is (= 200 status))
       (is (str/includes? body "podping.eee"))
       (is (not (str/includes? body "pp_podcast_update")) "the id is not shown, the medium and reason are")
       (is (str/includes? body "Head block 110255098"))
       (is (str/includes? body "writers podping follows"))))
-  (with-redefs [http/call! (fn [_] (throw (ex-info "offline" {})))]
+  (with-redefs [http/send! (fn [_] (throw (ex-info "offline" {})))]
     (let [{:keys [status body]} (get* "/podping")]
       (is (= 502 status) "a chain that cannot be read is an error page")
       (is (str/includes? body "Could not read the Hive chain")))))
@@ -416,7 +416,7 @@
       (let [seen (atom [])]
         (with-relay #(wallet-answer seen %) (atom [])
           (fn [relay]
-            (let [uri (nwc/uri {:wallet (secp256k1/public-key wallet-secret) :relays [relay] :secret app-secret})]
+            (let [uri (nwc/format {:wallet (secp256k1/public-key wallet-secret) :relays [relay] :secret app-secret})]
               (testing "what the wallet takes and what it holds"
                 (let [{:keys [status body]} (post* "/wallet" {"uri" uri})]
                   (is (= 200 status))

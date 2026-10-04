@@ -78,7 +78,7 @@
        (let [real     (.-fetch js/globalThis)
              requests (atom [])
              agents   (atom #{})]
-         ;; the global fetch, as call! finds it
+         ;; the global fetch, as send! finds it
          (set! (.-fetch js/globalThis)
                (fn [_ init]
                  (swap! requests conj [(.-method init) (or (aget (.-headers init) "Range") nil)])
@@ -163,7 +163,7 @@
     (is (= "https://example.org/feed.xml" (:url request)) "the URL without the credentials")
     (is (= {"If-None-Match" "\"v1\"" "If-Modified-Since" "Tue, 29 Sep 2026 10:00:00 GMT" "Authorization" "Basic dTpw"}
            (select-keys (:headers (http/revealed request)) ["If-None-Match" "If-Modified-Since" "Authorization"])))
-    (is (= [100 false] [(:max-bytes request) (contains? request :max-pages)]) "only the options of call!")
+    (is (= [100 false] [(:max-bytes request) (contains? request :max-pages)]) "only the options of send!")
     (is (= {:url     "https://example.org/feed.xml"
             :headers {"User-Agent" http/user-agent "Accept" "application/rss+xml, application/xml, text/xml, */*"}}
            (http/feed-request "https://example.org/feed.xml"))
@@ -390,7 +390,7 @@
          (fn [[base other]]
            (let [call (fn [path & {:as opts}]
                         (reset! seen [])
-                        (http/call! (merge {:url (str base path) :headers {"Authorization" "Basic dTpw"}} opts)))]
+                        (http/send! (merge {:url (str base path) :headers {"Authorization" "Basic dTpw"}} opts)))]
              (testing "a redirect to another origin leaves the credentials behind"
                (let [r (call "/away")]
                  (is (= [200 (str other "/feed")] [(:status r) (:url r)]))
@@ -445,21 +445,21 @@
      (let [b (byte-array (map unchecked-byte (range 1000)))]
        (with-file-server b {}
          (fn [url]
-           (let [{:keys [status body content-range]} (http/call! {:url url :as :bytes :range [10 19]})]
+           (let [{:keys [status body content-range]} (http/send! {:url url :as :bytes :range [10 19]})]
              (is (= 206 status))
              (is (= {:start 10 :end 19 :total 1000} content-range))
              (is (= (range 10 20) (map #(bit-and % 0xFF) body))))
-           (is (= 990 (count (:body (http/call! {:url url :as :bytes :range [10 nil]})))) "to the end")
+           (is (= 990 (count (:body (http/send! {:url url :as :bytes :range [10 nil]})))) "to the end")
            (testing "the digest of the whole file, streamed through"
              (is (= (seq (.digest (MessageDigest/getInstance "SHA-384") b))
                     (seq (get-in (http/digest! url ["SHA-384"]) [:digests "SHA-384"])))))))
        (with-file-server b {:ranges? false}
          (fn [url]
-           (let [{:keys [status body content-range]} (http/call! {:url url :as :bytes :range [10 19]})]
+           (let [{:keys [status body content-range]} (http/send! {:url url :as :bytes :range [10 19]})]
              (is (= 200 status) "a server that sends the whole file instead")
              (is (nil? content-range))
              (is (= (range 20) (map #(bit-and % 0xFF) body)) "of which the start up to the range is read"))
-           (is (= 1000 (count (:body (http/call! {:url url :as :bytes :range [10 nil]})))) "all of it for the rest"))))))
+           (is (= 1000 (count (:body (http/send! {:url url :as :bytes :range [10 nil]})))) "all of it for the rest"))))))
 
 #?(:clj
    (deftest probing-a-file
@@ -483,14 +483,14 @@
      (let [b (byte-array (map unchecked-byte (range 1000)))]
        (with-server {"/a.mp3" [206 {"Content-Range" "bytes 0-999/1000"} b]}
          (fn [base]
-           (let [{:keys [status body content-range]} (http/call! {:url (str base "/a.mp3") :as :bytes :range [0 1]})]
+           (let [{:keys [status body content-range]} (http/send! {:url (str base "/a.mp3") :as :bytes :range [0 1]})]
              (is (= [206 {:start 0 :end 999 :total 1000}] [status content-range]))
              (is (= [0 1] (map #(bit-and % 0xFF) body)) "a 206 of the whole file, of which the range is read")))))
      (testing "an answer that holds none of the file"
        (let [page (byte-array (* 2 1024 1024) (byte 120))]
          (with-server {"/gone.mp3" [404 {"Content-Type" "text/html"} page]}
            (fn [base]
-             (let [{:keys [status body]} (http/call! {:url (str base "/gone.mp3") :range [0 1] :max-bytes 1024})]
+             (let [{:keys [status body]} (http/send! {:url (str base "/gone.mp3") :range [0 1] :max-bytes 1024})]
                (is (= [404 "xx"] [status body]) "of a page of 2 MB, the two bytes that the range names")
                (is (= 404 (get-in (http/probe! (str base "/gone.mp3") {:max-bytes 1024}) [:get :status]))))))))))
 
@@ -661,17 +661,17 @@
                    (.write out (.getBytes "ok"))))))
          (fn [[base _]]
            (testing "a redirect that `:allow?` does not take is not followed"
-             (is (= ::http/refused (kind #(http/call! {:url (str base "/away") :allow? (fn [url] (.startsWith ^String url base))}))))
+             (is (= ::http/refused (kind #(http/send! {:url (str base "/away") :allow? (fn [url] (.startsWith ^String url base))}))))
              (is (= 1 (count @seen)) "the first request alone"))
-           (testing "`call-public!` sends nothing to the network of the app"
+           (testing "`send-public!` sends nothing to the network of the app"
              (reset! seen [])
-             (is (= ::http/refused (kind #(http/call-public! {:url (str base "/feed")}))))
+             (is (= ::http/refused (kind #(http/send-public! {:url (str base "/feed")}))))
              (is (empty? @seen))))))))
 
 #?(:cljs
    (deftest refusing-hosts-in-a-browser
      (async done
-       (-> (http/call-public! {:url "http://127.0.0.1:1/feed"})
+       (-> (http/send-public! {:url "http://127.0.0.1:1/feed"})
            (.then (fn [_] (is false "sent")))
            (.catch (fn [e] (is (= ::http/refused (:type (ex-data e))))))
            (.finally done)))))

@@ -88,7 +88,7 @@
     (update response :headers #(into {} (map (fn [[k v]] [(str/lower-case k) [v]])) %))))
 
 (deftest two-devices-through-the-inspector
-  (with-redefs [http/call! through-the-inspector]
+  (with-redefs [http/send! through-the-inspector]
     (let [backend (store/backend (webdav/store "http://inspector/dav/") {:opml? true :app "test"})
           phone   (sync/sync! (-> (profile/make "phone")
                                   (crdt/identify {:name "Phone"} t1)

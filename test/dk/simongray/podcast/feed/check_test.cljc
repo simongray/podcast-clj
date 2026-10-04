@@ -409,7 +409,7 @@
                                                                                          "access-control-allow-origin" "*"}})}
              feed      {:rss/items [{:podcast/transcripts [{:url "https://a/t.vtt" :type "text/vtt"}]
                                      :podcast/chapters    {:url "https://a/c.json" :type "application/json+chapters"}}]}]
-         ;; the global fetch, as http/call! finds it
+         ;; the global fetch, as http/send! finds it
          (set! (.-fetch js/globalThis) (fn [url _] (js/Promise.resolve ((responses url)))))
          (-> (check/check-files! feed {:read? true})
              (.then (fn [{:keys [files report]}]

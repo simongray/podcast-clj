@@ -167,7 +167,7 @@
 
 #?(:clj
    (deftest polling
-     (with-redefs [http/call! (node-answering {"https://api.hive.blog" (chain 110255080)})]
+     (with-redefs [http/send! (node-answering {"https://api.hive.blog" (chain 110255080)})]
        (testing "the pings since a block, verified, and where to continue"
          (let [step (podping/poll! 110255078 {:node "https://api.hive.blog"})]
            (is (= 4 (count (:pings step))))
@@ -190,14 +190,14 @@
        (testing "a block the node leaves out is asked for again, and no ping comes twice"
          (is (= {:pings [] :refused [] :block 110255077}
                 (dissoc (podping/poll! 110255077 {:node "https://api.hive.blog" :verify? false}) :writers)))))
-     (with-redefs [http/call! (node-answering {"https://api.hive.blog" (chain 110255095)})]
+     (with-redefs [http/send! (node-answering {"https://api.hive.blog" (chain 110255095)})]
        (testing "stopping at the last irreversible block"
          (is (= 110255080 (:block (podping/poll! nil {:node "https://api.hive.blog" :up-to :irreversible}))))))))
 
 #?(:clj
    (deftest polling-when-no-node-answers
      (testing "no node at all: a step that gives data, and the poller reads on from where it was"
-       (with-redefs [http/call! (node-answering {})]
+       (with-redefs [http/send! (node-answering {})]
          (let [step (podping/poll! 110255078 {:nodes ["https://a" "https://b"] :writers #{"podping"}})]
            (is (= {:pings [] :refused [] :block 110255078 :writers #{"podping"}} (dissoc step :error)))
            (is (= [:podping/unavailable :warning] ((juxt :id :level) (:error step))))
@@ -210,7 +210,7 @@
                     (if (str/includes? body "get_block_range")
                       "<html>maintenance</html>"
                       ((chain 110255080) body)))]
-         (with-redefs [http/call! (node-answering {"https://api.hive.blog" node})]
+         (with-redefs [http/send! (node-answering {"https://api.hive.blog" node})]
            (let [step (podping/poll! 110255078 {:node "https://api.hive.blog"})]
              (is (= [[] 110255078] ((juxt :pings :block) step)) "the next step asks for the blocks again")
              (is (= 25 (count (:writers step))))
@@ -287,5 +287,5 @@
                            (is (= (let [[a b c] podping/nodes]
                                     [[a "POST"] [b "POST"] [b :aborted] [c "POST"]])
                                   @sent)
-                               "through http/call! and js/fetch, past a node that takes too long")))
+                               "through http/send! and js/fetch, past a node that takes too long")))
                   (.finally #(set! (.-fetch js/globalThis) original))))))))

@@ -115,7 +115,7 @@
 (deftest the-sync-folder
   (with-temp-dir
     (fn [dir]
-      (with-redefs [http/call! (through (connector dir false))]
+      (with-redefs [http/send! (through (connector dir false))]
         (let [{:keys [ok? checks]} (store/check! (webdav/store "http://localhost:8400/dav/"))]
           (is ok?)
           (is (every? :ok? checks) (pr-str (remove :ok? checks))))
@@ -144,6 +144,6 @@
             (is (= 200 (:status login)))
             (is (= 200 (:status (response-for c :get "/api/2/devices/simon.json" :headers {"cookie" cookie}))))))
         (testing "the library's own WebDAV client"
-          (with-redefs [http/call! (through c)]
+          (with-redefs [http/send! (through c)]
             (is (:ok? (store/check! (webdav/store "http://localhost:8400/dav/" {:credentials {:username "simon" :password password}}))))
             (is (not (:ok? (store/check! (webdav/store "http://localhost:8400/dav/")))) "without the credentials")))))))
