@@ -56,6 +56,9 @@ with the SHA of the latest commit on `master`
 io.github.simongray/podcast-clj {:git/sha "…"}
 ```
 
+For ClojureScript, also set `:deps true` in your `shadow-cljs.edn`,
+since shadow-cljs only reads Git dependencies from `deps.edn`.
+
 Then try parsing a feed as a Clojure map:
 
 ```clojure
@@ -96,11 +99,9 @@ and `feed.resolve` gives one normalised answer across them:
 
 **NOTE:** on both platforms, podcast-clj repairs the most common XML errors of
 feeds, e.g. bare ampersands. With `org.jsoup/jsoup` on the classpath, it also
-reads feeds on the JVM that are still _not_ well-formed XML.
-
-**NOTE:** in ClojureScript, shadow-cljs reads the dependency from `deps.edn`
-with `:deps true`. There are no npm packages to install, but Node needs a
-`DOMParser`, e.g. that of `@xmldom/xmldom` as `globalThis.DOMParser`.
+reads feeds on the JVM that are still _not_ well-formed XML. In Node, you also
+need a `DOMParser` to read XML, e.g. that of `@xmldom/xmldom` as
+`globalThis.DOMParser`.
 
 
 An app in a few lines
