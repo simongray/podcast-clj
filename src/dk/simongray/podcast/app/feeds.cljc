@@ -199,13 +199,14 @@
     report  (update :report into report)))
 
 (defn refresh!
-  "Fetch the feeds of `feeds` that are due at `at` with the `opts` below,
-  and apply each result as refresh does.
+  "Fetch the feeds of `feeds` that are due with the `opts` below, and apply
+  each result as refresh does.
 
   Returns a map of :feeds, :changed, :moved and :report for all the
   fetches, in ClojureScript as a promise. Nothing is thrown for what the
   network or a server does. The `opts` are:
 
+  - :at, the instant of the step, the time of the clock by default
   - :feed-guids, the feeds to fetch instead of the due ones, e.g.
     (affected feeds pings) after a Podping
   - :fetch, in place of dk.simongray.podcast/fetch!
@@ -215,15 +216,16 @@
   - :concurrency, how many feeds to fetch at once, and :cadence
   - :send, :timeout-seconds, :max-bytes, :user-agent and :allow?, as
     fetch! takes them"
-  ([feeds at]
-   (refresh! feeds at {}))
-  ([feeds at {:keys [feed-guids fetch credentials-of concurrency cadence]
-              :or   {fetch       podcast/fetch!
-                     concurrency default-concurrency
-                     cadence     {}}
-              :as   opts}]
+  ([feeds]
+   (refresh! feeds {}))
+  ([feeds {:keys [at feed-guids fetch credentials-of concurrency cadence]
+           :or   {fetch       podcast/fetch!
+                  concurrency default-concurrency
+                  cadence     {}}
+           :as   opts}]
    {:pre [(map? opts)]}
-   (let [guids  (vec (or feed-guids (due feeds at)))
+   (let [at     (or at (time/now))
+         guids  (vec (or feed-guids (due feeds at)))
          common (select-keys opts [:send :timeout-seconds :max-bytes :user-agent :allow?])
          fetch1 (fn [feed-guid]
                   (let [{:keys [url etag last-modified]} (get feeds feed-guid)
@@ -252,7 +254,7 @@
      (due feeds (later at 604800))
 
      ;; a day later: a 304 or a fresh feed
-     (def r (refresh! feeds (later at 86400)))
+     (def r (refresh! feeds {:at (later at 86400)}))
      (select-keys r [:changed :moved :report])
      (get-in r [:feeds (first (keys feeds)) :status])
      #_.))

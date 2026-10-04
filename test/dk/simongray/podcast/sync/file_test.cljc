@@ -107,11 +107,11 @@
         backend #(file/backend @dir {:opml? true})]
     (run #(async/then (temp-folder!) (fn [d] (reset! dir d)))
          #(async/then (sync/sync! (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
-                                  [(backend)] t1)
+                                  [(backend)] {:at t1})
                       (fn [step] (reset! phone step)))
-         #(async/then (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [(backend)] t2)
+         #(async/then (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [(backend)] {:at t2})
                       (fn [step] (reset! laptop step)))
-         #(async/then (sync/sync! (:state @phone) [(backend)] t3 {:cursors (:cursors @phone)})
+         #(async/then (sync/sync! (:state @phone) [(backend)] {:at t3 :cursors (:cursors @phone)})
                       (fn [{:keys [failed report state]}]
                         (is (nil? failed))
                         (is (= [] report))
@@ -178,7 +178,7 @@
                            (is (= "1000-" (subs version 0 5)))))
             #(async/then (async/attempt (fn [] ((:put s) "phone.edn" "x" {})))
                          (fn [{:keys [error]}] (is (= ::file/read-only (:type (ex-data error))))))
-            #(async/then (sync/sync! (profile/make "phone") [(file/backend files)] t3)
+            #(async/then (sync/sync! (profile/make "phone") [(file/backend files)] {:at t3})
                          (fn [{:keys [failed state]}]
                            (is (nil? failed) "the backend only pulls")
                            (is (= 60 (:position (profile/episode-entry state a))))))))))

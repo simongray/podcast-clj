@@ -14,8 +14,8 @@
   with the :send of their options, http/call! by default.
 
   A value time split points at a remote item. Its value block is found by
-  remote-value-requests, the requests to try in order, or by remote-value,
-  which sends them with a function that you give."
+  remote-value-requests, the requests to try in order, or by
+  fetch-remote-value!, which sends them."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
@@ -129,6 +129,12 @@
   []
   #?(:clj  (quot (System/currentTimeMillis) 1000)
      :cljs (quot (.now js/Date) 1000)))
+
+(defn- dated
+  "The `opts` with the time of the clock as their :auth-date, unless they
+  give one."
+  [opts]
+  (cond-> opts (not (:auth-date opts)) (assoc :auth-date (now-seconds))))
 
 (defn auth-headers
   "The headers that authenticate a request with `credentials` at the Unix
@@ -374,18 +380,6 @@
       (when (and status (seq (:recipients value)))
         value))))
 
-(defn remote-value
-  "The value block that `remote-item` of a time split points at, or nil,
-  found by sending the requests of remote-value-requests for
-  `credentials` and `opts` with `send`, in ClojureScript in a promise.
-
-  The requests go one by one, until one answers with a block. The `send`
-  function takes a request map and gives a response map with the :body
-  string, or a future or a promise of one, as http/call! does."
-  [credentials remote-item send opts]
-  (async/some #(async/then (send %) (comp block-in :body))
-              (remote-value-requests credentials remote-item opts)))
-
 (defn remote-item-requests
   "The requests to try in order for `remote-item`, with `credentials` and
   `opts` as request takes them. The episode comes first, when it's named,
@@ -415,50 +409,49 @@
                     :when v]
                 [k v])))))
 
-(defn remote-item
-  "What `remote-item` points at, found by sending the requests of
-  remote-item-requests for `credentials` with `send` and `opts`, in
-  ClojureScript in a promise.
-
-  It's a map of the :feed and the :episode in the shape of the model, or
-  nil when the index knows neither. The `send` is as remote-value takes
-  it, and the requests go at once."
-  [credentials remote-item send opts]
-  (async/then (async/all send (remote-item-requests credentials remote-item opts)) item-in))
-
 (defn call!
-  "Send `call` with `params` for `credentials`, signed now, and read
-  the answer with response, in ClojureScript in a promise. The :base-url
-  of `opts` is as request takes it, and its :send sends the request,
-  http/call! by default.
+  "Send `call` for `credentials` with its `params`, when it takes any, and
+  read the answer with response, in ClojureScript in a promise. The `opts`
+  are these:
+
+  - :base-url, as request takes it
+  - :auth-date, as request takes it, the time of the clock by default
+  - :send, the function that sends the request, http/call! by default
 
   In a browser, the call works only where the CORS policy of the API
   allows it, or through a :send that goes through your own server."
+  ([credentials call]
+   (call! credentials call {} {}))
   ([credentials call params]
    (call! credentials call params {}))
   ([credentials call params {:keys [send] :or {send http/call!} :as opts}]
-   (async/then (send (request credentials call params (assoc opts :auth-date (now-seconds))))
+   (async/then (send (request credentials call params (dated opts)))
                (comp response :body))))
 
 (defn fetch-remote-value!
-  "Fetch the value block that `remote-item` points at for `credentials`,
-  as remote-value gives it, signed now, with `opts`. The :base-url of
-  `opts` is as request takes it, and its :send sends the requests,
-  http/call! by default."
+  "Fetch the value block that `remote-item` of a time split points at for
+  `credentials`, with the `opts` of call!. It gives the block or nil, in
+  ClojureScript in a promise.
+
+  The requests are those of remote-value-requests. They go one by one,
+  until one answers with a block."
   ([credentials remote-item]
    (fetch-remote-value! credentials remote-item {}))
   ([credentials remote-item {:keys [send] :or {send http/call!} :as opts}]
-   (remote-value credentials remote-item send (assoc opts :auth-date (now-seconds)))))
+   (async/some #(async/then (send %) (comp block-in :body))
+               (remote-value-requests credentials remote-item (dated opts)))))
 
 (defn fetch-remote-item!
-  "Fetch what the remote `item` points at for `credentials`, as the
-  remote-item function gives it, signed now, with `opts`. The :base-url
-  of `opts` is as request takes it, and its :send sends the requests,
-  http/call! by default."
+  "Fetch what the remote `item` points at for `credentials`, with the
+  `opts` of call!, in ClojureScript in a promise.
+
+  It's a map of the :feed and the :episode in the shape of the model, or
+  nil when the index knows neither. The requests are those of
+  remote-item-requests, and they go at once."
   ([credentials item]
    (fetch-remote-item! credentials item {}))
   ([credentials item {:keys [send] :or {send http/call!} :as opts}]
-   (remote-item credentials item send (assoc opts :auth-date (now-seconds)))))
+   (async/then (async/all send (remote-item-requests credentials item (dated opts))) item-in)))
 
 (comment
   (request {:key "K" :secret "S"} :search/by-term {:q "podcasting 2.0" :max 5} {:auth-date 1700000000})

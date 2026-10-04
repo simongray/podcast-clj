@@ -93,9 +93,9 @@
           phone   (sync/sync! (-> (profile/make "phone")
                                   (crdt/identify {:name "Phone"} t1)
                                   (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1))
-                              [backend] t2)
-          laptop  (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t2) [backend] t3)
-          phone2  (sync/sync! (:state phone) [backend] t4 {:cursors (:cursors phone)})]
+                              [backend] {:at t2})
+          laptop  (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t2) [backend] {:at t3})
+          phone2  (sync/sync! (:state phone) [backend] {:at t4 :cursors (:cursors phone)})]
       (is (nil? (:failed phone)))
       (is (nil? (:failed laptop)))
       (is (= [] (:report phone2)))

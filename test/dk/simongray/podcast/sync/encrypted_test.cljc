@@ -65,7 +65,8 @@
    (deftest an-encrypting-store
      (let [documents (atom {})
            s         (encrypted/store (store/memory documents)
-                                      {:passphrase passphrase :iterations 1000 :except #{store/opml-name}})]
+                                      passphrase
+                                      {:iterations 1000 :except #{store/opml-name}})]
        ((:put s) "phone.edn" plaintext {})
        ((:put s) store/opml-name "<opml/>" {})
        (is (str/starts-with? (:body (@documents "phone.edn")) "{:encrypted") "ciphertext at rest")
@@ -78,20 +79,22 @@
          ((:put (store/memory documents)) "old.edn" plaintext {})
          (is (= plaintext (:body ((:fetch s) "old.edn")))))
        (testing "the wrong passphrase names the document"
-         (let [other (encrypted/store (store/memory documents) {:passphrase "wrong" :iterations 1000})]
+         (let [other (encrypted/store (store/memory documents) "wrong" {:iterations 1000})]
            (is (thrown-with-msg? Exception #"does not open phone.edn" ((:fetch other) "phone.edn")))))
        (testing "a passphrase may be a function, for one kept in a keychain"
          (let [asked (atom 0)
-               s2    (encrypted/store (store/memory documents) {:passphrase (fn [] (swap! asked inc) passphrase) :iterations 1000})]
+               s2    (encrypted/store (store/memory documents) (fn [] (swap! asked inc) passphrase) {:iterations 1000})]
            (is (= plaintext (:body ((:fetch s2) "phone.edn"))))
            (is (= plaintext (:body ((:fetch s2) "phone.edn"))))
            (is (= 1 @asked) "and the key is derived once per salt")))
        (testing "and one corrected later is asked for again when the cached key opens nothing"
          (let [typed (atom "typo")
-               s3    (encrypted/store (store/memory documents) {:passphrase #(deref typed) :iterations 1000})]
+               s3    (encrypted/store (store/memory documents) #(deref typed) {:iterations 1000})]
            (is (thrown? Exception ((:fetch s3) "phone.edn")))
            (reset! typed passphrase)
            (is (= plaintext (:body ((:fetch s3) "phone.edn"))))))
+       (testing "a store without a passphrase isn't made"
+         (is (thrown? AssertionError (encrypted/store (store/memory documents) nil))))
        (is (:ok? (store/check! s)) "the generic check passes through it"))))
 
 #?(:clj
@@ -99,11 +102,12 @@
      (let [documents (atom {})
            backend   (fn [pass]
                        (encrypted/backend (store/memory documents)
-                                          {:passphrase pass :iterations 1000 :opml? true :except #{store/opml-name}}))
+                                          pass
+                                          {:iterations 1000 :opml? true :except #{store/opml-name}}))
            phone     (sync/sync! (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
-                                 [(backend passphrase)] t1)
-           laptop    (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [(backend passphrase)] t2)
-           phone2    (sync/sync! (:state phone) [(backend passphrase)] t3 {:cursors (:cursors phone)})]
+                                 [(backend passphrase)] {:at t1})
+           laptop    (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [(backend passphrase)] {:at t2})
+           phone2    (sync/sync! (:state phone) [(backend passphrase)] {:at t3 :cursors (:cursors phone)})]
        (is (nil? (:failed phone)))
        (is (nil? (:failed laptop)))
        (is (nil? (:failed phone2)))
@@ -111,14 +115,14 @@
        (is (every? #(str/starts-with? (:body %) "{:encrypted") (vals (dissoc @documents store/opml-name)))
            "every document at rest is ciphertext")
        (is (str/includes? (:body (@documents store/opml-name)) "https://a/rss") "the subscription list stays readable, as asked")
-       (let [{:keys [failed]} (sync/sync! (profile/make "tablet") [(backend "wrong")] t3)]
+       (let [{:keys [failed]} (sync/sync! (profile/make "tablet") [(backend "wrong")] {:at t3})]
          (is (str/includes? (get failed "memory") "does not open"))))))
 
 #?(:cljs
    (deftest sealing-and-opening-with-webcrypto
      (async done
        (let [documents (atom {})
-             s         (encrypted/store (store/memory documents) {:passphrase passphrase :iterations 1000})]
+             s         (encrypted/store (store/memory documents) passphrase {:iterations 1000})]
          (-> (encrypted/encrypt passphrase plaintext {:iterations 1000})
              (.then (fn [sealed]
                       (is (encrypted/envelope sealed))

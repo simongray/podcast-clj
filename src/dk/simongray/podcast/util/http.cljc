@@ -1175,18 +1175,20 @@
   A user name and a password in `url` are the credentials when `opts`
   give none, and the request goes to the URL without them, as
   split-credentials splits them."
-  [url {:keys [etag last-modified credentials user-agent]
-        :or   {user-agent dk.simongray.podcast.util.http/user-agent}
-        :as   opts}]
-  (let [[url in-url] (split-credentials url)
-        auth         (authorization (or credentials in-url))]
-    (assoc (select-keys opts [:timeout-seconds :max-bytes :allow?])
-           :url     url
-           :headers (cond-> {"User-Agent" user-agent
-                             "Accept"     "application/rss+xml, application/xml, text/xml, */*"}
-                      etag          (assoc "If-None-Match" etag)
-                      last-modified (assoc "If-Modified-Since" last-modified)
-                      auth          (assoc "Authorization" auth)))))
+  ([url]
+   (feed-request url {}))
+  ([url {:keys [etag last-modified credentials user-agent]
+         :or   {user-agent dk.simongray.podcast.util.http/user-agent}
+         :as   opts}]
+   (let [[url in-url] (split-credentials url)
+         auth         (authorization (or credentials in-url))]
+     (assoc (select-keys opts [:timeout-seconds :max-bytes :allow?])
+            :url     url
+            :headers (cond-> {"User-Agent" user-agent
+                              "Accept"     "application/rss+xml, application/xml, text/xml, */*"}
+                       etag          (assoc "If-None-Match" etag)
+                       last-modified (assoc "If-Modified-Since" last-modified)
+                       auth          (assoc "Authorization" auth))))))
 
 (defn fetch!
   "GET the feed at `url` with `opts`, and give the response with the body

@@ -60,8 +60,11 @@
   #{:head-block :blocks :operations :following})
 
 (defn request
-  "The JSON-RPC request map for `call`, one of calls, with `params`, sent
-  to the :node of `opts`, or else the first of nodes."
+  "The JSON-RPC request map for `call`, one of calls, with its `params`
+  when it takes any, sent to the :node of `opts`, or else the first of
+  nodes."
+  ([call]
+   (request call {} {}))
   ([call params]
    (request call params {}))
   ([call params {:keys [node] :or {node (first nodes)} :as opts}]
@@ -235,8 +238,8 @@
                     body))))
 
 (defn call!
-  "Send `call` with `params` as `opts` say, and give the body, for
-  head-block, pings or writers to read.
+  "Send `call` with its `params`, when it takes any, as `opts` say, and
+  give the body, for head-block, pings or writers to read.
 
   Each node is tried in turn until one answers. The `opts` are these:
 
@@ -251,17 +254,21 @@
 
   In ClojureScript, the body comes in a promise, which is rejected with
   that exception. The public nodes answer a page from any origin."
-  [call params opts]
-  {:pre [(map? opts)]}
-  (letfn [(call-in-turn! [[node & more :as candidates] failures]
-            (if (empty? candidates)
-              (throw (ex-info (str "No node answered " (name call))
-                              {:type ::unavailable :failures failures}))
-              (async/then (async/attempt #(call-node! call params node opts))
-                          (fn [{:keys [value error]}]
-                            (or value
-                                (call-in-turn! more (conj failures [node (async/explain error)])))))))]
-    (call-in-turn! (if-let [node (:node opts)] [node] (or (:nodes opts) nodes)) [])))
+  ([call]
+   (call! call {} {}))
+  ([call params]
+   (call! call params {}))
+  ([call params opts]
+   {:pre [(map? opts)]}
+   (letfn [(call-in-turn! [[node & more :as candidates] failures]
+             (if (empty? candidates)
+               (throw (ex-info (str "No node answered " (name call))
+                               {:type ::unavailable :failures failures}))
+               (async/then (async/attempt #(call-node! call params node opts))
+                           (fn [{:keys [value error]}]
+                             (or value
+                                 (call-in-turn! more (conj failures [node (async/explain error)])))))))]
+     (call-in-turn! (if-let [node (:node opts)] [node] (or (:nodes opts) nodes)) []))))
 
 #?(:clj
    (defn ^:no-doc attempted
@@ -323,7 +330,8 @@
      - :writers, to give back in `opts`
      - :error, when no node answered a call
 
-     With `from` nil, the step starts at the head. The `opts` are these:
+     Without `from`, or with nil, the step starts at the head. The `opts`
+     are these:
 
      - :max-blocks, the most blocks that one step reads, 100 by default,
        which is five minutes of the chain. A poller that's behind reads on
@@ -341,6 +349,8 @@
      a call, the :error is a :podping/unavailable diagnostic. The result
      has the pings of the blocks that the step read before that call, and
      :block names the last of those blocks."
+     ([]
+      (poll! nil {}))
      ([from]
       (poll! from {}))
      ([from {:keys [max-blocks verify? up-to] :or {max-blocks 100 verify? true up-to :head} :as opts}]
@@ -367,7 +377,7 @@
 
 #?(:clj
    (comment
-     (def step (poll! nil))
+     (def step (poll!))
      (def step (poll! (:block step) {:writers (:writers step)}))
      (map (juxt :account :medium :reason :iris) (:pings step))
      (affected (:pings step) ["https://feeds.podcastindex.org/pc20.xml"])

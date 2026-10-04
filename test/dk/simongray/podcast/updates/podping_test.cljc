@@ -33,7 +33,7 @@
   ((juxt #(get % "method") #(get % "params")) (rpc request)))
 
 (deftest requests
-  (let [r (podping/request :head-block {})]
+  (let [r (podping/request :head-block)]
     (is (= :post (:method r)))
     (is (= "https://api.hive.blog" (:url r)))
     (is (= "application/json" (get-in r [:headers "Content-Type"])))
@@ -43,7 +43,7 @@
   (is (= ["condenser_api.get_ops_in_block" [110254833 false]]
          (method-and-params (podping/request :operations {:block 110254833}))))
   (is (= ["condenser_api.get_following" ["podping" "" "blog" 1000]]
-         (method-and-params (podping/request :following {}))))
+         (method-and-params (podping/request :following))))
   (is (= "https://api.deathwing.me" (:url (podping/request :head-block {} {:node "https://api.deathwing.me"}))))
   (is (thrown? #?(:clj Exception :cljs js/Error) (podping/request :accounts {}))))
 
@@ -183,7 +183,10 @@
          (is (= 4 (count (:pings (podping/poll! 110255078 {:node "https://api.hive.blog" :verify? false :writers #{}}))))))
        (testing "nothing new, and starting at the head"
          (is (= {:pings [] :refused [] :block 110255080} (dissoc (podping/poll! 110255080 {:node "https://api.hive.blog"}) :writers)))
-         (is (= 110255080 (:block (podping/poll! nil {:node "https://api.hive.blog"})))))
+         (is (= 110255080 (:block (podping/poll! nil {:node "https://api.hive.blog"}))))
+         (is (= 110255080 (:block (podping/poll!))) "with no block and no options too")
+         (is (= 110255080 (:block (podping/head-block (podping/call! :head-block))))
+             "and a call that takes no parameters is sent without any"))
        (testing "a block the node leaves out is asked for again, and no ping comes twice"
          (is (= {:pings [] :refused [] :block 110255077}
                 (dissoc (podping/poll! 110255077 {:node "https://api.hive.blog" :verify? false}) :writers)))))

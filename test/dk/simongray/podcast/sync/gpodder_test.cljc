@@ -329,7 +329,7 @@
     (ask send :post "/api/2/subscriptions/simon/antennapod.json" {"add" [feed-a]})
     (run
      #(async/then
-       (sync/sync! (profile/make "phone") [(backend send)] t3)
+       (sync/sync! (profile/make "phone") [(backend send)] {:at t3})
        (fn [{s :state}]
          (is (= [feed-a nil t3] ((juxt :url :title :added-at) (get-in s [:subscriptions g-a])))
              "the server tells the URL of a show, and no title")
@@ -342,7 +342,7 @@
         [state send] (serve clock)]
     (run
      #(async/then
-       (sync/sync! (phone) [(backend send)] t2)
+       (sync/sync! (phone) [(backend send)] {:at t2})
        (fn [first-step]
          (is (nil? (:failed first-step)) (pr-str (:failed first-step)))
          (is (= #{feed-a} (set (map :url (vals (profile/subscriptions @state))))))
@@ -356,7 +356,7 @@
               [{"podcast" feed-a "episode" "https://a.example/1.mp3" "guid" "a1" "action" "play"
                 "timestamp" "2026-01-01T02:30:00" "started" 3500 "position" 3600 "total" 3600 "device" "antennapod"}])
          (async/then
-          (sync/sync! (:state first-step) [(backend send)] t3 {:cursors (:cursors first-step)})
+          (sync/sync! (:state first-step) [(backend send)] {:at t3 :cursors (:cursors first-step)})
           (fn [{s :state :as second-step}]
             (is (nil? (:failed second-step)))
             (is (profile/played? s [g-a "a1"]) "played to its end on the other app")
@@ -364,7 +364,7 @@
             (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (profile/subscriptions s))))))
             (is (= 2 (count (profile/subscriptions @state))) "and nothing sent back twice")
             (async/then
-             (sync/sync! s [(backend send)] t4 {:cursors (:cursors second-step)})
+             (sync/sync! s [(backend send)] {:at t4 :cursors (:cursors second-step)})
              (fn [third-step]
                (is (= s (:state third-step)) "a step with nothing new changes nothing"))))))))))
 
@@ -385,7 +385,7 @@
                          (set (map (fn [{:strs [episode position total]}] [episode position total]) actions))))]
     (run
      #(async/then
-       (sync/sync! s [b] t2)
+       (sync/sync! s [b] {:at t2})
        (fn [{:keys [report failed cursors]}]
          (is (nil? failed))
          (is (contains? (set (map :url (vals (profile/subscriptions @state)))) "https://private.example/rss")
@@ -396,7 +396,7 @@
          (is (= #{["https://a.example/1.mp3" 100 3600] ["https://a.example/2.mp3" 1800 1800]} (told)))
          (swap! known assoc "a3" "https://a.example/3.mp3")
          (async/then
-          (sync/sync! s [b] t3 {:cursors cursors})
+          (sync/sync! s [b] {:at t3 :cursors cursors})
           (fn [{:keys [report]}]
             (is (= [[:sync/unnamed-episodes 1]] (map (juxt :id :count) report)))
             (is (contains? (told) ["https://a.example/3.mp3" 50 3600])
@@ -432,12 +432,12 @@
            "timestamp" "2026-01-01T01:30:00" "position" 300 "total" 1800 "device" "laptop"}])
     (run
      #(async/then
-       (sync/sync! s [(backend send')] t2)
+       (sync/sync! s [(backend send')] {:at t2})
        (fn [{s :state :keys [cursors]}]
          (is (= [300 "gpodder:laptop"] ((juxt :position :device) (profile/episode-entry s [g-a "a2"]))))
          (reset! posts [])
          (async/then
-          (sync/sync! s [(backend send')] t3 {:cursors cursors})
+          (sync/sync! s [(backend send')] {:at t3 :cursors cursors})
           (fn [{s :state}]
             (is (= [] @posts) "no push sends it back")
             (is (nil? (get-in (crdt/acknowledge (profile/make "tablet") [s] t3) [:devices "tablet" :seen "laptop"]))
@@ -455,19 +455,19 @@
     (ask send :post "/api/2/episodes/simon.json" [b-play])
     (run
      #(async/then
-       (sync/sync! (phone) [(backend)] t2)
+       (sync/sync! (phone) [(backend)] {:at t2})
        (fn [first-step]
          (is (= [[:sync/unknown-episodes 1]] (map (juxt :id :count) (:report first-step))))
          (is (nil? (profile/episode-entry (:state first-step) [(guid/from-url "https://b.example/rss") "b1"])))
          (async/then
-          (sync/sync! (:state first-step) [(backend)] t3 {:cursors (:cursors first-step)})
+          (sync/sync! (:state first-step) [(backend)] {:at t3 :cursors (:cursors first-step)})
           (fn [second-step]
             (is (= 1 (count (:pending (get (:cursors second-step) "gpodder.example.org"))))
                 "the server tells the action again, and it waits once")
             (is (empty? (:report second-step)) "and the report told of it before")
             (swap! knows conj (guid/from-url "https://b.example/rss"))
             (async/then
-             (sync/sync! (:state second-step) [(backend)] t4 {:cursors (:cursors second-step)})
+             (sync/sync! (:state second-step) [(backend)] {:at t4 :cursors (:cursors second-step)})
              (fn [third-step]
                (is (= 700 (:position (profile/episode-entry (:state third-step) [(guid/from-url "https://b.example/rss") "b1"])))
                    "once the app knows the feed, the action that waited")
@@ -502,7 +502,7 @@
         soon?   #(<= (inst-ms (:clock %1)) (+ (inst-ms %2) sync/skew-tolerance))]
     (run
      #(async/then
-       (sync/sync! (phone) [b] t2)
+       (sync/sync! (phone) [b] {:at t2})
        (fn [{s :state :keys [report cursors]}]
          (is (= [700 #inst "2026-01-01T02:00:30Z" "gpodder:watch"] (heard s))
              "an action within a minute of the pull counts")
@@ -513,7 +513,7 @@
              "a change to the subscriptions counts as made at the pull")
          (is (soon? s t2) "so the clock of the state stays with the clock of the device")
          (async/then
-          (sync/sync! s [b] t3 {:cursors cursors})
+          (sync/sync! s [b] {:at t3 :cursors cursors})
           (fn [{s :state :keys [report]}]
             (is (= [600 #inst "2026-01-01T02:10:00Z" "gpodder:watch"] (heard s)) "an action whose time has come")
             (is (= #{[:sync/future-actions "tablet"] [:sync/malformed-actions nil]}
@@ -539,7 +539,7 @@
     (ask send :post "/api/2/subscriptions/simon/antennapod.json" {"add" ["https://b.example/rss"]})
     (run
      #(async/then
-       (sync/sync! s [(backend send)] t2)
+       (sync/sync! s [(backend send)] {:at t2})
        (fn [{s :state}]
          (is (profile/subscribed? s (guid/from-url "https://b.example/rss"))
              "a show the other app has, which this device left long ago")
@@ -578,7 +578,7 @@
            "timestamp" "2026-01-01T01:30:00" "started" 0 "position" 1800 "total" 3600 "device" "antennapod"}])
     (run
      #(async/then
-       (sync/sync! (phone) [b] t2)
+       (sync/sync! (phone) [b] {:at t2})
        (fn [{s :state :keys [failed]}]
          (is (nil? failed) (pr-str failed))
          (is (= 1800 (:position (profile/episode-entry s [g-a "a1"]))) "a PLAY of the other app, later than the phone's")
@@ -620,7 +620,7 @@
                     (profile/progress [g-a "b2"] 20 3600 t1))]
     (run
      #(async/then
-       (sync/sync! state [own] t2)
+       (sync/sync! state [own] {:at t2})
        (fn [{s :state :keys [failed]}]
          (is (nil? failed) (pr-str failed))
          (testing "no login and no device, since the map has no path for them"
@@ -646,7 +646,7 @@
                      (send request)))]
     (run
      #(async/then
-       (sync/sync! (phone) [(backend send' :name "cloud")] t2 {:cursors {"cloud" {:registered "phone" :subscriptions 5}}})
+       (sync/sync! (phone) [(backend send' :name "cloud")] {:at t2 :cursors {"cloud" {:registered "phone" :subscriptions 5}}})
        (fn [{:keys [failed]}]
          (is (nil? failed))
          (is (= ["subscriptions" "devices" "subscriptions"] (take 3 (filter #{"subscriptions" "devices"} @calls)))
@@ -662,6 +662,6 @@
                        answer)))]
     (run
      #(async/then
-       (sync/sync! (phone) [(backend send')] t2)
+       (sync/sync! (phone) [(backend send')] {:at t2})
        (fn [{:keys [report]}]
          (is (= [[:sync/rejected-url feed-a]] (map (juxt :id :url) report))))))))

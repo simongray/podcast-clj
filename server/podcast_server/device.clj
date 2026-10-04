@@ -149,6 +149,6 @@
       :authorized? authorized?
       :identities  (identities lib)
       :sync        (fn [state]
-                     (let [result (sync/sync! state [backend] (time/now) {:cursors @cursors})]
+                     (let [result (sync/sync! state [backend] {:cursors @cursors})]
                        (reset! cursors (:cursors result))
                        (:state result)))})))

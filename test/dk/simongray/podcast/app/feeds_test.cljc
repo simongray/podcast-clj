@@ -150,7 +150,7 @@
                    (throw (ex-info "refused" {:url url}))))]
     (run
      (fn []
-       (async/then (feeds/refresh! three later {:fetch fetch :credentials-of {"https://example.org/c.xml" {:username "ann"}} :allow? :any})
+       (async/then (feeds/refresh! three {:at later :fetch fetch :credentials-of {"https://example.org/c.xml" {:username "ann"}} :allow? :any})
                    (fn [{:keys [feeds changed moved report]}]
                      (testing "each due feed fetched with its validators, and the options of every fetch"
                        (is (= 3 (count @asked)))
@@ -165,14 +165,14 @@
                        (is (= [304 1] [(:status (get feeds guid)) (:failures (get feeds "c1"))]))))))
      (fn []
        (reset! asked [])
-       (async/then (feeds/refresh! three now {:fetch fetch :feed-guids ["b1"]})
+       (async/then (feeds/refresh! three {:at now :fetch fetch :feed-guids ["b1"]})
                    (fn [{:keys [changed]}]
                      (testing "only the guids given, whatever their next check"
                        (is (= ["b1"] changed))
                        (is (= 1 (count @asked)))))))
      (fn []
        (reset! asked [])
-       (async/then (feeds/refresh! three later {:fetch fetch :concurrency 1})
+       (async/then (feeds/refresh! three {:at later :fetch fetch :concurrency 1})
                    (fn [_]
                      (is (= 3 (count @asked)) "one at a time reaches them all")))))))
 
@@ -181,10 +181,18 @@
         send  (fn [{:keys [url headers]}]
                 (swap! asked conj [url (get headers "If-None-Match")])
                 {:status 304 :url url})]
-    (run #(async/then (feeds/refresh! feeds (at 86400) {:send send})
+    (run #(async/then (feeds/refresh! feeds {:at (at 86400) :send send})
                       (fn [{:keys [feeds changed report]}]
                         (is (= [[url "\"v1\""]] @asked) "fetch! of the root namespace, through the :send")
                         (is (= [[] [] 304] [changed report (:status (get feeds guid))])))))))
+
+(deftest the-time-of-the-clock
+  (let [before (time/now)
+        fetch  (fn [url _] {:status 304 :url url})]
+    (run #(async/then (feeds/refresh! feeds {:fetch fetch :feed-guids [guid]})
+                      (fn [{:keys [feeds]}]
+                        (is (<= (inst-ms before) (inst-ms (:fetched-at (get feeds guid))))
+                            "without :at, the step has the time of the clock"))))))
 
 #?(:clj
    (deftest fetching-at-once
@@ -192,7 +200,7 @@
            slow  (fn [url _] (Thread/sleep 200) {:status 304 :url url})
            timed (fn [concurrency]
                    (let [started (System/currentTimeMillis)]
-                     (feeds/refresh! many now {:fetch slow :feed-guids (keys many) :concurrency concurrency})
+                     (feeds/refresh! many {:at now :fetch slow :feed-guids (keys many) :concurrency concurrency})
                      (- (System/currentTimeMillis) started)))]
        (is (< (timed 8) 800) "the feeds of one group are fetched at once")
        (is (<= 800 (timed 2)) "and the groups one after the other"))))

@@ -205,12 +205,13 @@
   (open-with #(derive-key passphrase %1 %2) nil s))
 
 (defn store
-  "The store `inner` with its documents encrypted at rest, with the `opts`
-  below:
+  "The store `inner` with its documents encrypted at rest under
+  `passphrase`, with the `opts` below.
 
-  - :passphrase, a string or a function of no arguments that returns one.
-    The string can be a hidden text of dk.simongray.podcast.util.secret,
-    so that the options don't show it when they're printed.
+  The `passphrase` is a string or a function of no arguments that returns
+  one. The string can be a hidden text of
+  dk.simongray.podcast.util.secret. The `opts` are:
+
   - :iterations, the PBKDF2 iterations of the key, default-iterations by
     default
   - :except, the names of documents to leave in the clear, e.g.
@@ -225,53 +226,57 @@
   don't open empties the cache. The document is then tried once more with
   what the function gives, so that a corrected passphrase is used from
   then on."
-  [inner {:keys [passphrase iterations except] :or {iterations default-iterations except #{}} :as opts}]
-  {:pre [(map? opts)]}
-  (let [salt    (random-bytes 16)
-        keys    (atom {})
-        pass    (fn [] (if (fn? passphrase) (passphrase) passphrase))
-        key-for (fn [salt iterations]
-                  (let [k [(->base64 salt) iterations]]
-                    (or (get @keys k)
-                        (let [key (derive-key (pass) salt iterations)]
-                          (swap! keys assoc k key)
-                          key))))
-        open    (fn [name doc]
-                  (async/then (open-with key-for name (:body doc)) #(assoc doc :body %)))]
-    (cond-> {:name  (:name inner)
-             :fetch (fn [name]
-                      (async/then ((:fetch inner) name)
-                                  (fn [doc]
-                                    (cond
-                                      (nil? doc)    nil
-                                      (except name) doc
-                                      :else         (async/then (async/attempt #(open name doc))
-                                                                (fn [{:keys [value error]}]
-                                                                  (cond
-                                                                    (not error)      value
-                                                                    (fn? passphrase) (do (reset! keys {})
-                                                                                         (open name doc))
-                                                                    :else            (throw error))))))))
-             :put   (fn [name body params]
-                      (if (except name)
-                        ((:put inner) name body params)
-                        (async/then (seal-with key-for salt iterations body)
-                                    (fn [sealed] ((:put inner) name sealed params)))))}
-      (:list inner)   (assoc :list (:list inner))
-      (:delete inner) (assoc :delete (:delete inner)))))
+  ([inner passphrase]
+   (store inner passphrase {}))
+  ([inner passphrase {:keys [iterations except] :or {iterations default-iterations except #{}} :as opts}]
+   {:pre [(some? passphrase) (map? opts)]}
+   (let [salt    (random-bytes 16)
+         keys    (atom {})
+         pass    (fn [] (if (fn? passphrase) (passphrase) passphrase))
+         key-for (fn [salt iterations]
+                   (let [k [(->base64 salt) iterations]]
+                     (or (get @keys k)
+                         (let [key (derive-key (pass) salt iterations)]
+                           (swap! keys assoc k key)
+                           key))))
+         open    (fn [name doc]
+                   (async/then (open-with key-for name (:body doc)) #(assoc doc :body %)))]
+     (cond-> {:name  (:name inner)
+              :fetch (fn [name]
+                       (async/then ((:fetch inner) name)
+                                   (fn [doc]
+                                     (cond
+                                       (nil? doc)    nil
+                                       (except name) doc
+                                       :else         (async/then (async/attempt #(open name doc))
+                                                                 (fn [{:keys [value error]}]
+                                                                   (cond
+                                                                     (not error)      value
+                                                                     (fn? passphrase) (do (reset! keys {})
+                                                                                          (open name doc))
+                                                                     :else            (throw error))))))))
+              :put   (fn [name body params]
+                       (if (except name)
+                         ((:put inner) name body params)
+                         (async/then (seal-with key-for salt iterations body)
+                                     (fn [sealed] ((:put inner) name sealed params)))))}
+       (:list inner)   (assoc :list (:list inner))
+       (:delete inner) (assoc :delete (:delete inner))))))
 
 (defn backend
   "A backend for dk.simongray.podcast.sync/sync! over `inner` with its
-  documents encrypted, with the `opts` of store and of
+  documents encrypted under `passphrase`, with the `opts` of store and of
   dk.simongray.podcast.sync.store/backend."
-  [inner opts]
-  {:pre [(map? opts)]}
-  (store/backend (store inner (select-keys opts [:passphrase :iterations :except]))
-                 (select-keys opts [:opml? :app :direction :strategy :document :name])))
+  ([inner passphrase]
+   (backend inner passphrase {}))
+  ([inner passphrase opts]
+   {:pre [(map? opts)]}
+   (store/backend (store inner passphrase (select-keys opts [:iterations :except]))
+                  (select-keys opts [:opml? :app :direction :strategy :document :name]))))
 
 #?(:clj
    (comment
      (def sealed (encrypt "correct horse battery staple" "{:version 1 :state {}}" {:iterations 1000}))
      (decrypt "correct horse battery staple" sealed)
-     (store/check! (store (store/memory) {:passphrase "hunter2" :iterations 1000}))
+     (store/check! (store (store/memory) "hunter2" {:iterations 1000}))
      #_.))

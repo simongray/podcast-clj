@@ -138,50 +138,55 @@
       (answer 400 "http_request_error" "The url parameter names no http or https URL."))))
 
 (defn upstream-request
-  "The request that the proxy sends for `ring-request`, with `opts` as
-  defaults has them, or nil when the url parameter names no http or https
-  URL.
+  "The request that the proxy sends for `ring-request`, with `opts` over
+  defaults, or nil when the url parameter names no http or https URL.
 
   The request has the headers of the :forward of `opts`, the Via of the
   proxy, and the range of the Range header, so that http/call! reads no
   more than it asks for. Its body is bytes when the as parameter is bytes,
   and else text."
-  [{:keys [request-method] :as ring-request} {:keys [forward user-agent] :as opts}]
-  (let [{:strs [url as]} (target ring-request)
-        headers          (header-names ring-request)
-        [asked :as asks] (when (contains? forward "range") (http/byte-ranges (get headers "range")))]
-    (when (http/web-url? url)
-      (cond-> (assoc (select-keys opts [:allow? :timeout-seconds :max-bytes])
-                     :method  request-method
-                     :url     url
-                     :headers (cond-> (assoc (select-keys headers (disj forward "range")) "Via" via)
-                                user-agent (assoc "User-Agent" user-agent)))
-        (= "bytes" as)     (assoc :as :bytes)
-        (= 1 (count asks)) (assoc :range asked)))))
+  ([ring-request]
+   (upstream-request ring-request {}))
+  ([{:keys [request-method] :as ring-request} opts]
+   (let [{:keys [forward user-agent] :as opts} (merge defaults opts)
+         {:strs [url as]} (target ring-request)
+         headers          (header-names ring-request)
+         [asked :as asks] (when (contains? forward "range") (http/byte-ranges (get headers "range")))]
+     (when (http/web-url? url)
+       (cond-> (assoc (select-keys opts [:allow? :timeout-seconds :max-bytes])
+                      :method  request-method
+                      :url     url
+                      :headers (cond-> (assoc (select-keys headers (disj forward "range")) "Via" via)
+                                 user-agent (assoc "User-Agent" user-agent)))
+         (= "bytes" as)     (assoc :as :bytes)
+         (= 1 (count asks)) (assoc :range asked))))))
 
 (defn ring-response
   "The Ring response that gives the page the `response` of http/call!, with
-  the headers of the :expose of `opts`.
+  the headers of the :expose of `opts`, or else of defaults.
 
   A text body goes as UTF-8, since a page reads the answers of fetch in
   it. The URL that answered, after redirects, is the Content-Location
   (RFC 9110, section 8.7). The URL that permanent redirects led to is the
   Podcast-Clj-Permanent-Location, which unproxied reads."
-  [{:keys [status url permanent-url headers body] :as response} {:keys [expose] :as opts}]
-  (let [type    (when (contains? expose "content-type") (http/header headers "content-type"))
-        text    (when (string? body) (http/media-type type))
-        exposed (for [h (disj expose "content-type")
-                      :let [v (http/joined headers h)]
-                      :when v]
-                  [h v])]
-    {:status  status
-     ;; under this name, since a Ring adapter such as Pedestal's adds its own
-     ;; Content-Type to a body of bytes otherwise
-     :headers (cond-> (into safety exposed)
-                type          (assoc "Content-Type" (if text (str text "; charset=utf-8") type))
-                url           (assoc "Content-Location" url)
-                permanent-url (assoc permanent-header permanent-url))
-     :body    (if (string? body) (bytes/encode body) body)}))
+  ([response]
+   (ring-response response {}))
+  ([{:keys [status url permanent-url headers body] :as response}
+    {:keys [expose] :or {expose (:expose defaults)} :as opts}]
+   (let [type    (when (contains? expose "content-type") (http/header headers "content-type"))
+         text    (when (string? body) (http/media-type type))
+         exposed (for [h (disj expose "content-type")
+                       :let [v (http/joined headers h)]
+                       :when v]
+                   [h v])]
+     {:status  status
+      ;; under this name, since a Ring adapter such as Pedestal's adds its own
+      ;; Content-Type to a body of bytes otherwise
+      :headers (cond-> (into safety exposed)
+                 type          (assoc "Content-Type" (if text (str text "; charset=utf-8") type))
+                 url           (assoc "Content-Location" url)
+                 permanent-url (assoc permanent-header permanent-url))
+      :body    (if (string? body) (bytes/encode body) body)})))
 
 (defn error-response
   "The Ring response for `e`, the exception of the :send of the proxy, with

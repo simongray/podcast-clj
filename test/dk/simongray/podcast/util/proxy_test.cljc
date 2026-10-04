@@ -88,17 +88,20 @@
                                   "cookie"        "session=ours"
                                   "authorization" "Bearer ours"
                                   "user-agent"    "A browser"}}
-        request (proxy/upstream-request ring proxy/defaults)]
+        request (proxy/upstream-request ring)]
     (is (= ["https://a.example/ep.mp3" :get :bytes [0 3]] ((juxt :url :method :as :range) request)))
     (is (= {"accept" "*/*" "if-none-match" "\"v1\"" "User-Agent" http/user-agent "Via" "1.1 podcast-clj"} (:headers request))
         "neither the page's cookies, its credentials nor its User-Agent go on")
     (is (= [http/public? (* 32 1024 1024)] ((juxt :allow? :max-bytes) request)))
-    (is (nil? (:as (proxy/upstream-request (assoc ring :query-string "url=https%3A%2F%2Fa.example%2F") proxy/defaults)))
+    (is (nil? (:as (proxy/upstream-request (assoc ring :query-string "url=https%3A%2F%2Fa.example%2F"))))
         "text, unless the page asks for bytes")
-    (is (nil? (proxy/upstream-request (assoc ring :query-string "url=file%3A%2F%2F%2Fetc%2Fpasswd") proxy/defaults)))))
+    (is (nil? (proxy/upstream-request (assoc ring :query-string "url=file%3A%2F%2F%2Fetc%2Fpasswd"))))
+    (is (= {"accept" "*/*" "Via" "1.1 podcast-clj" "User-Agent" "Mine"}
+           (:headers (proxy/upstream-request ring {:forward #{"accept"} :user-agent "Mine"})))
+        "an option replaces its default, and the others stay")))
 
 (deftest the-answer-that-comes-back
-  (let [{:keys [status headers body]} (proxy/ring-response (answers "https://a.example/feed.xml") proxy/defaults)]
+  (let [{:keys [status headers body]} (proxy/ring-response (answers "https://a.example/feed.xml"))]
     (is (= 200 status))
     (is (= "application/rss+xml; charset=utf-8" (get headers "Content-Type")) "the text goes as UTF-8")
     (is (= feed-xml (bytes/decode body 0 (bytes/length body) :utf8)))
@@ -106,7 +109,9 @@
     (is (= ["https://b.example/feed.xml" "https://b.example/feed.xml"]
            [(get headers "Content-Location") (get headers proxy/permanent-header)]))
     (is (= "default-src 'none'; sandbox" (get headers "Content-Security-Policy")) "a page that opens it runs no scripts"))
-  (is (= mp3 (:body (proxy/ring-response (answers "https://a.example/ep.mp3") proxy/defaults))) "bytes go as they came"))
+  (is (= mp3 (:body (proxy/ring-response (answers "https://a.example/ep.mp3")))) "bytes go as they came")
+  (is (nil? (get (:headers (proxy/ring-response (answers "https://a.example/feed.xml") {:expose #{"content-type"}})) "etag"))
+      "only the headers that the options expose"))
 
 (deftest what-the-proxy-refuses
   (let [ring   {:request-method :get :query-string "url=https%3A%2F%2Fa.example%2Ffeed.xml" :headers {"sec-fetch-mode" "cors" "sec-fetch-site" "same-origin"}}

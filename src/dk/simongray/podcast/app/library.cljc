@@ -152,6 +152,9 @@
     {:feed x}
     x))
 
+;; TODO: consider an arity of the library and the URL alone, which subscribes
+;; without a fetch. refresh! already fetches the subscriptions that have no
+;; feed, as it does for those of an OPML list.
 (defn subscribe
   "The `library` subscribed to the feed at `url`, with what was `fetched`
   and the settings in `opts`.
@@ -404,7 +407,7 @@
                  (fn [{library :library report :report}]
                    (async/then (fetch-new-feeds! library at opts)
                                (fn [{library :library report-new :report}]
-                                 (async/then (feeds/refresh! (:feeds library) at (select-keys opts [:feed-guids :fetch :credentials-of :concurrency :cadence :send :timeout-seconds :max-bytes :user-agent :allow?]))
+                                 (async/then (feeds/refresh! (:feeds library) (assoc (select-keys opts [:feed-guids :fetch :credentials-of :concurrency :cadence :send :timeout-seconds :max-bytes :user-agent :allow?]) :at at))
                                              (fn [step]
                                                (let [{:keys [library added moved]} (applied library step at (:keep opts))]
                                                  (assoc library :refresh {:at     at
@@ -573,7 +576,7 @@
    {:pre [(map? opts)]}
    (let [at     (time-of library opts)
          before (:profile library)]
-     (async/then (sync/sync! before backends at (assoc opts :cursors (get-in library [:sync :cursors])))
+     (async/then (sync/sync! before backends (assoc opts :at at :cursors (get-in library [:sync :cursors])))
                  (fn [{:keys [state cursors failed report]}]
                    (let [profile  (-> before (profile/merge state) (profile/compact at))
                          failures (if (seq failed) (inc (get-in library [:sync :failures] 0)) 0)]

@@ -163,7 +163,11 @@
     (is (= "https://example.org/feed.xml" (:url request)) "the URL without the credentials")
     (is (= {"If-None-Match" "\"v1\"" "If-Modified-Since" "Tue, 29 Sep 2026 10:00:00 GMT" "Authorization" "Basic dTpw"}
            (select-keys (:headers (http/revealed request)) ["If-None-Match" "If-Modified-Since" "Authorization"])))
-    (is (= [100 false] [(:max-bytes request) (contains? request :max-pages)]) "only the options of call!")))
+    (is (= [100 false] [(:max-bytes request) (contains? request :max-pages)]) "only the options of call!")
+    (is (= {:url     "https://example.org/feed.xml"
+            :headers {"User-Agent" http/user-agent "Accept" "application/rss+xml, application/xml, text/xml, */*"}}
+           (http/feed-request "https://example.org/feed.xml"))
+        "and without options, the plain request")))
 
 (deftest fetching-a-feed-through-a-send
   (let [sent (atom nil)

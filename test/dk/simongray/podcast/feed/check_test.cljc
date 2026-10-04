@@ -20,7 +20,7 @@
   "The ids of the diagnostics of `file` with `facts`, under the `chosen`
   requirements."
   ([file facts]
-   (ids file facts nil))
+   (set (map :id (check/verdicts file facts))))
   ([file facts chosen]
    (set (map :id (check/verdicts file facts chosen)))))
 
@@ -78,9 +78,10 @@
 
 (deftest verdicts-on-media
   (is (= #{} (ids media served)) "a file served as its feed says")
+  (is (= [] (check/report [(assoc media :facts served)])) "in the report of its check too")
   (is (= [] (check/report [(assoc media :facts served)] :apple)) "and by the requirements of a directory")
   (is (= [[:check/unreachable "refused"]]
-         (map (juxt :id :reason) (check/verdicts media {:head (failed "refused") :get (failed "refused")} nil)))
+         (map (juxt :id :reason) (check/verdicts media {:head (failed "refused") :get (failed "refused")})))
       "with the reason of the diagnostic in the facts")
   (is (= #{:check/status} (ids media (assoc served :get {:status 404 :url "https://a/e.mp3"}))))
   (is (= #{:check/status} (ids media (assoc served :get {:status "206" :url "https://a/e.mp3"})))
@@ -114,7 +115,7 @@
         "the length of the file in a content coding"))
   (testing "byte ranges, which Apple Podcasts requires"
     (let [ignored (assoc served :get {:status 200 :url "https://a/e.mp3" :type "audio/mpeg" :length 1000})]
-      (is (= [[:check/ranges :warning]] (map (juxt :id :level) (check/verdicts media ignored nil))))
+      (is (= [[:check/ranges :warning]] (map (juxt :id :level) (check/verdicts media ignored))))
       (is (= [[:check/ranges :error]] (map (juxt :id :level) (check/verdicts media ignored :apple)))))
     (is (= #{} (ids media (assoc served :get {:status 206 :url "https://a/e.mp3" :type "audio/mpeg" :filtered? true})))
         "a browser hides the Content-Range of an answer from another site"))
@@ -127,7 +128,7 @@
     (is (= #{} (ids media (assoc served :media {:format :mp3 :duration 605 :report []}))) "within 10 seconds")
     (is (= [[:check/unread "The file answered 403: https://a/e.mp3"]]
            (map (juxt :id :reason)
-                (check/verdicts media (assoc served :media (failed "The file answered 403: https://a/e.mp3")) nil)))))
+                (check/verdicts media (assoc served :media (failed "The file answered 403: https://a/e.mp3")))))))
   (testing "the integrity"
     (is (= #{:check/integrity} (ids media (assoc served :integrity {:valid? false :algorithm "sha384"}))))
     (is (= #{} (ids media (assoc served :integrity {:valid? true :algorithm "sha384"}))))
@@ -136,11 +137,10 @@
                 (check/verdicts media
                                 (assoc served :integrity {:valid? nil
                                                           :error  {:id     :file/unverifiable
-                                                                   :reason "A PGP signature needs the key of the publisher."}})
-                                nil))))
+                                                                   :reason "A PGP signature needs the key of the publisher."}})))))
     (is (= #{:check/unverified} (ids media (assoc served :integrity (assoc (failed "request timed out") :valid? nil))))))
-  (is (every? :message (check/verdicts media (assoc served :head {:status 405}) nil)) "every diagnostic with its message")
-  (is (= [:rss/items 0 :rss/enclosure] (:path (first (check/verdicts media (assoc served :head {:status 405}) nil))))))
+  (is (every? :message (check/verdicts media (assoc served :head {:status 405}))) "every diagnostic with its message")
+  (is (= [:rss/items 0 :rss/enclosure] (:path (first (check/verdicts media (assoc served :head {:status 405})))))))
 
 (def artwork
   {:kind :image :url "https://a/cover.jpg" :path [] :declared {:sources #{:itunes}}})
@@ -230,7 +230,7 @@
       (let [moved (assoc answer :url "https://cdn/t.vtt")]
         (is (= [[:check/cors "https://a/t.vtt"]]
                (map (juxt :id :redirect) (check/verdicts transcript {:get (assoc moved :redirects [{:status 302 :url "https://a/t.vtt"}])
-                                                                     :read read} nil)))
+                                                                     :read read})))
             "a redirect that does not allow it")
         (is (= #{} (ids transcript {:get (assoc moved :redirects [{:status 302 :url "https://a/t.vtt" :cors "*"}]) :read read})))))
     (is (= #{} (ids transcript {:get (-> answer (dissoc :cors) (assoc :filtered? true)) :read read}))
@@ -240,8 +240,7 @@
     (is (= [[:check/unread "Unexpected end of input"]]
            (map (juxt :id :reason)
                 (check/verdicts transcript
-                                {:get answer :read {:error {:id :file/malformed :reason "Unexpected end of input"}}}
-                                nil))))
+                                {:get answer :read {:error {:id :file/malformed :reason "Unexpected end of input"}}}))))
     (is (= #{:check/head} (ids transcript {:head {:status 405} :get answer}))))
   (let [feed {:kind :feed :url "https://a/feed.xml" :path [] :declared {}}]
     (is (= #{} (ids feed {:get {:status 200 :url "https://a/feed.xml" :cors "*" :etag "\"1\""}})))

@@ -676,7 +676,7 @@
   when the feed declares them. An item that names no guid and no URL is
   left out. Where the guid and the URL lead to different feeds, the guid
   wins, since a guid outlives a URL. The function
-  directory.podcastindex/remote-item looks up the guid."
+  directory.podcastindex/fetch-remote-item! looks up the guid."
   [feed]
   (filter #(or (:feed-guid %) (:feed-url %))
           (:remote-items (:podcast/podroll feed))))

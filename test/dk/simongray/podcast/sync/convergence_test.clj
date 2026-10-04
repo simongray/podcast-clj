@@ -126,7 +126,7 @@
         sync-one! (fn [i]
                     (swap! world update i
                            (fn [{:keys [state cursors]}]
-                             (let [r (sync/sync! state [backend] (now!) (assoc opts :cursors cursors))]
+                             (let [r (sync/sync! state [backend] (assoc opts :at (now!) :cursors cursors))]
                                (when (:failed r) (throw (ex-info "a backend failed" r)))
                                {:state (:state r) :cursors (:cursors r)}))))]
     (doseq [[i action] steps]

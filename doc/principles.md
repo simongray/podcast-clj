@@ -38,6 +38,9 @@ These principles guide the design of podcast-clj, its API and its code.
 - **Compose, don't reimplement.** The `app.*` namespaces are built from the
   lower-level functions, so an app can start with one call and drop down a
   level when it needs more control.
+- **Convention over configuration.** A function requires only what it
+  can't work without. Everything else has a default, and the options are
+  a map that comes last and can be left out, which a test checks.
 - **The feed model is data.** One tag registry describes every element.
   The parser, the emitter, the validator, the Malli schemas and the
   reference docs all read it, and an app can extend it with its own
@@ -46,9 +49,10 @@ These principles guide the design of podcast-clj, its API and its code.
   progress of an app are kept in one map that fits in an atom, and each
   change returns the new map along with what it did.
 - **Pure unless marked.** Only functions that end in `!` do I/O. A function
-  that needs the time takes it, except the high-level ones, which read a
-  clock that a test can fix. Requests are plain maps built and read by pure
-  functions, so any HTTP client can send them.
+  that needs the time takes it, except those that end in `!` and the
+  high-level ones, which read a clock that a test can fix. Requests are
+  plain maps built and read by pure functions, so any HTTP client can send
+  them.
 - **Errors are data.** Functions that do I/O return their failures as data
   instead of throwing, so one failed request doesn't lose the rest. Only
   the low-level functions that send a single request throw.

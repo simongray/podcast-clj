@@ -583,12 +583,14 @@
 
 (defn bookmark
   "Bookmark the episode `id` in `profile` at `position` seconds at `at`, with
-  a `title`, which can be nil. Another bookmark at the same whole second
+  a `title` when it's given. Another bookmark at the same whole second
   replaces its title."
-  [profile id position title at]
-  (if-let [s (second-of position)]
-    (crdt/write profile [:bookmarks id s] (constantly {:title title :removed? false}) at)
-    profile))
+  ([profile id position at]
+   (bookmark profile id position nil at))
+  ([profile id position title at]
+   (if-let [s (second-of position)]
+     (crdt/write profile [:bookmarks id s] (constantly {:title title :removed? false}) at)
+     profile)))
 
 (defn ^:no-doc unmark
   "The `profile` with a tombstone at `at` in place of the live entry of the
@@ -641,16 +643,18 @@
 
 (defn clip
   "Keep a clip of the episode `id` in `profile` at `at`, from `start` seconds
-  for `duration` seconds, with a `title`, which can be nil.
+  for `duration` seconds, with a `title` when it's given.
 
   A clip has the shape of a podcast:soundbite. Another clip at the same
   whole second replaces it, and a start or duration that isn't a number of
   seconds keeps no clip."
-  [profile id start duration title at]
-  (let [s (second-of start)]
-    (if (and s (number? duration) (pos? duration) (not (infinite? duration)))
-      (crdt/write profile [:clips id s] (constantly {:duration duration :title title :removed? false}) at)
-      profile)))
+  ([profile id start duration at]
+   (clip profile id start duration nil at))
+  ([profile id start duration title at]
+   (let [s (second-of start)]
+     (if (and s (number? duration) (pos? duration) (not (infinite? duration)))
+       (crdt/write profile [:clips id s] (constantly {:duration duration :title title :removed? false}) at)
+       profile))))
 
 (defn unclip
   "Remove the clip of the episode `id` that starts at `start` seconds
@@ -1059,12 +1063,14 @@
 
 (defn follow-list
   "Follow the OPML list at `url` in `profile` at `at`, with the :title and
-  the :folder for its shows in `details`, either of which can be nil.
+  the :folder for its shows in `details`, when they're given.
 
   Fetch the list and give each new parse to refresh-list. Following a
   list again changes its title and folder."
-  [profile url {:keys [title folder] :as details} at]
-  (crdt/write profile [:lists url] (constantly {:title title :folder folder :removed? false}) at))
+  ([profile url at]
+   (follow-list profile url {} at))
+  ([profile url {:keys [title folder] :as details} at]
+   (crdt/write profile [:lists url] (constantly {:title title :folder folder :removed? false}) at)))
 
 (defn unfollow-list
   "Stop following the OPML list at `url` in `profile` at `at`, leaving a

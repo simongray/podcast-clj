@@ -622,7 +622,7 @@
   follows."
   [_]
   (try
-    (let [head (:block (podping/head-block (podping/call! :head-block {} {})))
+    (let [head (:block (podping/head-block (podping/call! :head-block)))
           step (podping/poll! (- head 20) {:max-blocks 20})]
       (html (page/podping-page (assoc step :head head))))
     (catch Throwable e
@@ -734,7 +734,7 @@
       :authorized? (constantly true)
       :identities  #(either (gpodder/identities (cached-feeds)) (added-here @state))
       :sync        (fn [state]
-                     (let [result (sync/sync! state [backend] (java.util.Date.) {:cursors @cursors})]
+                     (let [result (sync/sync! state [backend] {:cursors @cursors})]
                        (reset! cursors (:cursors result))
                        (:state result)))})))
 

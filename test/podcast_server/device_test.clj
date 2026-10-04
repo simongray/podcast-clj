@@ -44,7 +44,7 @@
                   (profile/subscribe (first id) {:url url :title "A"} #inst "2026-01-01T01:00:00Z")
                   (profile/progress id 600 3600 #inst "2026-01-01T01:00:01Z"))
               [(store/backend store)]
-              #inst "2026-01-01T01:00:02Z"))
+              {:at #inst "2026-01-01T01:00:02Z"}))
 
 (deftest the-library-follows-the-listener
   (with-temp-dir

@@ -276,7 +276,7 @@ every few seconds:
       (swap! lib library/merge (library/refresh! @lib {:feed-guids guids})))
     polled))
 
-(def polled (podping/poll! nil))  ; starts at the head of the chain
+(def polled (podping/poll!))  ; starts at the head of the chain
 ```
 
 When no node answers, the result has an `:error` and the block it got to,
@@ -692,14 +692,13 @@ instead. A button in the settings screen can test a store with
 `store/check!`.
 
 To keep the documents encrypted on the server, wrap the store with
-`encrypted/backend`, and use `:except` to leave the subscription list
-readable for other apps:
+`encrypted/backend` and a passphrase, or a function that returns one. Use
+`:except` to leave the subscription list readable for other apps:
 
 ```clojure
 (encrypted/backend (webdav/store root {:credentials creds})
-                   {:passphrase from-keychain
-                    :opml?      true
-                    :except     #{store/opml-name}})
+                   from-keychain
+                   {:opml? true :except #{store/opml-name}})
 ```
 
 Each sync removes the tombstones that every device has seen, once they're

@@ -86,7 +86,6 @@
   (doseq [opts [{:credentials {:username "ann" :password hidden}}
                 {:credentials {:token hidden}}
                 {:key "K" :secret hidden}
-                {:passphrase hidden :iterations 1000}
                 {:secret hidden :lease-seconds 864000}]]
     (is (not (str/includes? (pr-str opts) "hunter2")) (pr-str opts))
     (is (str/includes? (pr-str opts) "#<secret>"))))

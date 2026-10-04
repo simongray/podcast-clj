@@ -271,8 +271,8 @@
        (with-redefs [http/call! (through (server/handler (dissoc (store/memory documents) :list :delete) "/dav/"))]
          (let [{:keys [ok? checks]} (store/check! client)
                backend (store/backend client)
-               phone   (sync/sync! (phone-state) [backend] t2)
-               laptop  (sync/sync! (laptop-state) [backend] t3)]
+               phone   (sync/sync! (phone-state) [backend] {:at t2})
+               laptop  (sync/sync! (laptop-state) [backend] {:at t3})]
            (is ok? (pr-str checks))
            (is (nil? (:failed phone)))
            (is (nil? (:failed laptop)))
@@ -307,9 +307,9 @@
      (let [documents (atom {})]
        (with-redefs [http/call! (stand-in documents)]
          (let [backend (store/backend (webdav/store "https://dav.example.org/dav") {:opml? true})
-               phone   (sync/sync! (phone-state) [backend] t2)
-               laptop  (sync/sync! (laptop-state) [backend] t3)
-               phone2  (sync/sync! (:state phone) [backend] t3 {:cursors (:cursors phone)})]
+               phone   (sync/sync! (phone-state) [backend] {:at t2})
+               laptop  (sync/sync! (laptop-state) [backend] {:at t3})
+               phone2  (sync/sync! (:state phone) [backend] {:at t3 :cursors (:cursors phone)})]
            (is (nil? (:failed phone)) "the collection was made on the first put")
            (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"} (set (keys (dissoc @documents ::created)))))
            (is (= 900 (:position (profile/episode-entry (:state phone2) a))))
@@ -338,11 +338,11 @@
      (async done
        (let [documents (atom {})
              backend   (store/backend (webdav/store "https://dav.example.org/dav/" {:send (stand-in documents)}))]
-         (-> (sync/sync! (phone-state) [backend] t2)
+         (-> (sync/sync! (phone-state) [backend] {:at t2})
              (.then (fn [phone]
                       (is (nil? (:failed phone)))
                       (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))
-                      (sync/sync! (laptop-state) [backend] t3)))
+                      (sync/sync! (laptop-state) [backend] {:at t3})))
              (.then (fn [laptop]
                       (is (= 900 (:position (profile/episode-entry (:state laptop) a))))
                       (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions (:state laptop))))))
@@ -361,7 +361,7 @@
        (let [documents (atom {})
              original  (.-fetch js/globalThis)]
          (set! (.-fetch js/globalThis) (fetch-stand-in documents))
-         (-> (sync/sync! (phone-state) [(store/backend (webdav/store "https://dav.example.org/dav/"))] t2)
+         (-> (sync/sync! (phone-state) [(store/backend (webdav/store "https://dav.example.org/dav/"))] {:at t2})
              (.then (fn [phone]
                       (is (nil? (:failed phone)) "a store without :send sends with http/call!, over js/fetch")
                       (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))))

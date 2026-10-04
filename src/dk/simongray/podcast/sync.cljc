@@ -216,9 +216,8 @@
       (seq failed) (assoc :failed failed))))
 
 (defn sync!
-  "Sync `state` through `backends` in one step at `at` with the `opts`
-  below: pull from every backend at once, merge, and push the merged state
-  to each.
+  "Sync `state` through `backends` in one step with the `opts` below: pull
+  from every backend at once, merge, and push the merged state to each.
 
   It returns this, in ClojureScript as a promise:
 
@@ -230,6 +229,7 @@
   In ClojureScript, each function of a backend can return a value or a
   promise. The `opts` are:
 
+  - :at, the instant of the step, the time of the clock by default
   - :cursors, those of the last step
   - :compact, false to keep the tombstones that every device has seen, or
     else the options of profile/compact
@@ -249,23 +249,24 @@
 
   The backends need distinct names, since the cursors are kept by name,
   and the same name twice throws."
-  ([state backends at]
-   (sync! state backends at {}))
-  ([state backends at {:keys [cursors compact] :as opts}]
+  ([state backends]
+   (sync! state backends {}))
+  ([state backends {:keys [at cursors compact] :as opts}]
    {:pre [(map? opts)]}
    (when-let [twice (seq (for [[name n] (frequencies (map :name backends)) :when (< 1 n)] name))]
      (throw (ex-info (str "The backends of one sync need distinct names, and these are not: " (pr-str twice))
                      {:names twice})))
-   (async/then (async/all (map (fn [{:keys [pull name]}] (async/attempt #(pull state (get cursors name) at))) backends))
-               (fn [results]
-                 (let [so-far  (pulled state backends results at compact)
-                       merged  (:state so-far)
-                       problem (profile/problem merged)
-                       push!   (fn [[{:keys [push]} pull]]
-                                 (if problem
-                                   {:cursor (:cursor pull)}
-                                   (push merged (:cursor pull) at)))]
-                   (async/then (async/all (map (fn [ok] (async/attempt #(push! ok))) (:ok so-far)))
-                               (fn [pushes]
-                                 (cond-> (finished so-far cursors pushes at compact)
-                                   problem (update :report conj (diagnostics/describe {:id :sync/malformed-state :error problem}))))))))))
+   (let [at (or at (time/now))]
+     (async/then (async/all (map (fn [{:keys [pull name]}] (async/attempt #(pull state (get cursors name) at))) backends))
+                 (fn [results]
+                   (let [so-far  (pulled state backends results at compact)
+                         merged  (:state so-far)
+                         problem (profile/problem merged)
+                         push!   (fn [[{:keys [push]} pull]]
+                                   (if problem
+                                     {:cursor (:cursor pull)}
+                                     (push merged (:cursor pull) at)))]
+                     (async/then (async/all (map (fn [ok] (async/attempt #(push! ok))) (:ok so-far)))
+                                 (fn [pushes]
+                                   (cond-> (finished so-far cursors pushes at compact)
+                                     problem (update :report conj (diagnostics/describe {:id :sync/malformed-state :error problem})))))))))))

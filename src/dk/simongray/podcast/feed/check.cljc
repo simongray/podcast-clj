@@ -740,27 +740,32 @@
   Each diagnostic has the :url of the file and the :path of the element
   that names it. The `chosen` requirements are a name in requirements, or
   a map of the shape of its entries."
-  [{:keys [kind] :as file} facts chosen]
-  (let [chosen (if (map? chosen) chosen (get requirements chosen))
-        judge  (get judges kind (constantly []))]
-    (->> (cond
-           (:unchecked facts) []
-           (:error facts)     [(diagnostic file chosen :check/unreachable :reason (why facts))]
-           :else              (judge file chosen facts))
-         (mapv diagnostics/describe))))
+  ([file facts]
+   (verdicts file facts nil))
+  ([{:keys [kind] :as file} facts chosen]
+   (let [chosen (if (map? chosen) chosen (get requirements chosen))
+         judge  (get judges kind (constantly []))]
+     (->> (cond
+            (:unchecked facts) []
+            (:error facts)     [(diagnostic file chosen :check/unreachable :reason (why facts))]
+            :else              (judge file chosen facts))
+          (mapv diagnostics/describe)))))
 
 (defn report
-  "The diagnostics of the checked `files`, by the `chosen` requirements.
+  "The diagnostics of the checked `files`, by the standards and the
+  `chosen` requirements, if any.
 
   Each file has its :facts, as check-files! gives them, and the `chosen`
   requirements are what verdicts takes. So several requirements can judge
   one check, and no request goes out again. The files that a limit of the
   check left out have no diagnostics of their own, and one
   :check/unchecked counts them for each limit."
-  [files chosen]
-  (into (vec (mapcat #(verdicts % (:facts %) chosen) files))
-        (for [[limit n] (frequencies (keep (comp :unchecked :facts) files))]
-          (diagnostics/describe {:id :check/unchecked :level :warning :limit limit :count n}))))
+  ([files]
+   (report files nil))
+  ([files chosen]
+   (into (vec (mapcat #(verdicts % (:facts %) chosen) files))
+         (for [[limit n] (frequencies (keep (comp :unchecked :facts) files))]
+           (diagnostics/describe {:id :check/unchecked :level :warning :limit limit :count n})))))
 
 (defn check-files!
   "Check over the network the files that `feed` links to, as files lists
@@ -848,9 +853,9 @@
     {:head {:status 200 :type "audio/mpeg" :length 1200}
      :get  {:status 200 :type "audio/mpeg" :length 1200}})
 
-  (map :id (verdicts media-file served nil))
+  (map :id (verdicts media-file served))
   (map (juxt :id :level) (verdicts media-file served :apple))
-  (map :id (report [(assoc media-file :facts {:unchecked :max-files})] nil))
+  (map :id (report [(assoc media-file :facts {:unchecked :max-files})]))
 
   ;; a check that sends no request: the app sends in its own way
   (check-files! feed {:send (fn [request] {:status 404 :url (:url request) :headers {}})})

@@ -314,7 +314,7 @@
         "the later removal outlives the older star from another device"))
   (let [s (-> (profile/make "phone")
               (profile/bookmark a 754.8 "The good bit" t0)
-              (profile/bookmark a 30 nil t1)
+              (profile/bookmark a 30 t1)
               (profile/bookmark b 5 "Other" t2))]
     (is (= [{:id a :position 30 :title nil :updated-at t1} {:id a :position 754 :title "The good bit" :updated-at t0}]
            (profile/bookmarks s a))
@@ -329,7 +329,7 @@
 (deftest clips-of-episodes
   (let [s (-> (profile/make "phone")
               (profile/clip a 754.8 42.5 "The good bit" t0)
-              (profile/clip a 30 10 nil t1)
+              (profile/clip a 30 10 t1)
               (profile/clip b 5 20 "Other" t2))]
     (is (= [{:id a :start-time 30 :duration 10 :title nil :updated-at t1}
             {:id a :start-time 754 :duration 42.5 :title "The good bit" :updated-at t0}]

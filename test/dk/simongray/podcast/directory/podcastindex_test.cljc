@@ -179,7 +179,7 @@
                     (fn [{:keys [url]}]
                       (swap! sent conj url)
                       {:status 200 :body (if (str/includes? url "byepisodeguid") item-body feed-body)}))
-        resolved  #(index/remote-value credentials %1 %2 {:auth-date 1})]
+        resolved  #(index/fetch-remote-value! credentials %1 {:send %2 :auth-date 1})]
     (testing "the item's own block is asked for first, then the feed's"
       (is (= ["https://api.podcastindex.org/api/1.0/value/byepisodeguid?podcastguid=a94f5cc9-8c58-55fc-91fe-a324087a655b&episodeguid=https%3A%2F%2Fpodcastindex.org%2Fpodcast%2F4148683%231"
               "https://api.podcastindex.org/api/1.0/value/bypodcastguid?guid=a94f5cc9-8c58-55fc-91fe-a324087a655b"]
@@ -210,23 +210,29 @@
             "https://api.podcastindex.org/api/1.0/podcasts/byguid?guid=9b024349-ccf0-5f69-a609-6b82873eab3c"]
            (map :url (index/remote-item-requests credentials remote {:auth-date 1}))))
     (is (= 1 (count (index/remote-item-requests credentials {:feed-guid "x"} {:auth-date 1}))))
-    (run #(async/then (index/remote-item credentials remote send {:auth-date 1})
+    (run #(async/then (index/fetch-remote-item! credentials remote {:send send :auth-date 1})
                       (fn [{:keys [feed episode]}]
                         (is (= "Batman University" (:rss/title feed)))
                         (is (= "Episode 84 - The Big One" (:rss/title episode)))))
-         #(async/then (async/all [(index/remote-item credentials remote (constantly {:status 200 :body false-body}) {:auth-date 1})
-                                  (index/remote-item credentials {} (constantly {:status 200 :body podcast-body}) {:auth-date 1})])
+         #(async/then (async/all [(index/fetch-remote-item! credentials remote {:send (constantly {:status 200 :body false-body}) :auth-date 1})
+                                  (index/fetch-remote-item! credentials {} {:send (constantly {:status 200 :body podcast-body}) :auth-date 1})])
                       (fn [items]
                         (is (= [nil nil] items) "nothing that the index knows"))))))
 
 (deftest calling-through-a-send
-  (let [send (fn [{:keys [url headers]}]
+  (let [sent (atom nil)
+        send (fn [{:keys [url headers] :as request}]
+               (reset! sent request)
                (is (re-matches #"[0-9a-f]{40}" (secret/reveal (get headers "Authorization"))) "signed")
                {:status 200 :url url :body (if (str/includes? url "/value/") value-body podcast-body)})]
     (run #(async/then (index/call! credentials :podcasts/by-guid {:guid "9b024349"} {:send send})
                       (fn [{:keys [status feed]}]
                         (is (true? status))
-                        (is (= "Batman University" (:rss/title feed)))))
+                        (is (= "Batman University" (:rss/title feed)))
+                        (is (not= "1" (get-in @sent [:headers "X-Auth-Date"])) "signed at the time of the clock")))
+         #(async/then (index/call! credentials :podcasts/by-guid {:guid "9b024349"} {:send send :auth-date 1})
+                      (fn [_]
+                        (is (= "1" (get-in @sent [:headers "X-Auth-Date"])) "or at the :auth-date of the options")))
          #(async/then (index/fetch-remote-value! credentials {:feed-guid "a94f"} {:send send})
                       (fn [block]
                         (is (= ["Artist" "Label"] (map :name (:recipients block))))))
