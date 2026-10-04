@@ -250,7 +250,7 @@
        (update :profile profile/unfollow-list url (time-of library opts))
        (update :fetched-lists dissoc url))))
 
-(defn- fetched-list!
+(defn- fetch-list!
   "Fetch the OPML list at `url` with `opts` and the ETag and Last-Modified
   in its library `entry`, in a future or a promise.
 
@@ -260,7 +260,7 @@
   (let [headers (cond-> {"Accept" "text/x-opml, application/xml;q=0.9, */*;q=0.1"}
                   etag          (assoc "If-None-Match" etag)
                   last-modified (assoc "If-Modified-Since" last-modified))]
-    (async/then (http/sent! send {:url url :headers headers} opts)
+    (async/then (http/try-send! send {:url url :headers headers} opts)
                 (fn [{:keys [value error]}]
                   (let [status (:status value)
                         h      #(http/header (:headers value) %)]
@@ -276,7 +276,7 @@
                                            (h "etag")          (assoc :etag (h "etag"))
                                            (h "last-modified") (assoc :last-modified (h "last-modified")))))))))))
 
-(defn- lists-refreshed!
+(defn- refresh-lists!
   "Fetch the lists of `library` that are due at `at` with `opts`, and
   apply them, in a future or a promise. The result is a map of the
   :library and the :report."
@@ -284,7 +284,7 @@
   (let [due (for [[url entry] (:fetched-lists library)
                   :when (<= (inst-ms (:next-check entry)) (inst-ms at))]
               url)]
-    (async/then (async/all (fn [url] (async/then (fetched-list! url (get-in library [:fetched-lists url]) opts) #(vector url %))) due)
+    (async/then (async/all (fn [url] (async/then (fetch-list! url (get-in library [:fetched-lists url]) opts) #(vector url %))) due)
                 (fn [results]
                   (reduce (fn [{:keys [library] :as acc} [url {:keys [list unchanged? error] :as fetched}]]
                             (let [seconds (:list-seconds (options library {}))
@@ -322,7 +322,7 @@
         (reindexed declared)
         (kept declared keep))))
 
-(defn- fetched-new!
+(defn- fetch-new-feeds!
   "Fetch the feeds of the new subscriptions of `library` at `at` with
   `opts`, and add them, in a future or a promise.
 
@@ -400,9 +400,9 @@
    {:pre [(map? opts)]}
    (let [at   (time-of library opts)
          opts (clojure.core/merge {:send http/call! :fetch podcast/fetch!} (options library opts))]
-     (async/then (lists-refreshed! library at opts)
+     (async/then (refresh-lists! library at opts)
                  (fn [{library :library report :report}]
-                   (async/then (fetched-new! library at opts)
+                   (async/then (fetch-new-feeds! library at opts)
                                (fn [{library :library report-new :report}]
                                  (async/then (feeds/refresh! (:feeds library) at (select-keys opts [:feed-guids :fetch :credentials-of :concurrency :cadence :send :timeout-seconds :max-bytes :user-agent :allow?]))
                                              (fn [step]

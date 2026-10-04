@@ -62,13 +62,13 @@
     (assoc (bytes/unreachable e) :url url :id :fetch/unreachable)
     (diagnostics/describe {:id :fetch/unreachable :url url :status status})))
 
-(defn- known-show!
+(defn- look-up-show!
   "Ask the Podcast Index with `opts` for the :show of the remote `item`,
   and give the item with it, in a future or a promise. Without an answer,
   it's the item as it is."
   [item {:keys [index send now] :as opts}]
   (let [requests (podcastindex/remote-item-requests index item {:auth-date (quot (inst-ms (now)) 1000)})]
-    (async/then (async/all (map #(http/sent! send % opts) requests))
+    (async/then (async/all (map #(http/try-send! send % opts) requests))
                 (fn [answers]
                   (let [found (some (fn [{:keys [value]}]
                                       (when (string? (:body value))
@@ -84,11 +84,11 @@
   (let [{:keys [value error]} (podcast/attempted :fetch/malformed url #(podcast/parse s))]
     (if error {:error error} {:feed value})))
 
-(defn- feed-at!
+(defn- fetch-feed!
   "Fetch and parse the feed at `url` with `opts`, and give a map of the
   :feed, or of an :error when it couldn't, in a future or a promise."
   [url {:keys [send] :as opts}]
-  (async/then (http/sent! send {:url url :headers {"Accept" "application/rss+xml, application/xml;q=0.9, */*;q=0.1"}} opts)
+  (async/then (http/try-send! send {:url url :headers {"Accept" "application/rss+xml, application/xml;q=0.9, */*;q=0.1"}} opts)
               (fn [{:keys [value error]}]
                 (cond
                   error                                    {:error (unreachable url error nil)}
@@ -133,7 +133,7 @@
 ;; - It only works for encodings like UTF-8, where the first <item> can be
 ;;   found before decoding.
 ;; - Made public, it needs a name and a mark that tells it from a feed.
-(defn- head-at!
+(defn- read-head!
   "Read the feed at `url` with `opts` up to its first item, most often
   from the first 64 KB alone, and give a map of the :feed without its
   items, or of an :error, in a future or a promise."
@@ -145,7 +145,7 @@
                   error {:error (diagnostics/describe (assoc (select-keys error [:url :status :reason]) :id :fetch/unreachable))}
                   :else {:error (assoc (first (bytes/report result)) :url url)}))))
 
-(defn- podroll-show!
+(defn- find-podroll-show!
   "Give the remote `item` of a podroll with its :show, in a future or a
   promise: from the Podcast Index with the :index of `opts`, or else from
   the head of the feed at its URL, without the items. An item that names
@@ -153,22 +153,22 @@
   an :error."
   [item opts]
   (cond
-    (:index opts)    (known-show! item opts)
-    (:feed-url item) (async/then (head-at! (:feed-url item) opts)
+    (:index opts)    (look-up-show! item opts)
+    (:feed-url item) (async/then (read-head! (:feed-url item) opts)
                                  (fn [{:keys [feed error]}]
                                    (if error
                                      (assoc item :error error)
                                      (assoc item :show feed))))
     :else            item))
 
-(defn- publisher-feed!
+(defn- fetch-publisher-feed!
   "Fetch the :feed of the publisher `item` of the show `view` with `opts`,
   and give the item with it, in a future or a promise.
 
   The item also has the :shows of the publisher feed, and :confirmed? when that
   feed lists the show, or an :error when the feed couldn't be fetched."
   [item {:keys [guid] :as view} opts]
-  (async/then (feed-at! (:feed-url item) opts)
+  (async/then (fetch-feed! (:feed-url item) opts)
               (fn [{:keys [feed error]}]
                 (if error
                   (assoc item :error error)
@@ -210,9 +210,9 @@
                         opts)
          wanted? (complement except)]
      (async/then (async/all force [(delay (when (wanted? :podroll)
-                                            (async/all #(podroll-show! % opts) (:podroll view))))
+                                            (async/all #(find-podroll-show! % opts) (:podroll view))))
                                    (delay (when (and (wanted? :publisher) (:feed-url (:publisher view)))
-                                            (publisher-feed! (:publisher view) view opts)))])
+                                            (fetch-publisher-feed! (:publisher view) view opts)))])
                  (fn [[podroll publisher]]
                    (cond-> {}
                      (seq podroll) (assoc :podroll (vec podroll))

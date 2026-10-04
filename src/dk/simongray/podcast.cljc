@@ -158,7 +158,7 @@
         {:url url :failure (async/explain e)}))
     {:url url :failure (str "HTTP " status)}))
 
-(defn- page!
+(defn- fetch-page!
   "Fetch the page at `url` of a paged feed with `opts`, and read it as
   read-page does. Deferred."
   [url opts]
@@ -168,7 +168,7 @@
                   {:url url :failure (async/explain error)}
                   (read-page url value opts)))))
 
-(defn- later-pages
+(defn- fetch-later-pages!
   "Up to `n` pages after `feed`, the page at `url` that the URL `asked` led
   to, fetched with `opts`. Each page is the next of the one before, until
   a page repeats. Deferred.
@@ -182,7 +182,7 @@
                      (when-not (seen next)
                        {:url next :seen (conj seen next)})))
         opts-for (fn [page-url] (cond-> opts (not (http/same-origin? asked page-url)) (dissoc :credentials)))]
-    (async/iteration (fn [k] (when k (async/then (page! (:url k) (opts-for (:url k))) #(assoc % :seen (:seen k)))))
+    (async/iteration (fn [k] (when k (async/then (fetch-page! (:url k) (opts-for (:url k))) #(assoc % :seen (:seen k)))))
                      :initk (next-of url feed #{url})
                      :kf    (fn [{:keys [url feed seen]}] (when feed (next-of url feed seen)))
                      :limit n)))
@@ -200,7 +200,7 @@
       {:error (diagnostics/describe {:id id :url url :reason (async/explain e)})})))
 
 (defn- joined
-  "The feed `first-page` joined with the `pages` after it, as later-pages
+  "The feed `first-page` joined with the `pages` after it, as fetch-later-pages!
   gives them. A page that can't be read gets a diagnostic in the report of
   the feed."
   [first-page pages]
@@ -212,12 +212,12 @@
                         {:id :fetch/page-failed :level :warning
                          :url (:url failed) :reason (:failure failed)}))))
 
-(defn- with-pages
+(defn- join-later-pages!
   "The feed `first-page`, the page at `url` that the URL `asked` led to,
   joined with the pages after it, up to the :max-pages of `opts`.
   Deferred."
   [asked url first-page {:keys [max-pages] :or {max-pages 1} :as opts}]
-  (async/then (when (> max-pages 1) (later-pages asked url first-page (dec max-pages) opts))
+  (async/then (when (> max-pages 1) (fetch-later-pages! asked url first-page (dec max-pages) opts))
               #(joined first-page %)))
 
 (defn- feed-result
@@ -231,7 +231,7 @@
       moved (assoc :new-feed-url moved)
       hubs  (assoc :websub hubs))))
 
-(defn- read-answer
+(defn- read-answer!
   "What fetch! gives for the 200 `response` to the request for `asked`,
   parsed with `opts`, as feed-result gives it, or an :error for a body
   that isn't a feed. Deferred."
@@ -240,7 +240,7 @@
         (attempted :fetch/malformed url #(parse (str body) (select-keys opts [:quirks? :registry :except])))]
     (if error
       (cond-> {:error error} body (assoc :body body))
-      (async/then (with-pages asked url first-page opts) #(feed-result response first-page %)))))
+      (async/then (join-later-pages! asked url first-page opts) #(feed-result response first-page %)))))
 
 (defn fetch!
   "Fetch the feed at `url` and parse it with the `opts` below, the one
@@ -277,7 +277,7 @@
                    (let [result (select-keys response [:status :url :permanent-url :etag :last-modified :not-before])]
                      (cond
                        error                      {:url url :error (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})}
-                       (= 200 (:status response)) (async/then (read-answer url response opts) #(merge result %))
+                       (= 200 (:status response)) (async/then (read-answer! url response opts) #(merge result %))
                        :else                      result)))))))
 
 (defn- discovery-request
@@ -319,7 +319,7 @@
   [acc]
   (some :podcast? (:candidates acc)))
 
-(defn- with-candidates!
+(defn- fetch-candidates!
   "Fetch the candidates at the `urls` with `opts`, found where `where`
   says, and give the state `acc` of find-feeds! with them. Deferred.
 
@@ -332,7 +332,7 @@
     (if (empty? urls)
       acc
       (async/then (async/all (fn [url]
-                               (async/then (http/sent! send (discovery-request url (dissoc opts :credentials)) opts)
+                               (async/then (http/try-send! send (discovery-request url (dissoc opts :credentials)) opts)
                                            #(read-feed url where % opts)))
                              urls)
                   (fn [results]
@@ -363,20 +363,20 @@
       (conj [podcastindex (directory/request podcastindex :lookup {:id index-id}
                                              {:credentials index :auth-date (quot (inst-ms (now)) 1000)})]))))
 
-(defn- feed-urls!
-  "Send the requests of the `endpoint` of directories with `opts`, and give
+(defn- fetch-feed-urls!
+  "Send the requests of the `call` of directories with `opts`, and give
   the feed URLs of the shows that they answer, as :urls, and the failures,
   as :report. Each of the `asked` is a pair of the directory and its
   request. Deferred."
-  [asked endpoint {:keys [send] :as opts}]
+  [asked call {:keys [send] :as opts}]
   (async/then (async/all (fn [[source request]]
-                           (async/then (http/sent! send request opts)
+                           (async/then (http/try-send! send request opts)
                                        (fn [{:keys [value] :as attempt}]
                                          (if-let [e (failure (:url request) attempt)]
                                            {:error e}
                                            {:urls (keep resolve/self-url
                                                         (try
-                                                          (directory/response source endpoint (:body value))
+                                                          (directory/response source call (:body value))
                                                           (catch #?(:clj Exception :cljs :default) _
                                                             nil)))}))))
                          asked)
@@ -384,18 +384,18 @@
                 {:urls   (into [] (comp (mapcat :urls) (distinct)) answers)
                  :report (into [] (keep :error) answers)})))
 
-(defn- looked-up!
+(defn- look-up!
   "The state `acc` of find-feeds! with the feeds of the shows that the
   `asked` lookups find, each a pair of a directory and its request, sent
   with `opts`. Deferred."
   [acc asked opts]
   (if (empty? asked)
     acc
-    (async/then (feed-urls! asked :lookup opts)
+    (async/then (fetch-feed-urls! asked :lookup opts)
                 (fn [{:keys [urls report]}]
-                  (with-candidates! (update acc :report into report) :app-link urls opts)))))
+                  (fetch-candidates! (update acc :report into report) :app-link urls opts)))))
 
-(defn- searched!
+(defn- search-directories!
   "The state `acc` of find-feeds! with the feeds that the directories of
   the :search of `opts` find by the name of the web page `body` at `page`.
   Deferred.
@@ -411,12 +411,12 @@
             asked  (for [source (map directory/entry search)]
                      [source (directory/request source :search {:q q :limit max-candidates} signed)])
             domain (http/absolute-url page "/")]
-        (async/then (feed-urls! asked :search opts)
+        (async/then (fetch-feed-urls! asked :search opts)
                     (fn [{:keys [urls report]}]
-                      (async/then (with-candidates! {:candidates [] :report [] :tried (:tried acc)}
-                                                    :directory
-                                                    urls
-                                                    (assoc opts :max-candidates (* max-candidates (count search))))
+                      (async/then (fetch-candidates! {:candidates [] :report [] :tried (:tried acc)}
+                                                     :directory
+                                                     urls
+                                                     (assoc opts :max-candidates (* max-candidates (count search))))
                                   (fn [found]
                                     (-> acc
                                         (update :report into report)
@@ -434,7 +434,7 @@
               typed? (conj (str/replace url #"^https:" "http:")
                            (str/replace url #"^https://(?!www\.)" "https://www.")))))
 
-(defn- answered!
+(defn- ask-in-turn!
   "Send the requests for the `urls` in turn with `opts` until one answers,
   and give its attempt with the :url that it asked. Deferred.
 
@@ -442,13 +442,13 @@
   isn't allowed isn't, and neither is a server that doesn't answer in
   time, since the others would wait for it as long."
   [[url & more :as urls] {:keys [send] :as opts}]
-  (async/then (http/sent! send (discovery-request url opts) opts)
+  (async/then (http/try-send! send (discovery-request url opts) opts)
               (fn [{:keys [error] :as attempt}]
                 (if (and error more (not= ::http/refused (:type (ex-data error))) (not (http/timeout? error)))
-                  (answered! more opts)
+                  (ask-in-turn! more opts)
                   (assoc attempt :url url)))))
 
-(defn- page-feeds!
+(defn- fetch-page-feeds!
   "The state `acc` of find-feeds! with the feeds that the page at `url` is
   or names, fetched with `opts`, where `typed?` tells that the scheme of
   the URL was added. Deferred.
@@ -459,7 +459,7 @@
   (if (or (nil? url) (podcast-found? acc))
     acc
     (async/then
-     (answered! (addresses url typed?) opts)
+     (ask-in-turn! (addresses url typed?) opts)
      (fn [{asked :url response :value :as attempt}]
        (let [page (or (:url response) asked)
              body (str (:body response))]
@@ -472,7 +472,7 @@
                              candidate (update :candidates conj candidate)
                              error     (assoc :error error))))
              (async/then
-              (reduce (fn [acc [where urls limits]] (async/then acc #(with-candidates! % where urls (merge opts limits))))
+              (reduce (fn [acc [where urls limits]] (async/then acc #(fetch-candidates! % where urls (merge opts limits))))
                       (update acc :tried conj asked page)
                       [[:link        (delay (map :href (discovery/feed-links body page)))]
                        [:link-header (delay (map :href (discovery/header-links (:headers response) page)))]
@@ -480,7 +480,7 @@
                        [:rule        (delay (mapcat #(discovery/rule-urls % rules) (distinct [asked page])))]
                        [:guess       (delay (discovery/guesses page guessed-paths))
                         {:timeout-seconds (min timeout-seconds guess-timeout-seconds)}]])
-              #(searched! % body page opts)))))))))
+              #(search-directories! % body page opts)))))))))
 
 (defn- result
   "What find-feeds! gives for its state `acc` at the end, for the page at
@@ -542,8 +542,8 @@
                                               :tried      #{}}]
      (-> (if error
            (assoc acc :error error)
-           (looked-up! acc (lookups ids guid opts) opts))
-         (async/then #(page-feeds! % url typed? (cond-> opts credentials (assoc :credentials credentials))))
+           (look-up! acc (lookups ids guid opts) opts))
+         (async/then #(fetch-page-feeds! % url typed? (cond-> opts credentials (assoc :credentials credentials))))
          (async/then #(result % url guid))))))
 
 #?(:clj

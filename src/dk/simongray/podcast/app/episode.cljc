@@ -109,40 +109,40 @@
     (assoc (bytes/unreachable e) :url url)
     (diagnostics/describe {:id :file/unreachable :url url :status status})))
 
-(defn- fetched!
+(defn- fetch-text!
   "Fetch the text of the file at `url` with `opts`, asking for the `accept`
   types, in a future or a promise. The text is the :value, or else a
   diagnostic is the :error."
   [url accept {:keys [send] :as opts}]
-  (async/then (http/sent! send {:url url :headers {"Accept" accept}} opts)
+  (async/then (http/try-send! send {:url url :headers {"Accept" accept}} opts)
               (fn [{:keys [value error]}]
                 (cond
                   error                             {:error (unreachable url error nil)}
                   (not (<= 200 (long (:status value)) 299)) {:error (unreachable url nil (:status value))}
                   :else                             {:value (str (:body value))}))))
 
-(defn- chapters-file!
+(defn- read-chapters-file!
   "Read the chapters file at `url` with `opts`, in a future or a promise.
   The result is a map of its :url, :document and :report, or an :error,
   with :file as the :source."
   [url opts]
-  (async/then (fetched! url "application/json+chapters, application/json;q=0.9, */*;q=0.1" opts)
+  (async/then (fetch-text! url "application/json+chapters, application/json;q=0.9, */*;q=0.1" opts)
               (fn [{:keys [value error]}]
                 (if error
                   {:source :file :url url :error error}
                   (with-report {:source :file :url url} (chapters/parse-json value) chapters/report)))))
 
-(defn- transcript-file!
+(defn- read-transcript-file!
   "Read the transcript that the reference `ref` names with `opts`, adding
   its :document and :report, or an :error, in a future or a promise."
   [{:keys [url type] :as ref} opts]
-  (async/then (fetched! url (str (or type "text/vtt") ", */*;q=0.1") opts)
+  (async/then (fetch-text! url (str (or type "text/vtt") ", */*;q=0.1") opts)
               (fn [{:keys [value error]}]
                 (if error
                   (assoc ref :error error)
                   (with-report ref (transcript/parse value type) transcript/report)))))
 
-(defn- media-file!
+(defn- read-media-file!
   "Read the media file at `url` with media/read! and `opts`, adding its
   :url and its :report as data, or an :error, in a future or a promise."
   [url opts]
@@ -198,9 +198,9 @@
          wanted? (complement except)
          own     (:chapters view)
          url     (:url (:enclosure view))]
-     (async/then (async/all force [(delay (when-let [chapters-url (and (wanted? :chapters) (:chapters-url view))] (chapters-file! chapters-url opts)))
-                                   (delay (when-let [ref (and (wanted? :transcript) (:transcript view))] (transcript-file! ref opts)))
-                                   (delay (when (and (wanted? :media) url) (media-file! url opts)))])
+     (async/then (async/all force [(delay (when-let [chapters-url (and (wanted? :chapters) (:chapters-url view))] (read-chapters-file! chapters-url opts)))
+                                   (delay (when-let [ref (and (wanted? :transcript) (:transcript view))] (read-transcript-file! ref opts)))
+                                   (delay (when (and (wanted? :media) url) (read-media-file! url opts)))])
                  (fn [[file transcript media]]
                    (let [chapters (best-chapters file own media)]
                      (cond-> {}
@@ -248,7 +248,7 @@
       :else               (when (and (:status answer) (seq (:recipients block)))
                             {:value block}))))
 
-(defn- index-value!
+(defn- fetch-index-value!
   "Ask the Podcast Index with `opts` for the value block of the `remote`
   item of a time split, the item's own first and then the feed's, in a
   future or a promise. The result is a map of the :value, nil when the
@@ -257,7 +257,7 @@
   (let [requests (podcastindex/remote-value-requests
                   index remote {:auth-date (quot (inst-ms (now)) 1000)})
         answer!  (fn [request]
-                   (async/then (http/sent! send request opts)
+                   (async/then (http/try-send! send request opts)
                                (partial index-answer remote (:url request))))]
     (async/then (async/some answer! requests) #(or % {:value nil}))))
 
@@ -277,7 +277,7 @@
                                           (async/explain thrown)
                                           (:reason error))}))))
 
-(defn- feed-value!
+(defn- fetch-feed-value!
   "Fetch the feed of the `remote` item of a time split with the :fetch of
   `opts`, in a future or a promise, and give what feed-answer says."
   [remote {:keys [fetch] :as opts}]
@@ -287,7 +287,7 @@
                 (partial feed-answer remote))))
 
 ;; podcast:remoteItem: feedGuid is the preferred address, feedUrl a fallback
-(defn- remote-value!
+(defn- find-remote-value!
   "Find the value block of the `remote` item of a time split with `opts`,
   in a future or a promise: from the Podcast Index when `opts` give the
   :index, and from the feed URL of the item when they don't or the index
@@ -295,12 +295,12 @@
   block, or of an :error."
   [{:keys [feed-guid feed-url] :as remote} opts]
   (async/then (if (and (:index opts) feed-guid)
-                (index-value! remote opts)
+                (fetch-index-value! remote opts)
                 (unresolved remote {}))
               (fn [{:keys [value] :as asked}]
                 (if (or value (nil? feed-url))
                   asked
-                  (feed-value! remote opts)))))
+                  (fetch-feed-value! remote opts)))))
 
 (defn- once-per-url
   "The function `fetch` of a feed, as podcast/fetch! is, made to fetch each
@@ -313,7 +313,7 @@
           force))))
 
 (defn- gathered
-  "What fetch-remote-values! gives for the `remotes` and what remote-value!
+  "What fetch-remote-values! gives for the `remotes` and what find-remote-value!
   `found` for each of them, in the same order."
   [remotes found]
   (let [failed (keep :error found)
@@ -356,7 +356,7 @@
                             opts)
                      (update :fetch once-per-url))
          remotes (distinct (keep :remote-item (:time-splits (:value view))))]
-     (async/then (async/all #(remote-value! % opts) remotes)
+     (async/then (async/all #(find-remote-value! % opts) remotes)
                  (partial gathered remotes)))))
 
 (comment

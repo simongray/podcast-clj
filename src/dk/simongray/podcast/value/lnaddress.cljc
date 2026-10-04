@@ -86,7 +86,7 @@
   (when-let [parts (parse address)]
     {:method :get :url (well-known parts "keysend") :headers {"Accept" "application/json"}}))
 
-(defn ^:no-doc error
+(defn ^:no-doc failure
   "A map with the diagnostic `d` under :error."
   [d]
   {:error (diagnostics/describe d)})
@@ -96,7 +96,7 @@
   ERROR, with its reason, or nil for another answer."
   [raw url]
   (when (= "ERROR" (get raw "status"))
-    (error {:id :value/lnurl-error :url url :reason (json/text (get raw "reason"))})))
+    (failure {:id :value/lnurl-error :url url :reason (json/text (get raw "reason"))})))
 
 (defn ^:no-doc secure-url?
   "Whether `s` is an https URL, or an http URL of an onion service, as
@@ -112,7 +112,7 @@
   service, or an answer that names no URL."
   [url]
   (when (and url (not (secure-url? url)))
-    (error {:id :value/insecure :url url})))
+    (failure {:id :value/insecure :url url})))
 
 (defn- whole-of
   "The whole number above zero that the JSON number `x` gives, rounded up
@@ -164,7 +164,7 @@
               description        (assoc :description description)
               identifier         (assoc :identifier identifier)
               (string? metadata) (assoc :metadata metadata))
-            (error {:id :value/malformed :url url :status (:status response)}))))))
+            (failure {:id :value/malformed :url url :status (:status response)}))))))
 
 (defn sendable?
   "Whether a Lightning address with `terms` takes a payment of `msat`
@@ -351,11 +351,11 @@
           ;; checked: the service writes both the terms and the invoice, and
           ;; some services hash other terms than they serve.
           (cond
-            (nil? amount)         (error {:id :value/malformed :url url :status (:status response)})
+            (nil? amount)         (failure {:id :value/malformed :url url :status (:status response)})
             (not= msat (:msat amount))
-            (error {:id :value/wrong-amount :url url :msat msat :invoice-msat (:msat amount)})
+            (failure {:id :value/wrong-amount :url url :msat msat :invoice-msat (:msat amount)})
 
-            (= ::refused action)  (error {:id :value/unknown-success-action :url url})
+            (= ::refused action)  (failure {:id :value/unknown-success-action :url url})
             :else                 (cond-> {:invoice pr :msat msat :network (:network amount)}
                                     action               (assoc :success-action action)
                                     (secure-url? verify) (assoc :verify verify)))))))
@@ -381,20 +381,20 @@
                 v     (json/text (get data "customValue"))]
             (cond-> {:type "node" :address (str/lower-case pubkey)}
               (and k v) (assoc :custom-key k :custom-value v)))
-          (error {:id :value/no-keysend :url url :status (:status response)})))))
+          (failure {:id :value/no-keysend :url url :status (:status response)})))))
 
-(defn ^:no-doc exchange!
+(defn ^:no-doc send!
   "Send `request` by the :send of `opts` within its limits, and give the
   response, in a future or a promise. For a request that failed, it's a
   map with a diagnostic under :error."
   [request {:keys [send] :as opts}]
-  (async/then (http/sent! send request opts)
-              (fn [{:keys [value] failure :error}]
-                (if failure
-                  (error {:id :value/unreachable :url (:url request) :reason (async/explain failure)})
+  (async/then (http/try-send! send request opts)
+              (fn [{:keys [value] e :error}]
+                (if e
+                  (failure {:id :value/unreachable :url (:url request) :reason (async/explain e)})
                   value))))
 
-(defn ^:no-doc asked!
+(defn ^:no-doc ask!
   "Send `request` for the Lightning `address` with `opts`, and give what
   `read` makes of the response, in a future or a promise.
 
@@ -404,11 +404,11 @@
   (async/then request
               (fn [request]
                 (if-not request
-                  (error {:id :value/not-an-address :address (str address)})
-                  (async/then (exchange! request opts)
+                  (failure {:id :value/not-an-address :address (str address)})
+                  (async/then (send! request opts)
                               #(if (:error %) % (read %)))))))
 
-(defn- invoiced!
+(defn- fetch-invoice!
   "Ask the callback of the terms `offer` for an invoice of `msat`
   millisatoshis with the comment `text` and `opts`, and give it as invoice
   reads it, in a future or a promise.
@@ -417,7 +417,7 @@
   with a diagnostic under :error."
   [offer msat text opts]
   (let [sent (sent-comment offer text)]
-    (async/then (exchange! (invoice-request offer msat text) opts)
+    (async/then (send! (invoice-request offer msat text) opts)
                 (fn [response]
                   (let [read (if (:error response) response (invoice offer msat response))]
                     (cond-> read
@@ -451,20 +451,20 @@
    (request-invoice! address msat {}))
   ([address msat {:keys [comment] :as opts}]
    (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)]
-     (async/then (asked! (lnurlp-request address) address terms opts)
+     (async/then (ask! (lnurlp-request address) address terms opts)
                  (fn [offer]
                    (cond
                      (:error offer)
                      offer
 
                      (not (sendable? offer msat))
-                     (error {:id       :value/amount-out-of-range
-                             :msat     msat
-                             :min-msat (:min-msat offer)
-                             :max-msat (:max-msat offer)})
+                     (failure {:id       :value/amount-out-of-range
+                               :msat     msat
+                               :min-msat (:min-msat offer)
+                               :max-msat (:max-msat offer)})
 
                      :else
-                     (invoiced! offer msat (if (fn? comment) (comment offer) comment) opts)))))))
+                     (fetch-invoice! offer msat (if (fn? comment) (comment offer) comment) opts)))))))
 
 (defn fetch-node!
   "Fetch the node that pays the Lightning `address` with keysend, with
@@ -477,7 +477,7 @@
    (fetch-node! address {}))
   ([address opts]
    (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)]
-     (asked! (keysend-request address) address node opts))))
+     (ask! (keysend-request address) address node opts))))
 
 (comment
   (parse "Ann@Example.org")

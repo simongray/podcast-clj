@@ -57,7 +57,7 @@
      (some-> js/globalThis .-webln)))
 
 #?(:cljs
-   (defn- called!
+   (defn- call-provider!
      "Call the provider with `f`, after the listener allowed its use, and
      give a promise of what `read` makes of the result, by `opts`.
 
@@ -86,7 +86,7 @@
       (enable! {}))
      ([opts]
       {:pre [(map? opts)]}
-      (called! opts (constantly nil) (constantly {:enabled? true})))))
+      (call-provider! opts (constantly nil) (constantly {:enabled? true})))))
 
 #?(:cljs
    (defn get-info!
@@ -100,13 +100,13 @@
       (get-info! {}))
      ([opts]
       {:pre [(map? opts)]}
-      (called! opts
-               (fn [^js provider] (.getInfo provider))
-               (fn [{:strs [node methods]}]
-                 (cond-> {}
-                   (string? (get node "alias"))  (assoc :alias (get node "alias"))
-                   (string? (get node "pubkey")) (assoc :public-key (get node "pubkey"))
-                   (sequential? methods)         (assoc :methods (vec (filter string? methods)))))))))
+      (call-provider! opts
+                      (fn [^js provider] (.getInfo provider))
+                      (fn [{:strs [node methods]}]
+                        (cond-> {}
+                          (string? (get node "alias"))  (assoc :alias (get node "alias"))
+                          (string? (get node "pubkey")) (assoc :public-key (get node "pubkey"))
+                          (sequential? methods)         (assoc :methods (vec (filter string? methods)))))))))
 
 #?(:cljs
    (defn pay-invoice!
@@ -123,10 +123,10 @@
       (pay-invoice! invoice {}))
      ([invoice opts]
       {:pre [(map? opts) (string? invoice)]}
-      (called! opts
-               (fn [^js provider] (.sendPayment provider invoice))
-               (fn [{:strs [preimage]}]
-                 {:preimage preimage :proven? (lnaddress/proves? preimage invoice)})))))
+      (call-provider! opts
+                      (fn [^js provider] (.sendPayment provider invoice))
+                      (fn [{:strs [preimage]}]
+                        {:preimage preimage :proven? (lnaddress/proves? preimage invoice)})))))
 
 #?(:cljs
    (defn pay-keysend!
@@ -150,10 +150,10 @@
                       :else                    (diagnostics/describe {:id :value/not-a-node :address (:address recipient)}))]
         (if problem
           (js/Promise.resolve {:error problem})
-          (called! opts
-                   (fn [^js provider] (.keysend provider (clj->js args)))
-                   (fn [{:strs [preimage]}]
-                     {:preimage preimage :sats (parse-long (get args "amount"))})))))))
+          (call-provider! opts
+                          (fn [^js provider] (.keysend provider (clj->js args)))
+                          (fn [{:strs [preimage]}]
+                            {:preimage preimage :sats (parse-long (get args "amount"))})))))))
 
 (comment
   ;; 50,500 millisatoshis are 50 sats in WebLN

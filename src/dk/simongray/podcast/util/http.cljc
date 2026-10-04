@@ -1393,17 +1393,17 @@
            :cors          (cors (:headers response))
            :filtered?     (:filtered? response)})))
 
-(defn ^:no-doc sent!
+(defn ^:no-doc try-send!
   "Send the `request` with `send`, within the limits of `opts` that
   limited takes. It gives the response under :value, or the exception
   under :error, in a future or a promise."
   ([send request]
-   (sent! send request {}))
+   (try-send! send request {}))
   ([send request opts]
    (async/attempt #(send (limited request opts)))))
 
 (defn ^:no-doc sent-facts
-  "The facts of the response of an `attempt` from sent!, or a map with a
+  "The facts of the response of an `attempt` from try-send!, or a map with a
   diagnostic under :error for a request that failed."
   [{:keys [value error] :as attempt}]
   (if error {:error (bytes/unreachable error)} (facts value)))
@@ -1435,7 +1435,7 @@
    (probe! url {}))
   ([url {:keys [headers send] :or {send call!} :as opts}]
    (let [answer! (fn [request]
-                   (async/then (sent! send (assoc request :url url) opts) sent-facts))]
+                   (async/then (try-send! send (assoc request :url url) opts) sent-facts))]
      (async/then (answer! {:method :head :headers (merge {"Accept-Encoding" "identity"} headers)})
                  (fn [head]
                    (async/then (answer! {:range [0 1] :as :bytes :headers headers})

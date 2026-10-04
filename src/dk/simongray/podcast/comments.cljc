@@ -463,7 +463,7 @@
   (let [left    (when deadline (quot (- deadline (inst-ms (now))) 1000))
         seconds (max 1 (min timeout-seconds (or left timeout-seconds)))
         stays?  #(contains? #{::http/refused ::http/too-large} (:type (ex-data %)))]
-    (async/then (http/sent! send request (assoc opts :timeout-seconds seconds))
+    (async/then (http/try-send! send request (assoc opts :timeout-seconds seconds))
                 (fn [{:keys [value error]}]
                   (cond
                     error
@@ -483,7 +483,7 @@
   [request e]
   [{:request request :response {:error (async/explain e)}}])
 
-(defn ^:no-doc round!
+(defn ^:no-doc send-round!
   "Send the requests of `batch` all at once with `opts`, and give their
   exchanges with up to `limit` pages each, in a future or a promise.
 
@@ -583,7 +583,7 @@
          ;; so far, or nil when the thread needs no round
          round (fn [[thread sent]]
                  (when-let [b (batch thread sent)]
-                   (async/then (round! b (limit b sent) opts)
+                   (async/then (send-round! b (limit b sent) opts)
                                (fn [exchanges]
                                  [(with-round thread exchanges (now)) (+ sent (count (apply concat exchanges)))]))))]
      (async/then (async/iteration round :initk [start 0] :vf first)

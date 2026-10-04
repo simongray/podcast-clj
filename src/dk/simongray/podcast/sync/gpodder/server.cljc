@@ -252,7 +252,7 @@
      :since   (some->> (get params "since") (re-matches #"\d{1,12}") parse-long (* 1000))
      :json    (some-> (http/body-text (:body request) max-bytes) json/parse)}))
 
-(defn- answered!
+(defn- answer!
   "Answer `request` from `who` at `at` with `answer`, a function of
   routes, on the server `env`, and give the Ring response.
 
@@ -283,7 +283,7 @@
       (not= (str/lower-case who) (str/lower-case (:user parts)))
       (ring 400 "The user in the path is not the one who logged in")
       (nil? answer)  (ring 405 "Method Not Allowed")
-      :else          (answered! env request answer (merge parts from) at))))
+      :else          (answer! env request answer (merge parts from) at))))
 
 (defn- arrived
   "The `index` of when each entry of the subscriptions and episodes of

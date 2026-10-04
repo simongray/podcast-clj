@@ -182,7 +182,7 @@
        (more []))))
 
 #?(:cljs
-   (defn- written!
+   (defn- write-handle!
      "Write `body` to the file of the handle `h` as a whole, and give a
      promise of the File it holds then.
 
@@ -228,7 +228,7 @@
                     (if-not (some-> js/globalThis .-FileSystemFileHandle .-prototype .-createWritable)
                       (throw (ex-info "This browser can't write to the folder" {:type ::read-only}))
                       (-> (.getFileHandle dir name #js {:create true})
-                          (.then #(written! % body))
+                          (.then #(write-handle! % body))
                           (.then version)
                           (.catch failed))))
         :delete   (fn [name]

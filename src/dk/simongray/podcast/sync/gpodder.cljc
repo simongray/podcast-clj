@@ -469,7 +469,7 @@
                    timeout-seconds (assoc :timeout-seconds timeout-seconds)))
                 #(response call %))))
 
-(defn- registered!
+(defn- register!
   "Register the device of `opts` through `call!` in the `session`, and give
   `cursor` with it, in a future or a promise.
 
@@ -488,19 +488,19 @@
 
   On a server whose API has a login, it logs in and puts the new session
   in the atom. The login sends the session of the step before, which the
-  server can keep. Then it registers the device as registered! does."
+  server can keep. Then it registers the device as register! does."
   [call! {:keys [api] :as opts} session cursor]
   (if-not (:login (paths api))
-    (registered! call! opts nil cursor)
+    (register! call! opts nil cursor)
     (async/then (async/attempt #(call! :login {:session @session}))
                 (fn [{:keys [value error]}]
                   ;; a server without a login answers otherwise, and does without one
                   (when (= 401 (:status (ex-data error)))
                     (throw error))
                   (reset! session value)
-                  (registered! call! opts value cursor)))))
+                  (register! call! opts value cursor)))))
 
-(defn- subscriptions!
+(defn- fetch-subscriptions!
   "Ask with `call!` in the `session` for the changes to the subscriptions
   since `since`, by the API of `opts`, in a future or a promise.
 
@@ -544,7 +544,7 @@
   [call! opts session state cursor at]
   (async/then (start! call! opts session cursor)
               (fn [cursor]
-                (async/then (async/all force [(delay (subscriptions! call! opts @session (or (:subscriptions cursor) 0)))
+                (async/then (async/all force [(delay (fetch-subscriptions! call! opts @session (or (:subscriptions cursor) 0)))
                                               ;; a day back, since servers select actions by the time they
                                               ;; name, not the time they arrived, and so miss a late one
                                               (delay (episode-pages call! opts @session (max 0 (- (or (:episodes cursor) 0) 86400))))])

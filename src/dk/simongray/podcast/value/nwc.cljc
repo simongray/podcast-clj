@@ -419,13 +419,7 @@
       (not (some #{method} (:methods info)))
       (failure {:id :value/wallet-unsupported :method method :methods (:methods info)}))))
 
-(defn- sent!
-  "Send `request` to its relay by `opts`, and give the answer as a map of
-  the :value or the :error, in a future or a promise."
-  [{:keys [send allow? timeout-seconds] :as opts} request]
-  (async/attempt #(send (assoc request :allow? allow? :timeout-seconds timeout-seconds))))
-
-(defn- from-relays!
+(defn- ask-relays!
   "Send the request that `request-of` makes to each of `relays` in turn,
   with `opts` and the failures so far in `tried`. Give what `read` makes
   of the first answer, in a future or a promise.
@@ -442,9 +436,9 @@
   events, so the response is read as for a relay that has no answer."
   [opts request-of read relays tried]
   (if-let [[url & more] (seq relays)]
-    (async/then (sent! opts (request-of url))
+    (async/then (http/try-send! (:send opts) (request-of url) opts)
                 (fn [{:keys [value error]}]
-                  (let [next! #(from-relays! opts request-of read more (conj tried (assoc % :url url)))]
+                  (let [next! #(ask-relays! opts request-of read more (conj tried (assoc % :url url)))]
                     (cond
                       (:sent? (ex-data error))
                       (read {:url url :events [] :sent? true})
@@ -492,7 +486,7 @@
                                         (nostr/verified? %)))
                           first
                           info))]
-     (async/then (from-relays! opts #(info-request connection %) known relays [])
+     (async/then (ask-relays! opts #(info-request connection %) known relays [])
                  (fn [{:keys [error] :as read}]
                    (if (some :answered? (:relays error))
                      (failure {:id :value/no-wallet-info :relays (:relays error)})
@@ -603,7 +597,7 @@
                        (:error info)              info
                        (unsupported info command) (unsupported info command)
                        (nil? event)               (failure {:id :value/command-too-large :method (:method command)})
-                       :else                      (from-relays! opts asking #(answered connection command event expires %) relays []))))))))
+                       :else                      (ask-relays! opts asking #(answered connection command event expires %) relays []))))))))
 
 (comment
   ;; the example of NIP-47

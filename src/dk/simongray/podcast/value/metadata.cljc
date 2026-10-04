@@ -205,7 +205,7 @@
   ([url opts]
    (let [opts (merge default-limits {:send http/call! :allow? http/public?} opts)]
      (async/then (when (http/origin url)
-                   (http/sent! (:send opts) (request url) opts))
+                   (http/try-send! (:send opts) (request url) opts))
                  (fn [{:keys [value error]}]
                    (let [found (when (map? value) (http/header (:headers value) header-name))]
                      (cond

@@ -203,9 +203,9 @@
   "Send a HEAD request for `url` with `headers` through `send`, and give
   the facts of the answer, in a future or a promise."
   [send url headers]
-  (async/then (http/sent! send {:method :head :url url :headers headers}) http/sent-facts))
+  (async/then (http/try-send! send {:method :head :url url :headers headers}) http/sent-facts))
 
-(defn ^:no-doc probed!
+(defn ^:no-doc probe-url!
   "Probe `url` with `headers` through `send` as http/probe! does, and give
   the facts, in a future or a promise. They tell all that a check needs
   of most files, from two bytes of each."
@@ -247,11 +247,11 @@
   "Probe the media `file` through `send` with `opts`, and give its facts,
   in a future or a promise.
 
-  They're those that probed! gives, and as `opts` ask, what the file says
+  They're those that probe-url! gives, and as `opts` ask, what the file says
   about itself and whether it has its integrity."
   [send {:keys [url declared] :as file} {:keys [read? integrity?] :as opts}]
   (async/then
-   (probed! send url {})
+   (probe-url! send url {})
    (fn [{:keys [head get] :as facts}]
      (let [target (or (:url get) (:url head) url)
            stated (http/media-type (:type declared))
@@ -298,7 +298,7 @@
   "Probe the transcript or chapters `file` through `send` with `opts`, and
   give its facts, in a future or a promise.
 
-  They're those that probed! gives. When `opts` ask to :read? the file,
+  They're those that probe-url! gives. When `opts` ask to :read? the file,
   they're the answers to a HEAD request and to a GET of the whole file,
   one after the other as in a probe, and what the file holds. The
   requests name the origin of the check, since web players read these
@@ -306,10 +306,10 @@
   [send {:keys [kind url declared] :as file} {:keys [read?] :as opts}]
   (let [headers {"Origin" origin}]
     (if-not read?
-      (probed! send url headers)
+      (probe-url! send url headers)
       (async/then (head! send url headers)
                   (fn [head]
-                    (async/then (http/sent! send {:url url :headers headers})
+                    (async/then (http/try-send! send {:url url :headers headers})
                                 (fn [attempt]
                                   (let [got (http/sent-facts attempt)]
                                     (cond-> {:head head :get got}
@@ -317,14 +317,14 @@
 
 (defn- probe-feed!
   "Probe the feed at the URL of `file` through `send` with `opts`, and give
-  its facts as probed! does, in a future or a promise.
+  its facts as probe-url! does, in a future or a promise.
 
   The requests name the origin of the check, and have the ::authorization
   of `opts` for a private feed. The caller has the feed, so none of it is
   fetched again."
   [send {:keys [url] :as file} opts]
-  (probed! send url (cond-> {"Origin" origin}
-                      (::authorization opts) (assoc "Authorization" (::authorization opts)))))
+  (probe-url! send url (cond-> {"Origin" origin}
+                         (::authorization opts) (assoc "Authorization" (::authorization opts)))))
 
 (def ^:no-doc probes
   "The function that gets the facts of a file, by the kind of the file."

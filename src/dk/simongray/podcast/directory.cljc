@@ -554,7 +554,7 @@
                      :else               (throw (ex-info (str (name id) " answered " status)
                                                          {:type ::failed :source id :status status}))))))))
 
-(defn- completed!
+(defn- complete!
   "Complete the `shows` that `source` answered for `call` with what a
   chart leaves out, fetched with `opts`. Apple's chart names no feed, so
   its entries are looked up by id in one request. Deferred."
@@ -583,7 +583,7 @@
   [sources call params opts]
   (let [ask! (fn [source]
                (async/attempt #(async/then (call! source call params opts)
-                                           (fn [shows] (completed! source call shows opts)))))]
+                                           (fn [shows] (complete! source call shows opts)))))]
     (async/then (async/all (map ask! sources)) #(combined sources %))))
 
 (defn- most-sources-first

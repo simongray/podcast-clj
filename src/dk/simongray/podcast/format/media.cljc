@@ -170,13 +170,13 @@
      :cljs (.then (.digest (.-subtle js/crypto) algorithm b)
                   #(bytes/base64 (js/Uint8Array. %)))))
 
-(defn- whole!
+(defn- fetch-whole!
   "Fetch the file at `url` whole with `send` and the limits of `opts`, and
   give the verdict against `metadata` by `algorithm`, in a future or a
   promise."
   [send url metadata algorithm opts]
   (async/then
-   (http/sent! send {:url url :as :bytes :headers (:headers opts) :timeout-seconds 600} opts)
+   (http/try-send! send {:url url :as :bytes :headers (:headers opts) :timeout-seconds 600} opts)
    (fn [{:keys [error] {:keys [status body]} :value}]
      (cond
        error          (absent url error)
@@ -184,7 +184,7 @@
        :else          (absent url (http/failed url status))))))
 
 #?(:clj
-   (defn- streamed!
+   (defn- stream!
      "Stream the file at `url` through the digest by `algorithm`, with the
      limits of `opts`, and give the verdict against `metadata`."
      [url metadata algorithm opts]
@@ -231,9 +231,9 @@
      (if reason
        (async/then (unverified {:id :file/unverifiable :reason reason}) identity)
        #?(:clj  (if send
-                  (whole! send url metadata algorithm opts)
-                  (streamed! url metadata algorithm opts))
-          :cljs (whole! (or send http/call!) url metadata algorithm opts))))))
+                  (fetch-whole! send url metadata algorithm opts)
+                  (stream! url metadata algorithm opts))
+          :cljs (fetch-whole! (or send http/call!) url metadata algorithm opts))))))
 
 (comment
   ;; an MP3 file of 20 frames of 128 kbit/s, with no tag
