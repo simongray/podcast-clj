@@ -22,28 +22,62 @@ so you can send them with any HTTP client.
 Current status
 --------------
 
-The library already supports a wide range of podcast features:
-
-- **Feeds.** RSS 2.0, iTunes, and the `podcast` namespace of
+- **Feeds.** [RSS 2.0](https://www.rssboard.org/rss-specification),
+  [iTunes](https://podcasters.apple.com/support/823-podcast-requirements), and
+  [the `podcast` namespace](https://podcastindex.org/namespace/1.0) of
   [Podcasting 2.0](https://podcasting2.org) all turn into the same normalised Clojure data,
-  as do Media RSS, Google Play and the other vocabularies of podcast feeds.
-- **Formats.** Support for chapters, transcripts, OPML, show notes as Hiccup
-  or text, and the MP3/M4A files themselves: their chapters, duration and art.
-- **Directories and updates.** Apple Podcasts, fyyd, gpodder.net and the
-  Podcast Index are all supported. Podping and WebSub are supported too.
-  You can also find the feed of a show from its website or a link from
-  another app.
+  as do [Media RSS](https://www.rssboard.org/media-rss), Google Play and the other
+  vocabularies of podcast feeds.
+- **Formats.** Support for chapters, transcripts, [OPML](https://opml.org/spec2.opml),
+  show notes as Hiccup or text, and the MP3/M4A files themselves: their chapters,
+  duration and art.
+- **Directories and updates.** [Apple Podcasts](https://podcasts.apple.com),
+  [fyyd](https://fyyd.de), [gpodder.net](https://gpodder.net) and the
+  [Podcast Index](https://podcastindex.org) are all supported.
+  [Podping](https://podping.org) and [WebSub](https://www.w3.org/TR/websub/) are
+  supported too. You can also find the feed of a show from its website or a link
+  from another app.
 - **Apps.** Everything needed to create a podcast app, including a queue,
   playlists, full-text search, download rules, and sync between devices
-  through a folder, WebDAV, or a server of your own. Through the gpodder API,
-  the subscriptions and play progress also sync with apps such as AntennaPod.
-- **Hosts.** Validation against PSP-1 and the requirements of Apple Podcasts,
-  checks of the files that a feed links to, long feeds split into pages, and
-  a private feed for each subscriber.
-- **Comments.** Get episode comments via ActivityPub, the AT Protocol, or Nostr.
-- **Analytics.** Download counts from OP3, and your own counts by the IAB guidelines.
-- **Payment integration.** Lightning addresses, keysend, the wallets of WebLN
-  and Nostr Wallet Connect, boostagrams, and the payment metadata of a show.
+  through a folder, [WebDAV](https://www.rfc-editor.org/rfc/rfc4918), or
+  [a server of your own](server/README.md). Through the [gpodder API](https://gpoddernet.readthedocs.io/en/latest/api/),
+  the subscriptions and play progress also sync with apps such as
+  [AntennaPod](https://antennapod.org).
+- **Hosts.** Validation against
+  [PSP-1](https://github.com/Podcast-Standards-Project/PSP-1-Podcast-RSS-Specification)
+  and the requirements of Apple Podcasts, checks of the files that a feed links to,
+  long feeds split into pages, and a private feed for each subscriber.
+- **Comments.** Get episode comments via [ActivityPub](https://www.w3.org/TR/activitypub/),
+  [the AT Protocol](https://atproto.com), or [Nostr](https://github.com/nostr-protocol/nips).
+- **Analytics.** Download counts from [OP3](https://op3.dev), and your own counts by the
+  [IAB guidelines](https://iabtechlab.com/standards/podcast-measurement-guidelines/).
+- **Payment integration.** [Lightning addresses](https://lightningaddress.com), keysend,
+  the wallets of [WebLN](https://www.webln.guide) and
+  [Nostr Wallet Connect](https://github.com/nostr-protocol/nips/blob/master/47.md),
+  [boostagrams](https://github.com/lightning/blips/blob/master/blip-0010.md), and the
+  payment metadata of a show.
+
+How podcasting works
+--------------------
+
+A podcast is published as a feed: an RSS file that the show's host, i.e. the
+service that stores its audio, serves at a URL. The feed describes the show in
+its `<channel>`, and each episode in an `<item>`, which links to the audio file
+in an `<enclosure>` and holds the show notes. Most feeds also use tags that RSS
+doesn't define, mainly Apple's `itunes:` tags and the `podcast:` tags of
+Podcasting 2.0. Listeners find shows in directories, e.g. Apple Podcasts or the
+Podcast Index, and subscribe to them in an app, which checks each feed now and
+then for new episodes.
+
+The names in podcast-clj follow these terms. A parsed feed is a map of the
+channel and its items as the host wrote them, while `app.show` and
+`app.episode` give a show and an episode as a listener sees them, e.g. with one
+title and one image, whichever tags they came from. The other namespaces
+are mostly named after the part of podcasting they cover, e.g. `directory`,
+`comments`, `value` for payments and `analytics` for download counts. What a
+listener does, e.g. subscribing, queueing and playing, goes into their profile,
+which syncs between their devices. Each device has its own library: the
+profile, plus the feeds that the device has fetched.
 
 Feeds as data
 -------------
@@ -73,12 +107,10 @@ Then try parsing a feed as a Clojure map:
 ;; => [{:url "https://…" :type "application/x-subrip" :rel "captions"}]
 ```
 
-Each key in the map has the namespace of the vocabulary defining the element.
-The feed items are a vector under `:rss/items`. A report (attached as metadata)
-says what podcast-clj had to repair or normalise as part of the parse process.
-For example, this feed writes `itunes:explicit` as `no` instead of `false`,
-gives its SRT transcripts the type `application/srt`, and uses the deprecated
-`podcast:images`:
+Each key has the namespace of its vocabulary, and a report in the metadata says
+what podcast-clj repaired or normalised while parsing. For example, this feed
+writes `itunes:explicit` as `no` instead of `false`, gives its SRT transcripts
+the type `application/srt`, and uses the deprecated `podcast:images`:
 
 ```clojure
 (require '[dk.simongray.podcast.diagnostics :as diagnostics])
@@ -87,8 +119,7 @@ gives its SRT transcripts the type `application/srt`, and uses the deprecated
 ;; => (:quirk/explicit-value :quirk/transcript-type :quirk/deprecated-images)
 ```
 
-Podcast feeds mix several vocabularies,
-and `feed.resolve` gives one normalised answer across them:
+For one answer across the vocabularies, use `feed.resolve`:
 
 ```clojure
 (require '[dk.simongray.podcast.feed.resolve :as resolve])
@@ -107,10 +138,10 @@ need a `DOMParser` to read XML, e.g. that of `@xmldom/xmldom` as
 An app in a few lines
 ---------------------
 
-You can use the `app.*` namespaces to create a full-featured podcast app.
-An app keeps a listener's subscriptions, feeds, queue, and play progress in
-one map (called the podcast `library`), which fits inside an atom.
-Subscribing, playing, refreshing, and syncing are each one function call.
+You can create a full-featured podcast app with the `app.*` namespaces, and
+sync the listener's devices through the backends of `sync.*`, e.g. a folder,
+WebDAV or the gpodder API. Subscribing, playing, refreshing, and syncing are
+each one function call.
 A call that changes the library returns a new version, and playing, refreshing
 and syncing also record what they did in it:
 
@@ -152,10 +183,14 @@ and syncing also record what they did in it:
 (:profile @lib)
 ```
 
-**NOTE:** only the profile in `:profile` syncs between devices.
-It's a CRDT, allowing them to sync it without conflict.
-Modify it with the functions of `profile`, not with `assoc`.
-[Syncing](doc/sync.md) explains how the devices merge.
+**NOTE:** the profile is a CRDT, so change it with the functions of `profile`,
+not with `assoc`. [Syncing](doc/sync.md) explains how the devices merge.
+
+A podcast app in a browser also needs a server: a proxy for the files that
+other sites don't let a page read, and a folder to sync through. The
+[podcast server](server/README.md) in `server/` is that server for one
+listener. It serves the Ring handlers of `util.proxy`, `sync.webdav.server` and
+`sync.gpodder.server`, which you can also mount in a server of your own.
 
 Documentation
 -------------
@@ -191,46 +226,8 @@ Background:
 Development
 -----------
 
-```bash
-clojure -M:dev:nrepl                  # nREPL on port 7888
-clojure -X:test                       # all tests on the JVM
-clojure -X:test-floor                 # the library tests on Clojure 1.11
-npm install                           # once, for the ClojureScript tests
-clojure -M:cljs compile test          # all tests in Node
-clojure -M:cljs compile browser-test  # all tests in a browser: serve target/browser-test
-clojure -T:build jar                  # the jar and its pom, in target/
-```
-
-Most tests are `.cljc` files, and they run on the JVM and in ClojureScript.
-The corpus tests read real feeds from `dev-resources/corpus/` (not checked in
-to Git). To download the corpus, run `(corpus/download!)` from `dev/corpus.clj`.
-
-CI runs the JVM tests, the Node tests, and the linter on current versions of
-Java and Clojure. It also runs the library tests on Java 11 with Clojure 1.11.
-
-The inspector in `web/` is an example app that uses only the public API.
-It shows the model, the report and the validation of any feed,
-and it has a small player that syncs. To start it on http://localhost:8300/:
-
-```bash
-clojure -M:cljs compile player  # once: the browser player
-clojure -M:web
-```
-
-
-Not built yet
--------------
-
-- The Open Podcast API, whose spec for episodes is still a draft.
-- Stores over the HTTP APIs of cloud services. Each would be a short
-  namespace against the store contract.
-- A JSON form of the sync documents, for clients in other languages.
-- A lenient XML parser for JavaScript.
-- The extensions of Nostr Wallet Connect other than keysend: notifications,
-  hold invoices, payment history and BOLT 12 offers.
-
-NIP-04 encryption for wallets without NIP-44 is left out on purpose, since
-NIP-04 is deprecated and can't detect a changed message.
+To run the tests, build the jar, or start the inspector, an example app that
+uses only the public API, see [Development](doc/development.md).
 
 
 License

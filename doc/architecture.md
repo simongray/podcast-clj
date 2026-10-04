@@ -419,7 +419,9 @@ A listener can pay a show while listening, and send a message with the
 payment. The `podcast:value` block names the recipients and their splits,
 and `value` divides an amount between them. podcast-clj never holds money:
 the listener's wallet pays, and podcast-clj talks to it through Nostr Wallet
-Connect or WebLN.
+Connect or WebLN. The NIP-04 encryption of wallets without NIP-44 is left
+out on purpose, since NIP-04 is deprecated and can't detect a changed
+message.
 
 A payment has one shape however it's sent. Amounts are in millisatoshis,
 and most keys are the names of the RSS Payment Metadata, with the fields of
@@ -571,3 +573,14 @@ Generative tests cover the merge of the profile, the order of ranks,
 devices that sync in random order, and the round trip of feeds generated
 from the Malli schemas. CI also runs the tests without the inspector on
 Java 11 with Clojure 1.11, the oldest versions podcast-clj supports.
+
+
+## Not built yet
+
+- The Open Podcast API, whose spec for episodes is still a draft.
+- Stores over the HTTP APIs of cloud services. Each would be a short
+  namespace against the store contract.
+- A JSON form of the sync documents, for clients in other languages.
+- A lenient XML parser for JavaScript.
+- The extensions of Nostr Wallet Connect other than keysend: notifications,
+  hold invoices, payment history and BOLT 12 offers.
