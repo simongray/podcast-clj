@@ -6,7 +6,7 @@
 
       {:device        \"…\"              ; the id of this device
        :profile       {…}              ; the profile, a CRDT that syncs
-       :feeds         {guid {…}}       ; the feeds, as app.feeds keeps them
+       :feeds         {feed-guid {…}}  ; the feeds, as app.feeds keeps them
        :fetched-lists {url {…}}        ; the followed OPML lists, as fetched
        :index         {…}              ; the search index, with :search?
        :sync          {:cursors {…} …} ; the last sync's cursors and report
@@ -123,25 +123,25 @@
         (:rss/items feed)))
 
 (defn- unindexed
-  "The `index` without the documents of the feed `guid`."
-  [index guid]
-  (reduce search/remove index (filter #(or (= guid %) (and (vector? %) (= guid (first %)))) (keys (:docs index)))))
+  "The `index` without the documents of the feed `feed-guid`."
+  [index feed-guid]
+  (reduce search/remove index (filter #(or (= feed-guid %) (and (vector? %) (= feed-guid (first %)))) (keys (:docs index)))))
 
 (defn- reindexed
-  "The `library` with the feed `guid` indexed again, when it keeps an
+  "The `library` with the feed `feed-guid` indexed again, when it keeps an
   index."
-  [library guid]
+  [library feed-guid]
   (if-let [index (:index library)]
-    (let [{:keys [feed url]} (get-in library [:feeds guid])]
-      (assoc library :index (reduce search/add (unindexed index guid) (when feed (documents feed url)))))
+    (let [{:keys [feed url]} (get-in library [:feeds feed-guid])]
+      (assoc library :index (reduce search/add (unindexed index feed-guid) (when feed (documents feed url)))))
     library))
 
 (defn- kept
-  "The `library` with the feed `guid` cut down to what `keep` gives of it,
+  "The `library` with the feed `feed-guid` cut down to what `keep` gives of it,
   once nothing else needs the whole feed."
-  [library guid keep]
+  [library feed-guid keep]
   (cond-> library
-    (and keep (get-in library [:feeds guid :feed])) (update-in [:feeds guid :feed] keep)))
+    (and keep (get-in library [:feeds feed-guid :feed])) (update-in [:feeds feed-guid :feed] keep)))
 
 (defn- fetch-result
   "The result of a fetch that the `x` given to subscribe stands for. It's
@@ -168,37 +168,37 @@
    (subscribe library url fetched {}))
   ([library url fetched opts]
    {:pre [(map? opts)]}
-   (let [at       (time-of library opts)
-         settings (dissoc opts :at :now)
-         result   (fetch-result fetched)
-         feed     (:feed result)
-         guid     (feed/feed-guid feed url)]
+   (let [at        (time-of library opts)
+         settings  (dissoc opts :at :now)
+         result    (fetch-result fetched)
+         feed      (:feed result)
+         feed-guid (feed/feed-guid feed url)]
      (when-not (map? feed)
        (let [failed (or (:error result)
                         (diagnostics/describe {:id :fetch/status :url url :status (:status result)
                                                :message (str "No feed to subscribe to: " url " answered " (:status result))}))]
          (throw (ex-info (:message failed) failed))))
-     (when-let [taken (profile/takeover (:profile library) guid url)]
+     (when-let [taken (profile/takeover (:profile library) feed-guid url)]
        (throw (ex-info (:message taken) taken)))
      (-> library
          (update :feeds feeds/add url result at (:cadence (:config library) {}))
-         (update :profile profile/subscribe guid {:url url :title (resolve/title feed)} at)
-         (cond-> (seq settings) (update :profile profile/configure guid settings at))
-         (reindexed guid)
-         (kept guid (:keep (:config library)))))))
+         (update :profile profile/subscribe feed-guid {:url url :title (resolve/title feed)} at)
+         (cond-> (seq settings) (update :profile profile/configure feed-guid settings at))
+         (reindexed feed-guid)
+         (kept feed-guid (:keep (:config library)))))))
 
 (defn unsubscribe
-  "The `library` unsubscribed from the feed `guid`, with `opts`. The feed
+  "The `library` unsubscribed from the feed `feed-guid`, with `opts`. The feed
   and its search documents go, and the profile keeps a record of the
   subscription."
-  ([library guid]
-   (unsubscribe library guid {}))
-  ([library guid opts]
+  ([library feed-guid]
+   (unsubscribe library feed-guid {}))
+  ([library feed-guid opts]
    {:pre [(map? opts)]}
    (-> library
-       (update :profile profile/unsubscribe guid (time-of library opts))
-       (update :feeds dissoc guid)
-       (cond-> (:index library) (update :index unindexed guid)))))
+       (update :profile profile/unsubscribe feed-guid (time-of library opts))
+       (update :feeds dissoc feed-guid)
+       (cond-> (:index library) (update :index unindexed feed-guid)))))
 
 (defn subscriptions
   "The live subscriptions of `library` by guid, each as
@@ -206,9 +206,9 @@
   profile/settings, and its :feed once it's fetched."
   [library]
   (let [profile (:profile library)]
-    (into {} (map (fn [[guid sub]]
-                    [guid (cond-> (assoc sub :settings (profile/settings profile guid))
-                            (get-in library [:feeds guid]) (assoc :feed (get-in library [:feeds guid :feed])))]))
+    (into {} (map (fn [[feed-guid sub]]
+                    [feed-guid (cond-> (assoc sub :settings (profile/settings profile feed-guid))
+                                 (get-in library [:feeds feed-guid]) (assoc :feed (get-in library [:feeds feed-guid :feed])))]))
           (profile/subscriptions profile))))
 
 (defn- listed
@@ -304,20 +304,20 @@
   "The guids and URLs of the live subscriptions of `library` that have no
   feed yet."
   [library]
-  (for [[guid {:keys [url]}] (profile/subscriptions (:profile library))
-        :when (and url (not (contains? (:feeds library) guid)))]
-    [guid url]))
+  (for [[feed-guid {:keys [url]}] (profile/subscriptions (:profile library))
+        :when (and url (not (contains? (:feeds library) feed-guid)))]
+    [feed-guid url]))
 
 (defn- known
   "The `library` with the feed of `result`, fetched from `url` at `at` for
-  the subscription `guid`, and cut down by `keep`.
+  the subscription `feed-guid`, and cut down by `keep`.
 
   The subscription moves to the guid that the feed declares, as
   profile/rekey does."
-  [library guid url result at keep]
+  [library feed-guid url result at keep]
   (let [declared (feed/feed-guid (:feed result) url)]
     (-> library
-        (update :profile profile/rekey guid declared at)
+        (update :profile profile/rekey feed-guid declared at)
         (update :feeds feeds/add url result at (:cadence (:config library) {}))
         (reindexed declared)
         (kept declared keep))))
@@ -332,22 +332,22 @@
   subscription over, is tried again next time."
   [library at {:keys [fetch credentials-of parallel keep] :or {parallel feeds/default-parallel} :as opts}]
   (let [common (select-keys opts [:send :timeout-seconds :max-bytes :user-agent :allow?])
-        fetch1 (fn [[guid url]]
+        fetch1 (fn [[feed-guid url]]
                  (let [credentials (when credentials-of (credentials-of url))]
                    (async/then (async/attempt #(fetch url (cond-> common credentials (assoc :credentials credentials))))
                                (fn [{:keys [value error]}]
-                                 [guid url (if error
-                                             {:error (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})}
-                                             value)]))))]
+                                 [feed-guid url (if error
+                                                  {:error (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})}
+                                                  value)]))))]
     (async/then (async/in-groups fetch1 parallel (unfetched library))
                 (fn [results]
-                  (reduce (fn [acc [guid url result]]
+                  (reduce (fn [acc [feed-guid url result]]
                             (let [taken (when (:feed result) (profile/takeover (get-in acc [:library :profile]) (feed/feed-guid (:feed result) url) url))]
                               (cond
                                 taken           (update acc :report conj taken)
-                                (:feed result)  (update acc :library known guid url result at keep)
-                                (:error result) (update acc :report conj (assoc (:error result) :feed-guid guid))
-                                :else           (update acc :report conj (diagnostics/describe {:id :fetch/status :url url :status (:status result) :feed-guid guid})))))
+                                (:feed result)  (update acc :library known feed-guid url result at keep)
+                                (:error result) (update acc :report conj (assoc (:error result) :feed-guid feed-guid))
+                                :else           (update acc :report conj (diagnostics/describe {:id :fetch/status :url url :status (:status result) :feed-guid feed-guid})))))
                           {:library library :report []}
                           results)))))
 
@@ -358,19 +358,19 @@
   [library {:keys [feeds changed moved] :as result} at keep]
   (let [before (:feeds library)
         library (assoc library :feeds feeds)
-        result (reduce (fn [acc guid]
-                         (let [{:keys [feed url]} (get feeds guid)
-                               {:keys [profile added]} (profile/refresh (:profile (:library acc)) (get-in before [guid :feed]) feed url at)]
+        result (reduce (fn [acc feed-guid]
+                         (let [{:keys [feed url]} (get feeds feed-guid)
+                               {:keys [profile added]} (profile/refresh (:profile (:library acc)) (get-in before [feed-guid :feed]) feed url at)]
                            (-> acc
                                (assoc-in [:library :profile] profile)
-                               (update :library reindexed guid)
-                               (update :library kept guid keep)
+                               (update :library reindexed feed-guid)
+                               (update :library kept feed-guid keep)
                                (update :added into added))))
                        {:library library :added []}
                        changed)]
-    (reduce (fn [acc [guid new-url]]
-              (let [title (resolve/title (get-in feeds [guid :feed]))]
-                (update-in acc [:library :profile] profile/relocate guid {:url new-url :title title})))
+    (reduce (fn [acc [feed-guid new-url]]
+              (let [title (resolve/title (get-in feeds [feed-guid :feed]))]
+                (update-in acc [:library :profile] profile/relocate feed-guid {:url new-url :title title})))
             (assoc result :moved moved)
             moved)))
 
@@ -389,7 +389,7 @@
        :report [...]}                     ; the fetches that failed, and why
 
   Nothing is thrown for what the network or a server does. The `opts` are
-  the config for this call, and :guids, the feeds to fetch instead of
+  the config for this call, and :feed-guids, the feeds to fetch instead of
   those that are due, e.g. after a Podping:
 
       (app.feeds/affected (:feeds library) pings)"
@@ -403,7 +403,7 @@
                  (fn [{library :library report :report}]
                    (async/then (fetched-new! library at opts)
                                (fn [{library :library report-new :report}]
-                                 (async/then (feeds/refresh! (:feeds library) at (select-keys opts [:guids :fetch :credentials-of :parallel :cadence :send :timeout-seconds :max-bytes :user-agent :allow?]))
+                                 (async/then (feeds/refresh! (:feeds library) at (select-keys opts [:feed-guids :fetch :credentials-of :parallel :cadence :send :timeout-seconds :max-bytes :user-agent :allow?]))
                                              (fn [step]
                                                (let [{:keys [library added moved]} (applied library step at (:keep opts))]
                                                  (assoc library :refresh {:at     at
@@ -426,25 +426,25 @@
       [entry item])))
 
 (defn show
-  "The view of the show `guid` of `library`, as app.show/view gives it
+  "The view of the show `feed-guid` of `library`, as app.show/view gives it
   with the `opts` it takes, or nil when the library has no such feed."
-  ([library guid]
-   (show library guid {}))
-  ([library guid opts]
-   (when-let [{:keys [feed url]} (get-in library [:feeds guid])]
+  ([library feed-guid]
+   (show library feed-guid {}))
+  ([library feed-guid opts]
+   (when-let [{:keys [feed url]} (get-in library [:feeds feed-guid])]
      (show/view feed (assoc opts :url url)))))
 
 (defn fetch-linked-shows!
-  "Fetch the shows that the show `guid` of `library` links to, with `opts`
+  "Fetch the shows that the show `feed-guid` of `library` links to, with `opts`
   for this call, for a page to merge into the view that show gives.
 
   The result is that of app.show/fetch-linked-shows! with the config of
   the library, or nil when the library has no such feed. The `opts` are
   those of app.show/fetch-linked-shows!."
-  ([library guid]
-   (fetch-linked-shows! library guid {}))
-  ([library guid opts]
-   (when-let [{:keys [feed url]} (get-in library [:feeds guid])]
+  ([library feed-guid]
+   (fetch-linked-shows! library feed-guid {}))
+  ([library feed-guid opts]
+   (when-let [{:keys [feed url]} (get-in library [:feeds feed-guid])]
      (show/fetch-linked-shows! (show/view feed {:url url :except #{:notes :text :episodes :seasons :links}})
                                (options library opts)))))
 

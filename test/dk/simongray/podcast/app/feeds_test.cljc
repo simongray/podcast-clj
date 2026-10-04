@@ -165,7 +165,7 @@
                        (is (= [304 1] [(:status (get feeds guid)) (:failures (get feeds "c1"))]))))))
      (fn []
        (reset! asked [])
-       (async/then (feeds/refresh! three now {:fetch fetch :guids ["b1"]})
+       (async/then (feeds/refresh! three now {:fetch fetch :feed-guids ["b1"]})
                    (fn [{:keys [changed]}]
                      (testing "only the guids given, whatever their next check"
                        (is (= ["b1"] changed))
@@ -192,7 +192,7 @@
            slow  (fn [url _] (Thread/sleep 200) {:status 304 :url url})
            timed (fn [parallel]
                    (let [started (System/currentTimeMillis)]
-                     (feeds/refresh! many now {:fetch slow :guids (keys many) :parallel parallel})
+                     (feeds/refresh! many now {:fetch slow :feed-guids (keys many) :parallel parallel})
                      (- (System/currentTimeMillis) started)))]
        (is (< (timed 8) 800) "the feeds of one group are fetched at once")
        (is (<= 800 (timed 2)) "and the groups one after the other"))))

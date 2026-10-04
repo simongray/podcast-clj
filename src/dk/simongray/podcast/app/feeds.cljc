@@ -110,9 +110,9 @@
    (add feeds url result at {}))
   ([feeds url result at cadence]
    {:pre [(map? (:feed result)) (map? cadence)]}
-   (let [cadence (merge default-cadence cadence)
-         guid    (feed/feed-guid (:feed result) url)]
-     (assoc feeds guid (fetched (get feeds guid {}) url result at cadence)))))
+   (let [cadence   (merge default-cadence cadence)
+         feed-guid (feed/feed-guid (:feed result) url)]
+     (assoc feeds feed-guid (fetched (get feeds feed-guid {}) url result at cadence)))))
 
 (defn- slim-item
   "The part of `item` that slim keeps: its guid, date and media."
@@ -147,44 +147,44 @@
   "The guids of the feeds of `feeds` that the Podping `pings` name, to
   fetch now whatever their next check."
   [feeds pings]
-  (let [by-url (into {} (map (fn [[guid {:keys [url]}]] [url guid])) feeds)]
+  (let [by-url (into {} (map (fn [[feed-guid {:keys [url]}]] [url feed-guid])) feeds)]
     (mapv by-url (podping/affected pings (keys by-url)))))
 
 (defn refresh
-  "The `feeds` with `result`, the result of fetching the feed `guid`,
+  "The `feeds` with `result`, the result of fetching the feed `feed-guid`,
   applied at `at` with `cadence`, and what it changed:
 
-      {:feeds   {…}                 ; with the entry of the feed updated
-       :changed [guid]              ; when the fetch gave a fresh feed
-       :moved   {guid \"https://…\"}  ; when the feed moved for good
-       :report  [diagnostic]}       ; when the fetch failed
+      {:feeds   {…}                      ; with the entry of the feed updated
+       :changed [feed-guid]              ; when the fetch gave a fresh feed
+       :moved   {feed-guid \"https://…\"}  ; when the feed moved for good
+       :report  [diagnostic]}            ; when the fetch failed
 
   A fresh feed replaces the old one, and a 304 keeps it. After a failure,
   the feed stays and the next check waits longer for each failure in a
   row. A feed that moved keeps its guid, and its subscription should move
   to the URL under :moved. The `cadence` defaults to default-cadence."
-  ([feeds guid result at]
-   (refresh feeds guid result at {}))
-  ([feeds guid result at cadence]
+  ([feeds feed-guid result at]
+   (refresh feeds feed-guid result at {}))
+  ([feeds feed-guid result at cadence]
    {:pre [(map? cadence)]}
    (let [cadence (merge default-cadence cadence)
-         old     (get feeds guid)
-         _       (when-not old (throw (ex-info (str "No feed of the guid " guid) {:guid guid})))
+         old     (get feeds feed-guid)
+         _       (when-not old (throw (ex-info (str "No feed of the guid " feed-guid) {:feed-guid feed-guid})))
          url     (:url old)
          failure (fn [error]
-                   {:feeds  (assoc feeds guid (failed old result at cadence))
-                    :report [(assoc error :feed-guid guid)]})]
+                   {:feeds  (assoc feeds feed-guid (failed old result at cadence))
+                    :report [(assoc error :feed-guid feed-guid)]})]
      (cond
        (:error result)
        (failure (:error result))
 
        (= 304 (:status result))
-       {:feeds (assoc feeds guid (unchanged old result at cadence))}
+       {:feeds (assoc feeds feed-guid (unchanged old result at cadence))}
 
        (:feed result)
        (let [entry (fetched old url result at cadence)]
-         (cond-> {:feeds (assoc feeds guid entry) :changed [guid]}
-           (not= url (:url entry)) (assoc :moved {guid (:url entry)})))
+         (cond-> {:feeds (assoc feeds feed-guid entry) :changed [feed-guid]}
+           (not= url (:url entry)) (assoc :moved {feed-guid (:url entry)})))
 
        :else
        (failure (diagnostics/describe {:id :fetch/status :url url :status (:status result)}))))))
@@ -206,7 +206,7 @@
   fetches, in ClojureScript as a promise. Nothing is thrown for what the
   network or a server does. The `opts` are:
 
-  - :guids, the feeds to fetch instead of the due ones, e.g.
+  - :feed-guids, the feeds to fetch instead of the due ones, e.g.
     (affected feeds pings) after a Podping
   - :fetch, in place of dk.simongray.podcast/fetch!
   - :credentials-of, a function from the URL of a private feed to its
@@ -217,27 +217,27 @@
     fetch! takes them"
   ([feeds at]
    (refresh! feeds at {}))
-  ([feeds at {:keys [guids fetch credentials-of parallel cadence]
-               :or   {fetch    podcast/fetch!
-                      parallel default-parallel
-                      cadence  {}}
-               :as   opts}]
+  ([feeds at {:keys [feed-guids fetch credentials-of parallel cadence]
+              :or   {fetch    podcast/fetch!
+                     parallel default-parallel
+                     cadence  {}}
+              :as   opts}]
    {:pre [(map? opts)]}
-   (let [guids  (vec (or guids (due feeds at)))
+   (let [guids  (vec (or feed-guids (due feeds at)))
          common (select-keys opts [:send :timeout-seconds :max-bytes :user-agent :allow?])
-         fetch1 (fn [guid]
-                  (let [{:keys [url etag last-modified]} (get feeds guid)
+         fetch1 (fn [feed-guid]
+                  (let [{:keys [url etag last-modified]} (get feeds feed-guid)
                         credentials (when credentials-of (credentials-of url))
                         fetch-opts  (cond-> (assoc common :etag etag :last-modified last-modified)
                                       credentials (assoc :credentials credentials))]
                     (async/then (async/attempt #(fetch url fetch-opts))
                                 (fn [{:keys [value error]}]
-                                  [guid (if error
-                                          {:url url :error (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})}
-                                          value)]))))]
+                                  [feed-guid (if error
+                                               {:url url :error (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})}
+                                               value)]))))]
      (async/then (async/in-groups fetch1 parallel guids)
                  (fn [results]
-                   (reduce (fn [acc [guid result]] (merged acc (refresh (:feeds acc) guid result at cadence)))
+                   (reduce (fn [acc [feed-guid result]] (merged acc (refresh (:feeds acc) feed-guid result at cadence)))
                            {:feeds feeds :changed [] :moved {} :report []}
                            results))))))
 

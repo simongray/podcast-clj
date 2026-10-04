@@ -273,7 +273,7 @@ every few seconds:
         polled (podping/poll! block {:writers writers})
         guids  (feeds/affected (:feeds @lib) (:pings polled))]
     (when (seq guids)
-      (swap! lib library/merge (library/refresh! @lib {:guids guids})))
+      (swap! lib library/merge (library/refresh! @lib {:feed-guids guids})))
     polled))
 
 (def polled (podping/poll! nil))  ; starts at the head of the chain
