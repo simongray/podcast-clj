@@ -486,10 +486,10 @@
              (diagnostics-table report))
            [:table
             [:tbody
-             (for [{:keys [start end speaker body]} (take 40 segments)]
+             (for [{:keys [start-time end-time speaker body]} (take 40 segments)]
                [:tr
-                [:td.muted (when (number? start) (time/format-clock start))
-                 (when (number? end) (str "–" (time/format-clock end)))]
+                [:td.muted (when (number? start-time) (time/format-clock start-time))
+                 (when (number? end-time) (str "–" (time/format-clock end-time)))]
                 [:td (when speaker [:strong (str speaker ": ")]) body]])]]
            (when (> (count segments) 40)
              [:p.muted (str "Showing the first 40 of " (count segments) " segments.")]))))))))

@@ -6,10 +6,11 @@
   A transcript is a map:
 
       {:format   :vtt                     ; :srt :json :html :text
-       :segments [{:start 0.0 :end 2.76 :speaker \"Sarah\" :body \"…\"}]}
+       :segments [{:start-time 0.0 :end-time 2.76 :speaker \"Sarah\" :body \"…\"}]}
 
-  Times are seconds, and :end and :speaker are there when the source had
-  them. Speakers are read from these:
+  Times are seconds, as in the chapters of format.chapters, and :end-time
+  and :speaker are there when the source had them. Speakers are read from
+  these:
 
   - the voice spans of WebVTT
   - the cite elements of HTML
@@ -113,7 +114,7 @@
   [stats timing lines]
   (when-let [[_ from to] (re-find timing-pattern timing)]
     (let [[speaker body] (speaker-prefix stats (str/join "\n" lines))]
-      (cond-> {:start (time/parse-clock from) :end (time/parse-clock to) :body body}
+      (cond-> {:start-time (time/parse-clock from) :end-time (time/parse-clock to) :body body}
         speaker (assoc :speaker speaker)))))
 
 (defn parse-srt
@@ -133,7 +134,7 @@
   "The segments of `transcript` that have a start time, which are what the
   timed formats write."
   [transcript]
-  (filter (comp number? :start) (:segments transcript)))
+  (filter (comp number? :start-time) (:segments transcript)))
 
 (defn ^:no-doc cue-body
   "The `body` of a segment as a cue carries it: trimmed, and without blank
@@ -147,10 +148,10 @@
   a start time, and the speaker as a \"Name: \" prefix."
   [transcript]
   (str/join "\n\n"
-            (map-indexed (fn [i {:keys [start end speaker body]}]
+            (map-indexed (fn [i {:keys [start-time end-time speaker body]}]
                            (str (inc i) "\n"
-                                (time/format-timestamp start ",") " --> "
-                                (time/format-timestamp (or end start) ",") "\n"
+                                (time/format-timestamp start-time ",") " --> "
+                                (time/format-timestamp (or end-time start-time) ",") "\n"
                                 (when speaker (str speaker ": ")) (cue-body body)))
                          (timed-segments transcript))))
 
@@ -171,7 +172,7 @@
             plain           (xml/decode-entities (str/trim (strip-tags text)))
             [prefixed body] (if voice [nil plain] (speaker-prefix stats plain))
             speaker         (or voice prefixed)]
-        (cond-> {:start (time/parse-clock from) :end (time/parse-clock to) :body body}
+        (cond-> {:start-time (time/parse-clock from) :end-time (time/parse-clock to) :body body}
           speaker (assoc :speaker speaker))))))
 
 (defn parse-vtt
@@ -200,10 +201,10 @@
   [transcript]
   (str "WEBVTT\n\n"
        (str/join "\n\n"
-                 (for [{:keys [start end speaker body]}
+                 (for [{:keys [start-time end-time speaker body]}
                        (timed-segments transcript)]
-                   (str (time/format-timestamp start) " --> "
-                        (time/format-timestamp (or end start)) "\n"
+                   (str (time/format-timestamp start-time) " --> "
+                        (time/format-timestamp (or end-time start-time)) "\n"
                         (when speaker (str "<v " (vtt-text speaker) ">")) (vtt-text (cue-body body)))))
        "\n"))
 
@@ -231,8 +232,8 @@
                                   end     (time/seconds (get segment "endTime"))
                                   speaker (json/text (get segment "speaker"))]]
                         (cond-> {:body (str (get segment "body"))}
-                          (some? start) (assoc :start start)
-                          (some? end)   (assoc :end end)
+                          (some? start) (assoc :start-time start)
+                          (some? end)   (assoc :end-time end)
                           (seq speaker) (assoc :speaker speaker))))]
     (with-report {:format :json :version (when (map? doc) (get doc "version")) :segments segments}
       (cond-> []
@@ -262,11 +263,11 @@
   ([transcript {:keys [pretty?] :or {pretty? true} :as opts}]
    (json/write-str
     {"version"  (or (:version transcript) "1.0.0")
-     "segments" (for [{:keys [start end speaker body]}
+     "segments" (for [{:keys [start-time end-time speaker body]}
                       (timed-segments transcript)]
-                  (cond-> {"startTime" start "body" body}
-                    end     (assoc "endTime" end)
-                    speaker (assoc "speaker" speaker)))}
+                  (cond-> {"startTime" start-time "body" body}
+                    end-time (assoc "endTime" end-time)
+                    speaker  (assoc "speaker" speaker)))}
     {:pretty? pretty?})))
 
 (defn- tidy
@@ -299,16 +300,16 @@
   every p gives a segment with both."
   [tokens]
   (:segments
-   (reduce (fn [{:keys [speaker start] :as state} [tag text]]
+   (reduce (fn [{:keys [speaker start-time] :as state} [tag text]]
              (case tag
                "cite" (assoc state :speaker (str/replace text #":\s*$" ""))
-               "time" (assoc state :start (time/parse-clock text))
+               "time" (assoc state :start-time (time/parse-clock text))
                "p"    (if (str/blank? text)
                         state
                         (update state :segments conj
                                 (cond-> {:body text}
-                                  start   (assoc :start start)
-                                  speaker (assoc :speaker speaker))))))
+                                  start-time (assoc :start-time start-time)
+                                  speaker    (assoc :speaker speaker))))))
            {:segments []}
            tokens)))
 
@@ -417,9 +418,9 @@
   "The segments `run` by one speaker as one turn: the first segment, with
   the bodies of all joined by spaces and the last end the others have."
   [[segment & more :as run]]
-  (let [end (some :end (reverse more))]
+  (let [end-time (some :end-time (reverse more))]
     (cond-> (assoc segment :body (str/join " " (map :body run)))
-      end (assoc :end end))))
+      end-time (assoc :end-time end-time))))
 
 (defn turns
   "The `transcript` with each run of segments by the same speaker merged
@@ -450,7 +451,7 @@
   "The segment of `transcript` being spoken `seconds` into the media, among
   the segments that have a start time."
   [transcript seconds]
-  (last (take-while #(<= (:start %) seconds) (filter (comp number? :start) (:segments transcript)))))
+  (last (take-while #(<= (:start-time %) seconds) (filter (comp number? :start-time) (:segments transcript)))))
 
 #?(:clj
    (comment

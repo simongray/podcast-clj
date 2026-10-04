@@ -147,7 +147,7 @@
 
 (deftest transcripts-that-bend-html
   (testing "paragraphs without their optional end tags"
-    (is (= [{:body "One" :start 0 :speaker "A"} {:body "Two" :start 0 :speaker "A"}]
+    (is (= [{:body "One" :start-time 0 :speaker "A"} {:body "Two" :start-time 0 :speaker "A"}]
            (:segments (transcript/parse-html "<cite>A:</cite><time>0:00</time><p>One<p>Two"))))
     (is (= 20000 (count (:segments (transcript/parse-html (apply str (repeat 20000 "<p>word "))))))
         "read in linear time"))
@@ -161,18 +161,18 @@
         js   (transcript/parse json-text)
         html (transcript/parse html-text)]
     (is (= :vtt (:format vtt)))
-    (is (= {:start 0 :end 2.76 :speaker "Sarah" :body "In today's episode, you'll learn whether or not you"}
+    (is (= {:start-time 0 :end-time 2.76 :speaker "Sarah" :body "In today's episode, you'll learn whether or not you"}
            (first (:segments vtt))))
     (is (= :srt (:format srt)))
     (is (= 222 (count (:segments srt))))
-    (is (= {:start 0.179 :end 2.399 :speaker "Travis" :body "When you first get\nstarted in podcasting, it's"}
+    (is (= {:start-time 0.179 :end-time 2.399 :speaker "Travis" :body "When you first get\nstarted in podcasting, it's"}
            (first (:segments srt))))
     (is (= :json (:format js)))
-    (is (= {:start 0.5 :end 0.75 :speaker "Darth Vader" :body "I"} (first (:segments js))))
+    (is (= {:start-time 0.5 :end-time 0.75 :speaker "Darth Vader" :body "I"} (first (:segments js))))
     (is (= :html (:format html)))
     (is (= 10 (count (:segments html))))
     (is (= "Travis" (:speaker (first (:segments html)))))
-    (is (= 0 (:start (first (:segments html)))))
+    (is (= 0 (:start-time (first (:segments html)))))
     (testing "sniffing"
       (is (= :vtt (transcript/sniff vtt-text)))
       (is (= :srt (transcript/sniff srt-text)))
@@ -185,8 +185,8 @@
       (is (= (:segments js) (:segments (transcript/parse (transcript/emit-json js))))))
     (testing "text and position"
       (is (re-find #"^Sarah: In today's episode" (transcript/text vtt)))
-      (is (= 11.61 (:start (transcript/at vtt 12))))
-      (is (= "b" (:body (transcript/at {:segments [{:body "a"} {:start 1 :body "b"}]} 3)))
+      (is (= 11.61 (:start-time (transcript/at vtt 12))))
+      (is (= "b" (:body (transcript/at {:segments [{:body "a"} {:start-time 1 :body "b"}]} 3)))
           "a segment without a start does not end the search"))))
 
 (defn- report-ids
@@ -196,7 +196,7 @@
 (deftest transcripts-in-the-wild
   (testing "JSON with times written as strings"
     (let [t (transcript/parse "{\"version\":\"1.0.0\",\"segments\":[{\"speaker\":\"Justin\",\"startTime\":\"0.0\",\"endTime\":\"8.559999\",\"body\":\"Hi.\"},{\"speaker\":\"\",\"startTime\":\"9\",\"body\":\"Bye.\"}]}")]
-      (is (= [{:start 0 :end 8.559999 :speaker "Justin" :body "Hi."} {:start 9 :body "Bye."}]
+      (is (= [{:start-time 0 :end-time 8.559999 :speaker "Justin" :body "Hi."} {:start-time 9 :body "Bye."}]
              (:segments t)))
       (is (= [{:id :transcript/string-times :level :warning :count 2}]
              (map #(dissoc % :message) (transcript/report t))))))
@@ -210,27 +210,27 @@
       (is (= ["Mark" "Mark"] (map :speaker (:segments srt))))
       (is (= "Design is everywhere,\nbut do we get it wrong?" (:body (first (:segments srt)))))))
   (testing "odd JSON"
-    (is (= [{:body "hi" :start 0 :speaker "1"}]
+    (is (= [{:body "hi" :start-time 0 :speaker "1"}]
            (:segments (transcript/parse "{\"segments\": [{\"speaker\": 1, \"startTime\": 0, \"body\": \"hi\"}]}" "application/json")))
         "a speaker written as a number")
     (let [t (transcript/parse "not json" "application/json")]
       (is (= [] (:segments t)))
       (is (= [:transcript/not-an-object] (report-ids t))))
     (let [t (transcript/parse "{\"segments\": [1, {\"startTime\": 0, \"body\": \"a\"}]}" "application/json")]
-      (is (= [{:body "a" :start 0}] (:segments t)))
+      (is (= [{:body "a" :start-time 0}] (:segments t)))
       (is (= [:transcript/malformed] (report-ids t))))
     (let [t (transcript/parse "{\"segments\": [{\"speaker\": {\"name\": \"A\"}, \"startTime\": 0, \"body\": \"a\"}]}" "application/json")]
-      (is (= [{:body "a" :start 0}] (:segments t)) "a speaker that is not text is left out")
+      (is (= [{:body "a" :start-time 0}] (:segments t)) "a speaker that is not text is left out")
       (is (= [:transcript/not-text] (report-ids t)))))
   (testing "cue timings come before a tag, and SRT without fractions of a second"
     (is (= :srt (:format (transcript/parse "1\n00:00:01,000 --> 00:00:03,000\n<p>Hello</p>\n" "application/x-subrip"))))
     (is (= ["I said <p> once." "Then more."] (map :body (:segments (transcript/parse "I said <p> once.\n\nThen more." "text/plain")))))
-    (is (= [{:start 1 :end 3 :body "Hello"}] (:segments (transcript/parse "1\n00:00:01 --> 00:00:03\nHello\n")))))
+    (is (= [{:start-time 1 :end-time 3 :body "Hello"}] (:segments (transcript/parse "1\n00:00:01 --> 00:00:03\nHello\n")))))
   (testing "a blank line in a body is no end of the cue it is written as"
     (doseq [emit [transcript/emit-srt transcript/emit-vtt]]
-      (is (= ["one\ntwo"] (map :body (:segments (transcript/parse (emit {:segments [{:start 1 :end 2 :body "one\n\ntwo"}]}))))))))
+      (is (= ["one\ntwo"] (map :body (:segments (transcript/parse (emit {:segments [{:start-time 1 :end-time 2 :body "one\n\ntwo"}]}))))))))
   (testing "an ampersand and the signs of a tag in a cue of WebVTT go as character references"
-    (let [segment {:start 1 :end 2 :speaker "R&D <team>" :body "a < b & c > d"}
+    (let [segment {:start-time 1 :end-time 2 :speaker "R&D <team>" :body "a < b & c > d"}
           written (transcript/emit-vtt {:segments [segment]})]
       (is (str/includes? written "<v R&amp;D &lt;team&gt;>a &lt; b &amp; c &gt; d"))
       (is (= [segment] (:segments (transcript/parse written))))))
@@ -259,15 +259,15 @@
                                  <h2 id=\"x\"><a href=\"#x\">Chapter one</a></h2>
                                  <cite>Jordan</cite>\n<time>0:00</time>\n<p>\n   All   right,   Kevin,\n   how   many?\n</p>
                                  <cite>Kevin:</cite><p>We&#39;re good.\n\nSecond paragraph.</p><p> </p></body></html>")]
-      (is (= [{:body "All right, Kevin, how many?" :start 0 :speaker "Jordan"}
-              {:body "We're good.\n\nSecond paragraph." :start 0 :speaker "Kevin"}]
+      (is (= [{:body "All right, Kevin, how many?" :start-time 0 :speaker "Jordan"}
+              {:body "We're good.\n\nSecond paragraph." :start-time 0 :speaker "Kevin"}]
              (:segments t)))))
   (testing "an SRT wrapped in paragraphs is read as the SRT it is"
     (let [t (transcript/parse "<cite>Speaker:</cite><time>00:00:03</time><p>What does the future</p><p> hold?</p><p> </p><p> 2</p><p> 00:00:06,578 --&gt; 00:00:11,982</p><p> And in particular,</p><p> what about creators?</p><p> </p><p> 3</p><p> 00:00:11,982 --&gt; 00:00:15,124</p><p> Something else.</p>" "text/html")]
       (is (= :html (:format t)))
       (is (= [:transcript/wrapped-srt] (report-ids t)))
-      (is (= [{:start 6.578 :end 11.982 :body "And in particular,\nwhat about creators?"}
-              {:start 11.982 :end 15.124 :body "Something else."}]
+      (is (= [{:start-time 6.578 :end-time 11.982 :body "And in particular,\nwhat about creators?"}
+              {:start-time 11.982 :end-time 15.124 :body "Something else."}]
              (:segments t)))))
   (testing "plain text as speaker-prefixed paragraphs"
     (let [t (transcript/parse "Justin: I can't do a podcast with you.\n\nWhat is going on here?\n\nMichael: Oh gosh. It's my door.\n" "text/plain")]
@@ -278,30 +278,30 @@
              (:segments t)))))
   (testing "word-level segments merge into turns"
     (let [t (transcript/turns {:format :json
-                               :segments [{:start 0.08 :end 0.16 :speaker "Jordan" :body "All"}
-                                          {:start 0.16 :end 0.4 :speaker "Jordan" :body "right,"}
-                                          {:start 0.5 :end 0.9 :speaker "Kevin" :body "Yes."}
-                                          {:start 1 :end 1.5 :body "(music)"}
-                                          {:start 2 :end 2.5 :body "(music)"}]})]
-      (is (= [{:start 0.08 :end 0.4 :speaker "Jordan" :body "All right,"}
-              {:start 0.5 :end 0.9 :speaker "Kevin" :body "Yes."}
-              {:start 1 :end 1.5 :body "(music)"}
-              {:start 2 :end 2.5 :body "(music)"}]
+                               :segments [{:start-time 0.08 :end-time 0.16 :speaker "Jordan" :body "All"}
+                                          {:start-time 0.16 :end-time 0.4 :speaker "Jordan" :body "right,"}
+                                          {:start-time 0.5 :end-time 0.9 :speaker "Kevin" :body "Yes."}
+                                          {:start-time 1 :end-time 1.5 :body "(music)"}
+                                          {:start-time 2 :end-time 2.5 :body "(music)"}]})]
+      (is (= [{:start-time 0.08 :end-time 0.4 :speaker "Jordan" :body "All right,"}
+              {:start-time 0.5 :end-time 0.9 :speaker "Kevin" :body "Yes."}
+              {:start-time 1 :end-time 1.5 :body "(music)"}
+              {:start-time 2 :end-time 2.5 :body "(music)"}]
              (:segments t)))
-      (is (= [{:start 0 :end 1 :speaker "A" :body "a b"}]
-             (:segments (transcript/turns {:segments [{:start 0 :end 1 :speaker "A" :body "a"}
-                                                      {:start 1 :speaker "A" :body "b"}]})))
+      (is (= [{:start-time 0 :end-time 1 :speaker "A" :body "a b"}]
+             (:segments (transcript/turns {:segments [{:start-time 0 :end-time 1 :speaker "A" :body "a"}
+                                                      {:start-time 1 :speaker "A" :body "b"}]})))
           "a turn ends where the last segment with an end does"))))
 
 (deftest emitting-untimed-segments
   (let [untimed (transcript/parse "Justin: Hi.\n\nBye." "text/plain")
-        mixed   (update untimed :segments conj {:start 1 :end 2 :body "Timed."})]
+        mixed   (update untimed :segments conj {:start-time 1 :end-time 2 :body "Timed."})]
     (testing "segments without a start time are left out of the timed formats"
       (is (= [] (:segments (transcript/parse (transcript/emit-srt untimed)))))
       (is (= [] (:segments (transcript/parse (transcript/emit-vtt untimed)))))
-      (is (= [{:start 1 :end 2 :body "Timed."}]
+      (is (= [{:start-time 1 :end-time 2 :body "Timed."}]
              (:segments (transcript/parse (transcript/emit-srt mixed)))))
-      (is (= [{:start 1 :end 2 :body "Timed."}]
+      (is (= [{:start-time 1 :end-time 2 :body "Timed."}]
              (:segments (transcript/parse (transcript/emit-json mixed))))))))
 
 (deftest opml-round-trip
