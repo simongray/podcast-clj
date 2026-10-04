@@ -16,16 +16,22 @@
   The server is one of the listener's devices too, as podcast-server.device
   has it, so that it keeps the listener's feeds current.
 
-  It checks no credentials. Reach it only through a private network, e.g.
-  with tailscale serve, and give it the name that it has there. It answers
-  no other names, and nothing that Tailscale Funnel brings from the public
-  internet. Start it with `clojure -M:server` and the settings in the
-  environment, or from the REPL with `(start!)`."
+  Give it the names that it has, e.g. on a tailnet, since it answers no
+  others. Without a password, it checks no credentials, so reach it only
+  through a private network, e.g. with tailscale serve. It then answers
+  nothing that Tailscale Funnel brings from the public internet. With a
+  password, every request must give it.
+
+  Start it with `clojure -M:server` and the settings in the environment, or
+  from the REPL with `(start!)`."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [dk.simongray.podcast.sync.file :as file]
             [dk.simongray.podcast.sync.webdav.server :as webdav-server]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.proxy :as proxy]
+            [dk.simongray.podcast.util.secret :as secret]
             [io.pedestal.connector :as conn]
             [io.pedestal.http.jetty :as jetty]
             [io.pedestal.http.ring-middlewares :as ring-middlewares]
@@ -34,6 +40,7 @@
             [io.pedestal.service.interceptors :as interceptors]
             [io.pedestal.service.resources :as resources]
             [podcast-server.device :as device])
+  (:import [java.security MessageDigest])
   (:gen-class))
 
 (def defaults
@@ -44,11 +51,14 @@
     localhost, e.g. through tailscale serve.
   - :names, the names that a request can address it by besides
     localhost, e.g. its name on the tailnet
+  - :password, the password that every request must give, with any user
+    name, or nil for none
   - :data-dir, the folder of its data, with the sync folder in it
   - :client-dir, the folder of the client's files, or nil for none"
   {:port       8400
    :host       "localhost"
    :names      #{}
+   :password   nil
    :data-dir   "data"
    :client-dir nil})
 
@@ -58,15 +68,22 @@
   {:port       "PODCAST_SERVER_PORT"
    :host       "PODCAST_SERVER_HOST"
    :names      "PODCAST_SERVER_NAMES"
+   :password   "PODCAST_SERVER_PASSWORD"
    :data-dir   "PODCAST_SERVER_DATA"
    :client-dir "PODCAST_SERVER_CLIENT"})
 
 (defn- setting
-  "The setting `k` from the value `v` of its environment variable `var`."
+  "The setting `k` from the value `v` of its environment variable `var`.
+
+  A password has at least 16 characters, since nothing slows down the
+  guesses of an attacker, and it's kept as a hidden text."
   [k var v]
   (case k
-    :port  (or (parse-long v) (throw (ex-info (str var " is not a port number: " v) {var v})))
-    :names (set (remove str/blank? (map (comp str/lower-case str/trim) (str/split v #","))))
+    :port     (or (parse-long v) (throw (ex-info (str var " is not a port number: " v) {var v})))
+    :names    (set (remove str/blank? (map (comp str/lower-case str/trim) (str/split v #","))))
+    :password (if (< (count v) 16)
+                (throw (ex-info (str var " has fewer than 16 characters") {}))
+                (secret/hide v))
     v))
 
 (defn settings
@@ -86,35 +103,68 @@
   client shows the art and plays the files of every host."
   {:object-src "'none'" :script-src "'self' 'unsafe-eval'"})
 
-(defn- refused
+(defn refused
   "The answer to a request that the server refuses, with `message`."
   [message]
   {:status 403 :headers {"Content-Type" "text/plain; charset=utf-8"} :body message})
 
-;; Tailscale Serve deletes a Tailscale-Funnel-Request that a client sends,
-;; and sets it on the requests that Funnel brings, as of October 2026
-(defn private-only
+(defn known-names
   "An interceptor that answers only requests to localhost or one of the
-  `names`, and none that came through Tailscale Funnel.
+  `names`.
 
   A web page that points a name of its own at this server's address gets
-  a 403, since the server checks no credentials (DNS rebinding)."
+  a 403, since without a password the server checks no credentials (DNS
+  rebinding)."
   [names]
   (let [known (into #{"localhost" "127.0.0.1" "[::1]"} names)]
     (interceptor/interceptor
-     {:name  ::private-only
+     {:name  ::known-names
       :enter (fn [{:keys [request] :as context}]
-               (let [{:strs [host tailscale-funnel-request]} (:headers request)
-                     name (some-> host str/lower-case (str/replace #":\d+$" ""))]
-                 (cond
-                   tailscale-funnel-request
-                   (assoc context :response (refused "The server doesn't answer the public internet."))
-
-                   (and name (not (known name)))
+               (let [name (some-> (get-in request [:headers "host"]) str/lower-case (str/replace #":\d+$" ""))]
+                 (if (and name (not (known name)))
                    (assoc context :response (refused (str "The server doesn't answer to the name " name ".")))
-
-                   :else
                    context)))})))
+
+;; Tailscale Serve deletes a Tailscale-Funnel-Request that a client sends,
+;; and sets it on the requests that Funnel brings, as of October 2026
+(def no-funnel
+  "An interceptor that answers nothing that came through Tailscale Funnel
+  from the public internet, for a server without a password."
+  (interceptor/interceptor
+   {:name  ::no-funnel
+    :enter (fn [{:keys [request] :as context}]
+             (if (get-in request [:headers "tailscale-funnel-request"])
+               (assoc context :response (refused "The server doesn't answer the public internet."))
+               context))}))
+
+(defn password?
+  "Whether `given` is the `password`, compared by their SHA-256 in constant
+  time, so that the time of an answer tells nothing about the password.
+  Either can be a hidden text."
+  [password given]
+  (let [digest #(bytes/sha256 (bytes/encode (str (secret/reveal %))))]
+    (MessageDigest/isEqual ^bytes (digest password) ^bytes (digest given))))
+
+;; RFC 7617, section 2
+(defn login
+  "An interceptor that lets in only requests with the `password` in their
+  Basic credentials, whatever the user name, or nil when the `password` is
+  nil.
+
+  The gpodder API checks the credentials itself, since its apps log in
+  once and then send a cookie."
+  [password]
+  (when password
+    (interceptor/interceptor
+     {:name  ::login
+      :enter (fn [{:keys [request] :as context}]
+               (let [given (:password (http/credentials (get-in request [:headers "authorization"])))]
+                 (if (or (str/starts-with? (:uri request) "/api/2/") (and given (password? password given)))
+                   context
+                   (assoc context :response {:status  401
+                                             :headers {"WWW-Authenticate" "Basic realm=\"Podcast server\", charset=\"UTF-8\""
+                                                       "Content-Type"     "text/plain; charset=utf-8"}
+                                             :body    "The server asks for its password."}))))})))
 
 (def folders
   "An interceptor ahead of the router for the paths that end in a slash.
@@ -141,13 +191,16 @@
 (defn routes
   "The routes of the proxy, the sync folder `store` and the gpodder API,
   in Pedestal's set syntax. The gpodder API names episodes by the feeds
-  in `lib`, an atom of the server's library."
-  [store lib]
+  in `lib`, an atom of the server's library, and lets in the apps that
+  give the `password`, or any app when it's nil."
+  [store lib password]
   (let [dav (webdav-server/handler store "/dav/")]
     #{["/proxy" :any (proxy/handler) :route-name ::proxy]
       ["/dav" :any dav :route-name ::dav-collection]
       ["/dav/*path" :any dav :route-name ::dav]
-      ["/api/2/*path" :any (device/gpodder-handler store lib) :route-name ::gpodder]}))
+      ["/api/2/*path" :any
+       (device/gpodder-handler store lib (if password (fn [_ given] (password? password given)) (constantly true)))
+       :route-name ::gpodder]}))
 
 (defn client-routes
   "The routes of the files in `client-dir`, or none when it's nil. Each
@@ -163,14 +216,16 @@
 (defn connector
   "A Jetty connector of the server with `settings`, over the sync folder
   `store` and the server's library `lib`, an atom; not yet started."
-  [{:keys [host port names client-dir] :as settings} store lib]
+  [{:keys [host port names password client-dir] :as settings} store lib]
   (-> (conn/default-connector-map host port)
       (conn/with-interceptors [interceptors/log-request
                                interceptors/not-found
                                (secure-headers/secure-headers {:content-security-policy-settings policy})
-                               (private-only names)
+                               (known-names names)
+                               (when-not password no-funnel)
+                               (login password)
                                folders])
-      (conn/with-routes (routes store lib) (client-routes client-dir))
+      (conn/with-routes (routes store lib password) (client-routes client-dir))
       (jetty/create-connector nil)))
 
 (defonce ^{:doc "The running server as its :connector, :library and the

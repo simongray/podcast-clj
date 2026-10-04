@@ -133,6 +133,25 @@
       username (secret/hide (str "Basic " (base64 (str username ":" password))))
       :else    nil)))
 
+;; RFC 7617, section 2 (Basic); RFC 6750, section 2.1 (Bearer)
+(defn credentials
+  "The credentials in the Authorization header `authorization`, as the map
+  that authorization takes, or nil when it has none.
+
+  The map has :username and :password for basic authentication, or :token
+  for a bearer token, and the password and the token are hidden texts. The
+  header can be a hidden text too."
+  [authorization]
+  (let [[_ scheme value] (some->> (secret/reveal authorization) (re-matches #"(?i)\s*(basic|bearer)\s+(\S+)\s*"))]
+    (case (some-> scheme str/lower-case)
+      "basic"  (let [b       (bytes/from-base64 value)
+                     decoded (some-> b (bytes/decode 0 (bytes/length b) :utf8))
+                     i       (some-> decoded (str/index-of ":"))]
+                 (when i
+                   {:username (subs decoded 0 i) :password (secret/hide (subs decoded (inc i)))}))
+      "bearer" {:token (secret/hide value)}
+      nil)))
+
 (defn revealed
   "The `request` with the text of each hidden header and of a hidden body,
   as the server needs them.

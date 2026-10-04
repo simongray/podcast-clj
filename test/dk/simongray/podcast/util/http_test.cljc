@@ -114,6 +114,17 @@
       (is (secret/hidden? (http/authorization {:username "u" :password "p"})))
       (is (= "#<secret>" (pr-str (http/authorization {:token "t"})))))))
 
+(deftest credentials-of-a-header
+  (let [read (fn [header] (some-> (http/credentials header) (update-vals secret/reveal)))]
+    (is (= {:username "ann" :password "secret"} (read "Basic YW5uOnNlY3JldA==")))
+    (is (= {:username "søren" :password "a:b:ø"} (read (http/authorization {:username "søren" :password "a:b:ø"})))
+        "what authorization writes, hidden, with UTF-8 and colons in the password")
+    (is (= {:username "" :password "p"} (read (str "basic " (http/base64 ":p")))) "any case of the scheme, and no user name")
+    (is (= {:token "abc.def"} (read "Bearer abc.def")))
+    (is (= "{:username \"ann\", :password #<secret>}" (pr-str (http/credentials "Basic YW5uOnNlY3JldA=="))))
+    (doseq [header [nil "" "Basic" "Basic !!!" "Basic YW5u" "Digest username=\"ann\""]]
+      (is (nil? (http/credentials header)) (pr-str header)))))
+
 (deftest a-request-for-another-client
   (let [request {:method  :post
                  :url     "https://example.org/x"

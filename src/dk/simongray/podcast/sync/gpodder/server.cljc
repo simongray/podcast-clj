@@ -17,10 +17,9 @@
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.time :as time])
-  #?(:clj (:import [java.nio.charset StandardCharsets]
-                   [java.util Base64]
-                   [java.util.concurrent.locks ReentrantLock])))
+  #?(:clj (:import [java.util.concurrent.locks ReentrantLock])))
 
 (def ^:no-doc session-seconds
   "How long a session lasts after its login: a day. A client of podcast-clj
@@ -205,19 +204,6 @@
             {:parts (zipmap names (map http/percent-decode parts)) :methods methods}))
         routes))
 
-(defn- basic
-  "The user name and password of the Basic `authorization` as a pair, or
-  nil when it has none."
-  [authorization]
-  (when-let [[_ encoded] (some->> authorization (re-matches #"(?i)\s*basic\s+([A-Za-z0-9+/=]+)\s*"))]
-    (let [decoded (try
-                    #?(:clj  (String. (.decode (Base64/getDecoder) ^String encoded) StandardCharsets/UTF_8)
-                       :cljs (js/decodeURIComponent (js/escape (js/atob encoded))))
-                    (catch #?(:clj Exception :cljs :default) _
-                      nil))]
-      (when-let [i (some-> decoded (str/index-of ":"))]
-        [(subs decoded 0 i) (subs decoded (inc i))]))))
-
 (defn ^:no-doc put!
   "Put the state `s`, made from the state `from` of the atom `state`, in
   the atom. When the app changed the atom in between, `s` is
@@ -246,8 +232,8 @@
   (let [session (some->> (get headers "cookie") (re-find #"(?:^|;)\s*sessionid=([^;\s]+)") second)]
     {:session session
      :who     (or (:user (get (live (:sessions @book) at) session))
-                  (when-let [[user password] (basic (get headers "authorization"))]
-                    (when (authorized? user password) user)))}))
+                  (when-let [{:keys [username password]} (http/credentials (get headers "authorization"))]
+                    (when (and username (authorized? username (secret/reveal password))) username)))}))
 
 (defn- call
   "The context of a call of routes for `request`, which came at `at`, over
@@ -375,7 +361,7 @@
 
 (comment
   (route "/api/2/subscriptions/ann/phone.json")
-  (basic "Basic YW5uOnNlY3JldA==")
+  (http/credentials "Basic YW5uOnNlY3JldA==")
   (http/query-params "since=1727000000&podcast=https%3A%2F%2Fexample.org%2Ffeed.xml")
 
   ;; a server over a state with one subscription, and a request of an app

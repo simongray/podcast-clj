@@ -11,8 +11,8 @@ The server is one of the listener's devices too. It syncs every minute and
 keeps the listener's feeds current, and it serves the gpodder API over
 them, so that AntennaPod and other apps of that API sync with the rest.
 
-The server is for one listener, and it has no login. Reach it only through
-a private network, e.g. your tailnet.
+The server is for one listener. Without a password it has no login, so
+reach it only through a private network, e.g. your tailnet.
 
 
 While you build a client
@@ -103,6 +103,36 @@ episodes of a private feed never do, since the server has no passwords.
 When the server restarts, the app gets every play once more.
 
 
+Without Tailscale
+-----------------
+
+Give the server a password of at least 16 characters in `server/.env`,
+e.g. one that `openssl rand -base64 24` makes:
+
+```bash
+PODCAST_SERVER_PASSWORD=…
+```
+
+Every request must then give the password with HTTP Basic
+authentication, with any user name. The browser asks for it when you
+open the client, and a gpodder app takes it as the password of its
+account. Nothing slows down the guesses of an attacker, which is why the
+password must be long.
+
+The server speaks plain HTTP, so put a server for HTTPS in front of it,
+e.g. Caddy with this `Caddyfile`, and give the domain in
+`PODCAST_SERVER_NAMES`:
+
+```
+podcasts.example.org {
+    reverse_proxy 127.0.0.1:8400
+}
+```
+
+With Tailscale, `tailscale funnel` can do the same, since the server
+answers Funnel once it has a password.
+
+
 Settings
 --------
 
@@ -113,10 +143,10 @@ Each setting is an environment variable.
 | `PODCAST_SERVER_PORT` | 8400 | The port that the server listens on |
 | `PODCAST_SERVER_HOST` | localhost, or 0.0.0.0 in the image | The address that it listens on |
 | `PODCAST_SERVER_NAMES` | none | The names of the server besides localhost, separated by commas, e.g. its name on the tailnet |
+| `PODCAST_SERVER_PASSWORD` | none | The password that every request must give, of at least 16 characters |
 | `PODCAST_SERVER_DATA` | `data`, or `/data` in the image | The folder of its data, with the documents in `sync/` |
 | `PODCAST_SERVER_CLIENT` | none | The folder of the client's files |
 
-Since the server checks no credentials, it refuses a request that names it
-by any other name, as a page that points a domain of its own at the
-server would. It also refuses whatever Tailscale Funnel brings from the
-public internet.
+The server refuses a request that names it by any other name, as a page
+that points a domain of its own at the server would. Without a password,
+it also refuses whatever Tailscale Funnel brings from the public internet.

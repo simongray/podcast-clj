@@ -5,33 +5,51 @@
   folder."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.test-support :refer [with-temp-dir]]
             [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.secret :as secret]
             [io.pedestal.connector.test :refer [response-for]]
             [podcast-server.device :as device]
             [podcast-server.service :as service]))
 
 (defn- connector
   "A connector of the server over the folders in `dir`, with the client's
-  files when `client?`."
-  [dir client?]
-  (let [client (io/file dir "client")]
-    (when client?
-      (.mkdirs client)
-      (spit (io/file client "index.html") "<!doctype html><script src=\"/app.js\"></script>")
-      (spit (io/file client "app.js") "console.log(1)"))
-    (let [settings (assoc service/defaults
-                          :port 0
-                          :names #{"pi.example.ts.net"}
-                          :data-dir (io/file dir "data")
-                          :client-dir (when client? client))]
-      (service/connector settings (service/sync-store settings) (atom (device/make))))))
+  files when `client?` and the `more` settings."
+  ([dir client?]
+   (connector dir client? {}))
+  ([dir client? more]
+   (let [client (io/file dir "client")]
+     (when client?
+       (.mkdirs client)
+       (spit (io/file client "index.html") "<!doctype html><script src=\"/app.js\"></script>")
+       (spit (io/file client "app.js") "console.log(1)"))
+     (let [settings (merge service/defaults
+                           {:port       0
+                            :names      #{"pi.example.ts.net"}
+                            :data-dir   (io/file dir "data")
+                            :client-dir (when client? client)}
+                           more)]
+       (service/connector settings (service/sync-store settings) (atom (device/make)))))))
+
+(def password
+  "correct horse battery staple")
+
+(defn- basic
+  "The headers of Basic credentials of `user` and `pw`."
+  [user pw]
+  {"authorization" (secret/reveal (http/authorization {:username user :password pw}))})
 
 (deftest the-settings
   (is (= service/defaults (service/settings {})))
+  (let [{given :password} (service/settings {"PODCAST_SERVER_PASSWORD" password})]
+    (is (= "#<secret>" (pr-str given)) "a password that doesn't print")
+    (is (service/password? given password))
+    (is (not (service/password? given "correct horse battery stapler"))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"PODCAST_SERVER_PASSWORD has fewer than 16 characters"
+                        (service/settings {"PODCAST_SERVER_PASSWORD" "hunter2"})))
   (is (= {:port 8401 :names #{"pi.example.ts.net" "other"} :client-dir "/client"}
          (select-keys (service/settings {"PODCAST_SERVER_PORT"   "8401"
                                          "PODCAST_SERVER_NAMES"  " Pi.example.ts.net, ,other"
@@ -86,8 +104,11 @@
   "The library's HTTP client stood in by the connector `c`: a request map
   sent through Pedestal, its answer in the client's shape."
   [c]
-  (fn [{:keys [method url headers body]}]
-    (let [path     (str/replace url #"^https?://[^/]+" "")
+  (fn [request]
+    ;; with the header names in lower case, as a real server gives them
+    (let [{:keys [method url headers body]} (http/revealed request)
+          path     (str/replace url #"^https?://[^/]+" "")
+          headers  (update-keys headers str/lower-case)
           response (apply response-for c method path (concat (when body [:body body]) (when headers [:headers headers])))]
       (update response :headers #(into {} (map (fn [[k v]] [(str/lower-case k) [v]])) %)))))
 
@@ -99,3 +120,30 @@
           (is ok?)
           (is (every? :ok? checks) (pr-str (remove :ok? checks))))
         (is (.isDirectory (io/file dir "data" "sync")) "the documents are in the sync folder of the data")))))
+
+(deftest the-login
+  (with-temp-dir
+    (fn [dir]
+      (let [c    (connector dir true {:password (secret/hide password)})
+            mine (basic "simon" password)]
+        (let [{:keys [status headers]} (response-for c :get "/")]
+          (is (= 401 status) "no credentials")
+          (is (= "Basic realm=\"Podcast server\", charset=\"UTF-8\"" (get headers "WWW-Authenticate"))))
+        (is (= 401 (:status (response-for c :get "/" :headers (basic "simon" "correct horse battery stapler")))))
+        (is (= 200 (:status (response-for c :get "/" :headers (basic "anyone" password)))) "any user name")
+        (is (= 401 (:status (response-for c :get "/proxy"))))
+        (is (= 207 (:status (response-for c :propfind "/dav/" :headers mine))))
+        (is (= 200 (:status (response-for c :get "/" :headers (assoc mine "tailscale-funnel-request" "?1"))))
+            "Funnel, now that the server asks for a password")
+        (is (= 403 (:status (response-for c :get "/" :headers (assoc mine "host" "attacker.example")))) "but only its own names")
+        (testing "the gpodder API checks the password itself, and then takes the cookie of its session"
+          (is (= 401 (:status (response-for c :post "/api/2/auth/simon/login.json"
+                                            :headers (basic "simon" "correct horse battery stapler")))))
+          (let [login  (response-for c :post "/api/2/auth/simon/login.json" :headers mine)
+                cookie (first (str/split (get-in login [:headers "Set-Cookie"]) #";"))]
+            (is (= 200 (:status login)))
+            (is (= 200 (:status (response-for c :get "/api/2/devices/simon.json" :headers {"cookie" cookie}))))))
+        (testing "the library's own WebDAV client"
+          (with-redefs [http/call! (through c)]
+            (is (:ok? (store/check! (webdav/store "http://localhost:8400/dav/" {:credentials {:username "simon" :password password}}))))
+            (is (not (:ok? (store/check! (webdav/store "http://localhost:8400/dav/")))) "without the credentials")))))))

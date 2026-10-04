@@ -139,18 +139,16 @@
 (defn gpodder-handler
   "The gpodder API for AntennaPod, Kasts and gPodder over the sync folder
   `store`, naming episodes by the feeds in `lib`, an atom of the server's
-  library.
-
-  It lets in any user name and password, since the server answers only
-  its private network."
-  [store lib]
+  library. It lets in the apps that `authorized?`, a function of a user
+  name and a password, says yes to."
+  [store lib authorized?]
   (let [backend (store/backend store)
         cursors (atom nil)]
     (gpodder-server/handler
      {:state       (atom (crdt/identify (profile/make "podcast-server-gpodder")
                                         {:name "Podcast server, for gpodder apps"}
                                         (time/now)))
-      :authorized? (constantly true)
+      :authorized? authorized?
       :identities  (identities lib)
       :sync        (fn [state]
                      (let [result (sync/sync! state [backend] (time/now) {:cursors @cursors})]
