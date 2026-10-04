@@ -55,16 +55,16 @@
   next check at `at`, the new episodes since `before`, and the names of
   the gpodder API."
   [feed before url at]
-  (let [thin  (feeds/slim feed)
-        names (gpodder/identities {url feed})
-        slim  (gpodder/identities {url thin})]
+  (let [thin        (feeds/slim feed)
+        whole-names (gpodder/identities {url feed})
+        thin-names  (gpodder/identities {url thin})]
     (and (= (resolve/next-check feed at) (resolve/next-check thin at))
          (= (profile/new-episodes before feed url) (profile/new-episodes (feeds/slim before) feed url))
          (every? (fn [item]
                    (let [id    (feed/episode-id feed url item)
                          media (:url (resolve/enclosure item))]
-                     (and (= ((:episode-url names) id) ((:episode-url slim) id))
-                          (= ((:episode-id names) url media nil) ((:episode-id slim) url media nil)))))
+                     (and (= ((:episode-url whole-names) id) ((:episode-url thin-names) id))
+                          (= ((:episode-id whole-names) url media nil) ((:episode-id thin-names) url media nil)))))
                  (:rss/items feed)))))
 
 (deftest what-slim-keeps

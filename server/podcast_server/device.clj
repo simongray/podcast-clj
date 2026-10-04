@@ -23,9 +23,7 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]
             [io.pedestal.log :as log])
-  (:import [java.io File]
-           [java.nio.file CopyOption Files StandardCopyOption]
-           [java.util.concurrent Executors ScheduledExecutorService TimeUnit]))
+  (:import [java.util.concurrent Executors ScheduledExecutorService TimeUnit]))
 
 (def step-seconds
   "How often the library syncs and checks which feeds are due."
@@ -48,32 +46,30 @@
   last sync, which only fit the profile they were made for."
   [:feeds :fetched-lists])
 
+(def saved-name
+  "The name of the document that save! writes."
+  "library.edn")
+
 (defn save!
-  "Write the saved-keys of `library` to `file`, whole or not at all."
-  [library ^File file]
-  (let [dir (.getParentFile (.getAbsoluteFile file))
-        tmp (do (.mkdirs dir) (File/createTempFile ".library-" ".tmp" dir))]
-    (try
-      (spit tmp
-            (binding [*print-length* nil *print-level* nil *print-namespace-maps* false]
-              (pr-str (select-keys library saved-keys)))
-            :encoding "UTF-8")
-      (Files/move (.toPath tmp) (.toPath file)
-                  (into-array CopyOption [StandardCopyOption/ATOMIC_MOVE StandardCopyOption/REPLACE_EXISTING]))
-      (finally
-        (.delete tmp)))))
+  "Write the saved-keys of `library` to `store`, e.g. a folder store, which
+  writes a file whole or not at all."
+  [library store]
+  ((:put store) saved-name
+   (binding [*print-length* nil *print-level* nil *print-namespace-maps* false]
+     (pr-str (select-keys library saved-keys)))
+   {}))
 
 (defn restore!
-  "The `library` with what save! wrote to `file`, or the `library` as it is
-  when there's no such file or it can't be read."
-  [library ^File file]
-  (if-not (.isFile file)
-    library
-    (try
-      (merge library (select-keys (edn/read-string (slurp file :encoding "UTF-8")) saved-keys))
-      (catch Exception e
-        (log/warn :msg "The saved library couldn't be read, so its feeds are fetched again" :file (str file) :exception e)
-        library))))
+  "The `library` with what save! wrote to `store`, or the `library` as it is
+  when there's nothing there or it can't be read."
+  [library store]
+  (try
+    (if-let [{:keys [body]} ((:fetch store) saved-name)]
+      (merge library (select-keys (edn/read-string body) saved-keys))
+      library)
+    (catch Exception e
+      (log/warn :msg "The saved library couldn't be read, so its feeds are fetched again" :exception e)
+      library)))
 
 (defn- changed?
   "Whether the profile of `library` changed since its last sync."
@@ -101,9 +97,10 @@
 
 (defn start!
   "Run step! on `lib`, an atom of the server's library, through the sync
-  folder `store` now and every step-seconds after, and save! it to `file`
-  when its feeds change. Returns the executor that runs it, for stop!."
-  [lib store file]
+  folder `store` now and every step-seconds after, and save! it to
+  `data-store` when its feeds change. Returns the executor that runs it,
+  for stop!."
+  [lib store data-store]
   (let [backend (store/backend store)
         step    (fn []
                   (try
@@ -111,7 +108,8 @@
                           after  (step! lib backend)]
                       (log-problems! after)
                       (when (not= before (select-keys after saved-keys))
-                        (save! after file)))
+                        (save! after data-store)))
+                    ;; the executor runs no more steps after one that throws
                     (catch Throwable e
                       (log/error :msg "A step of the library failed" :exception e))))]
     (doto (Executors/newSingleThreadScheduledExecutor)

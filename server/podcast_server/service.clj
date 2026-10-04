@@ -96,13 +96,6 @@
               :when (seq v)]
           [k (setting k var v)])))
 
-(def policy
-  "The Content-Security-Policy of the answers. Scripts come from this
-  server only, with eval for the development builds of shadow-cljs.
-  Images, media and connections can come from anywhere, since a podcast
-  client shows the art and plays the files of every host."
-  {:object-src "'none'" :script-src "'self' 'unsafe-eval'"})
-
 (defn refused
   "The answer to a request that the server refuses, with `message`."
   [message]
@@ -120,9 +113,9 @@
     (interceptor/interceptor
      {:name  ::known-names
       :enter (fn [{:keys [request] :as context}]
-               (let [name (some-> (get-in request [:headers "host"]) str/lower-case (str/replace #":\d+$" ""))]
-                 (if (and name (not (known name)))
-                   (assoc context :response (refused (str "The server doesn't answer to the name " name ".")))
+               (let [host (some-> (get-in request [:headers "host"]) str/lower-case (str/replace #":\d+$" ""))]
+                 (if (and host (not (known host)))
+                   (assoc context :response (refused (str "The server doesn't answer to the name " host ".")))
                    context)))})))
 
 ;; Tailscale Serve deletes a Tailscale-Funnel-Request that a client sends,
@@ -148,23 +141,21 @@
 ;; RFC 7617, section 2
 (defn login
   "An interceptor that lets in only requests with the `password` in their
-  Basic credentials, whatever the user name, or nil when the `password` is
-  nil.
+  Basic credentials, whatever the user name.
 
   The gpodder API checks the credentials itself, since its apps log in
   once and then send a cookie."
   [password]
-  (when password
-    (interceptor/interceptor
-     {:name  ::login
-      :enter (fn [{:keys [request] :as context}]
-               (let [given (:password (http/credentials (get-in request [:headers "authorization"])))]
-                 (if (or (str/starts-with? (:uri request) "/api/2/") (and given (password? password given)))
-                   context
-                   (assoc context :response {:status  401
-                                             :headers {"WWW-Authenticate" "Basic realm=\"Podcast server\", charset=\"UTF-8\""
-                                                       "Content-Type"     "text/plain; charset=utf-8"}
-                                             :body    "The server asks for its password."}))))})))
+  (interceptor/interceptor
+   {:name  ::login
+    :enter (fn [{:keys [request] :as context}]
+             (let [given (:password (http/credentials (get-in request [:headers "authorization"])))]
+               (if (or (str/starts-with? (:uri request) "/api/2/") (and given (password? password given)))
+                 context
+                 (assoc context :response {:status  401
+                                           :headers {"WWW-Authenticate" "Basic realm=\"Podcast server\", charset=\"UTF-8\""
+                                                     "Content-Type"     "text/plain; charset=utf-8"}
+                                           :body    "The server asks for its password."}))))}))
 
 (def folders
   "An interceptor ahead of the router for the paths that end in a slash.
@@ -194,13 +185,12 @@
   in `lib`, an atom of the server's library, and lets in the apps that
   give the `password`, or any app when it's nil."
   [store lib password]
-  (let [dav (webdav-server/handler store "/dav/")]
+  (let [dav         (webdav-server/handler store "/dav/")
+        authorized? (if password (fn [_ given] (password? password given)) (constantly true))]
     #{["/proxy" :any (proxy/handler) :route-name ::proxy]
       ["/dav" :any dav :route-name ::dav-collection]
       ["/dav/*path" :any dav :route-name ::dav]
-      ["/api/2/*path" :any
-       (device/gpodder-handler store lib (if password (fn [_ given] (password? password given)) (constantly true)))
-       :route-name ::gpodder]}))
+      ["/api/2/*path" :any (device/gpodder-handler store lib authorized?) :route-name ::gpodder]}))
 
 (defn client-routes
   "The routes of the files in `client-dir`, or none when it's nil. Each
@@ -220,10 +210,12 @@
   (-> (conn/default-connector-map host port)
       (conn/with-interceptors [interceptors/log-request
                                interceptors/not-found
-                               (secure-headers/secure-headers {:content-security-policy-settings policy})
+                               ;; scripts from this server only, with eval for the development
+                               ;; builds of shadow-cljs; art, media and the rest from any host
+                               (secure-headers/secure-headers
+                                {:content-security-policy-settings {:object-src "'none'" :script-src "'self' 'unsafe-eval'"}})
                                (known-names names)
-                               (when-not password no-funnel)
-                               (login password)
+                               (if password (login password) no-funnel)
                                folders])
       (conn/with-routes (routes store lib password) (client-routes client-dir))
       (jetty/create-connector nil)))
@@ -241,12 +233,13 @@
    (when-not @server
      (let [{:keys [host port data-dir] :as settings} (merge defaults settings)
            store (sync-store settings)
-           ;; beside the sync folder, since every file in it is a document
-           saved (io/file data-dir "library.edn")
-           lib   (atom (device/restore! (device/make) saved))]
+           ;; for the saved library, which can't go in the sync folder,
+           ;; where every file is a sync document
+           data  (file/store data-dir)
+           lib   (atom (device/restore! (device/make) data))]
        (reset! server {:connector (conn/start! (connector settings store lib))
                        :library   lib
-                       :steps     (device/start! lib store saved)})
+                       :steps     (device/start! lib store data)})
        (println (str "Podcast server on http://" host ":" port "/"))))
    @server))
 

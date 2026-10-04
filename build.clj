@@ -91,8 +91,10 @@
   (let [basis     (b/create-basis {:project "deps.edn" :aliases [:server]})
         class-dir "target/server-classes"]
     (b/delete {:path class-dir})
+    ;; with the jsoup adapter, which the library only loads when a feed
+    ;; needs it, so that nothing else would compile it
     (b/compile-clj {:basis      basis
-                    :ns-compile '[podcast-server.service]
+                    :ns-compile '[podcast-server.service dk.simongray.podcast.util.xml.jsoup]
                     :class-dir  class-dir})
     (b/uber {:class-dir class-dir
              :uber-file server-jar
