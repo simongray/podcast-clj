@@ -63,7 +63,7 @@
   "The value of the header x-rss-payment for `payment`: its record as
   JSON, URI-encoded as encodeURIComponent does."
   [payment]
-  (http/encode (json/write-str (record payment))))
+  (http/percent-encode (json/write-str (record payment))))
 
 (def ^:no-doc fields
   "The type of each field that the metadata defines: :text, :msat for an

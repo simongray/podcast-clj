@@ -229,8 +229,8 @@
     (testing "each redirect on the way"
       (let [moved (assoc answer :url "https://cdn/t.vtt")]
         (is (= [[:check/cors "https://a/t.vtt"]]
-               (map (juxt :id :at) (check/verdicts transcript {:get (assoc moved :redirects [{:status 302 :url "https://a/t.vtt"}])
-                                                               :read read} nil)))
+               (map (juxt :id :redirect) (check/verdicts transcript {:get (assoc moved :redirects [{:status 302 :url "https://a/t.vtt"}])
+                                                                     :read read} nil)))
             "a redirect that does not allow it")
         (is (= #{} (ids transcript {:get (assoc moved :redirects [{:status 302 :url "https://a/t.vtt" :cors "*"}]) :read read})))))
     (is (= #{} (ids transcript {:get (-> answer (dissoc :cors) (assoc :filtered? true)) :read read}))

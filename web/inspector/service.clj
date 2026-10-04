@@ -161,7 +161,7 @@
         (catch Throwable e
           (failure "Could not inspect the feed" url e
                    [:p "If this is the address of a website or a page, "
-                    [:a {:href (str "/find?q=" (http/encode url))} "find the feeds that it names"] "."]))))))
+                    [:a {:href (str "/find?q=" (http/percent-encode url))} "find the feeds that it names"] "."]))))))
 
 (defn home
   "The landing page: the URL form and the corpus."
@@ -289,11 +289,11 @@
               best                            (first feeds)]
           (cond
             (= :discovery/unreadable (:id error))
-            {:status 302 :headers {"Location" (str "/directory?q=" (http/encode q))}}
+            {:status 302 :headers {"Location" (str "/directory?q=" (http/percent-encode q))}}
 
             (or (= :input (:found-by best)) (= 1 (count (filter :podcast? feeds))))
             (do (known! (:url best) (:feed best))
-                {:status 302 :headers {"Location" (str "/feed?url=" (http/encode (:url best)))}})
+                {:status 302 :headers {"Location" (str "/feed?url=" (http/percent-encode (:url best)))}})
 
             :else
             (html (page/find-page (assoc found :q q)))))

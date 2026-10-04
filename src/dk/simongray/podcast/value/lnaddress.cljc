@@ -278,7 +278,7 @@
   checks the invoice when it pays."
   [invoice]
   (when (invoice-amount invoice)
-    (when-let [fields (some-> (bech32/words invoice {:max-length max-invoice-length}) :words tagged-fields)]
+    (when-let [fields (some-> (bech32/decode-words invoice {:max-length max-invoice-length}) :words tagged-fields)]
       (let [hashes (filter #(= 1 (first %)) fields)]
         (when (and (= 1 (count hashes)) (= 52 (count (second (first hashes)))))
           (whole-bytes (second (first hashes))))))))

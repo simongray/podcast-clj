@@ -600,7 +600,7 @@
   options give another."
   (registry elements))
 
-(defn entry
+(defn entry-for
   "The entry of `registry` for `tag` under `parent`, or nil when none
   applies."
   [registry tag parent]
@@ -655,8 +655,8 @@
   (get entry :content :text))
 
 (comment
-  (entry default :podcast/remoteItem :podcast/publisher)
-  (key-for (entry default :podcast/remoteItem :podcast/podroll) :podcast/podroll)
+  (entry-for default :podcast/remoteItem :podcast/publisher)
+  (key-for (entry-for default :podcast/remoteItem :podcast/podroll) :podcast/podroll)
   (map :tag (entries-for default :item))
   (registry (conj elements {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one}))
   #_.)

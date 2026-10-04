@@ -101,9 +101,9 @@
     (when (:freq m) m)))
 
 (defn format
-  "The recurrence rule map `m`, as parse gives it, as an RFC 5545 rule
+  "The recurrence rule map `rule`, as parse gives it, as an RFC 5545 rule
   string, with the parts in the order of parts and any other part last."
-  [m]
+  [rule]
   (let [known (mapv first parts)
         names (into {} parts)
         part  (fn [k v]
@@ -113,10 +113,10 @@
                        (sequential? v) (str/join "," (map str v))
                        :else           (str v))))]
     (str/join ";" (concat (for [k known
-                                :let [v (get m k)]
+                                :let [v (get rule k)]
                                 :when (and (some? v) (not (and (coll? v) (empty? v))))]
                             (part k v))
-                          (for [[k v] m
+                          (for [[k v] rule
                                 :when (not (contains? names k))]
                             (part k v))))))
 

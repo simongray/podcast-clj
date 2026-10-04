@@ -148,7 +148,7 @@
   (cond
     name
     (if-let [version (version-of store name)]
-      (multistatus [(entry (str base (http/encode name)) version)])
+      (multistatus [(entry (str base (http/percent-encode name)) version)])
       (not-found))
 
     (= "0" (some-> depth str/trim))
@@ -157,7 +157,7 @@
     list
     (multistatus (cons (entry base nil)
                        (for [{:keys [name version]} (list)]
-                         (entry (str base (http/encode name)) version))))
+                         (entry (str base (http/percent-encode name)) version))))
 
     :else
     (plain 403 "The collection cannot be listed")))

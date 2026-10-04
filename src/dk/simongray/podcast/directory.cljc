@@ -242,7 +242,7 @@
                  :search   (str "search.json?" (http/query-string {:q q}))
                  :lookup   (str "api/2/data/podcast.json?" (http/query-string {:url id}))
                  :trending (if category
-                             (str "api/2/tag/" (http/encode (str/lower-case (str/trim (str category))))
+                             (str "api/2/tag/" (http/percent-encode (str/lower-case (str/trim (str category))))
                                   "/" (long (or limit 25)) ".json")
                              (str "toplist/" (long (or limit 25)) ".json"))))))
 

@@ -108,13 +108,13 @@
   An image that several elements name has the :sources of all of them, so
   that the rules of each apply."
   [files]
-  (:kept (reduce (fn [{:keys [at kept] :as acc} {:keys [url kind] :as file}]
-                   (if-let [i (at url)]
+  (:kept (reduce (fn [{:keys [index kept] :as acc} {:keys [url kind] :as file}]
+                   (if-let [i (index url)]
                      (cond-> acc
                        (= :image kind (:kind (kept i)))
                        (update-in [:kept i :declared :sources] into (get-in file [:declared :sources])))
-                     {:at (assoc at url (count kept)) :kept (conj kept file)}))
-                 {:at {} :kept []}
+                     {:index (assoc index url (count kept)) :kept (conj kept file)}))
+                 {:index {} :kept []}
                  files)))
 
 (def default-limits
@@ -683,10 +683,10 @@
   site can't read the answer `get` to a request for `url`.
 
   The :allowed of the diagnostic names the origins that the answer that
-  stops it allows, and the :at names the redirect that it is."
+  stops it allows, and the :redirect names the redirect that it is."
   [file requirements id url get]
   (when-let [a (barrier url get)]
-    [(diagnostic file requirements id :allowed (:cors a) :at (when-not (identical? a get) (:url a)))]))
+    [(diagnostic file requirements id :allowed (:cors a) :redirect (when-not (identical? a get) (:url a)))]))
 
 (defn- text-verdicts
   "The diagnostics of the transcript or chapters `file` from its `facts`,

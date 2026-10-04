@@ -199,7 +199,7 @@
         (is (= #{:version :start :end :frames} (set (keys t))) "the report is in the metadata")
         (is (= ["An episode" "Host"] (map :text (take 2 (:frames t)))) "ISO-8859-1, and UTF-16 by its byte order mark")
         (is (= "image/jpeg" (:type (id3/artwork (:frames t)))) "the front cover before the icon")
-        (is (= 3600.5 (id3/length (:frames t)))))))
+        (is (= 3600.5 (id3/duration (:frames t)))))))
   (testing "ID3v2.2, with three-letter ids and a picture format"
     (let [frame2 (fn [id body] (concat (ascii id) (be 3 (count body)) body))
           t      (id3/read (view (concat (ascii "ID3") [2 0 0]

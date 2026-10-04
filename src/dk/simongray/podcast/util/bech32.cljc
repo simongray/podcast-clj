@@ -69,7 +69,7 @@
           pad?                             out
           (and (< bits from) (zero? acc))  out)))))
 
-(defn words
+(defn decode-words
   "The prefix and the data of the Bech32 text `s`, read with `opts`, as a
   map of :prefix and :words. It's nil for a text that isn't Bech32, or
   that has a wrong checksum.
@@ -80,7 +80,7 @@
   BOLT 11 invoice aren't whole bytes, so a reader of invoices takes the
   numbers."
   ([s]
-   (words s {}))
+   (decode-words s {}))
   ([s opts]
    {:pre [(map? opts)]}
    (when (and (string? s)
@@ -97,7 +97,7 @@
                   (= 1 (polymod (concat (expanded prefix) data))))
          {:prefix prefix :words (vec (drop-last 6 data))})))))
 
-(defn of-words
+(defn encode-words
   "The Bech32 text of the prefix `prefix` and the numbers of five bits
   `words`, in lower case, with its checksum."
   [prefix words]
@@ -117,7 +117,7 @@
    (decode s {}))
   ([s opts]
    {:pre [(map? opts)]}
-   (when-let [{:keys [prefix words]} (words s opts)]
+   (when-let [{:keys [prefix words]} (decode-words s opts)]
      (when-let [octets (regrouped words 5 8 false)]
        {:prefix prefix :bytes (bytes/of octets)}))))
 
@@ -125,7 +125,7 @@
   "The Bech32 text of the prefix `prefix` and the bytes `b`, in lower
   case."
   [prefix b]
-  (of-words prefix (regrouped (map #(bytes/at b %) (range (bytes/length b))) 8 5 true)))
+  (encode-words prefix (regrouped (map #(bytes/at b %) (range (bytes/length b))) 8 5 true)))
 
 (comment
   ;; the example of NIP-19: a public key of Nostr

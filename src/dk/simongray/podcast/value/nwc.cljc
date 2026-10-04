@@ -17,8 +17,8 @@
   are get-balance, get-info, make-invoice and lookup-invoice.
 
   The ask! function sends a command to the wallet and gives its answer.
-  For an app that holds its own connections to relays, request writes the
-  event of a command and answer reads the event of the wallet. The content
+  For an app that holds its own connections to relays, request-event
+  writes the event of a command and answer reads the event of the wallet. The content
   of each event is encrypted with NIP-44. The encryption of NIP-04, which
   NIP-47 keeps for old wallets, isn't written here. NIP-04 has no check of
   a change, and its own text tells not to use it.
@@ -239,7 +239,7 @@
   [at]
   (quot (inst-ms at) 1000))
 
-(defn request
+(defn request-event
   "The event that asks the wallet of `connection` to do `command`, made
   from `opts`, or nil for a command with more bytes than a payload of
   NIP-44 holds.
@@ -403,7 +403,7 @@
      :encryption (if-let [named (tag "encryption")] (words named) ["nip04"])
      :extensions (words (tag "extensions"))}))
 
-(defn problem
+(defn unsupported
   "Why the wallet with the `info` doesn't take `command` from podcast-clj,
   as a map with a diagnostic under :error. It's nil when the wallet takes
   the command, and when `info` is nil, since the wallet is unknown then.
@@ -591,19 +591,19 @@
                          at      (now)
                          expires (time/->inst (+ (inst-ms at) (* 1000 timeout-seconds)))
                          event   (when-not (:error info)
-                                   (request connection command {:at         at
-                                                                :nonce      (bytes/hex (random 32))
-                                                                :aux        (bytes/hex (random 32))
-                                                                :expires-at expires}))
+                                   (request-event connection command {:at         at
+                                                                      :nonce      (bytes/hex (random 32))
+                                                                      :aux        (bytes/hex (random 32))
+                                                                      :expires-at expires}))
                          asking  (fn [url]
                                    {:url     url
                                     :event   event
                                     :filters [{"kinds" [(:response kinds)] "authors" [wallet] "#e" [(get event "id")]}]})]
                      (cond
-                       (:error info)          info
-                       (problem info command) (problem info command)
-                       (nil? event)           (failure {:id :value/command-too-large :method (:method command)})
-                       :else                  (from-relays! opts asking #(answered connection command event expires %) relays []))))))))
+                       (:error info)              info
+                       (unsupported info command) (unsupported info command)
+                       (nil? event)               (failure {:id :value/command-too-large :method (:method command)})
+                       :else                      (from-relays! opts asking #(answered connection command event expires %) relays []))))))))
 
 (comment
   ;; the example of NIP-47
@@ -628,11 +628,11 @@
 
   ;; the event of a command: the relay sees the kind and the tags, and not
   ;; the command
-  (-> (request connection (get-balance) {:at    #inst "2026-09-29T12:00:00Z"
-                                         :nonce (bytes/hex (bytes/generate! 32))
-                                         :aux   (bytes/hex (bytes/generate! 32))})
+  (-> (request-event connection (get-balance) {:at    #inst "2026-09-29T12:00:00Z"
+                                               :nonce (bytes/hex (bytes/generate! 32))
+                                               :aux   (bytes/hex (bytes/generate! 32))})
       (select-keys ["kind" "tags" "pubkey"]))
 
   (info {"content" "pay_invoice get_balance" "tags" [["encryption" "nip44_v2 nip04"]]})
-  (problem (info {"content" "get_balance" "tags" []}) (get-balance))
+  (unsupported (info {"content" "get_balance" "tags" []}) (get-balance))
   #_.)

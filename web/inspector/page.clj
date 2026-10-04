@@ -73,8 +73,8 @@
 
 (defn- feed-href
   [route url & [params]]
-  (str route "?url=" (http/encode url)
-       (apply str (for [[k v] params :when v] (str "&" (name k) "=" (http/encode v))))))
+  (str route "?url=" (http/percent-encode url)
+       (apply str (for [[k v] params :when v] (str "&" (name k) "=" (http/percent-encode v))))))
 
 (defn- link
   "The URL `url`, which a feed chose, when a link may lead there: over http
@@ -254,7 +254,7 @@
    " "
    [:button {:type "submit"} "Apply"]
    " "
-   [:a {:href (str "/search?url=" (http/encode url) (when-let [q (:text where)] (str "&q=" (http/encode q))))}
+   [:a {:href (str "/search?url=" (http/percent-encode url) (when-let [q (:text where)] (str "&q=" (http/percent-encode q))))}
     "full-text search"]])
 
 (defn feed-page
@@ -523,7 +523,7 @@
   "One time split of `block`: who is paid during it, with the remote item
   folded in when `remote-values` has its block."
   [block {:keys [remote-values remote-report index?]} {:keys [start-time duration remote-item remote-percentage] :as split}]
-  (let [at      (value/recipients-at block start-time remote-values)
+  (let [paid    (value/recipients-at block start-time remote-values)
         failure (some #(when (= remote-item (:remote-item %)) %) remote-report)]
     (list
      [:h3 (str "From " (time/format-clock start-time) " for " (time/format-clock duration)
@@ -531,7 +531,7 @@
                                       (when (:item-guid remote-item) (str " / " (:item-guid remote-item)))
                                       " at " (or remote-percentage 100) "%")))]
      (cond
-       (or (nil? remote-item) (get remote-values remote-item)) (payments-table (:recipients at))
+       (or (nil? remote-item) (get remote-values remote-item)) (payments-table (:recipients paid))
        (contains? remote-values remote-item) [:p.muted "No value block was found for this remote item; the feed's own recipients apply."]
        (or index? (:feed-url remote-item))   [:p.muted (str "The value block of this remote item couldn't be fetched, so only the fees are paid: "
                                                             (or (:reason failure) (str "status " (:status failure))))]
@@ -555,7 +555,7 @@
   in, and the `remotes` of its time splits as the service resolved them."
   [{:keys [url feed item view remotes]}]
   (let [{:keys [title guid numbering published duration explicit? people artwork notes enclosures value]} view
-        into-player (fn [mode] (str "/queue?add=" (http/encode url) "&guid=" (http/encode guid) "&mode=" mode))]
+        into-player (fn [mode] (str "/queue?add=" (http/percent-encode url) "&guid=" (http/percent-encode guid) "&mode=" mode))]
     (layout (or title "(untitled)")
             [:p [:a {:href (feed-href "/feed" url)} "← " (or (resolve/title feed) url)]]
             [:header
@@ -659,7 +659,7 @@
                 [:br] [:span.muted url " · found by " (name found-by)]])]
             (list [:p.warning (:message error) (when-let [reason (:reason error)] [:span.muted " " reason])]
                   [:p "Try another address, or "
-                   [:a {:href (str "/directory?q=" (http/encode q))} "search the directories"] "."]))
+                   [:a {:href (str "/directory?q=" (http/percent-encode q))} "search the directories"] "."]))
           (when (seq report)
             (list [:h2 "What failed"]
                   (diagnostics-table report)))))
@@ -772,10 +772,10 @@
   (case protocol
     "nostr"   (if uri
                 (str "https://njump.me/" (subs uri (count "nostr:")))
-                (str "https://njump.me/t/" (http/encode tag)))
+                (str "https://njump.me/t/" (http/percent-encode tag)))
     "atproto" (case type
-                :mention (str "https://bsky.app/profile/" (http/encode id))
-                :hashtag (str "https://bsky.app/hashtag/" (http/encode tag))
+                :mention (str "https://bsky.app/profile/" (http/percent-encode id))
+                :hashtag (str "https://bsky.app/hashtag/" (http/percent-encode tag))
                 nil)
     nil))
 
@@ -880,7 +880,7 @@
            "An id of NIP-73, such as podcast:item:guid:…, gives the notes about an episode."]
           (cond
             thread
-            (thread-view thread hidden? (str "/thread?uri=" (http/encode address) (when-not hidden? "&hidden=1")))
+            (thread-view thread hidden? (str "/thread?uri=" (http/percent-encode address) (when-not hidden? "&hidden=1")))
 
             (not (str/blank? (str address)))
             [:p.error "The inspector does not know this address as the address of a post."])))

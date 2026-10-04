@@ -314,7 +314,7 @@ A network or a critic can publish a list of shows as OPML. When a listener
 follows it, the shows that join the list become subscriptions:
 
 ```clojure
-(swap! lib library/follow list-url (opml/parse body)
+(swap! lib library/follow-list list-url (opml/parse body)
        {:title "Picks" :folder "Picks"})
 ```
 
@@ -401,8 +401,8 @@ function:
   "The URL in this app of the mention or hashtag `part` of a comment."
   [{:keys [type protocol id tag]}]
   (case type
-    :mention (when id (str "/profiles/" protocol "/" (http/encode id)))
-    :hashtag (str "/tags/" (http/encode tag))
+    :mention (when id (str "/profiles/" protocol "/" (http/percent-encode id)))
+    :hashtag (str "/tags/" (http/percent-encode tag))
     nil))
 
 (def reply (first (:replies (comments/tree thread))))
@@ -820,9 +820,9 @@ a position, and `value/payments` divides an amount between them:
 (def page (merge (library/episode @lib id)
                  (library/fetch-remote-values! @lib id)))
 
-(def at (value/recipients-at (:value page) 754 (:remote-values page)))
+(def paid (value/recipients-at (:value page) 754 (:remote-values page)))
 
-(value/payments (:recipients at) 1000)
+(value/payments (:recipients paid) 1000)
 ```
 
 The blocks come from the Podcast Index when the config has the `:key`
@@ -837,7 +837,7 @@ from `episode/view`. To fetch a block yourself, e.g. with
 `podcastindex/fetch-remote-value!`, fold it in with `value/with-remote`.
 
 What goes with a payment is one map, however it's sent. Inside a remote
-split, `(:remote at)` names the remote item, so add its `:feed-guid` and
+split, `(:remote paid)` names the remote item, so add its `:feed-guid` and
 `:item-guid` as `:remote-feed-guid` and `:remote-item-guid`:
 
 ```clojure

@@ -37,7 +37,7 @@
   "The User-Agent sent with every request unless the caller sets one."
   "podcast-clj (+https://github.com/simongray/podcast-clj)")
 
-(defn encode
+(defn percent-encode
   "The string `s` percent-encoded for a query string, the same way on both
   platforms. Spaces become %20, not +, and letters, digits and the marks
   - _ . ! ~ * ' ( ) stay as they are."
@@ -52,7 +52,8 @@
      :cljs (js/encodeURIComponent (str s))))
 
 (defn percent-decode
-  "The string `s` with its percent-encoding undone, the inverse of encode.
+  "The string `s` with its percent-encoding undone, the inverse of
+  percent-encode.
   A plus sign stays a plus sign, and a string with an escape that doesn't
   decode comes back as it is, rather than throwing."
   [s]
@@ -72,8 +73,8 @@
   (str/join "&" (for [[k v] params
                       :when (some? v)]
                   (if (true? v)
-                    (encode (name k))
-                    (str (encode (name k)) "=" (encode v))))))
+                    (percent-encode (name k))
+                    (str (percent-encode (name k)) "=" (percent-encode v))))))
 
 (defn ^:no-doc query-params
   "The parameters of the query string `s`, decoded, by name. A plus sign

@@ -136,24 +136,24 @@
 
 (deftest the-event-of-a-request
   (let [opts  {:at at :nonce hex-7 :aux hex-8}
-        event (nwc/request connection (nwc/pay-invoice "lnbc500n1x") opts)]
+        event (nwc/request-event connection (nwc/pay-invoice "lnbc500n1x") opts)]
     (is (nostr/verified? event))
     (is (= {"kind" 23194 "created_at" 1790683200 "pubkey" (nwc/public-key connection)
             "tags" [["encryption" "nip44_v2"] ["p" wallet]]}
            (select-keys event ["kind" "created_at" "pubkey" "tags"])))
     (is (= {"method" "pay_invoice" "params" {"invoice" "lnbc500n1x"}} (opened event)))
     (is (not (str/includes? (get event "content") "lnbc")) "the relay does not read the command")
-    (is (= event (nwc/request connection (nwc/pay-invoice "lnbc500n1x") opts)))
+    (is (= event (nwc/request-event connection (nwc/pay-invoice "lnbc500n1x") opts)))
     (is (= ["expiration" "1790683260"]
-           (last (get (nwc/request connection (nwc/get-balance) (assoc opts :expires-at #inst "2026-09-29T12:01:00Z")) "tags"))))
-    (is (nil? (nwc/request connection (nwc/pay-invoice (apply str (repeat 70000 "a"))) opts))
+           (last (get (nwc/request-event connection (nwc/get-balance) (assoc opts :expires-at #inst "2026-09-29T12:01:00Z")) "tags"))))
+    (is (nil? (nwc/request-event connection (nwc/pay-invoice (apply str (repeat 70000 "a"))) opts))
         "a command with more bytes than a payload holds")
     (doseq [[c command o] [[nil (nwc/get-balance) opts] [connection {} opts] [connection (nwc/get-balance) (dissoc opts :at)]
                            [connection (nwc/get-balance) (dissoc opts :nonce)]]]
-      (is (thrown? #?(:clj Throwable :cljs js/Error) (nwc/request c command o))))))
+      (is (thrown? #?(:clj Throwable :cljs js/Error) (nwc/request-event c command o))))))
 
 (deftest the-event-of-an-answer
-  (let [event (nwc/request connection (nwc/pay-invoice "lnbc500n1x") {:at at :nonce hex-7 :aux hex-8})
+  (let [event (nwc/request-event connection (nwc/pay-invoice "lnbc500n1x") {:at at :nonce hex-7 :aux hex-8})
         id    (get event "id")]
     (testing "a result, in the keys of podcast-clj"
       (is (= {:method "pay_invoice" :request id :preimage "0123" :fees-msat 1000
@@ -216,12 +216,12 @@
          (nwc/info {"content" "pay_invoice" "tags" []}))
       "a wallet that names no encryption reads that of NIP-04 only")
   (let [info (nwc/info {"content" "pay_invoice get_balance" "tags" [["encryption" "nip44_v2"]]})]
-    (is (nil? (nwc/problem info (nwc/get-balance))))
-    (is (nil? (nwc/problem nil (nwc/get-balance))) "an app that does not know the wallet")
+    (is (nil? (nwc/unsupported info (nwc/get-balance))))
+    (is (nil? (nwc/unsupported nil (nwc/get-balance))) "an app that does not know the wallet")
     (is (= {:id :value/wallet-unsupported :level :warning :method "pay_keysend" :methods ["pay_invoice" "get_balance"]}
-           (dissoc (:error (nwc/problem info (nwc/pay-keysend {:sats 50} recipient))) :message)))
+           (dissoc (:error (nwc/unsupported info (nwc/pay-keysend {:sats 50} recipient))) :message)))
     (is (= {:id :value/wallet-unsupported :level :warning :encryption ["nip04"]}
-           (dissoc (:error (nwc/problem (assoc info :encryption ["nip04"]) (nwc/get-balance))) :message)))))
+           (dissoc (:error (nwc/unsupported (assoc info :encryption ["nip04"]) (nwc/get-balance))) :message)))))
 
 (def info-event
   "The info event of the wallet of the tests."

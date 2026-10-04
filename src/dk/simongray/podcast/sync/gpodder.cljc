@@ -80,7 +80,7 @@
                      (throw (ex-info (str "The API has no call " call) {:api api :call call})))]
     (str/replace template
                  #"\{user\}|\{device\}"
-                 #(http/encode (case % "{user}" user "{device}" device)))))
+                 #(http/percent-encode (case % "{user}" user "{device}" device)))))
 
 (defn request
   "The request map for `call`, one of calls, to the server at `root`, with

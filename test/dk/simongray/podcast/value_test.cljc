@@ -376,7 +376,7 @@
    "remote_feed_guid" "" "remote_item_guid" "" "remote_publisher_guid" ""})
 
 (deftest payment-metadata
-  (let [payment (metadata/parse-header (http/encode (json/write-str example-metadata)))]
+  (let [payment (metadata/parse-header (http/percent-encode (json/write-str example-metadata)))]
     (is (= {:id "DBBhBwUise1bcfoHRCC3" :group "EoL2Qp52RMOSiF1rmGGs" :action :boost :split 0.25
             :message "Great episode!" :app-name "Fountain" :app-version "1.3.10" :sender-id "IIaS9X2JuH75yvrRcFoL"
             :sender-name "oscar@fountain.fm" :recipient-name "merryoscar@primal.net"

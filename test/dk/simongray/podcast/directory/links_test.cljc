@@ -166,7 +166,7 @@
       (is (= {:apple-id "1524356573"} (links/link-ids "https://overcast.fm/itunes1524356573/podcasting-2-0"))))
     (testing "a feed URL that is encoded, though its form has it plain"
       (is (= {:feed-url feed-url}
-             (links/link-ids (str "https://antennapod.org/deeplink/subscribe?url=" (http/encode feed-url))))))
+             (links/link-ids (str "https://antennapod.org/deeplink/subscribe?url=" (http/percent-encode feed-url))))))
     (testing "a link that names no show"
       (is (nil? (links/link-ids "https://fountain.fm/episode/123")) "only an episode")
       (is (nil? (links/link-ids "https://pod.link/not-a-url")) "a base64 that is no URL")

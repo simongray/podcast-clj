@@ -38,7 +38,7 @@
   (testing "the feed and item schemas are self-contained"
     (is (= [:schema {:registry schemas} ::schema/feed] schema/feed))
     (is (= [:schema {:registry schemas} :rss/item] schema/item))
-    (is (= [:schema {:registry schemas} :podcast/value] (schema/tag :podcast/value)))))
+    (is (= [:schema {:registry schemas} :podcast/value] (schema/tag-schema :podcast/value)))))
 
 (deftest an-extended-registry
   (let [elements (conj spec/elements {:tag :acme/rating :key :acme/rating :parent #{:channel} :count :one
@@ -49,5 +49,5 @@
            (get extended :acme/rating)))
     (is (some #{[:acme/rating {:optional true} [:ref :acme/rating]]} (get extended ::schema/feed)))
     (is (= [:schema {:registry extended} ::schema/feed] (schema/feed-schema {:registry elements})))
-    (is (= [:schema {:registry extended} :acme/rating] (schema/tag :acme/rating {:registry elements})))
+    (is (= [:schema {:registry extended} :acme/rating] (schema/tag-schema :acme/rating {:registry elements})))
     (is (not (contains? schemas :acme/rating)))))

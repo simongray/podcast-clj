@@ -126,7 +126,7 @@
                      :body    (str "<?xml version=\"1.0\"?><D:multistatus xmlns:D=\"DAV:\">"
                                    (entry "/dav/" nil)
                                    (apply str (for [[n {:keys [version]}] (dissoc @documents ::created)]
-                                                (entry (str "/dav/" (http/encode n)) version)))
+                                                (entry (str "/dav/" (http/percent-encode n)) version)))
                                    "</D:multistatus>")}
                     {:status 404 :headers {} :body ""})
         :get      (if doc

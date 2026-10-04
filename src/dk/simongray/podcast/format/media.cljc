@@ -46,7 +46,7 @@
   [view opts]
   (let [file     (mp3/read view opts)
         frames   (mapcat :frames (:tags file))
-        duration (or (:duration file) (id3/length frames))
+        duration (or (:duration file) (id3/duration frames))
         chs      (id3/chapters frames opts)
         artwork  (id3/artwork frames)]
     (bytes/reported

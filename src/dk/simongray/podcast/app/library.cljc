@@ -224,7 +224,7 @@
         (update :profile #(:profile (profile/refresh-list % url (get-in library [:fetched-lists url :list]) list at)))
         (assoc-in [:fetched-lists url] entry))))
 
-(defn follow
+(defn follow-list
   "The `library` following the OPML list at `url`, whose parse is `list`,
   with the `opts` below.
 
@@ -232,7 +232,7 @@
   :title and :folder of the list as profile/follow-list takes them. The
   shows of the list become subscriptions, which refresh! fetches."
   ([library url list]
-   (follow library url list {}))
+   (follow-list library url list {}))
   ([library url list opts]
    {:pre [(map? list) (map? opts)]}
    (let [at (time-of library opts)]
@@ -240,10 +240,10 @@
          (update :profile profile/follow-list url (select-keys opts [:title :folder]) at)
          (listed url list at opts)))))
 
-(defn unfollow
+(defn unfollow-list
   "The `library` no longer following the list at `url`, with `opts`."
   ([library url]
-   (unfollow library url {}))
+   (unfollow-list library url {}))
   ([library url opts]
    {:pre [(map? opts)]}
    (-> library

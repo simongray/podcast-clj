@@ -135,8 +135,8 @@
                   (profile/prefer {:rate 1.5} t0)
                   (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
                   (profile/configure "feed-a" {:rate 1.0} t0))]
-        (is (= 1.0 (profile/rate s "feed-a")))
-        (is (= 1.5 (profile/rate s "feed-b")))))))
+        (is (= 1.0 (profile/playback-rate s "feed-a")))
+        (is (= 1.5 (profile/playback-rate s "feed-b")))))))
 
 (deftest the-queue
   (let [s (-> (profile/make "phone") (profile/enqueue a t0) (profile/enqueue b t0) (profile/enqueue a t1))]
@@ -377,7 +377,7 @@
       (is (= 3 (profile/rating (profile/rate-episode without a 3 t3) a)) "a rating after the removal")
       (is (nil? (profile/rating (profile/merge without (profile/rate-episode (profile/make "laptop") a 1 t1)) a))
           "the later removal outlives the older rating from another device"))
-    (is (= 2.0 (profile/rate (profile/prefer s {:rate 2.0} t2) "feed-a")) "the speed of playback is another thing")))
+    (is (= 2.0 (profile/playback-rate (profile/prefer s {:rate 2.0} t2) "feed-a")) "the speed of playback is another thing")))
 
 (deftest ratings-in-the-scale-of-the-app
   (let [hundred {:scale {:worst 1 :best 100}}

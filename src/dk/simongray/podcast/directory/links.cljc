@@ -234,7 +234,7 @@
       (when (some? v)
         (case encoding
           :plain     (str v)
-          :encoded   (http/encode v)
+          :encoded   (http/percent-encode v)
           :base64url (http/base64url (str v))
           :hex       (bytes/hex (bytes/encode (str v)))
           :bare      (str/replace (str v) #"(?i)^[a-z][a-z0-9+.-]*://" ""))))))

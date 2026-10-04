@@ -136,7 +136,7 @@
                         (bit-and 1 (bit-shift-right (bytes/at hash i) j)))
                       [0 0 0 0])
         words (map #(reduce (fn [acc bit] (+ (* 2 acc) bit)) 0 %) (partition 5 bits))]
-    (bech32/of-words "lnbc500n" (concat [1 12 18 31 28 25 2] [1 1 20] words (repeat 104 0)))))
+    (bech32/encode-words "lnbc500n" (concat [1 12 18 31 28 25 2] [1 1 20] words (repeat 104 0)))))
 
 (defn view
   "A view of all of the bytes `xs`."

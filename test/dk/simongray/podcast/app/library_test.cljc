@@ -60,7 +60,7 @@
 (deftest a-slim-library
   (let [make    (fn [config]
                   (-> (library/make "phone" {:name "Phone" :config (assoc config :now (constantly now))})
-                      (library/follow "https://example.org/picks.opml" picks {:title "Picks"})
+                      (library/follow-list "https://example.org/picks.opml" picks {:title "Picks"})
                       (library/subscribe url fresh {:auto-queue? true})))
         fetch   (fn [u _]
                   (case u
@@ -188,19 +188,19 @@
     (is (nil? (library/search library "future")) "no index, no search")))
 
 (deftest following-a-list
-  (let [lib (library/follow library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]
+  (let [lib (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]
     (is (= {"https://example.org/picks.opml" {:title "Picks" :folder "Picks"}} (profile/lists (:profile lib))))
     (is (= "\"p1\"" (get-in lib [:fetched-lists "https://example.org/picks.opml" :etag])))
     (is (= (at 86400) (get-in lib [:fetched-lists "https://example.org/picks.opml" :next-check])))
     (is (= 2 (count (library/subscriptions lib))) "the show of the list joined")
     (is (nil? (:feed (get (library/subscriptions lib) (profile/normal-url other-url)))) "not fetched yet")
-    (let [gone (library/unfollow lib "https://example.org/picks.opml")]
+    (let [gone (library/unfollow-list lib "https://example.org/picks.opml")]
       (is (= {} (profile/lists (:profile gone))))
       (is (= {} (:fetched-lists gone)))
       (is (= 2 (count (library/subscriptions gone))) "the subscriptions stay"))))
 
 (deftest the-step-that-fetches-what-is-due
-  (let [lib     (library/follow library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks"})
+  (let [lib     (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks"})
         later   (at 86400)
         asked   (atom [])
         fetch   (fn [url _]
@@ -380,7 +380,7 @@
   (let [saved (dissoc library :config)
         lib   (assoc saved :config {:now (constantly now)})]
     (is (= saved (edn/read-string (pr-str saved))) "EDN without the clock of the config")
-    (is (= (at 86400) (get-in (library/follow lib "https://example.org/picks.opml" picks)
+    (is (= (at 86400) (get-in (library/follow-list lib "https://example.org/picks.opml" picks)
                               [:fetched-lists "https://example.org/picks.opml" :next-check]))
         "the defaults stand in for what the config leaves out")))
 

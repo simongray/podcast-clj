@@ -133,13 +133,13 @@
   ([opts]
    [:schema {:registry (schemas opts)} ::feed]))
 
-(defn tag
-  "The self-contained schema of the element tagged `k`, e.g.
-  (tag :podcast/value), with the `opts` of schemas."
-  ([k]
-   (tag k {}))
-  ([k opts]
-   [:schema {:registry (schemas opts)} (ref-key k)]))
+(defn tag-schema
+  "The self-contained schema of the element `tag`, e.g.
+  (tag-schema :podcast/value), with the `opts` of schemas."
+  ([tag]
+   (tag-schema tag {}))
+  ([tag opts]
+   [:schema {:registry (schemas opts)} (ref-key tag)]))
 
 (def feed
   "The self-contained schema of a feed map."
@@ -147,10 +147,10 @@
 
 (def item
   "The self-contained schema of an item map."
-  (tag :item))
+  (tag-schema :item))
 
 (comment
-  (tag :podcast/transcript)
+  (tag-schema :podcast/transcript)
   ;; => [:schema {:registry ...} :podcast/transcript]
   (get (schemas) :podcast/transcript)
   ;; => [:map [:url :string] [:type :string] [:language {:optional true} :string] ...]

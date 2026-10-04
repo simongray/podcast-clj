@@ -106,11 +106,11 @@
          {:recipients (into (vec fees) (:recipients split))})
        {:recipients (vec recipients)})))
   ([block seconds remotes]
-   (let [at   (recipients-at block seconds)
-         item (:remote-item (:remote at))]
+   (let [paid (recipients-at block seconds)
+         item (:remote-item (:remote paid))]
      (if (contains? remotes item)
-       (with-remote block at (get remotes item))
-       at))))
+       (with-remote block paid (get remotes item))
+       paid))))
 
 (defn share-total
   "The sum of the splits of the non-fee `recipients`."
@@ -118,23 +118,23 @@
   (transduce (comp (remove fee?) (map split-of)) + 0 recipients))
 
 (defn with-remote
-  "The recipients of `at`, the result of recipients-at for `block`, with
+  "The recipients of `paid`, the result of recipients-at for `block`, with
   the `remote` value block that a time split pointed at folded in.
 
-  The result is `at` with :recipients that hold the fees of both blocks,
+  The result is `paid` with :recipients that hold the fees of both blocks,
   and it keeps :remote, so that a payment can name the remote item. The
   non-fee recipients of the remote block get the percentage of the split,
   and those of the block get the rest. Their splits are rescaled to whole
   shares that express this. Without a `remote` block, the recipients of
-  the block apply. Outside a remote split, `at` stays as it is."
-  [block at remote]
-  (if-let [{:keys [percentage]} (:remote at)]
+  the block apply. Outside a remote split, `paid` stays as it is."
+  [block paid remote]
+  (if-let [{:keys [percentage]} (:remote paid)]
     (let [local  (remove fee? (:recipients block))
           others (remove fee? (:recipients remote))
           fees   (filter fee? (concat (:recipients block) (:recipients remote)))
           total  (share-total local)
           total' (share-total others)]
-      (assoc at :recipients
+      (assoc paid :recipients
              (if (zero? total')
                (vec (:recipients block))
                (->> (concat fees
@@ -144,7 +144,7 @@
                               (assoc r :split (* (split-of r) percentage (max total 1)))))
                     (remove #(and (not (fee? %)) (zero? (:split %))))
                     vec))))
-    at))
+    paid))
 
 (defn payments
   "The shares of `amount` that `recipients` get, as the podcast:value

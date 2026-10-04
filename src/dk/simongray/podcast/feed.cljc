@@ -164,7 +164,7 @@
   [ctx parent elements path]
   (reduce (fn [m element]
             (let [tag (xml/tag element)]
-              (if-let [entry (spec/entry (:registry ctx) tag parent)]
+              (if-let [entry (spec/entry-for (:registry ctx) tag parent)]
                 (let [k     (spec/key-for entry parent)
                       many? (= :many (spec/count-for entry parent))
                       path' (cond-> (conj path k) many? (conj (count (get m k))))

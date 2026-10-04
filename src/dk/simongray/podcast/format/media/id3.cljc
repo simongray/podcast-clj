@@ -6,7 +6,7 @@
   the frames of the tag at an offset of a byte view, as in
   dk.simongray.podcast.util.bytes. The read-all function gives the frames
   of the tags that follow each other there. The chapters, artwork and
-  length functions read those from the frames, and report gives the
+  duration functions read those from the frames, and report gives the
   diagnostics of a reading.
 
   A frame is a map with its :id. Its other keys are those of its kind:
@@ -528,9 +528,9 @@
     (some-> (or (first (filter #(= 3 (:picture-type %)) pictures)) (first pictures))
             (select-keys [:type :data :description]))))
 
-(defn length
-  "The length of the audio in seconds, from the TLEN frame in `frames`, or
-  nil when no TLEN frame gives a number. The frame gives the length in
+(defn duration
+  "The duration of the audio in seconds, from the TLEN frame in `frames`,
+  or nil when no TLEN frame gives a number. The frame gives the length in
   milliseconds."
   [frames]
   (when-let [s (:text (frame frames "TLEN" "TLE"))]
@@ -622,7 +622,7 @@
   (header sample 0)
   (read sample 0)
   (report (read sample 0))
-  (length (:frames (read sample 0)))
+  (duration (:frames (read sample 0)))
 
   ;; a text encoding that ID3 does not define, with the quirk and without it
   (def loose

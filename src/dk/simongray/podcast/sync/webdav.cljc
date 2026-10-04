@@ -66,7 +66,7 @@
    {:pre [(map? opts)]}
    (let [auth    (http/authorization credentials)
          headers (cond-> {"User-Agent" http/user-agent} auth (assoc "Authorization" auth))
-         url     (str root (http/encode name))
+         url     (str root (http/percent-encode name))
          [method url headers body]
          (case call
            :list            [:propfind root (assoc headers "Depth" "1" "Content-Type" "application/xml; charset=utf-8") propfind-body]

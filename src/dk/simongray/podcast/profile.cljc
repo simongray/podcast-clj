@@ -241,7 +241,7 @@
   [profile preferences at]
   (crdt/write-each profile (for [[k v] preferences] [[:preferences k] (constantly {:value v})]) at))
 
-(defn rate
+(defn playback-rate
   "The playback rate for the feed `feed-guid` in `profile`: its own setting,
   or else the listener's preference."
   [profile feed-guid]
@@ -757,8 +757,7 @@
 
   The rating must be within rating-scale, or the :scale in `opts`, or
   nothing changes. The profile keeps the scale with the rating, so another
-  app can read it in its own scale. Not to be confused with rate, the
-  speed of playback."
+  app can read it in its own scale."
   ([profile id n at]
    (rate-episode profile id n at {}))
   ([profile id n at {:keys [scale] :as opts}]

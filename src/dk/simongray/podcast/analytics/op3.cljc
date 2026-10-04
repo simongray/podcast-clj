@@ -145,7 +145,7 @@
   (str/join "&" (for [[k v] params
                       v (if (coll? v) v [v])
                       :when (some? v)]
-                  (str (http/encode k) "=" (http/encode (if (inst? v) (time/format-iso8601 v) v))))))
+                  (str (http/percent-encode k) "=" (http/percent-encode (if (inst? v) (time/format-iso8601 v) v))))))
 
 (defn request
   "The request map of the call `call` with `params`, as calls lists
@@ -155,9 +155,9 @@
    (request token call params {}))
   ([token call {:keys [show episodes? start end episode bots? limit continuation-token] :as params} opts]
    (let [[path params] (case call
-                         :show                    [(str "shows/" (http/encode (if (http/web-url? show) (http/base64url show) show)))
+                         :show                    [(str "shows/" (http/percent-encode (if (http/web-url? show) (http/base64url show) show)))
                                                    {"episodes" (when episodes? "include")}]
-                         :downloads               [(str "downloads/show/" (http/encode show))
+                         :downloads               [(str "downloads/show/" (http/percent-encode show))
                                                    {"format" "json" "start" start "end" end "episodeId" episode
                                                     "bots" (when bots? "include") "limit" limit
                                                     "continuationToken" continuation-token}]
