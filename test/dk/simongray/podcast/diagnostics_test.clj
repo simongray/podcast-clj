@@ -19,13 +19,16 @@
   #{:xml/unknown :xml/namespaces :xml/report :xml/malformed
     ;; the calls of the Podcast Index
     :value/by-feed-id :value/by-feed-url :value/by-podcast-guid :value/by-episode-guid
-    :value/batch-by-episode-guid})
+    :value/batch-by-episode-guid
+    ;; the keys of a show from a directory
+    :directory/episode-count :directory/id :directory/rank :directory/raw :directory/source
+    :directory/sources :directory/subscribers :directory/url})
 
 (defn- ids-in-source
   "The diagnostic ids that the source names. A keyword of an alias, such as
   `::comments/for`, is none."
   []
-  (->> (re-seq #"(?<!:):(?:fetch|discovery|repair|quirk|xml|feed|transcript|chapters|id3|mp3|mp4|file|validate|check|sync|podping|comments|value|analytics)/[a-z0-9-]+" source)
+  (->> (re-seq #"(?<!:):(?:fetch|discovery|directory|repair|quirk|xml|feed|transcript|chapters|id3|mp3|mp4|file|validate|check|sync|podping|comments|value|analytics)/[a-z0-9-]+" source)
        (map #(keyword (subs % 1)))
        (remove not-diagnostics)
        set))

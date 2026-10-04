@@ -84,7 +84,11 @@
   ([key nonce data]
    (encrypt key nonce data {}))
   ([key nonce data {:keys [counter] :or {counter 0} :as opts}]
-   {:pre [(map? opts) (= 32 (bytes/length key)) (= 12 (bytes/length nonce))]}
+   {:pre [(map? opts)]}
+   (when-not (= 32 (bytes/length key))
+     (throw (ex-info "The key doesn't have 32 bytes" {:bytes (bytes/length key)})))
+   (when-not (= 12 (bytes/length nonce))
+     (throw (ex-info "The nonce doesn't have 12 bytes" {:bytes (bytes/length nonce)})))
    (let [stream (mapcat #(block key nonce (+ counter %)) (range))]
      (bytes/of (map #(bit-xor (bytes/at data %1) %2) (range (bytes/length data)) stream)))))
 

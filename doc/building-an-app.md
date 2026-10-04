@@ -143,15 +143,16 @@ credentials, and combines the results into one entry per show:
 
 For the charts, use `directory/fetch-chart!`, optionally for one category
 of Apple Podcasts. A source without a chart for the category, the country
-or the language ends up under `:failed`:
+or the language ends up in the `:report`:
 
 ```clojure
 (def chart
   (directory/fetch-chart! {:category "Technology" :country "dk" :limit 10}))
 
 (map resolve/title (:results chart))
-(:failed chart)
-;; => {:fyyd "fyyd has no chart by country" :gpodder "gpodder.net has no chart by country"}
+(map (juxt :source :reason) (:report chart))
+;; => ([:fyyd "fyyd has no chart by country"]
+;;     [:gpodder "gpodder.net has no chart by country"])
 ```
 
 The Podcast Index has no names for subcategories like Tech News, so give a

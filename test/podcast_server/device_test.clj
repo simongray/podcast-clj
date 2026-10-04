@@ -12,7 +12,7 @@
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.file :as file]
             [dk.simongray.podcast.sync.store :as store]
-            [dk.simongray.podcast.test-support :refer [fixture with-temp-dir]]
+            [dk.simongray.podcast.test-support :refer [failed fixture with-temp-dir]]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.secret :as secret]
@@ -52,7 +52,7 @@
       (let [store (service/sync-store {:data-dir dir})]
         (phone-synced! store)
         (let [library (device/step! (atom (device/make {:fetch fetch})) (store/backend store))]
-          (is (nil? (get-in library [:sync :failed])))
+          (is (nil? (failed (:sync library))))
           (is (= (feeds/slim feed) (get-in library [:feeds (first id) :feed])) "the slim feed of the phone's subscription")
           (is (= 600 (:position (profile/episode-entry (:profile library) id))) "the phone's progress")
           (is (.isFile (io/file dir "sync" "podcast-server.edn")) "the library's own document"))))))

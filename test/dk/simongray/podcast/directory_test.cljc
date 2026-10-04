@@ -164,8 +164,10 @@
                   :else                                   {:status 500 :body ""}))]
     (run (fn []
            (async/then (directory/fetch-chart! {:category "Technology" :limit 2 :send send})
-                       (fn [{:keys [results failed]}]
-                         (is (= {:fyyd "fyyd has no chart by category"} failed) "a source without such a chart tells so")
+                       (fn [{:keys [results report]}]
+                         (is (= [[:directory/source-failed :warning :fyyd "fyyd has no chart by category"]]
+                                (map (juxt :id :level :source :reason) report))
+                             "a source without such a chart tells so")
                          (is (some #(str/includes? % "genre=1318") @asked))
                          (is (some #(str/includes? % "lookup?id=1745048921%2C1701616757") @asked)
                              "the shows of the chart of Apple, looked up for their feeds")
@@ -200,8 +202,8 @@
     (is (thrown? #?(:clj Exception :cljs js/Error) (directory/request {:api :spotify :root "https://x/"} :search {:q "x"}))
         "an API that podcast-clj does not know")
     (run #(async/then (directory/search! "x" {:sources [mirror] :send (constantly {:status 500 :body "down"})})
-                      (fn [{:keys [failed]}]
-                        (is (= [:mirror] (keys failed)) "a source that fails is named by its id"))))))
+                      (fn [{:keys [report]}]
+                        (is (= [:mirror] (map :source report)) "a source that fails is named by its id"))))))
 
 (deftest apple
   (testing "search results"
@@ -293,8 +295,8 @@
 (deftest statuses
   (let [refused (constantly {:status 401 :body "{\"status\":\"false\",\"description\":\"Authorization header value is not valid\"}"})]
     (run #(async/then (directory/search! "x" {:sources [:podcastindex] :credentials {:key "k" :secret "s"} :send refused})
-                      (fn [{:keys [failed]}]
-                        (is (= [:podcastindex] (keys failed)) "a refused key is a failure, named as one, not an empty answer")))
+                      (fn [{:keys [report]}]
+                        (is (= [:podcastindex] (map :source report)) "a refused key is a failure, named as one, not an empty answer")))
          #(async/then (directory/call! :fyyd :lookup {:id 1} {:send (constantly {:status 404 :body "Not Found"})})
                       (fn [shows]
                         (is (= [] shows) "and a 404 is no shows"))))))

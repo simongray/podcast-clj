@@ -122,7 +122,9 @@
      ([invoice]
       (pay-invoice! invoice {}))
      ([invoice opts]
-      {:pre [(map? opts) (string? invoice)]}
+      {:pre [(map? opts)]}
+      (when-not (string? invoice)
+        (throw (ex-info "The invoice isn't a string" {})))
       (call-provider! opts
                       (fn [^js provider] (.sendPayment provider invoice))
                       (fn [{:strs [preimage]}]

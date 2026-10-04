@@ -152,8 +152,8 @@
       (when synced
         [:span.muted
          (str " Synced at " (.toLocaleTimeString ^js (:at synced)))
-         (when-let [failed (:failed synced)]
-           (str "; failed: " (str/join ", " (for [[backend message] failed] (str backend ": " message)))))
+         (when-let [failed (seq (filter #(= :sync/backend-failed (:id %)) (:report synced)))]
+           (str "; failed: " (str/join ", " (for [{:keys [backend reason]} failed] (str backend ": " reason)))))
          (when (seq (:report synced))
            (str "; " (count (:report synced)) " remark" (when (> (count (:report synced)) 1) "s")))])]
      (when (seq (:report synced))

@@ -311,9 +311,8 @@
     (run
      (fn []
        (async/then (library/sync! library [backend] {:at (at 10)})
-                   (fn [{{:keys [failed report]} :sync :as lib}]
-                     (is (nil? failed))
-                     (is (= [] report))
+                   (fn [{{:keys [report]} :sync :as lib}]
+                     (is (= [] report) "no backend failed, and nothing else to report")
                      (is (= 1 (count @documents)) "the phone wrote its document")
                      (is (map? (get-in lib [:sync :cursors])))
                      (is (= (at 10) (get-in lib [:sync :at])))

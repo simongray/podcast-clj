@@ -142,11 +142,11 @@ profile, and with the `:at`, `:clock` and `:failures` that
 ```clojure
 {:state   merged                ; the local state with the pulled states merged
  :cursors {"Nextcloud" {…} …}   ; by backend name
- :failed  {"Dropbox" "…"}       ; the backends that failed, with the message
  :report  [...]}                ; the diagnostics of the step
 ```
 
-- There's no `:failed` when no backend failed.
+- A backend that failed is in the report as `:sync/backend-failed`, with
+  its `:backend` and the `:reason`.
 - If the pull of a backend fails, `sync!` doesn't push to it, and its
   cursor stays the same. If a push fails, the backend keeps the cursor of
   its pull.

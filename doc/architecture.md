@@ -303,12 +303,12 @@ behind one shape. The results have the keys of a parsed feed, so
 `:directory/*`. `combine` merges the answers of several sources into one
 entry per show, so a chart entry, which names no feed, gets its feed URL
 from a lookup or another source. A search asks all sources at once, and a
-source that fails ends up under `:failed` instead of throwing.
+source that fails ends up in the `:report` instead of throwing.
 
 A chart can be for one category, but each source names categories its own
 way. The Podcast Index silently gives the chart of all categories for a
 name it doesn't know. A chart of the wrong shows is worse than none, so
-podcast-clj puts that source under `:failed` instead. It does the same
+podcast-clj puts that source in the `:report` instead. It does the same
 with a source that can't narrow its chart to the country or the language
 asked for, such as gpodder.net, which has one chart for the whole world.
 

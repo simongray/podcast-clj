@@ -10,7 +10,7 @@
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav :as webdav]
-            [dk.simongray.podcast.test-support :refer [t1 t2 t3 t4 a same? with-temp-dir]]
+            [dk.simongray.podcast.test-support :refer [t1 t2 t3 t4 a failed same? with-temp-dir]]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [inspector.service :as service]
@@ -96,8 +96,8 @@
                               [backend] {:at t2})
           laptop  (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t2) [backend] {:at t3})
           phone2  (sync/sync! (:state phone) [backend] {:at t4 :cursors (:cursors phone)})]
-      (is (nil? (:failed phone)))
-      (is (nil? (:failed laptop)))
+      (is (nil? (failed phone)))
+      (is (nil? (failed laptop)))
       (is (= [] (:report phone2)))
       (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"}
              (set (map #(.getName ^java.io.File %) (.listFiles (io/file *dir* "sync"))))))

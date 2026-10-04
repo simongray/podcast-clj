@@ -97,7 +97,7 @@
                           :when (.isFile f)]
                       {:name (.getName f) :version (version f)}))
         :read     (fn [name]
-                    (let [f (file name)]
+                    (let [^File f (file name)]
                       ;; the version before the body: a file replaced in between
                       ;; then reads as changed next time, not as unchanged
                       (try
@@ -107,7 +107,7 @@
                         (catch FileNotFoundException _
                           nil))))
         :version  (fn [name]
-                    (let [f (file name)]
+                    (let [^File f (file name)]
                       (when (.isFile f)
                         (version f))))
         :write    (fn [name body]

@@ -187,5 +187,5 @@
         (is (= 404 (:status (small {:request-method :get :query-string (query {"hub.mode" "subscribe"})}))))
         (is (= 1 (count @came)))))
     (is (= 405 (:status (serve {:request-method :put}))))
-    (is (thrown? #?(:clj AssertionError :cljs js/Error) (websub/handler {:wanted? (constantly true)}))
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) (websub/handler {:wanted? (constantly true)}))
         "a handler needs the function that gets the feed")))

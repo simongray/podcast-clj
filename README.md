@@ -177,8 +177,8 @@ and syncing also record what they did in it:
 ;; sync the profile with the listener's other devices through a Dropbox folder,
 ;; and see what failed and what the step reported
 (def dropbox (file/backend "/Users/simon/Dropbox/Podcasts"))
-(-> (swap! lib library/merge (library/sync! @lib [dropbox])) :sync (select-keys [:failed :report]))
-;; => {:report []}
+(-> (swap! lib library/merge (library/sync! @lib [dropbox])) :sync :report)
+;; => []
 
 ;; the listener's profile: the subscriptions, queue, progress, stars and more
 (:profile @lib)

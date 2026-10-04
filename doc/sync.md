@@ -62,7 +62,8 @@ two to four functions.
 
 A refused write is a value, not an exception, since it's a normal outcome
 of the shared strategy. Errors of the network or a service are exceptions,
-and the engine turns each one into an entry under `:failed`.
+and the engine turns each one into a `:sync/backend-failed` diagnostic in
+the report.
 
 A store is a map of functions rather than a protocol or a multimethod, for
 four reasons:

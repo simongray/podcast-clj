@@ -109,7 +109,9 @@
   ([feeds url result at]
    (add feeds url result at {}))
   ([feeds url result at cadence]
-   {:pre [(map? (:feed result)) (map? cadence)]}
+   {:pre [(map? cadence)]}
+   (when-not (map? (:feed result))
+     (throw (ex-info "A result without a :feed can't be added" {:url url :status (:status result)})))
    (let [cadence   (merge default-cadence cadence)
          feed-guid (feed/feed-guid (:feed result) url)]
      (assoc feeds feed-guid (fetched (get feeds feed-guid {}) url result at cadence)))))

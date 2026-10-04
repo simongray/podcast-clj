@@ -237,7 +237,9 @@
   ([library url list]
    (follow-list library url list {}))
   ([library url list opts]
-   {:pre [(map? list) (map? opts)]}
+   {:pre [(map? opts)]}
+   (when-not (map? list)
+     (throw (ex-info "The list isn't a parsed OPML list" {:url url})))
    (let [at (time-of library opts)]
      (-> library
          (update :profile profile/follow-list url (select-keys opts [:title :folder]) at)
@@ -567,9 +569,8 @@
       {:cursors  {…}         ; those of the stores, for the next step
        :at       #inst \"…\"
        :clock    #inst \"…\"   ; the clock of the profile after the step
-       :failures 0           ; the steps in a row that failed
-       :failed   {…}         ; the backends that failed, when any did
-       :report   [...]}"
+       :failures 0           ; the steps in a row in which a backend failed
+       :report   [...]}      ; with :sync/backend-failed for each that did"
   ([library backends]
    (sync! library backends {}))
   ([library backends opts]
@@ -577,13 +578,13 @@
    (let [at     (time-of library opts)
          before (:profile library)]
      (async/then (sync/sync! before backends (assoc opts :at at :cursors (get-in library [:sync :cursors])))
-                 (fn [{:keys [state cursors failed report]}]
+                 (fn [{:keys [state cursors report]}]
                    (let [profile  (-> before (profile/merge state) (profile/compact at))
-                         failures (if (seq failed) (inc (get-in library [:sync :failures] 0)) 0)]
+                         failed?  (some #(= :sync/backend-failed (:id %)) report)
+                         failures (if failed? (inc (get-in library [:sync :failures] 0)) 0)]
                      (assoc library
                             :profile profile
-                            :sync (cond-> {:cursors cursors :at at :clock (:clock profile) :failures failures :report report}
-                                    (seq failed) (assoc :failed failed)))))))))
+                            :sync {:cursors cursors :at at :clock (:clock profile) :failures failures :report report})))))))
 
 (defn- newer
   "Of `a` and `b`, two maps with an instant under `k`, the newer one, or

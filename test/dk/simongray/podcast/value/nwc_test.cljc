@@ -93,6 +93,9 @@
          (nwc/make-invoice 50000 {:description "A boost" :expiry 600})))
   (is (= {:method "lookup_invoice" :params {"payment_hash" "31af"}} (nwc/lookup-invoice {:payment-hash "31af"})))
   (is (= {:method "lookup_invoice" :params {"invoice" "lnbc1x"}} (nwc/lookup-invoice {:invoice "lnbc1x"})))
+  (doseq [wrong [#(nwc/pay-invoice nil) #(nwc/make-invoice "50") #(nwc/lookup-invoice {})]]
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) (wrong))
+        "a wrong argument throws, also in a release build"))
   (is (= {:method "get_balance" :params {}} (nwc/get-balance)))
   (is (= {:method "get_info" :params {}} (nwc/get-info)))
   (testing "a keysend payment, with the records of a boost"

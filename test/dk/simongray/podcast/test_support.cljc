@@ -30,6 +30,14 @@
      [path]
      (slurp (io/resource path))))
 
+(defn failed
+  "The reason of each backend that failed in the sync `step`, by name, or
+  nil when none did."
+  [step]
+  (not-empty (into {} (for [{:keys [id backend reason]} (:report step)
+                            :when (= :sync/backend-failed id)]
+                        [backend reason]))))
+
 (defn run
   "Run the steps `fs` one after another as a test on either platform. Each
   step is a function of no arguments that gives a value or a promise.

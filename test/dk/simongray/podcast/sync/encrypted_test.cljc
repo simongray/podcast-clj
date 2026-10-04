@@ -10,7 +10,7 @@
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
             [dk.simongray.podcast.sync.encrypted :as encrypted]
             [dk.simongray.podcast.sync.store :as store]
-            [dk.simongray.podcast.test-support :refer [fixture #?@(:clj [t0 t1 t2 t3 a])]]))
+            [dk.simongray.podcast.test-support :refer [fixture #?@(:clj [t0 t1 t2 t3 a failed])]]))
 
 (def passphrase
   "correct horse battery staple")
@@ -47,6 +47,10 @@
   (testing "nor one whose parts are not base64"
     (doseq [iv ["\"\"" "\"not base64!\"" "\"AAA\"" "1"]]
       (is (nil? (encrypted/envelope (str/replace sealed-by-the-jvm #":iv \"[^\"]*\"" (str ":iv " iv)))) iv))))
+
+(deftest a-store-needs-a-passphrase
+  (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) (encrypted/store (store/memory) nil))
+      "also in a release build, which leaves assertions out"))
 
 #?(:clj
    (deftest sealing-and-opening
@@ -94,7 +98,7 @@
            (reset! typed passphrase)
            (is (= plaintext (:body ((:fetch s3) "phone.edn"))))))
        (testing "a store without a passphrase isn't made"
-         (is (thrown? AssertionError (encrypted/store (store/memory documents) nil))))
+         (is (thrown? clojure.lang.ExceptionInfo (encrypted/store (store/memory documents) nil))))
        (is (:ok? (store/check! s)) "the generic check passes through it"))))
 
 #?(:clj
@@ -108,15 +112,15 @@
                                  [(backend passphrase)] {:at t1})
            laptop    (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [(backend passphrase)] {:at t2})
            phone2    (sync/sync! (:state phone) [(backend passphrase)] {:at t3 :cursors (:cursors phone)})]
-       (is (nil? (:failed phone)))
-       (is (nil? (:failed laptop)))
-       (is (nil? (:failed phone2)))
+       (is (nil? (failed phone)))
+       (is (nil? (failed laptop)))
+       (is (nil? (failed phone2)))
        (is (= 60 (:position (profile/episode-entry (:state phone2) a))))
        (is (every? #(str/starts-with? (:body %) "{:encrypted") (vals (dissoc @documents store/opml-name)))
            "every document at rest is ciphertext")
        (is (str/includes? (:body (@documents store/opml-name)) "https://a/rss") "the subscription list stays readable, as asked")
-       (let [{:keys [failed]} (sync/sync! (profile/make "tablet") [(backend "wrong")] {:at t3})]
-         (is (str/includes? (get failed "memory") "does not open"))))))
+       (let [step (sync/sync! (profile/make "tablet") [(backend "wrong")] {:at t3})]
+         (is (str/includes? (get (failed step) "memory") "does not open"))))))
 
 #?(:cljs
    (deftest sealing-and-opening-with-webcrypto

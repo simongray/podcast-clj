@@ -34,12 +34,13 @@ A function that sends requests also returns its failures as diagnostics, under t
 | Id | Level | Meaning |
 |---|---|---|
 | `:fetch/unreachable` | warning | The feed couldn't be fetched: the connection failed, the request took too long, the answer was too large, or the URL wasn't allowed. |
-| `:fetch/malformed` | warning | The server answered with something that isn't an RSS feed: the body isn't XML, or its root element isn't rss. |
+| `:fetch/malformed` | warning | The document isn't an RSS feed: it isn't XML, or its root element isn't rss. |
 | `:fetch/page-failed` | warning | A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it. |
 | `:fetch/status` | warning | The server answered with a status that isn't a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row. |
 | `:fetch/guid-taken` | warning | The feed declares the podcast:guid of another subscription, at another URL, and would take that subscription over, so it isn't added. To replace the other subscription, unsubscribe from it first. |
 | `:discovery/unreadable` | warning | The text isn't a URL, a domain or a link of an app, so there's nothing to fetch. It may be words to search a directory with. |
 | `:discovery/not-found` | warning | No feed was found: the page names none, and none of the other places that were tried has one. |
+| `:directory/source-failed` | warning | A directory gave no answer to a search or a chart, so its shows are missing from the results. The :source names it, and the :reason says why. |
 | `:repair/leading-junk` | warning | Text before the XML declaration or the rss element, such as whitespace, a byte order mark or a PHP warning, was removed. |
 | `:repair/trailing-junk` | warning | Text after the end of the rss element, such as a PHP warning, was removed. |
 | `:repair/control-characters` | warning | Control characters that XML forbids, and character references to them, were removed. |
@@ -155,6 +156,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:validate/deprecated` | info | The spec of the element has deprecated it. |
 | `:validate/required` | error | A required element of the chosen requirements is missing. |
 | `:validate/recommended` | warning | A recommended element of the chosen requirements is missing. |
+| `:sync/backend-failed` | warning | A backend failed in a pull or a push, so the step went on without it, and it keeps its cursor. The :backend names it, and the :reason says why. |
 | `:sync/unreadable-document` | warning | A document in the store didn't read as a sync document, and was left out until its device writes one that reads. |
 | `:sync/newer-format` | warning | A document was written by a newer version of podcast-clj than this one reads, and was left out. |
 | `:sync/malformed-state` | error | The profile of this device holds a value that the other devices can't merge, e.g. from an assoc, so the step wrote nothing. The :error says where. |

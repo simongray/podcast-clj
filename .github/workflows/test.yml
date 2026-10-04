@@ -37,10 +37,18 @@ jobs:
       - name: JVM tests
         run: clojure -X:test
 
+      # The build runs the tests itself, but exits 0 when one fails, so
+      # node runs the built file, and its exit code fails the step.
       - name: Node tests
         run: |
           npm ci
-          clojure -M:cljs compile test
+          clojure -M:cljs compile test --config-merge '{:autorun false}'
+          node target/node-tests.js
+
+      - name: Node tests, compiled with advanced optimizations
+        run: |
+          clojure -M:cljs release test --config-merge '{:autorun false}'
+          node target/node-tests.js
 
       - name: Lint
         run: clojure -Sdeps '{:deps {clj-kondo/clj-kondo {:mvn/version "2026.08.04"}}}' -M -m clj-kondo.main --lint src test dev web server build.clj

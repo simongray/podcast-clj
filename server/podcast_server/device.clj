@@ -90,8 +90,9 @@
 (defn- log-problems!
   "Log the failures of the last sync and fetch of `library`."
   [library]
-  (when-let [failed (get-in library [:sync :failed])]
-    (log/warn :msg "The library couldn't sync" :failed failed))
+  (doseq [problem (get-in library [:sync :report])
+          :when   (= :sync/backend-failed (:id problem))]
+    (log/warn :msg "The library couldn't sync" :problem problem))
   (doseq [problem (get-in library [:refresh :report])]
     (log/warn :msg "The library couldn't fetch a feed" :problem problem)))
 

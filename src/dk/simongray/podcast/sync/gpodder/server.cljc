@@ -337,7 +337,8 @@
   handler of the user in its path. Keep each handler while the site runs,
   since it holds the sessions and the times that the changes arrived."
   [{:keys [state authorized?] sync! :sync :as opts}]
-  {:pre [(some? state) (fn? authorized?)]}
+  (when-not (and (some? state) (fn? authorized?))
+    (throw (ex-info "A handler needs the :state and the function :authorized?" {})))
   ;; TODO: keep the arrival times, the sessions and the devices in the store,
   ;; so that they outlive a restart
   (let [book (atom {:index {} :sessions {} :devices {} :urls {}})

@@ -12,7 +12,7 @@
             [dk.simongray.podcast.sync.webdav :as webdav]
             #?(:clj [dk.simongray.podcast.sync.webdav.server :as server])
             #?(:cljs [dk.simongray.podcast.util.http :as http])
-            [dk.simongray.podcast.test-support :refer [t2 t3 a phone-state laptop-state fixture #?@(:clj [same?])]]))
+            [dk.simongray.podcast.test-support :refer [t2 t3 a failed phone-state laptop-state fixture #?@(:clj [same?])]]))
 
 (def root
   "https://cloud.example.org/remote.php/dav/files/simon/podcasts/")
@@ -274,8 +274,8 @@
                phone   (sync/sync! (phone-state) [backend] {:at t2})
                laptop  (sync/sync! (laptop-state) [backend] {:at t3})]
            (is ok? (pr-str checks))
-           (is (nil? (:failed phone)))
-           (is (nil? (:failed laptop)))
+           (is (nil? (failed phone)))
+           (is (nil? (failed laptop)))
            (is (= #{"podcast.edn" store/probe-name} (set (keys @documents)))
                "one shared document, and the probe that the store cannot delete")
            (is (= 900 (:position (profile/episode-entry (:state laptop) a)))))))))
@@ -310,7 +310,7 @@
                phone   (sync/sync! (phone-state) [backend] {:at t2})
                laptop  (sync/sync! (laptop-state) [backend] {:at t3})
                phone2  (sync/sync! (:state phone) [backend] {:at t3 :cursors (:cursors phone)})]
-           (is (nil? (:failed phone)) "the collection was made on the first put")
+           (is (nil? (failed phone)) "the collection was made on the first put")
            (is (= #{"phone.edn" "laptop.edn" "subscriptions.opml"} (set (keys (dissoc @documents ::created)))))
            (is (= 900 (:position (profile/episode-entry (:state phone2) a))))
            (is (same? (:state laptop) (:state phone2)))
@@ -340,7 +340,7 @@
              backend   (store/backend (webdav/store "https://dav.example.org/dav/" {:send (stand-in documents)}))]
          (-> (sync/sync! (phone-state) [backend] {:at t2})
              (.then (fn [phone]
-                      (is (nil? (:failed phone)))
+                      (is (nil? (failed phone)))
                       (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))
                       (sync/sync! (laptop-state) [backend] {:at t3})))
              (.then (fn [laptop]
@@ -363,7 +363,7 @@
          (set! (.-fetch js/globalThis) (fetch-stand-in documents))
          (-> (sync/sync! (phone-state) [(store/backend (webdav/store "https://dav.example.org/dav/"))] {:at t2})
              (.then (fn [phone]
-                      (is (nil? (:failed phone)) "a store without :send sends with http/send!, over js/fetch")
+                      (is (nil? (failed phone)) "a store without :send sends with http/send!, over js/fetch")
                       (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))))
              (.catch (fn [e] (is false (str "rejected: " e))))
              (.finally (fn []

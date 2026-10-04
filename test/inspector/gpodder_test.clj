@@ -10,7 +10,7 @@
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav :as webdav]
-            [dk.simongray.podcast.test-support :refer [with-temp-dir]]
+            [dk.simongray.podcast.test-support :refer [failed with-temp-dir]]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
@@ -69,12 +69,12 @@
       (let [backend (store/backend (webdav/store "http://inspector/dav/"))
             browser (sync/sync! (profile/make "browser") [backend] {:at #inst "2026-01-01T02:00:00Z"})
             s       (:state browser)]
-        (is (nil? (:failed browser)))
+        (is (nil? (failed browser)))
         (is (profile/subscribed? s g) "the other app's subscription, over WebDAV")
         (is (= 300 (:position (profile/episode-entry s [g "a1"]))))
         (let [s'      (profile/progress s [g "a1"] 1200 3600 #inst "2026-01-01T03:00:00Z")
               browser (sync/sync! s' [backend] {:at #inst "2026-01-01T03:00:00Z" :cursors (:cursors browser)})]
-          (is (nil? (:failed browser)))
+          (is (nil? (failed browser)))
           (is (= [["a1" 1200]]
                  (map (juxt #(get % "guid") #(get % "position"))
                       (get (second (app cookie :get "/api/2/episodes/simon.json?since=1767229200")) "actions")))
@@ -93,7 +93,7 @@
                         (profile/subscribe g {:url feed :title "B"} #inst "2026-01-01T01:00:00Z")
                         (crdt/write [:inspector/episodes id] (constantly {:value added}) #inst "2026-01-01T01:00:00Z")
                         (profile/progress id 600 3600 #inst "2026-01-01T01:00:01Z"))]
-        (is (nil? (:failed (sync/sync! state [backend] {:at #inst "2026-01-01T01:00:02Z"}))))))
+        (is (nil? (failed (sync/sync! state [backend] {:at #inst "2026-01-01T01:00:02Z"}))))))
     (is (= [["https://b.example/1.mp3" 600]]
            (map (juxt #(get % "episode") #(get % "position"))
                 (get (second (app cookie :get "/api/2/episodes/simon.json?since=0")) "actions")))

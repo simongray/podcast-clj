@@ -350,7 +350,8 @@
   WebSub says. So the callback URL tells the subscription, and the
   :request has it."
   [{:keys [wanted? deliver!] :as opts}]
-  {:pre [(fn? wanted?) (fn? deliver!)]}
+  (when-not (and (fn? wanted?) (fn? deliver!))
+    (throw (ex-info "A handler needs the functions :wanted? and :deliver!" {})))
   (let [env (merge default-limits {:signature-methods signature-methods} opts)]
     (fn [{:keys [request-method query-string] :as request}]
       (case request-method

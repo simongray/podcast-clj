@@ -229,7 +229,9 @@
   ([inner passphrase]
    (store inner passphrase {}))
   ([inner passphrase {:keys [iterations except] :or {iterations default-iterations except #{}} :as opts}]
-   {:pre [(some? passphrase) (map? opts)]}
+   {:pre [(map? opts)]}
+   (when (nil? passphrase)
+     (throw (ex-info "An encrypting store needs a passphrase" {})))
    (let [salt    (random-bytes 16)
          keys    (atom {})
          pass    (fn [] (if (fn? passphrase) (passphrase) passphrase))

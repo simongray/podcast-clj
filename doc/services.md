@@ -68,8 +68,8 @@ has the URLs of the service:
 The functions `request`, `response` and `call!` take a source as a name or
 an entry, and the `:sources` of `search!` and `fetch-chart!` can hold both.
 The `:id` of an entry names the source in `:directory/source`,
-`:directory/sources` and `:failed`, and an entry without an `:id` takes the
-name of its API.
+`:directory/sources` and the `:source` of a diagnostic, and an entry
+without an `:id` takes the name of its API.
 
 ### The chart of a category
 

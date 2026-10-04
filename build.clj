@@ -11,11 +11,11 @@
 
 (def lib
   "The Maven coordinate of the library."
-  'dk.simongray/podcast)
+  'dk.simongray/podcast-clj)
 
 (def version
   "The version to build; bump it with each release on GitHub."
-  "1.0.0-SNAPSHOT")
+  "0.1.0-SNAPSHOT")
 
 (def class-dir
   "Where the jar's contents are staged."

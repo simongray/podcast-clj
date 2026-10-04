@@ -62,6 +62,14 @@
   (let [text (secret/reveal x)]
     (boolean (and (string? text) (re-matches #"[0-9a-fA-F]{64}" text)))))
 
+(defn- check-key
+  "Throw unless `x` is a key, as key? tells, with `what` it is in the
+  message. An assertion wouldn't do, since a release build of
+  ClojureScript leaves assertions out."
+  [x what]
+  (when-not (key? x)
+    (throw (ex-info (str "The " what " isn't hexadecimal text of 32 bytes") {}))))
+
 (defn conversation-key
   "The key that the owner of `secret-key` shares with the owner of
   `public-key`, as hexadecimal text of 32 bytes. It's nil for a text that
@@ -167,7 +175,11 @@
   ([plaintext conversation-key nonce]
    (encrypt plaintext conversation-key nonce {}))
   ([plaintext conversation-key nonce opts]
-   {:pre [(map? opts) (string? plaintext) (key? conversation-key) (key? nonce)]}
+   {:pre [(map? opts)]}
+   (when-not (string? plaintext)
+     (throw (ex-info "The plaintext isn't a string" {})))
+   (check-key conversation-key "conversation key")
+   (check-key nonce "nonce")
    (let [text (bytes/encode plaintext)]
      (when (<= 1 (bytes/length text) (:max-bytes (merge default-limits opts)))
        (let [{:keys [cipher-key cipher-nonce check-key]} (message-keys conversation-key nonce)
@@ -202,7 +214,8 @@
   ([payload conversation-key]
    (decrypt payload conversation-key {}))
   ([payload conversation-key opts]
-   {:pre [(map? opts) (key? conversation-key)]}
+   {:pre [(map? opts)]}
+   (check-key conversation-key "conversation key")
    (let [most (payload-length (:max-bytes (merge default-limits opts)))
          b    (when (and (string? payload) (<= 132 (count payload) most))
                 (bytes/from-base64 payload))

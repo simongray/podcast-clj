@@ -8,6 +8,7 @@
 
   - fetch, the fetch of a feed
   - discovery, finding the feeds of a show from an address
+  - directory, a search or a chart of the directories
   - repair, the text repairs of a malformed document
   - xml, the resolution of XML namespaces
   - quirk, the normalizations of the tree
@@ -29,7 +30,7 @@
    {:id :fetch/unreachable :level :warning
     :doc "The feed couldn't be fetched: the connection failed, the request took too long, the answer was too large, or the URL wasn't allowed."}
    {:id :fetch/malformed :level :warning
-    :doc "The server answered with something that isn't an RSS feed: the body isn't XML, or its root element isn't rss."}
+    :doc "The document isn't an RSS feed: it isn't XML, or its root element isn't rss."}
    {:id :fetch/page-failed :level :warning
     :doc "A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it."}
    {:id :fetch/status :level :warning
@@ -42,6 +43,10 @@
     :doc "The text isn't a URL, a domain or a link of an app, so there's nothing to fetch. It may be words to search a directory with."}
    {:id :discovery/not-found :level :warning
     :doc "No feed was found: the page names none, and none of the other places that were tried has one."}
+
+   ;; the directories
+   {:id :directory/source-failed :level :warning
+    :doc "A directory gave no answer to a search or a chart, so its shows are missing from the results. The :source names it, and the :reason says why."}
 
    ;; repairs of the XML text, applied only when the strict parse failed
    {:id :repair/leading-junk :level :warning
@@ -293,6 +298,8 @@
     :doc "A recommended element of the chosen requirements is missing."}
 
    ;; syncing: what a step of keeping devices in step found
+   {:id :sync/backend-failed :level :warning
+    :doc "A backend failed in a pull or a push, so the step went on without it, and it keeps its cursor. The :backend names it, and the :reason says why."}
    {:id :sync/unreadable-document :level :warning
     :doc "A document in the store didn't read as a sync document, and was left out until its device writes one that reads."}
    {:id :sync/newer-format :level :warning

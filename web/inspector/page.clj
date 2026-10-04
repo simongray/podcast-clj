@@ -667,8 +667,9 @@
 (defn directory-page
   "The shows the directories answered for the query `q`, or their charts
   for `country` without one, of the `category` when there is one:
-  `results` as `directory/combine` folds them, and what `failed`."
-  [{:keys [q country category results failed]}]
+  `results` as `directory/combine` folds them, and the `report` of the
+  sources that failed."
+  [{:keys [q country category results report]}]
   (let [charts? (str/blank? q)
         chart   (fn [params] (str "/directory?" (http/query-string params)))]
     (layout (if charts? "Charts" (str "Find: " q))
@@ -688,9 +689,9 @@
                (interpose " · "
                           (for [c ["Technology" "News" "Society & Culture" "True Crime" "Comedy" "Science"]]
                             [:a {:href (chart {:country country :category c})} c]))])
-            (when (seq failed)
-              [:p.warning (str "No answer from " (str/join ", " (map name (keys failed))) ": "
-                               (str/join "; " (vals failed)))])
+            (when (seq report)
+              [:p.warning (str "No answer from " (str/join ", " (map (comp name :source) report)) ": "
+                               (str/join "; " (map :reason report)))])
             (if (empty? results)
               [:p.muted "Nothing found."]
               [:ol.results

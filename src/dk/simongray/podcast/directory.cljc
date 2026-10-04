@@ -34,6 +34,7 @@
   functions ask several sources at once and combine the answers into
   one entry per show, in ClojureScript in a promise."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -564,22 +565,24 @@
     shows))
 
 (defn- combined
-  "The shows that `sources` answered, combined as :results, and the error
-  message of each source that failed under :failed. The `answers` are
+  "The shows that `sources` answered, combined as :results, and a
+  diagnostic for each source that failed under :report. The `answers` are
   attempts as async/attempt gives them, one for each of `sources`."
   [sources answers]
-  (let [failed (into {} (for [[source {:keys [error]}] (map vector sources answers) :when error]
-                          [(source-id source) (async/explain error)]))]
+  (let [report (for [[source {:keys [error]}] (map vector sources answers) :when error]
+                 (diagnostics/describe {:id     :directory/source-failed
+                                        :source (source-id source)
+                                        :reason (async/explain error)}))]
     (cond-> {:results (combine (mapcat :value answers))}
-      (seq failed) (assoc :failed failed))))
+      (seq report) (assoc :report (vec report)))))
 
 (defn ^:no-doc fan-out!
   "Ask each of `sources` for `call` with `params` and `opts` at once,
   and combine what they answer, in ClojureScript in a promise.
 
-  The result is a map of the :results and, under :failed, the error
-  message of each source that failed. A source that fails costs nothing
-  but its absence."
+  The result is a map of the :results and, under :report, a diagnostic
+  for each source that failed. A source that fails costs nothing but its
+  absence."
   [sources call params opts]
   (let [ask! (fn [source]
                (async/attempt #(async/then (call! source call params opts)
@@ -593,12 +596,13 @@
 
 (defn search!
   "Search the directories for the shows that match the words `q`, with
-  `opts`. It gives a map of the :results and the :failed sources, in
-  ClojureScript in a promise.
+  `opts`. It gives a map of the :results and, when a source failed, the
+  :report, in ClojureScript in a promise.
 
   The results have one entry for each show, and the shows that the most
-  sources have come first. The :failed map has the message of each
-  source that failed. The `opts` are these:
+  sources have come first. The report has a :directory/source-failed
+  diagnostic for each source that failed, with its :source and the
+  :reason. The `opts` are these:
 
   - :sources, each a name in sources or an entry. By default, they're
     the sources without credentials, and the Podcast Index with
@@ -624,7 +628,8 @@
 
   The `opts` are those of search!, and :category, for the charts of one
   category, as calls tells. A source that has no chart of the
-  category, the :country or the :language is in :failed, with the reason."
+  category, the :country or the :language is in the :report, with the
+  reason."
   ([]
    (fetch-chart! {}))
   ([opts]

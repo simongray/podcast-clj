@@ -94,7 +94,9 @@
         (is (= [[:prefer :skip-back] [:prefer :skip-forward]] (map #(get-in % [1 :on :change]) inputs)))))
     (testing "the devices and the sync through the inspector's folder"
       (let [described (update state :profile crdt/identify {:name "This browser"} t0)
-            devices   (view/page (assoc described :synced {:at t0 :failed {"inspector" "offline"} :report [{:id :sync/clock-skew :message "ahead"}]}))]
+            devices   (view/page (assoc described :synced {:at     t0
+                                                           :report [{:id :sync/backend-failed :backend "inspector" :reason "offline" :message "failed"}
+                                                                    {:id :sync/clock-skew :message "ahead"}]}))]
         (is (str/includes? (text page) "No device has described itself yet."))
         (is (= [[:sync]] (map #(get-in % [1 :on :click]) (filter #(= "Sync now" (nth % 2)) (elements page :button)))))
         (is (str/includes? (text devices) "This browser"))

@@ -167,6 +167,11 @@
          due      (if synced-at (time/->inst (+ (inst-ms synced-at) (* 1000 wait))) at)]
      (if (< (inst-ms due) (inst-ms at)) at due))))
 
+(defn- failure
+  "The diagnostic of the `backend` whose pull or push failed with `error`."
+  [backend error]
+  (diagnostics/describe {:id :sync/backend-failed :backend (:name backend) :reason (async/explain error)}))
+
 (defn- pulled
   "What the pull `results` of the `backends` add up to, merged into `state`
   at `at` and compacted with `compact`.
@@ -177,8 +182,8 @@
   - :state, with every pulled state merged in, the whole states
     acknowledged, and the tombstones compacted
   - :ok, the backends that didn't fail, each paired with its result
-  - :failed, the message of each backend that failed, by name
-  - :report, the reports of the pulls
+  - :report, the reports of the pulls, and a diagnostic for each backend
+    that failed
 
   A backend whose states are partial, the changes of a service since a
   cursor, says so with :partial?, and none of them are acknowledged."
@@ -189,9 +194,10 @@
         whole  (mapcat (fn [[_ result]] (when-not (:partial? result) (:states result))) ok)]
     {:state  (settle (reduce profile/merge state states) whole at compact)
      :ok     (vec ok)
-     :failed (into {} (for [[backend {:keys [error]}] (map vector backends results) :when error]
-                        [(:name backend) (async/explain error)]))
-     :report (into [] (mapcat (comp :report second)) ok)}))
+     :report (-> []
+                 (into (mapcat (comp :report second)) ok)
+                 (into (for [[backend {:keys [error]}] (map vector backends results) :when error]
+                         (failure backend error))))}))
 
 (defn- finished
   "The result of a step from the pulls `so-far`, the push `results` and the
@@ -199,21 +205,21 @@
 
   There is one push result per backend that didn't fail. The state has
   what a push learned merged in, acknowledged and compacted, and the new
-  cursors are by backend name. The failures and the reports are those of
-  both the pulls and the pushes."
-  [{:keys [state ok failed report] :as so-far} cursors results at compact]
+  cursors are by backend name. The report is that of both the pulls and
+  the pushes, with a diagnostic for each backend whose push failed."
+  [{:keys [state ok report] :as so-far} cursors results at compact]
   (let [pushes  (map (fn [[backend pull] {:keys [value error]}] [backend pull value error]) ok results)
-        learned (keep (fn [[_ _ push]] (:state push)) pushes)
-        failed  (into failed (for [[backend _ _ error] pushes :when error] [(:name backend) (async/explain error)]))]
-    (cond-> {:state   (if (seq learned)
-                        (settle (reduce profile/merge state learned) learned at compact)
-                        state)
-             :cursors (reduce (fn [m [backend pull push error]]
-                                (assoc m (:name backend) (if error (:cursor pull) (:cursor push))))
-                              (or cursors {})
-                              pushes)
-             :report  (into report (mapcat (fn [[_ _ push]] (:report push))) pushes)}
-      (seq failed) (assoc :failed failed))))
+        learned (keep (fn [[_ _ push]] (:state push)) pushes)]
+    {:state   (if (seq learned)
+                (settle (reduce profile/merge state learned) learned at compact)
+                state)
+     :cursors (reduce (fn [m [backend pull push error]]
+                        (assoc m (:name backend) (if error (:cursor pull) (:cursor push))))
+                      (or cursors {})
+                      pushes)
+     :report  (-> report
+                  (into (mapcat (fn [[_ _ push]] (:report push))) pushes)
+                  (into (for [[backend _ _ error] pushes :when error] (failure backend error))))}))
 
 (defn sync!
   "Sync `state` through `backends` in one step with the `opts` below: pull
@@ -223,7 +229,6 @@
 
       {:state   merged
        :cursors {\"Nextcloud\" {…} …}  ; by backend name
-       :failed  {\"Dropbox\" \"…\"}    ; the backends that failed, if any
        :report  [...]}               ; what reading and writing found
 
   In ClojureScript, each function of a backend can return a value or a
@@ -235,8 +240,10 @@
     else the options of profile/compact
 
   A backend whose pull fails isn't pushed to and keeps its cursor, and one
-  whose push fails keeps the cursor of its pull. The state is only ever
-  merged into, so a failed step loses nothing. A state in which
+  whose push fails keeps the cursor of its pull. The report has a
+  :sync/backend-failed diagnostic for each, with its :backend and the
+  :reason. The state is only ever merged into, so a failed step loses
+  nothing. A state in which
   profile/problem finds a problem isn't pushed, since the other devices
   would leave it out, and the report has :sync/malformed-state.
 

@@ -13,7 +13,7 @@
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.sync.gpodder.server :as server]
-            [dk.simongray.podcast.test-support :refer [fixture run]]
+            [dk.simongray.podcast.test-support :refer [failed fixture run]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
@@ -337,6 +337,10 @@
                 ((juxt :title :added-at :device) (get-in (profile/merge laptop s) [:subscriptions g-a])))
              "so the entry of a device that knows the show wins"))))))
 
+(deftest a-server-needs-its-state-and-its-check
+  (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) (server/handler {:state (atom {})}))
+      "no handler without :authorized?, also in a release build"))
+
 (deftest another-app-through-the-server
   (let [clock    (atom t2)
         [state send] (serve clock)]
@@ -344,7 +348,7 @@
      #(async/then
        (sync/sync! (phone) [(backend send)] {:at t2})
        (fn [first-step]
-         (is (nil? (:failed first-step)) (pr-str (:failed first-step)))
+         (is (nil? (failed first-step)) (pr-str (failed first-step)))
          (is (= #{feed-a} (set (map :url (vals (profile/subscriptions @state))))))
          (is (= 100 (:position (get-in @state [:episodes [g-a "a1"]]))) "the progress, written by the phone")
          (is (= "gpodder:phone" (:device (get-in @state [:episodes [g-a "a1"]])))
@@ -358,7 +362,7 @@
          (async/then
           (sync/sync! (:state first-step) [(backend send)] {:at t3 :cursors (:cursors first-step)})
           (fn [{s :state :as second-step}]
-            (is (nil? (:failed second-step)))
+            (is (nil? (failed second-step)))
             (is (profile/played? s [g-a "a1"]) "played to its end on the other app")
             (is (= "gpodder:antennapod" (:device (profile/episode-entry s [g-a "a1"]))))
             (is (= #{feed-a "https://b.example/rss"} (set (map :url (vals (profile/subscriptions s))))))
@@ -386,8 +390,8 @@
     (run
      #(async/then
        (sync/sync! s [b] {:at t2})
-       (fn [{:keys [report failed cursors]}]
-         (is (nil? failed))
+       (fn [{:keys [report cursors] :as step}]
+         (is (nil? (failed step)))
          (is (contains? (set (map :url (vals (profile/subscriptions @state)))) "https://private.example/rss")
              "a URL without the credentials it held")
          (is (= [[:sync/unnamed-episodes 2]] (map (juxt :id :count) report))
@@ -579,8 +583,8 @@
     (run
      #(async/then
        (sync/sync! (phone) [b] {:at t2})
-       (fn [{s :state :keys [failed]}]
-         (is (nil? failed) (pr-str failed))
+       (fn [{s :state :as step}]
+         (is (nil? (failed step)) (pr-str (failed step)))
          (is (= 1800 (:position (profile/episode-entry s [g-a "a1"]))) "a PLAY of the other app, later than the phone's")
          (is (= "gpodder:cloud" (:device (profile/episode-entry s [g-a "a1"])))
              "an action without a device, written in the name of the backend")
@@ -621,8 +625,8 @@
     (run
      #(async/then
        (sync/sync! state [own] {:at t2})
-       (fn [{s :state :keys [failed]}]
-         (is (nil? failed) (pr-str failed))
+       (fn [{s :state :as step}]
+         (is (nil? (failed step)) (pr-str (failed step)))
          (testing "no login and no device, since the map has no path for them"
            (is (= #{"/sync/simon/shows" "/sync/simon/actions"} (set (map second @calls)))))
          (testing "a full page asks for the next, three pages at most"
@@ -647,8 +651,8 @@
     (run
      #(async/then
        (sync/sync! (phone) [(backend send' :name "cloud")] {:at t2 :cursors {"cloud" {:registered "phone" :subscriptions 5}}})
-       (fn [{:keys [failed]}]
-         (is (nil? failed))
+       (fn [step]
+         (is (nil? (failed step)))
          (is (= ["subscriptions" "devices" "subscriptions"] (take 3 (filter #{"subscriptions" "devices"} @calls)))
              "registered again and asked once more"))))))
 

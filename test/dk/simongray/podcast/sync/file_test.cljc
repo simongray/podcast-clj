@@ -112,9 +112,8 @@
          #(async/then (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [(backend)] {:at t2})
                       (fn [step] (reset! laptop step)))
          #(async/then (sync/sync! (:state @phone) [(backend)] {:at t3 :cursors (:cursors @phone)})
-                      (fn [{:keys [failed report state]}]
-                        (is (nil? failed))
-                        (is (= [] report))
+                      (fn [{:keys [report state]}]
+                        (is (= [] report) "no backend failed, and nothing else to report")
                         (is (same? (:state @laptop) state))
                         (is (= 60 (:position (profile/episode-entry state a))))))
          #(async/then (names! @dir)
@@ -179,8 +178,8 @@
             #(async/then (async/attempt (fn [] ((:put s) "phone.edn" "x" {})))
                          (fn [{:keys [error]}] (is (= ::file/read-only (:type (ex-data error))))))
             #(async/then (sync/sync! (profile/make "phone") [(file/backend files)] {:at t3})
-                         (fn [{:keys [failed state]}]
-                           (is (nil? failed) "the backend only pulls")
+                         (fn [{:keys [report state]}]
+                           (is (not-any? (comp #{:sync/backend-failed} :id) report) "the backend only pulls")
                            (is (= 60 (:position (profile/episode-entry state a))))))))))
 
 #?(:cljs

@@ -9,7 +9,7 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.store :as store]
-            [dk.simongray.podcast.test-support :refer [t2 t3 t4 a phone-state laptop-state #?@(:clj [same?])]]
+            [dk.simongray.podcast.test-support :refer [t2 t3 t4 a failed phone-state laptop-state #?@(:clj [same?])]]
             #?(:clj [dk.simongray.podcast.util.crdt :as crdt])
             [dk.simongray.podcast.util.time :as time]))
 
@@ -189,7 +189,7 @@
          (is (= #{"phone.edn" "subscriptions.opml"} (set (keys @documents))))
          (is (= (phone-state) (:state phone)) "nothing to merge yet")
          (is (= [] (:report phone)))
-         (is (nil? (:failed phone)))
+         (is (nil? (failed phone)))
          (is (= "test" (:app (sync/read-document (:body (@documents "phone.edn"))))))
          (is (str/includes? (:body (@documents "subscriptions.opml")) "https://a/rss")))
        (let [laptop (sync/sync! (laptop-state) [backend] {:at t3})]
@@ -216,7 +216,7 @@
            before    (time/now)
            step      (sync/sync! (phone-state) [(store/backend (store/memory documents))])
            written   (:written-at (sync/read-document (:body (@documents "phone.edn"))))]
-       (is (nil? (:failed step)))
+       (is (nil? (failed step)))
        (is (<= (inst-ms before) (inst-ms written)) "without :at, the step has the time of the clock"))))
 
 #?(:clj
@@ -234,7 +234,7 @@
                                (profile/tag "feed-a" "Daily" t3))
                            t3)
            followed  (step sorted (profile/follow-list (:state sorted) "https://l.example/picks.opml" {:title "Picks"} t4) t4)]
-       (is (= [nil nil nil nil] (map :failed [began heard sorted followed])))
+       (is (= [nil nil nil nil] (map failed [began heard sorted followed])))
        (is (= ["1" "1" "2" "3"] (map :mirror [began heard sorted followed]))
            "written when the folders, the tags or the lists change, and not for a position")
        (is (re-find #"<outline text=\"News\">\s*<outline[^>]*category=\"Daily\"" (:body (mirror))))
@@ -254,7 +254,7 @@
          (let [laptop2 (sync/sync! (crdt/retire (:state laptop) "phone" t4) [backend] {:at t4 :cursors (:cursors laptop)})
                phone2  (sync/sync! (:state phone) [backend] {:at t4 :cursors (:cursors phone)})]
            (is (= ["laptop.edn"] (keys @documents)))
-           (is (nil? (:failed laptop2)))
+           (is (nil? (failed laptop2)))
            (is (crdt/retired? (:state phone2) "phone") "it learns of its retirement")
            (is (= [:sync/retired-device] (map :id (:report phone2))))
            (is (= ["laptop.edn"] (keys @documents))))))))
@@ -267,10 +267,10 @@
            written   (:version (@documents "phone.edn"))
            _         (sync/sync! (laptop-state) [backend] {:at t3})
            broken    (assoc-in (:state phone) [:queue ["feed-a" "x"]] {:rank "V"})
-           {:keys [state report failed]} (sync/sync! broken [backend] {:at t4 :cursors (:cursors phone)})]
+           {:keys [state report] :as step} (sync/sync! broken [backend] {:at t4 :cursors (:cursors phone)})]
        (is (= [[:sync/malformed-state :error]] (map (juxt :id :level) report)))
        (is (str/includes? (:error (first report)) "not stamped"))
-       (is (nil? failed))
+       (is (nil? (failed step)))
        (is (= written (:version (@documents "phone.edn"))) "nothing written")
        (is (contains? (:devices state) "laptop") "but the laptop's state pulled in"))))
 
@@ -378,7 +378,7 @@
                    :pull (fn [_ _ _] (throw (ex-info "connection refused" {})))
                    :push (fn [_ _ _] {:cursor {}})}
            result (sync/sync! (phone-state) [good broken] {:at t2 :cursors {"broken" {:token 1}}})]
-       (is (= {"broken" "connection refused"} (:failed result)))
+       (is (= {"broken" "connection refused"} (failed result)))
        (is (= {:token 1} (get (:cursors result) "broken")) "a backend that fails keeps its cursor")
        (is (contains? (:cursors result) "good"))
        (testing "a push that fails keeps the cursor of its pull, and what it pulled"
@@ -386,7 +386,7 @@
                      :pull (fn [_ _ _] {:states [(laptop-state)] :cursor {:pulled true} :report []})
                      :push (fn [_ _ _] (throw (ex-info "disk full" {})))}
                r    (sync/sync! (phone-state) [half] {:at t2})]
-           (is (= {"half" "disk full"} (:failed r)))
+           (is (= {"half" "disk full"} (failed r)))
            (is (= {:pulled true} (get (:cursors r) "half")))
            (is (= 900 (:position (profile/episode-entry (:state r) a)))))))))
 
@@ -460,13 +460,13 @@
          (-> (sync/sync! (phone-state) [backend] {:at t2})
              (.then (fn [phone]
                       (is (= ["phone.edn"] (keys @documents)))
-                      (is (nil? (:failed phone)))
+                      (is (nil? (failed phone)))
                       (sync/sync! (laptop-state) [backend] {:at t3})))
              (.then (fn [laptop]
                       (is (= 900 (:position (profile/episode-entry (:state laptop) a))))
                       (is (= #{"laptop.edn" "phone.edn"} (set (keys @documents))))
                       (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions (:state laptop))))))
                       (sync/sync! (:state laptop) [{:name "broken" :pull (fn [_ _ _] (js/Promise.reject (js/Error. "offline"))) :push (fn [_ _ _] {:cursor {}})}] {:at t4})))
-             (.then (fn [r] (is (= {"broken" "offline"} (:failed r)))))
+             (.then (fn [r] (is (= {"broken" "offline"} (failed r)))))
              (.catch (fn [e] (is false (str "the promise was rejected: " e))))
              (.finally done))))))

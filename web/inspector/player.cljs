@@ -121,7 +121,7 @@
   [state library]
   (-> state
       (update :library library/merge library)
-      (assoc :syncing? false :synced (select-keys (:sync library) [:at :failed :report]))))
+      (assoc :syncing? false :synced (select-keys (:sync library) [:at :report]))))
 
 (defn- save!
   [state]
@@ -197,7 +197,9 @@
                  #(swap! app with-synced %))))
        (.catch (fn [e]
                  (swap! app assoc :syncing? false
-                        :synced {:at (time/now) :failed {"inspector" (str e)} :report []})))
+                        :synced {:at     (time/now)
+                                 :report [{:id :sync/backend-failed :backend "inspector" :reason (str e)
+                                           :message "The sync through the inspector failed."}]})))
        (.then (fn [_] (check-folder!))))))
 
 (defn- playing?

@@ -135,6 +135,14 @@
                 (seq (:relays x))
                 (every? #(= % (nostr/relay-url %)) (:relays x)))))
 
+(defn- check-connection
+  "Throw unless `connection` is one, as connection? tells. An assertion
+  wouldn't do, since a release build of ClojureScript leaves assertions
+  out."
+  [connection]
+  (when-not (connection? connection)
+    (throw (ex-info "The connection isn't one that parse gives" {}))))
+
 (defn format
   "The URI of Nostr Wallet Connect for `connection`, a map as parse gives
   one. A wallet service gives an app such a URI, and an app stores
@@ -163,7 +171,9 @@
   ([invoice]
    (pay-invoice invoice {}))
   ([invoice {:keys [msat metadata] :as opts}]
-   {:pre [(map? opts) (string? invoice)]}
+   {:pre [(map? opts)]}
+   (when-not (string? invoice)
+     (throw (ex-info "The invoice isn't a string" {})))
    {:method "pay_invoice"
     :params (cond-> {"invoice" invoice}
               msat     (assoc "amount" msat)
@@ -205,7 +215,9 @@
   ([msat]
    (make-invoice msat {}))
   ([msat {:keys [description description-hash expiry metadata] :as opts}]
-   {:pre [(map? opts) (number? msat)]}
+   {:pre [(map? opts)]}
+   (when-not (number? msat)
+     (throw (ex-info "The amount isn't a number of millisatoshis" {:msat msat})))
    {:method "make_invoice"
     :params (cond-> {"amount" msat}
               description      (assoc "description" description)
@@ -218,7 +230,8 @@
   the section lookup_invoice of NIP-47 defines it. The `x` names the
   payment by its :invoice or by its :payment-hash."
   [{:keys [invoice payment-hash] :as x}]
-  {:pre [(or (string? invoice) (string? payment-hash))]}
+  (when-not (or (string? invoice) (string? payment-hash))
+    (throw (ex-info "A payment is named by its :invoice or its :payment-hash" {})))
   {:method "lookup_invoice"
    :params (cond-> {}
              payment-hash (assoc "payment_hash" payment-hash)
@@ -260,7 +273,12 @@
   Use new bytes for each request, such as (bytes/hex (bytes/generate!
   32))."
   [{:keys [wallet] :as connection} {:keys [method params] :as command} {:keys [at nonce aux expires-at] :as opts}]
-  {:pre [(connection? connection) (string? method) (map? params) (inst? at)]}
+  (check-connection connection)
+  (when-let [wrong (cond
+                     (not (string? method)) "The command has no :method"
+                     (not (map? params))    "The :params of the command aren't a map"
+                     (not (inst? at))       "The request needs its instant under :at")]
+    (throw (ex-info wrong {})))
   (let [secret (secret-key connection)
         shared (nip44/conversation-key secret wallet)]
     (when-let [content (nip44/encrypt (json/write-str {"method" method "params" params}) shared nonce)]
@@ -349,7 +367,7 @@
   doesn't know the invoice of a payment, so it doesn't check the
   preimage, but ask! does."
   [{:keys [wallet] :as connection} event]
-  {:pre [(connection? connection)]}
+  (check-connection connection)
   (let [unreadable #(failure {:id :value/wallet-unreadable :reason %})
         verified?  (nostr/verified? event)
         content    (when (and verified? (= wallet (get event "pubkey")))
@@ -478,7 +496,8 @@
   ([connection]
    (fetch-info! connection {}))
   ([{:keys [wallet relays] :as connection} opts]
-   {:pre [(connection? connection) (map? opts)]}
+   {:pre [(map? opts)]}
+   (check-connection connection)
    (let [opts  (prepared opts)
          known (fn [{:keys [events]}]
                  (some->> events
@@ -577,7 +596,10 @@
   ([connection command]
    (ask! connection command {}))
   ([{:keys [wallet relays] :as connection} command opts]
-   {:pre [(connection? connection) (map? opts) (string? (:method command))]}
+   {:pre [(map? opts)]}
+   (check-connection connection)
+   (when-not (string? (:method command))
+     (throw (ex-info "The command has no :method" {})))
    (let [{:keys [now random timeout-seconds] :as opts} (prepared opts)
          known (if (contains? opts :info) (:info opts) (fetch-info! connection opts))]
      (async/then known
