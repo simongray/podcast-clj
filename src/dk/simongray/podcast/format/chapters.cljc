@@ -61,8 +61,8 @@
   (:podcast/report (meta doc)))
 
 (defn- diagnostic
-  [id level message & {:as extra}]
-  (merge {:id id :level level :message message} extra))
+  [id level message & {:as details}]
+  (merge {:id id :level level :message message} details))
 
 (def ^:no-doc text-paths
   "Where a chapter holds text, as paths into its JSON object."

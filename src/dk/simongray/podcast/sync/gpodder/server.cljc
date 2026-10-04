@@ -84,27 +84,27 @@
 
 (defn- subscriptions
   "The answer with the feeds added to and removed from the subscriptions
-  since the :since of the call context `ctx`, by URL and by the time they
-  arrived.
+  since the :since-ms of the call context `ctx`, by URL and by the time
+  they arrived.
 
   A device that has seen nothing yet gets no removed ones, and the device
   counts as registered once it asks. A state can hold one URL under two
   guids, and when one of them is live, the URL isn't removed."
-  [{:keys [state book device since seconds] :as ctx}]
-  (if-not since
+  [{:keys [state book device since-ms seconds] :as ctx}]
+  (if-not since-ms
     {:status 400 :body "The parameter since is missing or not a number"}
     (let [public #(first (http/split-credentials (:url %)))
           known  (filter (comp http/web-url? :url val) (:subscriptions state))
           urls   (fn [pred]
                    (distinct (for [[g e] known
                                    :when (and (pred e)
-                                              (>= (second (get-in book [:index [:subscriptions g]] [0 0])) since))]
+                                              (>= (second (get-in book [:index [:subscriptions g]] [0 0])) since-ms))]
                                (public e))))
           live?  (into #{} (comp (map val) (remove :removed?) (map (comp profile/normal-url public))) known)
           gone   (remove (comp live? profile/normal-url) (urls :removed?))]
       {:status 200
        :body   {"add"       (vec (urls (complement :removed?)))
-                "remove"    (if (zero? since) [] (vec gone))
+                "remove"    (if (zero? since-ms) [] (vec gone))
                 "timestamp" seconds}
        :book   (update-in book [:devices device] #(or % {}))})))
 
@@ -132,18 +132,18 @@
 
 (defn- episode-actions
   "The answer with the episode actions that tell what changed in the
-  episodes of the call context `ctx` since its :since, by the time it
+  episodes of the call context `ctx` since its :since-ms, by the time it
   arrived.
 
   Each action has the URLs that its episode arrived with, or else those
   that the names give, and the parameters can ask for one podcast and one
   device."
-  [{:keys [state book names since params seconds] :as ctx}]
+  [{:keys [state book names since-ms params seconds] :as ctx}]
   (let [{:strs [podcast device]} params]
     {:status 200
      :body   {"actions"   (vec (for [[[g _ :as id] e] (profile/episode-entries state)
                                      :let  [by (gpodder/device-of (:device e))]
-                                     :when (and (>= (second (get-in book [:index [:episodes id]] [0 0])) (or since 0))
+                                     :when (and (>= (second (get-in book [:index [:episodes id]] [0 0])) (or since-ms 0))
                                                 (or (nil? device) (= device by)))
                                      :let  [[p m] (get-in book [:urls id])
                                             p     (or p (some-> ((:feed-url names) g) http/split-credentials first))
@@ -243,14 +243,14 @@
   JSON of the body."
   [{:keys [book max-bytes] :as env} request state at]
   (let [params (http/query-params (:query-string request))]
-    {:state   state
-     :book    @book
-     :names   (gpodder/namer state env)
-     :at      at
-     :seconds (quot (inst-ms at) 1000)
-     :params  params
-     :since   (some->> (get params "since") (re-matches #"\d{1,12}") parse-long (* 1000))
-     :json    (some-> (http/body-text (:body request) max-bytes) json/parse)}))
+    {:state    state
+     :book     @book
+     :names    (gpodder/namer state env)
+     :at       at
+     :seconds  (quot (inst-ms at) 1000)
+     :params   params
+     :since-ms (some->> (get params "since") (re-matches #"\d{1,12}") parse-long (* 1000))
+     :json     (some-> (http/body-text (:body request) max-bytes) json/parse)}))
 
 (defn- answer!
   "Answer `request` from `who` at `at` with `answer`, a function of

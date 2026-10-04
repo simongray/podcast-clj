@@ -28,8 +28,8 @@
             [dk.simongray.podcast.util.xml :as xml]))
 
 (defn- diagnostic
-  [id level path message & {:as extra}]
-  (merge {:id id :level level :path path :message message} extra))
+  [id level path message & {:as details}]
+  (merge {:id id :level level :path path :message message} details))
 
 (defn- enum-ok?
   [values v]

@@ -666,19 +666,19 @@
    (comment
      (def url "https://feeds.podcastindex.org/pc20.xml")
 
-     (def lib (-> (make "dev-laptop" {:name "Laptop" :config {:languages ["da" "en"]}})
-                  (subscribe url (podcast/fetch! url {:max-pages 2}) {:auto-queue? true})))
+     (def library (-> (make "dev-laptop" {:name "Laptop" :config {:languages ["da" "en"]}})
+                      (subscribe url (podcast/fetch! url {:max-pages 2}) {:auto-queue? true})))
 
-     (keys (subscriptions lib))
-     (map (comp :title second) (episodes lib {:limit 3}))
-     (select-keys (show lib (first (keys (subscriptions lib)))) [:title :author])
+     (keys (subscriptions library))
+     (map (comp :title second) (episodes library {:limit 3}))
+     (select-keys (show library (first (keys (subscriptions library)))) [:title :author])
 
      ;; the new episodes since the last fetch, and the moves
-     (:refresh (refresh! lib))
+     (:refresh (refresh! library))
 
      ;; the newest episode, played a minute in
-     (def id (let [[feed item] (first (episodes lib {:order :newest :limit 1}))]
-               (episode-id lib feed item)))
-     (:effects (step lib [:progress id 60 3600]))
-     (select-keys (clojure.core/merge (episode lib id) (read-files! lib id)) [:title :duration :chapters])
+     (def id (let [[feed item] (first (episodes library {:order :newest :limit 1}))]
+               (episode-id library feed item)))
+     (:effects (step library [:progress id 60 3600]))
+     (select-keys (clojure.core/merge (episode library id) (read-files! library id)) [:title :duration :chapters])
      #_.))

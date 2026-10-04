@@ -36,9 +36,9 @@
             [dk.simongray.podcast.util.bytes :as bytes]))
 
 (defn ^:no-doc diagnostic
-  "The diagnostic `id` at `level`, with the details `extra`."
-  [id level & {:as extra}]
-  (merge {:id id :level level} extra))
+  "The diagnostic `id` at `level`, with the `details`."
+  [id level & {:as details}]
+  (merge {:id id :level level} details))
 
 (defn ^:no-doc note!
   "Record the diagnostic `d` in the report of the reading context `ctx`."

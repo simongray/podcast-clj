@@ -51,20 +51,20 @@
   "library.edn")
 
 (defn save!
-  "Write the saved-keys of `library` to `store`, e.g. a folder store, which
-  writes a file whole or not at all."
-  [library store]
-  ((:put store) saved-name
+  "Write the saved-keys of `library` to `data-store`, e.g. a folder store,
+  which writes a file whole or not at all."
+  [library data-store]
+  ((:put data-store) saved-name
    (binding [*print-length* nil *print-level* nil *print-namespace-maps* false]
      (pr-str (select-keys library saved-keys)))
    {}))
 
 (defn restore!
-  "The `library` with what save! wrote to `store`, or the `library` as it is
-  when there's nothing there or it can't be read."
-  [library store]
+  "The `library` with what save! wrote to `data-store`, or the `library` as
+  it is when there's nothing there or it can't be read."
+  [library data-store]
   (try
-    (if-let [{:keys [body]} ((:fetch store) saved-name)]
+    (if-let [{:keys [body]} ((:fetch data-store) saved-name)]
       (merge library (select-keys (edn/read-string body) saved-keys))
       library)
     (catch Exception e
@@ -97,11 +97,11 @@
 
 (defn start!
   "Run step! on `lib`, an atom of the server's library, through the sync
-  folder `store` now and every step-seconds after, and save! it to
+  folder `sync-store` now and every step-seconds after, and save! it to
   `data-store` when its feeds change. Returns the executor that runs it,
   for stop!."
-  [lib store data-store]
-  (let [backend (store/backend store)
+  [lib sync-store data-store]
+  (let [backend (store/backend sync-store)
         step    (fn []
                   (try
                     (let [before (select-keys @lib saved-keys)
@@ -136,11 +136,11 @@
 
 (defn gpodder-handler
   "The gpodder API for AntennaPod, Kasts and gPodder over the sync folder
-  `store`, naming episodes by the feeds in `lib`, an atom of the server's
-  library. It lets in the apps that `authorized?`, a function of a user
-  name and a password, says yes to."
-  [store lib authorized?]
-  (let [backend (store/backend store)
+  `sync-store`, naming episodes by the feeds in `lib`, an atom of the
+  server's library. It lets in the apps that `authorized?`, a function of
+  a user name and a password, says yes to."
+  [sync-store lib authorized?]
+  (let [backend (store/backend sync-store)
         cursors (atom nil)]
     (gpodder-server/handler
      {:state       (atom (crdt/identify (profile/make "podcast-server-gpodder")

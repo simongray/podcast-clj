@@ -180,17 +180,17 @@
   (file/store (io/file data-dir "sync")))
 
 (defn routes
-  "The routes of the proxy, the sync folder `store` and the gpodder API,
-  in Pedestal's set syntax. The gpodder API names episodes by the feeds
-  in `lib`, an atom of the server's library, and lets in the apps that
-  give the `password`, or any app when it's nil."
-  [store lib password]
-  (let [dav         (webdav-server/handler store "/dav/")
+  "The routes of the proxy, the sync folder `sync-store` and the gpodder
+  API, in Pedestal's set syntax. The gpodder API names episodes by the
+  feeds in `lib`, an atom of the server's library, and lets in the apps
+  that give the `password`, or any app when it's nil."
+  [sync-store lib password]
+  (let [dav         (webdav-server/handler sync-store "/dav/")
         authorized? (if password (fn [_ given] (password? password given)) (constantly true))]
     #{["/proxy" :any (proxy/handler) :route-name ::proxy]
       ["/dav" :any dav :route-name ::dav-collection]
       ["/dav/*path" :any dav :route-name ::dav]
-      ["/api/2/*path" :any (device/gpodder-handler store lib authorized?) :route-name ::gpodder]}))
+      ["/api/2/*path" :any (device/gpodder-handler sync-store lib authorized?) :route-name ::gpodder]}))
 
 (defn client-routes
   "The routes of the files in `client-dir`, or none when it's nil. Each
@@ -205,8 +205,8 @@
 
 (defn connector
   "A Jetty connector of the server with `settings`, over the sync folder
-  `store` and the server's library `lib`, an atom; not yet started."
-  [{:keys [host port names password client-dir] :as settings} store lib]
+  `sync-store` and the server's library `lib`, an atom; not yet started."
+  [{:keys [host port names password client-dir] :as settings} sync-store lib]
   (-> (conn/default-connector-map host port)
       (conn/with-interceptors [interceptors/log-request
                                interceptors/not-found
@@ -217,7 +217,7 @@
                                (known-names names)
                                (if password (login password) no-funnel)
                                folders])
-      (conn/with-routes (routes store lib password) (client-routes client-dir))
+      (conn/with-routes (routes sync-store lib password) (client-routes client-dir))
       (jetty/create-connector nil)))
 
 (defonce ^{:doc "The running server as its :connector, :library and the
@@ -232,14 +232,14 @@
   ([settings]
    (when-not @server
      (let [{:keys [host port data-dir] :as settings} (merge defaults settings)
-           store (sync-store settings)
+           sync-store (sync-store settings)
            ;; for the saved library, which can't go in the sync folder,
            ;; where every file is a sync document
-           data  (file/store data-dir)
-           lib   (atom (device/restore! (device/make) data))]
-       (reset! server {:connector (conn/start! (connector settings store lib))
+           data-store (file/store data-dir)
+           lib        (atom (device/restore! (device/make) data-store))]
+       (reset! server {:connector (conn/start! (connector settings sync-store lib))
                        :library   lib
-                       :steps     (device/start! lib store data)})
+                       :steps     (device/start! lib sync-store data-store)})
        (println (str "Podcast server on http://" host ":" port "/"))))
    @server))
 

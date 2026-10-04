@@ -590,7 +590,7 @@
     (crdt/write profile [:bookmarks id s] (constantly {:title title :removed? false}) at)
     profile))
 
-(defn ^:no-doc unmarked
+(defn ^:no-doc unmark
   "The `profile` with a tombstone at `at` in place of the live entry of the
   episode `id` at `position` seconds in the collection `k`, e.g.
   :bookmarks."
@@ -626,7 +626,7 @@
   "Remove the bookmark of the episode `id` at `position` seconds from
   `profile` at `at`, leaving a tombstone."
   [profile id position at]
-  (unmarked profile :bookmarks id position at))
+  (unmark profile :bookmarks id position at))
 
 (defn bookmarks
   "The bookmarks of `profile`, the latest written first, or those of the
@@ -656,7 +656,7 @@
   "Remove the clip of the episode `id` that starts at `start` seconds
   from `profile` at `at`, leaving a tombstone."
   [profile id start at]
-  (unmarked profile :clips id start at))
+  (unmark profile :clips id start at))
 
 (defn clips
   "The clips of `profile`, the latest written first, or those of the episode

@@ -293,7 +293,7 @@
                       (episode-url id)
                       (when (http/web-url? item) item)))}))
 
-(defn ^:no-doc writer
+(defn ^:no-doc device-author
   "The author of the entries in a state for what the `device` of a gpodder
   server did. No device of podcast-clj has such a name, so a push never
   sends the entries back."
@@ -302,7 +302,7 @@
 
 (defn ^:no-doc device-of
   "The device of a gpodder server that wrote an entry as `author`, the
-  inverse of writer. A device of podcast-clj is its own name."
+  inverse of device-author. A device of podcast-clj is its own name."
   [author]
   (str/replace-first (str author) #"^gpodder:" ""))
 
@@ -323,11 +323,11 @@
                             stamp (if known at (time/->inst 0))]
                         (cond-> s
                           (not (profile/subscribed? s g))
-                          (crdt/as-device (writer author) #(profile/subscribe % g show stamp)))))
+                          (crdt/as-device (device-author author) #(profile/subscribe % g show stamp)))))
         unsubscribe (fn [s url]
                       (let [g (guid-of url)]
                         (cond-> s
-                          (profile/subscribed? s g) (crdt/as-device (writer author) #(profile/unsubscribe % g at)))))]
+                          (profile/subscribed? s g) (crdt/as-device (device-author author) #(profile/unsubscribe % g at)))))]
     (as-> state s
       (reduce subscribe s add)
       (reduce unsubscribe s remove))))
@@ -348,7 +348,7 @@
                 "new"  #(profile/mark-unplayed % id timestamp)
                 nil)]
     (if (and act timestamp (< (or stamp 0) (inst-ms timestamp)))
-      (crdt/as-device state (writer (or device author)) act)
+      (crdt/as-device state (device-author (or device author)) act)
       state)))
 
 (defn- told-at
@@ -677,7 +677,7 @@
                 "position"  120
                 "total"     1800})
 
-  (writer "phone")
+  (device-author "phone")
   (device-of "gpodder:phone")
   #_.)
 

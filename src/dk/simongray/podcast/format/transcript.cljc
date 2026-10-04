@@ -50,8 +50,8 @@
   (:podcast/report (meta transcript)))
 
 (defn- diagnostic
-  [id level message & {:as extra}]
-  (merge {:id id :level level :message message} extra))
+  [id level message & {:as details}]
+  (merge {:id id :level level :message message} details))
 
 (defn- with-report
   "The `transcript` with `diagnostics` as its report."

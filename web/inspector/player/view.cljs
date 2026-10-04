@@ -23,7 +23,7 @@
 
 (defn item-href
   "The inspector's page for the `episode`."
-  [{:keys [url guid]}]
+  [{:keys [url guid] :as episode}]
   (str "/item?url=" (js/encodeURIComponent url) "&guid=" (js/encodeURIComponent guid)))
 
 (defn episode-of
