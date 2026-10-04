@@ -113,7 +113,7 @@
    (let [opts (merge {:podcast-guid (:podcast/guid feed)} opts)]
      (publish/update-media-urls feed #(or (prefix % opts) %)))))
 
-(def endpoints
+(def calls
   "The calls of the API, by the names of OP3, with their parameters:
 
       :show                    {:show :episodes?}
@@ -148,13 +148,13 @@
                   (str (http/encode k) "=" (http/encode (if (inst? v) (time/format-iso8601 v) v))))))
 
 (defn request
-  "The request map of the call `endpoint` with `params`, as endpoints lists
+  "The request map of the call `call` with `params`, as calls lists
   them, and the bearer `token` of an API key. The :origin of `opts` names
   another instance of OP3."
-  ([token endpoint params]
-   (request token endpoint params {}))
-  ([token endpoint {:keys [show episodes? start end episode bots? limit continuation-token] :as params} opts]
-   (let [[path params] (case endpoint
+  ([token call params]
+   (request token call params {}))
+  ([token call {:keys [show episodes? start end episode bots? limit continuation-token] :as params} opts]
+   (let [[path params] (case call
                          :show                    [(str "shows/" (http/encode (if (http/web-url? show) (http/base64url show) show)))
                                                    {"episodes" (when episodes? "include")}]
                          :downloads               [(str "downloads/show/" (http/encode show))
@@ -164,7 +164,7 @@
                          :show-download-counts    ["queries/show-download-counts" {"showUuid" show}]
                          :episode-download-counts ["queries/episode-download-counts" {"showUuid" show "limit" limit}]
                          :top-apps-for-show       ["queries/top-apps-for-show" (show-param show)]
-                         (throw (ex-info (str "A call that the API of OP3 does not have: " endpoint) {:endpoint endpoint})))
+                         (throw (ex-info (str "A call that the API of OP3 does not have: " call) {:call call})))
          q             (query params)]
      {:method  :get
       :url     (str (instance opts) "/api/1/" path (when (seq q) (str "?" q)))
@@ -186,7 +186,7 @@
   (set/rename-keys (record row) {:hashed-ip-address :ip :audience-id :listener}))
 
 (defn response
-  "The data in the JSON `body` of the answer to the call `endpoint`. The
+  "The data in the JSON `body` of the answer to the call `call`. The
   fields of OP3 become keywords in kebab-case, and its times instants:
 
       :show                    {:show-uuid :title :podcast-guid :stats-page-url
@@ -201,11 +201,11 @@
   is the :listener. The keys of a map by show or by app stay text.
 
   It throws ::failed for a body that holds no JSON object."
-  [endpoint body]
+  [call body]
   (let [raw (json/object body)]
     (when-not raw
-      (throw (ex-info "OP3 answered with no JSON object" {:type ::failed :endpoint endpoint})))
-    (case endpoint
+      (throw (ex-info "OP3 answered with no JSON object" {:type ::failed :call call})))
+    (case call
       :show                    (cond-> (record raw)
                                  (get raw "episodes") (assoc :episodes (mapv record (get raw "episodes"))))
       :downloads               (cond-> {:downloads (mapv download (get raw "rows"))}
@@ -226,7 +226,7 @@
         (some-> body str str/trim not-empty))))
 
 (defn call!
-  "Send the call `endpoint` with `params` and `opts` to OP3 with the bearer
+  "Send the call `call` with `params` and `opts` to OP3 with the bearer
   `token`, and read the answer with response. On the JVM it gives the
   data, and in ClojureScript a promise of it.
 
@@ -239,18 +239,18 @@
   - :origin, as request takes it
   - :timeout-seconds, for each request
   - :send, a function that sends a request map in place of http/call!"
-  ([token endpoint params]
-   (call! token endpoint params {}))
-  ([token endpoint params opts]
+  ([token call params]
+   (call! token call params {}))
+  ([token call params opts]
    (let [{:keys [send timeout-seconds]} (merge {:send http/call! :timeout-seconds 30} opts)
          failed (fn [status said]
                   (ex-info (str "OP3 answered " status ": " said) {:type ::failed :status status :message said}))]
-     (async/then (send (assoc (request token endpoint params opts) :timeout-seconds timeout-seconds))
+     (async/then (send (assoc (request token call params opts) :timeout-seconds timeout-seconds))
                  (fn [{:keys [status body]}]
                    (cond
                      (= 404 status)                         nil
                      (not (and status (<= 200 status 299))) (throw (failed status (message body)))
-                     (json/object body)                     (response endpoint body)
+                     (json/object body)                     (response call body)
                      :else                                  (throw (failed status "no JSON object"))))))))
 
 (defn fetch-downloads!

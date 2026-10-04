@@ -23,7 +23,7 @@
     such as :directory/source, :directory/id and the record itself as
     :directory/raw
 
-  Every source answers three endpoints as far as it can:
+  Every source answers three calls as far as it can:
 
   - :search, the shows that match some words
   - :lookup, one show by its id at the source
@@ -116,8 +116,8 @@
                   :root         index/base-url
                   :pages        "https://podcastindex.org/podcast/"}})
 
-(def endpoints
-  "The endpoints that every source answers, with their parameters:
+(def calls
+  "The calls that every source answers, with their parameters:
 
   - :search takes :q and :limit, with :country for Apple and :language
     for the Podcast Index
@@ -127,7 +127,7 @@
     fyyd and the Podcast Index. A source that can take neither of those
     that are given throws, since its chart would be of the wrong shows.
 
-  The :trending endpoint also takes :category, for the chart of one
+  The :trending call also takes :category, for the chart of one
   category. It's a name of the categories of Apple Podcasts, such as
   Technology or Society & Culture. A map gives each source a category of
   its own, by the id of the source. Each source reads the category in its
@@ -215,8 +215,8 @@
       (below trending (str (country-code country) "/podcasts/top/" limit "/podcasts.json")))))
 
 (defn- apple-request
-  [{:keys [search lookup] :as e} endpoint {:keys [q id limit country] :as params}]
-  (case endpoint
+  [{:keys [search lookup] :as e} call {:keys [q id limit country] :as params}]
+  (case call
     :search   (get-request (str search "?"
                                 (http/query-string {:media "podcast" :entity "podcast" :term q :limit limit
                                                      :country (some-> country name)})))
@@ -225,20 +225,20 @@
     :trending (get-request (apple-chart e params))))
 
 (defn- fyyd-request
-  [{:keys [root]} endpoint {:keys [q id limit language category]}]
-  (when (and category (= :trending endpoint))
+  [{:keys [root]} call {:keys [q id limit language category]}]
+  (when (and category (= :trending call))
     (throw (ex-info "fyyd has no chart by category" {:category category})))
   (get-request
-   (below root (case endpoint
+   (below root (case call
                  :search   (str "search/podcast?" (http/query-string {:term q :count limit}))
                  :lookup   (str "podcast?" (http/query-string {:podcast_id id}))
                  :trending (str "feature/podcast/hot?"
                                 (http/query-string {:count limit :language language}))))))
 
 (defn- gpodder-request
-  [{:keys [root]} endpoint {:keys [q id limit category]}]
+  [{:keys [root]} call {:keys [q id limit category]}]
   (get-request
-   (below root (case endpoint
+   (below root (case call
                  :search   (str "search.json?" (http/query-string {:q q}))
                  :lookup   (str "api/2/data/podcast.json?" (http/query-string {:url id}))
                  :trending (if category
@@ -247,11 +247,11 @@
                              (str "toplist/" (long (or limit 25)) ".json"))))))
 
 (defn- podcastindex-request
-  [{:keys [root id]} endpoint {:keys [q limit language category] show :id} credentials opts]
+  [{:keys [root id]} call {:keys [q limit language category] show :id} credentials opts]
   (when-not credentials
     (throw (ex-info "The Podcast Index needs credentials under :credentials" {:source id})))
   (let [opts (cond-> opts root (assoc :base-url root))]
-    (case endpoint
+    (case call
       :search   (index/request credentials :search/by-term {:q q :max limit} opts)
       :lookup   (if (guid/guid? (str show))
                   (index/request credentials :podcasts/by-guid {:guid show} opts)
@@ -272,8 +272,8 @@
                       {:source (:id e) k (get params k)})))))
 
 (defn request
-  "The request map for `endpoint` at `source` with `params` and `opts`, a
-  map of :method, :url and :headers. See endpoints for each endpoint and
+  "The request map for `call` at `source` with `params` and `opts`, a
+  map of :method, :url and :headers. See calls for each call and
   its parameters.
 
   The `source` is a name in sources, or an entry of the shape of its
@@ -283,22 +283,22 @@
   - :credentials, a map of :key and :secret
   - :auth-date, the time in Unix seconds that signs a request, which call!
     gives"
-  ([source endpoint params]
-   (request source endpoint params {}))
-  ([source endpoint params {:keys [credentials] :as opts}]
+  ([source call params]
+   (request source call params {}))
+  ([source call params {:keys [credentials] :as opts}]
    {:pre [(map? opts)]}
    (let [{:keys [api] :as e} (entry source)
          params              (cond-> params
                                (contains? params :category) (update :category #(category-for e %)))]
-     (when-not (contains? endpoints endpoint)
-       (throw (ex-info (str "An endpoint the directories do not answer: " endpoint) {:endpoint endpoint})))
-     (when (= :trending endpoint)
+     (when-not (contains? calls call)
+       (throw (ex-info (str "A call the directories do not answer: " call) {:call call})))
+     (when (= :trending call)
        (check-region e params))
      (case api
-       :apple        (apple-request e endpoint params)
-       :fyyd         (fyyd-request e endpoint params)
-       :gpodder      (gpodder-request e endpoint params)
-       :podcastindex (podcastindex-request e endpoint params credentials
+       :apple        (apple-request e call params)
+       :fyyd         (fyyd-request e call params)
+       :gpodder      (gpodder-request e call params)
+       :podcastindex (podcastindex-request e call params credentials
                                            (select-keys opts [:auth-date]))))))
 
 (defn- present
@@ -423,14 +423,14 @@
   (map-indexed (fn [i show] (assoc show :directory/rank (inc i))) shows))
 
 (defn response
-  "The shows in the JSON `body` that `source` answered for `endpoint`, as
+  "The shows in the JSON `body` that `source` answered for `call`, as
   a vector. It throws only when the body isn't JSON.
 
   A lookup gives one show. The shows of trending are in the order of the
   chart, each with its :directory/rank. The vector is empty when the body
   tells of a failure. The `source` is as request takes it, and each show
   names it as :directory/source."
-  [source endpoint body]
+  [source call body]
   (let [{:keys [api id pages]} (entry source)
         shows (if (= :podcastindex api)
                 (let [{:keys [status feed feeds]} (index/response body)]
@@ -438,7 +438,7 @@
                     (map #(podcastindex-show % pages) (or feeds (when feed [feed])))))
                 (let [raw (json/read-str body)]
                   (case api
-                    :apple   (if (= :trending endpoint)
+                    :apple   (if (= :trending call)
                                (let [entries (get-in raw ["feed" "entry"])]
                                  (concat (map apple-chart-show (get-in raw ["feed" "results"]))
                                          (map apple-genre-show (if (map? entries) [entries] entries))))
@@ -448,7 +448,7 @@
                                  (map fyyd-show (if (map? data) [data] data))))
                     :gpodder (map gpodder-show (if (map? raw) [raw] raw)))))
         named (map #(assoc % :directory/source id) shows)]
-    (vec (if (= :trending endpoint) (ranked named) named))))
+    (vec (if (= :trending call) (ranked named) named))))
 
 (defn- name-of
   "The title and author of `show`, lower-cased: what tells shows apart when
@@ -526,7 +526,7 @@
   (cond-> [:apple :fyyd :gpodder] credentials (conj :podcastindex)))
 
 (defn call!
-  "Send `endpoint` with `params` and `opts` to `source`, and read the shows
+  "Send `call` with `params` and `opts` to `source`, and read the shows
   in the answer, in ClojureScript in a promise.
 
   The `opts` are those of request, and these:
@@ -539,27 +539,27 @@
   the :type ::failed, so a refused key doesn't look like an empty answer.
   The shows are at most the :limit of `params`, since gpodder.net takes
   no limit."
-  ([source endpoint params]
-   (call! source endpoint params {}))
-  ([source endpoint {:keys [limit] :as params} {:keys [send] :or {send http/call!} :as opts}]
+  ([source call params]
+   (call! source call params {}))
+  ([source call {:keys [limit] :as params} {:keys [send] :or {send http/call!} :as opts}]
    {:pre [(map? opts)]}
    (let [opts (cond-> opts (not (:auth-date opts)) (assoc :auth-date (quot (inst-ms (time/now)) 1000)))
-         req  (assoc (request source endpoint params opts) :timeout-seconds (:timeout-seconds opts 15))
+         req  (assoc (request source call params opts) :timeout-seconds (:timeout-seconds opts 15))
          id   (source-id source)]
      (async/then (send req)
                  (fn [{:keys [status body]}]
                    (cond
-                     (<= 200 status 299) (cond->> (response source endpoint body) limit (into [] (take limit)))
+                     (<= 200 status 299) (cond->> (response source call body) limit (into [] (take limit)))
                      (= 404 status)      []
                      :else               (throw (ex-info (str (name id) " answered " status)
                                                          {:type ::failed :source id :status status}))))))))
 
 (defn- completed!
-  "Complete the `shows` that `source` answered for `endpoint` with what a
+  "Complete the `shows` that `source` answered for `call` with what a
   chart leaves out, fetched with `opts`. Apple's chart names no feed, so
   its entries are looked up by id in one request. Deferred."
-  [source endpoint shows opts]
-  (if (and (= :apple (:api (entry source))) (= :trending endpoint) (seq shows))
+  [source call shows opts]
+  (if (and (= :apple (:api (entry source))) (= :trending call) (seq shows))
     (async/then (call! source :lookup {:id (keep :directory/id shows)} opts) #(concat shows %))
     shows))
 
@@ -574,16 +574,16 @@
       (seq failed) (assoc :failed failed))))
 
 (defn ^:no-doc fan-out!
-  "Ask each of `sources` for `endpoint` with `params` and `opts` at once,
+  "Ask each of `sources` for `call` with `params` and `opts` at once,
   and combine what they answer, in ClojureScript in a promise.
 
   The result is a map of the :results and, under :failed, the error
   message of each source that failed. A source that fails costs nothing
   but its absence."
-  [sources endpoint params opts]
+  [sources call params opts]
   (let [ask! (fn [source]
-               (async/attempt #(async/then (call! source endpoint params opts)
-                                           (fn [shows] (completed! source endpoint shows opts)))))]
+               (async/attempt #(async/then (call! source call params opts)
+                                           (fn [shows] (completed! source call shows opts)))))]
     (async/then (async/all (map ask! sources)) #(combined sources %))))
 
 (defn- most-sources-first
@@ -623,7 +623,7 @@
   search! does. The shows are in the order that the sources list them.
 
   The `opts` are those of search!, and :category, for the charts of one
-  category, as endpoints tells. A source that has no chart of the
+  category, as calls tells. A source that has no chart of the
   category, the :country or the :language is in :failed, with the reason."
   ([]
    (fetch-chart! {}))

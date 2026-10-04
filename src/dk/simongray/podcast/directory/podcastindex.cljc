@@ -25,13 +25,13 @@
             [dk.simongray.podcast.util.time :as time]))
 
 (def base-url
-  "The root of the URLs of the API, which the paths of endpoints are
+  "The root of the URLs of the API, which the paths of calls are
   below. The request function uses it, unless its options give the root
   of another service with the same API as :base-url."
   "https://api.podcastindex.org/api/1.0/")
 
-(def endpoints
-  "The path of each endpoint of the API by a keyword, as its OpenAPI
+(def paths
+  "The path of each call of the API by a keyword, as its OpenAPI
   description lists them. Each takes its parameters as a query."
   {:search/all                  "search"
    :search/by-term              "search/byterm"
@@ -151,7 +151,7 @@
                        secret/hide)})
 
 (defn request
-  "The request map for `endpoint`, a key of endpoints, with the query
+  "The request map for `call`, a key of paths, with the query
   `params`, signed with `credentials` at the :auth-date of `opts`.
 
   The credentials are a :key and a :secret, and they can give a
@@ -160,12 +160,12 @@
   does.
 
   The request goes to base-url, or to the :base-url of `opts`."
-  [credentials endpoint params {:keys [auth-date] :as opts}]
+  [credentials call params {:keys [auth-date] :as opts}]
   {:pre [(map? opts)]}
   (when-not auth-date
-    (throw (ex-info "A request is signed at an :auth-date, Unix seconds" {:endpoint endpoint})))
-  (let [path (or (endpoints endpoint)
-                 (throw (ex-info "Unknown Podcast Index endpoint" {:endpoint endpoint})))
+    (throw (ex-info "A request is signed at an :auth-date, Unix seconds" {:call call})))
+  (let [path (or (paths call)
+                 (throw (ex-info "Unknown Podcast Index call" {:call call})))
         root (str/replace (:base-url opts base-url) #"(^|[^/])/+$" "$1")
         qs   (http/query-string params)]
     {:method  :get
@@ -427,17 +427,17 @@
   (async/then (async/all send (remote-item-requests credentials remote-item opts)) item-in))
 
 (defn call!
-  "Send `endpoint` with `params` for `credentials`, signed now, and read
+  "Send `call` with `params` for `credentials`, signed now, and read
   the answer with response, in ClojureScript in a promise. The :base-url
   of `opts` is as request takes it, and its :send sends the request,
   http/call! by default.
 
   In a browser, the call works only where the CORS policy of the API
   allows it, or through a :send that goes through your own server."
-  ([credentials endpoint params]
-   (call! credentials endpoint params {}))
-  ([credentials endpoint params {:keys [send] :or {send http/call!} :as opts}]
-   (async/then (send (request credentials endpoint params (assoc opts :auth-date (now-seconds))))
+  ([credentials call params]
+   (call! credentials call params {}))
+  ([credentials call params {:keys [send] :or {send http/call!} :as opts}]
+   (async/then (send (request credentials call params (assoc opts :auth-date (now-seconds))))
                (comp response :body))))
 
 (defn fetch-remote-value!

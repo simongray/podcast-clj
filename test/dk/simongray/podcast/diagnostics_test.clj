@@ -17,7 +17,7 @@
 (def not-diagnostics
   "Keywords in the diagnostic namespaces that name something else."
   #{:xml/unknown :xml/namespaces :xml/report :xml/malformed
-    ;; the endpoints of the Podcast Index
+    ;; the calls of the Podcast Index
     :value/by-feed-id :value/by-feed-url :value/by-podcast-guid :value/by-episode-guid
     :value/batch-by-episode-guid})
 
