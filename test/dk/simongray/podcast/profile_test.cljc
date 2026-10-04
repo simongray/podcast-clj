@@ -803,30 +803,30 @@
                                    (crdt/acknowledge [(profile/subscribe (profile/make "laptop") "feed-b" {:url "https://b/rss"} t0)] t2))))))
   (testing "what would make an operation throw on every device it reached"
     (doseq [[profile found] [[{:clock "now"} #"clock"]
-                           [{:episodes {a {:updated-at "soon" :device "x"}}} #"stamped \"soon\""]
-                           [{:subscriptions [1 2 3]} #":subscriptions is not a map"]
-                           [{:episodes {a "x"}} #"not a map"]
-                           [{:queue {a {:rank "V!" :updated-at t0 :device "x"}}} #"not a rank"]
-                           [{:playlists {"P" {a {:rank "V!" :updated-at t0 :device "x"}}}} #"the playlist \"P\""]
-                           [{:devices {"x" {:seen {"y" 5} :updated-at t0 :device "x"}}} #"seen"]
-                           [{:lists {"https://l/1.opml" {:updated-at t0 :device "x"} 5 {:updated-at t0 :device "x"}}}
-                            #"the list at 5 is not at a URL"]
-                           [{:bookmarks {a {754.5 {:title "x" :updated-at t0 :device "x"}}}} #"whole number of seconds"]
-                           [{:bookmarks {a {-1 {:title "x" :updated-at t0 :device "x"}}}} #"whole number of seconds"]
-                           [{:clips {a {30.5 {:duration 10 :updated-at t0 :device "x"}}}}
-                            #"a clip of .* is not at a whole number of seconds"]
-                           [{:clips {a {30 {:duration "long" :updated-at t0 :device "x"}}}}
-                            #"lasts \"long\", not a number of seconds"]
-                           [{:ratings {a {:rating 7 :updated-at t0 :device "x"}}}
-                            #"is 7, not a number of the scale \{:worst 1, :best 5\}"]
-                           [{:ratings {a {:rating "good" :updated-at t0 :device "x"}}} #"is \"good\""]
-                           [{:ratings {a {:rating 101 :worst 1 :best 100 :updated-at t0 :device "x"}}}
-                            #"is 101, not a number of the scale"]
-                           [{:ratings {a {:rating 3 :worst 3 :best 3 :updated-at t0 :device "x"}}}
-                            #"not a number of the scale"]
-                           [{:filters {"F" {:criteria [:where] :updated-at t0 :device "x"}}} #"criteria of the filter \"F\""]
-                           [{:tags {"feed-a" "Tech"}} #"\[:tags \"feed-a\"\] is not a map"]
-                           [{:app/notes {"n1" "text"}} #"\[:app/notes \"n1\"\] is not in a stamped entry"]]]
+                             [{:episodes {a {:updated-at "soon" :device "x"}}} #"stamped \"soon\""]
+                             [{:subscriptions [1 2 3]} #":subscriptions is not a map"]
+                             [{:episodes {a "x"}} #"not a map"]
+                             [{:queue {a {:rank "V!" :updated-at t0 :device "x"}}} #"not a rank"]
+                             [{:playlists {"P" {a {:rank "V!" :updated-at t0 :device "x"}}}} #"the playlist \"P\""]
+                             [{:devices {"x" {:seen {"y" 5} :updated-at t0 :device "x"}}} #"seen"]
+                             [{:lists {"https://l/1.opml" {:updated-at t0 :device "x"} 5 {:updated-at t0 :device "x"}}}
+                              #"the list at 5 is not at a URL"]
+                             [{:bookmarks {a {754.5 {:title "x" :updated-at t0 :device "x"}}}} #"whole number of seconds"]
+                             [{:bookmarks {a {-1 {:title "x" :updated-at t0 :device "x"}}}} #"whole number of seconds"]
+                             [{:clips {a {30.5 {:duration 10 :updated-at t0 :device "x"}}}}
+                              #"a clip of .* is not at a whole number of seconds"]
+                             [{:clips {a {30 {:duration "long" :updated-at t0 :device "x"}}}}
+                              #"lasts \"long\", not a number of seconds"]
+                             [{:ratings {a {:rating 7 :updated-at t0 :device "x"}}}
+                              #"is 7, not a number of the scale \{:worst 1, :best 5\}"]
+                             [{:ratings {a {:rating "good" :updated-at t0 :device "x"}}} #"is \"good\""]
+                             [{:ratings {a {:rating 101 :worst 1 :best 100 :updated-at t0 :device "x"}}}
+                              #"is 101, not a number of the scale"]
+                             [{:ratings {a {:rating 3 :worst 3 :best 3 :updated-at t0 :device "x"}}}
+                              #"not a number of the scale"]
+                             [{:filters {"F" {:criteria [:where] :updated-at t0 :device "x"}}} #"criteria of the filter \"F\""]
+                             [{:tags {"feed-a" "Tech"}} #"\[:tags \"feed-a\"\] is not a map"]
+                             [{:app/notes {"n1" "text"}} #"\[:app/notes \"n1\"\] is not in a stamped entry"]]]
       (is (re-find found (str (profile/problem profile))) (pr-str profile))))
   (testing "an entry without a stamp, which two devices merge to two different states"
     (let [here  {:device "a" :stars {a {:removed? false}}}
@@ -834,7 +834,7 @@
       (is (not= (dissoc (profile/merge here there) :device) (dissoc (profile/merge there here) :device)))
       (is (= "the entry at [:stars [\"feed-a\" \"a1\"]] is not stamped" (profile/problem here)))
       (doseq [profile [{:queue {a {}}} {:settings {"feed-a" {:folder {:value "News"}}}}
-                     {:listened {"feed-a" {"2026-09" {"x" {:seconds 5}}}}} {:retired {"x" {}}}]]
+                       {:listened {"feed-a" {"2026-09" {"x" {:seconds 5}}}}} {:retired {"x" {}}}]]
         (is (re-find #"is not stamped" (str (profile/problem profile))) (pr-str profile)))))
   (testing "criteria of a later version are no problem of the state"
     (is (nil? (profile/problem {:filters {"F" {:criteria {:where {:mood "calm"}} :updated-at t0 :device "x"}}})))))

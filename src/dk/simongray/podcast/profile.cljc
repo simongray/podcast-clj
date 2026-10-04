@@ -299,10 +299,10 @@
   [profile from to at]
   (if-let [feed-guids (get (tagged profile) from)]
     (crdt/write-each profile (for [g feed-guids
-                            w (cond-> [[[:tags g from] #(assoc % :removed? true)]]
-                                to (conj [[:tags g to] (constantly {:removed? false})]))]
-                        w)
-                at)
+                                   w (cond-> [[[:tags g from] #(assoc % :removed? true)]]
+                                       to (conj [[:tags g to] (constantly {:removed? false})]))]
+                               w)
+                     at)
     profile))
 
 (defn filters
@@ -1187,8 +1187,8 @@
         details {:url (or known xml-url) :title (or title text) :added-at (when (inst? created) created)}]
     {:names (assoc names (normal-url xml-url) g)
      :profile (as-> (subscribe profile g details at) profile
-              (if folder (configure profile g {:folder folder} at) profile)
-              (reduce #(tag %1 g %2 at) profile (when (sequential? category) category)))}))
+                (if folder (configure profile g {:folder folder} at) profile)
+                (reduce #(tag %1 g %2 at) profile (when (sequential? category) category)))}))
 
 (defn from-opml
   "Subscribe `profile` at `at` to each feed of the OPML subscription `list`
@@ -1211,7 +1211,7 @@
          feeds   (fn [profile]
                    (:profile (reduce #(imported %1 %2 (folder (:path %2)) at)
                                      {:profile profile :names (by-url profile)}
-                                   (outlines list))))
+                                     (outlines list))))
          include (fn [profile {:keys [url text path]}]
                    (if (contains? (lists profile) url)
                      profile
@@ -1335,9 +1335,9 @@
   sleep timer, one episode less is left to play, and when none is left,
   the effect is [:stop id] and the timer stops."
   [profile id at sleep]
-  (let [profile'   (mark-played profile id at)
+  (let [profile' (mark-played profile id at)
         current? (= id (current profile'))
-        profile'   (if current? (advance profile' at) profile')
+        profile' (if current? (advance profile' at) profile')
         next     (when current? (current profile'))
         left     (some-> (:episodes sleep) dec)]
     (if (and left (not (pos? left)))
@@ -1404,8 +1404,8 @@
    (case kind
      :skip     (let [[amount] args
                      {:keys [skip-forward skip-back]} (preferences profile)
-                     seconds (case amount :forward skip-forward :back (- skip-back) amount)
-                     profile'  (skip profile id seconds at (select-keys opts [:played-threshold]))]
+                     seconds  (case amount :forward skip-forward :back (- skip-back) amount)
+                     profile' (skip profile id seconds at (select-keys opts [:played-threshold]))]
                  (moved profile profile' id [[:seek id (:position (episode-entry profile' id))]] at sleep))
      :chapter  (let [[direction doc] args
                      position (:position (episode-entry profile id))
@@ -1415,8 +1415,8 @@
                    (stepped profile [] sleep)))
      :progress (let [[position duration] args
                      profile' (-> profile
-                                (heard id position at (:listening-gap opts listening-gap))
-                                (progress id position duration at (select-keys opts [:played-threshold])))]
+                                  (heard id position at (:listening-gap opts listening-gap))
+                                  (progress id position duration at (select-keys opts [:played-threshold])))]
                  (moved profile profile' id [] at sleep))
      :ended    (ended profile id at sleep)
      :play     (stepped (place profile id (crdt/rank-between (queue-entries profile) nil (first (remove #{id} (queue profile)))) at)
