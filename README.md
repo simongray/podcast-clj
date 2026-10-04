@@ -135,8 +135,9 @@ and syncing also record what they did in it:
 (:effects (swap! lib library/step [:progress id 754 3600]))
 ;; => []
 
-;; fetch the feeds that are due for a check, merge in what came without losing
-;; what the listener did meanwhile, and list the new episodes
+;; fetch the feeds that are due for a check, and list the new episodes;
+;; the result is the library from before the fetch plus what it fetched, so
+;; merge it in, or anything done during the fetch, e.g. playing, is undone
 (-> (swap! lib library/merge (library/refresh! @lib)) :refresh :added)
 ;; => [] right after subscribing, since nothing is due yet.
 ;;    Later, the new episodes: [["917393e3-…" "PC20-274"]]
@@ -151,8 +152,8 @@ and syncing also record what they did in it:
 (:profile @lib)
 ```
 
-**NOTE:** the profile in `:profile` is in fact a CRDT,
-allowing different devices to sync this data without conflict.
+**NOTE:** only the profile in `:profile` syncs between devices.
+It's a CRDT, allowing them to sync it without conflict.
 Modify it with the functions of `profile`, not with `assoc`.
 [Syncing](doc/sync.md) explains how the devices merge.
 
