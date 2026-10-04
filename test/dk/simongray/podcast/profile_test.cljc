@@ -194,11 +194,11 @@
         (is (= [a c] (profile/queue (profile/merge phone4 laptop4)) (profile/queue (profile/merge laptop4 phone4))))
         (is (= [a c] (profile/queue (profile/merge phone4 (profile/play-next (assoc three :device "laptop") b t2))))
             "nor does play-next of a queued episode")
-        (is (= [b a c] (profile/queue (profile/merge phone4 (:state (profile/step laptop4 [:play b] t2)))))
+        (is (= [b a c] (profile/queue (profile/merge phone4 (:profile (profile/step laptop4 [:play b] t2)))))
             "but playing it puts it back")))
     (testing "ranks stay short as a queue grows, at its end and at its front"
       (let [long   (reduce (fn [s i] (profile/enqueue s ["f" (str i)] t0)) (profile/make "x") (range 2000))
-            played (reduce (fn [s i] (:state (profile/step s [:play ["g" (str i)]] t0))) long (range 200))
+            played (reduce (fn [s i] (:profile (profile/step s [:play ["g" (str i)]] t0))) long (range 200))
             digits #(apply max (map (comp count :rank) (vals (:queue %))))]
         (is (= 2000 (count (profile/queue long))))
         (is (= 3 (digits long)))
@@ -234,56 +234,56 @@
         (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (profile/new-episodes before after "https://a/rss")))
         (is (= [] (profile/new-episodes nil after "https://a/rss")))))
     (testing "without auto-queue the new episodes are reported, not queued"
-      (let [{:keys [state added]} (profile/refresh s before after "https://a/rss" t1)]
+      (let [{:keys [profile added]} (profile/refresh s before after "https://a/rss" t1)]
         (is (= 2 (count added)))
-        (is (= [] (profile/queue state)))))
+        (is (= [] (profile/queue profile)))))
     (testing "with auto-queue they join the queue, oldest first"
-      (let [{:keys [state]} (profile/refresh (profile/configure s "feed-a" {:auto-queue? true} t0) before after "https://a/rss" t1)]
-        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (profile/queue state)))
-        (is (= [] (profile/inbox state)))
-        (is (= state (:state (profile/refresh state after after "https://a/rss" t2))) "a parse with no new episode changes nothing")))
+      (let [{:keys [profile]} (profile/refresh (profile/configure s "feed-a" {:auto-queue? true} t0) before after "https://a/rss" t1)]
+        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (profile/queue profile)))
+        (is (= [] (profile/inbox profile)))
+        (is (= profile (:profile (profile/refresh profile after after "https://a/rss" t2))) "a parse with no new episode changes nothing")))
     (testing "many new episodes join the queue with short ranks"
       (let [grown {:podcast/guid "feed-a" :rss/items (into (mapv #(item (str "n" %)) (range 3000 0 -1)) (:rss/items before))}
             s     (-> (profile/configure s "feed-a" {:auto-queue? true} t0) (profile/enqueue ["feed-b" "b1"] t0))
-            {:keys [state added]} (profile/refresh s before grown "https://a/rss" t1)]
+            {:keys [profile added]} (profile/refresh s before grown "https://a/rss" t1)]
         (is (= 3000 (count added)))
-        (is (= (into [["feed-b" "b1"]] added) (profile/queue state)) "after what the queue holds, in their order")
-        (is (= 6 (apply max (map (comp count :rank) (vals (:queue state)))))
+        (is (= (into [["feed-b" "b1"]] added) (profile/queue profile)) "after what the queue holds, in their order")
+        (is (= 6 (apply max (map (comp count :rank) (vals (:queue profile)))))
             "three digits, after the three of the device's block")))
     (testing "else, when the settings ask for it, the inbox, the newest first"
-      (let [{:keys [state]} (profile/refresh (profile/configure s "feed-a" {:inbox? true} t0) before after "https://a/rss" t1)]
-        (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (profile/inbox state)))
-        (is (= [] (profile/queue state)))))
+      (let [{:keys [profile]} (profile/refresh (profile/configure s "feed-a" {:inbox? true} t0) before after "https://a/rss" t1)]
+        (is (= [["feed-a" "a4"] ["feed-a" "a3"]] (profile/inbox profile)))
+        (is (= [] (profile/queue profile)))))
     (testing "an episode another device has handled stays as the listener left it"
       (let [phone  (-> (profile/configure s "feed-a" {:auto-queue? true} t0)
                        (profile/refresh before after "https://a/rss" t1)
-                       :state
+                       :profile
                        (profile/mark-played ["feed-a" "a3"] t2)
                        (profile/dequeue ["feed-a" "a3"] t2)
                        (profile/dequeue ["feed-a" "a4"] t2))
             laptop (-> (profile/merge (profile/make "laptop") phone)
                        (profile/refresh before after "https://a/rss" t3)
-                       :state)]
+                       :profile)]
         (is (= [] (profile/queue laptop)) "neither the one played nor the one taken out comes back")
         (let [inbox  (-> (profile/configure s "feed-a" {:inbox? true} t0)
                          (profile/refresh before after "https://a/rss" t1)
-                         :state
+                         :profile
                          (profile/dismiss ["feed-a" "a4"] t2))
-              laptop (:state (profile/refresh (profile/merge (profile/make "laptop") inbox) before after "https://a/rss" t3))]
+              laptop (:profile (profile/refresh (profile/merge (profile/make "laptop") inbox) before after "https://a/rss" t3))]
           (is (= [["feed-a" "a3"]] (profile/inbox laptop)) "nor the one dismissed from the inbox"))))
     (testing "nor when a device finds the episode before it learns what the listener did"
       (let [dated  (fn [id day] (assoc (item id) :rss/pub-date (time/->inst (* day 86400000))))
             after  {:podcast/guid "feed-a" :rss/items [(dated "a4" 4) (dated "a3" 3) (item "a2") (item "a1")]}
             s      (profile/configure s "feed-a" {:auto-queue? true} t0)
-            phone  (-> (:state (profile/refresh s before after "https://a/rss" t1))
+            phone  (-> (:profile (profile/refresh s before after "https://a/rss" t1))
                        (profile/dequeue ["feed-a" "a3"] t2))
-            laptop (:state (profile/refresh (profile/merge (profile/make "laptop") s) before after "https://a/rss" t3))]
+            laptop (:profile (profile/refresh (profile/merge (profile/make "laptop") s) before after "https://a/rss" t3))]
         (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (profile/queue laptop)))
         (is (= #{"feed:feed-a"} (set (map :device (vals (:queue laptop))))) "written as the feed")
         (is (= [["feed-a" "a4"]] (profile/queue (profile/merge laptop phone))))))
     (testing "nothing joins for a show that the listener left"
       (let [left (-> (profile/configure s "feed-a" {:auto-queue? true} t0) (profile/unsubscribe "feed-a" t1))]
-        (is (= [] (profile/queue (:state (profile/refresh left before after "https://a/rss" t2)))))))))
+        (is (= [] (profile/queue (:profile (profile/refresh left before after "https://a/rss" t2)))))))))
 
 (deftest the-inbox
   (let [c2 ["feed-b" "b2"]
@@ -487,18 +487,18 @@
     (is (= {url {:title "Picks" :folder "Picks"}} (profile/lists s)))
     (testing "a first parse subscribes to the shows the state does not know, into the list's folder"
       (is (= [(g "https://pc20/rss")] (:added r1)))
-      (is (= t1 (:clock (:state r1))) "all at the same stamp")
-      (is (= {"Picks" [(g "https://pc20/rss")] nil [(g "https://mine/rss")]} (profile/folders (:state r1)))
+      (is (= t1 (:clock (:profile r1))) "all at the same stamp")
+      (is (= {"Picks" [(g "https://pc20/rss")] nil [(g "https://mine/rss")]} (profile/folders (:profile r1)))
           "the listener's own show stays where it was"))
     (testing "later parses add the shows that join, and report the ones that leave"
-      (let [unsubscribed (profile/unsubscribe (:state r1) (g "https://pc20/rss") t2)
-            {:keys [state added left]} (profile/refresh-list unsubscribed url v1 v2 t3)]
+      (let [unsubscribed (profile/unsubscribe (:profile r1) (g "https://pc20/rss") t2)
+            {:keys [profile added left]} (profile/refresh-list unsubscribed url v1 v2 t3)]
         (is (= [(g "https://new/rss")] added))
-        (is (= "New" (get-in state [:subscriptions (g "https://new/rss") :title])) "the feed's title, not the text")
+        (is (= "New" (get-in profile [:subscriptions (g "https://new/rss") :title])) "the feed's title, not the text")
         (is (= [(g "https://mine/rss")] left) "a show that left stays, for the app to decide")
-        (is (profile/subscribed? state (g "https://mine/rss")))
-        (is (not (profile/subscribed? state (g "https://pc20/rss"))) "a show the listener left stays left")))
-    (is (= {:state s :added [] :left []} (profile/refresh-list s "https://other/list.opml" nil v1 t1))
+        (is (profile/subscribed? profile (g "https://mine/rss")))
+        (is (not (profile/subscribed? profile (g "https://pc20/rss"))) "a show the listener left stays left")))
+    (is (= {:profile s :added [] :left []} (profile/refresh-list s "https://other/list.opml" nil v1 t1))
         "a list the listener does not follow changes nothing")
     (is (= {} (profile/lists (profile/unfollow-list s url t1))))
     (testing "the state knows a show by the URL of its feed, under whatever guid"
@@ -510,19 +510,19 @@
                                    {:text "Members" :xml-url "https://members.example/rss"}
                                    {:text "New" :xml-url "https://new/rss"}
                                    {:text "New, again" :xml-url "https://NEW/rss"}]}
-            {:keys [state added left]} (profile/refresh-list s url nil twice t1)]
+            {:keys [profile added left]} (profile/refresh-list s url nil twice t1)]
         (is (= [(g "https://new/rss")] added) "and a show that the list names twice comes in once")
-        (is (= #{"declared" "private" (g "https://new/rss")} (set (keys (profile/subscriptions state)))))
-        (is (= "https://simon:secret@members.example/rss" (get-in state [:subscriptions "private" :url]))
+        (is (= #{"declared" "private" (g "https://new/rss")} (set (keys (profile/subscriptions profile)))))
+        (is (= "https://simon:secret@members.example/rss" (get-in profile [:subscriptions "private" :url]))
             "a private feed is the feed at its URL without the password, and keeps its own URL")
         (is (= ["declared" "private" (g "https://new/rss")]
-               (:left (profile/refresh-list state url twice {:subscriptions []} t2)))
+               (:left (profile/refresh-list profile url twice {:subscriptions []} t2)))
             "a show that leaves has the guid that the state knows it by")
         (is (= [] left))))
     (testing "a show that the listener left stays left on a device that joins after the compaction"
       (let [day    (* 24 60 60 1000)
             far    (time/->inst (+ (inst-ms t4) (* 40 day)))
-            phone  (-> (crdt/identify (:state r1) {:name "Phone"} t1)
+            phone  (-> (crdt/identify (:profile r1) {:name "Phone"} t1)
                        (profile/unsubscribe (g "https://pc20/rss") t2))
             laptop (-> (crdt/identify (profile/make "laptop") {:name "Laptop"} t2)
                        (profile/merge phone)
@@ -536,7 +536,7 @@
                           [:subscriptions (g "https://pc20/rss")]))
             "and it goes when the listener follows none")))
     (testing "in OPML, as an inclusion in the list's folder, and followed again from it"
-      (let [xml (opml/emit (profile/to-opml (:state r1)))]
+      (let [xml (opml/emit (profile/to-opml (:profile r1)))]
         (is (re-find #"<outline text=\"Picks\">\s*<outline type=\"rss\"[^>]*/>\s*<outline type=\"include\" text=\"Picks\" url=\"https://lists.example/picks.opml\"/>" xml))
         (is (= {url {:title "Picks" :folder "Picks"}}
                (profile/lists (profile/from-opml (profile/make "laptop") (opml/parse xml) t2))))))))
@@ -605,40 +605,40 @@
         id [g "e1"]
         s0 (profile/subscribe (profile/make "phone") g {:url "https://a/rss" :title "A"} t0)
         at #(time/->inst (+ (inst-ms #inst "2026-09-30T23:59:50Z") (* 1000 %)))
-        s1 (:state (profile/step s0 [:progress id 100 3600] (at 0)))
-        s2 (:state (profile/step s1 [:progress id 110 3600] (at 10)))]
+        s1 (:profile (profile/step s0 [:progress id 100 3600] (at 0)))
+        s2 (:profile (profile/step s1 [:progress id 110 3600] (at 10)))]
     (is (= {} (profile/listened s1)) "a first report has nothing to count from")
     (is (= {g {"2026-10" 10}} (profile/listened s2)) "the month of the report, in UTC")
-    (is (< 14.9 (get-in (profile/listened (:state (profile/step s2 [:progress id 700 3600] (at 15)))) [g "2026-10"]) 25.1)
+    (is (< 14.9 (get-in (profile/listened (:profile (profile/step s2 [:progress id 700 3600] (at 15)))) [g "2026-10"]) 25.1)
         "a seek counts no more than playback at three times the speed")
-    (is (= (profile/listened s2) (profile/listened (:state (profile/step s2 [:progress id 50 3600] (at 15)))))
+    (is (= (profile/listened s2) (profile/listened (:profile (profile/step s2 [:progress id 50 3600] (at 15)))))
         "nor does a move back")
     (testing "two devices counting at once lose nothing"
-      (let [laptop (:state (profile/step (profile/merge (profile/make "laptop") s1) [:progress id 130 3600] (at 30)))]
+      (let [laptop (:profile (profile/step (profile/merge (profile/make "laptop") s1) [:progress id 130 3600] (at 30)))]
         (is (= {g {"2026-10" 40}} (profile/listened (profile/merge s2 laptop))))))
     (testing "a state whose clock is ahead of the clock of the device"
       (let [fast  (profile/star (profile/make "laptop") ["x" "y"] (at 7200))
-            play  (fn [s] (reduce #(:state (profile/step %1 [:progress id (* 10 %2) 3600] (at (* 10 %2)))) s (range 31)))
+            play  (fn [s] (reduce #(:profile (profile/step %1 [:progress id (* 10 %2) 3600] (at (* 10 %2)))) s (range 31)))
             ahead (play (profile/merge s0 fast))]
         (is (= {g {"2026-10" 300}} (profile/listened ahead) (profile/listened (play s0)))
             "the time is measured from the last report, and not from its stamp")
         (is (pos? (compare (:updated-at (profile/episode-entry ahead id)) (:reported-at (profile/episode-entry ahead id)))))))
     (testing "a report after a pause"
-      (let [paused (:state (profile/step s2 [:progress id 1500 3600] (at 610)))]
+      (let [paused (:profile (profile/step s2 [:progress id 1500 3600] (at 610)))]
         (is (= (profile/listened s2) (profile/listened paused))
             "a move of the position after more than a minute is no listening")
-        (is (= {g {"2026-10" 15}} (profile/listened (:state (profile/step paused [:progress id 1505 3600] (at 615)))))
+        (is (= {g {"2026-10" 15}} (profile/listened (:profile (profile/step paused [:progress id 1505 3600] (at 615)))))
             "and the next report counts from there")
-        (is (= {g {"2026-10" 70}} (profile/listened (:state (profile/step s2 [:progress id 170 3600] (at (+ 10 profile/listening-gap))))))
+        (is (= {g {"2026-10" 70}} (profile/listened (:profile (profile/step s2 [:progress id 170 3600] (at (+ 10 profile/listening-gap))))))
             "a report at the end of the gap counts")
         (is (= {g {"2026-10" 310}}
-               (profile/listened (:state (profile/step s2 [:progress id 410 3600] (at 310) {:listening-gap 300}))))
+               (profile/listened (:profile (profile/step s2 [:progress id 410 3600] (at 310) {:listening-gap 300}))))
             "the gap of the app")
         (is (= (profile/listened s2)
-               (profile/listened (:state (profile/step s2 [:progress id 140 3600] (at 40) {:listening-gap 20})))))))
+               (profile/listened (:profile (profile/step s2 [:progress id 140 3600] (at 40) {:listening-gap 20})))))))
     (testing "a device that is restored from a backup counts on from the higher count"
       (let [play     (fn [s from to start]
-                       (reduce #(:state (profile/step %1 [:progress id (+ from (* 10 %2)) 3600] (at (+ start (* 10 %2)))))
+                       (reduce #(:profile (profile/step %1 [:progress id (+ from (* 10 %2)) 3600] (at (+ start (* 10 %2)))))
                                s
                                (range (inc (quot (- to from) 10)))))
             saved    (play s0 0 100 0)
@@ -648,7 +648,7 @@
         (is (= [{g {"2026-10" 1000}} {g {"2026-10" 130}}] (map profile/listened [went-on restored])))
         (is (= {g {"2026-10" 1000}} (profile/listened both) (profile/listened (profile/merge went-on restored)))
             "the count with the later stamp is the lower one here")
-        (is (= {g {"2026-10" 1010}} (profile/listened (:state (profile/step both [:progress id 140 3600] (at 5040))))))))
+        (is (= {g {"2026-10" 1010}} (profile/listened (:profile (profile/step both [:progress id 140 3600] (at 5040))))))))
     (is (= "the listening of \"feed-a\" is not counted in seconds"
            (profile/problem (assoc-in s2 [:listened g "2026-10" "x"] {:seconds "many" :updated-at t1 :device "x"}))))))
 
@@ -802,7 +802,7 @@
                                    (profile/rate-episode b 50 t1 {:scale {:worst 1 :best 100}})
                                    (crdt/acknowledge [(profile/subscribe (profile/make "laptop") "feed-b" {:url "https://b/rss"} t0)] t2))))))
   (testing "what would make an operation throw on every device it reached"
-    (doseq [[state found] [[{:clock "now"} #"clock"]
+    (doseq [[profile found] [[{:clock "now"} #"clock"]
                            [{:episodes {a {:updated-at "soon" :device "x"}}} #"stamped \"soon\""]
                            [{:subscriptions [1 2 3]} #":subscriptions is not a map"]
                            [{:episodes {a "x"}} #"not a map"]
@@ -827,15 +827,15 @@
                            [{:filters {"F" {:criteria [:where] :updated-at t0 :device "x"}}} #"criteria of the filter \"F\""]
                            [{:tags {"feed-a" "Tech"}} #"\[:tags \"feed-a\"\] is not a map"]
                            [{:app/notes {"n1" "text"}} #"\[:app/notes \"n1\"\] is not in a stamped entry"]]]
-      (is (re-find found (str (profile/problem state))) (pr-str state))))
+      (is (re-find found (str (profile/problem profile))) (pr-str profile))))
   (testing "an entry without a stamp, which two devices merge to two different states"
     (let [here  {:device "a" :stars {a {:removed? false}}}
           there {:device "b" :stars {a {:removed? true}}}]
       (is (not= (dissoc (profile/merge here there) :device) (dissoc (profile/merge there here) :device)))
       (is (= "the entry at [:stars [\"feed-a\" \"a1\"]] is not stamped" (profile/problem here)))
-      (doseq [state [{:queue {a {}}} {:settings {"feed-a" {:folder {:value "News"}}}}
+      (doseq [profile [{:queue {a {}}} {:settings {"feed-a" {:folder {:value "News"}}}}
                      {:listened {"feed-a" {"2026-09" {"x" {:seconds 5}}}}} {:retired {"x" {}}}]]
-        (is (re-find #"is not stamped" (str (profile/problem state))) (pr-str state)))))
+        (is (re-find #"is not stamped" (str (profile/problem profile))) (pr-str profile)))))
   (testing "criteria of a later version are no problem of the state"
     (is (nil? (profile/problem {:filters {"F" {:criteria {:where {:mood "calm"}} :updated-at t0 :device "x"}}})))))
 
@@ -964,21 +964,21 @@
 (deftest stepping
   (let [s (-> (profile/make "phone") (profile/enqueue a t0) (profile/enqueue b t0))]
     (testing "progress reports when an episode becomes played"
-      (let [{:keys [state effects]} (profile/step s [:progress a 3590 3600] t1)]
-        (is (profile/played? state a))
+      (let [{:keys [profile effects]} (profile/step s [:progress a 3590 3600] t1)]
+        (is (profile/played? profile a))
         (is (= [[:played a]] effects))
-        (is (= [] (:effects (profile/step state [:progress a 3595 3600] t2))) "only once")))
+        (is (= [] (:effects (profile/step profile [:progress a 3595 3600] t2))) "only once")))
     (testing "ending the current episode plays the next"
-      (let [{:keys [state effects]} (profile/step s [:ended a] t1)]
-        (is (profile/played? state a))
-        (is (= [b] (profile/queue state)))
+      (let [{:keys [profile effects]} (profile/step s [:ended a] t1)]
+        (is (profile/played? profile a))
+        (is (= [b] (profile/queue profile)))
         (is (= [[:play b]] effects))))
     (testing "ending an episode that is not current leaves the queue alone"
-      (let [{:keys [state effects]} (profile/step s [:ended c] t1)]
-        (is (= [a b] (profile/queue state)))
+      (let [{:keys [profile effects]} (profile/step s [:ended c] t1)]
+        (is (= [a b] (profile/queue profile)))
         (is (= [] effects))))
-    (is (= [c a b] (profile/queue (:state (profile/step s [:play c] t1)))))
-    (is (= {:state s :effects []} (profile/step s [:volume 3] t1)) "unknown events change nothing")))
+    (is (= [c a b] (profile/queue (:profile (profile/step s [:play c] t1)))))
+    (is (= {:profile s :effects []} (profile/step s [:volume 3] t1)) "unknown events change nothing")))
 
 (deftest skipping-the-outro
   (let [s (-> (profile/make "phone")
@@ -990,28 +990,28 @@
     (is (= 3540 (profile/outro-start s "feed-a" a)))
     (is (nil? (profile/outro-start s "feed-a" b)) "not before the duration is known")
     (testing "a report in the outro ends the episode there"
-      (let [{:keys [state effects]} (profile/step s [:progress a 3545 3600] t1)]
+      (let [{:keys [profile effects]} (profile/step s [:progress a 3545 3600] t1)]
         (is (= [[:stop a] [:played a] [:play b]] effects))
-        (is (profile/played? state a))
-        (is (= [b] (profile/queue state)))
-        (is (= [] (:effects (profile/step state [:progress a 3550 3600] t2))) "once: a late report changes nothing")))
+        (is (profile/played? profile a))
+        (is (= [b] (profile/queue profile)))
+        (is (= [] (:effects (profile/step profile [:progress a 3550 3600] t2))) "once: a late report changes nothing")))
     (testing "so does a skip into it, which then needs no seek"
       (is (= [[:stop a] [:played a] [:play b]] (:effects (profile/step s [:skip a 45] t1))))
       (is (= [[:seek a 3530]] (:effects (profile/step s [:skip a :forward] t1)))))
     (testing "an episode that counts as played already, and one heard again"
       (let [short (profile/configure s "feed-a" {:skip-outro 20} t0)
-            {:keys [state effects]} (profile/step short [:progress a 3575 3600] t1)]
+            {:keys [profile effects]} (profile/step short [:progress a 3575 3600] t1)]
         (is (= [[:played a]] effects) "within the threshold of the end, but not yet in the outro")
-        (is (= [[:stop a] [:play b]] (:effects (profile/step state [:progress a 3585 3600] t2)))))
+        (is (= [[:stop a] [:play b]] (:effects (profile/step profile [:progress a 3585 3600] t2)))))
       (let [again (-> s (profile/mark-played a t1) (profile/progress a 20 t2))]
         (is (= [[:stop a] [:play b]] (:effects (profile/step again [:progress a 3541 3600] t3))))))
     (testing "an episode that is not current only stops"
       (let [s (-> s
                   (profile/subscribe "feed-b" {:url "https://b/rss" :title "B"} t0)
                   (profile/configure "feed-b" {:skip-outro 60} t0))
-            {:keys [state effects]} (profile/step s [:progress c 3545 3600] t1)]
+            {:keys [profile effects]} (profile/step s [:progress c 3545 3600] t1)]
         (is (= [[:stop c] [:played c]] effects))
-        (is (= [a b] (profile/queue state)))))
+        (is (= [a b] (profile/queue profile)))))
     (testing "no outro, or one as long as the episode, ends nothing early"
       (is (= [[:played a]] (:effects (profile/step (profile/configure s "feed-a" {:skip-outro 0} t1) [:progress a 3590 3600] t2))))
       (is (= [[:played b]] (:effects (profile/step (profile/progress s b 10 50 t1) [:progress b 45 50] t2)))))))
@@ -1029,13 +1029,13 @@
                    (profile/enqueue a t0)
                    (profile/enqueue b t0)
                    (profile/progress a 100 3600 t0))
-        jump   (fn [state direction] (profile/step state [:chapter a direction chapters-doc] t1))
+        jump   (fn [profile direction] (profile/step profile [:chapter a direction chapters-doc] t1))
         at     (fn [position] (profile/progress s a position 3600 t0))
         seek   (fn [position] [[:seek a position]])]
     (testing "to the next chapter of the table of contents"
-      (let [{:keys [state effects]} (jump s :next)]
+      (let [{:keys [profile effects]} (jump s :next)]
         (is (= (seek 600) effects) "the chapter outside the table of contents is no stop")
-        (is (= 600 (:position (profile/episode-entry state a))))))
+        (is (= 600 (:position (profile/episode-entry profile a))))))
     (testing "to the start of the chapter that plays, or to the chapter before it"
       (is (= (seek 90) (:effects (jump s :previous))))
       (is (= (seek 0) (:effects (jump (at 92) :previous))) "in the first seconds of a chapter")
@@ -1044,7 +1044,7 @@
       (is (= (seek 90) (:effects (jump (at 601) :previous))))
       (is (= (seek 0) (:effects (jump (at 1) :previous)))))
     (testing "after the start of the last chapter, the next chapter is no jump"
-      (is (= {:state (at 700) :effects []} (jump (at 700) :next))))
+      (is (= {:profile (at 700) :effects []} (jump (at 700) :next))))
     (testing "an episode whose position the state does not have starts at 0"
       (is (= [[:seek b 90]] (:effects (profile/step s [:chapter b :next chapters-doc] t1)))))
     (testing "a document with no chapters"
@@ -1060,14 +1060,14 @@
   (let [s     (-> (profile/make "phone") (profile/enqueue a t0) (profile/enqueue b t0))
         sleep (fn [n] {:sleep {:episodes n}})]
     (testing "at the end of this episode"
-      (let [{:keys [state effects] :as result} (profile/step s [:ended a] t1 (sleep 1))]
+      (let [{:keys [profile effects] :as result} (profile/step s [:ended a] t1 (sleep 1))]
         (is (= [[:stop a]] effects) "the player stops, and the next episode does not play")
-        (is (= [b] (profile/queue state)) "the next episode is current, for the next time")
-        (is (profile/played? state a))
+        (is (= [b] (profile/queue profile)) "the next episode is current, for the next time")
+        (is (profile/played? profile a))
         (is (not (contains? result :sleep)) "the timer ran out")))
     (testing "after some episodes"
       (let [first-end  (profile/step s [:ended a] t1 (sleep 2))
-            second-end (profile/step (:state first-end) [:ended b] t2 (select-keys first-end [:sleep]))]
+            second-end (profile/step (:profile first-end) [:ended b] t2 (select-keys first-end [:sleep]))]
         (is (= [[[:play b]] {:episodes 1}] ((juxt :effects :sleep) first-end)))
         (is (= [[:stop b]] (:effects second-end)))
         (is (not (contains? second-end :sleep)))))
@@ -1075,8 +1075,8 @@
       (doseq [event [[:progress a 100 3600] [:skip a 30] [:play b] [:chapter a :next chapters-doc] [:volume 3]]]
         (is (= {:episodes 2} (:sleep (profile/step s event t1 (sleep 2)))) (pr-str event))))
     (testing "without a timer, the result has none"
-      (is (= #{:state :effects} (set (keys (profile/step s [:ended a] t1)))))
-      (is (= #{:state :effects} (set (keys (profile/step s [:ended a] t1 {}))))))
+      (is (= #{:profile :effects} (set (keys (profile/step s [:ended a] t1)))))
+      (is (= #{:profile :effects} (set (keys (profile/step s [:ended a] t1 {}))))))
     (testing "an episode that ends in its outro"
       (let [outro (-> s
                       (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)
@@ -1087,6 +1087,6 @@
         (is (= [[[:stop a] [:played a] [:play b]] {:episodes 1}]
                ((juxt :effects :sleep) (profile/step outro [:progress a 3545 3600] t1 (sleep 2)))))))
     (testing "the last episode of the queue"
-      (is (= [[:stop b]] (:effects (profile/step (:state (profile/step s [:ended a] t1)) [:ended b] t2 (sleep 1))))))
+      (is (= [[:stop b]] (:effects (profile/step (:profile (profile/step s [:ended a] t1)) [:ended b] t2 (sleep 1))))))
     (testing "the timer is no part of the state"
-      (is (= (:state (profile/step s [:ended a] t1)) (:state (profile/step s [:ended a] t1 (sleep 3))))))))
+      (is (= (:profile (profile/step s [:ended a] t1)) (:profile (profile/step s [:ended a] t1 (sleep 3))))))))

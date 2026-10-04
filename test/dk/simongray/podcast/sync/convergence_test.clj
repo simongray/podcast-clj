@@ -67,7 +67,7 @@
   [state feed-guid published at]
   (let [item  {:rss/guid {:content ({"feed-a" "a1" "feed-b" "b1"} feed-guid)} :rss/pub-date published}
         after {:podcast/guid feed-guid :rss/items [item]}]
-    (:state (profile/refresh state {:podcast/guid feed-guid :rss/items []} after (str "https://" feed-guid "/rss") at))))
+    (:profile (profile/refresh state {:podcast/guid feed-guid :rss/items []} after (str "https://" feed-guid "/rss") at))))
 
 (defn- apply-operation
   [state [kind x y z]]
@@ -98,7 +98,7 @@
     :add-to-playlist      (profile/add-to-playlist state x y z)
     :remove-from-playlist (profile/remove-from-playlist state x y z)
     :rename-playlist      (profile/rename-playlist state "P" x y)
-    :listen               (:state (profile/step state [:progress x y 3600] z))
+    :listen               (:profile (profile/step state [:progress x y 3600] z))
     :subscribe-with       (-> (profile/subscribe state x {:url (str "https://" x "/rss") :title x} z)
                               (profile/configure x {y true} z))
     :refresh              (refreshed state x y z)

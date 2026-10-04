@@ -221,7 +221,7 @@
                   etag          (assoc :etag etag)
                   last-modified (assoc :last-modified last-modified))]
     (-> library
-        (update :profile #(:state (profile/refresh-list % url (get-in library [:fetched-lists url :list]) list now)))
+        (update :profile #(:profile (profile/refresh-list % url (get-in library [:fetched-lists url :list]) list now)))
         (assoc-in [:fetched-lists url] entry))))
 
 (defn follow
@@ -360,9 +360,9 @@
         library (assoc library :feeds feeds)
         result (reduce (fn [acc guid]
                          (let [{:keys [feed url]} (get feeds guid)
-                               {:keys [state added]} (profile/refresh (:profile (:library acc)) (get-in before [guid :feed]) feed url now)]
+                               {:keys [profile added]} (profile/refresh (:profile (:library acc)) (get-in before [guid :feed]) feed url now)]
                            (-> acc
-                               (assoc-in [:library :profile] state)
+                               (assoc-in [:library :profile] profile)
                                (update :library reindexed guid)
                                (update :library kept guid keep)
                                (update :added into added))))
@@ -529,8 +529,8 @@
    {:pre [(map? opts)]}
    (let [now  (time-of library opts)
          opts (clojure.core/merge (select-keys library [:sleep]) opts)
-         {:keys [state effects sleep]} (profile/step (:profile library) event now opts)]
-     (cond-> (assoc (dissoc library :sleep) :profile state :effects effects)
+         {:keys [profile effects sleep]} (profile/step (:profile library) event now opts)]
+     (cond-> (assoc (dissoc library :sleep) :profile profile :effects effects)
        sleep (assoc :sleep sleep)))))
 
 (defn update-profile

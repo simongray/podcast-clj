@@ -67,13 +67,13 @@
   16000)
 
 (defn rules
-  "The rules that `state` holds, over default-rules: the listener's
+  "The rules that `profile` holds, over default-rules: the listener's
   preference :downloads, with the setting :downloads of each show as its
   rule, as profile/prefer and profile/configure write them."
-  [state]
-  (let [listener (:downloads (profile/preferences state))
-        shows    (into {} (for [feed-guid (keys (profile/subscriptions state))
-                                :let [rule (:downloads (profile/settings state feed-guid))]
+  [profile]
+  (let [listener (:downloads (profile/preferences profile))
+        shows    (into {} (for [feed-guid (keys (profile/subscriptions profile))
+                                :let [rule (:downloads (profile/settings profile feed-guid))]
                                 :when (some? rule)]
                             [feed-guid rule]))]
     (if (or (nil? listener) (map? listener))
@@ -153,34 +153,34 @@
   (long (* bytes-per-second (or (resolve/duration item) 0))))
 
 (defn- held
-  "The episode ids of `state` under each name in keeps, e.g. the starred
+  "The episode ids of `profile` under each name in keeps, e.g. the starred
   ones under :starred."
-  [state]
-  {:starred     (set (profile/starred state))
-   :queued      (set (profile/queue state))
-   :playlists   (into #{} cat (vals (profile/playlists state)))
+  [profile]
+  {:starred     (set (profile/starred profile))
+   :queued      (set (profile/queue profile))
+   :playlists   (into #{} cat (vals (profile/playlists profile)))
    :in-progress (into #{}
                       (keep (fn [[id {:keys [position played?]}]]
                               (when (and (not played?) (number? position) (pos? position)) id)))
-                      (profile/episode-entries state))})
+                      (profile/episode-entries profile))})
 
 (defn- context
-  "The map that plan passes to its helpers, from the profile `state`, the
+  "The map that plan passes to its helpers, from `profile`, the
   device's `files`, the instant `at` and the `opts` of plan.
 
   It has what search/where needs: the profile as :profile, the
   instant :at and the :url of a feed. It also has the :files, the :rules
   with their :problems, and the :held episodes."
-  [state files at opts]
-  (let [rules (:rules opts (rules state))]
+  [profile files at opts]
+  (let [rules (:rules opts (rules profile))]
     (merge (select-keys opts [:scale :enclosure :estimate])
-           {:profile  state
+           {:profile  profile
             :at       at
             :url      (:url opts resolve/self-url)
             :files    (or files {})
             :rules    (if (map? rules) (merge default-rules rules) rules)
             :problems (problems rules)
-            :held     (held state)})))
+            :held     (held profile)})))
 
 (defn- guid-of
   [{:keys [url]} feed]
@@ -283,10 +283,10 @@
        (mapv (fn [[id file]] (gone id file :room)))))
 
 (defn- dismissed?
-  "Whether the listener took the episode `id` out of the inbox of `state`
+  "Whether the listener took the episode `id` out of the inbox of `profile`
   without queueing it."
-  [state id]
-  (boolean (and (:removed? (get-in state [:inbox id])) (not (profile/queued? state id)))))
+  [profile id]
+  (boolean (and (:removed? (get-in profile [:inbox id])) (not (profile/queued? profile id)))))
 
 (defn- wanted?
   "Whether to download the episode `id`, by the profile and files of `ctx`.
@@ -311,12 +311,12 @@
       type (assoc :type type))))
 
 (defn- front
-  "The episode ids at the front of the queue of `state` that the rules'
+  "The episode ids at the front of the queue of `profile` that the rules'
   `queue` value asks for: all, a number of them, or none."
-  [state queue]
+  [profile queue]
   (cond
-    (true? queue)   (profile/queue state)
-    (number? queue) (vec (take queue (profile/queue state)))
+    (true? queue)   (profile/queue profile)
+    (number? queue) (vec (take queue (profile/queue profile)))
     :else           []))
 
 (defn- downloads
@@ -395,7 +395,7 @@
 
 (defn plan
   "The plan at `at` for a device with `files`: the episodes of `feeds` to
-  download and the files to delete, by the rules in `state` and `opts`.
+  download and the files to delete, by the rules in `profile` and `opts`.
 
   The `feeds` are the parsed feeds of the shows, or one feed, and `files`
   are the files on the device by episode id:
@@ -426,7 +426,7 @@
 
   The `opts` are:
 
-  - :rules, instead of the rules in the state
+  - :rules, instead of the rules in the profile
   - :url, the URL of a feed without a podcast:guid, as a string or a
     function of the feed
   - :enclosure, the options of resolve/enclosure, which selects the file
@@ -437,11 +437,11 @@
 
   When the rules have a problem, the result describes it under
   :problems."
-  ([state feeds files at]
-   (plan state feeds files at {}))
-  ([state feeds files at opts]
+  ([profile feeds files at]
+   (plan profile feeds files at {}))
+  ([profile feeds files at opts]
    {:pre [(map? opts)]}
-   (let [{:keys [rules problems] :as ctx} (context state files at opts)
+   (let [{:keys [rules problems] :as ctx} (context profile files at opts)
          shows   (when (map? rules) (:shows rules))
          global? (some #(not (contains? shows %)) (keys problems))]
      (cond-> (if global?
@@ -466,7 +466,7 @@
                      :rss/enclosure {:url "https://example.org/1.mp3" :type "audio/mpeg" :length 50117331}}]})
 
   ;; the newest two episodes without a rerun, and a played file goes after a day
-  (def state
+  (def profile
     (-> (profile/make "phone")
         (profile/subscribe "feed-1" {:url "https://example.org/feed.xml" :title "A show"} #inst "2026-09-01")
         (profile/prefer {:downloads {:default {:played 86400} :max-episodes 50}} #inst "2026-09-01")
@@ -476,13 +476,13 @@
                            #inst "2026-09-01")
         (profile/mark-played ["feed-1" "ep-1"] #inst "2026-09-20")))
 
-  (rules state)
-  (rule (rules state) "feed-1")
-  (problems (rules state))
+  (rules profile)
+  (rule (rules profile) "feed-1")
+  (problems (rules profile))
 
-  (plan state [show] {["feed-1" "ep-1"] {:bytes 50117331 :at #inst "2026-09-09"}} #inst "2026-09-29")
+  (plan profile [show] {["feed-1" "ep-1"] {:bytes 50117331 :at #inst "2026-09-09"}} #inst "2026-09-29")
 
-  ;; rules of this device in the place of those of the state
-  (plan state [show] {} #inst "2026-09-29"
-        {:rules (assoc (rules state) :queue 3 :max-bytes 60000000)})
+  ;; rules of this device in the place of those of the profile
+  (plan profile [show] {} #inst "2026-09-29"
+        {:rules (assoc (rules profile) :queue 3 :max-bytes 60000000)})
   #_.)
