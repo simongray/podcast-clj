@@ -4,10 +4,10 @@
   fetches the feed, and the gpodder API names the phone's episode by it."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.file :as file]
@@ -26,7 +26,7 @@
   [(guid/from-url url) "a1"])
 
 (def feed
-  (podcast/parse (str "<rss version=\"2.0\"><channel><title>A</title>"
+  (rss/parse (str "<rss version=\"2.0\"><channel><title>A</title>"
                       "<item><title>One</title><guid>a1</guid>"
                       "<enclosure url=\"https://a.example/1.mp3\" type=\"audio/mpeg\" length=\"1\"/></item>"
                       "</channel></rss>")))
@@ -81,7 +81,7 @@
   (with-temp-dir
     (fn [dir]
       (let [data    (file/store dir)
-            show    (podcast/parse (fixture "feeds/namespace-example.xml"))
+            show    (rss/parse (fixture "feeds/namespace-example.xml"))
             library (library/subscribe (device/make) "https://example.com/feed.xml" show)]
         (device/save! library data)
         (is (= (select-keys library device/saved-keys)

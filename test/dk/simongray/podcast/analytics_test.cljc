@@ -7,9 +7,9 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics :as analytics]
             [dk.simongray.podcast.analytics.op3 :as op3]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
@@ -256,13 +256,13 @@
            (op3/prefix "https://media.test/e.mp3" {:origin "https://op3.example.org" :accepts? (constantly true)})))
     (is (nil? (op3/prefix "https://cdn.example.com/e.mp3" {:accepts? #(str/ends-with? % ".m4a")})))
     (is (nil? (op3/prefix "ipfs://bafy/e.mp3" {:accepts? (constantly true)})) "a prefix is for http and https"))
-  (let [feed (op3/with-prefix (podcast/parse (fixture "feeds/namespace-example.xml")))
+  (let [feed (op3/with-prefix (rss/parse (fixture "feeds/namespace-example.xml")))
         item (first (filter #(= "https://op3.dev/e/example.com/file-03.mp3" (get-in % [:rss/enclosure :url])) (:rss/items feed)))]
     (is (some? item) "the enclosure, without the guid of the example, which is no UUID")
     (is (= ["https://op3.dev/e/example.com/file-03.mp3" "ipfs://someRandomMpegFile03"]
            (map :uri (:sources (first (:podcast/alternate-enclosures item)))))
         "the sources of an alternate enclosure that OP3 takes")
-    (is (str/includes? (podcast/emit feed) "url=\"https://op3.dev/e/example.com/file-02.mp3\""))))
+    (is (str/includes? (rss/emit feed) "url=\"https://op3.dev/e/example.com/file-02.mp3\""))))
 
 (deftest the-api-of-op3
   (let [request (op3/request "test-token" :downloads {:show "fb3d03641442410e881acb0562ef27c6"

@@ -5,8 +5,8 @@
   the reducer."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
@@ -597,7 +597,7 @@
             "with the URL of each feed the listener subscribes to")
         (is (= [] (validate/validate feed)))
         (is (= [c a b] (profile/playlist (profile/from-list-feed (profile/make "laptop") "Shared"
-                                                                 (podcast/parse (podcast/emit feed)) t2)
+                                                                 (rss/parse (rss/emit feed)) t2)
                                          "Shared")))))))
 
 (deftest counting-listening

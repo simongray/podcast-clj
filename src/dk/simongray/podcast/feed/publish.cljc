@@ -2,7 +2,7 @@
   "What a host does to a feed before serving it: the pages of a long feed,
   the private feed of a subscriber, and the URLs of its media files.
 
-  The functions are pure, and podcast/emit writes the feeds they give."
+  The functions are pure, and rss/emit writes the feeds they give."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.secret :as secret]))

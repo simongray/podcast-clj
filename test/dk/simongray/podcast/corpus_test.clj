@@ -6,8 +6,8 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.feeds-test :refer [same-for-slim?]]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.transcript :as transcript]
@@ -18,7 +18,7 @@
     (testing name
       (is (string? (:rss/title feed)))
       (is (every? map? (:rss/items feed)))
-      (is (= feed (podcast/parse (podcast/emit feed))) "lossless round trip")
+      (is (= feed (rss/parse (rss/emit feed))) "lossless round trip")
       (is (vector? (validate/validate feed {:requirements :psp-1}))))))
 
 (deftest every-corpus-feed-slim

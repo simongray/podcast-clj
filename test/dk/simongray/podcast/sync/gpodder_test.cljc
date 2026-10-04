@@ -7,8 +7,8 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
@@ -124,7 +124,7 @@
     (is (= 200 (first (failure {:status 200 :body "<html>a login page</html>"}))) "an answer that is not JSON")))
 
 (def example
-  (delay (podcast/parse (fixture "feeds/namespace-example.xml"))))
+  (delay (rss/parse (fixture "feeds/namespace-example.xml"))))
 
 (deftest names-over-parsed-feeds
   (let [{:keys [feed-guid feed-url episode-id episode-url]} (gpodder/identities {"https://example.com/feed.xml" @example})]

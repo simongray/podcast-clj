@@ -4,11 +4,11 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.crypto.nip44 :as nip44]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.feed.check :as check]
+            [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.test-support :refer [secret-key with-relay]]
             [dk.simongray.podcast.util.http :as http]
@@ -497,7 +497,7 @@
                   "some words"            {:feeds [] :error {:id :discovery/unreadable :message "Not an address"}}
                   "gone.example"          {:feeds [] :error {:id :fetch/unreachable :message "No fetch" :reason "UnknownHost"}}}
         location #(get-in % [:headers "Location"])]
-    (with-redefs [podcast/find-feeds! (fn [s _] (answers s))
+    (with-redefs [discovery/find-feeds! (fn [s _] (answers s))
                   http/fetch!         (fn [url & _] (throw (ex-info "not this one" {:url url})))]
       (testing "a feed, or the one podcast that a page names, is inspected at once, without a fetch of its own"
         (is (= "/feed?url=https%3A%2F%2Fa.example%2Frss" (location (get* "/find" "q" "https://a.example/rss"))))

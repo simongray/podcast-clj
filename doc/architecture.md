@@ -11,7 +11,7 @@ This page explains how each part of podcast-clj is built.
   5  high level   app.library  app.show  app.episode  app.feeds
   4  root         dk.simongray.podcast
   3  companions   feed.resolve  feed.check  feed.discovery  feed.publish  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  search  downloads  sync  sync.*
-  2  feed model   feed  feed.coerce  feed.validate  feed.schema
+  2  feed model   feed  feed.rss  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.quirks
   0  primitives   util.*  crypto.*  feed.guid  diagnostics
 ```
@@ -20,9 +20,9 @@ A namespace only requires namespaces in its own layer or below. The
 registry `feed.spec` knows nothing about parsing, `feed` knows nothing about
 HTTP, and the companion formats need only the primitives and each other.
 The `app` namespaces are the only ones that require the root namespace,
-because they call `parse` and `fetch!`. The names show two of the layers:
-`app` holds the top layer and nothing else, and `util` and `crypto` hold
-the primitives. A test in `architecture_test.clj` reads the `ns` forms, and
+because they call `fetch!`. The names show two of the layers: `app` holds
+the top layer and nothing else, and `util` and `crypto` hold the
+primitives. A test in `architecture_test.clj` reads the `ns` forms, and
 fails on a require that points up a layer, on a cycle, or on a name in the
 wrong layer.
 
@@ -141,10 +141,10 @@ on the classpath, its XML mode reads the document into the same raw Hiccup,
 so all later steps are shared.
 
 `{:quirks? false}` gives the strict path, and `:except` leaves out the
-quirks it names. Each layer reports only what it did, and the root
-namespace joins the reports in order. Metadata doesn't survive printing,
-transit or `into {}`, so an app that stores a parsed feed must store its
-report next to it.
+quirks it names. Each layer reports only what it did, and `rss/parse`
+joins the reports in order. Metadata doesn't survive printing, transit or
+`into {}`, so an app that stores a parsed feed must store its report next
+to it.
 
 Diagnostic ids are part of the API, since apps match on them. The
 `diagnostics` namespace lists each id with its level and meaning, and a test

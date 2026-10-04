@@ -837,8 +837,8 @@
 
 #?(:clj
    (comment
-     (require '[dk.simongray.podcast :as podcast])
-     (def f (podcast/parse (slurp "test/resources/feeds/namespace-example.xml")))
+     (require '[dk.simongray.podcast.feed.rss :as rss])
+     (def f (rss/parse (slurp "test/resources/feeds/namespace-example.xml")))
      (map :rss/title (episodes f {:order :oldest}))
      (def idx (index (map #(item-document f % {:url "https://example.com/feed.xml"}) (:rss/items f))))
      (query idx "futu")

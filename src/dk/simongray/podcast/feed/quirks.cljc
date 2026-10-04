@@ -3,17 +3,19 @@
   parse and always reported.
 
   The function repair rewrites XML text that a strict parser rejects, by
-  the repairs, and runs only when the strict parse failed. The function
-  uri->alias knows the variants of namespace URIs that feeds bind their
-  prefixes to. The function normalize rewrites a canonical Hiccup tree
-  into the form that the specifications describe, by the normalizations
-  and those that a registry implies.
+  the repairs. The function parse-raw makes the strict parse, and runs
+  repair only when that parse failed. The function uri->alias knows the
+  variants of namespace URIs that feeds bind their prefixes to. The
+  function normalize rewrites a canonical Hiccup tree into the form that
+  the specifications describe, by the normalizations and those that a
+  registry implies.
 
   Every repair and normalization has an id, each use of one goes into a
   report, and the option :except leaves out those that it names."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.spec :as spec]
+            #?(:clj [dk.simongray.podcast.util.http :as http])
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.xml :as xml]))
 
@@ -250,6 +252,80 @@
                  (not= xml xml') (update :report conj {:id id :level :warning}))))
            {:xml s :report []}
            (remove (comp except :id) repairs))))
+
+(def ^:no-doc lenient-parser
+  "The parser to fall back on when a document is still malformed after the
+  repairs, or nil.
+
+  On the JVM, it's util.xml.jsoup/parse-raw when org.jsoup/jsoup is on
+  the classpath, so adding jsoup to the dependencies is all it takes.
+  ClojureScript has none."
+  (delay #?(:clj  (try
+                    (requiring-resolve 'dk.simongray.podcast.util.xml.jsoup/parse-raw)
+                    (catch Exception _ nil))
+            :cljs nil)))
+
+(defn- held
+  "The `xml` in a form that can be read twice, first strictly and then for
+  the repairs. On the JVM, an InputStream becomes bytes, and a Reader a
+  string."
+  [xml]
+  #?(:clj  (cond
+             (instance? java.io.InputStream xml) (.readAllBytes ^java.io.InputStream xml)
+             (instance? java.io.Reader xml)      (slurp xml)
+             :else                               xml)
+     :cljs xml))
+
+(defn- strict
+  "Parse `xml`, as held gives it, strictly into a map with the :raw tree,
+  or the :error when it's malformed. Bytes go to the parser as a stream, so
+  that it honours the document's own encoding."
+  [xml]
+  (try
+    {:raw (xml/parse-raw #?(:clj  (if (bytes? xml) (java.io.ByteArrayInputStream. ^bytes xml) xml)
+                            :cljs xml))}
+    (catch #?(:clj Exception :cljs :default) e
+      (if (= ::xml/malformed (:type (ex-data e))) {:error e} (throw e)))))
+
+(defn- repaired
+  "Repair the malformed `xml`, as held gives it, with `opts`, and parse it
+  again into a map of the :raw tree and its :report.
+
+  The parse is strict when the repairs were enough, and lenient when
+  there's a lenient parser and :except in `opts` doesn't name
+  :repair/lenient-parser. Otherwise, it throws the error of the strict
+  parser."
+  [xml {:keys [except] :as opts}]
+  (let [text                           #?(:clj  (if (bytes? xml) (http/decode {} xml) xml)
+                                          :cljs xml)
+        {repaired :xml report :report} (repair text opts)
+        {:keys [raw error]}            (strict repaired)
+        parse-leniently                (when-not (contains? except :repair/lenient-parser) @lenient-parser)]
+    (cond
+      raw             {:raw raw :report report}
+      parse-leniently {:raw    (parse-leniently repaired)
+                       :report (conj report {:id :repair/lenient-parser :level :warning})}
+      :else           (throw error))))
+
+(defn parse-raw
+  "Parse the XML document `xml` into its raw tree, and repair it first
+  when it's malformed, except by the repairs that the :except of `opts`
+  names. It returns a map of the :raw tree and the :report of the repairs.
+
+  The `xml` is a string or, on the JVM, an InputStream or a Reader. The
+  strict parse comes first, so a well-formed document has an empty
+  report. When the repairs aren't enough, the lenient parser reads the
+  document if there is one, and else the error of the strict parse is
+  thrown."
+  ([xml]
+   (parse-raw xml {}))
+  ([xml opts]
+   {:pre [(map? opts)]}
+   (let [xml           (held xml)
+         {:keys [raw]} (strict xml)]
+     (if raw
+       {:raw raw :report []}
+       (repaired xml opts)))))
 
 (defn- rewrite
   "The normalization `id` that replaces every element tagged `tag` by what
@@ -512,6 +588,7 @@
 
 (comment
   (repair "﻿<rss><channel><title>A & B &nbsp;<itunes:author>x</itunes:author></title></channel></rss>")
+  (parse-raw "<rss><channel><title>A & B</title></channel></rss>")
   (normalize (xml/parse "<rss xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel>
                          <itunes:image>https://x/y.jpg</itunes:image><itunes:explicit>Yes</itunes:explicit>
                          <item><itunes:duration>1:02:03</itunes:duration><guid></guid></item></channel></rss>"))

@@ -4,14 +4,14 @@
   over a network of fixed answers."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed.discovery :as discovery]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [run]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]))
 
-(defn- rss
+(defn- feed-xml
   "An RSS feed with the `title` and the `opts`: its website as :link, its
   :self link, its podcast :guid, and :episode? for an item with an
   enclosure."
@@ -178,7 +178,7 @@
   (is (not (discovery/same-website? "https://example.com/" nil))))
 
 (deftest known-feeds
-  (let [feed  (podcast/parse (rss "A" {:link "https://a.example/" :episode? true}))
+  (let [feed  (rss/parse (feed-xml "A" {:link "https://a.example/" :episode? true}))
         known {feed "https://feeds.example/a.xml"}]
     (is (= [["https://feeds.example/a.xml" :known]] (found (discovery/known-matches "https://A.example" known)))
         "by the website of the feed")
@@ -188,10 +188,10 @@
 
 (deftest ranking-the-candidates
   (let [guid  "917393e3-1b1e-5cef-ace4-edaa54e1f810"
-        mp3   (podcast/parse (rss "Show" {:self "https://feeds.example/mp3" :guid guid :episode? true}))
-        opus  (podcast/parse (rss "Show" {:self "https://feeds.example/opus" :guid guid :episode? true}))
-        blog  (podcast/parse (rss "Blog" {}))
-        other (podcast/parse (rss "Other" {:episode? true}))]
+        mp3   (rss/parse (feed-xml "Show" {:self "https://feeds.example/mp3" :guid guid :episode? true}))
+        opus  (rss/parse (feed-xml "Show" {:self "https://feeds.example/opus" :guid guid :episode? true}))
+        blog  (rss/parse (feed-xml "Blog" {}))
+        other (rss/parse (feed-xml "Other" {:episode? true}))]
     (is (= [["https://a.example/feed/mp3" :link]
             ["https://a.example/feed/opus" :link]
             ["https://x.example/other.xml" :directory]
@@ -208,8 +208,8 @@
         opts     (fn [answers & {:as more}]
                    (reset! log [])
                    (merge {:send (network answers log) :allow? (constantly true)} more))
-        show     (rss "The Show" {:link "https://show.example/" :episode? true})
-        blog     (rss "The Blog" {:link "https://show.example/"})
+        show     (feed-xml "The Show" {:link "https://show.example/" :episode? true})
+        blog     (feed-xml "The Blog" {:link "https://show.example/"})
         search   (:url (directory/request :apple :search {:q "The Show" :limit 8}))
         lookup   (:url (directory/request :apple :lookup {:id "123"}))
         results  #(str "{\"resultCount\":" (count %) ",\"results\":["
@@ -219,7 +219,7 @@
                        "]}")]
     (run
      (fn []
-       (async/then (podcast/find-feeds! "show.example/feed.xml" (opts {"https://show.example/feed.xml" {:body show}}))
+       (async/then (discovery/find-feeds! "show.example/feed.xml" (opts {"https://show.example/feed.xml" {:body show}}))
                    (fn [{:keys [feeds error]}]
                      (testing "an address that is a feed"
                        (is (= [["https://show.example/feed.xml" :input]] (found feeds)))
@@ -228,31 +228,31 @@
                        (is (= "The Show" (:rss/title (:feed (first feeds)))) "with the parsed feed")
                        (is (nil? error))))))
      (fn []
-       (async/then (podcast/find-feeds! "show.example/feed.xml" (opts {"http://show.example/feed.xml" {:body show}}))
+       (async/then (discovery/find-feeds! "show.example/feed.xml" (opts {"http://show.example/feed.xml" {:body show}}))
                    (fn [{:keys [feeds]}]
                      (testing "http when https doesn't answer"
                        (is (= [["http://show.example/feed.xml" :input]] (found feeds)))
                        (is (= ["https://show.example/feed.xml" "http://show.example/feed.xml"] @log))))))
      (fn []
-       (async/then (podcast/find-feeds! "show.example/feed.xml" (opts {"https://show.example/feed.xml" :late
+       (async/then (discovery/find-feeds! "show.example/feed.xml" (opts {"https://show.example/feed.xml" :late
                                                                         "http://show.example/feed.xml"  {:body show}}))
                    (fn [{:keys [error]}]
                      (testing "no other address after one that doesn't answer in time"
                        (is (= :fetch/unreachable (:id error)))
                        (is (= ["https://show.example/feed.xml"] @log))))))
      (fn []
-       (async/then (podcast/find-feeds! "show.example" (opts {} :allow? #(not= "https://show.example" %)))
+       (async/then (discovery/find-feeds! "show.example" (opts {} :allow? #(not= "https://show.example" %)))
                    (fn [{:keys [error]}]
                      (testing "no other address after one that isn't allowed"
                        (is (= :fetch/unreachable (:id error)))
                        (is (= ["https://show.example"] @log))))))
      (fn []
-       (async/then (podcast/find-feeds! "https://show.example/"
+       (async/then (discovery/find-feeds! "https://show.example/"
                                         (opts {"https://show.example/"         {:body (page (alternate "/feed") (alternate "/comments/feed")
                                                                                             (alternate "/feed/mp3") (alternate "/gone")
                                                                                             "<a href=/rss>RSS</a>")}
                                                "https://show.example/feed"     {:body blog}
-                                               "https://show.example/comments/feed" {:body (rss "Comments" {})}
+                                               "https://show.example/comments/feed" {:body (feed-xml "Comments" {})}
                                                "https://show.example/feed/mp3" {:body show}
                                                "https://show.example/gone"     {:status 404}}))
                    (fn [{:keys [feeds report]}]
@@ -265,7 +265,7 @@
                            "a link that names no feed")
                        (is (not (some #{"https://show.example/rss"} @log)) "no more places once a podcast is found")))))
      (fn []
-       (async/then (podcast/find-feeds! "https://show.example/"
+       (async/then (discovery/find-feeds! "https://show.example/"
                                         (opts {"https://show.example/"     {:body (page (alternate "/feed") "<a href=/podcast/rss>RSS</a>")}
                                                "https://show.example/feed" {:body blog}
                                                "https://show.example/podcast/rss" {:body show}}))
@@ -273,7 +273,7 @@
                      (testing "a link in the page when the link elements name no podcast"
                        (is (= [["https://show.example/podcast/rss" :anchor] ["https://show.example/feed" :link]] (found feeds)))))))
      (fn []
-       (async/then (podcast/find-feeds! "https://show.example/"
+       (async/then (discovery/find-feeds! "https://show.example/"
                                         (opts {"https://show.example/" {:body (page)}
                                                "https://show.example/rss" {:body show}}
                                               :rules [[#"^https://show\.example/$" "https://feeds.example/show"]]))
@@ -294,7 +294,7 @@
                       {:status (if (= "https://show.example/" url) 200 404) :url url :headers {} :body (page)})
              ask    (fn [more]
                       (reset! limits {})
-                      (async/then (podcast/find-feeds! "https://show.example/" (merge {:send send :allow? (constantly true)} more))
+                      (async/then (discovery/find-feeds! "https://show.example/" (merge {:send send :allow? (constantly true)} more))
                                   (fn [_] (mapv @limits ["https://show.example/" "https://show.example/rss"]))))]
          (async/then (ask {})
                      (fn [default]
@@ -304,26 +304,26 @@
                                        (is (= [15 8] default))
                                        (is (= [5 5] lower)))))))))
      (fn []
-       (async/then (podcast/find-feeds! "show.example" (opts {"https://show.example" {:body (page)}}))
+       (async/then (discovery/find-feeds! "show.example" (opts {"https://show.example" {:body (page)}}))
                    (fn [{:keys [feeds error]}]
                      (testing "no feed, and no directory without asking"
                        (is (empty? feeds))
                        (is (= [:discovery/not-found "https://show.example"] ((juxt :id :url) error)))
                        (is (not (some #{search} @log)))))))
      (fn []
-       (async/then (podcast/find-feeds! "show.example"
+       (async/then (discovery/find-feeds! "show.example"
                                         (opts {"https://show.example"          {:body (page)}
                                                search                          {:body (results [[1 "https://feeds.example/show"]
                                                                                                 [2 "https://feeds.example/elsewhere"]])}
                                                "https://feeds.example/show"      {:body show}
-                                               "https://feeds.example/elsewhere" {:body (rss "The Show" {:link "https://elsewhere.example/"
+                                               "https://feeds.example/elsewhere" {:body (feed-xml "The Show" {:link "https://elsewhere.example/"
                                                                                                          :episode? true})}}
                                               :search [:apple]))
                    (fn [{:keys [feeds]}]
                      (testing "a directory search, for the feeds whose website is the domain"
                        (is (= [["https://feeds.example/show" :directory]] (found feeds)))))))
      (fn []
-       (async/then (podcast/find-feeds! "https://podcasts.apple.com/us/podcast/the-show/id123"
+       (async/then (discovery/find-feeds! "https://podcasts.apple.com/us/podcast/the-show/id123"
                                         (opts {lookup                       {:body (results [[123 "https://feeds.example/show"]])}
                                                "https://feeds.example/show" {:body show}}))
                    (fn [{:keys [feeds]}]
@@ -331,30 +331,30 @@
                        (is (= [["https://feeds.example/show" :app-link]] (found feeds)))
                        (is (= [lookup "https://feeds.example/show"] @log) "and no page of Apple")))))
      (fn []
-       (async/then (podcast/find-feeds! "show.example"
+       (async/then (discovery/find-feeds! "show.example"
                                         (opts {"https://show.example" {:body (page)}}
-                                              :known {(podcast/parse show) "https://feeds.example/show"}))
+                                              :known {(rss/parse show) "https://feeds.example/show"}))
                    (fn [{:keys [feeds error]}]
                      (testing "a feed that the caller knows, by its website"
                        (is (= [["https://feeds.example/show" :known]] (found feeds)))
                        (is (nil? error))))))
      (fn []
        (let [guid "9b024349-ccf0-5f69-a609-6b82873eab3c"]
-         (async/then (podcast/find-feeds! (str "https://show.example/#fastfollow-podcast:" guid)
+         (async/then (discovery/find-feeds! (str "https://show.example/#fastfollow-podcast:" guid)
                                           (opts {"https://show.example/"   {:body (page (alternate "/one") (alternate "/two"))}
                                                  "https://show.example/one" {:body show}
-                                                 "https://show.example/two" {:body (rss "Two" {:guid guid :episode? true})}}))
+                                                 "https://show.example/two" {:body (feed-xml "Two" {:guid guid :episode? true})}}))
                      (fn [{:keys [feeds]}]
                        (testing "a fast-follow link keeps the feed with its guid"
                          (is (= [["https://show.example/two" :link]] (found feeds))))))))
      (fn []
-       (async/then (podcast/find-feeds! "https://show.example/" (opts {"https://show.example/" {:status 404}}))
+       (async/then (discovery/find-feeds! "https://show.example/" (opts {"https://show.example/" {:status 404}}))
                    (fn [{:keys [feeds error]}]
                      (testing "a page that isn't there"
                        (is (empty? feeds))
                        (is (= [:fetch/status 404] ((juxt :id :status) error)))))))
      (fn []
-       (async/then (podcast/find-feeds! "the daily" (opts {}))
+       (async/then (discovery/find-feeds! "the daily" (opts {}))
                    (fn [{:keys [feeds error]}]
                      (testing "words, with no request"
                        (is (empty? feeds))

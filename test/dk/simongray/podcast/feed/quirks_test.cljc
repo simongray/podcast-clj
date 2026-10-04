@@ -1,9 +1,9 @@
 (ns dk.simongray.podcast.feed.quirks-test
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.quirks :as quirks]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [fixture]]
             [dk.simongray.podcast.util.xml :as xml]))
 
@@ -17,7 +17,7 @@
       (is (= (str "acme.example" slashes "ns") (quirks/uri-key (str "https://acme.example" slashes "ns"))))))
   (testing "a feed that uses such a URI for many names parses in linear time"
     (let [uri  (str "https://acme.example" (apply str (repeat 20000 "/")) "ns")
-          feed (podcast/parse (str "<rss version=\"2.0\" xmlns:acme=\"" uri "\"><channel><title>T</title>"
+          feed (rss/parse (str "<rss version=\"2.0\" xmlns:acme=\"" uri "\"><channel><title>T</title>"
                                    (apply str (repeat 500 "<acme:x>1</acme:x>"))
                                    "</channel></rss>"))]
       (is (= 500 (count (:xml/unknown feed)))))))
@@ -55,8 +55,8 @@
 
 (deftest junk-around-the-document
   (let [read (fn [xml]
-               (let [f (podcast/parse xml)]
-                 [(:rss/title f) (mapv :id (podcast/report f))]))]
+               (let [f (rss/parse xml)]
+                 [(:rss/title f) (mapv :id (rss/report f))]))]
     (is (= ["T" [:repair/leading-junk]]
            (read "<br />\n<b>Warning</b>: x in <b>feed.php</b><br />\n<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>T</title></channel></rss>")))
     (is (= ["T" [:repair/leading-junk]]
@@ -70,15 +70,29 @@
     #?(:clj
        (is (= ["AB" [:repair/control-characters]] (read "<rss version=\"2.0\"><channel><title>A&#11;B</title></channel></rss>")))))
   (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"Not an RSS"
-                        (podcast/parse "<guid/>"))
+                        (rss/parse "<guid/>"))
       "a document that is one empty guid is no feed, and no quirk removes it"))
 
 #?(:clj
    (deftest repairing-a-stream-or-a-reader
      (let [xml "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><rss version=\"2.0\"><channel><title>Café &nbsp;</title></channel></rss>"]
-       (is (= "Café" (:rss/title (podcast/parse (java.io.ByteArrayInputStream. (.getBytes xml "ISO-8859-1")))))
+       (is (= "Café" (:rss/title (rss/parse (java.io.ByteArrayInputStream. (.getBytes xml "ISO-8859-1")))))
            "read once, in the encoding the document declares, and repaired")
-       (is (= "Café" (:rss/title (podcast/parse (java.io.StringReader. xml))))))))
+       (is (= "Café" (:rss/title (rss/parse (java.io.StringReader. xml))))))))
+
+(deftest parsing-around-the-repairs
+  (testing "a well-formed document is parsed strictly, with nothing to report"
+    (is (= {:raw ["rss" {} ["channel" {} ["title" {} "A"]]] :report []}
+           (quirks/parse-raw "<rss><channel><title>A</title></channel></rss>"))))
+  (let [malformed "<b>Notice</b>: x<br />\n<rss><channel><title>A</title></channel></rss>"]
+    (testing "a malformed one is repaired first, and the report names the repairs"
+      (is (= {:raw ["rss" {} ["channel" {} ["title" {} "A"]]] :report [{:id :repair/leading-junk :level :warning}]}
+             (quirks/parse-raw malformed))))
+    (testing "unless :except leaves out the repair that it needs"
+      (is (= ::xml/malformed
+             (try (quirks/parse-raw malformed {:except #{:repair/leading-junk :repair/lenient-parser}})
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                    (:type (ex-data e)))))))))
 
 (deftest numeric-references-a-string-cannot-hold
   (is (= "&#1114112; &#x110000; &#99999999999999999999; A"
@@ -95,9 +109,9 @@
   (testing "and normalize the rules, through parse-tree"
     (let [xml      "<rss xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><itunes:explicit>Yes</itunes:explicit></channel></rss>"
           explicit (fn [opts]
-                     (let [tree (podcast/parse-tree xml opts)]
+                     (let [tree (rss/parse-tree xml opts)]
                        [(xml/text (xml/element (xml/element tree :channel) :itunes/explicit))
-                        (set (map :id (podcast/report tree)))]))]
+                        (set (map :id (rss/report tree)))]))]
       (is (= ["true" #{:quirk/explicit-value}] (explicit {})))
       (is (= ["Yes" #{}] (explicit {:except #{:quirk/explicit-value}}))))))
 
@@ -109,7 +123,7 @@
 
 (deftest srcset-as-a-browser-reads-it
   (let [images (fn [srcset]
-                 (->> (podcast/parse (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>"
+                 (->> (rss/parse (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>"
                                           "<podcast:images srcset=\"" srcset "\"/></channel></rss>"))
                       :podcast/images
                       (mapv (juxt :href :width))))]
@@ -157,8 +171,8 @@
       (is (= "application/x-subrip" (get-in item [:podcast/transcripts 0 :type]))))))
 
 (deftest the-quirky-fixture
-  (let [f    (podcast/parse @quirky)
-        ids  (frequencies (map :id (podcast/report f)))
+  (let [f    (rss/parse @quirky)
+        ids  (frequencies (map :id (rss/report f)))
         item (first (:rss/items f))]
     (testing "the document was repaired before it could be parsed"
       (is (= 1 (:repair/leading-junk ids)))
@@ -184,9 +198,9 @@
       (is (= 2 (count (get-in item [:psc/chapters :chapters]))))
       (is (= 5.0E-8 (get-in item [:podcast/values 0 :suggested]))))
     (testing "the round trip keeps the foreign namespace and loses nothing"
-      (let [out (podcast/emit f)]
+      (let [out (rss/emit f)]
         (is (re-find #"xmlns:acme=\"https://acme.example/rss-extensions\"" out))
-        (is (= f (podcast/parse out)))))
+        (is (= f (rss/parse out)))))
     (testing "the strict path refuses the document"
       (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
-                   (podcast/parse @quirky {:quirks? false}))))))
+                   (rss/parse @quirky {:quirks? false}))))))

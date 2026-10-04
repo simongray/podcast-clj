@@ -5,14 +5,15 @@
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pprint]
             [clojure.string :as str]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.check :as check]
+            [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.search :as search]
@@ -114,10 +115,10 @@
           modified (.lastModified file)
           feed     (:value (cached [:corpus name]
                                    #(= modified (:modified %))
-                                   (fn [_] {:modified modified :value (podcast/parse (slurp file))})))]
-      {:url url :feed-url (or (resolve/self-url feed) url) :feed feed :report (podcast/report feed)})
-    (let [{:keys [value status]} (fetch :feed url podcast/parse)]
-      {:url url :feed-url url :feed value :report (podcast/report value) :status status})))
+                                   (fn [_] {:modified modified :value (rss/parse (slurp file))})))]
+      {:url url :feed-url (or (resolve/self-url feed) url) :feed feed :report (rss/report feed)})
+    (let [{:keys [value status]} (fetch :feed url rss/parse)]
+      {:url url :feed-url url :feed value :report (rss/report value) :status status})))
 
 (defn- html
   [hiccup]
@@ -244,7 +245,7 @@
   [request]
   (with-feed request
     (fn [{:keys [feed]}]
-      (text "application/rss+xml; charset=utf-8" (podcast/emit feed)))))
+      (text "application/rss+xml; charset=utf-8" (rss/emit feed)))))
 
 (defn corpus-page
   "The inspection of a corpus feed, by its file name."
@@ -270,7 +271,7 @@
           (fn [_] {:url url :status 200 :value feed :at (System/currentTimeMillis)})))
 
 (defn find-page
-  "The feeds that podcast/find-feeds! finds for the text in the `q`
+  "The feeds that discovery/find-feeds! finds for the text in the `q`
   parameter: a feed URL, a website, a page or a link of an app.
 
   When a page names no podcast, the directories are searched by its name,
@@ -285,7 +286,7 @@
         (let [opts                            (cond-> {:search [:apple :fyyd :gpodder]}
                                                 index-credentials (-> (assoc :index index-credentials)
                                                                       (update :search conj :podcastindex)))
-              {:keys [feeds error] :as found} (podcast/find-feeds! q opts)
+              {:keys [feeds error] :as found} (discovery/find-feeds! q opts)
               best                            (first feeds)]
           (cond
             (= :discovery/unreadable (:id error))
@@ -555,7 +556,7 @@
   []
   (or @corpus-search
       (reset! corpus-search
-              (let [feeds (into {} (for [[name url] (corpus)] [url (podcast/parse (slurp (corpus-file name)))]))]
+              (let [feeds (into {} (for [[name url] (corpus)] [url (rss/parse (slurp (corpus-file name)))]))]
                 {:feeds feeds
                  :index (search/index (for [[url feed] feeds
                                             item       (:rss/items feed)]

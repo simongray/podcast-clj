@@ -1,7 +1,7 @@
 (ns dk.simongray.podcast.feed.validate-test
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.test-support :refer [fixture]]))
@@ -14,7 +14,7 @@
   (frequencies (map :id diagnostics)))
 
 (deftest registry-checks
-  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\">
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\">
                             <channel><title>T</title><link>https://t</link><description>d</description>
                               <podcast:guid>not-a-uuid</podcast:guid>
                               <podcast:medium>vinyl</podcast:medium>
@@ -52,13 +52,13 @@
                (validate/validate {:rss/version "2.0"} {:requirements :bogus}))))
 
 (deftest rss-basics
-  (let [v (validate/validate (podcast/parse "<rss version=\"0.91\"><channel><item><enclosure url=\"https://a\"/></item></channel></rss>"))]
+  (let [v (validate/validate (rss/parse "<rss version=\"0.91\"><channel><item><enclosure url=\"https://a\"/></item></channel></rss>"))]
     (is (= {:validate/rss-version 1 :validate/missing-element 4} (ids v))))
   (is (= {:validate/missing-enclosure 1}
-         (ids (validate/validate (podcast/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><item><title>E</title></item></channel></rss>"))))))
+         (ids (validate/validate (rss/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><item><title>E</title></item></channel></rss>"))))))
 
 (deftest requirements
-  (let [f (podcast/parse @example)]
+  (let [f (rss/parse @example)]
     (testing "the specification example against PSP-1"
       (let [v (validate/validate f {:requirements :psp-1})]
         (is (= 1 (:validate/required (ids v))))
@@ -84,7 +84,7 @@
             "an entry of requirements, given as a map")))))
 
 (deftest unknown-elements-are-reported
-  (let [f (podcast/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><mystery/></channel></rss>")
+  (let [f (rss/parse "<rss version=\"2.0\"><channel><title>T</title><link>https://t</link><description>d</description><mystery/></channel></rss>")
         v (validate/validate f)]
     (is (= :mystery (:tag (first (filter (comp #{:validate/unknown-element} :id) v)))))))
 
@@ -94,9 +94,9 @@
         xml      "<rss version=\"2.0\" xmlns:acme=\"https://acme.example\"><channel><title>T</title><link>https://t</link><description>d</description><acme:rating>4.5</acme:rating></channel></rss>"]
     (testing "the validator checks a client's element by the client's registry"
       (is (= {:validate/missing-attribute 1}
-             (ids (validate/validate (podcast/parse xml {:registry elements}) {:registry elements})))))
+             (ids (validate/validate (rss/parse xml {:registry elements}) {:registry elements})))))
     (testing "and reports it as unknown by the library's"
-      (is (= {:validate/unknown-element 1} (ids (validate/validate (podcast/parse xml))))))))
+      (is (= {:validate/unknown-element 1} (ids (validate/validate (rss/parse xml))))))))
 
 (deftest typos-wrong-types-and-nothing
   (let [base  {:rss/version "2.0" :rss/title "T" :rss/link "https://t" :rss/description "d"}

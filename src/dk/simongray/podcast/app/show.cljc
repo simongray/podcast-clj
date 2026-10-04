@@ -3,12 +3,12 @@
 
   Use view for what the feed says about the show, and merge in
   fetch-linked-shows! for the shows that it links to."
-  (:require [dk.simongray.podcast :as podcast]
-            [dk.simongray.podcast.diagnostics :as diagnostics]
+  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory.links :as links]
             [dk.simongray.podcast.directory.podcastindex :as podcastindex]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
@@ -77,13 +77,6 @@
                                     answers)]
                     (cond-> item found (assoc :show found)))))))
 
-(defn- parsed
-  "The feed in the text `s` from `url`, as a map of the :feed, or of an
-  :error when it doesn't parse."
-  [url s]
-  (let [{:keys [value error]} (podcast/attempted :fetch/malformed url #(podcast/parse s))]
-    (if error {:error error} {:feed value})))
-
 (defn- fetch-feed!
   "Fetch and parse the feed at `url` with `opts`, and give a map of the
   :feed, or of an :error when it couldn't, in a future or a promise."
@@ -93,7 +86,7 @@
                 (cond
                   error                                    {:error (unreachable url error nil)}
                   (not (<= 200 (long (:status value)) 299)) {:error (unreachable url nil (:status value))}
-                  :else                                    (parsed url (str (:body value)))))))
+                  :else                                    (rss/try-parse (str (:body value)) {:url url})))))
 
 (defn- held
   "How many bytes the view `v` holds from the start of the file on."
@@ -141,7 +134,7 @@
   (async/then (http/read-by-ranges! url channel-head opts)
               (fn [{:keys [text error] :as result}]
                 (cond
-                  text  (parsed url text)
+                  text  (rss/try-parse text {:url url})
                   error {:error (diagnostics/describe (assoc (select-keys error [:url :status :reason]) :id :fetch/unreachable))}
                   :else {:error (assoc (first (bytes/report result)) :url url)}))))
 
@@ -219,6 +212,7 @@
                      publisher     (assoc :publisher publisher)))))))
 
 (comment
+  (require '[dk.simongray.podcast :as podcast])
   (def show (:feed (podcast/fetch! "https://feeds.podcastindex.org/pc20.xml")))
 
   (select-keys (view show) [:title :author :guid :categories :links])

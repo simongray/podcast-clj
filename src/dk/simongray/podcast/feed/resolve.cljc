@@ -919,8 +919,8 @@
 
 #?(:clj
    (comment
-     (require '[dk.simongray.podcast :as podcast])
-     (def f (podcast/parse (slurp "test/resources/feeds/namespace-example.xml")))
+     (require '[dk.simongray.podcast.feed.rss :as rss])
+     (def f (rss/parse (slurp "test/resources/feeds/namespace-example.xml")))
      (properties f (first (:rss/items f)))
      (sources f (first (:rss/items f)))
      (artwork f)

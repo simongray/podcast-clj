@@ -1,8 +1,8 @@
 (ns dk.simongray.podcast.feed-test
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.test-support :refer [fixture]]
@@ -12,9 +12,9 @@
   (delay (fixture "feeds/namespace-example.xml")))
 
 (deftest namespace-example
-  (let [f (podcast/parse @example)]
+  (let [f (rss/parse @example)]
     (testing "the parse is clean"
-      (is (= [] (podcast/report f))))
+      (is (= [] (rss/report f))))
     (testing "scalars"
       (is (= "Podcasting 2.0 Namespace Example" (:rss/title f)))
       (is (= "en-US" (:rss/language f)))
@@ -56,85 +56,95 @@
         (is (= "cover art designer" (get-in item [:podcast/people 2 :role])))))))
 
 (deftest round-trip
-  (let [f (podcast/parse @example)]
-    (is (= f (podcast/parse (podcast/emit f))))))
+  (let [f (rss/parse @example)]
+    (is (= f (rss/parse (rss/emit f))))))
+
+(deftest a-document-that-may-not-be-a-feed
+  (is (= "T" (:rss/title (:feed (rss/try-parse "<rss version=\"2.0\"><channel><title>T</title></channel></rss>")))))
+  (let [{:keys [feed error] :as result} (rss/try-parse "<html><body><p>Not a feed</p></body></html>"
+                                                       {:url "https://a.example/"})]
+    (is (= [:error] (keys result)) "the diagnostic, and nothing thrown")
+    (is (nil? feed))
+    (is (= [:fetch/malformed :warning "https://a.example/"] ((juxt :id :level :url) error)))
+    (is (string? (:reason error))))
+  (is (not (contains? (:error (rss/try-parse "")) :url)) "no URL unless the options give one"))
 
 (deftest unknown-elements-survive
-  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:acme=\"https://acme.example\"><channel><title>T</title>
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:acme=\"https://acme.example\"><channel><title>T</title>
                            <acme:thing id=\"1\">x</acme:thing><item><title>E</title><mystery>?</mystery></item></channel></rss>")]
     (is (= [[:acme/thing {:id "1"} "x"]] (:xml/unknown f)))
     (is (= [[:mystery {} "?"]] (:xml/unknown (first (:rss/items f)))))
-    (let [out (podcast/emit f)]
+    (let [out (rss/emit f)]
       (is (re-find #"xmlns:acme=\"https://acme.example\"" out))
       (is (re-find #"<acme:thing id=\"1\">x</acme:thing>" out))
       (is (re-find #"<mystery>\?</mystery>" out)))))
 
 (deftest coercion-never-throws
-  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>T</title>
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>T</title>
                            <item><title>E</title><itunes:episode>seven</itunes:episode><pubDate>soon</pubDate></item></channel></rss>")
         item (first (:rss/items f))]
     (is (= "seven" (:itunes/episode item)))
     (is (= "soon" (:rss/pub-date item)))
     (is (= #{[:rss/items 0 :itunes/episode] [:rss/items 0 :rss/pub-date]}
-           (into #{} (map :path) (filter (comp #{:feed/invalid-value} :id) (podcast/report f)))))))
+           (into #{} (map :path) (filter (comp #{:feed/invalid-value} :id) (rss/report f)))))))
 
 (deftest markup-where-text-belongs
-  (let [f (podcast/parse "<rss version=\"2.0\"><channel><title>T</title>
+  (let [f (rss/parse "<rss version=\"2.0\"><channel><title>T</title>
                            <description><p>Hi <b>there</b></p></description>
                            <item><title>Ep <em>1</em></title></item></channel></rss>")]
     (testing "an XHTML description is kept as markup, other text is flattened"
       (is (= "<p>Hi <b>there</b></p>" (:rss/description f)))
       (is (= "Ep 1" (:rss/title (first (:rss/items f)))))
       (is (= [[:rss/description] [:rss/items 0 :rss/title]]
-             (map :path (filter (comp #{:feed/markup-in-text} :id) (podcast/report f))))))
-    (is (= f (podcast/parse (podcast/emit f)))))
+             (map :path (filter (comp #{:feed/markup-in-text} :id) (rss/report f))))))
+    (is (= f (rss/parse (rss/emit f)))))
   (testing "a space between two inline elements is kept"
-    (let [f (podcast/parse "<rss version=\"2.0\"><channel><title>T</title>
+    (let [f (rss/parse "<rss version=\"2.0\"><channel><title>T</title>
                              <description><p><b>Hello</b> <i>world</i></p></description>
                              <item><title><b>Big</b> <i>News</i></title></item></channel></rss>")]
       (is (= "<p><b>Hello</b> <i>world</i></p>" (:rss/description f)))
       (is (= "Big News" (:rss/title (first (:rss/items f)))))
-      (is (= f (podcast/parse (podcast/emit f)))))))
+      (is (= f (rss/parse (rss/emit f)))))))
 
 (deftest emitting-odd-values
   (let [f   {:rss/version "2.0" :rss/title "T" :rss/copyright nil :itunes/explicit :no
              :rss/items [{:rss/title "E" :explicit? false :images [{:href "x"}] :title "merged" :duration 3793
                           :rss/enclosure "https://a/1.mp3"}]}
-        out (podcast/emit f)]
+        out (rss/emit f)]
     (is (re-find #"<itunes:explicit>no</itunes:explicit>" out) "not true, as any truthy value was")
     (is (not (re-find #"copyright" out)) "a nil value is no value")
     (is (re-find #"<item title=\"merged\">" out) "a string under an XML name is an attribute a parse could have kept")
     (is (not (re-find #"explicit\?|images|duration=|enclosure" out))
         "a key that makes no attribute, or a value that does not, is left out, as is an enclosure that is not a map")
-    (is (= "E" (:rss/title (first (:rss/items (podcast/parse out))))) "and the document reads")))
+    (is (= "E" (:rss/title (first (:rss/items (rss/parse out))))) "and the document reads")))
 
 (deftest what-the-model-drops-is-reported
-  (let [f   (podcast/parse "<rss version=\"2.0\" xml:lang=\"en\"><channel foo=\"1\">stray text<title xml:lang=\"en\">T</title></channel></rss>")
-        ids (set (map (juxt :id :path :tag :attributes) (podcast/report f)))]
+  (let [f   (rss/parse "<rss version=\"2.0\" xml:lang=\"en\"><channel foo=\"1\">stray text<title xml:lang=\"en\">T</title></channel></rss>")
+        ids (set (map (juxt :id :path :tag :attributes) (rss/report f)))]
     (is (= "T" (:rss/title f)))
     (is (contains? ids [:feed/dropped-attributes [] :rss [:xml/lang]]))
     (is (contains? ids [:feed/dropped-attributes [] :channel [:foo]]))
     (is (contains? ids [:feed/dropped-attributes [:rss/title] nil [:xml/lang]]))
-    (is (some (comp #{:feed/unexpected-text} :id) (podcast/report f)))))
+    (is (some (comp #{:feed/unexpected-text} :id) (rss/report f)))))
 
 (deftest namespaces-given-to-emit-win
-  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><channel><title>T</title><dc:creator>C</dc:creator></channel></rss>")]
-    (is (re-find #"xmlns:dc=\"http://purl.org/dc/elements/1.1/\"" (podcast/emit f)))
-    (is (re-find #"xmlns:dc=\"http://purl.org/dc/terms/\"" (podcast/emit f {:namespaces {:dc "http://purl.org/dc/terms/"}}))
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><channel><title>T</title><dc:creator>C</dc:creator></channel></rss>")]
+    (is (re-find #"xmlns:dc=\"http://purl.org/dc/elements/1.1/\"" (rss/emit f)))
+    (is (re-find #"xmlns:dc=\"http://purl.org/dc/terms/\"" (rss/emit f {:namespaces {:dc "http://purl.org/dc/terms/"}}))
         "over the URI of the library"))
-  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:dc=\"http://purl.org/dc/terms/\"><channel><title>T</title><dc:creator>C</dc:creator></channel></rss>")]
-    (is (re-find #"xmlns:dc=\"http://purl.org/dc/terms/\"" (podcast/emit f)) "as the one a feed declared does")))
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:dc=\"http://purl.org/dc/terms/\"><channel><title>T</title><dc:creator>C</dc:creator></channel></rss>")]
+    (is (re-find #"xmlns:dc=\"http://purl.org/dc/terms/\"" (rss/emit f)) "as the one a feed declared does")))
 
 #?(:clj
    (deftest an-undeclared-prefix-on-the-jvm
-     (let [f   (podcast/parse "<rss version=\"2.0\"><channel><title>T</title><feedburner:origLink>https://x/1</feedburner:origLink></channel></rss>")
-           out (podcast/emit f)]
+     (let [f   (rss/parse "<rss version=\"2.0\"><channel><title>T</title><feedburner:origLink>https://x/1</feedburner:origLink></channel></rss>")
+           out (rss/emit f)]
        (is (= [[:feedburner/origLink {} "https://x/1"]] (:xml/unknown f)) "the parse keeps it for reading")
        (is (not (re-find #"feedburner" out)) "emit leaves it out, as XML cannot write it without a URI")
-       (is (= "T" (:rss/title (podcast/parse out)))))))
+       (is (= "T" (:rss/title (rss/parse out)))))))
 
 (deftest no-break-spaces-and-big-numbers
-  (let [f     (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>Show&#160;</title>
+  (let [f     (rss/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>Show&#160;</title>
                                <item><title>E</title><guid>&#160;</guid><itunes:episode>5&#160;</itunes:episode>
                                <enclosure url=\"https://a/1.mp3\" length=\"1\" type=\"audio/mpeg\"/></item>
                                <item><title>F</title><itunes:episode>99999999999999999999</itunes:episode></item></channel></rss>")
@@ -145,10 +155,10 @@
       (is (= "https://a/1.mp3" (feed/item-guid a)) "a guid of white space alone is none"))
     (testing "a number too large for both platforms stays a string, and the report says so"
       (is (= "99999999999999999999" (:itunes/episode b)))
-      (is (some #(= [:rss/items 1 :itunes/episode] (:path %)) (podcast/report f))))))
+      (is (some #(= [:rss/items 1 :itunes/episode] (:path %)) (rss/report f))))))
 
 (deftest duplicates-and-empties
-  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>A</title><title>B</title><link></link>
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>A</title><title>B</title><link></link>
                            <item><title>E</title><enclosure url=\"https://a/1.mp3\" type=\"\"/><itunes:image href=\"\"/></item></channel></rss>")
         item (first (:rss/items f))]
     (is (= "A" (:rss/title f)))
@@ -157,13 +167,13 @@
       (is (= {:url "https://a/1.mp3"} (:rss/enclosure item)))
       (is (= {:href ""} (:itunes/image item))))
     (is (= #{:feed/duplicate-element :feed/empty-element :feed/empty-attribute}
-           (into #{} (map :id) (podcast/report f))))))
+           (into #{} (map :id) (rss/report f))))))
 
 (deftest identities
   (is (= "https://example.com/ep0003"
-         (feed/item-guid (first (:rss/items (podcast/parse @example))))))
+         (feed/item-guid (first (:rss/items (rss/parse @example))))))
   (is (= "https://a/1.mp3" (feed/item-guid {:rss/enclosure {:url "https://a/1.mp3"}})))
-  (is (= "y0ur-gu1d-g035-h3r3" (feed/feed-guid (podcast/parse @example) "https://x")))
+  (is (= "y0ur-gu1d-g035-h3r3" (feed/feed-guid (rss/parse @example) "https://x")))
   (is (= "9b024349-ccf0-5f69-a609-6b82873eab3c" (feed/feed-guid {} "https://podnews.net/rss"))))
 
 (deftest diffing
@@ -229,15 +239,15 @@
 (deftest the-elements-of-rfc-5005
   (let [xml  (str "<rss version=\"2.0\" xmlns:fh=\"http://purl.org/syndication/history/1.0\"><channel><title>T</title>"
                   "<fh:complete/><fh:archive a=\"1\">text</fh:archive></channel></rss>")
-        feed (podcast/parse xml)]
+        feed (rss/parse xml)]
     (is (= {:fh/complete true :fh/archive true} (select-keys feed [:fh/complete :fh/archive]))
         "an element that is true because it is there")
-    (is (= [:feed/dropped-attributes :feed/unexpected-text] (map :id (podcast/report feed)))
+    (is (= [:feed/dropped-attributes :feed/unexpected-text] (map :id (rss/report feed)))
         "what such an element holds is no part of it")
-    (is (re-find #"<fh:complete/>\s*<fh:archive/>" (podcast/emit feed)))
-    (is (re-find #"xmlns:fh=\"http://purl.org/syndication/history/1.0\"" (podcast/emit {:rss/title "T" :fh/archive true}))
+    (is (re-find #"<fh:complete/>\s*<fh:archive/>" (rss/emit feed)))
+    (is (re-find #"xmlns:fh=\"http://purl.org/syndication/history/1.0\"" (rss/emit {:rss/title "T" :fh/archive true}))
         "a feed that was not parsed declares the namespace too")
-    (is (not (re-find #"fh:" (podcast/emit {:rss/title "T" :fh/complete false :fh/archive nil})))
+    (is (not (re-find #"fh:" (rss/emit {:rss/title "T" :fh/complete false :fh/archive nil})))
         "false is an element that is not there")
     (let [invalid #(filter (comp #{:validate/invalid-value} :id) (validate/validate %))]
       (is (empty? (invalid feed)))
@@ -245,7 +255,7 @@
           "and it is no value of the model, which has the key or has it not"))))
 
 (deftest structured-attribute-values
-  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
                            <podcast:updateFrequency rrule=\"FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20261231T000000Z\" dtstart=\"2026-01-05T18:00:00Z\">Twice a week</podcast:updateFrequency>
                            <podcast:location geo=\"geo:30.2672,-97.7431;u=100\" osm=\"R113314#4\">Austin, TX</podcast:location>
                            <item><title>E</title><podcast:location geo=\"geo:nowhere\">Nowhere</podcast:location></item></channel></rss>")]
@@ -255,37 +265,37 @@
     (is (= {:type "R" :id 113314 :revision 4} (:osm (first (:podcast/locations f)))))
     (testing "a space after the comma, as seen in the wild, still reads"
       (is (= {:lat 47.423043 :lon 8.5670553}
-             (get-in (podcast/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
+             (get-in (rss/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
                                       <podcast:location geo=\"geo:47.4230430, 8.5670553\">Zürich</podcast:location></channel></rss>")
                      [:podcast/locations 0 :geo]))))
     (testing "what does not read stays a string, with a diagnostic"
       (is (= "geo:nowhere" (:geo (first (:podcast/locations (first (:rss/items f)))))))
-      (is (some #(= [:rss/items 0 :podcast/locations 0 :geo] (:path %)) (podcast/report f))))
-    (is (= f (podcast/parse (podcast/emit f))))))
+      (is (some #(= [:rss/items 0 :podcast/locations 0 :geo] (:path %)) (rss/report f))))
+    (is (= f (rss/parse (rss/emit f))))))
 
 (deftest not-rss
   (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) #"Not an RSS"
                         (feed/parse (xml/parse "<feed xmlns=\"http://www.w3.org/2005/Atom\"/>")))))
 
 (deftest undeclared-attributes-survive
-  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>T</title>
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel><title>T</title>
                            <itunes:image href=\"https://a/i.jpg\" width=\"600\"/></channel></rss>")]
     (testing "an attribute the registry does not declare keeps its XML name and string value"
       (is (= {:href "https://a/i.jpg" :width "600"} (:itunes/image f))))
     (testing "and is written back, even when another element declares that name"
-      (is (re-find #"width=\"600\"" (podcast/emit f)))
-      (is (= f (podcast/parse (podcast/emit f)))))))
+      (is (re-find #"width=\"600\"" (rss/emit f)))
+      (is (= f (rss/parse (rss/emit f)))))))
 
 (deftest invalid-values-are-written-back-as-they-came
-  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
                            <podcast:locked>false</podcast:locked></channel></rss>"
                          {:quirks? false})]
     (is (= {:content "false"} (:podcast/locked f)))
-    (is (re-find #"<podcast:locked>false</podcast:locked>" (podcast/emit f)))
-    (is (= f (podcast/parse (podcast/emit f) {:quirks? false})))))
+    (is (re-find #"<podcast:locked>false</podcast:locked>" (rss/emit f)))
+    (is (= f (rss/parse (rss/emit f) {:quirks? false})))))
 
 (deftest media-rss-nesting
-  (let [f    (podcast/parse "<rss version=\"2.0\" xmlns:media=\"http://search.yahoo.com/mrss/\"><channel><title>T</title>
+  (let [f    (rss/parse "<rss version=\"2.0\" xmlns:media=\"http://search.yahoo.com/mrss/\"><channel><title>T</title>
                               <item><title>E</title>
                                 <media:content url=\"https://a/1.mp3\" type=\"audio/mpeg\">
                                   <media:player url=\"https://a/p\"/>
@@ -307,10 +317,10 @@
       (is (= [{:url "https://a/t.jpg"}] (get-in item [:media/group :thumbnails]))))
     (is (= [{:role "author" :content "Ann"}] (:media/credits item)))
     (is (empty? (mapcat :xml/unknown (cons item (:media/contents item)))))
-    (is (= f (podcast/parse (podcast/emit f))))))
+    (is (= f (rss/parse (rss/emit f))))))
 
 (deftest elements-the-wild-adds
-  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"
                                 xmlns:content=\"http://purl.org/rss/1.0/modules/content/\"
                                 xmlns:spotify=\"http://www.spotify.com/ns/rss\"><channel><title>T</title>
                            <author>Radio Semilla</author>
@@ -324,21 +334,21 @@
     (is (= {:recent-count 25} (:spotify/limit f)))
     (is (= "host@example.com" (:rss/author (first (:rss/items f)))))
     (is (empty? (:xml/unknown f)))
-    (is (= f (podcast/parse (podcast/emit f))))))
+    (is (= f (rss/parse (rss/emit f))))))
 
 (deftest rfc2822-fields-keep-whole-seconds
-  (let [f (podcast/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
+  (let [f (rss/parse "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel><title>T</title>
                            <podcast:trailer url=\"https://a/t.mp3\" pubdate=\"2024-08-02T19:35:20.740Z\">Trailer</podcast:trailer></channel></rss>")]
     (testing "an ISO date with milliseconds in an RFC 2822 field loses only what the field cannot carry"
       (is (= #inst "2024-08-02T19:35:20.000Z" (get-in f [:podcast/trailers 0 :pubdate])))
-      (is (= f (podcast/parse (podcast/emit f)))))))
+      (is (= f (rss/parse (rss/emit f)))))))
 
 (deftest namespaces-of-your-own
   (let [f   {:rss/version "2.0" :rss/title "T" :xml/unknown [[:acme/tracking {:id "42"}]]}
-        out (podcast/emit f {:namespaces {:acme "https://acme.example/rss-extensions"}})]
+        out (rss/emit f {:namespaces {:acme "https://acme.example/rss-extensions"}})]
     (is (re-find #"xmlns:acme=\"https://acme.example/rss-extensions\"" out))
     (is (re-find #"<acme:tracking id=\"42\"/>" out))
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) (podcast/emit f))
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) (rss/emit f))
         "an alias no one declares is refused")))
 
 (deftest a-registry-of-your-own
@@ -348,23 +358,23 @@
         xml      "<rss version=\"2.0\" xmlns:acme=\"https://acme.example\"><channel><title>T</title>
                 <acme:rating scheme=\"stars\">4.5</acme:rating>
                 <item><title>E</title><acme:hd>true</acme:hd></item></channel></rss>"
-        f        (podcast/parse xml {:registry elements})
+        f        (rss/parse xml {:registry elements})
         item     (first (:rss/items f))]
     (testing "the elements are read by the extended registry, its quirks included"
       (is (= {:scheme "stars" :content 4.5} (:acme/rating f)))
       (is (true? (:acme/hd? item)))
-      (is (some (comp #{:quirk/yes-no-value} :id) (podcast/report f)))
+      (is (some (comp #{:quirk/yes-no-value} :id) (rss/report f)))
       (is (empty? (:xml/unknown f)))
       (is (empty? (:xml/unknown item))))
     (testing "and written back by it, the namespace declared"
-      (let [out (podcast/emit f {:registry elements})]
+      (let [out (rss/emit f {:registry elements})]
         (is (re-find #"xmlns:acme=\"https://acme.example\"" out))
         (is (re-find #"<acme:rating scheme=\"stars\">4.5</acme:rating>" out))
         (is (re-find #"<acme:hd>yes</acme:hd>" out))
-        (is (= f (podcast/parse out {:registry elements})))))
+        (is (= f (rss/parse out {:registry elements})))))
     (testing "the library's own registry keeps them as unknown elements"
-      (is (= [[:acme/rating {:scheme "stars"} "4.5"]] (:xml/unknown (podcast/parse xml)))))
+      (is (= [[:acme/rating {:scheme "stars"} "4.5"]] (:xml/unknown (rss/parse xml)))))
     (testing "an indexed registry serves as well as the entries, and a bad entry is refused"
-      (is (= f (podcast/parse xml {:registry (spec/registry elements)})))
+      (is (= f (rss/parse xml {:registry (spec/registry elements)})))
       (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
                    (spec/registry [{:tag :acme/rating}]))))))

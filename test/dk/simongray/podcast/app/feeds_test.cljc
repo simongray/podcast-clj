@@ -5,10 +5,10 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.test-support :refer [fixture run]]
@@ -18,7 +18,7 @@
 (def url "https://example.com/feed.xml")
 
 (def show
-  (podcast/parse (fixture "feeds/namespace-example.xml")))
+  (rss/parse (fixture "feeds/namespace-example.xml")))
 
 (def guid (:podcast/guid show))
 

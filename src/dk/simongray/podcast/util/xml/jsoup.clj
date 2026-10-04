@@ -8,9 +8,9 @@
   Hiccup that dk.simongray.podcast.util.xml/parse-raw gives.
 
   The library jsoup is an optional dependency. When org.jsoup/jsoup is on
-  the classpath, dk.simongray.podcast/parse falls back to parse-raw for
-  documents that the strict parser rejects even after repair, and the
-  report says so."
+  the classpath, dk.simongray.podcast.feed.rss/parse falls back to
+  parse-raw for documents that the strict parser rejects even after
+  repair, and the report says so."
   (:require [dk.simongray.podcast.util.xml :as xml])
   (:import [java.io InputStream]
            [org.jsoup Jsoup]

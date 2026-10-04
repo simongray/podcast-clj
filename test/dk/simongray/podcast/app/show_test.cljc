@@ -4,15 +4,15 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.show :as show]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.secret :as secret]))
 
 (def feed
-  (podcast/parse (fixture "feeds/namespace-example.xml")))
+  (rss/parse (fixture "feeds/namespace-example.xml")))
 
 (def credentials
   {:key "K" :secret (secret/hide "S")})

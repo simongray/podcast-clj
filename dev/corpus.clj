@@ -10,6 +10,7 @@
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.check :as check]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.media :as media]
@@ -90,14 +91,14 @@
    (for [file (files)]
      (let [s     (slurp file)
            t0    (System/nanoTime)
-           feed  (podcast/parse s)
+           feed  (rss/parse s)
            ms    (quot (- (System/nanoTime) t0) 1000000)
            v     (validate/validate feed {:requirements :psp-1})]
        {:file       (.getName ^java.io.File file)
         :items      (count (:rss/items feed))
         :ms         ms
-        :round-trip (= feed (podcast/parse (podcast/emit feed)))
-        :report     (count (podcast/report feed))
+        :round-trip (= feed (rss/parse (rss/emit feed)))
+        :report     (count (rss/report feed))
         :errors     (count (filter (comp #{:error} :level) v))
         :unknown    (count (filter (comp #{:validate/unknown-element} :id) v))}))))
 
@@ -112,7 +113,7 @@
   []
   (for [file  (files)
         :let  [name (str/replace (.getName ^java.io.File file) #"\.xml$" "")
-               feed (podcast/parse (slurp file))]
+               feed (rss/parse (slurp file))]
         item  (:rss/items feed)
         ref   (concat (for [t (:podcast/transcripts item)] (assoc t :kind :transcript))
                       (when-let [c (:podcast/chapters item)] [(assoc c :kind :chapters)]))]
@@ -257,10 +258,10 @@
   not coerce, and whether the round trip changed anything."
   [^java.io.File file]
   (let [s    (slurp file)
-        feed (try (podcast/parse s) (catch Exception e e))]
+        feed (try (rss/parse s) (catch Exception e e))]
     (if (instance? Exception feed)
       {:file (.getName file) :error (str (class feed) ": " (ex-message feed))}
-      (let [report  (podcast/report feed)
+      (let [report  (rss/report feed)
             unknown (unknown-elements feed)]
         {:file       (.getName file)
          :items      (count (:rss/items feed))
@@ -273,7 +274,7 @@
          :validation (frequencies (map (juxt :id :message)
                                        (remove (comp #{:validate/unknown-element} :id)
                                                (validate/validate feed))))
-         :round-trip (= feed (podcast/parse (podcast/emit feed)))}))))
+         :round-trip (= feed (rss/parse (rss/emit feed)))}))))
 
 (defn- by-feeds
   "The keys of the `k` maps of `results`, by the number of results holding
@@ -319,7 +320,7 @@
   [n]
   (->> (concat (files dir) (files sweep-dir))
        (keep (fn [^java.io.File file]
-               (try (let [item (first (:rss/items (podcast/parse (slurp file))))
+               (try (let [item (first (:rss/items (rss/parse (slurp file))))
                           url  (:url (:rss/enclosure item))]
                       (when (and url (re-find #"(?i)audio/(mpeg|mp3|mp4|x-m4a)" (str (:type (:rss/enclosure item)))))
                         {:feed (.getName file) :url url :declared (:itunes/duration item)}))

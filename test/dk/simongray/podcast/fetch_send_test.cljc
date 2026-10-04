@@ -22,6 +22,7 @@
   {"https://a.example/feed.xml"        {:status 200 :headers {"etag" ["\"v1\""]} :body (page-xml "?page=2" [3])}
    "https://a.example/feed.xml?page=2" {:status 200 :body (page-xml "https://b.example/page3.xml" [2])}
    "https://b.example/page3.xml"       {:status 200 :body (page-xml nil [1])}
+   "https://a.example/half.xml"        {:status 200 :body (page-xml "/page.html" [4])}
    "https://a.example/page.html"       {:status 200 :body "<html><body><p>Not a feed</p></body></html>"}})
 
 (defn- answering
@@ -44,6 +45,11 @@
                                 ["https://b.example/page3.xml" nil]]
                                @sent)
                             "the credentials go to the pages of the same origin only")))
+         #(async/then (podcast/fetch! "https://a.example/half.xml" {:send send :max-pages 5})
+                      (fn [{:keys [feed report]}]
+                        (is (= ["E4"] (map :rss/title (:rss/items feed))) "a later page that isn't a feed ends the pages")
+                        (is (= [[:fetch/page-failed "https://a.example/page.html"]] (map (juxt :id :url) report)))
+                        (is (string? (:reason (first report))) "with the reason that it didn't parse")))
          #(async/then (podcast/fetch! "https://a.example/page.html" {:send send})
                       (fn [{:keys [status error]}]
                         (is (= [200 :fetch/malformed] [status (:id error)]) "an answer that isn't a feed")))

@@ -2,13 +2,13 @@
   "The shorthand a producer may write, expanded to the model's shape."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def example
-  (delay (podcast/parse (fixture "feeds/namespace-example.xml"))))
+  (delay (rss/parse (fixture "feeds/namespace-example.xml"))))
 
 (def shorthand
   "A feed as a producer might write it: bare values and single values."
@@ -38,11 +38,11 @@
     (testing "what parse returns is unchanged"
       (is (= @example (feed/normalize @example))))
     (testing "emit writes the shorthand as the model, and validate takes it"
-      (let [xml (podcast/emit shorthand)]
+      (let [xml (rss/emit shorthand)]
         (is (re-find #"<guid>abc</guid>" xml))
         (is (re-find #"<podcast:season>2</podcast:season>" xml))
         (is (re-find #"<podcast:locked>yes</podcast:locked>" xml))
         (is (re-find #"<podcast:transcript url=\"https://t/t.vtt\" type=\"text/vtt\"/>" xml))
         (is (re-find #"<podcast:person role=\"host\">Al</podcast:person>" xml))
-        (is (= full (podcast/parse xml)) "and what it writes reads back as the normalized model"))
+        (is (= full (rss/parse xml)) "and what it writes reads back as the normalized model"))
       (is (not-any? (comp #{:validate/wrong-shape} :id) (validate/validate shorthand {:requirements :psp-1}))))))

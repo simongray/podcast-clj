@@ -8,7 +8,7 @@
   (:require #?(:clj [clojure.java.io :as io])
             #?(:clj [clojure.string :as str])
             #?(:cljs [clojure.test :refer [is async]])
-            #?(:clj [dk.simongray.podcast :as podcast])
+            #?(:clj [dk.simongray.podcast.feed.rss :as rss])
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.bech32 :as bech32]
             [dk.simongray.podcast.util.bytes :as bytes]
@@ -347,4 +347,4 @@
      (delay (->> (.listFiles (io/file "dev-resources/corpus"))
                  (filter #(and (.isFile ^File %) (.endsWith (.getName ^File %) ".xml")))
                  (sort-by #(.getName ^File %))
-                 (mapv (fn [^File file] {:name (.getName file) :feed (podcast/parse (slurp file))}))))))
+                 (mapv (fn [^File file] {:name (.getName file) :feed (rss/parse (slurp file))}))))))

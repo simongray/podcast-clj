@@ -2,7 +2,7 @@
   "The lenient jsoup adapter and the fallback to it; JVM only, since jsoup is."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.util.xml :as xml]
             [dk.simongray.podcast.util.xml.jsoup :as jsoup]))
 
@@ -27,16 +27,16 @@
 (deftest the-broken-fixture
   (testing "the strict parser refuses it, repaired or not"
     (is (thrown? clojure.lang.ExceptionInfo (xml/parse @broken)))
-    (is (thrown? clojure.lang.ExceptionInfo (podcast/parse @broken {:quirks? false}))))
-  (let [f     (podcast/parse @broken)
-        ids   (frequencies (map :id (podcast/report f)))
+    (is (thrown? clojure.lang.ExceptionInfo (rss/parse @broken {:quirks? false}))))
+  (let [f     (rss/parse @broken)
+        ids   (frequencies (map :id (rss/report f)))
         items (:rss/items f)]
     (testing "repairs ran first, then the lenient parser"
       (is (= 1 (:repair/bare-ampersands ids)))
       (is (= 1 (:repair/html-entities ids)))
       (is (= 1 (:repair/lenient-parser ids))))
     (testing "unless :except leaves it out"
-      (is (= ::xml/malformed (try (podcast/parse @broken {:except #{:repair/lenient-parser}})
+      (is (= ::xml/malformed (try (rss/parse @broken {:except #{:repair/lenient-parser}})
                                   (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
     (testing "the model"
       (is (= "Broken & Proud <3" (:rss/title f)))
@@ -49,4 +49,4 @@
       (is (= #inst "2026-09-25T10:00:00Z" (:rss/pub-date (first items))))
       (is (= "2" (:content (:rss/guid (second items))))))
     (testing "what comes out is well-formed and reads back the same"
-      (is (= f (podcast/parse (podcast/emit f) {:quirks? false}))))))
+      (is (= f (rss/parse (rss/emit f) {:quirks? false}))))))

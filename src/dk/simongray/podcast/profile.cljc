@@ -951,7 +951,7 @@
 
 (defn to-list-feed
   "The playlist `name` of `profile` as a list feed of the podcast namespace,
-  for dk.simongray.podcast/emit, with the `opts` below.
+  for dk.simongray.podcast.feed.rss/emit, with the `opts` below.
 
   It's a channel of the medium podcastL, whose remote items point to the
   episodes in order, so Podcasting 2.0 apps that play list feeds can play

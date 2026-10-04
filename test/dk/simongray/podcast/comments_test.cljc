@@ -12,11 +12,11 @@
                       [clojure.test.check.properties :as prop]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
             [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.comments.common :as common]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
@@ -901,7 +901,7 @@
              (is (empty? @sent)))))))
 
 (deftest the-thread-of-an-episode
-  (let [feed (podcast/parse (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel>"
+  (let [feed (rss/parse (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel>"
                                  "<title>T</title>"
                                  "<podcast:socialInteract protocol=\"activitypub\" uri=\"https://a.example/show\"/>"
                                  "<item><title>Both</title><guid>both</guid>"

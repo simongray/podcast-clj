@@ -3,16 +3,16 @@
   read through a stand-in for the sender."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.value :as value]))
 
 (def show
-  (podcast/parse (fixture "feeds/namespace-example.xml")))
+  (rss/parse (fixture "feeds/namespace-example.xml")))
 
 (def item
   "Episode 3, which has a chapters file, two transcripts and five

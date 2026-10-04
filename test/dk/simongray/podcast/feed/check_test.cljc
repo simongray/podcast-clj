@@ -5,8 +5,8 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.string :as str])
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed.check :as check]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [ascii fixture run #?@(:clj [be with-server])]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
@@ -14,7 +14,7 @@
   #?(:clj (:import [java.security MessageDigest])))
 
 (def example
-  (delay (podcast/parse (fixture "feeds/namespace-example.xml"))))
+  (delay (rss/parse (fixture "feeds/namespace-example.xml"))))
 
 (defn- ids
   "The ids of the diagnostics of `file` with `facts`, under the `chosen`

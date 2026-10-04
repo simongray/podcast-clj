@@ -1,12 +1,12 @@
 (ns dk.simongray.podcast.feed.resolve-test
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def example
-  (delay (podcast/parse (fixture "feeds/namespace-example.xml"))))
+  (delay (rss/parse (fixture "feeds/namespace-example.xml"))))
 
 (deftest text
   (is (= "A" (resolve/title {:rss/title "A" :itunes/title "B"})))
@@ -191,7 +191,7 @@
       (is (= [{:feed-guid "g"}] (resolve/podroll {:podcast/podroll {:remote-items [{:title "Nowhere"} {:feed-guid "g"}]}})))
       (is (empty? (resolve/podroll {}))))
     (testing "the entries of a list feed"
-      (let [playlist (podcast/parse (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">"
+      (let [playlist (rss/parse (str "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">"
                                          "<channel><title>Hits</title><podcast:medium>musicL</podcast:medium>"
                                          "<podcast:remoteItem feedGuid=\"f1\" itemGuid=\"i1\"/>"
                                          "<podcast:remoteItem itemGuid=\"i2\"/>"

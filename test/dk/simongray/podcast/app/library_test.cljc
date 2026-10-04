@@ -6,10 +6,10 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
@@ -28,7 +28,7 @@
 (def url "https://example.com/feed.xml")
 
 (def show
-  (podcast/parse (fixture "feeds/namespace-example.xml")))
+  (rss/parse (fixture "feeds/namespace-example.xml")))
 
 (def guid (:podcast/guid show))
 

@@ -3,7 +3,7 @@
 Every namespace is under the root namespace, `dk.simongray.podcast`, and
 they come in three kinds:
 
-- **Where you start.** The root namespace reads and writes feeds. The `app`
+- **Where you start.** The root namespace fetches a feed. The `app`
   namespaces combine the rest into a few calls for an app: one call each to
   subscribe to a show, refresh the feeds, play an episode, sync the
   listener's devices, or get everything that a show page or an episode
@@ -35,7 +35,7 @@ follows.
 
 | Namespace | Contents |
 |---|---|
-| `dk.simongray.podcast` | Parsing and writing feeds: `parse`, `emit`, `report` and `parse-tree`. Also `fetch!`, which fetches and parses a feed in one call, and `find-feeds!`, which finds the feeds of a show from a domain, a web page or a link of an app. |
+| `dk.simongray.podcast` | Fetching a feed in one call with `fetch!`, which sends a conditional request, parses the answer and joins the pages of a paged feed. |
 
 ## Apps
 
@@ -71,15 +71,16 @@ follows.
 
 | Namespace | Contents |
 |---|---|
+| `feed.rss` | Parsing and writing feeds: `parse` reads an RSS document into a feed map, `emit` writes one back, `report` gives the diagnostics, and `parse-tree` stops at the Hiccup. For a document that may not be a feed, `try-parse` gives a diagnostic where `parse` throws. |
 | `feed` | Hiccup to feed maps and back, the identity of feeds, items and episodes, and `diff` between two parses. |
 | `feed.resolve` | One answer for each property where the vocabularies overlap, with `properties` for all of them and `sources` for where each came from. Also the listening order, `blocked?` and `next-check`. |
-| `feed.discovery` | Finding the feeds of a show from what a listener types: `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. `find-feeds!` fetches with them. |
+| `feed.discovery` | Finding the feeds of a show from what a listener types, such as a domain, a web page or a link of an app, in one call with `find-feeds!`. For more control, `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. |
 | `feed.check` | Checks over the network of the files that a feed links to, by the standards and the requirements of PSP-1 and Apple Podcasts. Only `check-files!` sends requests, and `files`, `verdicts` and `report` are pure. |
 | `feed.validate` | Validation against the registry, with the requirements of PSP-1 and Apple Podcasts. |
 | `feed.publish` | What a host does to a feed before serving it: `pages` splits a long feed as RFC 5005 describes, `for-subscriber` makes a private feed, and `update-media-urls` rewrites the URLs of the media files. |
 | `feed.guid` | The `podcast:guid`: `from-url` derives it from a feed URL, and `guid?` checks one. |
 | `feed.spec` | The tag registry as data, which `registry` indexes or extends, and the enumerations of the specs. |
-| `feed.quirks` | The repairs for malformed XML, and the normalisations of the tree. |
+| `feed.quirks` | The repairs for malformed XML, which `parse-raw` runs when the strict parse fails, and the normalisations of the tree. |
 | `feed.coerce` | The value types of the registry, from strings and back. |
 | `feed.schema` | Malli schemas of the model, generated from the registry. Malli isn't a dependency. |
 | `diagnostics` | Every diagnostic id, with its level and meaning, and `summarize`, which groups a report by kind. |

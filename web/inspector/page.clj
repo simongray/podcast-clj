@@ -644,7 +644,7 @@
                      (if match? [:mark text] text))])])])))
 
 (defn find-page
-  "The `feeds` that podcast/find-feeds! found for the text `q`, best first,
+  "The `feeds` that discovery/find-feeds! found for the text `q`, best first,
   and the `report` of what it tried in vain, or the `error` when it found
   none."
   [{:keys [q feeds report error]}]

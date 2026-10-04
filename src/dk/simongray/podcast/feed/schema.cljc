@@ -6,7 +6,7 @@
   itself isn't a dependency. In your own project, give a schema to
   malli.core/schema, and validate, explain, generate or coerce with it:
 
-      (m/validate schema/feed (podcast/parse xml))
+      (m/validate schema/feed (rss/parse xml))
 
   The schemas are feed and item, and what tag-schema gives for any
   element. For a vocabulary extended with your own elements, give a

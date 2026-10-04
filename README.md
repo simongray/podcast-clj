@@ -96,9 +96,9 @@ since shadow-cljs only reads Git dependencies from `deps.edn`.
 Then try parsing a feed as a Clojure map:
 
 ```clojure
-(require '[dk.simongray.podcast :as podcast])
+(require '[dk.simongray.podcast.feed.rss :as rss])
 
-(def feed (podcast/parse (slurp "https://feeds.podcastindex.org/pc20.xml")))
+(def feed (rss/parse (slurp "https://feeds.podcastindex.org/pc20.xml")))
 
 (:rss/title feed)
 ;; => "Podcasting 2.0"
@@ -115,7 +115,7 @@ the type `application/srt`, and uses the deprecated `podcast:images`:
 ```clojure
 (require '[dk.simongray.podcast.diagnostics :as diagnostics])
 
-(map :id (diagnostics/summarize (podcast/report feed)))
+(map :id (diagnostics/summarize (rss/report feed)))
 ;; => (:quirk/explicit-value :quirk/transcript-type :quirk/deprecated-images)
 ```
 
@@ -146,7 +146,8 @@ A call that changes the library returns a new version, and playing, refreshing
 and syncing also record what they did in it:
 
 ```clojure
-(require '[dk.simongray.podcast.app.library :as library]
+(require '[dk.simongray.podcast :as podcast]
+         '[dk.simongray.podcast.app.library :as library]
          '[dk.simongray.podcast.sync.file :as file])
 
 ;; make a library for this device, and subscribe to a show

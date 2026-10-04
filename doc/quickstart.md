@@ -72,7 +72,7 @@ id
 ```
 
 An episode is a `[show item]` pair: the feed and its item, as
-`podcast/parse` returns them. Its id in the profile is the guid of the show
+`rss/parse` returns them. Its id in the profile is the guid of the show
 and the guid of the item.
 
 ## An episode page

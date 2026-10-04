@@ -189,10 +189,10 @@ On a server that fetches feeds for its users, give `fetch!` the option
 your own network.
 
 If the listener gives a show's website, a domain or a link from another app
-instead of a feed, find the feeds with `podcast/find-feeds!`:
+instead of a feed, find the feeds with `discovery/find-feeds!`:
 
 ```clojure
-(def candidates (podcast/find-feeds! "freakshow.fm"))
+(def candidates (discovery/find-feeds! "freakshow.fm"))
 
 (map (juxt :title :url :found-by) (:feeds candidates))
 ;; => (["Freak Show" "https://freakshow.fm/feed/mp3" :link]
@@ -1033,7 +1033,7 @@ OP3 counts downloads when a feed puts its prefix in front of each
 enclosure, which `op3/with-prefix` does:
 
 ```clojure
-(podcast/emit (op3/with-prefix feed))
+(rss/emit (op3/with-prefix feed))
 ;; <enclosure url="https://op3.dev/e,pg=…/cdn.example.com/episode-54.mp3" …/>
 ```
 
@@ -1059,7 +1059,7 @@ on from.
 
 ## Serve the feed of a show
 
-This section is for hosts. Write a feed with `podcast/emit`. A long feed is
+This section is for hosts. Write a feed with `rss/emit`. A long feed is
 slow to fetch, so split it with `publish/pages` into documents linked as RFC
 5005 describes:
 
@@ -1156,8 +1156,10 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.downloads :as downloads]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.check :as check]
+            [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.publish :as publish]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.opml :as opml]
