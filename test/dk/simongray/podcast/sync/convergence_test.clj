@@ -67,7 +67,7 @@
   [state feed-guid published at]
   (let [item  {:rss/guid {:content ({"feed-a" "a1" "feed-b" "b1"} feed-guid)} :rss/pub-date published}
         after {:podcast/guid feed-guid :rss/items [item]}]
-    (:profile (profile/refresh state {:podcast/guid feed-guid :rss/items []} after (str "https://" feed-guid "/rss") at))))
+    (:profile (profile/refresh state (str "https://" feed-guid "/rss") {:podcast/guid feed-guid :rss/items []} after at))))
 
 (defn- apply-operation
   [state [kind x y z]]

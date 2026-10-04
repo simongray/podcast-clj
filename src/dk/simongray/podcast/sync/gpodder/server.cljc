@@ -245,7 +245,7 @@
   (let [params (http/query-params (:query-string request))]
     {:state   state
      :book    @book
-     :names   (gpodder/namer env state)
+     :names   (gpodder/namer state env)
      :at      at
      :seconds (quot (inst-ms at) 1000)
      :params  params

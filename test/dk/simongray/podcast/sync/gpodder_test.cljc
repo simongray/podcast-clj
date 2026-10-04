@@ -313,7 +313,7 @@
                   (profile/subscribe "guid-of-url" {:url feed-a :title "A"} t1)
                   (profile/unsubscribe "guid-of-url" t2)
                   (profile/subscribe "declared-guid" {:url "http://A.example/rss/" :title "A"} t3))
-        named (fn [state] ((:feed-guid (gpodder/namer {} state)) feed-a))]
+        named (fn [state] ((:feed-guid (gpodder/namer state {})) feed-a))]
     (is (= ["declared-guid" "declared-guid"]
            [(named state) (named (update state :subscriptions #(into (array-map) (reverse %))))])
         "of two subscriptions with one URL the live one, whatever their order")

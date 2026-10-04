@@ -274,7 +274,7 @@
 
   The URL of the media of an episode is what :episode-url gives, or
   without it, the guid of the item when that's a URL."
-  [{:keys [identities] :as opts} state]
+  [state {:keys [identities] :as opts}]
   (let [{:keys [feed-guid feed-url episode-id episode-url]}
         (merge (when identities (identities)) (select-keys opts [:feed-guid :feed-url :episode-id :episode-url]))
         subscribed (comp (profile/by-url state) profile/normal-url)
@@ -422,7 +422,7 @@
   latest, whatever time the server gives. An action that names no feed,
   media or readable time is left out, and the report counts such actions."
   [state cursor subs episodes {:keys [name max-pending] :as opts} at]
-  (let [names   (namer opts state)
+  (let [names   (namer state opts)
         local   #(get (:urls cursor) % %)
         told    (or (:timestamp subs) (quot (inst-ms at) 1000))
         ;; the API tells no time of a change to the subscriptions: one counts
@@ -591,7 +591,7 @@
   rewrote. An episode that the push didn't name has no stamp in it, so the
   next push tries it again."
   [call! {:keys [device batch-size] :as opts} session state {:keys [pushed urls] :as cursor}]
-  (let [{:keys [subscriptions actions unnamed]} (pushing state pushed (namer opts state) device)
+  (let [{:keys [subscriptions actions unnamed]} (pushing state pushed (namer state opts) device)
         stamps (fn [entries] (update-vals entries #(some-> (:updated-at %) inst-ms)))
         sent   (fn [rewrites call body]
                  (async/then rewrites

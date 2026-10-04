@@ -995,7 +995,7 @@
 
   Without `before`, there are none, since a first parse finds the back
   catalogue, not new episodes."
-  [before after url]
+  [url before after]
   (if (nil? before)
     []
     (let [feed-guid     (feed/feed-guid after url)
@@ -1034,9 +1034,9 @@
   joins, at the episode's date of publication but never after `at`. A
   device that finds an episode late then never undoes what the listener
   did with it on another device."
-  [profile before after url at]
+  [profile url before after at]
   (let [feed-guid (feed/feed-guid after url)
-        added     (new-episodes before after url)
+        added     (new-episodes url before after)
         {:keys [auto-queue? inbox?]} (when (subscribed? profile feed-guid) (settings profile feed-guid))
         unknown   (remove #(or (played? profile %) (contains? (:queue profile) %) (contains? (:inbox profile) %))
                           added)

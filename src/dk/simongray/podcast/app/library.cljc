@@ -361,7 +361,7 @@
         library (assoc library :feeds feeds)
         result (reduce (fn [acc feed-guid]
                          (let [{:keys [feed url]} (get feeds feed-guid)
-                               {:keys [profile added]} (profile/refresh (:profile (:library acc)) (get-in before [feed-guid :feed]) feed url at)]
+                               {:keys [profile added]} (profile/refresh (:profile (:library acc)) url (get-in before [feed-guid :feed]) feed at)]
                            (-> acc
                                (assoc-in [:library :profile] profile)
                                (update :library reindexed feed-guid)

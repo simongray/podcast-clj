@@ -59,7 +59,7 @@
         whole-names (gpodder/identities {url feed})
         thin-names  (gpodder/identities {url thin})]
     (and (= (resolve/next-check feed at) (resolve/next-check thin at))
-         (= (profile/new-episodes before feed url) (profile/new-episodes (feeds/slim before) feed url))
+         (= (profile/new-episodes url before feed) (profile/new-episodes url (feeds/slim before) feed))
          (every? (fn [item]
                    (let [id    (feed/episode-id feed url item)
                          media (:url (resolve/enclosure item))]
@@ -69,7 +69,7 @@
 
 (deftest what-slim-keeps
   (let [before (update show :rss/items #(vec (rest %)))]
-    (is (seq (profile/new-episodes before show url)) "the example has a new episode to find")
+    (is (seq (profile/new-episodes url before show)) "the example has a new episode to find")
     (is (< (count (pr-str (feeds/slim show))) (quot (count (pr-str show)) 2)))
     (doseq [[what f] [["the example" show]
                       ["a ttl" (assoc show :rss/ttl 60)]
