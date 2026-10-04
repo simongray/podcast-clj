@@ -9,7 +9,8 @@
   The decode function reads a text and encode writes one. The data are
   bytes, and the section Segwit address format of BIP-173 tells how eight
   bits go into characters of five bits. For data that aren't whole bytes,
-  words and of-words read and write the data as numbers of five bits.
+  decode-words and encode-words read and write the data as numbers of
+  five bits.
   Bech32m, the checksum of BIP-350, isn't here."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]))

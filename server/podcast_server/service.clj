@@ -175,7 +175,7 @@
                          :else                    request))))}))
 
 (defn sync-store
-  "The store of the sync folder in the `data-dir` of the settings."
+  "The store of the sync folder in the :data-dir of `settings`."
   [{:keys [data-dir] :as settings}]
   (file/store (io/file data-dir "sync")))
 

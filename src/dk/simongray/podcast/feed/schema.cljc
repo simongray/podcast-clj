@@ -8,9 +8,9 @@
 
       (m/validate schema/feed (podcast/parse xml))
 
-  The schemas are feed and item, and what the function tag gives for any
+  The schemas are feed and item, and what tag-schema gives for any
   element. For a vocabulary extended with your own elements, give a
-  :registry in the options of schemas, feed-schema and tag.
+  :registry in the options of schemas, feed-schema and tag-schema.
 
   The schemas describe the model when every value coerced. Validating a
   parsed feed against them tells you where parse forgave a value and kept
