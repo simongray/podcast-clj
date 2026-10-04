@@ -146,17 +146,17 @@
    :after-failure [30 60 300 900]})
 
 (defn next-at
-  "When to sync again at `now`, after the last sync `step`, with the waits
+  "When to sync again at `at`, after the last sync `step`, with the waits
   of `cadence`.
 
   The wait depends on whether the local state has :changed? since the
   step, and on how many :failures in a row it ended with. The result is
-  never before `now`, and without a step, it's `now`. The `cadence`
+  never before `at`, and without a step, it's `at`. The `cadence`
   defaults to default-cadence. The library schedules nothing, so run the
   sync from a timer of your own."
-  ([step now]
-   (next-at step now {}))
-  ([{:keys [at changed? failures] :as step} now cadence]
+  ([step at]
+   (next-at step at {}))
+  ([{:keys [changed? failures] synced-at :at :as step} at cadence]
    {:pre [(map? cadence)]}
    (let [{:keys [after-change idle after-failure]} (merge default-cadence cadence)
          failures (or failures 0)
@@ -164,8 +164,8 @@
                     (pos? failures) (nth after-failure (min (dec failures) (dec (count after-failure))))
                     changed?        after-change
                     :else           idle)
-         due      (if at (time/->inst (+ (inst-ms at) (* 1000 wait))) now)]
-     (if (< (inst-ms due) (inst-ms now)) now due))))
+         due      (if synced-at (time/->inst (+ (inst-ms synced-at) (* 1000 wait))) at)]
+     (if (< (inst-ms due) (inst-ms at)) at due))))
 
 (defn- pulled
   "What the pull `results` of the `backends` add up to, merged into `state`

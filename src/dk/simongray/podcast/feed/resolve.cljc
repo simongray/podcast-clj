@@ -518,17 +518,17 @@
       (true? (:complete (:podcast/update-frequency feed)))))
 
 (defn- dates
-  "The instants of the items of `feed` dated no later than `now`, newest
+  "The instants of the items of `feed` dated no later than `at-ms`, newest
   first, as milliseconds.
 
   An item dated after it is an episode scheduled ahead, or a mistake, and
   neither tells when the feed changes."
-  [feed now]
+  [feed at-ms]
   (->> (:rss/items feed)
        (keep :rss/pub-date)
        (filter inst?)
        (map inst-ms)
-       (remove #(> % now))
+       (remove #(> % at-ms))
        (sort >)))
 
 (defn next-episode
@@ -559,10 +559,10 @@
 
 (defn- cadence
   "The median gap in milliseconds between the ten most recent items of
-  `feed` dated no later than `now`, or nil when fewer than two of them
+  `feed` dated no later than `at-ms`, or nil when fewer than two of them
   differ in date."
-  [feed now]
-  (let [recent (take 10 (dates feed now))
+  [feed at-ms]
+  (let [recent (take 10 (dates feed at-ms))
         gaps   (filter pos? (map - recent (rest recent)))]
     (when (seq gaps)
       (median gaps))))
@@ -594,19 +594,19 @@
   ([feed at {:keys [not-before] :as opts}]
    {:pre [(map? opts)]}
    (when-not (complete? feed)
-     (let [now   (inst-ms at)
+     (let [at-ms (inst-ms at)
            ttl   (:rss/ttl feed)
            due   (or (some-> (next-episode feed at) inst-ms)
                      ;; in floating point, so that an absurd ttl cannot overflow
                      (when (and (number? ttl) (pos? ttl))
-                       (+ now (* 60000.0 ttl)))
+                       (+ at-ms (* 60000.0 ttl)))
                      (when-let [period (syndication-periods (some-> (:sy/update-period feed) str/lower-case))]
                        (let [frequency (:sy/update-frequency feed)]
-                         (+ now (quot period (if (and (number? frequency) (pos? frequency)) frequency 1)))))
-                     (when-let [gap (cadence feed now)]
-                       (let [due (+ (first (dates feed now)) gap)]
-                         (if (> due now) due (+ now gap)))))
-           due   (some-> due (min (+ now (syndication-periods "yearly"))))
+                         (+ at-ms (quot period (if (and (number? frequency) (pos? frequency)) frequency 1)))))
+                     (when-let [gap (cadence feed at-ms)]
+                       (let [due (+ (first (dates feed at-ms)) gap)]
+                         (if (> due at-ms) due (+ at-ms gap)))))
+           due   (some-> due (min (+ at-ms (syndication-periods "yearly"))))
            floor (some-> not-before inst-ms)]
        (when-let [t (if (and due floor) (max due floor) (or due floor))]
          (time/->inst (long t)))))))

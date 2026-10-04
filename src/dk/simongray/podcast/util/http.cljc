@@ -228,35 +228,35 @@
 
 (defn ^:no-doc ours
   "The time `t` on the clock of the server, as a time on the clock of the
-  client. The response that arrived at `now` names `served` as the time
-  that the server sent it. Without `served`, the clocks count as one."
-  [t now served]
-  (if served (+ now (- t served)) t))
+  client. The response that `arrived` names `served` as the time that the
+  server sent it. Without `served`, the clocks count as one."
+  [t arrived served]
+  (if served (+ arrived (- t served)) t))
 
 ;; RFC 9110, section 10.2.3
 (defn- retry-after
   "When the Retry-After of `headers` says to ask again, in epoch
-  milliseconds, with `now` and `served` as ours takes them. Nil when it
-  gives no time."
-  [headers now served]
+  milliseconds, with `arrived` and `served` as ours takes them. Nil when
+  it gives no time."
+  [headers arrived served]
   (let [retry (header headers "retry-after")]
-    (or (some->> (seconds retry) (* 1000) (+ now))
-        (some-> (date-ms retry) (ours now served)))))
+    (or (some->> (seconds retry) (* 1000) (+ arrived))
+        (some-> (date-ms retry) (ours arrived served)))))
 
 ;; RFC 9111, section 4.2.1
 (defn- fresh-until
   "When the freshness of the response with `headers` ends, in epoch
-  milliseconds, with `now` and `served` as ours takes them. Nil when the
-  headers forbid a cache or name no time.
+  milliseconds, with `arrived` and `served` as ours takes them. Nil when
+  the headers forbid a cache or name no time.
 
   The freshness ends at the max-age less the Age, or else at the Expires."
-  [headers now served]
+  [headers arrived served]
   (let [age   (* 1000 (or (seconds (header headers "age")) 0))
         cache (some-> (joined headers "cache-control") str/lower-case)]
     (when-not (some->> cache (re-find #"no-cache|no-store"))
       (if-let [max-age (some->> cache (re-find #"max-age=(\d{1,10})") second parse-long)]
-        (- (+ now (* 1000 max-age)) age)
-        (some-> (date-ms (header headers "expires")) (ours now served) (- (if served age 0)))))))
+        (- (+ arrived (* 1000 max-age)) age)
+        (some-> (date-ms (header headers "expires")) (ours arrived served) (- (if served age 0)))))))
 
 (defn not-before
   "The earliest instant to ask again, by the response `headers` that arrived
@@ -282,12 +282,12 @@
   none. The values of all the Cache-Control headers count, joined as RFC
   9110, section 5.3, joins them."
   [headers at]
-  (let [now    (inst-ms at)
-        served (date-ms (header headers "date"))
-        until  (or (retry-after headers now served)
-                   (fresh-until headers now served))]
-    (when (and until (> until now))
-      (time/->inst (min until (+ now (* 60 60 1000)))))))
+  (let [arrived (inst-ms at)
+        served  (date-ms (header headers "date"))
+        until   (or (retry-after headers arrived served)
+                    (fresh-until headers arrived served))]
+    (when (and until (> until arrived))
+      (time/->inst (min until (+ arrived (* 60 60 1000)))))))
 
 (defn split-credentials
   "The `url` without the user name and the password that it holds, and

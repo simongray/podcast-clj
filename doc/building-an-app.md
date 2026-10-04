@@ -525,13 +525,13 @@ of `search/episodes`:
    :episodes  {:where {:duration [600 nil]} :limit 3}})
 
 (swap! lib library/update-profile
-       (fn [state now]
-         (-> state
+       (fn [profile at]
+         (-> profile
              (profile/prefer {:downloads {:default      {:played 86400}
                                           :queue        3
                                           :max-episodes 50}}
-                             now)
-             (profile/configure guid {:downloads show-rule} now))))
+                             at)
+             (profile/configure guid {:downloads show-rule} at))))
 ```
 
 Here a played file goes after a day, the first three episodes of the queue
@@ -619,19 +619,19 @@ and it syncs like the rest:
 
 ```clojure
 (swap! lib library/update-profile
-       (fn [state now]
-         (-> state
-             (profile/configure guid {:folder "News" :inbox? true} now)
-             (profile/tag guid "Daily" now)
-             (profile/star id now)
-             (profile/bookmark id 754 "The interview starts" now)
-             (profile/rate-episode id 5 now)
-             (profile/clip id 754 42.5 "The best answer" now)
-             (profile/add-to-playlist "Road trip" id now)
+       (fn [profile at]
+         (-> profile
+             (profile/configure guid {:folder "News" :inbox? true} at)
+             (profile/tag guid "Daily" at)
+             (profile/star id at)
+             (profile/bookmark id 754 "The interview starts" at)
+             (profile/rate-episode id 5 at)
+             (profile/clip id 754 42.5 "The best answer" at)
+             (profile/add-to-playlist "Road trip" id at)
              (profile/save-filter "Starred"
                                   {:where {:starred? true :status :unplayed}
                                    :order :newest}
-                                  now))))
+                                  at))))
 ```
 
 Each has a function to read it back, such as `profile/folders`,

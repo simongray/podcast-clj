@@ -782,7 +782,7 @@
     :max-bytes, the limits
   - :allow?, which URLs a request can go to, as for http/call!
   - :send, how to send the requests, in place of http/call!
-  - :now, the time, the clock by default
+  - :now, a function that gives the time, the clock by default
 
   The credentials go only with the requests for the feed, and so do a
   user name and password in its URL. The result names the URL without

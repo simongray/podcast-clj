@@ -288,14 +288,14 @@
 (defn- arrived
   "The `index` of when each entry of the subscriptions and episodes of
   `state` arrived, with the entries whose stamp changed noted as arrived
-  at `now`.
+  at `at-ms`.
 
   The index maps [collection key] to [stamp arrived], in milliseconds."
-  [index state now]
+  [index state at-ms]
   (reduce (fn [index [k id e]]
             (let [stamp (some-> (:updated-at e) inst-ms)]
               (cond-> index
-                (not= stamp (first (get index [k id]))) (assoc [k id] [stamp now]))))
+                (not= stamp (first (get index [k id]))) (assoc [k id] [stamp at-ms]))))
           index
           (for [[k entries] [[:subscriptions (:subscriptions state)] [:episodes (profile/episode-entries state)]]
                 [id e]      entries]

@@ -93,11 +93,11 @@
 ;; millisecond stands in for its logical counter, so a burst of writes moves
 ;; the stamps ahead of the time, which at-once avoids within one call.
 (defn after
-  "The instant to stamp a write to `state` at `now` with: `now`, or the
+  "The instant to stamp a write to `state` at `at` with: `at`, or the
   millisecond after the clock of the state when that's later. This keeps
   each write after what the device has merged."
-  [state now]
-  (time/->inst (cond-> (inst-ms now)
+  [state at]
+  (time/->inst (cond-> (inst-ms at)
                  (:clock state) (max (inc (inst-ms (:clock state)))))))
 
 (declare later)
