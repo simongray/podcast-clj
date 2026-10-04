@@ -22,8 +22,8 @@
    :max-bytes       (* 16 1024 1024)})
 
 (defn view
-  "The feed `show` as a page shows it, with the `opts` below: the feed with
-  the properties of resolve/properties merged in, and these keys:
+  "The show of `feed` as a page shows it, with the `opts` below: the feed
+  with the properties of resolve/properties merged in, and these keys:
 
   - :guid, the id of the feed as feed/feed-guid gives it, when the feed
     has one or `opts` give the :url of the feed
@@ -37,22 +37,22 @@
 
   - :url, the URL of the feed, for a feed that doesn't name its own
   - :except, a set of the keys above to leave out without computing them"
-  ([show]
-   (view show {}))
-  ([show {:keys [url except] :or {except #{}} :as opts}]
+  ([feed]
+   (view feed {}))
+  ([feed {:keys [url except] :or {except #{}} :as opts}]
    {:pre [(map? opts)]}
    (let [wanted? (complement except)
-         url     (or url (resolve/self-url show))
-         guid    (feed/feed-guid show url)
-         notes   (when (and (or (wanted? :notes) (wanted? :text)) (resolve/description show))
-                   (html/hiccup (resolve/description show)))]
-     (cond-> (merge show (resolve/properties show))
+         url     (or url (resolve/self-url feed))
+         guid    (feed/feed-guid feed url)
+         notes   (when (and (or (wanted? :notes) (wanted? :text)) (resolve/description feed))
+                   (html/hiccup (resolve/description feed)))]
+     (cond-> (merge feed (resolve/properties feed))
        guid                         (assoc :guid guid)
        (and notes (wanted? :notes)) (assoc :notes notes)
        (and notes (wanted? :text))  (assoc :text (html/text notes))
-       (wanted? :episodes)          (-> (dissoc :rss/items) (assoc :episodes (vec (resolve/episodes show))))
-       (wanted? :seasons)           (assoc :seasons (vec (resolve/seasons show)))
-       (wanted? :links)             (assoc :links (links/links (links/ids show nil {:url url})))))))
+       (wanted? :episodes)          (-> (dissoc :rss/items) (assoc :episodes (vec (resolve/episodes feed))))
+       (wanted? :seasons)           (assoc :seasons (vec (resolve/seasons feed)))
+       (wanted? :links)             (assoc :links (links/links (links/ids feed nil {:url url})))))))
 
 (defn- unreachable
   "The diagnostic for the feed at `url` that couldn't be fetched, because

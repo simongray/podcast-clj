@@ -29,12 +29,12 @@
    :max-bytes       (* 16 1024 1024)})
 
 (defn- chosen
-  "The :enclosure and :transcript of `item` in `show`, as `opts` select
+  "The :enclosure and :transcript of `item` in `feed`, as `opts` select
   them with the options of resolve/enclosure and resolve/transcript."
-  [show item {:keys [languages timed? transcript-types] :as opts}]
+  [feed item {:keys [languages timed? transcript-types] :as opts}]
   (into {} (remove (comp nil? val))
         {:enclosure  (resolve/enclosure item (select-keys opts [:types :max-bitrate]))
-         :transcript (resolve/transcript show item (cond-> {:languages languages :timed? timed?}
+         :transcript (resolve/transcript feed item (cond-> {:languages languages :timed? timed?}
                                                      transcript-types (assoc :types transcript-types)))}))
 
 (defn- with-report
@@ -56,7 +56,7 @@
       (with-report {:source :inferred} inferred chapters/report))))
 
 (defn view
-  "The episode `item` of the feed `show` as a page shows it, with the
+  "The episode `item` of `feed` as a page shows it, with the
   `opts` below: the item with the properties of resolve/properties merged
   in, and these keys:
 
@@ -78,13 +78,13 @@
     as resolve/transcript does
   - :url, the URL of the feed, for a feed that doesn't name its own
   - :except, a set of the keys above to leave out"
-  ([show item]
-   (view show item {}))
-  ([show item {:keys [url except] :or {except #{}} :as opts}]
+  ([feed item]
+   (view feed item {}))
+  ([feed item {:keys [url except] :or {except #{}} :as opts}]
    {:pre [(map? opts)]}
    (let [wanted?     (complement except)
-         url         (or url (resolve/self-url show))
-         feed-guid   (feed/feed-guid show url)
+         url         (or url (resolve/self-url feed))
+         feed-guid   (feed/feed-guid feed url)
          notes       (when (and (or (wanted? :notes) (wanted? :text) (wanted? :chapters))
                                 (resolve/description item))
                        (html/hiccup (resolve/description item)))
@@ -92,14 +92,14 @@
                        (html/text notes))
          own         (when (wanted? :chapters) (own-chapters item text))]
      (cond-> (merge item
-                    (resolve/properties show item)
-                    (chosen show item opts)
+                    (resolve/properties feed item)
+                    (chosen feed item opts)
                     {:guid (feed/item-guid item)})
-       feed-guid                 (assoc :id (feed/episode-id show url item))
+       feed-guid                 (assoc :id (feed/episode-id feed url item))
        (and notes (wanted? :notes)) (assoc :notes notes)
        (and text (wanted? :text))   (assoc :text text)
        own                       (assoc :chapters own)
-       (wanted? :links)          (assoc :links (links/links (links/ids show item {:url url})))))))
+       (wanted? :links)          (assoc :links (links/links (links/ids feed item {:url url})))))))
 
 (defn- unreachable
   "The diagnostic for the file at `url` that couldn't be fetched, because
