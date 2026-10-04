@@ -27,7 +27,7 @@ are relative to `dk.simongray.podcast`.
 | The root of the Podcast Index API | `directory.podcastindex/base-url` | `:base-url` | `https://api.podcastindex.org/api/1.0/` |
 | The Hive nodes that Podping reads | `podping/nodes` | `:nodes`, or one `:node` | public nodes |
 | The service that writes a podping for a host | `podping/gateway` | `:gateway` | `https://podping.cloud/` |
-| The request that tells a WebSub hub of a change | `websub/publish-form` | `:form` | the fields `hub.mode=publish` and `hub.url` |
+| The request that tells a WebSub hub of a change | `websub/publish-form` | `:publish-form` | the fields `hub.mode=publish` and `hub.url` |
 | The genres of Apple Podcasts, for the chart of a category | `directory/apple-genres` | the `:genres` of a source | the genres of Apple |
 | The forms of links to the apps | `links/apps` | `:apps` | the [table below](#the-links-of-the-apps) |
 | The paths that `find-feeds!` tries on the domain of a page | `feed.discovery/guessed-paths` | `:guessed-paths` | `/feed/` of WordPress, `/rss` of Libsyn and Ghost, `/feed.xml` of Jekyll and `/index.xml` of Hugo |

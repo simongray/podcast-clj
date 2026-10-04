@@ -172,7 +172,7 @@
                        (is (= 1 (count @asked)))))))
      (fn []
        (reset! asked [])
-       (async/then (feeds/refresh! three later {:fetch fetch :parallel 1})
+       (async/then (feeds/refresh! three later {:fetch fetch :concurrency 1})
                    (fn [_]
                      (is (= 3 (count @asked)) "one at a time reaches them all")))))))
 
@@ -190,9 +190,9 @@
    (deftest fetching-at-once
      (let [many  (into {} (for [i (range 8)] [(str "g" i) {:url (str "https://example.org/" i ".xml")}]))
            slow  (fn [url _] (Thread/sleep 200) {:status 304 :url url})
-           timed (fn [parallel]
+           timed (fn [concurrency]
                    (let [started (System/currentTimeMillis)]
-                     (feeds/refresh! many now {:fetch slow :feed-guids (keys many) :parallel parallel})
+                     (feeds/refresh! many now {:fetch slow :feed-guids (keys many) :concurrency concurrency})
                      (- (System/currentTimeMillis) started)))]
        (is (< (timed 8) 800) "the feeds of one group are fetched at once")
        (is (<= 800 (timed 2)) "and the groups one after the other"))))

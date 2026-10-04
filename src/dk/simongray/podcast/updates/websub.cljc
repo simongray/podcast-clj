@@ -49,7 +49,7 @@
 (def signature-methods
   "The hash algorithms of a signature that handler takes, by the names of
   section 7.1.1 of WebSub. The options of handler can give another set as
-  :methods.
+  :signature-methods.
 
   Most hubs sign with sha1, which is weak. A subscriber whose callback is
   an http URL leaves it out, as section 8.3 asks."
@@ -141,17 +141,17 @@
 
   Section 6 of WebSub leaves this request to the hub and the publisher,
   and its note gives this form as an example. So the options of
-  publish-request can give the form of another hub as :form."
+  publish-request can give the form of another hub as :publish-form."
   {:fields    {"hub.mode" "publish"}
    :url-field "hub.url"})
 
 (defn publish-request
   "The request map that tells the `hub` that the feed at `topic` changed,
-  in the form of publish-form or the :form of `opts`. A host sends it
-  after each change of its feed."
+  in the form of the :publish-form of `opts`, publish-form by default. A
+  host sends it after each change of its feed."
   ([hub topic]
    (publish-request hub topic {}))
-  ([hub topic {:keys [form] :or {form publish-form} :as opts}]
+  ([hub topic {form :publish-form :or {form publish-form} :as opts}]
    {:pre [(map? opts)]}
    (when-not (every? http/web-url? [hub topic])
      (throw (ex-info "The hub and the topic are http or https URLs" {:hub hub :topic topic})))
@@ -299,7 +299,7 @@
   signature, and that it can answer with a success. So the hub gets the
   same answer for a feed that the app didn't get, and a stranger learns
   nothing about the secret."
-  [{:keys [secret deliver! methods max-bytes] :as env} {:keys [headers] :as request}]
+  [{:keys [secret deliver! signature-methods max-bytes] :as env} {:keys [headers] :as request}]
   (let [body   (http/request-bytes (:body request) max-bytes)
         secret (if (fn? secret) (secret request) secret)
         links  (http/links headers)]
@@ -307,7 +307,7 @@
       (nil? body)
       (answer 413 "")
 
-      (and secret (not (signed? secret (get headers "x-hub-signature") body methods)))
+      (and secret (not (signed? secret (get headers "x-hub-signature") body signature-methods)))
       (answer 200 "")
 
       :else
@@ -328,7 +328,7 @@
   - :denied!, a function of the :topic, :reason and :request of a
     subscription that the hub denied or ended
   - :secret, a text or a function of the request
-  - :methods, signature-methods by default
+  - :signature-methods, signature-methods by default
   - :max-bytes and :max-challenge, with default-limits for those that
     they don't set
 
@@ -351,7 +351,7 @@
   :request has it."
   [{:keys [wanted? deliver!] :as opts}]
   {:pre [(fn? wanted?) (fn? deliver!)]}
-  (let [env (merge default-limits {:methods signature-methods} opts)]
+  (let [env (merge default-limits {:signature-methods signature-methods} opts)]
     (fn [{:keys [request-method query-string] :as request}]
       (case request-method
         :get  (verification env request (http/query-params query-string))

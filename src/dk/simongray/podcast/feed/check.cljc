@@ -120,13 +120,13 @@
 (def default-limits
   "The limits of check-files! when its options don't set them:
 
-  - :items, how many of the newest items to check the files of
+  - :max-items, how many of the newest items to check the files of
   - :max-files, the most files to check, since a feed can name thousands
   - :max-seconds, after which no file is started
   - :concurrency, how many files to check at a time
   - :timeout-seconds, the longest that a request can take
   - :max-bytes, the most to read of a file, except for its integrity"
-  {:items           10
+  {:max-items       10
    :max-files       500
    :max-seconds     600
    :concurrency     4
@@ -152,19 +152,19 @@
   names it. The `opts` are:
 
   - :url, the URL of the feed, which is checked too
-  - :items, how many of the newest items to check the files of, 10 by
-    default, or :all"
+  - :max-items, how many of the newest items to check the files of, 10
+    by default, or :all"
   ([feed]
    (files feed {}))
   ([feed opts]
-   (let [{:keys [url items]} (merge default-limits opts)]
+   (let [{:keys [url max-items]} (merge default-limits opts)]
      (once (concat (when (web-url? url)
                      [{:kind :feed :url url :path [] :declared {}}])
                    (for [[j {:keys [url type length]}] (map-indexed vector (:podcast/trailers feed))
                          :when (web-url? url)]
                      {:kind :media :url url :path [:podcast/trailers j] :declared (present {:type type :length length})})
                    (image-files feed [])
-                   (mapcat item-files (newest feed items)))))))
+                   (mapcat item-files (newest feed max-items)))))))
 
 (def ^:no-doc origin
   "The origin that a check names in its requests for the files that pages
@@ -772,7 +772,7 @@
 
   - :url, the URL of the feed, which is checked too
   - :credentials, of a private feed, as http/fetch! takes them
-  - :items, how many of the newest items to check the files of, or :all
+  - :max-items, how many of the newest items to check the files of, or :all
   - :requirements, a name in requirements whose checks to add, or a map
     of the shape of its entries
   - :read?, whether to read what the files hold: the format and duration

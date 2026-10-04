@@ -211,7 +211,7 @@
       state
       (write state [:devices me] #(assoc % :seen seen) at))))
 
-(def default-keep
+(def default-keep-for
   "How long a tombstone is kept once every device has seen it, thirty days
   in milliseconds, for a device that joins with a state of its own."
   (* 30 24 60 60 1000))
@@ -243,13 +243,13 @@
   `schema` marks :compact?, once every live device has merged them and
   they're older than the :keep-for of `opts`.
 
-  The :keep-for is in milliseconds, default-keep by default. A device that
-  stopped syncing holds the compaction back until it's retired (see
+  The :keep-for is in milliseconds, default-keep-for by default. A device
+  that stopped syncing holds the compaction back until it's retired (see
   lagging). The tombstones of an author outside the registry, which
   as-device writes, stay."
   ([schema state at]
    (compact schema state at {}))
-  ([schema state at {:keys [keep-for] :or {keep-for default-keep} :as opts}]
+  ([schema state at {:keys [keep-for] :or {keep-for default-keep-for} :as opts}]
    {:pre [(map? opts)]}
    (let [droppable? (fn [e]
                       (and (:removed? e)

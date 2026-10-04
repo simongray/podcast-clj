@@ -36,7 +36,7 @@
    :complete      604800
    :after-failure [900 3600 14400 86400]})
 
-(def default-parallel
+(def default-concurrency
   "How many feeds refresh! fetches at once."
   8)
 
@@ -212,15 +212,15 @@
   - :credentials-of, a function from the URL of a private feed to its
     :credentials, so that no password is stored in the feeds and none
     goes to another URL
-  - :parallel, how many feeds to fetch at once, and :cadence
+  - :concurrency, how many feeds to fetch at once, and :cadence
   - :send, :timeout-seconds, :max-bytes, :user-agent and :allow?, as
     fetch! takes them"
   ([feeds at]
    (refresh! feeds at {}))
-  ([feeds at {:keys [feed-guids fetch credentials-of parallel cadence]
-              :or   {fetch    podcast/fetch!
-                     parallel default-parallel
-                     cadence  {}}
+  ([feeds at {:keys [feed-guids fetch credentials-of concurrency cadence]
+              :or   {fetch       podcast/fetch!
+                     concurrency default-concurrency
+                     cadence     {}}
               :as   opts}]
    {:pre [(map? opts)]}
    (let [guids  (vec (or feed-guids (due feeds at)))
@@ -235,7 +235,7 @@
                                   [feed-guid (if error
                                                {:url url :error (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})}
                                                value)]))))]
-     (async/then (async/in-groups fetch1 parallel guids)
+     (async/then (async/in-groups fetch1 concurrency guids)
                  (fn [results]
                    (reduce (fn [acc [feed-guid result]] (merged acc (refresh (:feeds acc) feed-guid result at cadence)))
                            {:feeds feeds :changed [] :moved {} :report []}

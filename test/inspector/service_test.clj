@@ -103,7 +103,7 @@
                                 {:files files :report (check/report files (:requirements opts))})]
       (let [{:keys [status body]} (get* "/check" "url" "https://example.com/check.xml" "items" "3")]
         (is (= 200 status))
-        (is (= [{:url "https://example.com/check.xml" :items 3 :read? true :integrity? false}] @runs))
+        (is (= [{:url "https://example.com/check.xml" :max-items 3 :read? true :integrity? false}] @runs))
         (is (str/includes? body "check/ranges") "the findings of each file")
         (is (str/includes? body "UnresolvedAddressException") "the reason a file did not come")
         (is (not (str/includes? body "artwork-size")) "no requirements, no artwork checks")
@@ -112,7 +112,7 @@
         (is (str/includes? body "check/artwork-size"))
         (is (= 1 (count @runs)) "other requirements judge the same check again, and send no request"))
       (get* "/check" "url" "https://example.com/check.xml" "items" "999" "integrity" "1")
-      (is (= [50 true] ((juxt :items :integrity?) (last @runs))) "at most 50 items"))))
+      (is (= [50 true] ((juxt :max-items :integrity?) (last @runs))) "at most 50 items"))))
 
 (deftest the-comments-page
   (reset! service/cache {})

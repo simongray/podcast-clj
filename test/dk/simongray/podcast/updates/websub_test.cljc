@@ -71,8 +71,8 @@
          (http/query-params (:body (websub/publish-request hub topic))))
       "the request of a publisher")
   (is (= {"mode" "ping" "key" "k" "feed" topic}
-         (http/query-params (:body (websub/publish-request hub topic {:form {:fields    {"mode" "ping" "key" "k"}
-                                                                           :url-field "feed"}}))))
+         (http/query-params (:body (websub/publish-request hub topic {:publish-form {:fields    {"mode" "ping" "key" "k"}
+                                                                                   :url-field "feed"}}))))
       "in the form of another hub"))
 
 (deftest sending-to-a-hub

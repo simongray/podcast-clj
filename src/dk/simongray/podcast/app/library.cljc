@@ -35,7 +35,7 @@
        :languages      [\"da\" \"en\"]    ; of the listener, for transcripts
        :search?        false          ; whether to keep the search index
        :cadence        {…}            ; as app.feeds takes it
-       :parallel       8              ; how many feeds are fetched at once
+       :concurrency    8              ; how many feeds are fetched at once
        :keep           app.feeds/slim ; what to keep of each feed, all by default
        :now            f              ; the clock, util.time/now by default
        :timeout-seconds 15 :max-bytes … :user-agent …}
@@ -326,11 +326,12 @@
   "Fetch the feeds of the new subscriptions of `library` at `at` with
   `opts`, and add them, in a future or a promise.
 
-  The result is a map of the :library and the :report. The :parallel of
-  `opts` feeds are fetched at a time, as app.feeds/refresh! fetches them.
+  The result is a map of the :library and the :report. The :concurrency
+  of `opts` feeds are fetched at a time, as app.feeds/refresh! fetches
+  them.
   A feed that couldn't be fetched, or that would take another
   subscription over, is tried again next time."
-  [library at {:keys [fetch credentials-of parallel keep] :or {parallel feeds/default-parallel} :as opts}]
+  [library at {:keys [fetch credentials-of concurrency keep] :or {concurrency feeds/default-concurrency} :as opts}]
   (let [common (select-keys opts [:send :timeout-seconds :max-bytes :user-agent :allow?])
         fetch1 (fn [[feed-guid url]]
                  (let [credentials (when credentials-of (credentials-of url))]
@@ -339,7 +340,7 @@
                                  [feed-guid url (if error
                                                   {:error (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})}
                                                   value)]))))]
-    (async/then (async/in-groups fetch1 parallel (unfetched library))
+    (async/then (async/in-groups fetch1 concurrency (unfetched library))
                 (fn [results]
                   (reduce (fn [acc [feed-guid url result]]
                             (let [taken (when (:feed result) (profile/takeover (get-in acc [:library :profile]) (feed/feed-guid (:feed result) url) url))]
@@ -403,7 +404,7 @@
                  (fn [{library :library report :report}]
                    (async/then (fetched-new! library at opts)
                                (fn [{library :library report-new :report}]
-                                 (async/then (feeds/refresh! (:feeds library) at (select-keys opts [:feed-guids :fetch :credentials-of :parallel :cadence :send :timeout-seconds :max-bytes :user-agent :allow?]))
+                                 (async/then (feeds/refresh! (:feeds library) at (select-keys opts [:feed-guids :fetch :credentials-of :concurrency :cadence :send :timeout-seconds :max-bytes :user-agent :allow?]))
                                              (fn [step]
                                                (let [{:keys [library added moved]} (applied library step at (:keep opts))]
                                                  (assoc library :refresh {:at     at

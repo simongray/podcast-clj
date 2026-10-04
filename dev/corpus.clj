@@ -379,7 +379,7 @@
   feed at the URL that the corpus lists, so that its redirects count:
   `[{:name :files :report}]`, or `{:name :error}` for a feed that could not
   be fetched."
-  ([] (check-feeds! {:items 2 :requirements :apple :read? true}))
+  ([] (check-feeds! {:max-items 2 :requirements :apple :read? true}))
   ([opts]
    (vec (pmap (fn [[name url]]
                 (let [{:keys [feed status error]} (podcast/fetch! url)]

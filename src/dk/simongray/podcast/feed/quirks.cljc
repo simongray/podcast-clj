@@ -327,7 +327,7 @@
       (into [(xml/tag channel) (xml/attrs channel)]
             (map #(if (category? %) (convert %) %) (xml/children channel))))))
 
-(def transcript-types
+(def transcript-type-values
   "The nonstandard spellings of transcript types, and the standard ones."
   {"srt"              "application/x-subrip"
    "application/srt"  "application/x-subrip"
@@ -404,7 +404,7 @@
    (rewrite :quirk/explicit-value :itunes/explicit (canonical-text explicit-values))
    (rewrite :quirk/transcript-type :podcast/transcript
             (fn [[tag attrs :as element]]
-              (if-let [t (transcript-types (some-> (:type attrs) xml/trim str/lower-case))]
+              (if-let [t (transcript-type-values (some-> (:type attrs) xml/trim str/lower-case))]
                 [tag (assoc attrs :type t)]
                 element)))
    (rewrite :quirk/attribute-name :podcast/transcript href->url)

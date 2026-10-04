@@ -206,7 +206,7 @@
                     (fn [_]
                       {:at    now
                        :feed  feed
-                       :value (check/check-files! feed {:url url :items items :read? true :integrity? integrity?})})))))
+                       :value (check/check-files! feed {:url url :max-items items :read? true :integrity? integrity?})})))))
 
 (defn check-page
   "The check over the network of the files that the feed named by the `url`

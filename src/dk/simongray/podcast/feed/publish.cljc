@@ -148,7 +148,7 @@
 
 (def token-param
   "The name of the query parameter that holds the token of a subscriber,
-  unless the options of for-subscriber give another :param."
+  unless the options of for-subscriber give another :token-param."
   "token")
 
 (defn for-subscriber
@@ -168,7 +168,7 @@
   standard defines the token of a subscriber, so the query parameter is a
   choice that the options can replace. The `opts` are:
 
-  - :param, the name of the query parameter, token-param by default
+  - :token-param, the name of the query parameter, token-param by default
   - :with-token, a function of a URL and the token that gives the URL of
     the subscriber, for a host that has the token in the path
   - :own?, a predicate of a URL, where the URLs that it refuses get no
@@ -176,7 +176,8 @@
   - :block?, false for a feed that stays as open as it was"
   ([feed token]
    (for-subscriber feed token {}))
-  ([feed token {:keys [param with-token own? block?]
+  ([feed token {:keys [with-token own? block?]
+                param :token-param
                 :or   {param token-param own? (constantly true) block? true}
                 :as   opts}]
    {:pre [(map? opts)]}

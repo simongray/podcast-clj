@@ -961,7 +961,7 @@ too, and the requirements of PSP-1 or Apple Podcasts as `:requirements`:
 
 ```clojure
 (def result
-  (check/check-files! feed {:url url :items 10 :requirements :apple}))
+  (check/check-files! feed {:url url :max-items 10 :requirements :apple}))
 
 (diagnostics/summarize (:report result))
 ;; => ({:id :check/cors :level :warning :count 10 …}

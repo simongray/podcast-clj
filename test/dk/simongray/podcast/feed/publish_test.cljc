@@ -149,9 +149,9 @@
               "https://a.example/feed.xml?token=s3cr3t&page=3"]
              (map :url (publish/pages private {:page-size 3})))))
     (testing "the choices of the host"
-      (let [open (publish/for-subscriber feed "s3cr3t" {:param  "key"
-                                                        :own?   #(re-find #"^https://media\.example/" %)
-                                                        :block? false})
+      (let [open (publish/for-subscriber feed "s3cr3t" {:token-param "key"
+                                                        :own?        #(re-find #"^https://media\.example/" %)
+                                                        :block?      false})
             path (publish/for-subscriber feed "abc" {:with-token (fn [url token]
                                                                    (str/replace-first url ".example/" (str ".example/" token "/")))})]
         (is (= "https://media.example/7.mp3?key=s3cr3t" (get-in open [:rss/items 0 :rss/enclosure :url])))

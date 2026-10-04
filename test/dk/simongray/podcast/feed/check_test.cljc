@@ -30,7 +30,7 @@
   {:error {:id :file/unreachable :level :warning :reason reason}})
 
 (deftest files-of-a-feed
-  (let [files (check/files @example {:url "https://example.com/feed.xml" :items 1})]
+  (let [files (check/files @example {:url "https://example.com/feed.xml" :max-items 1})]
     (is (= [:feed :media :image] (map :kind (take 3 files))) "the feed, its trailer and its images first")
     (is (= 1 (count (filter #(= "https://example.com/file-03.mp3" (:url %)) files)))
         "the enclosure once, though an alternate names it too")
@@ -57,8 +57,8 @@
   (testing "the newest items"
     (let [feed {:rss/items [{:rss/pub-date #inst "2026-01-01" :rss/enclosure {:url "https://a/old.mp3"}}
                             {:rss/pub-date #inst "2026-03-01" :rss/enclosure {:url "https://a/new.mp3"}}]}]
-      (is (= ["https://a/new.mp3"] (map :url (check/files feed {:items 1}))))
-      (is (= 2 (count (check/files feed {:items :all})))))))
+      (is (= ["https://a/new.mp3"] (map :url (check/files feed {:max-items 1}))))
+      (is (= 2 (count (check/files feed {:max-items :all})))))))
 
 (deftest verdicts-on-sources
   (let [torrent {:kind :media :url "https://a/v.torrent" :path [] :declared {:type "application/x-bittorrent"}}]
