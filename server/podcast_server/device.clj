@@ -36,8 +36,8 @@
   ([]
    (make {}))
   ([config]
-   (library/make "podcast-server" {:name   "Podcast server"
-                                   :config (merge {:allow? http/public? :keep feeds/slim} config)})))
+   (let [config (merge {:allow? http/public? :keep feeds/slim} config)]
+     (library/make "podcast-server" {:name "Podcast server" :config config}))))
 
 (def saved-keys
   "The parts of the library that the server saves between runs: what it
@@ -68,7 +68,9 @@
       (merge library (select-keys (edn/read-string body) saved-keys))
       library)
     (catch Exception e
-      (log/warn :msg "The saved library couldn't be read, so its feeds are fetched again" :exception e)
+      (log/warn :msg (str "The saved library couldn't be read, so its "
+                          "feeds are fetched again")
+                :exception e)
       library)))
 
 (defn- changed?
@@ -112,9 +114,11 @@
                         (save! after data-store)))
                     ;; the executor runs no more steps after one that throws
                     (catch Throwable e
-                      (log/error :msg "A step of the library failed" :exception e))))]
+                      (log/error :msg "A step of the library failed"
+                                 :exception e))))]
     (doto (Executors/newSingleThreadScheduledExecutor)
-      (.scheduleWithFixedDelay ^Runnable step 0 step-seconds TimeUnit/SECONDS))))
+      (.scheduleWithFixedDelay ^Runnable step 0 step-seconds
+                               TimeUnit/SECONDS))))
 
 (defn stop!
   "Stop the steps that `executor` runs."
@@ -127,13 +131,15 @@
   of a library, as a function of no arguments for the gpodder API. The
   feeds are indexed again only when they changed."
   [lib]
-  (let [indexed (atom nil)]
+  (let [indexed (atom nil)
+        index   (fn [feeds]
+                  (let [by-url (into {} (map (juxt :url :feed)) (vals feeds))]
+                    {:feeds feeds :names (gpodder/identities by-url)}))]
     (fn []
       (let [feeds (:feeds @lib)]
         (:names (swap! indexed #(if (identical? feeds (:feeds %))
                                   %
-                                  {:feeds feeds
-                                   :names (gpodder/identities (into {} (map (juxt :url :feed)) (vals feeds)))})))))))
+                                  (index feeds))))))))
 
 (defn gpodder-handler
   "The gpodder API for AntennaPod, Kasts and gPodder over the sync folder
@@ -142,14 +148,16 @@
   a user name and a password, says yes to."
   [sync-store lib authorized?]
   (let [backend (store/backend sync-store)
-        cursors (atom nil)]
+        cursors (atom nil)
+        state   (atom (crdt/identify (profile/make "podcast-server-gpodder")
+                                     {:name "Podcast server, for gpodder apps"}
+                                     (time/now)))
+        sync!   (fn [state]
+                  (let [result (sync/sync! state [backend] {:cursors @cursors})]
+                    (reset! cursors (:cursors result))
+                    (:state result)))]
     (gpodder-server/handler
-     {:state       (atom (crdt/identify (profile/make "podcast-server-gpodder")
-                                        {:name "Podcast server, for gpodder apps"}
-                                        (time/now)))
+     {:state       state
       :authorized? authorized?
       :identities  (identities lib)
-      :sync        (fn [state]
-                     (let [result (sync/sync! state [backend] {:cursors @cursors})]
-                       (reset! cursors (:cursors result))
-                       (:state result)))})))
+      :sync        sync!})))

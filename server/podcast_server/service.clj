@@ -79,8 +79,13 @@
   guesses of an attacker, and it's kept as a hidden text."
   [k var v]
   (case k
-    :port     (or (parse-long v) (throw (ex-info (str var " is not a port number: " v) {var v})))
-    :names    (set (remove str/blank? (map (comp str/lower-case str/trim) (str/split v #","))))
+    :port     (or (parse-long v)
+                  (throw (ex-info (str var " is not a port number: " v)
+                                  {var v})))
+    :names    (->> (str/split v #",")
+                   (map (comp str/lower-case str/trim))
+                   (remove str/blank?)
+                   set)
     :password (if (< (count v) 16)
                 (throw (ex-info (str var " has fewer than 16 characters") {}))
                 (secret/hide v))
@@ -99,7 +104,9 @@
 (defn refused
   "The answer to a request that the server refuses, with `message`."
   [message]
-  {:status 403 :headers {"Content-Type" "text/plain; charset=utf-8"} :body message})
+  {:status  403
+   :headers {"Content-Type" "text/plain; charset=utf-8"}
+   :body    message})
 
 (defn known-names
   "An interceptor that answers only requests to localhost or one of the
@@ -113,9 +120,13 @@
     (interceptor/interceptor
      {:name  ::known-names
       :enter (fn [{:keys [request] :as context}]
-               (let [host (some-> (get-in request [:headers "host"]) str/lower-case (str/replace #":\d+$" ""))]
+               (let [host (some-> (get-in request [:headers "host"])
+                                  str/lower-case
+                                  (str/replace #":\d+$" ""))]
                  (if (and host (not (known host)))
-                   (assoc context :response (refused (str "The server doesn't answer to the name " host ".")))
+                   (let [message (str "The server doesn't answer to the name "
+                                      host ".")]
+                     (assoc context :response (refused message)))
                    context)))})))
 
 ;; Tailscale Serve deletes a Tailscale-Funnel-Request that a client sends,
@@ -127,7 +138,8 @@
    {:name  ::no-funnel
     :enter (fn [{:keys [request] :as context}]
              (if (get-in request [:headers "tailscale-funnel-request"])
-               (assoc context :response (refused "The server doesn't answer the public internet."))
+               (let [message "The server doesn't answer the public internet."]
+                 (assoc context :response (refused message)))
                context))}))
 
 (defn password?
@@ -146,16 +158,20 @@
   The gpodder API checks the credentials itself, since its apps log in
   once and then send a cookie."
   [password]
-  (interceptor/interceptor
-   {:name  ::login
-    :enter (fn [{:keys [request] :as context}]
-             (let [given (:password (http/credentials (get-in request [:headers "authorization"])))]
-               (if (or (str/starts-with? (:uri request) "/api/2/") (and given (password? password given)))
-                 context
-                 (assoc context :response {:status  401
-                                           :headers {"WWW-Authenticate" "Basic realm=\"Podcast server\", charset=\"UTF-8\""
-                                                     "Content-Type"     "text/plain; charset=utf-8"}
-                                           :body    "The server asks for its password."}))))}))
+  (let [realm     "Basic realm=\"Podcast server\", charset=\"UTF-8\""
+        challenge {:status  401
+                   :headers {"WWW-Authenticate" realm
+                             "Content-Type"     "text/plain; charset=utf-8"}
+                   :body    "The server asks for its password."}]
+    (interceptor/interceptor
+     {:name  ::login
+      :enter (fn [{:keys [request] :as context}]
+               (let [authorization (get-in request [:headers "authorization"])
+                     given         (:password (http/credentials authorization))
+                     gpodder?      (str/starts-with? (:uri request) "/api/2/")]
+                 (if (or gpodder? (and given (password? password given)))
+                   context
+                   (assoc context :response challenge))))})))
 
 (def folders
   "An interceptor ahead of the router for the paths that end in a slash.
@@ -169,10 +185,15 @@
              (update context :request
                      (fn [{:keys [uri] :as request}]
                        (cond
-                         (= "/dav/" uri)          (assoc request :uri "/dav" :path-info "/dav")
-                         (str/ends-with? uri "/") (let [index (str uri "index.html")]
-                                                    (assoc request :uri index :path-info index))
-                         :else                    request))))}))
+                         (= "/dav/" uri)
+                         (assoc request :uri "/dav" :path-info "/dav")
+
+                         (str/ends-with? uri "/")
+                         (let [index (str uri "index.html")]
+                           (assoc request :uri index :path-info index))
+
+                         :else
+                         request))))}))
 
 (defn sync-store
   "The store of the sync folder in the :data-dir of `settings`."
@@ -186,11 +207,14 @@
   that give the `password`, or any app when it's nil."
   [sync-store lib password]
   (let [dav         (webdav-server/handler sync-store "/dav/")
-        authorized? (if password (fn [_ given] (password? password given)) (constantly true))]
+        authorized? (if password
+                      (fn [_ given] (password? password given))
+                      (constantly true))
+        gpodder     (device/gpodder-handler sync-store lib authorized?)]
     #{["/proxy" :any (proxy/handler) :route-name ::proxy]
       ["/dav" :any dav :route-name ::dav-collection]
       ["/dav/*path" :any dav :route-name ::dav]
-      ["/api/2/*path" :any (device/gpodder-handler sync-store lib authorized?) :route-name ::gpodder]}))
+      ["/api/2/*path" :any gpodder :route-name ::gpodder]}))
 
 (defn client-routes
   "The routes of the files in `client-dir`, or none when it's nil. Each
@@ -200,25 +224,29 @@
     ;; read again on each request, since a build tool rewrites them
     (resources/file-routes {:file-root    (.getPath (io/file client-dir))
                             :cache?       false
-                            :interceptors [(ring-middlewares/content-type) (ring-middlewares/not-modified)]})
+                            :interceptors [(ring-middlewares/content-type)
+                                           (ring-middlewares/not-modified)]})
     #{}))
 
 (defn connector
   "A Jetty connector of the server with `settings`, over the sync folder
   `sync-store` and the server's library `lib`, an atom; not yet started."
   [{:keys [host port names password client-dir] :as settings} sync-store lib]
-  (-> (conn/default-connector-map host port)
-      (conn/with-interceptors [interceptors/log-request
-                               interceptors/not-found
-                               ;; scripts from this server only, with eval for the development
-                               ;; builds of shadow-cljs; art, media and the rest from any host
-                               (secure-headers/secure-headers
-                                {:content-security-policy-settings {:object-src "'none'" :script-src "'self' 'unsafe-eval'"}})
-                               (known-names names)
-                               (if password (login password) no-funnel)
-                               folders])
-      (conn/with-routes (routes sync-store lib password) (client-routes client-dir))
-      (jetty/create-connector nil)))
+  (let [policy {:object-src "'none'" :script-src "'self' 'unsafe-eval'"}]
+    (-> (conn/default-connector-map host port)
+        (conn/with-interceptors
+          [interceptors/log-request
+           interceptors/not-found
+           ;; scripts from this server only, with eval for the development
+           ;; builds of shadow-cljs; art, media and the rest from any host
+           (secure-headers/secure-headers
+            {:content-security-policy-settings policy})
+           (known-names names)
+           (if password (login password) no-funnel)
+           folders])
+        (conn/with-routes (routes sync-store lib password)
+          (client-routes client-dir))
+        (jetty/create-connector nil))))
 
 (defonce ^{:doc "The running server as its :connector, :library and the
   :steps that keep the library current, or nil when stopped."}
@@ -236,8 +264,9 @@
            ;; for the saved library, which can't go in the sync folder,
            ;; where every file is a sync document
            data-store (file/store data-dir)
-           lib        (atom (device/restore! (device/make) data-store))]
-       (reset! server {:connector (conn/start! (connector settings sync-store lib))
+           lib        (atom (device/restore! (device/make) data-store))
+           running    (conn/start! (connector settings sync-store lib))]
+       (reset! server {:connector running
                        :library   lib
                        :steps     (device/start! lib sync-store data-store)})
        (println (str "Podcast server on http://" host ":" port "/"))))
@@ -259,7 +288,8 @@
   @(promise))
 
 (comment
-  (settings {"PODCAST_SERVER_PORT" "8401" "PODCAST_SERVER_CLIENT" "../my-client/public"})
+  (settings {"PODCAST_SERVER_PORT"   "8401"
+             "PODCAST_SERVER_CLIENT" "../my-client/public"})
   (start!)
   (stop!)
   #_.)
