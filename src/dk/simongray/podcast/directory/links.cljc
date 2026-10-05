@@ -46,128 +46,229 @@
   - :base64url, the base64 of URLs
   - :hex, hexadecimal
   - :bare, the URL without its scheme"
-  {:onetuner         {:name    "1tuner" :type :app
-                      :show    [["https://1tuner.com/podcast/" :slug "/" [:base64url :feed-url]]]
-                      :episode [["https://1tuner.com/podcast/" :slug "/" [:base64url :feed-url] "/"
-                                 [:encoded :episode-guid]]]}
-   :antennapod       {:name      "AntennaPod" :type :app
-                      :show      [["https://antennapod.org/deeplink/subscribe?url=" :feed-url]]
-                      :subscribe [["antennapod-subscribe://" [:bare :feed-url]]]}
-   :anytime          {:name "Anytime Player" :type :app
-                      :show [["https://anytimeplayer.app/subscribe?url=" :feed-url]]}
-   :apple            {:name      "Apple Podcasts" :type :app
-                      :show      [["https://podcasts.apple.com/podcast/id" :apple-id]]
-                      :subscribe [["podcast://" [:bare :feed-url]]]}
-   :breez            {:name    "Breez" :type :app
-                      :show    [["https://breez.link/p?feedURL=" [:encoded :feed-url]]]
-                      :episode [["https://breez.link/p?feedURL=" [:encoded :feed-url]
-                                 "&episodeID=" [:encoded :episode-guid]]]}
-   :castamatic       {:name      "Castamatic" :type :app
-                      :show      [["https://castamatic.com/guid/" :podcast-guid]]
-                      :subscribe [["castamatic://" [:bare :feed-url]]]}
-   :castbox          {:name "Castbox" :type :app
-                      :show [["https://castbox.fm/vic/" :apple-id]]}
-   :castro           {:name      "Castro" :type :app
-                      :show      [["https://castro.fm/itunes/" :apple-id]]
-                      :subscribe [["castros://subscribe/" [:bare :feed-url]]]}
-   :curiocaster      {:name "CurioCaster" :type :app
-                      :show [["https://curiocaster.com/podcast/pi" :podcastindex-id]]}
-   :downcast         {:name      "Downcast" :type :app
-                      :subscribe [["downcast://" [:bare :feed-url]]]}
-   :fountain         {:name    "Fountain" :type :app
-                      :show    [["https://fountain.fm/show/" :podcastindex-id]]
-                      :episode [["https://fountain.fm/episode/" :podcastindex-episode-id]]}
-   :goodpods         {:name "Goodpods" :type :app
-                      :show [["https://www.goodpods.com/podcasts-aid/" :apple-id]]}
-   :gpodder          {:name      "gPodder" :type :app
-                      :show      [["https://gpodder.net/subscribe?url=" :feed-url]]
-                      :subscribe [["gpodder://" [:bare :feed-url]]]}
-   :icatcher         {:name      "iCatcher!" :type :app
-                      :subscribe [["icatcher://" [:bare :feed-url]]]}
-   :metacast         {:name "Metacast" :type :app
-                      :show [["https://metacast.app/itunes/" :apple-id]
-                             ["https://open.metacast.app/podcasts/" :podcast-guid]]}
-   :moonfm           {:name "Moon FM" :type :app
-                      :show [["https://moon.fm/itunes/" :apple-id]]}
-   :overcast         {:name      "Overcast" :type :app
-                      :show      [["https://overcast.fm/itunes" :apple-id]]
-                      :subscribe [["overcast://x-callback-url/add?url=" :feed-url]]}
-   :playerfm         {:name      "Player FM" :type :app
-                      :show      [["https://player.fm/subscribe?id=" [:encoded :feed-url]]]
-                      :subscribe [["playerfm://" [:bare :feed-url]]]}
-   :pocketcasts      {:name      "Pocket Casts" :type :app
-                      :show      [["https://pca.st/itunes/" :apple-id]]
-                      :subscribe [["pktc://subscribe/" [:bare :feed-url]]]}
-   :podbean          {:name "Podbean" :type :app
-                      :show [["https://www.podbean.com/itunes/" :apple-id]]}
-   :podcastaddict    {:name      "Podcast Addict" :type :app
-                      :show      [["https://podcastaddict.com/feed/" [:encoded :feed-url]]]
-                      :episode   [["https://podcastaddict.com/episode/" [:encoded :enclosure-url]]]
-                      :subscribe [["podcastaddict://" [:bare :feed-url]]]}
-   :podcastguru      {:name      "Podcast Guru" :type :app
-                      :show      [["https://app.podcastguru.io/podcast/" :apple-id]
-                                  ["https://app.podcastguru.io/podcast/X" [:hex :feed-url]]]
-                      :subscribe [["podcastguru://" [:bare :feed-url]]]}
-   :podcastparrot    {:name "Podcast Parrot" :type :app
-                      :show [["https://podcastparrot.app/show?url=" [:encoded :feed-url]]]}
-   :podcastrepublic  {:name "Podcast Republic" :type :app
-                      :show [["https://www.podcastrepublic.net/podcast/" :apple-id]]}
-   :podcat           {:name      "Podcat" :type :app
-                      :subscribe [["podcat://" [:bare :feed-url]]]}
-   :podfriend        {:name    "Podfriend" :type :app
-                      :episode [["https://podfriend.com/podcast/" :apple-id "/" [:encoded :episode-guid]]]}
-   :podkicker        {:name      "Podkicker" :type :app
-                      :subscribe [["podkicker://subscribe/" [:bare :feed-url]]]}
-   :podlp            {:name "PodLP" :type :app
-                      :show [["https://link.podlp.app/" :apple-id]
-                             ["https://link.podlp.app/" :podcast-guid]]}
-   :podstation       {:name "podStation" :type :app
-                      :show [["https://podstation.github.io/subscribe-ext/?feedURL=" :feed-url]]}
-   :podurama         {:name "Podurama" :type :app
-                      :show [["https://podurama.com/podcast/" :slug "-i" :apple-id]]}
-   :podverse         {:name "Podverse" :type :app
-                      :show [["https://api.podverse.fm/api/v1/podcast/podcastindex/" :podcastindex-id]]}
-   :rssradio         {:name      "RSSRadio" :type :app
-                      :subscribe [["rssradio://" [:bare :feed-url]]]}
-   :sonnet           {:name "Sonnet" :type :app
-                      :show [["https://sonnet.fm/p/" :apple-id]]}
-   :steno            {:name    "Steno.fm" :type :app
-                      :show    [["https://steno.fm/show/" :podcast-guid]]
-                      :episode [["https://steno.fm/show/" :podcast-guid "/episode/" [:base64url :episode-guid]]]}
-   :thepodcastapp    {:name "The Podcast App" :type :app
-                      :show [["https://thepodcastapp.dev/p/itunes" :apple-id]
-                             ["https://thepodcastapp.dev/p/" :podcastindex-id]]}
-   :truefans         {:name "TrueFans" :type :app
-                      :show [["https://truefans.fm/" :podcast-guid]]}
-   :youtubemusic     {:name "YouTube Music" :type :app
-                      :show [["https://music.youtube.com/library/podcasts?addrssfeed=" [:base64url :feed-url]]]}
-   :greatpods        {:name "Great Pods" :type :page
-                      :show [["https://www.greatpods.co/podcasts?podcastIndexId=" :podcastindex-id]
-                             ["https://www.greatpods.co/podcasts?itunesId=" :apple-id]]}
-   :odesli           {:name "Odesli" :type :page
-                      :show [["https://pods.link/i/" :apple-id]]}
-   :plink            {:name "Plink" :type :page
-                      :show [["https://plinkhq.com/i/" :apple-id "?to=page"]]}
-   :podengine        {:name "Pod Engine" :type :page
-                      :show [["https://www.podengine.ai/podcasts/id/" :apple-id]]}
-   :podlink          {:name "pod.link" :type :page
-                      :show [["https://pod.link/" :apple-id]
-                             ["https://pod.link/" [:base64url :feed-url]]]}
-   :podcastdetails   {:name "Podcast Details" :type :page
-                      :show [["https://podcastdetails.com/?url=" :feed-url]]}
-   :podcastindex     {:name "Podcast Index" :type :page
-                      :show [["https://podcastindex.org/podcast/" :podcastindex-id]
-                             ["https://podcastindex.org/podcast/" :podcast-guid]]}
-   :podcastxray      {:name "Podcast X-Ray" :type :page
-                      :show [["https://podcastxray.com/podcast/" :apple-id]]}
-   :podchaser        {:name "Podchaser" :type :page
-                      :show [["https://podchaser.com/f/pod/" :apple-id]]}
-   :podfollow        {:name "podfollow" :type :page
-                      :show [["https://podfollow.com/" :apple-id]]}
-   :podnews          {:name "Podnews" :type :page
-                      :show [["https://podnews.net/podcast/" :apple-id]
-                             ["https://podnews.net/podcast/pi" :podcastindex-id]
-                             ["https://podnews.net/podcast/" :podcast-guid]]}})
+  {:onetuner
+   {:name    "1tuner" :type :app
+    :show    [["https://1tuner.com/podcast/" :slug "/" [:base64url :feed-url]]]
+    :episode [["https://1tuner.com/podcast/" :slug "/" [:base64url :feed-url]
+               "/" [:encoded :episode-guid]]]}
+
+   :antennapod
+   {:name      "AntennaPod" :type :app
+    :show      [["https://antennapod.org/deeplink/subscribe?url=" :feed-url]]
+    :subscribe [["antennapod-subscribe://" [:bare :feed-url]]]}
+
+   :anytime
+   {:name "Anytime Player" :type :app
+    :show [["https://anytimeplayer.app/subscribe?url=" :feed-url]]}
+
+   :apple
+   {:name      "Apple Podcasts" :type :app
+    :show      [["https://podcasts.apple.com/podcast/id" :apple-id]]
+    :subscribe [["podcast://" [:bare :feed-url]]]}
+
+   :breez
+   {:name    "Breez" :type :app
+    :show    [["https://breez.link/p?feedURL=" [:encoded :feed-url]]]
+    :episode [["https://breez.link/p?feedURL=" [:encoded :feed-url]
+               "&episodeID=" [:encoded :episode-guid]]]}
+
+   :castamatic
+   {:name      "Castamatic" :type :app
+    :show      [["https://castamatic.com/guid/" :podcast-guid]]
+    :subscribe [["castamatic://" [:bare :feed-url]]]}
+
+   :castbox
+   {:name "Castbox" :type :app
+    :show [["https://castbox.fm/vic/" :apple-id]]}
+
+   :castro
+   {:name      "Castro" :type :app
+    :show      [["https://castro.fm/itunes/" :apple-id]]
+    :subscribe [["castros://subscribe/" [:bare :feed-url]]]}
+
+   :curiocaster
+   {:name "CurioCaster" :type :app
+    :show [["https://curiocaster.com/podcast/pi" :podcastindex-id]]}
+
+   :downcast
+   {:name      "Downcast" :type :app
+    :subscribe [["downcast://" [:bare :feed-url]]]}
+
+   :fountain
+   {:name    "Fountain" :type :app
+    :show    [["https://fountain.fm/show/" :podcastindex-id]]
+    :episode [["https://fountain.fm/episode/" :podcastindex-episode-id]]}
+
+   :goodpods
+   {:name "Goodpods" :type :app
+    :show [["https://www.goodpods.com/podcasts-aid/" :apple-id]]}
+
+   :gpodder
+   {:name      "gPodder" :type :app
+    :show      [["https://gpodder.net/subscribe?url=" :feed-url]]
+    :subscribe [["gpodder://" [:bare :feed-url]]]}
+
+   :icatcher
+   {:name      "iCatcher!" :type :app
+    :subscribe [["icatcher://" [:bare :feed-url]]]}
+
+   :metacast
+   {:name "Metacast" :type :app
+    :show [["https://metacast.app/itunes/" :apple-id]
+           ["https://open.metacast.app/podcasts/" :podcast-guid]]}
+
+   :moonfm
+   {:name "Moon FM" :type :app
+    :show [["https://moon.fm/itunes/" :apple-id]]}
+
+   :overcast
+   {:name      "Overcast" :type :app
+    :show      [["https://overcast.fm/itunes" :apple-id]]
+    :subscribe [["overcast://x-callback-url/add?url=" :feed-url]]}
+
+   :playerfm
+   {:name      "Player FM" :type :app
+    :show      [["https://player.fm/subscribe?id=" [:encoded :feed-url]]]
+    :subscribe [["playerfm://" [:bare :feed-url]]]}
+
+   :pocketcasts
+   {:name      "Pocket Casts" :type :app
+    :show      [["https://pca.st/itunes/" :apple-id]]
+    :subscribe [["pktc://subscribe/" [:bare :feed-url]]]}
+
+   :podbean
+   {:name "Podbean" :type :app
+    :show [["https://www.podbean.com/itunes/" :apple-id]]}
+
+   :podcastaddict
+   {:name      "Podcast Addict" :type :app
+    :show      [["https://podcastaddict.com/feed/" [:encoded :feed-url]]]
+    :episode   [["https://podcastaddict.com/episode/"
+                 [:encoded :enclosure-url]]]
+    :subscribe [["podcastaddict://" [:bare :feed-url]]]}
+
+   :podcastguru
+   {:name      "Podcast Guru" :type :app
+    :show      [["https://app.podcastguru.io/podcast/" :apple-id]
+                ["https://app.podcastguru.io/podcast/X" [:hex :feed-url]]]
+    :subscribe [["podcastguru://" [:bare :feed-url]]]}
+
+   :podcastparrot
+   {:name "Podcast Parrot" :type :app
+    :show [["https://podcastparrot.app/show?url=" [:encoded :feed-url]]]}
+
+   :podcastrepublic
+   {:name "Podcast Republic" :type :app
+    :show [["https://www.podcastrepublic.net/podcast/" :apple-id]]}
+
+   :podcat
+   {:name      "Podcat" :type :app
+    :subscribe [["podcat://" [:bare :feed-url]]]}
+
+   :podfriend
+   {:name    "Podfriend" :type :app
+    :episode [["https://podfriend.com/podcast/" :apple-id
+               "/" [:encoded :episode-guid]]]}
+
+   :podkicker
+   {:name      "Podkicker" :type :app
+    :subscribe [["podkicker://subscribe/" [:bare :feed-url]]]}
+
+   :podlp
+   {:name "PodLP" :type :app
+    :show [["https://link.podlp.app/" :apple-id]
+           ["https://link.podlp.app/" :podcast-guid]]}
+
+   :podstation
+   {:name "podStation" :type :app
+    :show [["https://podstation.github.io/subscribe-ext/?feedURL=" :feed-url]]}
+
+   :podurama
+   {:name "Podurama" :type :app
+    :show [["https://podurama.com/podcast/" :slug "-i" :apple-id]]}
+
+   :podverse
+   {:name "Podverse" :type :app
+    :show [["https://api.podverse.fm/api/v1/podcast/podcastindex/"
+            :podcastindex-id]]}
+
+   :rssradio
+   {:name      "RSSRadio" :type :app
+    :subscribe [["rssradio://" [:bare :feed-url]]]}
+
+   :sonnet
+   {:name "Sonnet" :type :app
+    :show [["https://sonnet.fm/p/" :apple-id]]}
+
+   :steno
+   {:name    "Steno.fm" :type :app
+    :show    [["https://steno.fm/show/" :podcast-guid]]
+    :episode [["https://steno.fm/show/" :podcast-guid
+               "/episode/" [:base64url :episode-guid]]]}
+
+   :thepodcastapp
+   {:name "The Podcast App" :type :app
+    :show [["https://thepodcastapp.dev/p/itunes" :apple-id]
+           ["https://thepodcastapp.dev/p/" :podcastindex-id]]}
+
+   :truefans
+   {:name "TrueFans" :type :app
+    :show [["https://truefans.fm/" :podcast-guid]]}
+
+   :youtubemusic
+   {:name "YouTube Music" :type :app
+    :show [["https://music.youtube.com/library/podcasts?addrssfeed="
+            [:base64url :feed-url]]]}
+
+   :greatpods
+   {:name "Great Pods" :type :page
+    :show [["https://www.greatpods.co/podcasts?podcastIndexId="
+            :podcastindex-id]
+           ["https://www.greatpods.co/podcasts?itunesId=" :apple-id]]}
+
+   :odesli
+   {:name "Odesli" :type :page
+    :show [["https://pods.link/i/" :apple-id]]}
+
+   :plink
+   {:name "Plink" :type :page
+    :show [["https://plinkhq.com/i/" :apple-id "?to=page"]]}
+
+   :podengine
+   {:name "Pod Engine" :type :page
+    :show [["https://www.podengine.ai/podcasts/id/" :apple-id]]}
+
+   :podlink
+   {:name "pod.link" :type :page
+    :show [["https://pod.link/" :apple-id]
+           ["https://pod.link/" [:base64url :feed-url]]]}
+
+   :podcastdetails
+   {:name "Podcast Details" :type :page
+    :show [["https://podcastdetails.com/?url=" :feed-url]]}
+
+   :podcastindex
+   {:name "Podcast Index" :type :page
+    :show [["https://podcastindex.org/podcast/" :podcastindex-id]
+           ["https://podcastindex.org/podcast/" :podcast-guid]]}
+
+   :podcastxray
+   {:name "Podcast X-Ray" :type :page
+    :show [["https://podcastxray.com/podcast/" :apple-id]]}
+
+   :podchaser
+   {:name "Podchaser" :type :page
+    :show [["https://podchaser.com/f/pod/" :apple-id]]}
+
+   :podfollow
+   {:name "podfollow" :type :page
+    :show [["https://podfollow.com/" :apple-id]]}
+
+   :podnews
+   {:name "Podnews" :type :page
+    :show [["https://podnews.net/podcast/" :apple-id]
+           ["https://podnews.net/podcast/pi" :podcastindex-id]
+           ["https://podnews.net/podcast/" :podcast-guid]]}})
 
 (def kinds
   "The kinds of link that an entry of apps can have:
@@ -187,8 +288,9 @@
   apps, as link and links take them. The :url of `opts` is the URL of a
   feed that doesn't name its own.
 
-      {:feed-url \"…\" :podcast-guid \"…\" :apple-id \"…\" :podcastindex-id 920666
-       :episode-guid \"…\" :enclosure-url \"…\" :podcastindex-episode-id 123}
+      {:feed-url \"…\" :podcast-guid \"…\" :apple-id \"…\"
+       :podcastindex-id 920666 :episode-guid \"…\" :enclosure-url \"…\"
+       :podcastindex-episode-id 123}
 
   A key is absent when the show doesn't have it. The `show` is a parsed
   feed, or a show from dk.simongray.podcast.directory, which has the ids
@@ -206,17 +308,26 @@
    (ids show item {}))
   ([show item {:keys [url] :as opts}]
    {:pre [(map? opts)]}
-   (let [url    (or url (resolve/self-url show))
-         source (fn [k] (or (get-in show [:directory/sources k])
-                            (when (= k (:directory/source show)) (:directory/id show))))]
+   (let [url        (or url (resolve/self-url show))
+         source     (fn [k]
+                      (or (get-in show [:directory/sources k])
+                          (when (= k (:directory/source show))
+                            (:directory/id show))))
+         guid       (if (:directory/source show)
+                      (:podcast/guid show)
+                      (feed/feed-guid show url))
+         apple-id   (or (source :apple) (:index/itunes-id show))
+         index-id   (or (source :podcastindex) (:index/id show))
+         item-guid  (not-empty (get-in item [:rss/guid :content]))
+         episode-id (when (:index/feed-id item) (:index/id item))]
      (into {} (remove (comp nil? val))
            {:feed-url                url
-            :podcast-guid            (if (:directory/source show) (:podcast/guid show) (feed/feed-guid show url))
-            :apple-id                (or (source :apple) (:index/itunes-id show))
-            :podcastindex-id         (or (source :podcastindex) (:index/id show))
-            :episode-guid            (not-empty (get-in item [:rss/guid :content]))
+            :podcast-guid            guid
+            :apple-id                apple-id
+            :podcastindex-id         index-id
+            :episode-guid            item-guid
             :enclosure-url           (get-in item [:rss/enclosure :url])
-            :podcastindex-episode-id (when (:index/feed-id item) (:index/id item))}))))
+            :podcastindex-episode-id episode-id}))))
 
 (defn- encoding-of
   "The encoding and the key of the part `p` of a form that names a key."
@@ -259,6 +370,16 @@
    {:pre [(map? opts)]}
    (some #(written % ids) (get-in (:apps opts apps) [app kind]))))
 
+(defn- links-of
+  "The link of each of kinds that `app` has for the keys `ids`, by kind,
+  with the :apps of `opts`."
+  [app ids opts]
+  (into {}
+        (keep (fn [kind]
+                (when-let [url (link app kind ids opts)]
+                  [kind url])))
+        kinds))
+
 (defn links
   "The links of each app that `opts` choose for the keys `ids`, as the ids
   function gives them, in the order of the names of the apps. An app
@@ -275,7 +396,7 @@
    {:pre [(map? opts)]}
    (->> (for [[app entry] (:apps opts apps)
               :when (only app)
-              :let [found (into {} (keep (fn [kind] (when-let [url (link app kind ids opts)] [kind url]))) kinds)]
+              :let  [found (links-of app ids opts)]
               :when (seq found)]
           (merge {:app app} (select-keys entry [:name :type]) found))
         (sort-by (comp str/lower-case str :name))
@@ -284,16 +405,18 @@
 (def ^:no-doc id-patterns
   "The regex of the text of each key of the ids in a link, for link-ids.
   A key that isn't here is the text of one part of a path or a query."
-  {:apple-id                "[0-9]+"
-   :podcastindex-id         "[0-9]+"
-   :podcastindex-episode-id "[0-9]+"
-   :podcast-guid            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-   :feed-url                ".+"})
+  (let [hex #(str "[0-9a-fA-F]{" % "}")]
+    {:apple-id                "[0-9]+"
+     :podcastindex-id         "[0-9]+"
+     :podcastindex-episode-id "[0-9]+"
+     :podcast-guid            (str/join "-" (map hex [8 4 4 4 12]))
+     :feed-url                ".+"}))
 
 (defn- quoted
   "The text `s` as a regex that matches it as it is."
   [s]
-  (str/escape s #(when (#{\\ \^ \$ \. \| \? \* \+ \( \) \[ \] \{ \}} %) (str "\\" %))))
+  (let [special #{\\ \^ \$ \. \| \? \* \+ \( \) \[ \] \{ \}}]
+    (str/escape s #(when (special %) (str "\\" %)))))
 
 (defn- web-start
   "The regex of `s`, the start of a form of a link on the web. It takes
@@ -302,10 +425,13 @@
   reads the links that it shares, which have a country and the name of
   the show in their paths."
   [s]
-  (let [[_ host path query] (re-matches #"(?i)https?://(?:www\.)?([^/?#]*)([^?#]*)(.*)" s)]
+  (let [web-url             #"(?i)https?://(?:www\.)?([^/?#]*)([^?#]*)(.*)"
+        [_ host path query] (re-matches web-url s)
+        segment             (fn [part]
+                              (str (when (< 1 (count part)) "(?:/[^/?#]+)?")
+                                   (quoted part)))]
     (str "https?://(?:www\\.)?" (quoted host)
-         (apply str (map #(str (when (< 1 (count %)) "(?:/[^/?#]+)?") (quoted %))
-                         (re-seq #"/[^/]*" path)))
+         (apply str (map segment (re-seq #"/[^/]*" path)))
          (quoted query))))
 
 (defn- part-pattern
@@ -321,16 +447,27 @@
 (defn- form-pattern
   "The regex that reads a link of `form`, with a group for each key."
   [[start & parts :as form]]
-  (re-pattern (str "(?i)^"
-                   (if (re-find #"(?i)^https?://" start) (web-start start) (quoted start))
-                   (apply str (map #(if (string? %) (quoted %) (str "(" (part-pattern %) ")")) parts))
-                   "(?:[/?#].*)?$")))
+  (let [web?       (re-find #"(?i)^https?://" start)
+        pattern-of #(if (string? %)
+                      (quoted %)
+                      (str "(" (part-pattern %) ")"))]
+    (re-pattern (str "(?i)^"
+                     (if web? (web-start start) (quoted start))
+                     (apply str (map pattern-of parts))
+                     "(?:[/?#].*)?$"))))
 
 (defn- utf8
   "The bytes `b` as UTF-8 text, or nil for no bytes."
   [b]
   (when b
     (bytes/decode b 0 (bytes/length b) :utf8)))
+
+(defn- from-base64url
+  "The UTF-8 text of the base64url `s`, whose padding may be missing."
+  [s]
+  (let [b64     (str/escape s {\- "+" \_ "/"})
+        padding (subs "===" 0 (mod (- (count b64)) 4))]
+    (utf8 (bytes/from-base64 (str b64 padding)))))
 
 (defn- value-of
   "The value of the key that the part `p` of a form names, read from the
@@ -340,17 +477,21 @@
   as some apps encode it. One in a bare form keeps no scheme."
   [p text]
   (let [[encoding k] (encoding-of p)
+        encoded-url? (and (= [:plain :feed-url] [encoding k])
+                          (not (str/includes? text "://")))
         v            (case encoding
                        :encoded   (http/percent-decode text)
-                       :base64url (let [s (str/escape text {\- "+" \_ "/"})]
-                                    (utf8 (bytes/from-base64 (str s (subs "===" 0 (mod (- (count s)) 4))))))
+                       :base64url (from-base64url text)
                        :hex       (utf8 (bytes/from-hex text))
-                       (if (and (= [:plain :feed-url] [encoding k]) (not (str/includes? text "://")))
-                         (http/percent-decode text)
-                         text))]
+                       (if encoded-url? (http/percent-decode text) text))
+        with-scheme  (cond->> v (= :bare encoding) (str "https://"))]
     (case k
-      :feed-url                                   (when (http/web-url? (cond->> v (= :bare encoding) (str "https://"))) v)
-      (:podcastindex-id :podcastindex-episode-id) (some-> v parse-long)
+      :feed-url
+      (when (http/web-url? with-scheme) v)
+
+      (:podcastindex-id :podcastindex-episode-id)
+      (some-> v parse-long)
+
       v)))
 
 (defn- read-form
@@ -358,11 +499,12 @@
   doesn't read the link."
   [form url]
   (let [found (re-find (form-pattern form) url)
-        keyed (remove string? (rest form))]
+        keyed (remove string? (rest form))
+        ks    (map (comp second encoding-of) keyed)]
     (when (vector? found)
       (let [values (map value-of keyed (rest found))]
         (when (every? some? values)
-          (dissoc (zipmap (map (comp second encoding-of) keyed) values) :slug))))))
+          (dissoc (zipmap ks values) :slug))))))
 
 (defn link-ids
   "The ids that the link `url` of an app holds, read with the forms of
@@ -397,7 +539,10 @@
   ([url start]
    (at-time url start nil))
   ([url start end]
-   (let [seconds #(when (and (number? %) (not (neg? %)) (not (infinite? %)) (== % %))
+   (let [seconds #(when (and (number? %)
+                             (not (neg? %))
+                             (not (infinite? %))
+                             (== % %))
                     (coerce/plain-decimal %))
          [a b]   [(seconds start) (seconds end)]
          base    (str/replace (str url) #"#.*$" "")]
@@ -409,13 +554,15 @@
 
 (comment
   (def show
-    {:rss/title    "Podcasting 2.0"
-     :podcast/guid "917393e3-1b1e-5cef-ace4-edaa54e1f810"
-     :atom/links   [{:rel "self" :href "https://feeds.podcastindex.org/pc20.xml"}]
+    {:rss/title         "Podcasting 2.0"
+     :podcast/guid      "917393e3-1b1e-5cef-ace4-edaa54e1f810"
+     :atom/links        [{:rel  "self"
+                          :href "https://feeds.podcastindex.org/pc20.xml"}]
      :directory/sources {:apple "1524356573" :podcastindex 920666}})
 
   (ids show)
-  (ids show {:rss/guid {:content "PC20-272"} :rss/enclosure {:url "https://example.org/272.mp3"}})
+  (ids show {:rss/guid      {:content "PC20-272"}
+             :rss/enclosure {:url "https://example.org/272.mp3"}})
 
   (link :pocketcasts :show (ids show))
   (link :apple :subscribe (ids show))

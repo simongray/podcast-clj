@@ -50,37 +50,74 @@
 
   The entry of Apple in sources holds them as :genres, so you can give
   another table in an entry of your own."
-  {"Arts" 1301 "Food" 1306 "Design" 1402 "Performing Arts" 1405 "Visual Arts" 1406 "Fashion & Beauty" 1459
-   "Books" 1482
-   "Comedy" 1303 "Improv" 1495 "Comedy Interviews" 1496 "Stand-Up" 1497
-   "Education" 1304 "Language Learning" 1498 "How To" 1499 "Self-Improvement" 1500 "Courses" 1501
-   "Kids & Family" 1305 "Education for Kids" 1519 "Stories for Kids" 1520 "Parenting" 1521
+  {"Arts" 1301
+   "Food" 1306 "Design" 1402 "Performing Arts" 1405 "Visual Arts" 1406
+   "Fashion & Beauty" 1459 "Books" 1482
+
+   "Comedy" 1303
+   "Improv" 1495 "Comedy Interviews" 1496 "Stand-Up" 1497
+
+   "Education" 1304
+   "Language Learning" 1498 "How To" 1499 "Self-Improvement" 1500
+   "Courses" 1501
+
+   "Kids & Family" 1305
+   "Education for Kids" 1519 "Stories for Kids" 1520 "Parenting" 1521
    "Pets & Animals" 1522
-   "TV & Film" 1309 "TV Reviews" 1561 "After Shows" 1562 "Film Reviews" 1563 "Film History" 1564
-   "Film Interviews" 1565
-   "Music" 1310 "Music Commentary" 1523 "Music History" 1524 "Music Interviews" 1525
-   "Religion & Spirituality" 1314 "Buddhism" 1438 "Christianity" 1439 "Islam" 1440 "Judaism" 1441
+
+   "TV & Film" 1309
+   "TV Reviews" 1561 "After Shows" 1562 "Film Reviews" 1563
+   "Film History" 1564 "Film Interviews" 1565
+
+   "Music" 1310
+   "Music Commentary" 1523 "Music History" 1524 "Music Interviews" 1525
+
+   "Religion & Spirituality" 1314
+   "Buddhism" 1438 "Christianity" 1439 "Islam" 1440 "Judaism" 1441
    "Spirituality" 1444 "Hinduism" 1463 "Religion" 1532
+
    "Technology" 1318
-   "Business" 1321 "Careers" 1410 "Investing" 1412 "Management" 1491 "Marketing" 1492
+
+   "Business" 1321
+   "Careers" 1410 "Investing" 1412 "Management" 1491 "Marketing" 1492
    "Entrepreneurship" 1493 "Non-Profit" 1494
-   "Society & Culture" 1324 "Personal Journals" 1302 "Places & Travel" 1320 "Philosophy" 1443
+
+   "Society & Culture" 1324
+   "Personal Journals" 1302 "Places & Travel" 1320 "Philosophy" 1443
    "Documentary" 1543 "Relationships" 1544
-   "Fiction" 1483 "Drama" 1484 "Science Fiction" 1485 "Comedy Fiction" 1486
+
+   "Fiction" 1483
+   "Drama" 1484 "Science Fiction" 1485 "Comedy Fiction" 1486
+
    "History" 1487
+
    "True Crime" 1488
-   "News" 1489 "Business News" 1490 "Daily News" 1526 "Politics" 1527 "Tech News" 1528 "Sports News" 1529
-   "News Commentary" 1530 "Entertainment News" 1531
-   "Leisure" 1502 "Automotive" 1503 "Aviation" 1504 "Hobbies" 1505 "Crafts" 1506 "Games" 1507
-   "Home & Garden" 1508 "Video Games" 1509 "Animation & Manga" 1510
+
+   "News" 1489
+   "Business News" 1490 "Daily News" 1526 "Politics" 1527 "Tech News" 1528
+   "Sports News" 1529 "News Commentary" 1530 "Entertainment News" 1531
+
+   "Leisure" 1502
+   "Automotive" 1503 "Aviation" 1504 "Hobbies" 1505 "Crafts" 1506
+   "Games" 1507 "Home & Garden" 1508 "Video Games" 1509
+   "Animation & Manga" 1510
+
    "Government" 1511
-   "Health & Fitness" 1512 "Alternative Health" 1513 "Fitness" 1514 "Nutrition" 1515 "Sexuality" 1516
-   "Mental Health" 1517 "Medicine" 1518
-   "Science" 1533 "Natural Sciences" 1534 "Social Sciences" 1535 "Mathematics" 1536 "Nature" 1537
-   "Astronomy" 1538 "Chemistry" 1539 "Earth Sciences" 1540 "Life Sciences" 1541 "Physics" 1542
-   "Sports" 1545 "Soccer" 1546 "Football" 1547 "Basketball" 1548 "Baseball" 1549 "Hockey" 1550
-   "Running" 1551 "Rugby" 1552 "Golf" 1553 "Cricket" 1554 "Wrestling" 1555 "Tennis" 1556
-   "Volleyball" 1557 "Swimming" 1558 "Wilderness" 1559 "Fantasy Sports" 1560})
+
+   "Health & Fitness" 1512
+   "Alternative Health" 1513 "Fitness" 1514 "Nutrition" 1515
+   "Sexuality" 1516 "Mental Health" 1517 "Medicine" 1518
+
+   "Science" 1533
+   "Natural Sciences" 1534 "Social Sciences" 1535 "Mathematics" 1536
+   "Nature" 1537 "Astronomy" 1538 "Chemistry" 1539 "Earth Sciences" 1540
+   "Life Sciences" 1541 "Physics" 1542
+
+   "Sports" 1545
+   "Soccer" 1546 "Football" 1547 "Basketball" 1548 "Baseball" 1549
+   "Hockey" 1550 "Running" 1551 "Rugby" 1552 "Golf" 1553 "Cricket" 1554
+   "Wrestling" 1555 "Tennis" 1556 "Volleyball" 1557 "Swimming" 1558
+   "Wilderness" 1559 "Fantasy Sports" 1560})
 
 (def sources
   "The directories that podcast-clj knows, by name. An entry has the :api
@@ -91,7 +128,8 @@
   here, or as an entry of this shape. So you can reach another service
   with the same API:
 
-      (assoc (:fyyd sources) :id :mirror :root \"https://fyyd.example.org/0.2/\")
+      (assoc (:fyyd sources)
+             :id :mirror :root \"https://fyyd.example.org/0.2/\")
 
   The :id of such an entry names the source in the results. Without an
   :id, the name of its API does."
@@ -156,7 +194,8 @@
   [source]
   (let [e (if (map? source) source (get sources source))]
     (when-not (contains? sources (:api e))
-      (throw (ex-info (str "A directory the library does not know: " source) {:source source})))
+      (throw (ex-info (str "A directory the library does not know: " source)
+                      {:source source})))
     (assoc e :id (source-id source))))
 
 (defn ^:no-doc below
@@ -186,20 +225,28 @@
   source would then get the chart of all categories."
   [{:keys [id] :as e} category]
   (cond
-    (not (map? category))   category
-    (contains? category id) (get category id)
-    :else                   (throw (ex-info (str "The category names no category for " (name id))
-                                            {:source id :category category}))))
+    (not (map? category))
+    category
+
+    (contains? category id)
+    (get category id)
+
+    :else
+    (throw (ex-info (str "The category names no category for " (name id))
+                    {:source id :category category}))))
 
 (defn- apple-genre
   "The id of the genre of Apple for `category`, a name of `genres` or an
   id. It throws for a name that isn't in `genres`."
   [genres category]
   (let [s     (str/trim (str category))
-        named (into {} (map (fn [[name id]] [(str/lower-case name) id])) genres)]
+        named (into {}
+                    (map (fn [[name id]] [(str/lower-case name) id]))
+                    genres)]
     (or (when (re-matches #"\d{1,9}" s) s)
         (get named (str/lower-case s))
-        (throw (ex-info (str "Apple Podcasts has no genre " (pr-str category)) {:category category})))))
+        (throw (ex-info (str "Apple Podcasts has no genre " (pr-str category))
+                        {:category category})))))
 
 (defn- apple-chart
   "The URL of the chart of Apple for the source entry `e`, by the country,
@@ -209,68 +256,86 @@
   :genre-charts URL of the entry, which takes the id of a genre."
   [{:keys [trending genre-charts genres] :as e}
    {:keys [limit country category] :as params}]
-  (let [limit (long (or limit 25))]
+  (let [limit (long (or limit 25))
+        code  (country-code country)]
     (if category
-      (below genre-charts (str (country-code country) "/rss/toppodcasts/limit=" limit
-                               "/genre=" (apple-genre genres category) "/json"))
-      (below trending (str (country-code country) "/podcasts/top/" limit "/podcasts.json")))))
+      (below genre-charts
+             (str code "/rss/toppodcasts/limit=" limit
+                  "/genre=" (apple-genre genres category) "/json"))
+      (below trending
+             (str code "/podcasts/top/" limit "/podcasts.json")))))
 
 (defn- apple-request
   [{:keys [search lookup] :as e} call {:keys [q id limit country] :as params}]
   (case call
-    :search   (get-request (str search "?"
-                                (http/query-string {:media "podcast" :entity "podcast" :term q :limit limit
-                                                     :country (some-> country name)})))
-    :lookup   (get-request (str lookup "?"
-                                (http/query-string {:id (if (coll? id) (str/join "," id) id) :entity "podcast"})))
+    :search   (let [query {:media   "podcast"
+                           :entity  "podcast"
+                           :term    q
+                           :limit   limit
+                           :country (some-> country name)}]
+                (get-request (str search "?" (http/query-string query))))
+    :lookup   (let [ids   (if (coll? id) (str/join "," id) id)
+                    query {:id ids :entity "podcast"}]
+                (get-request (str lookup "?" (http/query-string query))))
     :trending (get-request (apple-chart e params))))
 
 (defn- fyyd-request
   [{:keys [root]} call {:keys [q id limit language category]}]
   (when (and category (= :trending call))
     (throw (ex-info "fyyd has no chart by category" {:category category})))
-  (get-request
-   (below root (case call
-                 :search   (str "search/podcast?" (http/query-string {:term q :count limit}))
-                 :lookup   (str "podcast?" (http/query-string {:podcast_id id}))
-                 :trending (str "feature/podcast/hot?"
-                                (http/query-string {:count limit :language language}))))))
+  (let [path (case call
+               :search   (str "search/podcast?"
+                              (http/query-string {:term q :count limit}))
+               :lookup   (str "podcast?" (http/query-string {:podcast_id id}))
+               :trending (str "feature/podcast/hot?"
+                              (http/query-string {:count    limit
+                                                  :language language})))]
+    (get-request (below root path))))
 
 (defn- gpodder-request
   [{:keys [root]} call {:keys [q id limit category]}]
-  (get-request
-   (below root (case call
-                 :search   (str "search.json?" (http/query-string {:q q}))
-                 :lookup   (str "api/2/data/podcast.json?" (http/query-string {:url id}))
-                 :trending (if category
-                             (str "api/2/tag/" (http/percent-encode (str/lower-case (str/trim (str category))))
-                                  "/" (long (or limit 25)) ".json")
-                             (str "toplist/" (long (or limit 25)) ".json"))))))
+  (let [path (case call
+               :search   (str "search.json?" (http/query-string {:q q}))
+               :lookup   (str "api/2/data/podcast.json?"
+                              (http/query-string {:url id}))
+               :trending (if category
+                           (let [tag (str/lower-case (str/trim (str category)))]
+                             (str "api/2/tag/" (http/percent-encode tag)
+                                  "/" (long (or limit 25)) ".json"))
+                           (str "toplist/" (long (or limit 25)) ".json")))]
+    (get-request (below root path))))
 
 (defn- podcastindex-request
-  [{:keys [root id]} call {:keys [q limit language category] show :id} credentials opts]
+  [{:keys [root id]} call {:keys [q limit language category] show :id}
+   credentials opts]
   (when-not credentials
-    (throw (ex-info "The Podcast Index needs credentials under :credentials" {:source id})))
-  (let [opts (cond-> opts root (assoc :base-url root))]
+    (throw (ex-info "The Podcast Index needs credentials under :credentials"
+                    {:source id})))
+  (let [opts          (cond-> opts root (assoc :base-url root))
+        index-request #(index/request credentials %1 %2 opts)]
     (case call
-      :search   (index/request credentials :search/by-term {:q q :max limit} opts)
+      :search   (index-request :search/by-term {:q q :max limit})
       :lookup   (if (guid/guid? (str show))
-                  (index/request credentials :podcasts/by-guid {:guid show} opts)
-                  (index/request credentials :podcasts/by-feed-id {:id show} opts))
-      :trending (index/request credentials :podcasts/trending
-                               {:max limit :lang language :cat (some-> category index/category-filter)}
-                               opts))))
+                  (index-request :podcasts/by-guid {:guid show})
+                  (index-request :podcasts/by-feed-id {:id show}))
+      :trending (let [cat (some-> category index/category-filter)]
+                  (index-request :podcasts/trending
+                                 {:max limit :lang language :cat cat})))))
 
 (defn- check-region
   "Throw when `params` ask the source with the entry `e` for a chart of a
   :country or :language that it can't narrow its chart to, since a chart
   of the wrong shows is worse than none."
   [e params]
-  (let [narrows (case (:api e) :apple #{:country} (:fyyd :podcastindex) #{:language} #{})
+  (let [narrows (case (:api e)
+                  :apple                #{:country}
+                  (:fyyd :podcastindex) #{:language}
+                  #{})
         asked   (filter params [:country :language])]
     (when-let [k (when (not-any? narrows asked) (first asked))]
-      (throw (ex-info (str (:name e (name (:id e))) " has no chart by " (name k))
-                      {:source (:id e) k (get params k)})))))
+      (let [source (:name e (name (:id e)))]
+        (throw (ex-info (str source " has no chart by " (name k))
+                        {:source (:id e) k (get params k)}))))))
 
 (defn request
   "The request map for `call` at `source` with `params` and `opts`, a
@@ -290,9 +355,11 @@
    {:pre [(map? opts)]}
    (let [{:keys [api] :as e} (entry source)
          params              (cond-> params
-                               (contains? params :category) (update :category #(category-for e %)))]
+                               (contains? params :category)
+                               (update :category #(category-for e %)))]
      (when-not (contains? calls call)
-       (throw (ex-info (str "A call the directories do not answer: " call) {:call call})))
+       (throw (ex-info (str "A call the directories do not answer: " call)
+                       {:call call})))
      (when (= :trending call)
        (check-region e params))
      (case api
@@ -316,7 +383,14 @@
   "The `show` with `feed-url` as its self link."
   [show feed-url]
   (cond-> show
-    (not (str/blank? (str feed-url))) (assoc :atom/links [{:rel "self" :href feed-url}])))
+    (not (str/blank? (str feed-url)))
+    (assoc :atom/links [{:rel "self" :href feed-url}])))
+
+(defn- records
+  "The records in the JSON value `x`, which holds one record as a map or
+  several in a sequence."
+  [x]
+  (if (map? x) [x] x))
 
 (defn- apple-explicit
   "The iTunes explicit flag of Apple's advisory `rating`. The chart JSON of
@@ -329,99 +403,137 @@
 
 (defn- apple-show
   "The show of the result `r` of a search or lookup at Apple."
-  [{:strs [collectionId collectionName artistName feedUrl artworkUrl600 artworkUrl100 collectionViewUrl
-           genres releaseDate trackCount contentAdvisoryRating] :as r}]
-  (-> (present {:rss/title               collectionName
-                :itunes/author           artistName
-                :itunes/image            (when-let [href (or artworkUrl600 artworkUrl100)] {:href href})
-                :itunes/explicit         (apple-explicit contentAdvisoryRating)
-                :itunes/categories       (vec (for [g genres :when (not= "Podcasts" g)] {:text g}))
-                :rss/pub-date            (some-> releaseDate time/parse-iso8601)
-                :directory/id            (some-> collectionId str)
-                :directory/url           collectionViewUrl
-                :directory/episode-count trackCount
-                :directory/raw           r})
-      (with-feed-url feedUrl)))
+  [{:strs [collectionId collectionName artistName feedUrl artworkUrl600
+           artworkUrl100 collectionViewUrl genres releaseDate trackCount
+           contentAdvisoryRating]
+    :as   r}]
+  (let [artwork    (or artworkUrl600 artworkUrl100)
+        explicit   (apple-explicit contentAdvisoryRating)
+        categories (for [g genres :when (not= "Podcasts" g)] {:text g})
+        published  (some-> releaseDate time/parse-iso8601)]
+    (-> (present {:rss/title               collectionName
+                  :itunes/author           artistName
+                  :itunes/image            (when artwork {:href artwork})
+                  :itunes/explicit         explicit
+                  :itunes/categories       (vec categories)
+                  :rss/pub-date            published
+                  :directory/id            (some-> collectionId str)
+                  :directory/url           collectionViewUrl
+                  :directory/episode-count trackCount
+                  :directory/raw           r})
+        (with-feed-url feedUrl))))
 
 (defn- apple-chart-show
   "The show of the entry `r` of Apple's chart, which names no feed. A
   lookup by its id gives the rest."
-  [{:strs [id name artistName artworkUrl100 url genres contentAdvisoryRating] :as r}]
-  (present {:rss/title         name
-            :itunes/author     artistName
-            :itunes/image      (when artworkUrl100 {:href artworkUrl100})
-            :itunes/explicit   (apple-explicit contentAdvisoryRating)
-            :itunes/categories (vec (for [{:strs [name]} genres :when (not= "Podcasts" name)] {:text name}))
-            :directory/id      id
-            :directory/url     url
-            :directory/raw     r}))
+  [{:strs [id name artistName artworkUrl100 url genres contentAdvisoryRating]
+    :as   r}]
+  (let [categories (for [{:strs [name]} genres :when (not= "Podcasts" name)]
+                     {:text name})]
+    (present {:rss/title         name
+              :itunes/author     artistName
+              :itunes/image      (when artworkUrl100 {:href artworkUrl100})
+              :itunes/explicit   (apple-explicit contentAdvisoryRating)
+              :itunes/categories (vec categories)
+              :directory/id      id
+              :directory/url     url
+              :directory/raw     r})))
 
 (defn- apple-genre-show
   "The show of the entry `r` of the chart of a genre of Apple, which has
   the form of the older feeds of Apple. Like the other charts of Apple,
   it names no feed."
   [r]
-  (let [label  #(let [x (get r %)] (get (if (map? x) x (first x)) "label"))
-        images (let [x (get r "im:image")] (if (map? x) [x] x))
-        link   (let [x (get r "link")] (if (map? x) x (first x)))]
+  (let [first-of #(if (map? %) % (first %))
+        label    #(get (first-of (get r %)) "label")
+        image    (get (last (records (get r "im:image"))) "label")
+        link     (first-of (get r "link"))
+        category (get-in r ["category" "attributes" "label"])]
     (present {:rss/title         (label "im:name")
               :itunes/author     (label "im:artist")
               :rss/description   (label "summary")
-              :itunes/image      (when-let [href (get (last images) "label")] {:href href})
-              :itunes/categories (vec (for [c [(get-in r ["category" "attributes" "label"])] :when c] {:text c}))
+              :itunes/image      (when image {:href image})
+              :itunes/categories (if category [{:text category}] [])
               :directory/id      (get-in r ["id" "attributes" "im:id"])
               :directory/url     (get-in link ["attributes" "href"])
               :directory/raw     r})))
 
 (defn- fyyd-show
   "The show of the podcast record `r` of fyyd's API."
-  [{:strs [id title author description xmlURL htmlURL imgURL layoutImageURL language lastpub
-           episode_count url_fyyd paymentURL] :as r}]
-  (-> (present {:rss/title               title
-                :itunes/author           author
-                :rss/description         description
-                :rss/link                htmlURL
-                :rss/language            language
-                :itunes/image            (when-let [href (or imgURL layoutImageURL)] {:href href})
-                :rss/pub-date            (some-> lastpub time/parse-iso8601)
-                :podcast/funding         (when-not (str/blank? (str paymentURL)) [{:url paymentURL}])
-                :directory/id            id
-                :directory/url           url_fyyd
-                :directory/episode-count episode_count
-                :directory/raw           r})
-      (with-feed-url xmlURL)))
+  [{:strs [id title author description xmlURL htmlURL imgURL layoutImageURL
+           language lastpub episode_count url_fyyd paymentURL]
+    :as   r}]
+  (let [artwork (or imgURL layoutImageURL)
+        funded? (not (str/blank? (str paymentURL)))]
+    (-> (present {:rss/title               title
+                  :itunes/author           author
+                  :rss/description         description
+                  :rss/link                htmlURL
+                  :rss/language            language
+                  :itunes/image            (when artwork {:href artwork})
+                  :rss/pub-date            (some-> lastpub time/parse-iso8601)
+                  :podcast/funding         (when funded? [{:url paymentURL}])
+                  :directory/id            id
+                  :directory/url           url_fyyd
+                  :directory/episode-count episode_count
+                  :directory/raw           r})
+        (with-feed-url xmlURL))))
 
 (defn- gpodder-show
   "The show of the podcast record `r` of gpodder.net, whose id is the feed
   URL itself."
-  [{:strs [url title author description subscribers logo_url scaled_logo_url website mygpo_link] :as r}]
-  (-> (present {:rss/title              title
-                :itunes/author          author
-                :rss/description        description
-                :rss/link               website
-                :itunes/image           (when-let [href (or logo_url scaled_logo_url)] {:href href})
-                :directory/id           url
-                :directory/url          mygpo_link
-                :directory/subscribers  subscribers
-                :directory/raw          r})
-      (with-feed-url url)))
+  [{:strs [url title author description subscribers logo_url scaled_logo_url
+           website mygpo_link]
+    :as   r}]
+  (let [artwork (or logo_url scaled_logo_url)]
+    (-> (present {:rss/title             title
+                  :itunes/author         author
+                  :rss/description       description
+                  :rss/link              website
+                  :itunes/image          (when artwork {:href artwork})
+                  :directory/id          url
+                  :directory/url         mygpo_link
+                  :directory/subscribers subscribers
+                  :directory/raw         r})
+        (with-feed-url url))))
 
 (defn- podcastindex-show
   "The show of the feed map `m` that index/response read, with its keys in
   the index namespace kept. Its page is below `pages`, the URL of the
   pages of the shows."
   [m pages]
-  (-> (present (assoc m
-                      :directory/id            (:index/id m)
-                      :directory/url           (when pages (some->> (:index/id m) (str pages)))
-                      :directory/episode-count (:index/episode-count m)
-                      :directory/raw           (:index/raw m)))
-      (with-feed-url (:index/url m))))
+  (let [id   (:index/id m)
+        page (when (and pages id) (str pages id))]
+    (-> (present (assoc m
+                        :directory/id            id
+                        :directory/url           page
+                        :directory/episode-count (:index/episode-count m)
+                        :directory/raw           (:index/raw m)))
+        (with-feed-url (:index/url m)))))
 
 (defn- ranked
   "The `shows` with their place in a chart as :directory/rank."
   [shows]
   (map-indexed (fn [i show] (assoc show :directory/rank (inc i))) shows))
+
+(defn- index-shows
+  "The shows in the JSON `body` of the Podcast Index, whose pages are
+  below `pages`, or none when the body tells of a failure."
+  [body pages]
+  (let [{:keys [status feed feeds]} (index/response body)]
+    (when status
+      (map #(podcastindex-show % pages) (or feeds (when feed [feed]))))))
+
+(defn- apple-shows
+  "The shows in the JSON value `raw` that Apple answered for `call`. A
+  chart holds the entries of one of the two kinds of charts of Apple."
+  [raw call]
+  (if (= :trending call)
+    (concat (map apple-chart-show (get-in raw ["feed" "results"]))
+            (map apple-genre-show (records (get-in raw ["feed" "entry"]))))
+    (->> (get raw "results")
+         (filter #(= "podcast" (get % "kind")))
+         (map apple-show))))
 
 (defn response
   "The shows in the JSON `body` that `source` answered for `call`, as
@@ -434,20 +546,13 @@
   [source call body]
   (let [{:keys [api id pages]} (entry source)
         shows (if (= :podcastindex api)
-                (let [{:keys [status feed feeds]} (index/response body)]
-                  (when status
-                    (map #(podcastindex-show % pages) (or feeds (when feed [feed])))))
+                (index-shows body pages)
                 (let [raw (json/read-str body)]
                   (case api
-                    :apple   (if (= :trending call)
-                               (let [entries (get-in raw ["feed" "entry"])]
-                                 (concat (map apple-chart-show (get-in raw ["feed" "results"]))
-                                         (map apple-genre-show (if (map? entries) [entries] entries))))
-                               (map apple-show (filter #(= "podcast" (get % "kind")) (get raw "results"))))
+                    :apple   (apple-shows raw call)
                     :fyyd    (when (= 1 (get raw "status"))
-                               (let [data (get raw "data")]
-                                 (map fyyd-show (if (map? data) [data] data))))
-                    :gpodder (map gpodder-show (if (map? raw) [raw] raw)))))
+                               (map fyyd-show (records (get raw "data"))))
+                    :gpodder (map gpodder-show (records raw)))))
         named (map #(assoc % :directory/source id) shows)]
     (vec (if (= :trending call) (ranked named) named))))
 
@@ -455,7 +560,8 @@
   "The title and author of `show`, lower-cased: what tells shows apart when
   one of them names no feed."
   [show]
-  [(str/lower-case (str (:rss/title show))) (str/lower-case (str (:itunes/author show)))])
+  [(str/lower-case (str (:rss/title show)))
+   (str/lower-case (str (:itunes/author show)))])
 
 (defn- own-keys
   "The entries of `show` that belong to the model rather than to the
@@ -467,7 +573,8 @@
   "The guids that identify the feed of `show`: the one it declares, and
   the one that the podcast namespace derives from its URL."
   [show]
-  (remove nil? [(:podcast/guid show) (some-> (resolve/self-url show) guid/from-url)]))
+  (let [derived (some-> (resolve/self-url show) guid/from-url)]
+    (remove nil? [(:podcast/guid show) derived])))
 
 (defn- indexed
   "The `state` with the entry at `i` found by each guid of `show`."
@@ -487,8 +594,30 @@
   (or (get by-id [(:directory/source show) (:directory/id show)])
       (some by-guid (guids show))
       (when-let [i (get by-name (name-of show))]
-        (when (or (empty? (guids show)) (empty? (guids (entries i))))
+        (when (or (empty? (guids show))
+                  (empty? (guids (entries i))))
           i))))
+
+(defn- with-show
+  "The `state` of combine with `show` in it: merged into the entry that
+  it's the same as, or else as a new entry."
+  [{:keys [entries] :as state} show]
+  (let [id-key [(:directory/source show) (:directory/id show)]
+        found  {(:directory/source show) (:directory/id show)}]
+    (if-let [i (same-as state show)]
+      (let [merged (-> (merge (own-keys show) (entries i))
+                       (update :directory/sources merge found))]
+        (-> state
+            (assoc-in [:entries i] merged)
+            (assoc-in [:by-id id-key] i)
+            (indexed merged i)))
+      (let [i     (count entries)
+            added (assoc show :directory/sources found)]
+        (-> state
+            (update :entries conj added)
+            (assoc-in [:by-id id-key] i)
+            (assoc-in [:by-name (name-of show)] i)
+            (indexed show i))))))
 
 (defn combine
   "One entry per show across `results` from several sources, in the order
@@ -500,25 +629,8 @@
   gains one when it meets its lookup by the id they share, or the same
   show from elsewhere by its title and author."
   [results]
-  (:entries
-   (reduce (fn [{:keys [entries] :as state} show]
-             (let [source-id [(:directory/source show) (:directory/id show)]
-                   found     {(:directory/source show) (:directory/id show)}]
-               (if-let [i (same-as state show)]
-                 (let [merged (-> (merge (own-keys show) (entries i))
-                                  (update :directory/sources merge found))]
-                   (-> state
-                       (assoc-in [:entries i] merged)
-                       (assoc-in [:by-id source-id] i)
-                       (indexed merged i)))
-                 (let [i (count entries)]
-                   (-> state
-                       (update :entries conj (assoc show :directory/sources found))
-                       (assoc-in [:by-id source-id] i)
-                       (assoc-in [:by-name (name-of show)] i)
-                       (indexed show i))))))
-           {:entries [] :by-id {} :by-guid {} :by-name {}}
-           results)))
+  (let [state {:entries [] :by-id {} :by-guid {} :by-name {}}]
+    (:entries (reduce with-show state results))))
 
 (defn- default-sources
   "Every source that needs no credentials, and the Podcast Index when
@@ -542,26 +654,42 @@
   no limit."
   ([source call params]
    (call! source call params {}))
-  ([source call {:keys [limit] :as params} {:keys [send] :or {send http/send!} :as opts}]
+  ([source call {:keys [limit] :as params}
+    {:keys [send] :or {send http/send!} :as opts}]
    {:pre [(map? opts)]}
-   (let [opts (cond-> opts (not (:auth-date opts)) (assoc :auth-date (quot (inst-ms (time/now)) 1000)))
-         req  (assoc (request source call params opts) :timeout-seconds (:timeout-seconds opts 15))
-         id   (source-id source)]
-     (async/then (send req)
-                 (fn [{:keys [status body]}]
-                   (cond
-                     (<= 200 status 299) (cond->> (response source call body) limit (into [] (take limit)))
-                     (= 404 status)      []
-                     :else               (throw (ex-info (str (name id) " answered " status)
-                                                         {:type ::failed :source id :status status}))))))))
+   (let [auth-date (quot (inst-ms (time/now)) 1000)
+         opts      (cond-> opts
+                     (not (:auth-date opts)) (assoc :auth-date auth-date))
+         timeout   (:timeout-seconds opts 15)
+         req       (assoc (request source call params opts)
+                          :timeout-seconds timeout)
+         id        (source-id source)]
+     (async/then
+      (send req)
+      (fn [{:keys [status body]}]
+        (cond
+          (<= 200 status 299)
+          (cond->> (response source call body)
+            limit (into [] (take limit)))
+
+          (= 404 status)
+          []
+
+          :else
+          (throw (ex-info (str (name id) " answered " status)
+                          {:type ::failed :source id :status status}))))))))
 
 (defn- complete!
   "Complete the `shows` that `source` answered for `call` with what a
   chart leaves out, fetched with `opts`. Apple's chart names no feed, so
   its entries are looked up by id in one request. Deferred."
   [source call shows opts]
-  (if (and (= :apple (:api (entry source))) (= :trending call) (seq shows))
-    (async/then (call! source :lookup {:id (keep :directory/id shows)} opts) #(concat shows %))
+  (if (and (= :apple (:api (entry source)))
+           (= :trending call)
+           (seq shows))
+    (let [ids (keep :directory/id shows)]
+      (async/then (call! source :lookup {:id ids} opts)
+                  #(concat shows %)))
     shows))
 
 (defn- combined
@@ -569,7 +697,8 @@
   diagnostic for each source that failed under :report. The `answers` are
   attempts as async/attempt gives them, one for each of `sources`."
   [sources answers]
-  (let [report (for [[source {:keys [error]}] (map vector sources answers) :when error]
+  (let [report (for [[source {:keys [error]}] (map vector sources answers)
+                     :when error]
                  (diagnostics/describe {:id     :directory/source-failed
                                         :source (source-id source)
                                         :reason (async/explain error)}))]
@@ -585,9 +714,12 @@
   absence."
   [sources call params opts]
   (let [ask! (fn [source]
-               (async/attempt #(async/then (call! source call params opts)
-                                           (fn [shows] (complete! source call shows opts)))))]
-    (async/then (async/all (map ask! sources)) #(combined sources %))))
+               (async/attempt
+                #(async/then (call! source call params opts)
+                             (fn [shows]
+                               (complete! source call shows opts)))))]
+    (async/then (async/all (map ask! sources))
+                #(combined sources %))))
 
 (defn- most-sources-first
   "The `shows` as a vector, those that the most sources have first."

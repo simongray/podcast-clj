@@ -22,7 +22,8 @@
 (def ^:no-doc ligatures
   "The letters that decomposition leaves whole, and how fold spells them
   out."
-  {\æ "ae" \ø "o" \œ "oe" \ß "ss" \ð "d" \þ "th" \ł "l" \đ "d" \ħ "h" \ı "i" \ŋ "n" \ŧ "t"})
+  {\æ "ae" \ø "o" \œ "oe" \ß "ss" \ð "d" \þ "th"
+   \ł "l" \đ "d" \ħ "h" \ı "i" \ŋ "n" \ŧ "t"})
 
 ;; Unicode, Blocks.txt: the five blocks of combining marks
 (def ^:no-doc marks
@@ -46,8 +47,10 @@
       (if (= i n)
         false
         (let [c #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))]
-          (if (or (and (<= 0x0300 c) (<= c 0x036F)) (and (<= 0x1AB0 c) (<= c 0x1AFF))
-                  (and (<= 0x1DC0 c) (<= c 0x1DFF)) (and (<= 0x20D0 c) (<= c 0x20FF))
+          (if (or (and (<= 0x0300 c) (<= c 0x036F))
+                  (and (<= 0x1AB0 c) (<= c 0x1AFF))
+                  (and (<= 0x1DC0 c) (<= c 0x1DFF))
+                  (and (<= 0x20D0 c) (<= c 0x20FF))
                   (and (<= 0xFE20 c) (<= c 0xFE2F)))
             true
             (recur (inc i))))))))
@@ -56,9 +59,12 @@
   "The string `s` lower-cased, with its diacritics stripped and its
   ligatures spelled out, e.g. \"Café Ø\" becomes \"cafe o\"."
   [s]
-  (let [s (str/lower-case (str s))
-        d (decompose s)]
-    (str/escape (if (and (identical? d s) (not (marked? s))) s (str/replace d marks "")) ligatures)))
+  (let [s        (str/lower-case (str s))
+        d        (decompose s)
+        stripped (if (and (identical? d s) (not (marked? s)))
+                   s
+                   (str/replace d marks ""))]
+    (str/escape stripped ligatures)))
 
 (def ^:no-doc word
   "The pattern of a word: a run of letters, marks and digits."
@@ -109,12 +115,19 @@
 
 (defn- names
   [feed item]
-  (str/join " " (map :name (if item (resolve/people feed item) (resolve/people feed)))))
+  (let [people (if item
+                 (resolve/people feed item)
+                 (resolve/people feed))]
+    (str/join " " (map :name people))))
 
 (defn- present
   "The entries of `m` whose value isn't blank or empty."
   [m]
-  (into {} (filter (fn [[_ v]] (if (string? v) (not (str/blank? v)) (seq v)))) m))
+  (let [filled? (fn [[_ v]]
+                  (if (string? v)
+                    (not (str/blank? v))
+                    (seq v)))]
+    (into {} (filter filled?) m)))
 
 (defn item-document
   "The search document of `item` in `feed`, with the `opts` below.
@@ -132,11 +145,13 @@
   ([feed item {:keys [url chapters transcript] :as opts}]
    {:pre [(map? opts)]}
    (let [chapters (or chapters (resolve/embedded-chapters item))
+         titles   (keep :title (:chapters chapters))
          title    (resolve/title item)
          show     (resolve/title feed)
          id       (feed/episode-id feed url item)]
      (when (nil? (first id))
-       (throw (ex-info "A feed without a podcast:guid needs :url, or its episodes share ids with those of other shows"
+       (throw (ex-info (str "A feed without a podcast:guid needs :url, or its "
+                            "episodes share ids with those of other shows")
                        {:title show})))
      {:id     id
       :fields (present {:title       title
@@ -144,7 +159,7 @@
                         :description (notes item)
                         :people      (names feed item)
                         :keywords    (:itunes/keywords item)
-                        :chapters    (str/join " " (keep :title (:chapters chapters)))
+                        :chapters    (str/join " " titles)
                         :transcript  (some-> transcript transcript/text)})
       :stored (into {} (filter (comp some? val))
                     {:title     title
@@ -164,15 +179,17 @@
    (feed-document feed {}))
   ([feed {:keys [url] :as opts}]
    {:pre [(map? opts)]}
-   (let [title  (resolve/title feed)
-         author (resolve/author feed)]
+   (let [title      (resolve/title feed)
+         author     (resolve/author feed)
+         categories (map #(str/join " " %) (resolve/categories feed))]
      {:id     (feed/feed-guid feed url)
       :fields (present {:title       title
                         :description (notes feed)
                         :author      author
                         :people      (names feed nil)
-                        :categories  (str/join " " (map #(str/join " " %) (resolve/categories feed)))})
-      :stored (into {} (filter (comp some? val)) {:title title :author author :url url})})))
+                        :categories  (str/join " " categories)})
+      :stored (into {} (filter (comp some? val))
+                    {:title title :author author :url url})})))
 
 (def ^{:no-doc true :const true} span
   "The block of positions that each field of a document gets.
@@ -251,13 +268,14 @@
                 (let [base (long (* span (get numbers field)))]
                   (loop [i 0 terms (seq terms) acc acc]
                     (if (and terms (< i span))
-                      (let [term (first terms)
-                            at   (+ base i)
-                            seen (get acc term)]
-                        (recur (inc i) (next terms)
-                               (assoc! acc term (cond (nil? seen)    at
-                                                      (vector? seen) (conj seen at)
-                                                      :else          [seen at]))))
+                      (let [term   (first terms)
+                            at     (+ base i)
+                            seen   (get acc term)
+                            merged (cond
+                                     (nil? seen)    at
+                                     (vector? seen) (conj seen at)
+                                     :else          [seen at])]
+                        (recur (inc i) (next terms) (assoc! acc term merged)))
                       acc))))
               (transient {}) analyzed)))
 
@@ -280,7 +298,8 @@
         terms    (mapv #(if-let [e (find known %)] (key e) %) (keys by-term))
         postings (persistent!
                   (reduce-kv (fn [postings term at]
-                               (assoc! postings term (assoc (get postings term) id at)))
+                               (let [docs (assoc (get postings term) id at)]
+                                 (assoc! postings term docs)))
                              (transient known) by-term))]
     (-> index
         (assoc-in [:docs id] {:stored  stored
@@ -342,7 +361,9 @@
   [index boosts k1 b]
   (let [k1 (double k1) b (double b)]
     (into {} (for [[name {:keys [no docs length]}] (:fields index)
-                   :let [average (if (pos? (long docs)) (/ (double length) (long docs)) 1.0)]]
+                   :let [average (if (pos? (long docs))
+                                   (/ (double length) (long docs))
+                                   1.0)]]
                [no {:name  name
                     :boost (double (get boosts name 1))
                     :k     (+ k1 1)
@@ -353,18 +374,18 @@
   "The boosted BM25 weight of a term in the document `id` of `index`, with
   the `counts` by field number, using the constants of `weighing`."
   ^double [index weighing id counts]
-  (let [lengths (get-in index [:docs id :lengths])]
-    (double (reduce-kv (fn [sum no tf]
-                         (let [{:keys [name boost k a c]} (get weighing no)
-                               boost (double boost)]
-                           (if (zero? boost)
-                             sum
-                             (let [tf     (long tf)
-                                   length (long (get lengths name))]
-                               (+ (double sum)
-                                  (* boost (/ (* tf (double k))
-                                              (+ tf (double a) (* (double c) length)))))))))
-                       0.0 counts))))
+  (let [lengths (get-in index [:docs id :lengths])
+        weigh   (fn [sum no tf]
+                  (let [{:keys [name boost k a c]} (get weighing no)
+                        boost (double boost)]
+                    (if (zero? boost)
+                      sum
+                      (let [tf      (long tf)
+                            length  (long (get lengths name))
+                            divisor (+ tf (double a) (* (double c) length))]
+                        (+ (double sum)
+                           (* boost (/ (* tf (double k)) divisor)))))))]
+    (double (reduce-kv weigh 0.0 counts))))
 
 (defn- expansions
   "The terms of `index` that `term` matches: itself, or with `prefix?`,
@@ -377,6 +398,21 @@
       (sorted? terms) (subseq terms >= term < (str term "￿"))
       :else           (filter #(str/starts-with? % term) terms))))
 
+(defn- best-scores
+  "The transient `scores` with the score of each document in `docs`, the
+  postings of a term of the inverse document frequency `idf`, where it's
+  higher than the score that the document has. It uses the constants of
+  `weighing` of `index`."
+  [index weighing idf scores docs]
+  (let [idf (double idf)]
+    (reduce-kv (fn [scores id at]
+                 (let [counts (field-counts at)
+                       score  (* idf (weight index weighing id counts))]
+                   (if (pos? score)
+                     (assoc! scores id (max score (double (get scores id 0.0))))
+                     scores)))
+               scores docs)))
+
 (defn- term-scores
   "The scores of the documents of `index` that hold `term`, as a map of id
   to score, using the constants of `weighing`. With `prefix?`, a document
@@ -387,23 +423,21 @@
      (reduce (fn [scores term]
                (let [docs (get-in index [:postings term])
                      idf  (idf total (count docs))]
-                 (reduce-kv (fn [scores id at]
-                              (let [score (* idf (weight index weighing id (field-counts at)))]
-                                (if (pos? score)
-                                  (assoc! scores id (max score (double (get scores id 0.0))))
-                                  scores)))
-                            scores docs)))
+                 (best-scores index weighing idf scores docs)))
              (transient {}) (expansions index term prefix?)))))
 
 (defn- phrase-counts
   "The number of times the `terms` occur in a row in the document `id`, by
   field number, from the `postings` of an index."
   [postings terms id]
-  (let [sets (map #(set (at-positions (get-in postings [% id]))) (rest terms))]
-    (frequencies (for [start (at-positions (get-in postings [(first terms) id]))
-                       :let  [start (long start)]
-                       :when (every? identity (map-indexed (fn [i s] (contains? s (+ start (long i) 1))) sets))]
-                   (quot start span)))))
+  (let [at-term #(at-positions (get-in postings [% id]))
+        sets    (map (comp set at-term) (rest terms))]
+    (frequencies
+     (for [start (at-term (first terms))
+           :let  [start (long start)
+                  next? (fn [i s] (contains? s (+ start (long i) 1)))]
+           :when (every? identity (map-indexed next? sets))]
+       (quot start span)))))
 
 (defn- phrase-scores
   "The scores of the documents of `index` where the `terms` occur in a
@@ -411,8 +445,12 @@
   [index weighing terms]
   (let [postings (:postings index)
         total    (count (:docs index))
-        idf      (double (reduce + (map #(idf total (count (get postings %))) terms)))
-        ids      (reduce (fn [ids term] (filter #(contains? (get postings term) %) ids))
+        idf      (->> terms
+                      (map #(idf total (count (get postings %))))
+                      (reduce +)
+                      double)
+        ids      (reduce (fn [ids term]
+                           (filter #(contains? (get postings term) %) ids))
                          (keys (get postings (first terms)))
                          (rest terms))]
     (into {} (for [id ids
@@ -430,14 +468,20 @@
   its :phrase. A query that ends in whitespace or a quote has no prefix."
   [q prefix? min-prefix]
   (if (string? q)
-    (let [clauses (vec (for [[_ quoted word] (re-seq #"\"([^\"]*)\"|(\S+)" q)
-                             :let [terms (tokens (or quoted word))]
+    (let [clause  (fn [terms]
+                    (if (= 1 (count terms))
+                      {:term (first terms)}
+                      {:phrase terms}))
+          clauses (vec (for [[_ quoted word] (re-seq #"\"([^\"]*)\"|(\S+)" q)
+                             :let  [terms (tokens (or quoted word))]
                              :when (seq terms)]
-                         (if (= 1 (count terms)) {:term (first terms)} {:phrase terms})))
-          last    (dec (count clauses))]
-      (if (and prefix? (<= 0 last)
-               (<= (long min-prefix) (count (str (:term (clauses last)))))
-               (:term (clauses last))
+                         (clause terms)))
+          last    (dec (count clauses))
+          term    (when (<= 0 last) (:term (clauses last)))]
+      (if (and prefix?
+               (<= 0 last)
+               (<= (long min-prefix) (count (str term)))
+               term
                (not (re-find #"[\s\"]$" q)))
         (assoc-in clauses [last :prefix?] true)
         clauses))
@@ -454,9 +498,23 @@
   when `match` is :any."
   [scored match]
   (case match
-    :all (let [[smallest & others] (sort-by count scored)]
-           (into [] (filter (fn [id] (every? #(contains? % id) others))) (keys smallest)))
+    :all (let [[smallest & others] (sort-by count scored)
+               in-all?             (fn [id] (every? #(contains? % id) others))]
+           (into [] (filter in-all?) (keys smallest)))
     :any (into [] (distinct) (mapcat keys scored))))
+
+(defn- compare-ids
+  "The order of the ids `x` and `y` of two results of the same score, as
+  better gives it."
+  [x y]
+  (if (and (number? x) (number? y))
+    (compare x y)
+    (let [hx (long (hash x))
+          hy (long (hash y))]
+      (cond
+        (< hx hy) -1
+        (> hx hy) 1
+        :else     (compare (str x) (str y))))))
 
 (defn- better
   "A comparator of the results `a` and `b`: the higher score first, then
@@ -466,14 +524,28 @@
   that the order is total and the same on both platforms, which hash
   numbers differently. BM25 ties are common, so this must stay cheap."
   [a b]
-  (let [sa (double (:score a)) sb (double (:score b))]
-    (cond (> sa sb) -1
-          (< sa sb) 1
-          (and (number? (:id a)) (number? (:id b))) (compare (:id a) (:id b))
-          :else     (let [ha (long (hash (:id a))) hb (long (hash (:id b)))]
-                      (cond (< ha hb) -1
-                            (> ha hb) 1
-                            :else     (compare (str (:id a)) (str (:id b))))))))
+  (let [sa (double (:score a))
+        sb (double (:score b))]
+    (cond
+      (> sa sb) -1
+      (< sa sb) 1
+      :else     (compare-ids (:id a) (:id b)))))
+
+(defn- kept
+  "The vector `top` of at most `n` results, sorted by the comparator
+  `before`, with `result` in its place, or as it is when `result` is no
+  better than the worst of `n`."
+  [before n top result]
+  (if (and (= (count top) n)
+           (<= 0 (before result (peek top))))
+    top
+    (let [i   (loop [i 0]
+                (if (and (< i (count top))
+                         (<= (before (top i) result) 0))
+                  (recur (inc i))
+                  i))
+          top (into (conj (subvec top 0 i) result) (subvec top i))]
+      (if (> (count top) n) (pop top) top))))
 
 (defn- best
   "The `results` sorted by the comparator `before`, at most `n` of them if
@@ -484,20 +556,15 @@
   beyond the square root of the number of results, all are sorted."
   [before n results]
   (cond
-    (and n (<= n 0)) []
+    (and n (<= n 0))
+    []
+
     (or (nil? n) (>= n (Math/sqrt (count results))))
     (let [sorted (sort before results)]
       (vec (if n (take n sorted) sorted)))
-    :else     (reduce (fn [top result]
-                        (if (and (= (count top) n) (<= 0 (before result (peek top))))
-                          top
-                          (let [i   (loop [i 0]
-                                      (if (and (< i (count top)) (<= (before (top i) result) 0))
-                                        (recur (inc i))
-                                        i))
-                                top (into (conj (subvec top 0 i) result) (subvec top i))]
-                            (if (> (count top) n) (pop top) top))))
-                      [] results)))
+
+    :else
+    (reduce #(kept before n %1 %2) [] results)))
 
 (defn query
   "The documents of `index` that match the query `q`, best first, as maps
@@ -523,16 +590,24 @@
              :or   {match :all prefix? true min-prefix 1}
              :as   opts}]
    {:pre [(map? opts)]}
-   (let [weighing (weighing index (or (:boosts opts) boosts) (:k1 opts k1) (:b opts b))
+   (let [weights  (or (:boosts opts) boosts)
+         weighing (weighing index weights (:k1 opts k1) (:b opts b))
          q        (if (string? q) (spaced q) q)
-         scored   (mapv #(clause-scores index weighing %) (clauses q prefix? min-prefix))
+         scored   (mapv #(clause-scores index weighing %)
+                        (clauses q prefix? min-prefix))
+         score    (fn [id]
+                    (reduce (fn [sum m]
+                              (+ (double sum) (double (get m id 0.0))))
+                            0.0
+                            scored))
          result   (fn [id]
                     {:id     id
-                     :score  (reduce (fn [sum m] (+ (double sum) (double (get m id 0.0)))) 0.0 scored)
+                     :score  (score id)
                      :stored (get-in index [:docs id :stored])})
-         before   (if rank (fn [a b] (compare (rank a) (rank b))) better)]
-     (best before limit (into [] (comp (map result) (if where (filter where) identity))
-                                 (matching scored match))))))
+         before   (if rank (fn [a b] (compare (rank a) (rank b))) better)
+         wanted   (if where (filter where) identity)
+         results  (into [] (comp (map result) wanted) (matching scored match))]
+     (best before limit results))))
 
 (defn snippet
   "A window of `text` around the first words that match the query `q`, as
@@ -553,20 +628,27 @@
          spans  (spans text)
          hits   (filter hit? spans)
          length (count text)
-         from   (if-let [{:keys [start]} (first hits)] (max 0 (- start (quot width 3))) 0)
+         from   (if-let [{:keys [start]} (first hits)]
+                  (max 0 (- start (quot width 3)))
+                  0)
          from   (or (some #(when (>= (:start %) from) (:start %)) spans) from)
          to     (min length (max (+ from width) (or (:end (first hits)) 0)))
          to     (if (< to length)
                   (or (last (keep #(when (<= (:end %) to) (:end %)) spans)) to)
                   to)
          inside (filter #(and (>= (:start %) from) (<= (:end %) to)) hits)
-         parts  (loop [pos from hits inside acc (if (pos? from) [{:text "…"}] [])]
+         piece  (fn [a b] {:text (subs text a b)})
+         parts  (loop [pos  from
+                       hits inside
+                       acc  (if (pos? from) [{:text "…"}] [])]
                   (if-let [{:keys [start end]} (first hits)]
-                    (recur end (rest hits)
-                           (cond-> acc
-                             (< pos start) (conj {:text (subs text pos start)})
-                             true          (conj {:text (subs text start end) :match? true})))
-                    (cond-> acc (< pos to) (conj {:text (subs text pos to)}))))]
+                    (let [acc (cond-> acc
+                                (< pos start) (conj (piece pos start)))]
+                      (recur end
+                             (rest hits)
+                             (conj acc (assoc (piece start end) :match? true))))
+                    (cond-> acc
+                      (< pos to) (conj (piece pos to)))))]
      (cond-> parts
        (< to length) (conj {:text "…"})))))
 
@@ -616,7 +698,8 @@
   query, as words gives it, and a term that starts with its prefix."
   [{:keys [terms prefix] :as parsed} present]
   (boolean (and (every? present terms)
-                (or (nil? prefix) (some #(str/starts-with? % prefix) present)))))
+                (or (nil? prefix)
+                    (some #(str/starts-with? % prefix) present)))))
 
 (defn- mentioned
   "The predicate of the criterion :text for `v`, a query or a set of
@@ -624,7 +707,8 @@
   [v]
   (let [queries (mapv words (if (set? v) v [v]))]
     (fn [_ item]
-      (let [present (set (concat (tokens (resolve/title item)) (tokens (notes item))))]
+      (let [present (set (concat (tokens (resolve/title item))
+                                 (tokens (notes item))))]
         (boolean (some #(mentions? % present) queries))))))
 
 (defn- age
@@ -641,41 +725,61 @@
   (let [[feed-guid] (episode-id ctx feed item)
         added       (get-in ctx [:profile :subscriptions feed-guid :added-at])
         published   (resolve/published item)]
-    (boolean (and (inst? added) published (> (inst-ms published) (inst-ms added))))))
+    (boolean (and (inst? added)
+                  published
+                  (> (inst-ms published) (inst-ms added))))))
 
 (declare where)
 
 (def ^:no-doc criterion
   "The test of each criterion of where, a function of the criterion's
   value and the context that returns a predicate of a feed and an item."
-  {:season      (fn [v _] (fn [_ item] (in? v (:season (resolve/numbering item)))))
-   :type        (fn [v _] (fn [_ item] (in? v (:type (resolve/numbering item)))))
-   :duration    (fn [v _] (fn [_ item] (within? v (resolve/duration item))))
+  {:season      (fn [v _]
+                  (fn [_ item] (in? v (:season (resolve/numbering item)))))
+   :type        (fn [v _]
+                  (fn [_ item] (in? v (:type (resolve/numbering item)))))
+   :duration    (fn [v _]
+                  (fn [_ item] (within? v (resolve/duration item))))
    :published   (fn [[lo hi] _]
                   (fn [_ item]
                     (within? [(some-> lo inst-ms) (some-> hi inst-ms)]
                              (some-> (resolve/published item) inst-ms))))
-   :age         (fn [v ctx] (fn [_ item] (within? v (age item (:at ctx)))))
-   :transcript? (fn [v _] (fn [feed item] (= (boolean v) (some? (resolve/transcript feed item)))))
-   :chapters?   (fn [v _] (fn [_ item] (= (boolean v) (has-chapters? item))))
-   :explicit?   (fn [v _] (fn [feed item] (= (boolean v) (boolean (resolve/explicit? feed item)))))
+   :age         (fn [v ctx]
+                  (fn [_ item] (within? v (age item (:at ctx)))))
+   :transcript? (fn [v _]
+                  (fn [feed item]
+                    (= (boolean v) (some? (resolve/transcript feed item)))))
+   :chapters?   (fn [v _]
+                  (fn [_ item] (= (boolean v) (has-chapters? item))))
+   :explicit?   (fn [v _]
+                  (fn [feed item]
+                    (= (boolean v) (boolean (resolve/explicit? feed item)))))
    :person      (fn [v _]
                   (let [q (fold v)]
                     (fn [feed item]
-                      (boolean (some #(str/includes? (fold (:name %)) q) (resolve/people feed item))))))
+                      (boolean (some #(str/includes? (fold (:name %)) q)
+                                     (resolve/people feed item))))))
    :text        (fn [v _] (mentioned v))
    :not         (fn [v ctx] (complement (where v ctx)))
-   :status      (fn [v ctx] (fn [feed item] (in? v (status (entry ctx feed item)))))
+   :status      (fn [v ctx]
+                  (fn [feed item] (in? v (status (entry ctx feed item)))))
    :starred?    (fn [v ctx]
-                  (fn [feed item] (= (boolean v) (profile/starred? (:profile ctx) (episode-id ctx feed item)))))
+                  (fn [feed item]
+                    (let [id (episode-id ctx feed item)]
+                      (= (boolean v) (profile/starred? (:profile ctx) id)))))
    :inbox?      (fn [v ctx]
-                  (fn [feed item] (= (boolean v) (profile/in-inbox? (:profile ctx) (episode-id ctx feed item)))))
+                  (fn [feed item]
+                    (let [id (episode-id ctx feed item)]
+                      (= (boolean v) (profile/in-inbox? (:profile ctx) id)))))
    :rating      (fn [v ctx]
                   (let [opts (select-keys ctx [:scale])]
                     (fn [feed item]
-                      (within? v (profile/rating (:profile ctx) (episode-id ctx feed item) opts)))))
+                      (let [id (episode-id ctx feed item)]
+                        (within? v (profile/rating (:profile ctx) id opts))))))
    :since-subscription?
-   (fn [v ctx] (fn [feed item] (= (boolean v) (since-subscription? ctx feed item))))})
+   (fn [v ctx]
+     (fn [feed item]
+       (= (boolean v) (since-subscription? ctx feed item))))})
 
 (defn where
   "The predicate of a feed and one of its items for `criteria` in the
@@ -706,15 +810,20 @@
   ([criteria]
    (where criteria {}))
   ([criteria ctx]
-   (let [unknown (filter #(not (contains? criterion %)) (keys criteria))]
+   (let [unknown  (filter #(not (contains? criterion %)) (keys criteria))
+         personal #{:status :starred? :inbox? :rating :since-subscription?}]
      (when (seq unknown)
-       (throw (ex-info (str "Criteria the library does not know: " (str/join ", " unknown))
+       (throw (ex-info (str "Criteria the library does not know: "
+                            (str/join ", " unknown))
                        {:criteria (vec unknown)})))
      (when-let [k (and (not (:profile ctx))
-                       (some #{:status :starred? :inbox? :rating :since-subscription?} (keys criteria)))]
-       (throw (ex-info (str k " needs the profile under :profile") {:criteria criteria})))
-     (when (and (contains? criteria :age) (not (inst? (:at ctx))))
-       (throw (ex-info ":age needs the instant of now under :at" {:criteria criteria})))
+                       (some personal (keys criteria)))]
+       (throw (ex-info (str k " needs the profile under :profile")
+                       {:criteria criteria})))
+     (when (and (contains? criteria :age)
+                (not (inst? (:at ctx))))
+       (throw (ex-info ":age needs the instant of now under :at"
+                       {:criteria criteria})))
      (let [tests (mapv (fn [[k v]] ((criterion k) v ctx)) criteria)]
        (fn [feed item]
          (every? #(% feed item) tests))))))
@@ -758,11 +867,15 @@
      :oldest    (fn [_ item] (or (published-ms item) ##Inf))
      :shortest  (fn [_ item] (or (resolve/duration item) ##Inf))
      :longest   (fn [_ item] (- (or (resolve/duration item) ##-Inf)))
-     :title     (fn [_ item] (if-let [title (resolve/title item)] [0 (fold title)] [1 ""]))
+     :title     (fn [_ item]
+                  (if-let [title (resolve/title item)]
+                    [0 (fold title)]
+                    [1 ""]))
      :recent    (fn [feed item] (- (or (last-heard-ms ctx feed item) ##-Inf)))
      (if (fn? k)
        k
-       (throw (ex-info (str "An order the library does not know: " k) {:order k}))))))
+       (throw (ex-info (str "An order the library does not know: " k)
+                       {:order k}))))))
 
 (defn ^:no-doc sorted-by
   "The items of `coll` sorted by `f` as sort-by sorts them, but with one
@@ -800,7 +913,9 @@
          ;; a key of the app can need what the criteria select, so the
          ;; order comes first with the keys of the library only
          chosen    (if (and limit (keyword? k))
-                     (into [] (comp (filter meets?) (take limit)) (sorted-by sort-key all))
+                     (into []
+                           (comp (filter meets?) (take limit))
+                           (sorted-by sort-key all))
                      (cond->> (sorted-by sort-key (filter meets? all))
                        limit (take limit)))
          pairs     (map rest chosen)]
@@ -810,12 +925,21 @@
   "A description of what this version of podcast-clj doesn't know in the
   criteria `where` at `place`, including those under :not."
   [where place]
-  (let [unknown (when (map? where) (filter #(not (contains? criterion %)) (keys where)))]
+  (let [unknown (when (map? where)
+                  (filter #(not (contains? criterion %)) (keys where)))]
     (cond
-      (nil? where)       nil
-      (not (map? where)) (str "the criteria under " place " are " (pr-str where) ", not a map")
-      (seq unknown)      (str "the criteria " (str/join ", " (map pr-str unknown)) " are not known")
-      :else              (where-problem (:not where) :not))))
+      (nil? where)
+      nil
+
+      (not (map? where))
+      (str "the criteria under " place " are " (pr-str where) ", not a map")
+
+      (seq unknown)
+      (str "the criteria " (str/join ", " (map pr-str unknown))
+           " are not known")
+
+      :else
+      (where-problem (:not where) :not))))
 
 (defn problem
   "A description of what in the saved filter `criteria` this version of
@@ -828,10 +952,18 @@
   (let [{:keys [where order limit scale]} (when (map? criteria) criteria)
         in-where (where-problem where :where)]
     (cond
-      (not (map? criteria))                   "the criteria are not a map"
-      in-where                                in-where
-      (not (or (nil? order) (orders order)))  (str "the order " (pr-str order) " is not known")
-      (not (or (nil? limit) (number? limit))) (str "the limit is " (pr-str limit) ", not a number")
+      (not (map? criteria))
+      "the criteria are not a map"
+
+      in-where
+      in-where
+
+      (not (or (nil? order) (orders order)))
+      (str "the order " (pr-str order) " is not known")
+
+      (not (or (nil? limit) (number? limit)))
+      (str "the limit is " (pr-str limit) ", not a number")
+
       (not (or (nil? scale) (profile/scale? scale)))
       (str "the scale is " (pr-str scale) ", not a scale of ratings"))))
 
@@ -840,7 +972,9 @@
      (require '[dk.simongray.podcast.feed.rss :as rss])
      (def f (rss/parse (slurp "test/resources/feeds/namespace-example.xml")))
      (map :rss/title (episodes f {:order :oldest}))
-     (def idx (index (map #(item-document f % {:url "https://example.com/feed.xml"}) (:rss/items f))))
+     (def idx
+       (let [url "https://example.com/feed.xml"]
+         (index (map #(item-document f % {:url url}) (:rss/items f)))))
      (query idx "futu")
      (snippet (html/text (resolve/description (first (:rss/items f)))) "future")
      #_.))

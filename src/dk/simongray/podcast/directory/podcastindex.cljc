@@ -80,19 +80,25 @@
 
   The call :categories/list gives the list as the index has it now."
   (zipmap (iterate inc 1)
-          ["Arts" "Books" "Design" "Fashion" "Beauty" "Food" "Performing" "Visual" "Business" "Careers"
-           "Entrepreneurship" "Investing" "Management" "Marketing" "Non-Profit" "Comedy" "Interviews" "Improv"
-           "Stand-Up" "Education" "Courses" "How-To" "Language" "Learning" "Self-Improvement" "Fiction" "Drama"
-           "History" "Health" "Fitness" "Alternative" "Medicine" "Mental" "Nutrition" "Sexuality" "Kids"
-           "Family" "Parenting" "Pets" "Animals" "Stories" "Leisure" "Animation" "Manga" "Automotive"
-           "Aviation" "Crafts" "Games" "Hobbies" "Home" "Garden" "Video-Games" "Music" "Commentary" "News"
-           "Daily" "Entertainment" "Government" "Politics" "Buddhism" "Christianity" "Hinduism" "Islam"
-           "Judaism" "Religion" "Spirituality" "Science" "Astronomy" "Chemistry" "Earth" "Life" "Mathematics"
-           "Natural" "Nature" "Physics" "Social" "Society" "Culture" "Documentary" "Personal" "Journals"
-           "Philosophy" "Places" "Travel" "Relationships" "Sports" "Baseball" "Basketball" "Cricket" "Fantasy"
-           "Football" "Golf" "Hockey" "Rugby" "Running" "Soccer" "Swimming" "Tennis" "Volleyball" "Wilderness"
-           "Wrestling" "Technology" "True Crime" "TV" "Film" "After-Shows" "Reviews" "Climate" "Weather"
-           "Tabletop" "Role-Playing" "Cryptocurrency"]))
+          ["Arts" "Books" "Design" "Fashion" "Beauty" "Food" "Performing"
+           "Visual" "Business" "Careers" "Entrepreneurship" "Investing"
+           "Management" "Marketing" "Non-Profit" "Comedy" "Interviews"
+           "Improv" "Stand-Up" "Education" "Courses" "How-To" "Language"
+           "Learning" "Self-Improvement" "Fiction" "Drama" "History" "Health"
+           "Fitness" "Alternative" "Medicine" "Mental" "Nutrition" "Sexuality"
+           "Kids" "Family" "Parenting" "Pets" "Animals" "Stories" "Leisure"
+           "Animation" "Manga" "Automotive" "Aviation" "Crafts" "Games"
+           "Hobbies" "Home" "Garden" "Video-Games" "Music" "Commentary" "News"
+           "Daily" "Entertainment" "Government" "Politics" "Buddhism"
+           "Christianity" "Hinduism" "Islam" "Judaism" "Religion"
+           "Spirituality" "Science" "Astronomy" "Chemistry" "Earth" "Life"
+           "Mathematics" "Natural" "Nature" "Physics" "Social" "Society"
+           "Culture" "Documentary" "Personal" "Journals" "Philosophy" "Places"
+           "Travel" "Relationships" "Sports" "Baseball" "Basketball" "Cricket"
+           "Fantasy" "Football" "Golf" "Hockey" "Rugby" "Running" "Soccer"
+           "Swimming" "Tennis" "Volleyball" "Wilderness" "Wrestling"
+           "Technology" "True Crime" "TV" "Film" "After-Shows" "Reviews"
+           "Climate" "Weather" "Tabletop" "Role-Playing" "Cryptocurrency"]))
 
 (defn category-filter
   "The value of the parameters cat and notcat for `category`, by the
@@ -118,9 +124,11 @@
                       (map str/trim)
                       (remove str/blank?))
          named   (fn [part]
-                   (or (when (re-matches #"\d{1,6}" part) (get known (parse-long part)))
+                   (or (when (re-matches #"\d{1,6}" part)
+                         (get known (parse-long part)))
                        (get by-name (spoken part))
-                       (throw (ex-info (str "The Podcast Index has no category " (pr-str part))
+                       (throw (ex-info (str "The Podcast Index has no category "
+                                            (pr-str part))
                                        {:category category}))))]
      (not-empty (str/join "," (map named parts))))))
 
@@ -169,7 +177,8 @@
   [credentials call params {:keys [auth-date] :as opts}]
   {:pre [(map? opts)]}
   (when-not auth-date
-    (throw (ex-info "A request is signed at an :auth-date, Unix seconds" {:call call})))
+    (throw (ex-info "A request is signed at an :auth-date, Unix seconds"
+                    {:call call})))
   (let [path (or (paths call)
                  (throw (ex-info "Unknown Podcast Index call" {:call call})))
         root (str/replace (:base-url opts base-url) #"(^|[^/])/+$" "$1")
@@ -224,13 +233,13 @@
 (defn- destination->recipient
   [{:strs [name address type split fee customKey customValue]}]
   (cond-> {}
-    name                    (assoc :name name)
-    type                    (assoc :type type)
-    address                 (assoc :address address)
+    name                     (assoc :name name)
+    type                     (assoc :type type)
+    address                  (assoc :address address)
     (some? (->number split)) (assoc :split (->number split))
-    (->boolean fee)         (assoc :fee true)
-    customKey               (assoc :custom-key (str customKey))
-    customValue             (assoc :custom-value (str customValue))))
+    (->boolean fee)          (assoc :fee true)
+    customKey                (assoc :custom-key (str customKey))
+    customValue              (assoc :custom-value (str customValue))))
 
 (defn value->block
   "The value block of the index's value object `v`, which has a model and
@@ -239,51 +248,94 @@
   [v]
   (when (map? v)
     (let [{:strs [model destinations]} v
-          suggested (->number (get model "suggested"))]
+          suggested  (->number (get model "suggested"))
+          recipients (mapv destination->recipient destinations)]
       (cond-> {}
         (get model "type")   (assoc :type (get model "type"))
         (get model "method") (assoc :method (get model "method"))
         (some? suggested)    (assoc :suggested suggested)
-        (seq destinations)   (assoc :recipients (mapv destination->recipient destinations))))))
+        (seq destinations)   (assoc :recipients recipients)))))
 
 (def ^:no-doc feed-fields
   "The scalar fields of the index's feed object and their model keys."
-  [["title" :rss/title] ["link" :rss/link] ["description" :rss/description]
-   ["language" :rss/language] ["generator" :rss/generator]
-   ["author" :itunes/author] ["explicit" :itunes/explicit ->boolean] ["itunesType" :itunes/type]
-   ["podcastGuid" :podcast/guid] ["medium" :podcast/medium]
-   ["id" :index/id] ["url" :index/url] ["originalUrl" :index/original-url]
-   ["itunesId" :index/itunes-id] ["episodeCount" :index/episode-count]
-   ["dead" :index/dead? ->boolean] ["artwork" :index/artwork] ["contentType" :index/content-type]
-   ["lastUpdateTime" :index/last-update-time ->inst] ["lastCrawlTime" :index/last-crawl-time ->inst]
-   ["newestItemPubdate" :index/newest-item-published ->inst] ["lastHttpStatus" :index/last-http-status]
-   ["type" :index/format #(case % 0 "rss" 1 "atom" nil)]])
+  [["title"             :rss/title]
+   ["link"              :rss/link]
+   ["description"       :rss/description]
+   ["language"          :rss/language]
+   ["generator"         :rss/generator]
+
+   ["author"            :itunes/author]
+   ["explicit"          :itunes/explicit ->boolean]
+   ["itunesType"        :itunes/type]
+
+   ["podcastGuid"       :podcast/guid]
+   ["medium"            :podcast/medium]
+
+   ["id"                :index/id]
+   ["url"               :index/url]
+   ["originalUrl"       :index/original-url]
+   ["itunesId"          :index/itunes-id]
+   ["episodeCount"      :index/episode-count]
+   ["dead"              :index/dead? ->boolean]
+   ["artwork"           :index/artwork]
+   ["contentType"       :index/content-type]
+   ["lastUpdateTime"    :index/last-update-time ->inst]
+   ["lastCrawlTime"     :index/last-crawl-time ->inst]
+   ["newestItemPubdate" :index/newest-item-published ->inst]
+   ["lastHttpStatus"    :index/last-http-status]
+   ["type"              :index/format #(case % 0 "rss" 1 "atom" nil)]])
+
+(defn- funding->model
+  [{:strs [url message]}]
+  (cond-> {:url url}
+    message (assoc :content message)))
+
+(defn- categories->model
+  "The itunes:category entries of the index's map of `categories`, in the
+  order of their ids."
+  [categories]
+  (vec (for [[_ text] (sort-by (comp ->number key) categories)]
+         {:text text})))
 
 (defn feed->model
   "The feed object `f` of the index as a feed map. It has the keys of a
   parsed feed where the index has the same information, keys in the index
   namespace for what only the index knows, and the original as :index/raw."
   [f]
-  (let [{:strs [image ownerName locked value funding categories]} f]
+  (let [{:strs [image ownerName locked value funding categories]} f
+        locked? (boolean (->boolean locked))
+        block   (value->block value)]
     (cond-> (assoc (pick feed-fields f) :index/raw f)
-      image              (assoc :itunes/image {:href image})
-      ownerName          (assoc :itunes/owner {:name ownerName})
-      (some? locked)     (assoc :podcast/locked {:content (boolean (->boolean locked))})
-      (value->block value) (assoc :podcast/values [(value->block value)])
-      (get funding "url") (assoc :podcast/funding [(cond-> {:url (get funding "url")}
-                                                     (get funding "message") (assoc :content (get funding "message")))])
-      (seq categories)   (assoc :itunes/categories (vec (for [[_ text] (sort-by (comp ->number key) categories)]
-                                                           {:text text}))))))
+      image               (assoc :itunes/image {:href image})
+      ownerName           (assoc :itunes/owner {:name ownerName})
+      (some? locked)      (assoc :podcast/locked {:content locked?})
+      block               (assoc :podcast/values [block])
+      (get funding "url") (assoc :podcast/funding [(funding->model funding)])
+      (seq categories)    (assoc :itunes/categories
+                                 (categories->model categories)))))
 
 (def ^:no-doc episode-fields
   "The scalar fields of the index's episode object and their model keys."
-  [["title" :rss/title] ["link" :rss/link] ["description" :rss/description]
+  [["title"         :rss/title]
+   ["link"          :rss/link]
+   ["description"   :rss/description]
    ["datePublished" :rss/pub-date ->inst]
-   ["duration" :itunes/duration ->positive] ["explicit" :itunes/explicit ->boolean]
-   ["episode" :itunes/episode ->positive] ["season" :itunes/season ->positive] ["episodeType" :itunes/episode-type]
-   ["id" :index/id] ["feedId" :index/feed-id] ["feedUrl" :index/feed-url] ["feedTitle" :index/feed-title]
-   ["feedLanguage" :index/feed-language] ["feedItunesId" :index/feed-itunes-id] ["feedImage" :index/feed-image]
-   ["podcastGuid" :index/podcast-guid] ["dateCrawled" :index/date-crawled ->inst]])
+
+   ["duration"      :itunes/duration ->positive]
+   ["explicit"      :itunes/explicit ->boolean]
+   ["episode"       :itunes/episode ->positive]
+   ["season"        :itunes/season ->positive]
+   ["episodeType"   :itunes/episode-type]
+
+   ["id"            :index/id]
+   ["feedId"        :index/feed-id]
+   ["feedUrl"       :index/feed-url]
+   ["feedTitle"     :index/feed-title]
+   ["feedLanguage"  :index/feed-language]
+   ["feedItunesId"  :index/feed-itunes-id]
+   ["feedImage"     :index/feed-image]
+   ["podcastGuid"   :index/podcast-guid]
+   ["dateCrawled"   :index/date-crawled ->inst]])
 
 (defn- person->model
   [{:strs [name role group href img]}]
@@ -296,10 +348,10 @@
 (defn- social->model
   [{:strs [url protocol accountId accountUrl priority]}]
   (cond-> {}
-    url        (assoc :uri url)
-    protocol   (assoc :protocol protocol)
-    accountId  (assoc :account-id accountId)
-    accountUrl (assoc :account-url accountUrl)
+    url                         (assoc :uri url)
+    protocol                    (assoc :protocol protocol)
+    accountId                   (assoc :account-id accountId)
+    accountUrl                  (assoc :account-url accountUrl)
     (some? (->number priority)) (assoc :priority (->number priority))))
 
 (defn- soundbite->model
@@ -309,29 +361,43 @@
     (some? (->number duration))  (assoc :duration (->number duration))
     (seq title)                  (assoc :content title)))
 
+(defn- enclosure->model
+  "The enclosure of the episode object `e` of the index."
+  [{:strs [enclosureUrl enclosureType enclosureLength] :as e}]
+  (let [length (->number enclosureLength)]
+    (cond-> {:url enclosureUrl}
+      enclosureType  (assoc :type enclosureType)
+      (some? length) (assoc :length length))))
+
+(defn- transcript->model
+  [{:strs [url type]}]
+  (cond-> {:url url}
+    type (assoc :type type)))
+
 (defn episode->model
   "The episode object `e` of the index as an item map. It has the keys of
   a parsed item where the index has the same information, keys in the
   index namespace for the rest, and the original as :index/raw."
   [e]
-  (let [{:strs [guid enclosureUrl enclosureType enclosureLength image chaptersUrl transcriptUrl
-                transcripts persons socialInteract soundbite soundbites value]} e
+  (let [{:strs [guid enclosureUrl image chaptersUrl transcriptUrl transcripts
+                persons socialInteract soundbite soundbites value]} e
         transcripts (or (seq transcripts)
                         (when transcriptUrl [{"url" transcriptUrl}]))
-        soundbites  (or (seq soundbites) (when soundbite [soundbite]))]
+        soundbites  (or (seq soundbites) (when soundbite [soundbite]))
+        block       (value->block value)]
     (cond-> (assoc (pick episode-fields e) :index/raw e)
-      guid             (assoc :rss/guid {:content guid})
-      enclosureUrl     (assoc :rss/enclosure (cond-> {:url enclosureUrl}
-                                                enclosureType (assoc :type enclosureType)
-                                                (some? (->number enclosureLength)) (assoc :length (->number enclosureLength))))
-      image            (assoc :itunes/image {:href image})
-      chaptersUrl      (assoc :podcast/chapters {:url chaptersUrl})
-      transcripts      (assoc :podcast/transcripts (vec (for [{:strs [url type]} transcripts]
-                                                          (cond-> {:url url} type (assoc :type type)))))
-      (seq persons)    (assoc :podcast/people (mapv person->model persons))
-      (seq socialInteract) (assoc :podcast/social-interacts (mapv social->model socialInteract))
-      soundbites       (assoc :podcast/soundbites (mapv soundbite->model soundbites))
-      (value->block value) (assoc :podcast/values [(value->block value)]))))
+      guid                 (assoc :rss/guid {:content guid})
+      enclosureUrl         (assoc :rss/enclosure (enclosure->model e))
+      image                (assoc :itunes/image {:href image})
+      chaptersUrl          (assoc :podcast/chapters {:url chaptersUrl})
+      transcripts          (assoc :podcast/transcripts
+                                  (mapv transcript->model transcripts))
+      (seq persons)        (assoc :podcast/people (mapv person->model persons))
+      (seq socialInteract) (assoc :podcast/social-interacts
+                                  (mapv social->model socialInteract))
+      soundbites           (assoc :podcast/soundbites
+                                  (mapv soundbite->model soundbites))
+      block                (assoc :podcast/values [block]))))
 
 (defn response
   "The data in the JSON `body` of an API response:
@@ -343,17 +409,19 @@
   - a value block as :value
   - the whole parsed body as :raw"
   [body]
-  (let [raw (json/read-str body)]
-    (cond-> {:status (= "true" (str (get raw "status"))) :raw raw}
+  (let [raw (json/read-str body)
+        {:strs [status feed feeds episode items liveItems value]} raw]
+    (cond-> {:status (= "true" (str status)) :raw raw}
       (contains? raw "description") (assoc :description (get raw "description"))
       (contains? raw "count")       (assoc :count (get raw "count"))
       (contains? raw "query")       (assoc :query (get raw "query"))
-      (map? (get raw "feed"))       (assoc :feed (feed->model (get raw "feed")))
-      (sequential? (get raw "feeds")) (assoc :feeds (mapv feed->model (get raw "feeds")))
-      (map? (get raw "episode"))    (assoc :episode (episode->model (get raw "episode")))
-      (sequential? (get raw "items")) (assoc :items (mapv episode->model (get raw "items")))
-      (sequential? (get raw "liveItems")) (assoc :live-items (mapv episode->model (get raw "liveItems")))
-      (map? (get raw "value"))      (assoc :value (value->block (get raw "value"))))))
+      (map? feed)                   (assoc :feed (feed->model feed))
+      (sequential? feeds)           (assoc :feeds (mapv feed->model feeds))
+      (map? episode)                (assoc :episode (episode->model episode))
+      (sequential? items)           (assoc :items (mapv episode->model items))
+      (sequential? liveItems)       (assoc :live-items
+                                           (mapv episode->model liveItems))
+      (map? value)                  (assoc :value (value->block value)))))
 
 (defn remote-value-requests
   "The requests to try in order for the value block that `remote-item` of
@@ -371,12 +439,19 @@
     feed-guid
     (conj (request credentials :value/by-podcast-guid {:guid feed-guid} opts))))
 
+(defn- response-of
+  "What response reads from `body`, or nil when it doesn't read."
+  [body]
+  (try
+    (response body)
+    (catch #?(:clj Exception :cljs :default) _
+      nil)))
+
 (defn- block-in
   "The value block in the response `body`, when it answers with one."
   [body]
   (when (string? body)
-    (let [{:keys [status value]} (try (response body)
-                                      (catch #?(:clj Exception :cljs :default) _ nil))]
+    (let [{:keys [status value]} (response-of body)]
       (when (and status (seq (:recipients value)))
         value))))
 
@@ -390,7 +465,8 @@
   [credentials {:keys [feed-guid item-guid] :as remote-item} opts]
   (cond-> []
     (and feed-guid item-guid)
-    (conj (request credentials :episodes/by-guid {:guid item-guid :podcastguid feed-guid} opts))
+    (conj (request credentials :episodes/by-guid
+                   {:guid item-guid :podcastguid feed-guid} opts))
 
     feed-guid
     (conj (request credentials :podcasts/by-guid {:guid feed-guid} opts))))
@@ -401,7 +477,7 @@
   [responses]
   (let [answers (for [{:keys [body]} responses
                       :when (string? body)]
-                  (try (response body) (catch #?(:clj Exception :cljs :default) _ nil)))]
+                  (response-of body))]
     (not-empty
      (into {} (for [{:keys [status feed episode]} answers
                     :when status
@@ -451,9 +527,13 @@
   ([credentials item]
    (fetch-remote-item! credentials item {}))
   ([credentials item {:keys [send] :or {send http/send!} :as opts}]
-   (async/then (async/all send (remote-item-requests credentials item (dated opts))) item-in)))
+   (let [requests (remote-item-requests credentials item (dated opts))]
+     (async/then (async/all send requests) item-in))))
 
 (comment
-  (request {:key "K" :secret "S"} :search/by-term {:q "podcasting 2.0" :max 5} {:auth-date 1700000000})
-  (remote-value-requests {:key "K" :secret "S"} {:feed-guid "a94f" :item-guid "x"} {:auth-date 1700000000})
+  (request {:key "K" :secret "S"} :search/by-term {:q "podcasting 2.0" :max 5}
+           {:auth-date 1700000000})
+  (remote-value-requests {:key "K" :secret "S"}
+                         {:feed-guid "a94f" :item-guid "x"}
+                         {:auth-date 1700000000})
   #_.)
