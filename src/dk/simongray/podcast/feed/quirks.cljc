@@ -47,6 +47,21 @@
     (fn [uri]
       (get table (uri-key uri)))))
 
+(defn- namespace-variant
+  "The diagnostic of the attribute `k` with the value `uri`, when it
+  declares a namespace by a URI that isn't the canonical one of its
+  alias."
+  [k uri]
+  (when (str/starts-with? k "xmlns:")
+    (let [alias (uri->alias uri)]
+      (when (and alias
+                 (not= alias (xml/uri->alias uri)))
+        {:id        :quirk/namespace-variant
+         :level     :info
+         :prefix    (subs k 6)
+         :uri       uri
+         :canonical (xml/namespaces alias)}))))
+
 (defn namespace-variants
   "The diagnostics of every namespace declaration in the raw Hiccup `tree`
   whose URI isn't the canonical one of its alias. One walk finds them,
@@ -54,12 +69,8 @@
   [tree]
   (letfn [(walk [acc element]
             (let [acc (reduce-kv (fn [acc k uri]
-                                   (if (str/starts-with? k "xmlns:")
-                                     (let [alias (uri->alias uri)]
-                                       (if (and alias (not= alias (xml/uri->alias uri)))
-                                         (conj acc {:id :quirk/namespace-variant :level :info :prefix (subs k 6)
-                                                    :uri uri :canonical (xml/namespaces alias)})
-                                         acc))
+                                   (if-let [d (namespace-variant k uri)]
+                                     (conj acc d)
                                      acc))
                                  acc
                                  (xml/attrs element))
@@ -98,7 +109,8 @@
   which is stray output of the server, such as a PHP warning."
   [s]
   (let [end (some->> (str/last-index-of s "</rss") (str/index-of s ">") inc)]
-    (if (and end (not= "" (xml/trim (subs s end))))
+    (if (and end
+             (not= "" (xml/trim (subs s end))))
       (subs s 0 end)
       s)))
 
@@ -106,7 +118,12 @@
   "Whether XML 1.0, section 2.2, allows the character with the code point
   `n`."
   [n]
-  (or (= n 9) (= n 10) (= n 13) (<= 0x20 n 0xD7FF) (<= 0xE000 n 0xFFFD) (<= 0x10000 n 0x10FFFF)))
+  (or (= n 9)
+      (= n 10)
+      (= n 13)
+      (<= 0x20 n 0xD7FF)
+      (<= 0xE000 n 0xFFFD)
+      (<= 0x10000 n 0x10FFFF)))
 
 (defn- illegal-reference?
   "Whether `s` can hold a character reference to a character that XML 1.0
@@ -118,8 +135,10 @@
   (let [n (count s)]
     (loop [from 0]
       (if-let [at (str/index-of s "&#" from)]
-        (let [[_ ref] (re-find #"^&(#\d+|#[xX][0-9a-fA-F]+);" (subs s at (min n (+ at 32))))]
-          (if (and ref (not (some-> (xml/code-point ref) legal-code-point?)))
+        (let [window  (subs s at (min n (+ at 32)))
+              [_ ref] (re-find #"^&(#\d+|#[xX][0-9a-fA-F]+);" window)]
+          (if (and ref
+                   (not (some-> (xml/code-point ref) legal-code-point?)))
             true
             (recur (+ at 2))))
         false))))
@@ -132,12 +151,16 @@
   A loop over the characters and a look at each &# come first, so that
   only a document with something to remove pays for the patterns."
   [s]
-  (let [s (if (xml/legal? s) s (str/replace s xml/illegal-characters ""))]
+  (let [s (if (xml/legal? s)
+            s
+            (str/replace s xml/illegal-characters ""))]
     (if (illegal-reference? s)
       (map-outside-cdata
        #(str/replace % #"&(#\d+|#[xX][0-9a-fA-F]+);"
                      (fn [[whole ref]]
-                       (if (some-> (xml/code-point ref) legal-code-point?) whole "")))
+                       (if (some-> (xml/code-point ref) legal-code-point?)
+                         whole
+                         "")))
        s)
       s)))
 
@@ -149,10 +172,11 @@
   (map-outside-cdata
    #(str/replace % #"&([A-Za-z][A-Za-z0-9]*);"
                  (fn [[whole name]]
-                   (cond
-                     (xml/xml-entities name)  whole
-                     (xml/html-entities name) (str "&#" (xml/html-entities name) ";")
-                     :else                    (str "&amp;" name ";"))))
+                   (let [code (xml/html-entities name)]
+                     (cond
+                       (xml/xml-entities name) whole
+                       code                    (str "&#" code ";")
+                       :else                   (str "&amp;" name ";")))))
    s))
 
 (defn escape-bare-ampersands
@@ -160,7 +184,9 @@
   reference escaped."
   [s]
   (map-outside-cdata
-   #(str/replace % #"&(?!(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);)" "&amp;")
+   #(str/replace %
+                 #"&(?!(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);)"
+                 "&amp;")
    s))
 
 (defn- prefix-before?
@@ -172,10 +198,19 @@
     (if (neg? j)
       false
       (let [c #?(:clj (int (.charAt s j)) :cljs (.charCodeAt s j))]
-        (if (or (and (<= 97 c) (<= c 122)) (and (<= 65 c) (<= c 90)) (and (<= 48 c) (<= c 57))
-                (== c 95) (== c 46) (== c 45))
+        (if (or (and (<= 97 c) (<= c 122))
+                (and (<= 65 c) (<= c 90))
+                (and (<= 48 c) (<= c 57))
+                (== c 95)
+                (== c 46)
+                (== c 45))
           (recur (dec j))
-          (and (< j (dec i)) (or (== c 60) (== c 32) (== c 9) (== c 10) (== c 13))))))))
+          (and (< j (dec i))
+               (or (== c 60)
+                   (== c 32)
+                   (== c 9)
+                   (== c 10)
+                   (== c 13))))))))
 
 (defn- prefixed-tags
   "The start tags of `s` that name a namespace prefix. They're found in one
@@ -190,14 +225,27 @@
       (if (< i n)
         (let [c #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))]
           (cond
-            (== c 60) (let [letter? (and (< (inc i) n)
-                                         (let [d #?(:clj (int (.charAt s (inc i))) :cljs (.charCodeAt s (inc i)))]
-                                           (or (and (<= 65 d) (<= d 90)) (and (<= 97 d) (<= d 122)))))]
-                        (recur (inc i) (if letter? i -1) false (if prefixed? (conj! acc (subs s start i)) acc)))
-            (== c 62) (recur (inc i) -1 false (if prefixed? (conj! acc (subs s start i)) acc))
-            (and (== c 58) (>= start 0) (not prefixed?))
+            (== c 60)
+            (let [j       (inc i)
+                  letter? (and (< j n)
+                               (let [d #?(:clj  (int (.charAt s j))
+                                          :cljs (.charCodeAt s j))]
+                                 (or (and (<= 65 d) (<= d 90))
+                                     (and (<= 97 d) (<= d 122)))))
+                  acc     (if prefixed? (conj! acc (subs s start i)) acc)]
+              (recur j (if letter? i -1) false acc))
+
+            (== c 62)
+            (let [acc (if prefixed? (conj! acc (subs s start i)) acc)]
+              (recur (inc i) -1 false acc))
+
+            (and (== c 58)
+                 (>= start 0)
+                 (not prefixed?))
             (recur (inc i) start (prefix-before? s i) acc)
-            :else     (recur (inc i) start prefixed? acc)))
+
+            :else
+            (recur (inc i) start prefixed? acc)))
         (persistent! (if prefixed? (conj! acc (subs s start n)) acc))))))
 
 (defn undeclared-prefixes
@@ -205,26 +253,35 @@
   an xmlns: declaration, looked for in the start tags alone."
   [s]
   (let [tags     (prefixed-tags s)
-        used     (into #{} (comp (mapcat #(re-seq #"^<([A-Za-z][\w.-]*):|[ \t\r\n]([A-Za-z][\w.-]*):[\w.-]+=" %))
-                                 (mapcat rest)
-                                 (remove nil?))
+        ;; a prefix of the tag name, or of an attribute name
+        prefixed #"^<([A-Za-z][\w.-]*):|[ \t\r\n]([A-Za-z][\w.-]*):[\w.-]+="
+        xmlns    #"[ \t\r\n]xmlns:([\w.-]+)="
+        used     (into #{}
+                       (comp (mapcat #(re-seq prefixed %))
+                             (mapcat rest)
+                             (remove nil?))
                        tags)
-        declared (into #{"xml" "xmlns"} (comp (mapcat #(re-seq #"[ \t\r\n]xmlns:([\w.-]+)=" %)) (map second)) tags)]
+        declared (into #{"xml" "xmlns"}
+                       (comp (mapcat #(re-seq xmlns %))
+                             (map second))
+                       tags)]
     (remove declared used)))
 
 (defn declare-known-prefixes
   "The string `s` with every undeclared prefix that names one of the
   namespaces of xml/namespaces declared on its root element."
   [s]
-  (let [missing (filter #(contains? xml/namespaces (keyword %)) (undeclared-prefixes s))
+  (let [uri     #(xml/namespaces (keyword %))
+        missing (filter uri (undeclared-prefixes s))
         open    (re-find #"<[A-Za-z][\w.-]*" s)
         at      (some->> open (str/index-of s))]
     (if (or (empty? missing) (nil? at))
       s
-      (let [end (+ at (count open))]
+      (let [end   (+ at (count open))
+            xmlns (for [p missing]
+                    (str " xmlns:" p "=\"" (uri p) "\""))]
         (str (subs s 0 end)
-             (apply str (for [p missing]
-                          (str " xmlns:" p "=\"" (xml/namespaces (keyword p)) "\"")))
+             (apply str xmlns)
              (subs s end))))))
 
 (def repairs
@@ -249,7 +306,8 @@
    (reduce (fn [{:keys [xml] :as acc} {:keys [id f]}]
              (let [xml' (f xml)]
                (cond-> (assoc acc :xml xml')
-                 (not= xml xml') (update :report conj {:id id :level :warning}))))
+                 (not= xml xml')
+                 (update :report conj {:id id :level :warning}))))
            {:xml s :report []}
            (remove (comp except :id) repairs))))
 
@@ -260,10 +318,11 @@
   On the JVM, it's util.xml.jsoup/parse-raw when org.jsoup/jsoup is on
   the classpath, so adding jsoup to the dependencies is all it takes.
   ClojureScript has none."
-  (delay #?(:clj  (try
-                    (requiring-resolve 'dk.simongray.podcast.util.xml.jsoup/parse-raw)
-                    (catch Exception _ nil))
-            :cljs nil)))
+  (delay
+   #?(:clj  (try
+              (requiring-resolve 'dk.simongray.podcast.util.xml.jsoup/parse-raw)
+              (catch Exception _ nil))
+      :cljs nil)))
 
 (defn- held
   "The `xml` in a form that can be read twice, first strictly and then for
@@ -271,9 +330,14 @@
   string."
   [xml]
   #?(:clj  (cond
-             (instance? java.io.InputStream xml) (.readAllBytes ^java.io.InputStream xml)
-             (instance? java.io.Reader xml)      (slurp xml)
-             :else                               xml)
+             (instance? java.io.InputStream xml)
+             (.readAllBytes ^java.io.InputStream xml)
+
+             (instance? java.io.Reader xml)
+             (slurp xml)
+
+             :else
+             xml)
      :cljs xml))
 
 (defn- strict
@@ -281,11 +345,16 @@
   or the :error when it's malformed. Bytes go to the parser as a stream, so
   that it honours the document's own encoding."
   [xml]
-  (try
-    {:raw (xml/parse-raw #?(:clj  (if (bytes? xml) (java.io.ByteArrayInputStream. ^bytes xml) xml)
-                            :cljs xml))}
-    (catch #?(:clj Exception :cljs :default) e
-      (if (= ::xml/malformed (:type (ex-data e))) {:error e} (throw e)))))
+  (let [source #?(:clj  (if (bytes? xml)
+                          (java.io.ByteArrayInputStream. ^bytes xml)
+                          xml)
+                  :cljs xml)]
+    (try
+      {:raw (xml/parse-raw source)}
+      (catch #?(:clj Exception :cljs :default) e
+        (if (= ::xml/malformed (:type (ex-data e)))
+          {:error e}
+          (throw e))))))
 
 (defn- repaired
   "Repair the malformed `xml`, as held gives it, with `opts`, and parse it
@@ -296,16 +365,23 @@
   :repair/lenient-parser. Otherwise, it throws the error of the strict
   parser."
   [xml {:keys [except] :as opts}]
-  (let [text                           #?(:clj  (if (bytes? xml) (http/decode {} xml) xml)
-                                          :cljs xml)
-        {repaired :xml report :report} (repair text opts)
-        {:keys [raw error]}            (strict repaired)
-        parse-leniently                (when-not (contains? except :repair/lenient-parser) @lenient-parser)]
+  (let [text            #?(:clj  (if (bytes? xml) (http/decode {} xml) xml)
+                           :cljs xml)
+        repaired        (repair text opts)
+        report          (:report repaired)
+        parsed          (strict (:xml repaired))
+        parse-leniently (when-not (contains? except :repair/lenient-parser)
+                          @lenient-parser)]
     (cond
-      raw             {:raw raw :report report}
-      parse-leniently {:raw    (parse-leniently repaired)
-                       :report (conj report {:id :repair/lenient-parser :level :warning})}
-      :else           (throw error))))
+      (:raw parsed)
+      {:raw (:raw parsed) :report report}
+
+      parse-leniently
+      {:raw    (parse-leniently (:xml repaired))
+       :report (conj report {:id :repair/lenient-parser :level :warning})}
+
+      :else
+      (throw (:error parsed)))))
 
 (defn parse-raw
   "Parse the XML document `xml` into its raw tree, and repair it first
@@ -368,8 +444,10 @@
   "The `element` with an href attribute renamed to the url that the podcast
   namespace asks for, when it has no url of its own."
   [[tag attrs :as element]]
-  (if (and (contains? attrs :href) (not (contains? attrs :url)))
-    (into [tag (-> attrs (dissoc :href) (assoc :url (:href attrs)))] (xml/children element))
+  (if (and (contains? attrs :href)
+           (not (contains? attrs :url)))
+    (let [attrs' (-> attrs (dissoc :href) (assoc :url (:href attrs)))]
+      (into [tag attrs'] (xml/children element)))
     element))
 
 (defn- item-image->itunes
@@ -381,11 +459,13 @@
                                    (:url (xml/attrs %))
                                    (empty? (xml/children %)))
                              (xml/elements item)))]
-    (if (or (nil? image) (xml/element item :itunes/image))
+    (if (or (nil? image)
+            (xml/element item :itunes/image))
       item
-      (into [(xml/tag item) (xml/attrs item)]
-            (map #(if (identical? % image) [:itunes/image {:href (:url (xml/attrs image))}] %)
-                 (xml/children item))))))
+      (let [itunes [:itunes/image {:href (:url (xml/attrs image))}]]
+        (into [(xml/tag item) (xml/attrs item)]
+              (map #(if (identical? % image) itunes %))
+              (xml/children item))))))
 
 (defn- podcast-category->itunes
   "The `channel` with the podcast:category elements of Wavlake's music
@@ -394,14 +474,19 @@
   The podcast namespace doesn't define podcast:category, but it mirrors
   itunes:category in every way."
   [channel]
-  (letfn [(category? [x] (and (vector? x) (= :podcast/category (xml/tag x))))
-          (convert [[_ attrs & children]]
-            (into [:itunes/category attrs] (map #(if (category? %) (convert %) %) children)))]
+  (letfn [(category? [x]
+            (and (vector? x)
+                 (= :podcast/category (xml/tag x))))
+          (convert [x]
+            (if (category? x)
+              (let [[_ attrs & children] x]
+                (into [:itunes/category attrs] (map convert children)))
+              x))]
     (if (or (xml/element channel :itunes/category)
             (not (xml/element channel :podcast/category)))
       channel
       (into [(xml/tag channel) (xml/attrs channel)]
-            (map #(if (category? %) (convert %) %) (xml/children channel))))))
+            (map convert (xml/children channel))))))
 
 (def transcript-type-values
   "The nonstandard spellings of transcript types, and the standard ones."
@@ -426,28 +511,38 @@
   nil stands for none."
   [^String s]
   (let [n      (count s)
-        blank? #(contains? #{\space \tab \newline \return \formfeed} (.charAt s %))
+        spaces #{\space \tab \newline \return \formfeed}
+        blank? #(contains? spaces (.charAt s %))
         comma? #(= \, (.charAt s %))
-        skip   (fn [i pred] (loop [i i] (if (and (< i n) (pred i)) (recur (inc i)) i)))]
+        skip   (fn [i pred]
+                 (loop [i i]
+                   (if (and (< i n) (pred i))
+                     (recur (inc i))
+                     i)))]
     (loop [i 0 acc []]
       (let [start (skip i #(or (blank? %) (comma? %)))]
         (if (>= start n)
           acc
           (let [end     (skip start (complement blank?))
-                url-end (loop [j end] (if (comma? (dec j)) (recur (dec j)) j))]
+                url-end (loop [j end]
+                          (if (comma? (dec j))
+                            (recur (dec j))
+                            j))]
             (if (< url-end end)
               (recur end (conj acc [(subs s start url-end) nil]))
-              (let [stop (or (str/index-of s "," end) n)]
-                (recur (inc stop) (conj acc [(subs s start end) (not-empty (str/trim (subs s end stop)))]))))))))))
+              (let [stop       (or (str/index-of s "," end) n)
+                    descriptor (not-empty (str/trim (subs s end stop)))
+                    candidate  [(subs s start end) descriptor]]
+                (recur (inc stop) (conj acc candidate))))))))))
 
 (defn- srcset->images
   "The podcast:image elements that the deprecated `images` element stands
   for."
   [images]
-  (for [[url descriptor] (srcset-candidates (str (:srcset (xml/attrs images))))]
+  (for [[url descriptor] (srcset-candidates (str (:srcset (xml/attrs images))))
+        :let [width (some->> descriptor (re-matches #"(\d+)w") second)]]
     [:podcast/image (cond-> {:href url}
-                      (and descriptor (re-matches #"\d+w" descriptor))
-                      (assoc :width (subs descriptor 0 (dec (count descriptor)))))]))
+                      width (assoc :width width))]))
 
 (defn- add-images
   "The `parent` with podcast:image children for its deprecated
@@ -456,7 +551,8 @@
   (if (or (xml/element parent :podcast/image)
           (not (xml/element parent :podcast/images)))
     parent
-    (into parent (mapcat srcset->images (xml/elements parent :podcast/images)))))
+    (into parent (mapcat srcset->images
+                         (xml/elements parent :podcast/images)))))
 
 (defn- non-canonical-date
   "A map with the text of `element` as the :value, or nil. It's there for a
@@ -464,47 +560,71 @@
   2822."
   [element]
   (let [s (xml/trim (xml/text element))]
-    (when (and (time/parse-date s) (not (time/rfc2822-strict? s)))
+    (when (and (time/parse-date s)
+               (not (time/rfc2822-strict? s)))
       {:value s})))
+
+(defn- non-canonical-duration
+  "A map with the text of `element` as the :value, or nil. It's there for a
+  duration that the library reads but that isn't a number of seconds."
+  [element]
+  (let [s (xml/trim (xml/text element))]
+    (when (and (time/parse-duration s)
+               (not (re-matches #"\d+" s)))
+      {:value s})))
+
+(defn- itunes-image-href
+  "The itunes:image `element` with its URL in href, where feeds also write
+  it as url or as the text."
+  [[tag attrs :as element]]
+  (let [href (or (:href attrs)
+                 (:url attrs)
+                 (not-empty (xml/trim (xml/text element))))]
+    (if href
+      [tag (-> attrs (dissoc :url) (assoc :href href))]
+      element)))
+
+(defn- canonical-transcript-type
+  "The podcast:transcript `element` with its type in standard spelling."
+  [[tag attrs :as element]]
+  (let [type (some-> (:type attrs) xml/trim str/lower-case)]
+    (if-let [t (transcript-type-values type)]
+      [tag (assoc attrs :type t)]
+      element)))
+
+(defn- without-bad-length
+  "The enclosure `element` without a length that isn't a whole number."
+  [[tag attrs :as element]]
+  (if (and (contains? attrs :length)
+           (not (re-matches #"\s*\d+\s*" (str (:length attrs)))))
+    [tag (dissoc attrs :length)]
+    element))
+
+(defn- non-empty-guid
+  "The guid `element`, or nil when it has no text."
+  [element]
+  (if (= "" (xml/trim (xml/text element)))
+    nil
+    element))
 
 (def normalizations
   "The normalizations of the tree that hold whatever the registry, applied
   to every element in document order, children before parents. The
   function registry-normalizations adds those that a registry implies."
-  [(rewrite :quirk/itunes-image-text :itunes/image
-            (fn [[tag attrs :as element]]
-              (let [href (or (:href attrs) (:url attrs) (not-empty (xml/trim (xml/text element))))]
-                (if href
-                  [tag (-> attrs (dissoc :url) (assoc :href href))]
-                  element))))
-   (rewrite :quirk/explicit-value :itunes/explicit (canonical-text explicit-values))
+  [(rewrite :quirk/itunes-image-text :itunes/image itunes-image-href)
+   (rewrite :quirk/explicit-value :itunes/explicit
+            (canonical-text explicit-values))
    (rewrite :quirk/transcript-type :podcast/transcript
-            (fn [[tag attrs :as element]]
-              (if-let [t (transcript-type-values (some-> (:type attrs) xml/trim str/lower-case))]
-                [tag (assoc attrs :type t)]
-                element)))
+            canonical-transcript-type)
    (rewrite :quirk/attribute-name :podcast/transcript href->url)
    (rewrite :quirk/attribute-name :podcast/chapters href->url)
-   (rewrite :quirk/enclosure-length :enclosure
-            (fn [[tag attrs :as element]]
-              (if (and (contains? attrs :length)
-                       (not (re-matches #"\s*\d+\s*" (str (:length attrs)))))
-                [tag (dissoc attrs :length)]
-                element)))
-   (rewrite :quirk/empty-guid :guid
-            (fn [element]
-              (if (= "" (xml/trim (xml/text element)))
-                nil
-                element)))
+   (rewrite :quirk/enclosure-length :enclosure without-bad-length)
+   (rewrite :quirk/empty-guid :guid non-empty-guid)
    (rewrite :quirk/deprecated-images :channel add-images)
    (rewrite :quirk/deprecated-images :item add-images)
    (rewrite :quirk/podcast-category :channel podcast-category->itunes)
    (rewrite :quirk/item-image :item item-image->itunes)
-   (check :quirk/duration-format :itunes/duration
-          (fn [element]
-            (let [s (xml/trim (xml/text element))]
-              (when (and (time/parse-duration s) (not (re-matches #"\d+" s)))
-                {:value s}))))
+   (check :quirk/duration-format :itunes/duration non-canonical-duration)
    (check :quirk/date-format :pubDate non-canonical-date)
    (check :quirk/date-format :lastBuildDate non-canonical-date)])
 
@@ -516,25 +636,38 @@
         :when (= :yes-no content)]
     (rewrite :quirk/yes-no-value tag (canonical-text yes-no-values))))
 
+(defn- apply-normalization
+  "The `element` with the normalization of `id`, `kind` and `f` applied,
+  and what it did added to the `report`."
+  [report element {:keys [id kind f]}]
+  (let [noted {:id id :level :info :tag (xml/tag element)}]
+    (case kind
+      :rewrite (let [element' (f element)]
+                 (when (not= element' element)
+                   (vswap! report conj noted))
+                 element')
+      :check   (do (when-let [diagnostic (f element)]
+                     (vswap! report conj (merge noted diagnostic)))
+                   element))))
+
 (defn- apply-normalizations
   "The `element` with the normalizations of `by-tag` for its tag applied,
   and what they did added to the `report`, or nil when one removed the
   element."
   [by-tag report element]
-  (reduce (fn [element {:keys [id kind f]}]
+  (reduce (fn [element normalization]
             (if (nil? element)
               (reduced nil)
-              (case kind
-                :rewrite (let [element' (f element)]
-                           (when (not= element' element)
-                             (vswap! report conj {:id id :level :info :tag (xml/tag element)}))
-                           element')
-                :check   (do (when-let [diagnostic (f element)]
-                               (vswap! report conj (merge {:id id :level :info :tag (xml/tag element)}
-                                                          diagnostic)))
-                             element))))
+              (apply-normalization report element normalization)))
           element
           (by-tag (xml/tag element))))
+
+(defn- transient-head
+  "A transient copy of `element` with its children before index `i`."
+  [element i]
+  (reduce conj!
+          (transient [(xml/tag element) (xml/attrs element)])
+          (subvec element 2 i)))
 
 (defn- walk
   "The `element` with the normalizations of `by-tag` applied to it and
@@ -550,15 +683,19 @@
         rebuilt (loop [i 2 acc nil]
                   (if (< i n)
                     (let [child  (nth element i)
-                          child' (if (string? child) child (walk by-tag report child))
-                          acc    (cond
-                                   acc                       acc
-                                   (identical? child child') nil
-                                   :else                     (reduce conj! (transient [(xml/tag element) (xml/attrs element)])
-                                                                     (subvec element 2 i)))]
-                      (recur (inc i) (if (and acc (some? child')) (conj! acc child') acc)))
+                          child' (if (string? child)
+                                   child
+                                   (walk by-tag report child))
+                          acc    (or acc
+                                     (when-not (identical? child child')
+                                       (transient-head element i)))]
+                      (recur (inc i) (if (and acc (some? child'))
+                                       (conj! acc child')
+                                       acc)))
                     acc))]
-    (apply-normalizations by-tag report (if rebuilt (persistent! rebuilt) element))))
+    (apply-normalizations by-tag report (if rebuilt
+                                          (persistent! rebuilt)
+                                          element))))
 
 (defn normalize
   "Rewrite the canonical Hiccup `tree` by the normalizations, and by the
@@ -570,14 +707,18 @@
   :quirks/report."
   ([tree]
    (normalize tree {}))
-  ([tree {:keys [registry except] :or {registry spec/default except #{}} :as opts}]
+  ([tree {:keys [registry except]
+          :or   {registry spec/default except #{}}
+          :as   opts}]
    {:pre [(map? opts)]}
-   (let [by-tag (->> (into normalizations (registry-normalizations (spec/registry registry)))
-                     (remove (comp except :id))
-                     (group-by :tag))
-         report (volatile! [])
+   (let [registry (spec/registry registry)
+         all      (into normalizations (registry-normalizations registry))
+         by-tag   (->> all
+                       (remove (comp except :id))
+                       (group-by :tag))
+         report   (volatile! [])
          ;; a normalization may remove any element but the root
-         tree'  (or (walk by-tag report tree) tree)]
+         tree'    (or (walk by-tag report tree) tree)]
      (with-meta tree' (assoc (meta tree) :quirks/report @report)))))
 
 (defn report
@@ -587,10 +728,14 @@
   (mapv diagnostics/describe (:quirks/report (meta tree))))
 
 (comment
-  (repair "﻿<rss><channel><title>A & B &nbsp;<itunes:author>x</itunes:author></title></channel></rss>")
+  (repair (str "﻿<rss><channel><title>A & B &nbsp;"
+               "<itunes:author>x</itunes:author></title></channel></rss>"))
   (parse-raw "<rss><channel><title>A & B</title></channel></rss>")
-  (normalize (xml/parse "<rss xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel>
-                         <itunes:image>https://x/y.jpg</itunes:image><itunes:explicit>Yes</itunes:explicit>
-                         <item><itunes:duration>1:02:03</itunes:duration><guid></guid></item></channel></rss>"))
+  (normalize (xml/parse "<rss
+    xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel>
+    <itunes:image>https://x/y.jpg</itunes:image>
+    <itunes:explicit>Yes</itunes:explicit>
+    <item><itunes:duration>1:02:03</itunes:duration><guid></guid></item>
+    </channel></rss>"))
   (report *1)
   #_.)

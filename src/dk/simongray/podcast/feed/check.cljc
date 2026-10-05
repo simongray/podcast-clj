@@ -46,7 +46,8 @@
   client can reach, not one of an overlay network."
   [url]
   (and (http/web-url? url)
-       (not (contains? overlays (peek (str/split (http/host url) #"\."))))))
+       (let [tld (peek (str/split (http/host url) #"\."))]
+         (not (contains? overlays tld)))))
 
 (defn ^:no-doc present
   "The entries of the map `m` whose values aren't nil."
@@ -57,17 +58,22 @@
   "The `n` newest items of `feed`, or all of them when `n` is :all, each
   with its index in the feed."
   [feed n]
-  (cond->> (sort-by (fn [[_ item]] (- (or (some-> (resolve/published item) inst-ms) 0)))
-                    (map-indexed vector (:rss/items feed)))
-    (not= :all n) (take n)))
+  (let [indexed (map-indexed vector (:rss/items feed))
+        order   (fn [[_ item]]
+                  (- (or (some-> (resolve/published item) inst-ms) 0)))]
+    (cond->> (sort-by order indexed)
+      (not= :all n) (take n))))
 
 (defn ^:no-doc image-files
   "The images of `x`, the channel or the item at `path`."
   [x path]
   (for [{:keys [href source] :as image} (resolve/images x)
         :when (checkable? href)]
-    {:kind :image :url href :path path
-     :declared (assoc (select-keys image [:purpose :width :height :aspect-ratio]) :sources #{source})}))
+    {:kind     :image
+     :url      href
+     :path     path
+     :declared (-> (select-keys image [:purpose :width :height :aspect-ratio])
+                   (assoc :sources #{source}))}))
 
 (defn- alternate-files
   "The media files of the alternate enclosures of `item`, under `path`.
@@ -75,30 +81,45 @@
   A source with a type of its own, such as a torrent, isn't the media file,
   so the length and integrity of its enclosure aren't its own."
   [item path]
-  (for [[j {:keys [sources type length integrity]}] (map-indexed vector (:podcast/alternate-enclosures item))
-        {:keys [uri content-type]} sources
-        :when (checkable? uri)]
-    {:kind :media :url uri :path (conj path :podcast/alternate-enclosures j)
-     :declared (if content-type
-                 {:type content-type}
-                 (present {:type type :length length :integrity integrity}))}))
+  (let [alternates (map-indexed vector (:podcast/alternate-enclosures item))]
+    (for [[j {:keys [sources type length integrity]}] alternates
+          {:keys [uri content-type]}                 sources
+          :when (checkable? uri)]
+      {:kind     :media
+       :url      uri
+       :path     (conj path :podcast/alternate-enclosures j)
+       :declared (if content-type
+                   {:type content-type}
+                   (present {:type      type
+                             :length    length
+                             :integrity integrity}))})))
 
 (defn- item-files
   "The files of the `item` at the index `i` of the feed."
   [[i item]]
-  (let [path                      [:rss/items i]
-        {:keys [url type length]} (:rss/enclosure item)
-        chapters                  (:podcast/chapters item)]
+  (let [path      [:rss/items i]
+        enclosure (:rss/enclosure item)
+        chapters  (:podcast/chapters item)]
     (concat
-     (when (checkable? url)
-       [{:kind :media :url url :path (conj path :rss/enclosure)
-         :declared (present {:type type :length length :duration (resolve/duration item)})}])
+     (when (checkable? (:url enclosure))
+       [{:kind     :media
+         :url      (:url enclosure)
+         :path     (conj path :rss/enclosure)
+         :declared (present {:type     (:type enclosure)
+                             :length   (:length enclosure)
+                             :duration (resolve/duration item)})}])
      (alternate-files item path)
-     (for [[j {:keys [url type]}] (map-indexed vector (:podcast/transcripts item))
+     (for [[j {:keys [url type]}] (map-indexed vector
+                                               (:podcast/transcripts item))
            :when (checkable? url)]
-       {:kind :transcript :url url :path (conj path :podcast/transcripts j) :declared (present {:type type})})
+       {:kind     :transcript
+        :url      url
+        :path     (conj path :podcast/transcripts j)
+        :declared (present {:type type})})
      (when (checkable? (:url chapters))
-       [{:kind :chapters :url (:url chapters) :path (conj path :podcast/chapters)
+       [{:kind     :chapters
+         :url      (:url chapters)
+         :path     (conj path :podcast/chapters)
          :declared (present {:type (:type chapters)})}])
      (image-files item path))))
 
@@ -108,14 +129,16 @@
   An image that several elements name has the :sources of all of them, so
   that the rules of each apply."
   [files]
-  (:kept (reduce (fn [{:keys [index kept] :as acc} {:keys [url kind] :as file}]
-                   (if-let [i (index url)]
-                     (cond-> acc
-                       (= :image kind (:kind (kept i)))
-                       (update-in [:kept i :declared :sources] into (get-in file [:declared :sources])))
-                     {:index (assoc index url (count kept)) :kept (conj kept file)}))
-                 {:index {} :kept []}
-                 files)))
+  (let [add (fn [{:keys [index kept] :as acc} {:keys [url kind] :as file}]
+              (if-let [i (index url)]
+                (cond-> acc
+                  (= :image kind (:kind (kept i)))
+                  (update-in [:kept i :declared :sources]
+                             into
+                             (get-in file [:declared :sources])))
+                {:index (assoc index url (count kept))
+                 :kept  (conj kept file)}))]
+    (:kept (reduce add {:index {} :kept []} files))))
 
 (def default-limits
   "The limits of check-files! when its options don't set them:
@@ -157,12 +180,16 @@
   ([feed]
    (files feed {}))
   ([feed opts]
-   (let [{:keys [url max-items]} (merge default-limits opts)]
+   (let [{:keys [url max-items]} (merge default-limits opts)
+         trailers                (map-indexed vector (:podcast/trailers feed))]
      (once (concat (when (checkable? url)
                      [{:kind :feed :url url :path [] :declared {}}])
-                   (for [[j {:keys [url type length]}] (map-indexed vector (:podcast/trailers feed))
+                   (for [[j {:keys [url type length]}] trailers
                          :when (checkable? url)]
-                     {:kind :media :url url :path [:podcast/trailers j] :declared (present {:type type :length length})})
+                     {:kind     :media
+                      :url      url
+                      :path     [:podcast/trailers j]
+                      :declared (present {:type type :length length})})
                    (image-files feed [])
                    (mapcat item-files (newest feed max-items)))))))
 
@@ -175,13 +202,17 @@
 (defn ^:no-doc ok?
   "Whether the `answer` has a status of success."
   [{:keys [status] :as answer}]
-  (and (integer? status) (<= 200 status) (< status 300)))
+  (and (integer? status)
+       (<= 200 status)
+       (< status 300)))
 
 (defn ^:no-doc attempted
   "The value of the `attempt` of a reading, or a map with a diagnostic as
   the :error for an attempt that failed."
   [{:keys [value error] :as attempt}]
-  (if error {:error (bytes/unreachable error)} value))
+  (if error
+    {:error (bytes/unreachable error)}
+    value))
 
 (defn ^:no-doc why
   "The reason of the :error in the `facts`, if any."
@@ -203,7 +234,8 @@
   "Send a HEAD request for `url` with `headers` through `send`, and give
   the facts of the answer, in a future or a promise."
   [send url headers]
-  (async/then (http/try-send! send {:method :head :url url :headers headers}) http/sent-facts))
+  (let [request {:method :head :url url :headers headers}]
+    (async/then (http/try-send! send request) http/sent-facts)))
 
 (defn ^:no-doc probe-url!
   "Probe `url` with `headers` through `send` as http/probe! does, and give
@@ -215,8 +247,13 @@
 (def ^:no-doc formats
   "The format that the media reader finds in a file of each declared type.
   The reader knows no other."
-  {"audio/mpeg" :mp3 "audio/mp4" :mp4 "audio/x-m4a" :mp4 "audio/m4a" :mp4
-   "video/mp4" :mp4 "video/x-m4v" :mp4 "video/quicktime" :mp4})
+  {"audio/mpeg"      :mp3
+   "audio/mp4"       :mp4
+   "audio/x-m4a"     :mp4
+   "audio/m4a"       :mp4
+   "video/mp4"       :mp4
+   "video/x-m4v"     :mp4
+   "video/quicktime" :mp4})
 
 (defn- time-left
   "The seconds that the check with `opts` has left, one at least, or nil
@@ -253,19 +290,27 @@
   (async/then
    (probe-url! send url {})
    (fn [{:keys [head get] :as facts}]
-     (let [target (or (:url get) (:url head) url)
-           stated (http/media-type (:type declared))
-           came?  (contains? #{200 206} (:status get))]
+     (let [target     (or (:url get) (:url head) url)
+           stated     (http/media-type (:type declared))
+           came?      (contains? #{200 206} (:status get))
+           readable?  (or (nil? stated) (contains? formats stated))
+           read-job   (when (and read? came? readable?)
+                        (async/attempt
+                         #(media/read! target (reading-opts send opts))))
+           verify-job (when (and integrity? came? (:integrity declared))
+                        (async/attempt
+                         #(media/verify! target (:integrity declared)
+                                         (whole-opts opts))))]
        (async/then
-        (async/all [(when (and read? came? (or (nil? stated) (contains? formats stated)))
-                      (async/attempt #(media/read! target (reading-opts send opts))))
-                    (when (and integrity? came? (:integrity declared))
-                      (async/attempt #(media/verify! target (:integrity declared) (whole-opts opts))))])
+        (async/all [read-job verify-job])
         (fn [[read verified]]
           (cond-> facts
-            read     (assoc :media (-> (read-facts read media/report)
-                                       (select-keys [:format :duration :report :error])))
-            verified (assoc :integrity (attempted verified)))))))))
+            read
+            (assoc :media (-> (read-facts read media/report)
+                              (select-keys [:format :duration :report :error])))
+
+            verified
+            (assoc :integrity (attempted verified)))))))))
 
 (defn- probe-image!
   "Probe the image `file` through `send` with `opts`, and give its facts,
@@ -274,9 +319,12 @@
   [send {:keys [url] :as file} opts]
   (async/then (head! send url {})
               (fn [head]
-                (let [target (if (ok? head) (:url head url) url)]
-                  (async/then (async/attempt #(image/read! target (reading-opts send opts)))
-                              (fn [read] {:head head :image (read-facts read image/report)}))))))
+                (let [target (if (ok? head) (:url head url) url)
+                      read!  #(image/read! target (reading-opts send opts))]
+                  (async/then (async/attempt read!)
+                              (fn [read]
+                                {:head  head
+                                 :image (read-facts read image/report)}))))))
 
 (defn- reading
   "What the transcript or chapters file of `kind` holds, read from its
@@ -307,13 +355,17 @@
   (let [headers {"Origin" origin}]
     (if-not read?
       (probe-url! send url headers)
-      (async/then (head! send url headers)
-                  (fn [head]
-                    (async/then (http/try-send! send {:url url :headers headers})
-                                (fn [attempt]
-                                  (let [got (http/sent-facts attempt)]
-                                    (cond-> {:head head :get got}
-                                      (ok? got) (assoc :read (reading kind (or (get-in attempt [:value :body]) "") (:type declared))))))))))))
+      (async/then
+       (head! send url headers)
+       (fn [head]
+         (async/then
+          (http/try-send! send {:url url :headers headers})
+          (fn [attempt]
+            (let [got  (http/sent-facts attempt)
+                  body (or (get-in attempt [:value :body]) "")]
+              (cond-> {:head head :get got}
+                (ok? got)
+                (assoc :read (reading kind body (:type declared))))))))))))
 
 (defn- probe-feed!
   "Probe the feed at the URL of `file` through `send` with `opts`, and give
@@ -323,8 +375,10 @@
   of `opts` for a private feed. The caller has the feed, so none of it is
   fetched again."
   [send {:keys [url] :as file} opts]
-  (probe-url! send url (cond-> {"Origin" origin}
-                         (::authorization opts) (assoc "Authorization" (::authorization opts)))))
+  (let [auth    (::authorization opts)
+        headers (cond-> {"Origin" origin}
+                  auth (assoc "Authorization" auth))]
+    (probe-url! send url headers)))
 
 (def ^:no-doc probes
   "The function that gets the facts of a file, by the kind of the file."
@@ -341,6 +395,20 @@
   [send file opts]
   (async/then (async/attempt #((probes (:kind file)) send file opts))
               attempted))
+
+(defn- gathered
+  "The facts of `files` in their order, from what the `lanes` of in-lanes
+  gave, with the files still in the `queue` :unchecked."
+  [files queue lanes]
+  (let [by-index (into {} (mapcat :value) lanes)
+        waiting  (into {}
+                       (map (fn [[i _]] [i {:unchecked :max-seconds}]))
+                       queue)
+        missed   (ex-info "The file was not checked." {})]
+    (mapv #(or (by-index %)
+               (waiting %)
+               (attempted {:error missed}))
+          (range (count files)))))
 
 (defn- in-lanes
   "The facts of `files` in their order, sent with `send` and `opts` from
@@ -365,14 +433,11 @@
                              done)))
                  :cljs (fn lane [done]
                          (if-let [[i file] (next!)]
-                           (async/then (probe! send file opts) #(lane (conj done [i %])))
+                           (async/then (probe! send file opts)
+                                       #(lane (conj done [i %])))
                            done)))]
     (async/then (async/all (repeatedly n #(async/attempt (fn [] (lane [])))))
-                (fn [lanes]
-                  (let [by-index (into {} (mapcat :value) lanes)
-                        waiting  (into {} (map (fn [[i _]] [i {:unchecked :max-seconds}])) @queue)]
-                    (mapv #(or (by-index %) (waiting %) (attempted {:error (ex-info "The file was not checked." {})}))
-                          (range (count files))))))))
+                #(gathered files @queue %))))
 
 (def requirements
   "The requirements that a check adds for a standard or a directory, by
@@ -384,20 +449,23 @@
   Podcaster's Guide to RSS, as of September 2026. The functions verdicts,
   report and check-files! take them by their name here, or as a map of
   this shape."
-  {:psp-1 {:name    "Podcast Standards Project PSP-1"
-           :artwork {:sizes [1400 3000] :types #{"image/jpeg" "image/png"} :colors #{:rgb :indexed}
-                     :extension? true}}
-   :apple {:name    "Apple Podcasts"
-           :artwork {:sizes [1400 3000] :types #{"image/jpeg" "image/png"} :colors #{:rgb :indexed}
-                     :extension? true :alpha? false :last-modified? true}
-           :levels  {:check/ranges :error}}})
+  (let [artwork {:sizes      [1400 3000]
+                 :types      #{"image/jpeg" "image/png"}
+                 :colors     #{:rgb :indexed}
+                 :extension? true}]
+    {:psp-1 {:name    "Podcast Standards Project PSP-1"
+             :artwork artwork}
+     :apple {:name    "Apple Podcasts"
+             :artwork (assoc artwork :alpha? false :last-modified? true)
+             :levels  {:check/ranges :error}}}))
 
 (defn ^:no-doc diagnostic
   "The diagnostic `id` about `file`, with the `details`, at the level of
   the catalogue unless the `chosen` requirements raise it."
   [{:keys [url path] :as file} chosen id & {:as details}]
   (merge {:id    id
-          :level (or (get-in chosen [:levels id]) (:level (diagnostics/by-id id)))
+          :level (or (get-in chosen [:levels id])
+                     (:level (diagnostics/by-id id)))
           :url   url
           :path  path}
          (present details)))
@@ -409,18 +477,23 @@
   It's nil when the answer came without a detour worth telling. A
   redirect that the client didn't follow is a downgrade when it leaves
   https for http, one too many after five, and otherwise its status."
-  [file chosen {:keys [error status location redirects permanent-url] answered :url :as answer}]
-  (let [redirect? (and (integer? status) (= 3 (quot status 100)))]
+  [file chosen {:keys    [error status location redirects permanent-url]
+                answered :url
+                :as      answer}]
+  (let [redirect? (and (integer? status)
+                       (= 3 (quot status 100)))]
     (cond
       error
       [(diagnostic file chosen :check/unreachable :reason (why answer))]
 
-      (and redirect? location
+      (and redirect?
+           location
            (str/starts-with? (str/lower-case (str answered)) "https:")
            (str/starts-with? (str/lower-case location) "http:"))
       [(diagnostic file chosen :check/downgrade :location location)]
 
-      (and redirect? (<= 5 (count redirects)))
+      (and redirect?
+           (<= 5 (count redirects)))
       [(diagnostic file chosen :check/redirects :location location)]
 
       (not (ok? answer))
@@ -434,7 +507,9 @@
   the `chosen` requirements, when the request didn't succeed."
   [file chosen head]
   (when (and head (not (ok? head)))
-    [(diagnostic file chosen :check/head :status (:status head) :reason (why head))]))
+    [(diagnostic file chosen :check/head
+                 :status (:status head)
+                 :reason (why head))]))
 
 (defn ^:no-doc passed-on
   "The diagnostics in the `report` of a reader of `file` that warn of more
@@ -449,14 +524,19 @@
   requirements, when it differs from the one that the feed declares."
   [file chosen served]
   (let [declared (http/media-type (get-in file [:declared :type]))]
-    (when (and declared served (not= declared served))
-      [(diagnostic file chosen :check/type :declared declared :served served)])))
+    (when (and declared
+               served
+               (not= declared served))
+      [(diagnostic file chosen :check/type
+                   :declared declared
+                   :served   served)])))
 
 (defn- as-is?
   "Whether the `answer` sends the file as it is, not in a content coding
   such as gzip, which changes its length."
   [answer]
-  (contains? #{nil "identity"} (some-> (:encoding answer) str/trim str/lower-case)))
+  (let [coding (some-> (:encoding answer) str/trim str/lower-case)]
+    (contains? #{nil "identity"} coding)))
 
 (defn- length-verdict
   "The diagnostic of a media `file` whose size, as the answers `get` and
@@ -468,10 +548,17 @@
   [{:keys [declared] :as file} chosen get head]
   (let [length (:length declared)
         served (or (get-in get [:range :total])
-                   (when (and (= 200 (:status get)) (as-is? get)) (:length get))
-                   (when (as-is? head) (:length head)))]
-    (when (and (number? length) (pos? length) (number? served) (not= length served))
-      [(diagnostic file chosen :check/length :declared length :served served)])))
+                   (when (and (= 200 (:status get)) (as-is? get))
+                     (:length get))
+                   (when (as-is? head)
+                     (:length head)))]
+    (when (and (number? length)
+               (pos? length)
+               (number? served)
+               (not= length served))
+      [(diagnostic file chosen :check/length
+                   :declared length
+                   :served   served)])))
 
 (defn- ranged?
   "Whether the `answer` to a request for the first two bytes of a file is
@@ -480,25 +567,30 @@
   A browser hides the Content-Range of an answer from another site unless
   the server exposes it, so there a 206 alone counts."
   [{:keys [status range filtered?] :as answer}]
-  (and (= 206 status) (or (= 0 (:start range)) (and filtered? (nil? range)))))
+  (and (= 206 status)
+       (or (= 0 (:start range))
+           (and filtered? (nil? range)))))
 
 (defn- ranges-verdict
   "The diagnostic of an audio or video `file` whose server doesn't answer
   a request for a byte range, `get`, with that range, by the `chosen`
   requirements."
   [{:keys [declared] :as file} chosen get]
-  (when (and (re-find #"^(?:audio|video)/" (or (http/media-type (:type declared)) (:type get) ""))
-             (not (ranged? get)))
-    [(diagnostic file chosen :check/ranges :status (:status get))]))
+  (let [type (or (http/media-type (:type declared)) (:type get) "")]
+    (when (and (re-find #"^(?:audio|video)/" type)
+               (not (ranged? get)))
+      [(diagnostic file chosen :check/ranges :status (:status get))])))
 
 (defn- media-reading-verdicts
   "The diagnostics of what reading the media `file` found, `media`, against
   what the feed declares, by the `chosen` requirements."
   [{:keys [declared] :as file} chosen media]
   (let [expected (formats (http/media-type (:type declared)))
+        found    (:format media)
         stated   (:duration declared)
         measured (:duration media)
-        unknown? (some #(= :file/unknown-format (:id %)) (:report media))]
+        report   (:report media)
+        unknown? #(= :file/unknown-format (:id %))]
     (cond
       (nil? media)
       nil
@@ -508,12 +600,22 @@
 
       :else
       (concat
-       (when (and expected (if (:format media) (not= expected (:format media)) unknown?))
-         [(diagnostic file chosen :check/format :declared (:type declared) :format (:format media))])
-       (when (and (number? stated) (number? measured) (> (abs (- stated measured)) (max 10 (* 0.02 stated))))
-         [(diagnostic file chosen :check/duration :declared stated :measured measured)])
+       (when (and expected
+                  (if found
+                    (not= expected found)
+                    (some unknown? report)))
+         [(diagnostic file chosen :check/format
+                      :declared (:type declared)
+                      :format   found)])
+       (when (and (number? stated)
+                  (number? measured)
+                  (> (abs (- stated measured))
+                     (max 10 (* 0.02 stated))))
+         [(diagnostic file chosen :check/duration
+                      :declared stated
+                      :measured measured)])
        ;; a format that the reader does not know is :check/format already
-       (passed-on file (remove #(= :file/unknown-format (:id %)) (:report media)))))))
+       (passed-on file (remove unknown? report))))))
 
 (defn- integrity-verdict
   "The diagnostic of the check of the media `file` against its
@@ -521,9 +623,14 @@
   file that doesn't match it, or one that couldn't be checked."
   [file chosen {:keys [valid? algorithm] :as integrity}]
   (cond
-    (nil? integrity) nil
-    (false? valid?)  [(diagnostic file chosen :check/integrity :algorithm algorithm)]
-    (not valid?)     [(diagnostic file chosen :check/unverified :reason (why integrity))]))
+    (nil? integrity)
+    nil
+
+    (false? valid?)
+    [(diagnostic file chosen :check/integrity :algorithm algorithm)]
+
+    (not valid?)
+    [(diagnostic file chosen :check/unverified :reason (why integrity))]))
 
 (defn- media-verdicts
   "The diagnostics of the media `file` from its `facts`, by
@@ -547,9 +654,11 @@
   [s]
   ;; trimmed first: two runs of white space that one run can feed make a
   ;; pattern try every split of it
-  (when-let [[_ a b] (re-matches #"(\d+(?:\.\d+)?)(?:\s*[/:]\s*(\d+(?:\.\d+)?))?"
-                                 (str/trim (str s)))]
-    (let [a (parse-double a) b (if b (parse-double b) 1.0)]
+  (when-let [[_ a b] (re-matches
+                      #"(\d+(?:\.\d+)?)(?:\s*[/:]\s*(\d+(?:\.\d+)?))?"
+                      (str/trim (str s)))]
+    (let [a (parse-double a)
+          b (if b (parse-double b) 1.0)]
       (when (pos? b) (/ a b)))))
 
 (defn- shown
@@ -571,14 +680,23 @@
   [{:keys [declared] :as file} chosen {:keys [width height] :as image}]
   (let [{w :width h :height aspect :aspect-ratio} declared
         stated (or (ratio aspect)
-                   (when (and (number? w) (number? h) (pos? h)) (/ w (double h))))]
-    (when (and (number? width) (number? height) (pos? height)
+                   (when (and (number? w)
+                              (number? h)
+                              (pos? h))
+                     (/ w (double h))))
+        actual (when (and (number? width)
+                          (number? height)
+                          (pos? height))
+                 (/ width (double height)))]
+    (when (and actual
                (or (and (number? w) (not= w width))
                    (and (number? h) (not= h height))
-                   (and stated (> (abs (- stated (/ width (double height)))) (* 0.01 stated)))))
+                   (and stated
+                        (> (abs (- stated actual)) (* 0.01 stated)))))
       [(diagnostic file chosen :check/image-size
-                   :declared (select-keys declared [:width :height :aspect-ratio])
-                   :actual {:width width :height height})])))
+                   :declared (select-keys declared
+                                          [:width :height :aspect-ratio])
+                   :actual   {:width width :height height})])))
 
 (defn- extension
   "The file extension of the path of `url`, in lower case, or nil when it
@@ -600,7 +718,8 @@
   [{:keys [type process bits] :as image}]
   (or (not= "image/jpeg" type)
       (nil? process)
-      (and (contains? #{:baseline :extended :progressive} process) (= 8 bits))))
+      (and (contains? #{:baseline :extended :progressive} process)
+           (= 8 bits))))
 
 (def ^:no-doc extension-types
   "The MIME type of the image that each file extension of artwork names."
@@ -614,22 +733,45 @@
   The type of the image is the one that its bytes give, or else the one
   that the server gives."
   [{:keys [url] :as file} chosen head {:keys [width height color] :as image}]
-  (let [{:keys [sizes types colors extension? alpha? last-modified?]} (:artwork chosen)
+  (let [{:keys [sizes types colors extension? alpha? last-modified?]}
+        (:artwork chosen)
+
         [least most] sizes
-        type (or (:type image) (when (ok? head) (:type head)))
-        ext  (extension url)]
+        type         (or (:type image) (when (ok? head) (:type head)))
+        ext          (extension url)]
     (concat
-     (when (and sizes width (not (and height (= width height) (<= least width) (<= width most))))
-       [(diagnostic file chosen :check/artwork-size :width width :height height)])
-     (when (and types type (not (and (types type) (decodable? image))))
-       [(diagnostic file chosen :check/artwork-type :type type :process (:process image) :bits (:bits image))])
-     (when (and colors color (not (colors color)))
+     (when (and sizes
+                width
+                (not (and height
+                          (= width height)
+                          (<= least width)
+                          (<= width most))))
+       [(diagnostic file chosen :check/artwork-size
+                    :width  width
+                    :height height)])
+     (when (and types
+                type
+                (not (and (types type) (decodable? image))))
+       [(diagnostic file chosen :check/artwork-type
+                    :type    type
+                    :process (:process image)
+                    :bits    (:bits image))])
+     (when (and colors
+                color
+                (not (colors color)))
        [(diagnostic file chosen :check/artwork-color :color color)])
      (when (and (false? alpha?) (:alpha? image))
        [(diagnostic file chosen :check/artwork-alpha)])
-     (when (and extension? ext type (not= type (extension-types ext)))
-       [(diagnostic file chosen :check/artwork-extension :extension ext :type type)])
-     (when (and last-modified? (ok? head) (not (:last-modified head)))
+     (when (and extension?
+                ext
+                type
+                (not= type (extension-types ext)))
+       [(diagnostic file chosen :check/artwork-extension
+                    :extension ext
+                    :type      type)])
+     (when (and last-modified?
+                (ok? head)
+                (not (:last-modified head)))
        [(diagnostic file chosen :check/last-modified)]))))
 
 (defn- image-verdicts
@@ -646,11 +788,17 @@
     :else
     (let [image (shown image)]
       (concat
-       (when (ok? head) (reaching file chosen head))
+       (when (ok? head)
+         (reaching file chosen head))
        (head-verdict file chosen head)
        (passed-on file (:report image))
-       (when (and (ok? head) (:type head) (:type image) (not= (:type head) (:type image)))
-         [(diagnostic file chosen :check/image-type :served (:type head) :actual (:type image))])
+       (when (and (ok? head)
+                  (:type head)
+                  (:type image)
+                  (not= (:type head) (:type image)))
+         [(diagnostic file chosen :check/image-type
+                      :served (:type head)
+                      :actual (:type image))])
        (when (contains? sources :podcast)
          (size-verdict file chosen image))
        (when (contains? sources :itunes)
@@ -673,9 +821,12 @@
     (loop [[a & more] (conj (vec redirects) answer)
            tainted?   false]
       (when a
-        (let [tainted? (or tainted? (not (http/same-origin? url (:url a))))
+        (let [tainted? (or tainted?
+                           (not (http/same-origin? url (:url a))))
               cors     (:cors a)]
-          (if (or (= "*" cors) (= origin cors) (and tainted? (= "null" cors)))
+          (if (or (= "*" cors)
+                  (= origin cors)
+                  (and tainted? (= "null" cors)))
             (recur more tainted?)
             a))))))
 
@@ -687,7 +838,9 @@
   stops it allows, and the :redirect names the redirect that it is."
   [file chosen id url get]
   (when-let [a (barrier url get)]
-    [(diagnostic file chosen id :allowed (:cors a) :redirect (when-not (identical? a get) (:url a)))]))
+    (let [redirect (when-not (identical? a get)
+                     (:url a))]
+      [(diagnostic file chosen id :allowed (:cors a) :redirect redirect)])))
 
 (defn- text-verdicts
   "The diagnostics of the transcript or chapters `file` from its `facts`,
@@ -701,8 +854,11 @@
      (type-verdict file chosen (:type get))
      (cors-verdict file chosen :check/cors url get)
      (cond
-       (:error read)                    [(diagnostic file chosen :check/unread :reason (why read))]
-       (and read (zero? (:count read))) [(diagnostic file chosen :check/empty)])
+       (:error read)
+       [(diagnostic file chosen :check/unread :reason (why read))]
+
+       (and read (zero? (:count read)))
+       [(diagnostic file chosen :check/empty)])
      (passed-on file (:report read)))))
 
 (defn- feed-verdicts
@@ -719,8 +875,11 @@
      (reaching file chosen get)
      (head-verdict file chosen head)
      (cors-verdict file chosen :check/feed-cors url get)
-     (when-not (or (:etag get) (:last-modified get) (:filtered? get)
-                   (and (ok? head) (or (:etag head) (:last-modified head))))
+     (when-not (or (:etag get)
+                   (:last-modified get)
+                   (:filtered? get)
+                   (and (ok? head)
+                        (or (:etag head) (:last-modified head))))
        [(diagnostic file chosen :check/validators)]))))
 
 (def ^:no-doc judges
@@ -744,12 +903,18 @@
    (verdicts file facts nil))
   ([{:keys [kind] :as file} facts chosen]
    (let [chosen (if (map? chosen) chosen (get requirements chosen))
-         judge  (get judges kind (constantly []))]
-     (->> (cond
-            (:unchecked facts) []
-            (:error facts)     [(diagnostic file chosen :check/unreachable :reason (why facts))]
-            :else              (judge file chosen facts))
-          (mapv diagnostics/describe)))))
+         judge  (get judges kind (constantly []))
+         found  (cond
+                  (:unchecked facts)
+                  []
+
+                  (:error facts)
+                  [(diagnostic file chosen :check/unreachable
+                               :reason (why facts))]
+
+                  :else
+                  (judge file chosen facts))]
+     (mapv diagnostics/describe found))))
 
 (defn report
   "The diagnostics of the checked `files`, by the standards and the
@@ -763,9 +928,13 @@
   ([files]
    (report files nil))
   ([files chosen]
-   (into (vec (mapcat #(verdicts % (:facts %) chosen) files))
-         (for [[limit n] (frequencies (keep (comp :unchecked :facts) files))]
-           (diagnostics/describe {:id :check/unchecked :level :warning :limit limit :count n})))))
+   (let [unchecked (frequencies (keep (comp :unchecked :facts) files))]
+     (into (vec (mapcat #(verdicts % (:facts %) chosen) files))
+           (for [[limit n] unchecked]
+             (diagnostics/describe {:id    :check/unchecked
+                                    :level :warning
+                                    :limit limit
+                                    :count n}))))))
 
 (defn check-files!
   "Check over the network the files that `feed` links to, as files lists
@@ -814,23 +983,28 @@
    (check-files! feed {}))
   ([feed opts]
    (let [own-send     (:send opts)
-         {:keys [url credentials requirements concurrency send max-files max-seconds now] :as opts}
-         (merge default-limits
-                {:send http/send! :now time/now}
-                opts)
+         {:keys [url credentials requirements concurrency send max-files
+                 max-seconds now]
+          :as   opts}
+         (merge default-limits {:send http/send! :now time/now} opts)
+
          [url in-url] (http/split-credentials url)
          auth         (http/authorization (or credentials in-url))
+         deadline     (when max-seconds
+                        (+ (inst-ms (now)) (* 1000 max-seconds)))
          opts         (cond-> (assoc opts :url url)
-                        own-send    (assoc ::own-send own-send)
-                        auth        (assoc ::authorization auth)
-                        max-seconds (assoc ::deadline (+ (inst-ms (now)) (* 1000 max-seconds))))
+                        own-send (assoc ::own-send own-send)
+                        auth     (assoc ::authorization auth)
+                        deadline (assoc ::deadline deadline))
          found        (files feed opts)
-         [near far]   (if max-files (split-at max-files found) [found nil])]
-     (async/then (in-lanes #(send (http/limited % opts)) near opts (max 1 concurrency))
+         [near far]   (if max-files (split-at max-files found) [found nil])
+         send-limited #(send (http/limited % opts))]
+     (async/then (in-lanes send-limited near opts (max 1 concurrency))
                  (fn [facts]
-                   (let [checked (into (mapv #(assoc %1 :facts %2) near facts)
-                                       (map #(assoc % :facts {:unchecked :max-files}))
-                                       far)]
+                   (let [probed  (mapv #(assoc %1 :facts %2) near facts)
+                         skipped (map #(assoc % :facts {:unchecked :max-files})
+                                      far)
+                         checked (into probed skipped)]
                      {:files  checked
                       :report (report checked requirements)}))))))
 
@@ -839,14 +1013,19 @@
     {:rss/title "A show"
      :rss/items [{:rss/title           "Episode 1"
                   :rss/pub-date        #inst "2026-09-01"
-                  :rss/enclosure       {:url "https://example.org/1.mp3" :type "audio/mpeg" :length 1000}
-                  :podcast/transcripts [{:url "https://example.org/1.vtt" :type "text/vtt"}]}]})
+                  :rss/enclosure       {:url    "https://example.org/1.mp3"
+                                        :type   "audio/mpeg"
+                                        :length 1000}
+                  :podcast/transcripts [{:url  "https://example.org/1.vtt"
+                                         :type "text/vtt"}]}]})
 
   (files feed {:url "https://example.org/feed.xml"})
 
   ;; what the facts of a file call for, with no request
   (def media-file
-    {:kind :media :url "https://example.org/1.mp3" :path [:rss/items 0 :rss/enclosure]
+    {:kind     :media
+     :url      "https://example.org/1.mp3"
+     :path     [:rss/items 0 :rss/enclosure]
      :declared {:type "audio/mpeg" :length 1000}})
 
   (def served
@@ -858,5 +1037,6 @@
   (map :id (report [(assoc media-file :facts {:unchecked :max-files})]))
 
   ;; a check that sends no request: the app sends in its own way
-  (check-files! feed {:send (fn [request] {:status 404 :url (:url request) :headers {}})})
+  (check-files! feed {:send (fn [request]
+                              {:status 404 :url (:url request) :headers {}})})
   #_.)

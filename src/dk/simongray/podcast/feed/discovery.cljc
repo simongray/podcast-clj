@@ -75,7 +75,8 @@
   scheme."
   [s]
   (when-let [[_ scheme after] (re-find #"^([a-zA-Z][a-zA-Z0-9+.-]*):(.?)" s)]
-    (when-not (or (str/includes? scheme ".") (re-matches #"[0-9]" after))
+    (when-not (or (str/includes? scheme ".")
+                  (re-matches #"[0-9]" after))
       (str/lower-case scheme))))
 
 (defn- web-address
@@ -86,9 +87,14 @@
   (let [scheme (scheme-of s)
         url    (str "https://" (str/replace s #"^/+" ""))]
     (cond
-      (#{"http" "https"} scheme)            (when (http/web-url? s) [s false])
-      (or scheme (re-find #"\s" s))         nil
-      (re-find #"^https://[^/?#]*[.:]" url) (when (http/web-url? url) [url true]))))
+      (#{"http" "https"} scheme)
+      (when (http/web-url? s) [s false])
+
+      (or scheme (re-find #"\s" s))
+      nil
+
+      (re-find #"^https://[^/?#]*[.:]" url)
+      (when (http/web-url? url) [url true]))))
 
 (defn read-input
   "Read the text `s` that a listener gives for a show, with the :apps of
@@ -109,18 +115,27 @@
   ([s opts]
    {:pre [(map? opts)]}
    ;; feed is a provisional scheme of IANA, and itpc and pcast are Apple's
-   (let [text         (str/replace (str/trim (str s)) #"(?i)^(?:feed|itpc|pcast):(?://)?" "")
+   (let [feed-scheme  #"(?i)^(?:feed|itpc|pcast):(?://)?"
+         ;; the fast-follow links of docs/tags/guid.md of the podcast
+         ;; namespace
+         fast-follow  #"#fastfollow-[a-z]+:([0-9a-fA-F-]{36})"
+         text         (str/replace (str/trim (str s)) feed-scheme "")
          [url typed?] (web-address text)
          ids          (links/link-ids (or url text) opts)
-         ;; the fast-follow links of docs/tags/guid.md of the podcast namespace
-         guid         (some->> url (re-find #"#fastfollow-[a-z]+:([0-9a-fA-F-]{36})") second)]
+         guid         (some->> url (re-find fast-follow) second)]
      (cond
-       (:feed-url ids) (read-input (:feed-url ids) opts)
-       (or url ids)    (into {} (filter val) {:url    (some-> url (str/split #"#" 2) first)
-                                              :typed? typed?
-                                              :ids    (not-empty ids)
-                                              :guid   guid})
-       :else           {:error (diagnostics/describe {:id :discovery/unreadable :input (str s)})}))))
+       (:feed-url ids)
+       (read-input (:feed-url ids) opts)
+
+       (or url ids)
+       (into {} (filter val) {:url    (some-> url (str/split #"#" 2) first)
+                              :typed? typed?
+                              :ids    (not-empty ids)
+                              :guid   guid})
+
+       :else
+       {:error (diagnostics/describe {:id    :discovery/unreadable
+                                      :input (str s)})}))))
 
 (defn- nodes-of
   "The nodes of the web page `s`, its elements and texts at any depth."
@@ -137,21 +152,25 @@
   page at `url`, which can be nil. It's the href of the first base element
   that has one, when that gives an http or https URL, or else `url`."
   [nodes url]
-  (let [href (some (comp html/text-of :href second) (filter (tagged :base) nodes))
-        base (when href (if url (http/absolute-url url href) href))]
+  (let [bases (filter (tagged :base) nodes)
+        href  (some (comp html/text-of :href second) bases)
+        base  (when href
+                (if url (http/absolute-url url href) href))]
     (if (#{"http" "https"} (html/scheme base)) base url)))
 
 (defn- feed-link
   "The feed that a link with the attributes `attrs` names, made absolute
   against `base` when there is one, or nil when the link names no feed."
   [{:keys [rel type href title] :as attrs} base]
-  (let [rels (set (str/split (str/lower-case (str rel)) #"\s+"))
-        type (http/media-type (html/text-of type))
-        href (when-let [h (html/text-of href)] (if base (http/absolute-url base h) h))]
+  (let [rels    (set (str/split (str/lower-case (str rel)) #"\s+"))
+        type    (http/media-type (html/text-of type))
+        href    (when-let [h (html/text-of href)]
+                  (if base (http/absolute-url base h) h))
+        schemes (if base #{"http" "https"} #{nil "http" "https"})]
     (when (and (or (rels "alternate") (rels "feed"))
                (#{"application/rss+xml" "application/atom+xml"} type)
                href
-               (contains? (if base #{"http" "https"} #{nil "http" "https"}) (html/scheme href)))
+               (contains? schemes (html/scheme href)))
       (cond-> {:href href :type type}
         (html/text-of title) (assoc :title title)))))
 
@@ -172,7 +191,10 @@
   ([s base]
    (let [nodes (nodes-of s)
          base  (page-base nodes base)]
-     (into [] (comp (filter (tagged :link)) (keep #(feed-link (second %) base))) nodes))))
+     (into []
+           (comp (filter (tagged :link))
+                 (keep #(feed-link (second %) base)))
+           nodes))))
 
 ;; RFC 8288, section 3
 (defn header-links
@@ -190,17 +212,21 @@
   atom or xml in it. Those on the domain of the page come first, in the
   order of the page, as in the feed finders of RSS readers."
   [s base]
-  (let [nodes (nodes-of s)
-        base  (page-base nodes base)
-        urls  (into [] (comp (filter (tagged :a))
-                             (keep (comp html/text-of :href second))
-                             (keep #(some-> (http/absolute-url base %) (str/split #"#" 2) first))
-                             (filter (comp #{"http" "https"} html/scheme))
-                             (remove #{base})
-                             (filter #(re-find #"(?i)\b(?:rss|feeds?|atom|xml)\b" %))
-                             (distinct))
-                    nodes)
-        here? #(= (http/host %) (http/host base))]
+  (let [nodes     (nodes-of s)
+        base      (page-base nodes base)
+        feed-word #"(?i)\b(?:rss|feeds?|atom|xml)\b"
+        urls      (into []
+                        (comp (filter (tagged :a))
+                              (keep (comp html/text-of :href second))
+                              (keep #(some-> (http/absolute-url base %)
+                                             (str/split #"#" 2)
+                                             first))
+                              (filter (comp #{"http" "https"} html/scheme))
+                              (remove #{base})
+                              (filter #(re-find feed-word %))
+                              (distinct))
+                        nodes)
+        here?     #(= (http/host %) (http/host base))]
     (concat (filter here? urls) (remove here? urls))))
 
 (defn guesses
@@ -218,7 +244,8 @@
   them. It gives a URL when the regex matches `url`, e.g. this rule gives
   the feed of a show from the address of its page on a host:
 
-      [#\"^https://([a-z0-9-]+)\\.host\\.example/?$\" \"https://feeds.host.example/$1.xml\"]"
+      [#\"^https://([a-z0-9-]+)\\.host\\.example/?$\"
+       \"https://feeds.host.example/$1.xml\"]"
   [url rules]
   (for [[re replacement] rules
         :when (re-find re url)]
@@ -229,7 +256,9 @@
   www., and its path without trailing slashes. Nil for no web page."
   [url]
   (when-let [host (http/host url)]
-    (let [path (or (second (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:/*[^/?#]*([^?#]*)" (str url))) "")]
+    (let [[_ path] (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:/*[^/?#]*([^?#]*)"
+                            (str url))
+          path     (or path "")]
       [(str/replace host #"^www\." "")
        ;; a match may start only where a run of slashes starts
        (str/replace path #"(^|[^/])/+$" "$1")])))
@@ -244,12 +273,17 @@
   it's the longest part."
   [s url]
   (let [nodes   (nodes-of s)
+        metas   (filter (tagged :meta) nodes)
         meta-of (fn [property]
-                  (some #(when (= property (str/lower-case (str (:property (second %)))))
-                           (some-> (html/text-of (:content (second %))) str/trim))
-                        (filter (tagged :meta) nodes)))
+                  (some (fn [[_ attrs]]
+                          (let [p (str/lower-case (str (:property attrs)))]
+                            (when (= property p)
+                              (some-> (html/text-of (:content attrs))
+                                      str/trim))))
+                        metas))
+        inner   #(html/text-of (apply str (filter string? (drop 2 %))))
         title   (or (meta-of "og:title")
-                    (some #(html/text-of (apply str (filter string? (drop 2 %)))) (filter (tagged :title) nodes)))
+                    (some inner (filter (tagged :title) nodes)))
         named   (meta-of "og:site_name")
         parts   (remove #(= (str/lower-case %) (str/lower-case (str named)))
                         (some-> title str/trim (str/split #"\s+[|:–—-]\s+")))
@@ -265,21 +299,39 @@
   [^String s n]
   (loop [i 0]
     (cond
-      (>= i n)                              nil
-      (re-matches #"\s" (subs s i (inc i))) (recur (inc i))
-      (.startsWith s "<!--" i)              (when-let [end (str/index-of s "-->" (+ i 4))] (recur (+ (long end) 3)))
-      (.startsWith s "<?" i)                (when-let [end (str/index-of s "?>" (+ i 2))] (recur (+ (long end) 2)))
-      (.startsWith s "<!" i)                (when-let [end (str/index-of s ">" (+ i 2))] (recur (inc (long end))))
-      :else                                 i)))
+      (>= i n)
+      nil
+
+      (re-matches #"\s" (subs s i (inc i)))
+      (recur (inc i))
+
+      (.startsWith s "<!--" i)
+      (when-let [end (str/index-of s "-->" (+ i 4))]
+        (recur (+ (long end) 3)))
+
+      (.startsWith s "<?" i)
+      (when-let [end (str/index-of s "?>" (+ i 2))]
+        (recur (+ (long end) 2)))
+
+      (.startsWith s "<!" i)
+      (when-let [end (str/index-of s ">" (+ i 2))]
+        (recur (inc (long end))))
+
+      :else
+      i)))
 
 (defn feed-document?
   "Whether the text `s` is a feed rather than a web page, by its first
   element, as the feed finders of RSS readers sniff it. The element must
   start in the first 4 KB."
   [s]
-  (let [s (str s)
-        i (first-element s (min 4096 (count s)))]
-    (boolean (and i (re-find #"^<(?:rss|rdf:RDF|feed)[\s/>]" (subs s i (min (count s) (+ i 9))))))))
+  (let [s    (str s)
+        n    (count s)
+        i    (first-element s (min 4096 n))
+        head (when i
+               (subs s i (min n (+ i 9))))]
+    (boolean (and head
+                  (re-find #"^<(?:rss|rdf:RDF|feed)[\s/>]" head)))))
 
 (defn- on-website?
   "Whether the page at `place`, its domain and path as site gives them, is
@@ -309,8 +361,12 @@
   as found-by names the places: a map of the :url, the :title, :found-by,
   :podcast? and the :feed."
   [url where feed]
-  (cond-> {:url url :found-by where :podcast? (podcast? feed) :feed feed}
-    (resolve/title feed) (assoc :title (resolve/title feed))))
+  (let [title (resolve/title feed)]
+    (cond-> {:url      url
+             :found-by where
+             :podcast? (podcast? feed)
+             :feed     feed}
+      title (assoc :title title))))
 
 (defn known-matches
   "The candidates among the `known` feeds that the web page `url` names.
@@ -332,7 +388,8 @@
   "What tells the feed of the candidate `c` from others: its URL and its
   self link, both without scheme and trailing slashes."
   [{:keys [url feed] :as c}]
-  (disj (hash-set (guid/guid-name url) (some-> (resolve/self-url feed) guid/guid-name)) nil))
+  (let [self (some-> (resolve/self-url feed) guid/guid-name)]
+    (disj (hash-set (guid/guid-name url) self) nil)))
 
 (defn ranked
   "The `candidates` best first, with each feed once.
@@ -344,32 +401,44 @@
   self link, and the better one stays. The feeds of one show in two audio
   formats can share a podcast:guid, so they stay apart."
   [candidates]
-  (let [rank (zipmap found-by (range))]
+  (let [rank  (zipmap found-by (range))
+        order (juxt (complement :podcast?)
+                    #(rank (:found-by %) (count found-by)))
+        add   (fn [{:keys [seen] :as acc} c]
+                (let [ids (identities c)]
+                  (cond-> (update acc :seen into ids)
+                    (not-any? seen ids) (update :feeds conj c))))]
     (->> candidates
-         (sort-by (juxt (complement :podcast?) #(rank (:found-by %) (count found-by))))
-         (reduce (fn [{:keys [seen] :as acc} c]
-                   (let [ids (identities c)]
-                     (cond-> (update acc :seen into ids)
-                       (not-any? seen ids) (update :feeds conj c))))
-                 {:feeds [] :seen #{}})
+         (sort-by order)
+         (reduce add {:feeds [] :seen #{}})
          :feeds)))
 
 (defn- document-request
   "The request for the feed or the web page at `url`, with the :user-agent
   and the :credentials of `opts`."
   [url {:keys [user-agent credentials] :as opts}]
-  {:url     url
-   :headers (cond-> {"Accept" "application/rss+xml, application/xml;q=0.9, text/xml;q=0.9, text/html;q=0.8, */*;q=0.1"}
-              user-agent  (assoc "User-Agent" user-agent)
-              credentials (assoc "Authorization" (http/authorization credentials)))})
+  (let [accept (str "application/rss+xml, application/xml;q=0.9,"
+                    " text/xml;q=0.9, text/html;q=0.8, */*;q=0.1")]
+    {:url     url
+     :headers (cond-> {"Accept" accept}
+                user-agent  (assoc "User-Agent" user-agent)
+                credentials (assoc "Authorization"
+                                   (http/authorization credentials)))}))
 
 (defn- failure
   "The diagnostic of the `attempt` at `url` when it gave no document: the
   request failed, or the answer has a status that isn't a success."
   [url {:keys [value error] :as attempt}]
   (cond
-    error                                     (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})
-    (not (<= 200 (long (:status value)) 299)) (diagnostics/describe {:id :fetch/status :url url :status (:status value)})))
+    error
+    (diagnostics/describe {:id     :fetch/unreachable
+                           :url    url
+                           :reason (async/explain error)})
+
+    (not (<= 200 (long (:status value)) 299))
+    (diagnostics/describe {:id     :fetch/status
+                           :url    url
+                           :status (:status value)})))
 
 (defn- read-feed
   "The candidate in the `attempt` at the feed at `url`, found where
@@ -378,14 +447,19 @@
   [url where {response :value :as attempt} opts]
   (if-let [e (failure url attempt)]
     {:error e}
-    (let [body (str (:body response))]
+    (let [body      (str (:body response))
+          found-at  (or (:permanent-url response) url)
+          rss-opts  (select-keys opts [:quirks? :registry :except])
+          malformed #(diagnostics/describe {:id     :fetch/malformed
+                                            :url    url
+                                            :reason %})]
       (if-not (feed-document? body)
-        {:error (diagnostics/describe {:id :fetch/malformed :url url :reason "The answer isn't a feed"})}
-        (async/then (async/attempt #(rss/parse body (select-keys opts [:quirks? :registry :except])))
+        {:error (malformed "The answer isn't a feed")}
+        (async/then (async/attempt #(rss/parse body rss-opts))
                     (fn [{feed :value error :error}]
                       (if error
-                        {:error (diagnostics/describe {:id :fetch/malformed :url url :reason (async/explain error)})}
-                        {:candidate (candidate (or (:permanent-url response) url) where feed)})))))))
+                        {:error (malformed (async/explain error))}
+                        {:candidate (candidate found-at where feed)})))))))
 
 (defn- podcast-found?
   "Whether the state `acc` of find-feeds! has a podcast among its
@@ -401,20 +475,27 @@
   podcast yet. At most :max-candidates are fetched, and none that was
   tried. The failure of a place that claims a feed goes in the report."
   [acc where urls {:keys [send max-candidates] :as opts}]
-  (let [urls (when-not (podcast-found? acc)
-               (into [] (comp (remove (:tried acc)) (distinct) (take max-candidates)) (force urls)))]
+  (let [urls    (when-not (podcast-found? acc)
+                  (into []
+                        (comp (remove (:tried acc))
+                              (distinct)
+                              (take max-candidates))
+                        (force urls)))
+        request #(document-request % (dissoc opts :credentials))
+        fetch   (fn [url]
+                  (async/then (http/try-send! send (request url) opts)
+                              #(read-feed url where % opts)))]
     (if (empty? urls)
       acc
-      (async/then (async/all (fn [url]
-                               (async/then (http/try-send! send (document-request url (dissoc opts :credentials)) opts)
-                                           #(read-feed url where % opts)))
-                             urls)
+      (async/then (async/all fetch urls)
                   (fn [results]
-                    (cond-> (-> acc
-                                (update :tried into urls)
-                                (update :candidates into (keep :candidate) results))
-                      (#{:app-link :link :link-header :rule} where)
-                      (update :report into (keep :error) results)))))))
+                    (let [found  (keep :candidate results)
+                          errors (keep :error results)]
+                      (cond-> (-> acc
+                                  (update :tried into urls)
+                                  (update :candidates into found))
+                        (#{:app-link :link :link-header :rule} where)
+                        (update :report into errors))))))))
 
 (defn- lookups
   "The lookups of the show that the `ids` of a link of an app name, or the
@@ -423,19 +504,24 @@
 
   Apple takes its own id. The Podcast Index takes its own id or a guid,
   when `opts` give its :index credentials."
-  [{:keys [apple-id podcastindex-id podcast-guid] :as ids} guid {:keys [lookup index now] :as opts}]
+  [{:keys [apple-id podcastindex-id podcast-guid] :as ids}
+   guid
+   {:keys [lookup index now] :as opts}]
   (let [entries      (map directory/entry lookup)
         of-api       (fn [api] (first (filter #(= api (:api %)) entries)))
         apple        (of-api :apple)
         podcastindex (of-api :podcastindex)
-        index-id     (or podcast-guid guid podcastindex-id)]
+        index-id     (or podcast-guid guid podcastindex-id)
+        signed       {:credentials index
+                      :auth-date   (quot (inst-ms (now)) 1000)}]
     (cond-> []
       (and apple apple-id)
       (conj [apple (directory/request apple :lookup {:id apple-id})])
 
       (and podcastindex index index-id)
-      (conj [podcastindex (directory/request podcastindex :lookup {:id index-id}
-                                             {:credentials index :auth-date (quot (inst-ms (now)) 1000)})]))))
+      (conj [podcastindex (directory/request podcastindex :lookup
+                                             {:id index-id}
+                                             signed)]))))
 
 (defn- fetch-feed-urls!
   "Send the requests of the `call` of directories with `opts`, and give
@@ -443,20 +529,23 @@
   as :report. Each of the `asked` is a pair of the directory and its
   request. Deferred."
   [asked call {:keys [send] :as opts}]
-  (async/then (async/all (fn [[source request]]
-                           (async/then (http/try-send! send request opts)
-                                       (fn [{:keys [value] :as attempt}]
-                                         (if-let [e (failure (:url request) attempt)]
-                                           {:error e}
-                                           {:urls (keep resolve/self-url
-                                                        (try
-                                                          (directory/response source call (:body value))
-                                                          (catch #?(:clj Exception :cljs :default) _
-                                                            nil)))}))))
-                         asked)
-              (fn [answers]
-                {:urls   (into [] (comp (mapcat :urls) (distinct)) answers)
-                 :report (into [] (keep :error) answers)})))
+  (let [feed-urls (fn [source body]
+                    (keep resolve/self-url
+                          (try
+                            (directory/response source call body)
+                            (catch #?(:clj Exception :cljs :default) _
+                              nil))))
+        ask       (fn [[source request]]
+                    (async/then
+                     (http/try-send! send request opts)
+                     (fn [{:keys [value] :as attempt}]
+                       (if-let [e (failure (:url request) attempt)]
+                         {:error e}
+                         {:urls (feed-urls source (:body value))}))))]
+    (async/then (async/all ask asked)
+                (fn [answers]
+                  {:urls   (into [] (comp (mapcat :urls) (distinct)) answers)
+                   :report (into [] (keep :error) answers)}))))
 
 (defn- look-up!
   "The state `acc` of find-feeds! with the feeds of the shows that the
@@ -467,7 +556,10 @@
     acc
     (async/then (fetch-feed-urls! asked :lookup opts)
                 (fn [{:keys [urls report]}]
-                  (fetch-candidates! (update acc :report into report) :app-link urls opts)))))
+                  (fetch-candidates! (update acc :report into report)
+                                     :app-link
+                                     urls
+                                     opts)))))
 
 (defn- search-directories!
   "The state `acc` of find-feeds! with the feeds that the directories of
@@ -481,32 +573,39 @@
             (page-name body page))]
     (if (nil? q)
       acc
-      (let [signed {:credentials index :auth-date (quot (inst-ms (now)) 1000)}
-            asked  (for [source (map directory/entry search)]
-                     [source (directory/request source :search {:q q :limit max-candidates} signed)])
-            domain (http/absolute-url page "/")]
-        (async/then (fetch-feed-urls! asked :search opts)
-                    (fn [{:keys [urls report]}]
-                      (async/then (fetch-candidates! {:candidates [] :report [] :tried (:tried acc)}
-                                                     :directory
-                                                     urls
-                                                     (assoc opts :max-candidates (* max-candidates (count search))))
-                                  (fn [found]
-                                    (-> acc
-                                        (update :report into report)
-                                        (update :tried into (:tried found))
-                                        (update :candidates into
-                                                (filter #(some->> (resolve/link (:feed %)) (same-website? domain)))
-                                                (:candidates found)))))))))))
+      (let [signed   {:credentials index
+                      :auth-date   (quot (inst-ms (now)) 1000)}
+            asked    (for [source (map directory/entry search)]
+                       [source (directory/request source :search
+                                                  {:q q :limit max-candidates}
+                                                  signed)])
+            domain   (http/absolute-url page "/")
+            on-site? #(some->> (resolve/link (:feed %)) (same-website? domain))
+            most     (* max-candidates (count search))
+            fresh    {:candidates [] :report [] :tried (:tried acc)}]
+        (async/then
+         (fetch-feed-urls! asked :search opts)
+         (fn [{:keys [urls report]}]
+           (async/then
+            (fetch-candidates! fresh :directory urls
+                               (assoc opts :max-candidates most))
+            (fn [found]
+              (-> acc
+                  (update :report into report)
+                  (update :tried into (:tried found))
+                  (update :candidates into
+                          (filter on-site?)
+                          (:candidates found)))))))))))
 
 (defn- addresses
   "The URLs to try in turn for the page at `url`, while none answers:
   `url`, and when it was `typed?` without a scheme, the same with http
   and with www."
   [url typed?]
-  (distinct (cond-> [url]
-              typed? (conj (str/replace url #"^https:" "http:")
-                           (str/replace url #"^https://(?!www\.)" "https://www.")))))
+  (let [plain (str/replace url #"^https:" "http:")
+        www   (str/replace url #"^https://(?!www\.)" "https://www.")]
+    (distinct (cond-> [url]
+                typed? (conj plain www)))))
 
 (defn- ask-in-turn!
   "Send the requests for the `urls` in turn with `opts` until one answers,
@@ -518,18 +617,45 @@
   [[url & more :as urls] {:keys [send] :as opts}]
   (async/then (http/try-send! send (document-request url opts) opts)
               (fn [{:keys [error] :as attempt}]
-                (if (and error more (not= ::http/refused (:type (ex-data error))) (not (http/timeout? error)))
+                (if (and error
+                         more
+                         (not= ::http/refused (:type (ex-data error)))
+                         (not (http/timeout? error)))
                   (ask-in-turn! more opts)
                   (assoc attempt :url url)))))
+
+(defn- fetch-named-feeds!
+  "The state `acc` of find-feeds! with the feeds that the web page `body`
+  at `page` names, and those that it suggests, place by place as found-by
+  orders them. The page is the `response` to the request for `asked`, and
+  the feeds are fetched with `opts`. Deferred.
+
+  A place in the table can have limits of its own, which replace those of
+  `opts`."
+  [acc asked page body response {:keys [rules guessed-paths timeout-seconds
+                                        guess-timeout-seconds]
+                                 :as   opts}]
+  (let [headers (:headers response)
+        pages   (distinct [asked page])
+        guess   {:timeout-seconds (min timeout-seconds guess-timeout-seconds)}
+        places  [[:link        (delay (map :href (feed-links body page)))]
+                 [:link-header (delay (map :href (header-links headers page)))]
+                 [:anchor      (delay (feed-anchors body page))]
+                 [:rule        (delay (mapcat #(rule-urls % rules) pages))]
+                 [:guess       (delay (guesses page guessed-paths)) guess]]
+        step    (fn [acc [where urls limits]]
+                  (async/then acc #(fetch-candidates! % where urls
+                                                      (merge opts limits))))]
+    (async/then (reduce step (update acc :tried conj asked page) places)
+                #(search-directories! % body page opts))))
 
 (defn- fetch-page-feeds!
   "The state `acc` of find-feeds! with the feeds that the page at `url` is
   or names, fetched with `opts`, where `typed?` tells that the scheme of
   the URL was added. Deferred.
 
-  When `acc` has a podcast already, the page isn't fetched. A place in
-  the table can have limits of its own, which replace those of `opts`."
-  [acc url typed? {:keys [rules guessed-paths timeout-seconds guess-timeout-seconds] :as opts}]
+  When `acc` has a podcast already, the page isn't fetched."
+  [acc url typed? opts]
   (if (or (nil? url) (podcast-found? acc))
     acc
     (async/then
@@ -545,16 +671,7 @@
                            (cond-> acc
                              candidate (update :candidates conj candidate)
                              error     (assoc :error error))))
-             (async/then
-              (reduce (fn [acc [where urls limits]] (async/then acc #(fetch-candidates! % where urls (merge opts limits))))
-                      (update acc :tried conj asked page)
-                      [[:link        (delay (map :href (feed-links body page)))]
-                       [:link-header (delay (map :href (header-links (:headers response) page)))]
-                       [:anchor      (delay (feed-anchors body page))]
-                       [:rule        (delay (mapcat #(rule-urls % rules) (distinct [asked page])))]
-                       [:guess       (delay (guesses page guessed-paths))
-                        {:timeout-seconds (min timeout-seconds guess-timeout-seconds)}]])
-              #(search-directories! % body page opts)))))))))
+             (fetch-named-feeds! acc asked page body response opts))))))))
 
 (defn- result
   "What find-feeds! gives for its state `acc` at the end, for the page at
@@ -563,13 +680,17 @@
   With a guid, only the feeds with that guid stay, if any have it. The
   :error is there when no feed is, and otherwise it goes in the report."
   [{:keys [known candidates report error] :as acc} url guid]
-  (let [feeds  (ranked (concat known candidates))
-        same   (filterv #(= guid (feed/feed-guid (:feed %) (:url %))) feeds)
-        feeds  (if (and guid (seq same)) same feeds)
-        report (cond-> (vec report) (and error (seq feeds)) (conj error))]
+  (let [feeds     (ranked (concat known candidates))
+        same      (filterv #(= guid (feed/feed-guid (:feed %) (:url %))) feeds)
+        feeds     (if (and guid (seq same)) same feeds)
+        report    (cond-> (vec report)
+                    (and error (seq feeds)) (conj error))
+        not-found (or error
+                      (diagnostics/describe (cond-> {:id :discovery/not-found}
+                                              url (assoc :url url))))]
     (cond-> {:feeds feeds}
       (seq report)   (assoc :report report)
-      (empty? feeds) (assoc :error (or error (diagnostics/describe (cond-> {:id :discovery/not-found} url (assoc :url url))))))))
+      (empty? feeds) (assoc :error not-found))))
 
 (defn find-feeds!
   "Find the feeds of a show from the text `s` that a listener types or
@@ -600,24 +721,28 @@
    (find-feeds! s {}))
   ([s opts]
    {:pre [(map? opts)]}
-   (let [opts                                (merge default-limits
-                                                    {:send          http/send!
-                                                     :allow?        http/public?
-                                                     :lookup        [:apple :podcastindex]
-                                                     :guessed-paths guessed-paths
-                                                     :now           time/now}
-                                                    opts)
-         {:keys [url typed? ids guid error]} (read-input s opts)
-         [url credentials]                   (if url (http/split-credentials url) [nil nil])
-         acc                                 {:known      (when url (vec (known-matches url (:known opts))))
-                                              :candidates []
-                                              :report     []
-                                              :tried      #{}}]
-     (-> (if error
-           (assoc acc :error error)
-           (look-up! acc (lookups ids guid opts) opts))
-         (async/then #(fetch-page-feeds! % url typed? (cond-> opts credentials (assoc :credentials credentials))))
-         (async/then #(result % url guid))))))
+   (let [opts              (merge default-limits
+                                  {:send          http/send!
+                                   :allow?        http/public?
+                                   :lookup        [:apple :podcastindex]
+                                   :guessed-paths guessed-paths
+                                   :now           time/now}
+                                  opts)
+         input             (read-input s opts)
+         [url credentials] (some-> (:url input) http/split-credentials)
+         page-opts         (cond-> opts
+                             credentials (assoc :credentials credentials))
+         known             (when url
+                             (vec (known-matches url (:known opts))))
+         acc               {:known      known
+                            :candidates []
+                            :report     []
+                            :tried      #{}}]
+     (-> (if (:error input)
+           (assoc acc :error (:error input))
+           (look-up! acc (lookups (:ids input) (:guid input) opts) opts))
+         (async/then #(fetch-page-feeds! % url (:typed? input) page-opts))
+         (async/then #(result % url (:guid input)))))))
 
 (comment
   (read-input "podnews.net/rss")
@@ -626,8 +751,10 @@
   (read-input "pktc://subscribe/feeds.podcastindex.org/pc20.xml")
   (read-input "the daily")
 
-  (feed-links "<link rel=alternate type=application/rss+xml href=/feed.xml>" "https://a.example/")
-  (feed-anchors "<a href=/rss>RSS</a><a href=/about>About</a>" "https://a.example/")
+  (feed-links "<link rel=alternate type=application/rss+xml href=/feed.xml>"
+              "https://a.example/")
+  (feed-anchors "<a href=/rss>RSS</a><a href=/about>About</a>"
+                "https://a.example/")
   (guesses "https://a.example/shows/x")
   (page-name "<title>Home | The Show</title>" "https://show.example/")
   (feed-document? "<?xml version=\"1.0\"?>\n<rss version=\"2.0\">")
