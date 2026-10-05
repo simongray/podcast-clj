@@ -31,7 +31,8 @@
   "Feed URLs by the name of their file, chosen to cover the hosting
   platforms that produce most of the world's listening, the independent
   hosts that implement the podcast namespace, and a few public broadcasters."
-  {"acast"               "https://feeds.acast.com/public/shows/b19ac1f5-6adf-4c8b-aa1a-2af2160f99e4"
+  {"acast"               (str "https://feeds.acast.com/public/shows/"
+                              "b19ac1f5-6adf-4c8b-aa1a-2af2160f99e4")
    "anchor"              "https://anchor.fm/s/e4e7ebb0/podcast/rss"
    "anchor2"             "https://anchor.fm/s/52280288/podcast/rss"
    "art19"               "https://rss.art19.com/tim-ferriss-show"
@@ -42,17 +43,24 @@
    "buzzsprout-buzzcast" "https://feeds.buzzsprout.com/231452.rss"
    "captivate"           "https://feeds.captivate.fm/podcastaccelerator/"
    "changelog"           "https://changelog.com/podcast/feed"
-   "defn"                "https://feeds.soundcloud.com/users/soundcloud:users:220484243/sounds.rss"
+   "defn"                (str "https://feeds.soundcloud.com/users/"
+                              "soundcloud:users:220484243/sounds.rss")
    "dr-dk"               "https://api.dr.dk/podcasts/v1/feeds/genstart"
-   "feedburner"          "https://feeds.feedburner.com/dancarlin/history?format=xml"
+   "feedburner"          (str "https://feeds.feedburner.com/"
+                              "dancarlin/history?format=xml")
    "ivoox"               "https://feeds.ivoox.com/feed_fg_f161886_filtro_1.xml"
    "libsyn"              "https://feeds.libsyn.com/60664/rss"
    "megaphone"           "https://feeds.megaphone.fm/GLT4787413333"
    "megaphone-darknet"   "https://podcast.darknetdiaries.com"
    "npr"                 "https://feeds.npr.org/510289/podcast.xml"
-   "omny"                "https://www.omnycontent.com/d/playlist/3beb6a7f-7830-4fcc-9c67-b3fa00934bca/1511e96c-a349-4f26-8c74-b40801842a46/4e2f91e5-8b34-49d6-98c3-b40801842a5b/podcast.rss"
+   "omny"                (str "https://www.omnycontent.com/d/playlist/"
+                              "3beb6a7f-7830-4fcc-9c67-b3fa00934bca/"
+                              "1511e96c-a349-4f26-8c74-b40801842a46/"
+                              "4e2f91e5-8b34-49d6-98c3-b40801842a5b/"
+                              "podcast.rss")
    "pc20-nashownotes"    "https://mp3s.nashownotes.com/pc20rss.xml"
-   "podco"               "https://feed.pod.co/seriously-social-with-simone-douglas"
+   "podco"               (str "https://feed.pod.co/"
+                              "seriously-social-with-simone-douglas")
    "podnews-buzzsprout"  "https://podnews.net/rss"
    "rsscom"              "https://media.rss.com/podcasting101/feed.xml"
    "simplecast"          "https://feeds.simplecast.com/54nAGcIl"
@@ -65,7 +73,10 @@
   []
   (.mkdirs dir)
   (doseq [[name url] (sort feeds)]
-    (let [{:keys [status body]} (try (http/fetch! url) (catch Exception e {:status (.getMessage e)}))]
+    (let [{:keys [status body]} (try
+                                  (http/fetch! url)
+                                  (catch Exception e
+                                    {:status (.getMessage e)}))]
       (if (and (= 200 status) body)
         (do (spit (io/file dir (str name ".xml")) body)
             (println name status (count body) "chars"))
@@ -100,7 +111,8 @@
         :round-trip (= feed (rss/parse (rss/emit feed)))
         :report     (count (rss/report feed))
         :errors     (count (filter (comp #{:error} :level) v))
-        :unknown    (count (filter (comp #{:validate/unknown-element} :id) v))}))))
+        :unknown    (count (filter (comp #{:validate/unknown-element} :id)
+                                   v))}))))
 
 (def extensions
   "The file extension to save a companion file under, by its declared type."
@@ -115,9 +127,15 @@
         :let  [name (str/replace (.getName ^java.io.File file) #"\.xml$" "")
                feed (rss/parse (slurp file))]
         item  (:rss/items feed)
-        ref   (concat (for [t (:podcast/transcripts item)] (assoc t :kind :transcript))
-                      (when-let [c (:podcast/chapters item)] [(assoc c :kind :chapters)]))]
-    {:kind (:kind ref) :feed name :guid (feed/item-guid item) :type (:type ref) :url (:url ref)}))
+        ref   (concat (for [t (:podcast/transcripts item)]
+                        (assoc t :kind :transcript))
+                      (when-let [c (:podcast/chapters item)]
+                        [(assoc c :kind :chapters)]))]
+    {:kind (:kind ref)
+     :feed name
+     :guid (feed/item-guid item)
+     :type (:type ref)
+     :url  (:url ref)}))
 
 (defn sample
   "A stratified sample of `refs`: per feed, the `n` most recent of each
@@ -132,19 +150,27 @@
   manifest of what was fetched next to them."
   []
   (.mkdirs companions-dir)
-  (let [manifest (vec (map-indexed
-                       (fn [i {:keys [kind feed type url] :as ref}]
-                         (let [file (io/file companions-dir
-                                             (str feed "--" (name kind) "-" i "." (get extensions type "bin")))
-                               {:keys [status body headers]}
-                               (try (http/fetch! url) (catch Exception e {:status (.getMessage e)}))]
-                           (when (and (= 200 status) body)
-                             (spit file body))
-                           (println (.getName file) status)
-                           (assoc ref :file (.getName file) :status status
-                                  :content-type (first (get headers "content-type")))))
-                       (sample (companion-refs) 2)))]
-    (spit (io/file companions-dir "manifest.edn") (with-out-str (pprint/pprint manifest)))
+  (let [fetch1   (fn [i {:keys [kind feed type url] :as ref}]
+                   (let [ext  (get extensions type "bin")
+                         base (str feed "--" (name kind) "-" i "." ext)
+                         file (io/file companions-dir base)
+                         {:keys [status body headers]}
+                         (try
+                           (http/fetch! url)
+                           (catch Exception e
+                             {:status (.getMessage e)}))
+
+                         content-type (first (get headers "content-type"))]
+                     (when (and (= 200 status) body)
+                       (spit file body))
+                     (println (.getName file) status)
+                     (assoc ref
+                            :file         (.getName file)
+                            :status       status
+                            :content-type content-type)))
+        manifest (vec (map-indexed fetch1 (sample (companion-refs) 2)))]
+    (spit (io/file companions-dir "manifest.edn")
+          (with-out-str (pprint/pprint manifest)))
     manifest))
 
 (defn manifest
@@ -163,17 +189,34 @@
          :when (= 200 status)
          :let  [s (slurp (io/file companions-dir file))]]
      (if (= :transcript kind)
-       (let [{:keys [segments] :as t} (try (transcript/parse s type)
-                                          (catch Exception e {:error (.getMessage e)}))]
-         {:file file :declared type :sniffed (transcript/sniff s)
-          :count (count segments) :speakers (count (distinct (keep :speaker segments)))
-          :note (or (:error t) (str/join " " (map (comp name :id) (transcript/report t))))})
-       (let [{:keys [chapters version] :as doc} (try (chapters/parse-json s)
-                                                    (catch Exception e {:error (.getMessage e)}))]
-         {:file file :declared type :sniffed "json" :count (count chapters) :speakers ""
-          :note (or (:error doc)
-                    (str "version " version " "
-                         (str/join " " (map (comp name :id) (chapters/report doc)))))})))))
+       (let [t (try
+                 (transcript/parse s type)
+                 (catch Exception e
+                   {:error (.getMessage e)}))
+             {:keys [segments]} t]
+         {:file     file
+          :declared type
+          :sniffed  (transcript/sniff s)
+          :count    (count segments)
+          :speakers (count (distinct (keep :speaker segments)))
+          :note     (or (:error t)
+                        (->> (transcript/report t)
+                             (map (comp name :id))
+                             (str/join " ")))})
+       (let [doc (try
+                   (chapters/parse-json s)
+                   (catch Exception e
+                     {:error (.getMessage e)}))
+             {:keys [chapters version]} doc]
+         {:file     file
+          :declared type
+          :sniffed  "json"
+          :count    (count chapters)
+          :speakers ""
+          :note     (or (:error doc)
+                        (str "version " version " "
+                             (str/join " " (map (comp name :id)
+                                                (chapters/report doc)))))})))))
 
 (def sweep-dir
   "Where the feeds sampled through the Podcast Index are kept."
@@ -199,20 +242,24 @@
   ([credentials]
    (sweep-populations credentials {}))
   ([credentials sizes]
-   (let [{:keys [recent new value medium]} (merge {:recent 300 :new 100 :value 100 :medium 20} sizes)
-         feeds (fn [endpoint params]
-                 (:feeds (index/call! credentials endpoint params)))
-         pick  (fn [population n rows]
-                 (for [{:keys [index/id index/url rss/title]} (take n (shuffle (vec rows)))
-                       :when (and id url)]
-                   {:population population :id id :url url :title title}))]
+   (let [defaults  {:recent 300 :new 100 :value 100 :medium 20}
+         {:keys [recent new value medium]} (merge defaults sizes)
+         feeds     (fn [endpoint params]
+                     (:feeds (index/call! credentials endpoint params)))
+         pick      (fn [population n rows]
+                     (for [{:keys [index/id index/url rss/title]}
+                           (take n (shuffle (vec rows)))
+                           :when (and id url)]
+                       {:population population :id id :url url :title title}))
+         by-medium (fn [m]
+                     (pick (keyword (str "medium-" m)) medium
+                           (feeds :podcasts/by-medium {:medium m :max 200})))]
      (->> (concat (pick :recent recent (feeds :recent/feeds {:max 1000}))
                   (pick :new new (feeds :recent/new-feeds {:max 1000}))
-                  (pick :value value (feeds :podcasts/by-tag {:podcast-value true :max 1000}))
-                  (mapcat (fn [m]
-                            (pick (keyword (str "medium-" m)) medium
-                                  (feeds :podcasts/by-medium {:medium m :max 200})))
-                          mediums))
+                  (pick :value value
+                        (feeds :podcasts/by-tag
+                               {:podcast-value true :max 1000}))
+                  (mapcat by-medium mediums))
           (distinct-by :id)
           (sort-by (juxt :population :id))))))
 
@@ -225,19 +272,25 @@
   (.mkdirs sweep-dir)
   (let [fetch    (fn [{:keys [id url] :as row}]
                    (let [{:keys [status body] final :url}
-                         (try (http/fetch! url {:timeout-seconds 20})
-                              (catch Exception e {:status (str (class e) ": " (ex-message e))}))
+                         (try
+                           (http/fetch! url {:timeout-seconds 20})
+                           (catch Exception e
+                             {:status (str (class e) ": " (ex-message e))}))
                          kept? (and (= 200 status) (seq body))]
                      (when kept?
                        (spit (io/file sweep-dir (str id ".xml")) body))
-                     (assoc row :status status :chars (count body) :final-url final
-                            :file (when kept? (str id ".xml")))))
+                     (assoc row
+                            :status    status
+                            :chars     (count body)
+                            :final-url final
+                            :file      (when kept? (str id ".xml")))))
         fetched  (doall (pmap fetch rows))
         previous (let [f (io/file sweep-dir "manifest.edn")]
                    (when (.exists f) (edn/read-string (slurp f))))
         manifest (vec (sort-by (juxt (comp str :population) (comp str :id))
                                (distinct-by :id (concat fetched previous))))]
-    (spit (io/file sweep-dir "manifest.edn") (with-out-str (pprint/pprint manifest)))
+    (spit (io/file sweep-dir "manifest.edn")
+          (with-out-str (pprint/pprint manifest)))
     manifest))
 
 (defn sweep-manifest
@@ -268,12 +321,14 @@
          :report     (frequencies (map :id report))
          :invalid    (for [{:keys [id path type value]} report
                            :when (= :feed/invalid-value id)]
-                       {:key (vec (take-last 2 (remove integer? path))) :type type :value value})
+                       {:key   (vec (take-last 2 (remove integer? path)))
+                        :type  type
+                        :value value})
          :unknown    (frequencies (map xml/tag unknown))
          :examples   (into {} (map (juxt xml/tag identity)) unknown)
-         :validation (frequencies (map (juxt :id :message)
-                                       (remove (comp #{:validate/unknown-element} :id)
-                                               (validate/validate feed))))
+         :validation (let [unknown? (comp #{:validate/unknown-element} :id)
+                           known    (remove unknown? (validate/validate feed))]
+                       (frequencies (map (juxt :id :message) known)))
          :round-trip (= feed (rss/parse (rss/emit feed)))}))))
 
 (defn- by-feeds
@@ -304,8 +359,11 @@
                    {:tag tag :feeds n :example (example tag)})
      :invalid    (->> (mapcat :invalid ok)
                       (group-by (juxt :key :type))
-                      (map (fn [[k vs]] {:key (first k) :type (second k) :count (count vs)
-                                         :examples (take 4 (distinct (map :value vs)))}))
+                      (map (fn [[k vs]]
+                             {:key      (first k)
+                              :type     (second k)
+                              :count    (count vs)
+                              :examples (take 4 (distinct (map :value vs)))}))
                       (sort-by (comp - :count)))
      :changed    (map :file (remove :round-trip ok))}))
 
@@ -318,19 +376,32 @@
   sweep, one for each host, with the file of the feed and its declared
   duration, up to `n` of them."
   [n]
-  (->> (concat (files dir) (files sweep-dir))
-       (keep (fn [^java.io.File file]
-               (try (let [item (first (:rss/items (rss/parse (slurp file))))
-                          url  (:url (:rss/enclosure item))]
-                      (when (and url (re-find #"(?i)audio/(mpeg|mp3|mp4|x-m4a)" (str (:type (:rss/enclosure item)))))
-                        {:feed (.getName file) :url url :declared (:itunes/duration item)}))
-                    (catch Exception _ nil))))
-       (reduce (fn [[hosts acc] {:keys [url] :as e}]
-                 (let [host (try (.getHost (java.net.URI. (http/legal-url url))) (catch Exception _ nil))]
-                   (if (contains? hosts host) [hosts acc] [(conj hosts host) (conj acc e)])))
-               [#{} []])
-       second
-       (take n)))
+  (let [audio?       #(re-find #"(?i)audio/(mpeg|mp3|mp4|x-m4a)" (str %))
+        enclosure    (fn [^java.io.File file]
+                       (try
+                         (let [parsed (rss/parse (slurp file))
+                               item   (first (:rss/items parsed))
+                               url    (:url (:rss/enclosure item))
+                               type   (:type (:rss/enclosure item))]
+                           (when (and url (audio? type))
+                             {:feed     (.getName file)
+                              :url      url
+                              :declared (:itunes/duration item)}))
+                         (catch Exception _ nil)))
+        host-of      (fn [url]
+                       (try
+                         (.getHost (java.net.URI. (http/legal-url url)))
+                         (catch Exception _ nil)))
+        one-per-host (fn [[hosts acc] {:keys [url] :as e}]
+                       (let [host (host-of url)]
+                         (if (contains? hosts host)
+                           [hosts acc]
+                           [(conj hosts host) (conj acc e)])))]
+    (->> (concat (files dir) (files sweep-dir))
+         (keep enclosure)
+         (reduce one-per-host [#{} []])
+         second
+         (take n))))
 
 (defn download-media!
   "Read the media files of `first-enclosures` with `media/read!`, and keep
@@ -339,22 +410,32 @@
   ([] (download-media! 150))
   ([n]
    (.mkdirs media-dir)
-   (let [manifest (vec (for [[i {:keys [url] :as e}] (map-indexed vector (first-enclosures n))]
-                         (let [parts (atom [])
-                               fetch (http/fetcher url)
-                               r     (media/read! url {:fetch (fn [start end]
-                                                               (let [part (fetch start end)]
-                                                                 (swap! parts conj part)
-                                                                 part))})
-                               error (get-in r [:error :reason])]
-                           (doseq [[k {b :bytes}] (map-indexed vector @parts)]
-                             (with-open [out (io/output-stream (io/file media-dir (str i "-" k ".bin")))]
-                               (.write out ^bytes b)))
-                           (println i (:format r) error)
-                           (assoc e :n i :error error
-                                  :parts (vec (for [[k {:keys [start total]}] (map-indexed vector @parts)]
-                                                {:file (str i "-" k ".bin") :start start :total total}))))))]
-     (spit (io/file media-dir "manifest.edn") (with-out-str (pprint/pprint manifest)))
+   (let [part-file (fn [i k] (str i "-" k ".bin"))
+         read-one  (fn [[i {:keys [url] :as e}]]
+                     (let [parts (atom [])
+                           fetch (http/fetcher url)
+                           kept  (fn [start end]
+                                   (let [part (fetch start end)]
+                                     (swap! parts conj part)
+                                     part))
+                           r     (media/read! url {:fetch kept})
+                           error (get-in r [:error :reason])]
+                       (doseq [[k {b :bytes}] (map-indexed vector @parts)]
+                         (with-open [out (io/output-stream
+                                          (io/file media-dir (part-file i k)))]
+                           (.write out ^bytes b)))
+                       (println i (:format r) error)
+                       (assoc e
+                              :n     i
+                              :error error
+                              :parts (vec (for [[k {:keys [start total]}]
+                                                (map-indexed vector @parts)]
+                                            {:file  (part-file i k)
+                                             :start start
+                                             :total total})))))
+         manifest  (mapv read-one (map-indexed vector (first-enclosures n)))]
+     (spit (io/file media-dir "manifest.edn")
+           (with-out-str (pprint/pprint manifest)))
      manifest)))
 
 (defn media-report
@@ -362,45 +443,61 @@
   and print its format, its duration beside the one its feed declares, the
   number of its chapters, its artwork and the ids of its report."
   []
-  (print-table
-   [:n :feed :format :duration :declared :chapters :artwork :report]
-   (for [{:keys [n feed declared parts error]} (edn/read-string (slurp (io/file media-dir "manifest.edn")))
-         :when (and (not error) (seq parts))
-         :let [view (reduce (fn [v {:keys [file start total]}]
-                              (bytes/add v start (java.nio.file.Files/readAllBytes (.toPath (io/file media-dir file))) total))
-                            (bytes/view) parts)
-               r    (media/read view)]]
-     {:n n :feed feed :format (:format r) :duration (some-> (:duration r) Math/round) :declared declared
-      :chapters (count (:chapters (:chapters r))) :artwork (:type (:artwork r))
-      :report (str/join " " (map (comp name :id) (media/report r)))})))
+  (let [manifest (edn/read-string (slurp (io/file media-dir "manifest.edn")))
+        add-part (fn [v {:keys [file start total]}]
+                   (let [path (.toPath (io/file media-dir file))
+                         data (java.nio.file.Files/readAllBytes path)]
+                     (bytes/add v start data total)))]
+    (print-table
+     [:n :feed :format :duration :declared :chapters :artwork :report]
+     (for [{:keys [n feed declared parts error]} manifest
+           :when (and (not error) (seq parts))
+           :let [view (reduce add-part (bytes/view) parts)
+                 r    (media/read view)]]
+       {:n        n
+        :feed     feed
+        :format   (:format r)
+        :duration (some-> (:duration r) Math/round)
+        :declared declared
+        :chapters (count (:chapters (:chapters r)))
+        :artwork  (:type (:artwork r))
+        :report   (str/join " " (map (comp name :id) (media/report r)))}))))
 
 (defn check-feeds!
   "Fetch each feed of `feeds` and check the files that it and its newest
-  `items` link to over the network, as `check/check-files!` does with `opts`, the
-  feed at the URL that the corpus lists, so that its redirects count:
-  `[{:name :files :report}]`, or `{:name :error}` for a feed that could not
-  be fetched."
+  `items` link to over the network, as `check/check-files!` does with
+  `opts`, the feed at the URL that the corpus lists, so that its redirects
+  count: `[{:name :files :report}]`, or `{:name :error}` for a feed that
+  could not be fetched."
   ([] (check-feeds! {:max-items 2 :requirements :apple :read? true}))
   ([opts]
-   (vec (pmap (fn [[name url]]
-                (let [{:keys [feed status error]} (podcast/fetch! url)]
-                  (if feed
-                    (let [{:keys [files report]} (check/check-files! feed (assoc opts :url url))]
-                      {:name name :files (count files) :report report})
-                    {:name name :error (or (:reason error) (str "HTTP " status))})))
-              (sort feeds)))))
+   (let [check-one (fn [[name url]]
+                     (let [{:keys [feed status error]} (podcast/fetch! url)]
+                       (if feed
+                         (let [{:keys [files report]}
+                               (check/check-files! feed (assoc opts :url url))]
+                           {:name name :files (count files) :report report})
+                         {:name  name
+                          :error (or (:reason error) (str "HTTP " status))})))]
+     (vec (pmap check-one (sort feeds))))))
 
 (defn check-report
   "Print a table of the diagnostics of `checked`, from `check-feeds!`: each
   id with its level, how many files it concerns, and on which feeds; then
   the feeds that could not be fetched."
   [checked]
-  (print-table
-   [:id :level :files :feeds]
-   (for [[[id level] ds] (sort-by (comp - count val)
-                                  (group-by (juxt :id :level)
-                                            (for [{:keys [name report]} checked d report] (assoc d :feed name))))]
-     {:id id :level level :files (count (distinct (map :url ds))) :feeds (str/join " " (sort (distinct (map :feed ds))))}))
+  (let [found   (for [{:keys [name report]} checked
+                      d report]
+                  (assoc d :feed name))
+        grouped (sort-by (comp - count val)
+                         (group-by (juxt :id :level) found))]
+    (print-table
+     [:id :level :files :feeds]
+     (for [[[id level] ds] grouped]
+       {:id    id
+        :level level
+        :files (count (distinct (map :url ds)))
+        :feeds (str/join " " (sort (distinct (map :feed ds))))})))
   (doseq [{:keys [name error]} checked
           :when error]
     (println name "could not be fetched:" error)))
@@ -413,7 +510,8 @@
   (download-media!)
   (media-report)
   (check-report (check-feeds!))
-  (let [creds (:podcastindex (edn/read-string (slurp (str (System/getProperty "user.home") "/Code/secrets.edn"))))]
+  (let [secrets (str (System/getProperty "user.home") "/Code/secrets.edn")
+        creds   (:podcastindex (edn/read-string (slurp secrets)))]
     (download-sweep! (sweep-populations creds)))
   (sweep-report)
   #_.)
