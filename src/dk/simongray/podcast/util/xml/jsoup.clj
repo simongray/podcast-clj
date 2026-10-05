@@ -30,8 +30,10 @@
   (condp instance? node
     TextNode (.getWholeText ^TextNode node)
     Element  (do (xml/check-depth depth)
-                 (into [(.tagName ^Element node) (attrs node)]
-                       (xml/compact-text (keep #(node->raw % (inc depth)) (.childNodes ^Element node)))))
+                 (let [children (.childNodes ^Element node)
+                       raw      (keep #(node->raw % (inc depth)) children)]
+                   (into [(.tagName ^Element node) (attrs node)]
+                         (xml/compact-text raw))))
     nil))
 
 (defn- document
