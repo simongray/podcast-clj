@@ -32,7 +32,8 @@
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.async :as async])
   #?(:clj (:import [java.io File FileNotFoundException]
-                   [java.nio.file CopyOption Files LinkOption StandardCopyOption]
+                   [java.nio.file
+                    CopyOption Files LinkOption StandardCopyOption]
                    [java.util.concurrent ConcurrentHashMap]
                    [java.util.concurrent.locks ReentrantLock]
                    [java.util.function Function])))
@@ -49,17 +50,22 @@
   "The result of `f`, called when no other put to the file `k` is under way
   in this process, or in any tab of this site in a browser."
   [k f]
-  #?(:clj  (let [l ^ReentrantLock (.computeIfAbsent ^ConcurrentHashMap locks k
-                                                    (reify Function (apply [_ _] (ReentrantLock.))))]
+  #?(:clj  (let [new-lock (reify Function
+                            (apply [_ _] (ReentrantLock.)))
+                 held     ^ConcurrentHashMap locks
+                 l        ^ReentrantLock (.computeIfAbsent held k new-lock)]
              (.lock l)
              (try
                (f)
                (finally
                  (.unlock l))))
      :cljs (if-let [web-locks (some-> js/globalThis .-navigator .-locks)]
-             (.request web-locks (str "dk.simongray.podcast.sync.file/" k) (fn [_] (f)))
-             (let [result (.then (get @locks k (js/Promise.resolve)) (fn [_] (f)))]
-               (swap! locks assoc k (.then result (constantly nil) (constantly nil)))
+             (.request web-locks (str "dk.simongray.podcast.sync.file/" k)
+                       (fn [_] (f)))
+             (let [before  (get @locks k (js/Promise.resolve))
+                   result  (.then before (fn [_] (f)))
+                   settled (.then result (constantly nil) (constantly nil))]
+               (swap! locks assoc k settled)
                result))))
 
 #?(:clj
@@ -67,7 +73,9 @@
      "The version of the file `f`: its modification time, as finely as the
      filesystem keeps it, and its length."
      [^File f]
-     (str (Files/getLastModifiedTime (.toPath f) (make-array LinkOption 0)) "-" (.length f))))
+     (let [modified (Files/getLastModifiedTime (.toPath f)
+                                               (make-array LinkOption 0))]
+       (str modified "-" (.length f)))))
 
 #?(:clj
    (defn- write-whole!
@@ -80,7 +88,9 @@
        (try
          (spit tmp body :encoding "UTF-8")
          (Files/move (.toPath tmp) (.toPath f)
-                     (into-array CopyOption [StandardCopyOption/ATOMIC_MOVE StandardCopyOption/REPLACE_EXISTING]))
+                     (into-array CopyOption
+                                 [StandardCopyOption/ATOMIC_MOVE
+                                  StandardCopyOption/REPLACE_EXISTING]))
          (finally
            (.delete tmp))))))
 
@@ -130,22 +140,26 @@
            absent  #(when-not (= "ENOENT" (.-code %)) (throw %))
            stat    #(-> (.stat fs (file %) #js {:bigint true})
                         (.then (fn [s] (when (.isFile s) s)))
-                        (.catch absent))]
+                        (.catch absent))
+           listed  (fn [name]
+                     (.then (stat name)
+                            (fn [s] {:name name :version (version s)})))]
        {:name     path
         :lock-key file
         :files    (fn []
                     (-> (.readdir fs path #js {:withFileTypes true})
                         (.then (fn [entries]
-                                 (async/all (for [e entries :when (.isFile e)]
-                                              (.then (stat (.-name e))
-                                                     (fn [s] {:name (.-name e) :version (version s)}))))))
+                                 (async/all (for [e entries
+                                                  :when (.isFile e)]
+                                              (listed (.-name e))))))
                         (.catch #(do (absent %) []))))
         :read     (fn [name]
                     (.then (stat name)
                            (fn [s]
                              (when s
                                (.then (.readFile fs (file name) "utf8")
-                                      (fn [body] {:body body :version (version s)}))))))
+                                      (fn [body]
+                                        {:body body :version (version s)}))))))
         :version  (fn [name]
                     (.then (stat name) #(some-> % version)))
         :write    (fn [name body]
@@ -155,7 +169,9 @@
                           (.then #(.rename fs tmp (file name)))
                           (.then #(stat name))
                           (.then version)
-                          (.catch (fn [e] (.then (.rm fs tmp #js {:force true}) #(throw e)))))))
+                          (.catch (fn [e]
+                                    (.then (.rm fs tmp #js {:force true})
+                                           #(throw e)))))))
         :delete   (fn [name]
                     (-> (.unlink fs (file name))
                         (.then (constantly nil))
@@ -167,10 +183,18 @@
      when the listener can fix it, or else `e`."
      [e]
      (case (some-> e .-name)
-       "NotAllowedError" (ex-info "The browser needs the listener's permission for the folder again"
-                                  {:type ::not-allowed} e)
-       "NotFoundError"   (ex-info "The folder is gone: it was moved or deleted, or its drive was removed"
-                                  {:type ::gone} e)
+       "NotAllowedError"
+       (ex-info (str "The browser needs the listener's permission for the "
+                     "folder again")
+                {:type ::not-allowed}
+                e)
+
+       "NotFoundError"
+       (ex-info (str "The folder is gone: it was moved or deleted, or its "
+                     "drive was removed")
+                {:type ::gone}
+                e)
+
        e)))
 
 #?(:cljs
@@ -178,7 +202,10 @@
      "A promise of the values of the async iterator `it`, as a vector."
      [it]
      (letfn [(more [acc]
-               (.then (.next it) #(if (.-done %) acc (more (conj acc (.-value %))))))]
+               (.then (.next it)
+                      #(if (.-done %)
+                         acc
+                         (more (conj acc (.-value %))))))]
        (more []))))
 
 #?(:cljs
@@ -202,31 +229,42 @@
      File System standard."
      [dir]
      (let [version  #(str (.-lastModified %) "-" (.-size %))
-           missing? #(contains? #{"NotFoundError" "TypeMismatchError"} (.-name %))
+           missing? #(contains? #{"NotFoundError" "TypeMismatchError"}
+                                (.-name %))
            failed   #(throw (failure %))
            file     #(-> (.getFileHandle dir %)
                          (.then (fn [h] (.getFile h)))
-                         (.catch (fn [e] (when-not (missing? e) (failed e)))))]
+                         (.catch (fn [e] (when-not (missing? e) (failed e)))))
+           listed   (fn [h]
+                      (.then (.getFile h)
+                             (fn [f] {:name (.-name h) :version (version f)})))]
        {:name     (or (not-empty (.-name dir)) "folder")
         :lock-key identity
         :files    (fn []
                     (-> (collected (.values dir))
                         (.then (fn [handles]
-                                 (async/all (for [h handles :when (= "file" (.-kind h))]
-                                              (.then (.getFile h)
-                                                     (fn [f] {:name (.-name h) :version (version f)}))))))
+                                 (async/all (for [h handles
+                                                  :when (= "file" (.-kind h))]
+                                              (listed h)))))
                         (.catch failed)))
         :read     (fn [name]
                     (.then (file name)
                            (fn [f]
                              (when f
-                               (.then (.text f) (fn [body] {:body body :version (version f)}))))))
+                               (.then (.text f)
+                                      (fn [body]
+                                        {:body body :version (version f)}))))))
         :version  (fn [name]
                     (.then (file name) #(some-> % version)))
         :write    (fn [name body]
-                    ;; asked of the platform, before getFileHandle makes an empty file
-                    (if-not (some-> js/globalThis .-FileSystemFileHandle .-prototype .-createWritable)
-                      (throw (ex-info "This browser can't write to the folder" {:type ::read-only}))
+                    ;; asked of the platform, before getFileHandle makes an
+                    ;; empty file
+                    (if-not (some-> js/globalThis
+                                    .-FileSystemFileHandle
+                                    .-prototype
+                                    .-createWritable)
+                      (throw (ex-info "This browser can't write to the folder"
+                                      {:type ::read-only}))
                       (-> (.getFileHandle dir name #js {:create true})
                           (.then #(write-handle! % body))
                           (.then version)
@@ -239,21 +277,31 @@
 (defn- folder-store
   "The store over the operations of a `folder`."
   [{:keys [files read version write delete lock-key] :as folder}]
-  (let [plain #(if (or (str/blank? (str %)) (re-find #"[/\\]" (str %)) (str/starts-with? (str %) "."))
-                 (throw (ex-info "A document's name is a plain file name" {:name %}))
-                 %)]
+  (let [plain   #(if (or (str/blank? (str %))
+                         (re-find #"[/\\]" (str %))
+                         (str/starts-with? (str %) "."))
+                   (throw (ex-info "A document's name is a plain file name"
+                                   {:name %}))
+                   %)
+        hidden? #(str/starts-with? (:name %) ".")
+        stale?  (fn [opts current]
+                  (and (contains? opts :if-version)
+                       (not= (:if-version opts) current)))
+        put!    (fn [name body opts]
+                  (async/then (version name)
+                              (fn [current]
+                                (if (stale? opts current)
+                                  {:conflict? true}
+                                  (async/then (write name (str body))
+                                              (fn [v] {:version v}))))))]
     {:name   (:name folder)
      :fetch  (fn [name] (read (plain name)))
      :put    (fn [name body opts]
                (exclusively (lock-key (plain name))
-                            #(async/then (version name)
-                                         (fn [current]
-                                           (if (and (contains? opts :if-version) (not= (:if-version opts) current))
-                                             {:conflict? true}
-                                             (async/then (write name (str body)) (fn [v] {:version v})))))))
+                            #(put! name body opts)))
      :list   (fn []
                (async/then (files)
-                           #(->> % (remove (comp (fn [s] (str/starts-with? s ".")) :name)) (sort-by :name) vec)))
+                           #(->> % (remove hidden?) (sort-by :name) vec)))
      :delete (fn [name] (delete (plain name)))}))
 
 #?(:cljs
@@ -272,18 +320,27 @@
      the name of the store."
      [files]
      (let [relative #(or (.-webkitRelativePath %) "")
-           top      (filter #(and (<= (count (re-seq #"/" (relative %))) 1) (not (str/starts-with? (.-name %) ".")))
-                            (js/Array.from files))
+           top?     #(and (<= (count (re-seq #"/" (relative %))) 1)
+                          (not (str/starts-with? (.-name %) ".")))
+           top      (filter top? (js/Array.from files))
            by-name  (into {} (map (juxt #(.-name %) identity)) top)
-           version  #(str (.-lastModified %) "-" (.-size %))]
-       {:name  (or (some-> (first top) relative (str/split #"/") first not-empty) "files")
+           version  #(str (.-lastModified %) "-" (.-size %))
+           folder   (some-> (first top)
+                            relative
+                            (str/split #"/")
+                            first
+                            not-empty)]
+       {:name  (or folder "files")
         :fetch (fn [name]
                  (when-let [f (get by-name name)]
-                   (.then (.text f) (fn [body] {:body body :version (version f)}))))
+                   (.then (.text f)
+                          (fn [body] {:body body :version (version f)}))))
         :put   (fn [_ _ _]
-                 (throw (ex-info "The files of an input are read only" {:type ::read-only})))
+                 (throw (ex-info "The files of an input are read only"
+                                 {:type ::read-only})))
         :list  (fn []
-                 (vec (sort-by :name (for [[name f] by-name] {:name name :version (version f)}))))})))
+                 (vec (sort-by :name (for [[name f] by-name]
+                                       {:name name :version (version f)}))))})))
 
 (defn store
   "The store over the folder `dir`: a path, or in a browser a directory
@@ -309,8 +366,10 @@
    (backend dir {}))
   ([dir opts]
    {:pre [(map? opts)]}
-   (store/backend (store dir) #?(:clj  opts
-                                 :cljs (cond->> opts (loaded? dir) (merge {:direction :pull}))))))
+   (store/backend (store dir)
+                  #?(:clj  opts
+                     :cljs (cond->> opts
+                             (loaded? dir) (merge {:direction :pull}))))))
 
 #?(:cljs
    (defn query-permission!

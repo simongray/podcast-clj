@@ -37,7 +37,10 @@
 (def ^:no-doc propfind-body
   "The properties that a listing asks for: the ETag, and whether an entry
   is a collection."
-  "<?xml version=\"1.0\" encoding=\"utf-8\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:getetag/><d:resourcetype/></d:prop></d:propfind>")
+  (str "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+       "<d:propfind xmlns:d=\"DAV:\">"
+       "<d:prop><d:getetag/><d:resourcetype/></d:prop>"
+       "</d:propfind>"))
 
 (defn content-type
   "The Content-Type that the document `name` is put and served with."
@@ -53,32 +56,40 @@
   document `name` when the call takes one, with the `opts` below.
 
   The `call` is one of calls, and the `root` is a URL that ends in a
-  slash. The `opts` give the
-  :credentials, and the :body to put. For a put, they can give
-  :if-version, the version that the document must still have, where nil
-  means that it must not exist yet. Without :if-version, the put has no
-  condition."
+  slash. The `opts` give the :credentials, and the :body to put. For a
+  put, they can give :if-version, the version that the document must
+  still have, where nil means that it must not exist yet. Without
+  :if-version, the put has no condition."
   ([call root]
    (request call root nil {}))
   ([call root name]
    (request call root name {}))
   ([call root name {:keys [credentials body] :as opts}]
    {:pre [(map? opts)]}
-   (let [auth    (http/authorization credentials)
-         headers (cond-> {"User-Agent" http/user-agent} auth (assoc "Authorization" auth))
-         url     (str root (http/percent-encode name))
+   (let [auth        (http/authorization credentials)
+         headers     (cond-> {"User-Agent" http/user-agent}
+                       auth (assoc "Authorization" auth))
+         url         (str root (http/percent-encode name))
+         version     (:if-version opts)
+         listing     (assoc headers
+                            "Depth"        "1"
+                            "Content-Type" "application/xml; charset=utf-8")
+         put-headers (fn []
+                       (let [media (content-type name)]
+                         (cond-> (assoc headers "Content-Type" media)
+                           (contains? opts :if-version)
+                           (assoc (if version "If-Match" "If-None-Match")
+                                  (or version "*")))))
          [method url headers body]
          (case call
-           :list            [:propfind root (assoc headers "Depth" "1" "Content-Type" "application/xml; charset=utf-8") propfind-body]
+           :list            [:propfind root listing propfind-body]
            :fetch           [:get url headers nil]
            :head            [:head url headers nil]
-           :put             [:put url (cond-> (assoc headers "Content-Type" (content-type name))
-                                        (contains? opts :if-version)
-                                        (assoc (if (:if-version opts) "If-Match" "If-None-Match") (or (:if-version opts) "*")))
-                             body]
+           :put             [:put url (put-headers) body]
            :delete          [:delete url headers nil]
            :make-collection [:mkcol root headers nil]
-           (throw (ex-info (str "A call a store does not make: " call) {:call call})))]
+           (throw (ex-info (str "A call a store does not make: " call)
+                           {:call call})))]
      (cond-> {:method method :url url :headers headers}
        (some? body) (assoc :body body)))))
 
@@ -102,13 +113,24 @@
   "The entries of the multistatus `body`, as maps of :href, :etag and
   :collection?."
   [body]
-  (for [r (xml/elements (xml/parse body uri->alias) :d/response)
-        :let [href  (some-> (xml/element r :d/href) xml/text str/trim)
-              props (for [ps (xml/elements r :d/propstat) :let [p (xml/element ps :d/prop)] :when p] p)]
-        :when href]
-    {:href        href
-     :etag        (some #(some-> (xml/element % :d/getetag) xml/text str/trim not-empty) props)
-     :collection? (boolean (some #(some-> (xml/element % :d/resourcetype) (xml/element :d/collection)) props))}))
+  (let [etag        (fn [prop]
+                      (some-> (xml/element prop :d/getetag)
+                              xml/text
+                              str/trim
+                              not-empty))
+        collection? (fn [prop]
+                      (some-> (xml/element prop :d/resourcetype)
+                              (xml/element :d/collection)))]
+    (for [r (xml/elements (xml/parse body uri->alias) :d/response)
+          :let [href  (some-> (xml/element r :d/href) xml/text str/trim)
+                props (for [ps (xml/elements r :d/propstat)
+                            :let [p (xml/element ps :d/prop)]
+                            :when p]
+                        p)]
+          :when href]
+      {:href        href
+       :etag        (some etag props)
+       :collection? (boolean (some collection? props))})))
 
 ;; RFC 4918, sections 9.1.1 (207), 9.3.1 (405 for MKCOL) and 9.7.1 (409
 ;; for a put without its collection)
@@ -126,14 +148,19 @@
 
   Any other status throws ::failed with the :status."
   [call {:keys [status headers body] :as answer}]
-  (let [etag (first (get headers "etag"))
-        fail (fn [] (throw (ex-info (str "The server answered " status " to " (name call))
-                                    {:type ::failed :call call :status status})))]
+  (let [etag    (first (get headers "etag"))
+        fail    (fn []
+                  (throw (ex-info (str "The server answered " status " to "
+                                       (name call))
+                                  {:type ::failed :call call :status status})))
+        folder? #(or (:collection? %) (str/ends-with? (:href %) "/"))
+        listed  (fn [{:keys [href etag]}]
+                  {:name (document-name href) :version etag})]
     (case call
       :list            (case status
                          207 (->> (entries body)
-                                  (remove #(or (:collection? %) (str/ends-with? (:href %) "/")))
-                                  (map (fn [{:keys [href etag]}] {:name (document-name href) :version etag}))
+                                  (remove folder?)
+                                  (map listed)
                                   (sort-by :name)
                                   vec)
                          404 []
@@ -184,26 +211,34 @@
    {:pre [(map? opts)]}
    (let [root  (if (str/ends-with? root "/") root (str root "/"))
          call! (fn [call name params]
-                 (async/then ((or send http/send!)
-                              (cond-> (request call root name (assoc params :credentials credentials))
-                                timeout-seconds (assoc :timeout-seconds timeout-seconds)))
-                             #(response call %)))
+                 (let [params (assoc params :credentials credentials)
+                       asked  (cond-> (request call root name params)
+                                timeout-seconds
+                                (assoc :timeout-seconds timeout-seconds))]
+                   (async/then ((or send http/send!) asked)
+                               #(response call %))))
          put!  (fn put! [name body params made?]
-                 (async/then (call! :put name (assoc params :body body))
-                             (fn [result]
-                               (cond
-                                 (and (:missing-collection? result) (not made?))
-                                 (async/then (call! :make-collection nil {})
-                                             (fn [_] (put! name body params true)))
+                 (async/then
+                  (call! :put name (assoc params :body body))
+                  (fn [result]
+                    (cond
+                      (and (:missing-collection? result) (not made?))
+                      (async/then (call! :make-collection nil {})
+                                  (fn [_] (put! name body params true)))
 
-                                 (:missing-collection? result)
-                                 (throw (ex-info (str "The collection is not there, and making it did not help: " root)
-                                                 {:type ::failed :call :put :status 409}))
+                      (:missing-collection? result)
+                      (throw (ex-info (str "The collection is not there, and "
+                                           "making it did not help: " root)
+                                      {:type   ::failed
+                                       :call   :put
+                                       :status 409}))
 
-                                 (and (not (:conflict? result)) (nil? (:version result)))
-                                 (call! :head name {})
+                      (and (not (:conflict? result))
+                           (nil? (:version result)))
+                      (call! :head name {})
 
-                                 :else result))))]
+                      :else
+                      result))))]
      {:name   (or name (host root) "WebDAV")
       :fetch  (fn [name] (call! :fetch name {}))
       :put    (fn [name body params] (put! name body params false))
@@ -222,8 +257,10 @@
    (backend root {}))
   ([root opts]
    {:pre [(map? opts)]}
-   (store/backend (store root (select-keys opts [:credentials :name :send :timeout-seconds]))
-                  (select-keys opts [:opml? :app :direction :strategy :document :name]))))
+   (store/backend (store root (select-keys opts [:credentials :name :send
+                                                 :timeout-seconds]))
+                  (select-keys opts [:opml? :app :direction :strategy
+                                     :document :name]))))
 
 #?(:clj
    (comment

@@ -31,7 +31,9 @@
   []
   #?(:clj  (str (random-uuid))
      ;; random-uuid asks Math.random there
-     :cljs (if (exists? js/crypto) (.randomUUID js/crypto) (str (random-uuid)))))
+     :cljs (if (exists? js/crypto)
+             (.randomUUID js/crypto)
+             (str (random-uuid)))))
 
 (defn ^:no-doc live
   "The `sessions` that still last at the instant `at`, by id."
@@ -48,11 +50,12 @@
   [{:keys [book who session at] :as ctx}]
   (let [lasting (live (:sessions book) at)
         id      (if (= who (:user (get lasting session))) session (new-session))
-        until   (+ (inst-ms at) (* 1000 session-seconds))]
+        until   (+ (inst-ms at) (* 1000 session-seconds))
+        entry   {:user who :until until}]
     {:status  200
      :body    ""
      :headers {"Set-Cookie" (str "sessionid=" id "; Path=/; HttpOnly")}
-     :book    (assoc book :sessions (assoc lasting id {:user who :until until}))}))
+     :book    (assoc book :sessions (assoc lasting id entry))}))
 
 (defn- logout
   "The answer to a logout in the call context `ctx`, which ends the
@@ -65,22 +68,29 @@
   context `ctx`, each with the number of the listener's subscriptions,
   since they share one list."
   [{:keys [book state] :as ctx}]
-  (let [n (count (profile/subscriptions state))]
+  (let [n      (count (profile/subscriptions state))
+        listed (fn [[id {:keys [caption type]}]]
+                 {"id"            id
+                  "caption"       (or caption id)
+                  "type"          (or type "other")
+                  "subscriptions" n})]
     {:status 200
-     :body   (vec (for [[id {:keys [caption type]}] (sort-by key (:devices book))]
-                    {"id" id "caption" (or caption id) "type" (or type "other") "subscriptions" n}))}))
+     :body   (mapv listed (sort-by key (:devices book)))}))
 
 (defn- register
   "The answer that registers the device of the call context `ctx` in its
   book, with the caption and type of the JSON body."
   [{:keys [book device json] :as ctx}]
-  (let [{:strs [caption type]} (when (map? json) json)]
-    (if (and type (not (#{"desktop" "laptop" "mobile" "server" "tablet" "other"} type)))
+  (let [{:strs [caption type]} (when (map? json) json)
+        types #{"desktop" "laptop" "mobile" "server" "tablet" "other"}]
+    (if (and type (not (types type)))
       {:status 400 :body "Unknown device type"}
       {:status 200
        :body   ""
        :book   (update-in book [:devices device] merge
-                          (cond-> {} (string? caption) (assoc :caption caption) type (assoc :type type)))})))
+                          (cond-> {}
+                            (string? caption) (assoc :caption caption)
+                            type              (assoc :type type)))})))
 
 (defn- subscriptions
   "The answer with the feeds added to and removed from the subscriptions
@@ -93,15 +103,20 @@
   [{:keys [state book device since-ms seconds] :as ctx}]
   (if-not since-ms
     {:status 400 :body "The parameter since is missing or not a number"}
-    (let [public #(first (http/split-credentials (:url %)))
-          known  (filter (comp http/web-url? :url val) (:subscriptions state))
-          urls   (fn [pred]
-                   (distinct (for [[g e] known
-                                   :when (and (pred e)
-                                              (>= (second (get-in book [:index [:subscriptions g]] [0 0])) since-ms))]
-                               (public e))))
-          live?  (into #{} (comp (map val) (remove :removed?) (map (comp profile/normal-url public))) known)
-          gone   (remove (comp live? profile/normal-url) (urls :removed?))]
+    (let [public  #(first (http/split-credentials (:url %)))
+          known   (filter (comp http/web-url? :url val) (:subscriptions state))
+          arrived #(second (get-in book [:index [:subscriptions %]] [0 0]))
+          urls    (fn [pred]
+                    (distinct (for [[g e] known
+                                    :when (and (pred e)
+                                               (>= (arrived g) since-ms))]
+                                (public e))))
+          live?   (into #{}
+                        (comp (map val)
+                              (remove :removed?)
+                              (map (comp profile/normal-url public)))
+                        known)
+          gone    (remove (comp live? profile/normal-url) (urls :removed?))]
       {:status 200
        :body   {"add"       (vec (urls (complement :removed?)))
                 "remove"    (if (zero? since-ms) [] (vec gone))
@@ -119,15 +134,18 @@
         urls? #(or (nil? %) (and (sequential? %) (every? string? %)))]
     (cond
       (not (and (map? json) (urls? add) (urls? remove)))
-      {:status 400 :body "The body is not {\"add\": [url …], \"remove\": [url …]}"}
+      {:status 400
+       :body   "The body is not {\"add\": [url …], \"remove\": [url …]}"}
 
       (some (set add) remove)
-      {:status 400 :body "The same URL cannot be added and removed at the same time"}
+      {:status 400
+       :body   "The same URL cannot be added and removed at the same time"}
 
       :else
       {:status 200
        :body   {"timestamp" seconds "update_urls" []}
-       :state  (gpodder/apply-subscriptions state {:add add :remove remove} names device at)
+       :state  (gpodder/apply-subscriptions state {:add add :remove remove}
+                                            names device at)
        :book   (update-in book [:devices device] #(or % {}))})))
 
 (defn- episode-actions
@@ -139,19 +157,27 @@
   that the names give, and the parameters can ask for one podcast and one
   device."
   [{:keys [state book names since-ms params seconds] :as ctx}]
-  (let [{:strs [podcast device]} params]
+  (let [{:strs [podcast device]} params
+        arrived #(second (get-in book [:index [:episodes %]] [0 0]))
+        urls-of (fn [[g _ :as id]]
+                  (let [[p m] (get-in book [:urls id])]
+                    [(or p (some-> ((:feed-url names) g)
+                                   http/split-credentials
+                                   first))
+                     (or m ((:episode-url names) id))]))
+        actions (for [[id e] (profile/episode-entries state)
+                      :let  [by (gpodder/device-of (:device e))]
+                      :when (and (>= (arrived id) (or since-ms 0))
+                                 (or (nil? device) (= device by)))
+                      :let  [[p m] (urls-of id)]
+                      :when (and (http/web-url? p)
+                                 (http/web-url? m)
+                                 (or (nil? podcast) (= podcast p)))
+                      :let  [a (gpodder/entry-action id e p m by)]
+                      :when a]
+                  a)]
     {:status 200
-     :body   {"actions"   (vec (for [[[g _ :as id] e] (profile/episode-entries state)
-                                     :let  [by (gpodder/device-of (:device e))]
-                                     :when (and (>= (second (get-in book [:index [:episodes id]] [0 0])) (or since-ms 0))
-                                                (or (nil? device) (= device by)))
-                                     :let  [[p m] (get-in book [:urls id])
-                                            p     (or p (some-> ((:feed-url names) g) http/split-credentials first))
-                                            m     (or m ((:episode-url names) id))]
-                                     :when (and (http/web-url? p) (http/web-url? m) (or (nil? podcast) (= podcast p)))
-                                     :let  [a (gpodder/entry-action id e p m by)]
-                                     :when a]
-                                 a))
+     :body   {"actions"   (vec actions)
               "timestamp" seconds}}))
 
 (defn- apply-episode-actions
@@ -161,39 +187,49 @@
   Only the actions later than what the state has change it, and the book
   keeps the URLs that each action named its episode by. An action without
   a time counts as made when it arrived, and so does an action that names
-  a later time. An action with a time that doesn't read
-  tells nothing of when it was made, so it's left out. An episode that the
-  names don't know is named as podcast-clj names an episode that it knows
-  nothing more of."
+  a later time. An action with a time that doesn't read tells nothing of
+  when it was made, so it's left out. An episode that the names don't
+  know is named as podcast-clj names an episode that it knows nothing
+  more of."
   [{:keys [state book names json at seconds] :as ctx}]
   (if-not (and (sequential? json) (every? map? json))
     {:status 400 :body "The body is not a list of episode actions"}
     (let [arrived (fn [t] (if (and t (< (inst-ms t) (inst-ms at))) t at))
           timed?  (fn [raw a] (or (:timestamp a) (nil? (get raw "timestamp"))))
+          linked? #(and (http/web-url? (:podcast %))
+                        (http/web-url? (:episode %)))
           actions (->> json
                        (keep (fn [raw]
                                (let [a (gpodder/read-action raw)]
                                  (when (timed? raw a) a))))
-                       (filter #(and (http/web-url? (:podcast %)) (http/web-url? (:episode %))))
+                       (filter linked?)
                        (map #(update % :timestamp arrived))
                        (sort-by (comp inst-ms :timestamp)))
           id-of   (fn [{:keys [podcast episode guid]}]
                     (or ((:episode-id names) podcast episode guid)
-                        [((:feed-guid names) podcast) (or guid episode)]))]
+                        [((:feed-guid names) podcast) (or guid episode)]))
+          step    #(gpodder/apply-action %1 (id-of %2) %2 "app")
+          urls    (juxt id-of (juxt :podcast :episode))]
       {:status 200
        :body   {"timestamp" seconds "update_urls" []}
-       :state  (reduce #(gpodder/apply-action %1 (id-of %2) %2 "app") state actions)
-       :book   (update book :urls into (map (juxt id-of (juxt :podcast :episode))) actions)})))
+       :state  (reduce step state actions)
+       :book   (update book :urls into (map urls) actions)})))
 
 (def ^:no-doc routes
   "The paths that the server answers: the pattern, the names of its parts,
   and the function that answers each method."
-  [[#"/api/2/auth/([^/]+)/login\.json"            [:user]         {:post login}]
-   [#"/api/2/auth/([^/]+)/logout\.json"           [:user]         {:post logout}]
-   [#"/api/2/devices/([^/]+)\.json"               [:user]         {:get devices}]
-   [#"/api/2/devices/([^/]+)/([^/]+)\.json"       [:user :device] {:post register :put register}]
-   [#"/api/2/subscriptions/([^/]+)/([^/]+)\.json" [:user :device] {:get subscriptions :post change-subscriptions}]
-   [#"/api/2/episodes/([^/]+)\.json"              [:user]         {:get episode-actions :post apply-episode-actions}]])
+  [[#"/api/2/auth/([^/]+)/login\.json" [:user]
+    {:post login}]
+   [#"/api/2/auth/([^/]+)/logout\.json" [:user]
+    {:post logout}]
+   [#"/api/2/devices/([^/]+)\.json" [:user]
+    {:get devices}]
+   [#"/api/2/devices/([^/]+)/([^/]+)\.json" [:user :device]
+    {:post register :put register}]
+   [#"/api/2/subscriptions/([^/]+)/([^/]+)\.json" [:user :device]
+    {:get subscriptions :post change-subscriptions}]
+   [#"/api/2/episodes/([^/]+)\.json" [:user]
+    {:get episode-actions :post apply-episode-actions}]])
 
 (defn- route
   "The decoded :parts of `path` and the :methods that answer it, from
@@ -201,13 +237,14 @@
   [path]
   (some (fn [[pattern names methods]]
           (when-let [[_ & parts] (re-matches pattern (str path))]
-            {:parts (zipmap names (map http/percent-decode parts)) :methods methods}))
+            {:parts   (zipmap names (map http/percent-decode parts))
+             :methods methods}))
         routes))
 
 (defn ^:no-doc put!
   "Put the state `s`, made from the state `from` of the atom `state`, in
-  the atom. When the app changed the atom in between, `s` is
-  merged with what the atom holds, so that nothing is lost."
+  the atom. When the app changed the atom in between, `s` is merged with
+  what the atom holds, so that nothing is lost."
   [state from s]
   (swap! state #(if (identical? % from) s (profile/merge s %))))
 
@@ -217,7 +254,9 @@
   ([status body]
    (ring status body nil))
   ([status body more]
-   (let [type (if (string? body) "text/plain; charset=utf-8" "application/json; charset=utf-8")]
+   (let [type (if (string? body)
+                "text/plain; charset=utf-8"
+                "application/json; charset=utf-8")]
      {:status  status
       :headers (merge {"Content-Type" type} more)
       :body    (if (string? body) body (json/write-str body))})))
@@ -229,11 +268,18 @@
   The user is that of the session that its cookie names, or else that of
   its Basic credentials, when the server lets them in."
   [{:keys [book authorized?] :as env} headers at]
-  (let [session (some->> (get headers "cookie") (re-find #"(?:^|;)\s*sessionid=([^;\s]+)") second)]
+  (let [session (some->> (get headers "cookie")
+                         (re-find #"(?:^|;)\s*sessionid=([^;\s]+)")
+                         second)
+        basic   (fn []
+                  (when-let [{:keys [username password]}
+                             (http/credentials (get headers "authorization"))]
+                    (when (and username
+                               (authorized? username (secret/reveal password)))
+                      username)))]
     {:session session
      :who     (or (:user (get (live (:sessions @book) at) session))
-                  (when-let [{:keys [username password]} (http/credentials (get headers "authorization"))]
-                    (when (and username (authorized? username (secret/reveal password))) username)))}))
+                  (basic))}))
 
 (defn- call
   "The context of a call of routes for `request`, which came at `at`, over
@@ -249,7 +295,10 @@
      :at       at
      :seconds  (quot (inst-ms at) 1000)
      :params   params
-     :since-ms (some->> (get params "since") (re-matches #"\d{1,12}") parse-long (* 1000))
+     :since-ms (some->> (get params "since")
+                        (re-matches #"\d{1,12}")
+                        parse-long
+                        (* 1000))
      :json     (some-> (http/body-text (:body request) max-bytes) json/parse)}))
 
 (defn- answer!
@@ -271,19 +320,29 @@
   "The Ring response of the server `env` to `request`: the call that its
   path and method name, answered for the user who logged in."
   [{:keys [now] :as env} request]
-  (let [headers                 (update-keys (:headers request) (comp str/lower-case name))
+  (let [lower                   (comp str/lower-case name)
+        headers                 (update-keys (:headers request) lower)
         {:keys [parts methods]} (route (or (:path-info request) (:uri request)))
         answer                  (get methods (:request-method request))
         at                      (now)
         {:keys [who] :as from}  (asker env headers at)]
     (cond
-      (nil? methods) (ring 404 "Not Found")
+      (nil? methods)
+      (ring 404 "Not Found")
+
       ;; the challenge that gPodder waits for before it sends its credentials
-      (nil? who)     (ring 401 "Unauthorized" {"WWW-Authenticate" "Basic realm=\"podcast-clj\""})
+      (nil? who)
+      (ring 401 "Unauthorized"
+            {"WWW-Authenticate" "Basic realm=\"podcast-clj\""})
+
       (not= (str/lower-case who) (str/lower-case (:user parts)))
       (ring 400 "The user in the path is not the one who logged in")
-      (nil? answer)  (ring 405 "Method Not Allowed")
-      :else          (answer! env request answer (merge parts from) at))))
+
+      (nil? answer)
+      (ring 405 "Method Not Allowed")
+
+      :else
+      (answer! env request answer (merge parts from) at))))
 
 (defn- arrived
   "The `index` of when each entry of the subscriptions and episodes of
@@ -292,14 +351,17 @@
 
   The index maps [collection key] to [stamp arrived], in milliseconds."
   [index state at-ms]
-  (reduce (fn [index [k id e]]
-            (let [stamp (some-> (:updated-at e) inst-ms)]
-              (cond-> index
-                (not= stamp (first (get index [k id]))) (assoc [k id] [stamp at-ms]))))
-          index
-          (for [[k entries] [[:subscriptions (:subscriptions state)] [:episodes (profile/episode-entries state)]]
-                [id e]      entries]
-            [k id e])))
+  (let [collections [[:subscriptions (:subscriptions state)]
+                     [:episodes (profile/episode-entries state)]]
+        stamped     (for [[k entries] collections
+                          [id e]      entries]
+                      [k id e])
+        note        (fn [index [k id e]]
+                      (let [stamp (some-> (:updated-at e) inst-ms)]
+                        (cond-> index
+                          (not= stamp (first (get index [k id])))
+                          (assoc [k id] [stamp at-ms]))))]
+    (reduce note index stamped)))
 
 (defn handler
   "A Ring handler that serves the gpodder API over the profile in the
@@ -338,39 +400,49 @@
   since it holds the sessions and the times that the changes arrived."
   [{:keys [state authorized?] sync! :sync :as opts}]
   (when-not (and (some? state) (fn? authorized?))
-    (throw (ex-info "A handler needs the :state and the function :authorized?" {})))
+    (throw (ex-info "A handler needs the :state and the function :authorized?"
+                    {})))
   ;; TODO: keep the arrival times, the sessions and the devices in the store,
   ;; so that they outlive a restart
-  (let [book (atom {:index {} :sessions {} :devices {} :urls {}})
-        env  (merge {:now       time/now
-                     :max-bytes (* 10 1024 1024)}
-                    opts
-                    {:book    book
-                     :settle! (fn [at]
-                                (when sync!
-                                  (let [from @state]
-                                    (put! state from (sync! from))))
-                                (let [settled @state]
-                                  (swap! book update :index arrived settled (inst-ms at))
-                                  settled))})
-        one  #?(:clj  (let [lock (ReentrantLock.)]
-                        (fn [f] (.lock lock) (try (f) (finally (.unlock lock)))))
-                :cljs (fn [f] (f)))]
+  (let [book    (atom {:index {} :sessions {} :devices {} :urls {}})
+        settle! (fn [at]
+                  (when sync!
+                    (let [from @state]
+                      (put! state from (sync! from))))
+                  (let [settled @state]
+                    (swap! book update :index arrived settled (inst-ms at))
+                    settled))
+        env     (merge {:now       time/now
+                        :max-bytes (* 10 1024 1024)}
+                       opts
+                       {:book book :settle! settle!})
+        one     #?(:clj  (let [lock (ReentrantLock.)]
+                           (fn [f]
+                             (.lock lock)
+                             (try
+                               (f)
+                               (finally
+                                 (.unlock lock)))))
+                   :cljs (fn [f] (f)))]
     (fn [request]
       (one #(respond env request)))))
 
 (comment
   (route "/api/2/subscriptions/ann/phone.json")
   (http/credentials "Basic YW5uOnNlY3JldA==")
-  (http/query-params "since=1727000000&podcast=https%3A%2F%2Fexample.org%2Ffeed.xml")
+  (http/query-params
+   "since=1727000000&podcast=https%3A%2F%2Fexample.org%2Ffeed.xml")
 
   ;; a server over a state with one subscription, and a request of an app
   (def serve
-    (handler {:state       (atom (profile/subscribe (profile/make "gpodder-server")
-                                                    "feed-a"
-                                                    {:url "https://example.org/feed.xml" :title "A show"}
-                                                    #inst "2026-09-29T12:00:00Z"))
-              :authorized? (fn [user password] (= ["ann" "secret"] [user password]))}))
+    (handler {:state       (atom (profile/subscribe
+                                  (profile/make "gpodder-server")
+                                  "feed-a"
+                                  {:url   "https://example.org/feed.xml"
+                                   :title "A show"}
+                                  #inst "2026-09-29T12:00:00Z"))
+              :authorized? (fn [user password]
+                             (= ["ann" "secret"] [user password]))}))
 
   (serve {:request-method :get
           :uri            "/api/2/subscriptions/ann/phone.json"

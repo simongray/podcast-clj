@@ -5,7 +5,7 @@
 
       {:fetch  (fn [name])            ; {:body \"…\" :version \"…\"}, or nil
        :put    (fn [name body opts])  ; {:version \"…\"}, or {:conflict? true}
-       :list   (fn [])                ; [{:name \"…\" :version \"…\"} …], optional
+       :list   (fn [])                ; [{:name \"…\" :version \"…\"}], optional
        :delete (fn [name])            ; optional
        :name   \"Nextcloud\"}           ; for the UI and the report
 
@@ -42,23 +42,31 @@
   ([]
    (memory (atom {})))
   ([documents]
-   {:name   "memory"
-    :fetch  (fn [name] (get @documents name))
-    :put    (fn [name body opts]
-              ;; the version checked and the document written in one swap,
-              ;; so that of two puts on the same version only one succeeds
-              (let [[before after] (swap-vals! documents
-                                               (fn [docs]
-                                                 (let [current (:version (get docs name))]
-                                                   (if (and (contains? opts :if-version) (not= (:if-version opts) current))
-                                                     docs
-                                                     (assoc docs name {:body    body
-                                                                       :version (str (inc (or (some-> current parse-long) 0)))})))))]
-                (if (identical? before after)
-                  {:conflict? true}
-                  {:version (:version (get after name))})))
-    :list   (fn [] (vec (sort-by :name (for [[name {:keys [version]}] @documents] {:name name :version version}))))
-    :delete (fn [name] (swap! documents dissoc name) nil)}))
+   (let [written (fn [docs name body opts]
+                   (let [current (:version (get docs name))
+                         stale?  (and (contains? opts :if-version)
+                                      (not= (:if-version opts) current))]
+                     (if stale?
+                       docs
+                       (let [n (or (some-> current parse-long) 0)]
+                         (assoc docs name {:body    body
+                                           :version (str (inc n))})))))]
+     {:name   "memory"
+      :fetch  (fn [name] (get @documents name))
+      :put    (fn [name body opts]
+                ;; the version checked and the document written in one swap,
+                ;; so that of two puts on the same version only one succeeds
+                (let [[before after] (swap-vals! documents
+                                                 written name body opts)]
+                  (if (identical? before after)
+                    {:conflict? true}
+                    {:version (:version (get after name))})))
+      :list   (fn []
+                (vec (sort-by :name (for [[name {:keys [version]}] @documents]
+                                      {:name name :version version}))))
+      :delete (fn [name]
+                (swap! documents dissoc name)
+                nil)})))
 
 (defn- describe
   [diagnostic]
@@ -83,27 +91,45 @@
   document changed under it, and when the document is gone from the store,
   the push writes it again."
   [{:keys [list fetch] :as store} state {:keys [versions] :as cursor} at]
-  (async/then (list)
-              (fn [listing]
-                (let [own       (document-name (:device state))
-                      documents (filter #(str/ends-with? (:name %) ".edn") listing)
-                      stale     (remove #(and (some? (:version %)) (= (:version %) (get versions (:name %)))) documents)
-                      gone?     (and (contains? versions own) (not-any? #(= own (:name %)) documents))]
-                  (async/then (async/all (map (fn [{:keys [name]}]
-                                                (async/attempt #(async/then (fetch name) (fn [doc] (some-> doc (assoc :name name))))))
-                                              stale))
-                              (fn [results]
-                                (when-let [error (some :error results)]
-                                  (throw error))
-                                (let [fetched (keep :value results)
-                                      {:keys [states report]} (sync/read-documents fetched at)]
-                                  {:states states
-                                   :cursor (cond-> (assoc cursor :versions (-> (into {} (map (juxt :name :version)) documents)
-                                                                               (into (map (juxt :name :version)) fetched)))
-                                             gone? (dissoc :hash))
-                                   :report (cond-> report
-                                             (and (contains? versions own) (some #(and (= own (:name %)) (some? (:version %))) stale))
-                                             (conj (describe {:id :sync/shared-device :name own :device (:device state)})))})))))))
+  (async/then
+   (list)
+   (fn [listing]
+     (let [own       (document-name (:device state))
+           own?      #(= own (:name %))
+           edn?      #(str/ends-with? (:name %) ".edn")
+           seen?     #(and (some? (:version %))
+                           (= (:version %) (get versions (:name %))))
+           documents (filter edn? listing)
+           stale     (remove seen? documents)
+           known?    (contains? versions own)
+           gone?     (and known?
+                          (not-any? own? documents))
+           named     (fn [name doc]
+                       (some-> doc (assoc :name name)))
+           fetch!    (fn [{:keys [name]}]
+                       (async/attempt
+                        #(async/then (fetch name) (partial named name))))]
+       (async/then
+        (async/all (map fetch! stale))
+        (fn [results]
+          (when-let [error (some :error results)]
+            (throw error))
+          (let [fetched  (keep :value results)
+                {:keys [states report]} (sync/read-documents fetched at)
+                version  (juxt :name :version)
+                listed   (-> (into {} (map version) documents)
+                             (into (map version) fetched))
+                changed? (and known?
+                              (some #(and (own? %) (some? (:version %)))
+                                    stale))
+                shared   {:id     :sync/shared-device
+                          :name   own
+                          :device (:device state)}]
+            {:states states
+             :cursor (cond-> (assoc cursor :versions listed)
+                       gone? (dissoc :hash))
+             :report (cond-> report
+                       changed? (conj (describe shared)))})))))))
 
 (defn- mirror-opml
   "Put the subscription list of `state` beside the documents of `store`,
@@ -127,18 +153,24 @@
   It writes this device's document when the state changed since the
   cursor, and deletes the documents of retired devices."
   [{:keys [put delete] :as store} opts state {:keys [versions] :as cursor} at]
-  (let [own     (document-name (:device state))
-        written (hash state)
-        retired (filter #(contains? versions (document-name %)) (keys (:retired state)))]
-    (async/then (when (not= written (:hash cursor))
-                  (put own (sync/document state at (select-keys opts [:app])) {}))
-                (fn [result]
-                  (async/then (async/all (when delete (map #(delete (document-name %)) retired)))
-                              (fn [_]
-                                {:cursor (cond-> (assoc cursor
-                                                        :hash written
-                                                        :versions (reduce dissoc versions (map document-name retired)))
-                                           result (assoc-in [:versions own] (:version result)))}))))))
+  (let [own      (document-name (:device state))
+        written  (hash state)
+        listed?  #(contains? versions (document-name %))
+        retired  (filter listed? (keys (:retired state)))
+        delete!  #(delete (document-name %))
+        app      (select-keys opts [:app])]
+    (async/then
+     (when (not= written (:hash cursor))
+       (put own (sync/document state at app) {}))
+     (fn [result]
+       (async/then
+        (async/all (when delete
+                     (map delete! retired)))
+        (fn [_]
+          (let [left (reduce dissoc versions (map document-name retired))]
+            {:cursor (cond-> (assoc cursor :hash written :versions left)
+                       result
+                       (assoc-in [:versions own] (:version result)))})))))))
 
 (defn- pull-shared
   "The shared pull from `store`: the document `name`, read at `at`, when
@@ -152,13 +184,16 @@
               (fn [doc]
                 (cond
                   (nil? doc)
-                  {:states [] :cursor (cond-> cursor version (dissoc :version :hash)) :report []}
+                  {:states []
+                   :cursor (cond-> cursor version (dissoc :version :hash))
+                   :report []}
 
                   (= version (:version doc))
                   {:states [] :cursor cursor :report []}
 
                   :else
-                  (let [{:keys [states report]} (sync/read-documents [(assoc doc :name name)] at)
+                  (let [named  [(assoc doc :name name)]
+                        {:keys [states report]} (sync/read-documents named at)
                         newer? (some #(= :sync/newer-format (:id %)) report)]
                     {:states states
                      :cursor (cond-> (assoc cursor :version (:version doc))
@@ -176,24 +211,39 @@
   lose what this library can't read."
   [{:keys [fetch put] :as store} name opts state cursor at]
   (letfn [(put-conditionally [state {:keys [version] :as cursor} attempts]
-            (async/then (put name (sync/document state at (select-keys opts [:app])) {:if-version version})
-                        (fn [{:keys [conflict?] :as result}]
-                          (cond
-                            (not conflict?)  {:cursor (assoc cursor :version (:version result) :hash (hash state))}
-                            (zero? attempts) {:cursor cursor :report [(describe {:id :sync/conflict :name name})]}
-                            :else            (merge-and-retry state cursor attempts)))))
+            (let [document (sync/document state at (select-keys opts [:app]))]
+              (async/then
+               (put name document {:if-version version})
+               (fn [{:keys [conflict?] :as result}]
+                 (cond
+                   (not conflict?)
+                   {:cursor (assoc cursor
+                                   :version (:version result)
+                                   :hash    (hash state))}
+
+                   (zero? attempts)
+                   {:cursor cursor
+                    :report [(describe {:id :sync/conflict :name name})]}
+
+                   :else
+                   (merge-and-retry state cursor attempts))))))
           (merge-and-retry [state cursor attempts]
-            (async/then (fetch name)
-                        (fn [doc]
-                          (let [{:keys [states report]} (sync/read-documents (when doc [(assoc doc :name name)]) at)
-                                merged (reduce profile/merge state states)]
-                            (if (some #(= :sync/newer-format (:id %)) report)
-                              {:cursor (assoc cursor :version (:version doc) :newer? true) :report report}
-                              (async/then (put-conditionally merged (assoc cursor :version (:version doc)) (dec attempts))
-                                          (fn [next]
-                                            (-> next
-                                                (assoc :state merged)
-                                                (update :report #(into (vec report) %))))))))))]
+            (async/then
+             (fetch name)
+             (fn [doc]
+               (let [named  (when doc [(assoc doc :name name)])
+                     {:keys [states report]} (sync/read-documents named at)
+                     merged (reduce profile/merge state states)
+                     newer? (some #(= :sync/newer-format (:id %)) report)
+                     cursor (assoc cursor :version (:version doc))]
+                 (if newer?
+                   {:cursor (assoc cursor :newer? true) :report report}
+                   (async/then
+                    (put-conditionally merged cursor (dec attempts))
+                    (fn [retried]
+                      (-> retried
+                          (assoc :state merged)
+                          (update :report #(into (vec report) %))))))))))]
     (if (or (:newer? cursor) (= (hash state) (:hash cursor)))
       {:cursor cursor}
       (put-conditionally state cursor 3))))
@@ -224,27 +274,47 @@
   (cond
     (refused? answer)
     [(check :store/reachable true "The store answered.")
-     (check :store/authenticated false (str "The credentials were refused: " (async/explain (:error answer))))]
+     (check :store/authenticated false
+            (str "The credentials were refused: "
+                 (async/explain (:error answer))))]
 
     (:error answer)
-    [(check :store/reachable false (str "The store could not be reached: " (async/explain (:error answer))))]
+    [(check :store/reachable false
+            (str "The store could not be reached: "
+                 (async/explain (:error answer))))]
 
     :else
     [(check :store/reachable true "The store answered.")
      (check :store/authenticated true "The credentials were accepted.")
      (if lists?
-       (let [n (count (:value answer))]
-         (check :store/listing true (str "The store holds " n " document" (when (not= 1 n) "s") ".")))
-       (check :store/listing false "The store cannot list its documents, so it holds one shared document."))]))
+       (let [n      (count (:value answer))
+             plural (when (not= 1 n) "s")]
+         (check :store/listing true
+                (str "The store holds " n " document" plural ".")))
+       (check :store/listing false
+              (str "The store cannot list its documents, so it holds one "
+                   "shared document.")))]))
 
 (defn- writing
   "The check that the answer `put` to the put of the probe gives."
   [put]
   (cond
-    (refused? put)                 (check :store/put false (str "The credentials allow reading but not writing: " (async/explain (:error put))))
-    (:error put)                   (check :store/put false (str "A document could not be written: " (async/explain (:error put))))
-    (nil? (:version (:value put))) (check :store/put false "A document was written but the store gave it no version.")
-    :else                          (check :store/put true "A document can be written and gets a version.")))
+    (refused? put)
+    (check :store/put false
+           (str "The credentials allow reading but not writing: "
+                (async/explain (:error put))))
+
+    (:error put)
+    (check :store/put false
+           (str "A document could not be written: "
+                (async/explain (:error put))))
+
+    (nil? (:version (:value put)))
+    (check :store/put false
+           "A document was written but the store gave it no version.")
+
+    :else
+    (check :store/put true "A document can be written and gets a version.")))
 
 (defn- refusing-stale-versions
   "The check that the answers `stale` and `taken` give, to puts of the
@@ -256,13 +326,25 @@
   needs it for its one shared document."
   [stale taken shared?]
   (let [refuses? (every? (comp :conflict? :value) [stale taken])
-        missed   (if (:conflict? (:value stale)) "a put that expects no document" "a stale version")]
+        missed   (if (:conflict? (:value stale))
+                   "a put that expects no document"
+                   "a stale version")]
     (check :store/conflicts refuses?
            (cond
-             (and refuses? shared?) "Stale writes are refused, so one shared document is safe."
-             refuses?               "Stale writes are refused, so one shared document would be safe too."
-             shared?                (str "The store does not refuse " missed ", so one shared document can lose writes.")
-             :else                  (str "The store does not refuse " missed "; keep one document per device, which is the default.")))))
+             (and refuses? shared?)
+             "Stale writes are refused, so one shared document is safe."
+
+             refuses?
+             (str "Stale writes are refused, so one shared document would "
+                  "be safe too.")
+
+             shared?
+             (str "The store does not refuse " missed
+                  ", so one shared document can lose writes.")
+
+             :else
+             (str "The store does not refuse " missed
+                  "; keep one document per device, which is the default.")))))
 
 (defn- reading-back
   "The check that the fetch of the probe in `answers` gives. It expects the
@@ -272,10 +354,18 @@
         written (some (comp :version :value) [taken stale put])]
     (check :store/fetch (and (= "probe" body) (= version written))
            (cond
-             (:error fetched)       (str "The document could not be read back: " (async/explain (:error fetched)))
-             (not= "probe" body)    "The document read back is not what was written."
-             (not= version written) "The document read back has another version than the one written."
-             :else                  "A document reads back as written, with its version."))))
+             (:error fetched)
+             (str "The document could not be read back: "
+                  (async/explain (:error fetched)))
+
+             (not= "probe" body)
+             "The document read back is not what was written."
+
+             (not= version written)
+             "The document read back has another version than the one written."
+
+             :else
+             "A document reads back as written, with its version."))))
 
 (defn- deleting
   "The check that the delete of the probe in `answers` gives, with the
@@ -283,34 +373,56 @@
   [{:keys [delete gone] :as answers}]
   (check :store/delete (and (not (:error delete)) (nil? (:value gone)))
          (cond
-           (:error delete)       (str "The probe document could not be deleted: " (async/explain (:error delete)) "; remove " probe-name " by hand.")
-           (some? (:value gone)) (str "The probe document is still there after deleting it; remove " probe-name " by hand.")
-           :else                 "A document can be deleted.")))
+           (:error delete)
+           (str "The probe document could not be deleted: "
+                (async/explain (:error delete))
+                "; remove " probe-name " by hand.")
+
+           (some? (:value gone))
+           (str "The probe document is still there after deleting it; remove "
+                probe-name " by hand.")
+
+           :else
+           "A document can be deleted.")))
 
 (defn- assess
   "The checks from the `answers` of the probe, by step, for a store that
   `lists?` and `deletes?`, or not."
-  [{:keys [listing put stale taken fetched delete] :as answers} lists? deletes?]
-  (cond-> (reachability listing lists?)
-    put                          (conj (writing put))
-    stale                        (conj (refusing-stale-versions stale taken (not lists?)))
-    fetched                      (conj (reading-back answers))
-    delete                       (conj (deleting answers))
-    (and fetched (not deletes?)) (conj (check :store/delete false (str "The store cannot delete documents; remove " probe-name " by hand.")))))
+  [{:keys [listing put stale taken fetched delete] :as answers}
+   lists? deletes?]
+  (let [kept (str "The store cannot delete documents; remove " probe-name
+                  " by hand.")]
+    (cond-> (reachability listing lists?)
+      put
+      (conj (writing put))
+
+      stale
+      (conj (refusing-stale-versions stale taken (not lists?)))
+
+      fetched
+      (conj (reading-back answers))
+
+      delete
+      (conj (deleting answers))
+
+      (and fetched (not deletes?))
+      (conj (check :store/delete false kept)))))
 
 (defn- probe
   "The answers to the probe `steps`, pairs of a key and a thunk, by key,
   each with a :value or an :error. The steps run in order, and none runs
   after a listing or a put that failed."
   [steps]
-  (reduce (fn [answers [k f]]
-            (async/then answers
-                        (fn [answers]
-                          (if (some (comp :error answers) [:listing :put])
-                            answers
-                            (async/then (async/attempt f) #(assoc answers k %))))))
-          {}
-          steps))
+  (let [failed? (fn [answers]
+                  (some (comp :error answers) [:listing :put]))
+        step    (fn [answers [k f]]
+                  (async/then answers
+                              (fn [answers]
+                                (if (failed? answers)
+                                  answers
+                                  (async/then (async/attempt f)
+                                              #(assoc answers k %))))))]
+    (reduce step {} steps)))
 
 (defn check!
   "Try `store` through its contract, e.g. from a button in the settings,
@@ -334,20 +446,24 @@
   store's errors tell refused credentials apart from other failures when
   they have a :status, as those of the WebDAV store do."
   [{:keys [fetch put list delete] :as store}]
-  (async/then (probe (cond-> [[:listing (or list #(fetch probe-name))]
-                              [:put     #(put probe-name "probe" {})]
-                              [:stale   #(put probe-name "probe" {:if-version "\"no-such-version\""})]
-                              [:taken   #(put probe-name "probe" {:if-version nil})]
-                              [:fetched #(fetch probe-name)]]
-                       delete (conj [:delete #(delete probe-name)]
-                                    [:gone   #(fetch probe-name)])))
-              (fn [answers]
-                (let [checks   (assess answers (some? list) (some? delete))
-                      required (cond-> #{:store/reachable :store/authenticated :store/put :store/fetch}
-                                 (not list) (conj :store/conflicts)
-                                 delete     (conj :store/delete))]
-                  {:ok?    (every? :ok? (filter (comp required :id) checks))
-                   :checks checks}))))
+  (let [stale    {:if-version "\"no-such-version\""}
+        taken    {:if-version nil}
+        steps    (cond-> [[:listing (or list #(fetch probe-name))]
+                          [:put     #(put probe-name "probe" {})]
+                          [:stale   #(put probe-name "probe" stale)]
+                          [:taken   #(put probe-name "probe" taken)]
+                          [:fetched #(fetch probe-name)]]
+                   delete (conj [:delete #(delete probe-name)]
+                                [:gone   #(fetch probe-name)]))
+        required (cond-> #{:store/reachable :store/authenticated
+                           :store/put :store/fetch}
+                   (not list) (conj :store/conflicts)
+                   delete     (conj :store/delete))]
+    (async/then (probe steps)
+                (fn [answers]
+                  (let [checks (assess answers (some? list) (some? delete))]
+                    {:ok?    (every? :ok? (filter (comp required :id) checks))
+                     :checks checks})))))
 
 (defn backend
   "A backend for dk.simongray.podcast.sync/sync! over `store`, with the
@@ -368,13 +484,16 @@
   is put on condition of its version."
   ([store]
    (backend store {}))
-  ([store {:keys [strategy direction document] :or {direction :both document "podcast.edn"} :as opts}]
+  ([store {:keys [strategy direction document]
+           :or   {direction :both document "podcast.edn"}
+           :as   opts}]
    {:pre [(map? opts)]}
    (let [strategy (or strategy (if (:list store) :per-device :shared))
          pull?    (not= :push direction)
          push?    (not= :pull direction)]
      (when (and (= :per-device strategy) (not (:list store)))
-       (throw (ex-info "A store without :list cannot hold a document per device" {:name (:name store)})))
+       (throw (ex-info "A store without :list cannot hold a document per device"
+                       {:name (:name store)})))
      {:name (or (:name opts) (:name store))
       :pull (fn [state cursor at]
               (if pull?
@@ -388,14 +507,22 @@
                 {:cursor cursor}
 
                 (crdt/retired? state (:device state))
-                {:cursor cursor :report [(describe {:id :sync/retired-device :device (:device state)})]}
+                {:cursor cursor
+                 :report [(describe {:id     :sync/retired-device
+                                     :device (:device state)})]}
 
                 :else
-                (async/then (case strategy
-                              :per-device (push-document store opts state cursor at)
-                              :shared     (push-shared store document opts state cursor at))
-                            (fn [{:keys [report] :as pushed}]
-                              (if (some #(= :sync/conflict (:id %)) report)
-                                pushed
-                                (async/then (mirror-opml store opts (:state pushed state) (:cursor pushed))
-                                            #(assoc pushed :cursor %)))))))})))
+                (async/then
+                 (case strategy
+                   :per-device
+                   (push-document store opts state cursor at)
+
+                   :shared
+                   (push-shared store document opts state cursor at))
+                 (fn [{:keys [report] :as pushed}]
+                   (if (some #(= :sync/conflict (:id %)) report)
+                     pushed
+                     (let [latest (:state pushed state)]
+                       (async/then
+                        (mirror-opml store opts latest (:cursor pushed))
+                        #(assoc pushed :cursor %))))))))})))

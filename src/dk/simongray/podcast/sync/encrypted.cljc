@@ -32,7 +32,8 @@
                    [java.security SecureRandom]
                    [java.util Base64]
                    [javax.crypto Cipher SecretKeyFactory]
-                   [javax.crypto.spec GCMParameterSpec PBEKeySpec SecretKeySpec])))
+                   [javax.crypto.spec
+                    GCMParameterSpec PBEKeySpec SecretKeySpec])))
 
 (def version
   "The version of the envelope."
@@ -55,12 +56,14 @@
 (defn- ->base64
   [bytes]
   #?(:clj  (.encodeToString (Base64/getEncoder) ^bytes bytes)
-     :cljs (let [n     (.-length bytes)
-                 parts (js/Array.)]
+     :cljs (let [n          (.-length bytes)
+                 parts      (js/Array.)
+                 chunk-size 0x8000]
              (loop [i 0]
                (when (< i n)
-                 (.push parts (.apply js/String.fromCharCode nil (.subarray bytes i (min n (+ i 0x8000)))))
-                 (recur (+ i 0x8000))))
+                 (let [part (.subarray bytes i (min n (+ i chunk-size)))]
+                   (.push parts (.apply js/String.fromCharCode nil part)))
+                 (recur (+ i chunk-size))))
              (js/btoa (.join parts "")))))
 
 (defn- <-base64
@@ -95,13 +98,20 @@
   [passphrase salt iterations]
   #?(:clj  (let [factory (SecretKeyFactory/getInstance "PBKDF2WithHmacSHA256")
                  text    (secret/reveal passphrase)
-                 spec    (PBEKeySpec. (.toCharArray ^String text) ^bytes salt (int iterations) 256)]
-             (SecretKeySpec. (.getEncoded (.generateSecret factory spec)) "AES"))
-     :cljs (let [subtle (.-subtle js/crypto)]
-             (-> (.importKey subtle "raw" (utf8 (secret/reveal passphrase)) #js {:name "PBKDF2"} false #js ["deriveKey"])
+                 chars   (.toCharArray ^String text)
+                 spec    (PBEKeySpec. chars ^bytes salt (int iterations) 256)
+                 derived (.getEncoded (.generateSecret factory spec))]
+             (SecretKeySpec. derived "AES"))
+     :cljs (let [subtle (.-subtle js/crypto)
+                 raw    (utf8 (secret/reveal passphrase))]
+             (-> (.importKey subtle "raw" raw #js {:name "PBKDF2"}
+                             false #js ["deriveKey"])
                  (.then (fn [base]
                           (.deriveKey subtle
-                                      #js {:name "PBKDF2" :salt salt :iterations iterations :hash "SHA-256"}
+                                      #js {:name       "PBKDF2"
+                                           :salt       salt
+                                           :iterations iterations
+                                           :hash       "SHA-256"}
                                       base
                                       #js {:name "AES-GCM" :length 256}
                                       false
@@ -111,11 +121,13 @@
   "The `plaintext` bytes sealed with `key` under `iv`: the ciphertext with
   its tag, in ClojureScript as a promise."
   [key iv plaintext]
-  #?(:clj  (let [cipher (Cipher/getInstance "AES/GCM/NoPadding")]
-             (.init cipher Cipher/ENCRYPT_MODE ^SecretKeySpec key (GCMParameterSpec. 128 ^bytes iv))
+  #?(:clj  (let [cipher (Cipher/getInstance "AES/GCM/NoPadding")
+                 spec   (GCMParameterSpec. 128 ^bytes iv)]
+             (.init cipher Cipher/ENCRYPT_MODE ^SecretKeySpec key spec)
              (.doFinal cipher ^bytes plaintext))
-     :cljs (-> (.encrypt (.-subtle js/crypto) #js {:name "AES-GCM" :iv iv} key plaintext)
-               (.then #(js/Uint8Array. %)))))
+     :cljs (let [params #js {:name "AES-GCM" :iv iv}]
+             (-> (.encrypt (.-subtle js/crypto) params key plaintext)
+                 (.then #(js/Uint8Array. %))))))
 
 (defn- locked
   [name cause]
@@ -129,20 +141,26 @@
   the document `name`."
   [key iv ciphertext name]
   #?(:clj  (try
-             (let [cipher (Cipher/getInstance "AES/GCM/NoPadding")]
-               (.init cipher Cipher/DECRYPT_MODE ^SecretKeySpec key (GCMParameterSpec. 128 ^bytes iv))
+             (let [cipher (Cipher/getInstance "AES/GCM/NoPadding")
+                   spec   (GCMParameterSpec. 128 ^bytes iv)]
+               (.init cipher Cipher/DECRYPT_MODE ^SecretKeySpec key spec)
                (.doFinal cipher ^bytes ciphertext))
              (catch Exception e
                (throw (locked name e))))
-     :cljs (-> (.decrypt (.-subtle js/crypto) #js {:name "AES-GCM" :iv iv} key ciphertext)
-               (.then #(js/Uint8Array. %))
-               (.catch (fn [e] (throw (locked name e)))))))
+     :cljs (let [params #js {:name "AES-GCM" :iv iv}]
+             (-> (.decrypt (.-subtle js/crypto) params key ciphertext)
+                 (.then #(js/Uint8Array. %))
+                 (.catch (fn [e] (throw (locked name e))))))))
+
+(def ^:no-doc base64-form
+  "Text in base64 with its padding."
+  #"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$")
 
 (defn- base64?
   [x]
   (boolean (and (string? x)
                 (seq x)
-                (re-find #"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$" x))))
+                (re-find base64-form x))))
 
 (defn envelope
   "The envelope in the string `s`, or nil for anything else, a plain
@@ -153,9 +171,15 @@
   least one and at most max-iterations."
   [s]
   (when (and (string? s) (str/starts-with? s "{:encrypted"))
-    (let [m (try (edn/read-string s) (catch #?(:clj Throwable :cljs :default) _ nil))]
-      (when (and (map? m) (integer? (:encrypted m)) (every? base64? ((juxt :salt :iv :data) m))
-                 (integer? (:iterations m)) (<= 1 (:iterations m) max-iterations))
+    (let [m (try
+              (edn/read-string s)
+              (catch #?(:clj Throwable :cljs :default) _
+                nil))]
+      (when (and (map? m)
+                 (integer? (:encrypted m))
+                 (every? base64? ((juxt :salt :iv :data) m))
+                 (integer? (:iterations m))
+                 (<= 1 (:iterations m) max-iterations))
         m))))
 
 (defn- seal-with
@@ -182,7 +206,9 @@
   [key-for name s]
   (if-let [{:keys [iterations salt iv data]} (envelope s)]
     (async/then (key-for (<-base64 salt) iterations)
-                (fn [key] (async/then (open key (<-base64 iv) (<-base64 data) name) from-utf8)))
+                (fn [key]
+                  (async/then (open key (<-base64 iv) (<-base64 data) name)
+                              from-utf8)))
     s))
 
 (defn encrypt
@@ -191,9 +217,12 @@
   iterations default to default-iterations."
   ([body passphrase]
    (encrypt body passphrase {}))
-  ([body passphrase {:keys [iterations] :or {iterations default-iterations} :as opts}]
+  ([body passphrase {:keys [iterations]
+                     :or   {iterations default-iterations}
+                     :as   opts}]
    {:pre [(map? opts)]}
-   (seal-with #(derive-key passphrase %1 %2) (random-bytes 16) iterations body)))
+   (let [salt (random-bytes 16)]
+     (seal-with #(derive-key passphrase %1 %2) salt iterations body))))
 
 (defn decrypt
   "The body in the envelope string `s` under `passphrase`, or `s` itself
@@ -228,7 +257,9 @@
   then on."
   ([inner passphrase]
    (store inner passphrase {}))
-  ([inner passphrase {:keys [iterations except] :or {iterations default-iterations except #{}} :as opts}]
+  ([inner passphrase {:keys [iterations except]
+                      :or   {iterations default-iterations except #{}}
+                      :as   opts}]
    {:pre [(map? opts)]}
    (when (nil? passphrase)
      (throw (ex-info "An encrypting store needs a passphrase" {})))
@@ -242,26 +273,40 @@
                            (swap! keys assoc k key)
                            key))))
          open    (fn [name doc]
-                   (async/then (open-with key-for name (:body doc)) #(assoc doc :body %)))]
+                   (async/then (open-with key-for name (:body doc))
+                               #(assoc doc :body %)))
+         retried (fn [name doc {:keys [value error]}]
+                   (cond
+                     (not error)
+                     value
+
+                     (fn? passphrase)
+                     (do (reset! keys {})
+                         (open name doc))
+
+                     :else
+                     (throw error)))
+         opened  (fn [name doc]
+                   (cond
+                     (nil? doc)
+                     nil
+
+                     (except name)
+                     doc
+
+                     :else
+                     (async/then (async/attempt #(open name doc))
+                                 #(retried name doc %))))]
      (cond-> {:name  (:name inner)
               :fetch (fn [name]
                        (async/then ((:fetch inner) name)
-                                   (fn [doc]
-                                     (cond
-                                       (nil? doc)    nil
-                                       (except name) doc
-                                       :else         (async/then (async/attempt #(open name doc))
-                                                                 (fn [{:keys [value error]}]
-                                                                   (cond
-                                                                     (not error)      value
-                                                                     (fn? passphrase) (do (reset! keys {})
-                                                                                          (open name doc))
-                                                                     :else            (throw error))))))))
+                                   #(opened name %)))
               :put   (fn [name body params]
                        (if (except name)
                          ((:put inner) name body params)
                          (async/then (seal-with key-for salt iterations body)
-                                     (fn [sealed] ((:put inner) name sealed params)))))}
+                                     (fn [sealed]
+                                       ((:put inner) name sealed params)))))}
        (:list inner)   (assoc :list (:list inner))
        (:delete inner) (assoc :delete (:delete inner))))))
 
@@ -273,12 +318,16 @@
    (backend inner passphrase {}))
   ([inner passphrase opts]
    {:pre [(map? opts)]}
-   (store/backend (store inner passphrase (select-keys opts [:iterations :except]))
-                  (select-keys opts [:opml? :app :direction :strategy :document :name]))))
+   (store/backend (store inner passphrase
+                         (select-keys opts [:iterations :except]))
+                  (select-keys opts [:opml? :app :direction :strategy
+                                     :document :name]))))
 
 #?(:clj
    (comment
-     (def sealed (encrypt "{:version 1 :state {}}" "correct horse battery staple" {:iterations 1000}))
+     (def sealed
+       (encrypt "{:version 1 :state {}}" "correct horse battery staple"
+                {:iterations 1000}))
      (decrypt sealed "correct horse battery staple")
      (store/check! (store (store/memory) "hunter2" {:iterations 1000}))
      #_.))

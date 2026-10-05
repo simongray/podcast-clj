@@ -48,21 +48,26 @@
   [href version]
   (str "<d:response><d:href>" (escape href) "</d:href><d:propstat><d:prop>"
        (if version
-         (str "<d:getetag>" (escape (quoted version)) "</d:getetag><d:resourcetype/>")
+         (str "<d:getetag>" (escape (quoted version)) "</d:getetag>"
+              "<d:resourcetype/>")
          "<d:resourcetype><d:collection/></d:resourcetype>")
-       "</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"))
+       "</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>"
+       "</d:response>"))
 
 (defn- multistatus
   [entries]
   {:status  207
    :headers {"Content-Type" "application/xml; charset=utf-8"}
-   :body    (str "<?xml version=\"1.0\" encoding=\"utf-8\"?><d:multistatus xmlns:d=\"DAV:\">"
+   :body    (str "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                 "<d:multistatus xmlns:d=\"DAV:\">"
                  (apply str entries)
                  "</d:multistatus>")})
 
 (defn- plain
   [status body]
-  {:status status :headers {"Content-Type" "text/plain; charset=utf-8"} :body body})
+  {:status  status
+   :headers {"Content-Type" "text/plain; charset=utf-8"}
+   :body    body})
 
 (defn- not-found
   []
@@ -82,7 +87,8 @@
   "The 405 answer for the document `name` of `store`, or for the
   collection when `name` is nil, with the methods that it answers."
   [store name]
-  (assoc-in (plain 405 "Method Not Allowed") [:headers "Allow"] (allow store (some? name))))
+  (let [methods (allow store (some? name))]
+    (assoc-in (plain 405 "Method Not Allowed") [:headers "Allow"] methods)))
 
 ;; RFC 9110, sections 13.1.1 and 13.1.2
 (defn- precondition
@@ -90,23 +96,30 @@
   request `headers` ask for, given the `current` version of the document.
 
   The version is nil when the document isn't there. The headers are by
-  lower-case name, and the options have an :if-version
-  only when the headers ask for one. If-Match: * asks for the current
-  version, or for one that no document has when there's none. A tag
-  matches the current version by its printed form, so a version can be any
-  value, e.g. a number. The result is :failed when If-Match lists no
-  strong tag, since no version matches it."
+  lower-case name, and the options have an :if-version only when the
+  headers ask for one. If-Match: * asks for the current version, or for
+  one that no document has when there's none. A tag matches the current
+  version by its printed form, so a version can be any value, e.g. a
+  number. The result is :failed when If-Match lists no strong tag, since
+  no version matches it."
   [headers current]
   (let [if-match (some-> (get headers "if-match") str/trim)]
     (cond
-      (= "*" if-match)                      {:if-version (or current "*")}
-      if-match                              (if-let [versions (seq (strong-versions if-match))]
-                                              {:if-version (if (and current (some #{(str current)} versions))
-                                                             current
-                                                             (first versions))}
-                                              :failed)
-      (= "*" (get headers "if-none-match")) {:if-version nil}
-      :else                                 {})))
+      (= "*" if-match)
+      {:if-version (or current "*")}
+
+      if-match
+      (if-let [versions (seq (strong-versions if-match))]
+        {:if-version (if (and current (some #{(str current)} versions))
+                       current
+                       (first versions))}
+        :failed)
+
+      (= "*" (get headers "if-none-match"))
+      {:if-version nil}
+
+      :else
+      {})))
 
 (defn- plain-name?
   "Whether `name` is a plain file name, without a slash or a control
@@ -145,22 +158,23 @@
   The collection comes alone at depth \"0\", and else with its documents,
   which a store without :list can't give."
   [{:keys [list] :as store} base name depth]
-  (cond
-    name
-    (if-let [version (version-of store name)]
-      (multistatus [(entry (str base (http/percent-encode name)) version)])
-      (not-found))
+  (let [href #(str base (http/percent-encode %))]
+    (cond
+      name
+      (if-let [version (version-of store name)]
+        (multistatus [(entry (href name) version)])
+        (not-found))
 
-    (= "0" (some-> depth str/trim))
-    (multistatus [(entry base nil)])
+      (= "0" (some-> depth str/trim))
+      (multistatus [(entry base nil)])
 
-    list
-    (multistatus (cons (entry base nil)
-                       (for [{:keys [name version]} (list)]
-                         (entry (str base (http/percent-encode name)) version))))
+      list
+      (multistatus (cons (entry base nil)
+                         (for [{:keys [name version]} (list)]
+                           (entry (href name) version))))
 
-    :else
-    (plain 403 "The collection cannot be listed")))
+      :else
+      (plain 403 "The collection cannot be listed"))))
 
 (defn- get-document
   "The answer with the document `name` of `store` and its ETag, without the
@@ -168,7 +182,8 @@
   [{:keys [fetch] :as store} name head?]
   (if-let [{:keys [body version]} (when name (fetch name))]
     {:status  200
-     :headers {"ETag" (quoted version) "Content-Type" (webdav/content-type name)}
+     :headers {"ETag"         (quoted version)
+               "Content-Type" (webdav/content-type name)}
      :body    (if head? "" body)}
     (if name (not-found) (not-allowed store nil))))
 
@@ -185,9 +200,16 @@
           text    (http/body-text body max-bytes)
           result  (when (and text (not= :failed asked)) (put name text asked))]
       (cond
-        (nil? text)                             (plain 413 (str "A document holds at most " max-bytes " bytes"))
-        (or (= :failed asked) (:conflict? result)) (plain 412 "Precondition Failed")
-        :else                                   {:status (if current 204 201) :headers {"ETag" (quoted (:version result))} :body ""}))
+        (nil? text)
+        (plain 413 (str "A document holds at most " max-bytes " bytes"))
+
+        (or (= :failed asked) (:conflict? result))
+        (plain 412 "Precondition Failed")
+
+        :else
+        {:status  (if current 204 201)
+         :headers {"ETag" (quoted (:version result))}
+         :body    ""}))
     (not-allowed store nil)))
 
 (defn- delete-document
@@ -232,10 +254,13 @@
    (let [collection (subs base 0 (dec (count base)))]
      (fn [{:keys [request-method uri headers body]}]
        ;; only a real servlet lower-cases the header names
-       (let [headers (into {} (map (fn [[k v]] [(str/lower-case k) v])) headers)]
+       (let [lower   (fn [[k v]] [(str/lower-case k) v])
+             headers (into {} (map lower) headers)]
          (try
-           (let [name (when (and (str/starts-with? uri base) (> (count uri) (count base)))
-                        (http/percent-decode (subs uri (count base))))]
+           (let [inside? (and (str/starts-with? uri base)
+                              (> (count uri) (count base)))
+                 name    (when inside?
+                           (http/percent-decode (subs uri (count base))))]
              (cond
                (and (not name) (not (#{base collection} uri)))
                (not-found)
