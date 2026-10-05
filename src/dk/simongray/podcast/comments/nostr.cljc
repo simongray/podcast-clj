@@ -37,7 +37,9 @@
   "The relays that podcast-clj asks for comments when neither the root of
   a thread nor the options name a relay. The page doc/services.md tells
   when each relay answered."
-  ["wss://relay.fountain.fm" "wss://relay.damus.io" "wss://relay.primal.net"])
+  ["wss://relay.fountain.fm"
+   "wss://relay.damus.io"
+   "wss://relay.primal.net"])
 
 (def batch-size
   "The most ids or public keys in one filter of a request. The option
@@ -61,7 +63,8 @@
           named (nostr/decode s)]
       (cond
         (contains? #{:note :nevent} (:type named))
-        {:id (:id named) :relays (vec (take max-hints (distinct (keep nostr/relay-url (:relays named)))))}
+        (let [hints (distinct (keep nostr/relay-url (:relays named)))]
+          {:id (:id named) :relays (vec (take max-hints hints))})
 
         (nostr/hex-id? bare)
         {:id bare :relays []}
@@ -86,9 +89,10 @@
   ([feed item]
    (about feed item {}))
   ([feed item {:keys [url] :as opts}]
-   (let [guid (if item (feed/item-guid item) (feed/feed-guid feed url))]
+   (let [guid   (if item (feed/item-guid item) (feed/feed-guid feed url))
+         prefix (if item "podcast:item:guid:" "podcast:guid:")]
      (when guid
-       {:protocol "nostr" :uri (str (if item "podcast:item:guid:" "podcast:guid:") guid)}))))
+       {:protocol "nostr" :uri (str prefix guid)}))))
 
 (defn ^:no-doc relays-of
   "The relays that the reading of `thread` asks with `opts`: those that
@@ -101,14 +105,17 @@
   "Whether requests reads the thread of `interact` with `opts`. Its URI
   must name a note or an id of NIP-73, and there must be a relay to ask."
   [interact opts]
-  (boolean (and (root-of (:uri interact)) (seq (relays-of interact opts)))))
+  (boolean (and (root-of (:uri interact))
+                (seq (relays-of interact opts)))))
 
 (defn- question
   "The request that asks the relay at `url` for the events of `filters`,
   as the `part` of a reading: the root, the replies to some ids, or the
   authors of some public keys."
   [url part filters]
-  {:url url :filters (vec filters) ::comments/for (into [(first part) url] (rest part))})
+  {:url           url
+   :filters       (vec filters)
+   ::comments/for (into [(first part) url] (rest part))})
 
 (defn- root-question
   "The request to the relay at `url` for the `root` of a thread and the
@@ -148,26 +155,39 @@
 
   The root comes first, then the replies to the comments nearest the
   root, then the authors. A relay with a failure gets no request."
-  [{:keys [uri comments authors] ::keys [relays] :as thread} url {:keys [max-comments batch-size] :as opts} more? depth]
+  [{:keys [uri comments authors] ::keys [relays] :as thread} url
+   {:keys [max-comments batch-size] :as opts} more? depth]
   (let [{:keys [read-at error replies asked]} (get relays url)
+        open?   #(and (:read-at %)
+                      (not (:deleted? %))
+                      (nostr/hex-id? (:id %)))
         ids     (->> (vals comments)
-                     (filter #(and (:read-at %) (not (:deleted? %)) (nostr/hex-id? (:id %))))
+                     (filter open?)
                      (map :id)
                      (remove (set replies))
                      (sort-by #(vector (get depth % ##Inf) %))
                      (take batch-size))
+        asked   (set asked)
         writers (->> (vals comments)
                      (mapcat #(cons (:author %) (::mentions %)))
                      (remove nil?)
                      distinct
-                     (remove #(or (contains? authors %) (contains? (set asked) %)))
+                     (remove #(or (contains? authors %) (contains? asked %)))
                      sort
                      (take batch-size))]
     (cond
-      error                 nil
-      (nil? read-at)        (when more? (root-question url (root-of uri) max-comments))
-      (and more? (seq ids)) (replies-question url ids max-comments)
-      (seq writers)         (authors-question url writers))))
+      error
+      nil
+
+      (nil? read-at)
+      (when more?
+        (root-question url (root-of uri) max-comments))
+
+      (and more? (seq ids))
+      (replies-question url ids max-comments)
+
+      (seq writers)
+      (authors-question url writers))))
 
 (defn requests
   "The requests that the Nostr `thread` needs next with `opts`, of those
@@ -184,7 +204,8 @@
   and the :filters of NIP-01."
   [{:keys [uri comments] ::comments/keys [held] :as thread} opts ask?]
   (let [opts  (merge {:batch-size batch-size} opts)
-        more? (< (- (count (filter :read-at (vals comments))) (or held 0)) (:max-comments opts))
+        fresh (- (count (filter :read-at (vals comments))) (or held 0))
+        more? (< fresh (:max-comments opts))
         depth (common/depths thread)]
     (when (root-of uri)
       (->> (relays-of thread opts)
@@ -196,9 +217,9 @@
   failure that can pass with time stopped the last reading. This is the
   question that a relay didn't answer."
   [thread]
-  (cond-> (common/retried thread)
-    (::relays thread) (update ::relays update-vals
-                              #(cond-> % (:retry? (:error %)) (dissoc :error)))))
+  (let [unread #(cond-> % (:retry? (:error %)) (dissoc :error))]
+    (cond-> (common/retried thread)
+      (::relays thread) (update ::relays update-vals unread))))
 
 (defn- refusal
   "What went wrong when the relay at `url` gave the answer `response`, as
@@ -222,25 +243,39 @@
         (contains? #{"rate-limited" "error"} word) (assoc :retry? true))
 
       (and timeout? (empty? events))
-      {:id :comments/unreachable :url url :reason "The relay did not answer in time" :timeout? true :retry? true})))
+      {:id       :comments/unreachable
+       :url      url
+       :reason   "The relay did not answer in time"
+       :timeout? true
+       :retry?   true})))
+
+(defn- imeta-attachment
+  "The attachment that the `fields` of an imeta tag of NIP-92 describe, or
+  nil for a file that isn't an image, a video or a sound."
+  [fields]
+  (let [pairs   (keep #(let [[k v] (str/split % #" " 2)] (when v [k v])) fields)
+        {:strs [url m dim alt]} (into {} pairs)
+        media   (some->> m (re-matches #"(image|video|audio)/.+") second)
+        kind    (some-> media keyword)
+        [_ w h] (some->> dim (re-matches #"(\d{1,6})x(\d{1,6})"))]
+    (when (and kind (common/web-url url))
+      (common/present {:kind       kind
+                       :url        url
+                       :media-type m
+                       :alt        alt
+                       :width      (some-> w parse-long common/dimension)
+                       :height     (some-> h parse-long common/dimension)}))))
 
 (defn- attachments
   "The media of `event` from its imeta tags of NIP-92, each with its URL,
   media type, size and alt text. A file that isn't an image, a video or a
   sound is left out."
   [event]
-  (vec (for [[tag & fields] (get event "tags")
-             :when (= "imeta" tag)
-             :let [{:strs [url m dim alt]} (into {} (keep #(let [[k v] (str/split % #" " 2)] (when v [k v]))) fields)
-                   kind      (some->> m (re-matches #"(image|video|audio)/.+") second keyword)
-                   [_ w h]   (some->> dim (re-matches #"(\d{1,6})x(\d{1,6})"))]
-             :when (and kind (common/web-url url))]
-         (common/present {:kind       kind
-                          :url        url
-                          :media-type m
-                          :alt        alt
-                          :width      (some-> w parse-long common/dimension)
-                          :height     (some-> h parse-long common/dimension)}))))
+  (into []
+        (keep (fn [[tag & fields]]
+                (when (= "imeta" tag)
+                  (imeta-attachment fields))))
+        (get event "tags")))
 
 (def ^:no-doc receipt-kind
   "The kind of the event that tells of a payment, the zap receipt of
@@ -251,38 +286,50 @@
   "Whether the part `p` of a content is a reference to the receipt of a
   payment, by the kind that its name tells."
   [p]
-  (and (= :reference (:type p)) (= receipt-kind (:kind (:target p)))))
+  (and (= :reference (:type p))
+       (= receipt-kind (:kind (:target p)))))
 
 (defn receipts
   "The ids of the receipts of payments that the content of `event` names.
   A note that came with a payment names the receipt, as the app Fountain
   writes a boost. The name of the receipt tells its kind, 9735 of NIP-57."
   [event]
-  (vec (distinct (keep #(when (receipt? %) (:id (:target %))) (nostr/parts event)))))
+  (->> (nostr/parts event)
+       (keep #(when (receipt? %) (:id (:target %))))
+       distinct
+       vec))
 
 (defn- mentions
   "The public keys of the profiles that the content of `event` mentions."
   [event]
-  (vec (distinct (keep #(when (= :mention (:type %)) (:public-key %)) (nostr/parts event)))))
+  (->> (nostr/parts event)
+       (keep #(when (= :mention (:type %)) (:public-key %)))
+       distinct
+       vec))
 
 (defn- restated
   "The URLs that say again what `event` tells in its tags. They're the web
   pages of the things that its i tags of NIP-73 name, and the media of its
   imeta tags, which are its attachments."
   [event]
-  (set (concat (for [[tag _ hint] (get event "tags") :when (and (= "i" tag) hint)] hint)
-               (map :url (attachments event)))))
+  (let [hints (for [[tag _ hint] (get event "tags")
+                    :when (and (= "i" tag) hint)]
+                hint)]
+    (set (concat hints (map :url (attachments event))))))
 
 (defn- lines
   "The parts `ps` of a content as its lines, each the parts of one line."
   [ps]
   (reduce (fn [lines {:keys [type text] :as p}]
-            (if (= :text type)
-              (let [[head & tail] (str/split text #"\n" -1)]
-                (into (update lines (dec (count lines)) conj {:type :text :text head})
-                      (map (fn [t] [{:type :text :text t}]))
-                      tail))
-              (update lines (dec (count lines)) conj p)))
+            (let [last-line (dec (count lines))]
+              (if (= :text type)
+                (let [[head & tail] (str/split text #"\n" -1)
+                      continued     (update lines last-line conj
+                                            {:type :text :text head})]
+                  (into continued
+                        (map (fn [t] [{:type :text :text t}]))
+                        tail))
+                (update lines last-line conj p))))
           [[]]
           ps))
 
@@ -304,7 +351,8 @@
   (case type
     :text      p
     :link      (assoc p :text url)
-    :mention   (assoc p :id public-key :text (str "@" (or (get names public-key) (shortened (subs uri 6)))))
+    :mention   (let [label (or (get names public-key) (shortened (subs uri 6)))]
+                 (assoc p :id public-key :text (str "@" label)))
     :reference (assoc p :text (shortened (subs uri 6)))
     :hashtag   (assoc p :text (str "#" tag))))
 
@@ -321,14 +369,16 @@
   (let [again?     (restated event)
         space?     #(and (= :text (:type %)) (str/blank? (:text %)))
         blank?     #(every? space? %)
+        repeated?  #(and (= :link (:type %)) (contains? again? (:url %)))
         restating? (fn [line]
                      (and (not (blank? line))
-                          (every? #(or (space? %) (and (= :link (:type %)) (contains? again? (:url %)))) line)))]
+                          (every? #(or (space? %) (repeated? %)) line)))
+        shown-line (fn [line] (map #(shown % names) line))]
     (->> (lines (remove receipt? (nostr/parts event)))
          (remove restating?)
          (partition-by blank?)
          (remove (comp blank? first))
-         (map (fn [paragraph] (map (fn [line] (map #(shown % names) line)) paragraph))))))
+         (map #(map shown-line %)))))
 
 (defn parts
   "The parts of the content of `event` as a reader sees it, in their
@@ -400,7 +450,9 @@
   "The names of the authors that `thread` has, by public key, as the
   :names of hiccup takes them."
   [thread]
-  (into {} (keep (fn [[k {:keys [name]}]] (when name [k name]))) (:authors thread)))
+  (into {}
+        (keep (fn [[k {:keys [name]}]] (when name [k name])))
+        (:authors thread)))
 
 (defn ^:no-doc note-html
   "The content of `event` as sanitized HTML, as hiccup gives it with the
@@ -421,14 +473,16 @@
   tag replies to the root when it names the id of the root in an i tag,
   as NIP-73 defines."
   [event {:keys [external] :as root}]
-  (let [es     (filter #(and (= "e" (first %)) (nostr/hex-id? (second %))) (get event "tags"))
-        marker #(nth % 3 nil)
-        marked (fn [m] (second (last (filter #(= m (marker %)) es))))]
+  (let [e-tag?  #(and (= "e" (first %)) (nostr/hex-id? (second %)))
+        es      (filter e-tag? (get event "tags"))
+        marker  #(nth % 3 nil)
+        marked  (fn [m] (second (last (filter #(= m (marker %)) es))))
+        markers #{"reply" "root" "mention"}]
     (or (if (= 1111 (get event "kind"))
           (second (first es))
           (or (marked "reply")
               (marked "root")
-              (when-not (some #(contains? #{"reply" "root" "mention"} (marker %)) es)
+              (when-not (some #(contains? markers (marker %)) es)
                 (second (last es)))))
         (when (and external (some #{external} (nostr/tag-values event "i")))
           external))))
@@ -442,13 +496,15 @@
   its own way with hiccup. It also keeps the profiles that the content
   mentions, and the receipts of payments that it names."
   [event in-reply-to names at]
-  (let [warning (first (filter #(= "content-warning" (first %)) (get event "tags")))
-        language (some (fn [[tag value kind]] (when (and (= "l" tag) (= "ISO-639-1" kind)) value))
-                       (get event "tags"))]
+  (let [tags     (get event "tags")
+        warning  (first (filter #(= "content-warning" (first %)) tags))
+        iso-639? (fn [[tag _ kind]] (and (= "l" tag) (= "ISO-639-1" kind)))
+        language (some #(when (iso-639? %) (second %)) tags)
+        seconds  (json/whole (get event "created_at"))]
     (common/present {:id          (get event "id")
                      :author      (get event "pubkey")
                      :in-reply-to in-reply-to
-                     :published   (time/->inst (* 1000 (json/whole (get event "created_at"))))
+                     :published   (time/->inst (* 1000 seconds))
                      :content     (note-html event names)
                      :language    language
                      :sensitive?  (some? warning)
@@ -468,10 +524,14 @@
   The content names an address of NIP-05 too. Since podcast-clj doesn't
   check it, it isn't a handle."
   [event at]
-  (let [profile (json/object (get event "content"))]
-    (common/present {:id          (get event "pubkey")
-                     :name        (common/first-text (get profile "display_name") (get profile "name"))
-                     :handle      (nostr/encode {:type :npub :public-key (get event "pubkey")})
+  (let [profile (json/object (get event "content"))
+        pubkey  (get event "pubkey")
+        display (common/first-text (get profile "display_name")
+                                   (get profile "name"))
+        npub    (nostr/encode {:type :npub :public-key pubkey})]
+    (common/present {:id          pubkey
+                     :name        display
+                     :handle      npub
                      :avatar      (common/web-url (get profile "picture"))
                      :read-at     at
                      ::created-at (json/whole (get event "created_at"))})))
@@ -490,10 +550,13 @@
   "The `thread` with the author of the `event` of kind 0 read at `at`,
   unless the thread has a later one."
   [thread event at]
-  (let [{::keys [created-at event-id]} (get-in thread [:authors (get event "pubkey")])]
+  (let [pubkey (get event "pubkey")
+        {::keys [created-at event-id]} (get-in thread [:authors pubkey])]
     (cond-> thread
       (later? event created-at event-id)
-      (assoc-in [:authors (get event "pubkey")] (assoc (profile-author event at) ::event-id (get event "id"))))))
+      (assoc-in [:authors pubkey]
+                (-> (profile-author event at)
+                    (assoc ::event-id (get event "id")))))))
 
 (defn- deleted
   "The comment `c` as a deleted comment read at `at`."
@@ -509,9 +572,12 @@
   [thread event at]
   (let [author (get event "pubkey")]
     (reduce (fn [thread id]
-              (let [c (get-in thread [:comments id])]
-                (cond-> (update-in thread [::deletions id] (fnil conj #{}) author)
-                  (and c (= author (:author c))) (assoc-in [:comments id] (deleted c at)))))
+              (let [c     (get-in thread [:comments id])
+                    own?  (and c (= author (:author c)))
+                    noted (update-in thread [::deletions id]
+                                     (fnil conj #{}) author)]
+                (cond-> noted
+                  own? (assoc-in [:comments id] (deleted c at)))))
             thread
             (filter nostr/hex-id? (nostr/tag-values event "e")))))
 
@@ -528,14 +594,24 @@
         root?   (= id (:id root))
         reply   (when-not root? (parent event root))
         known?  (:read-at (get comments id))
-        c       (common/guarded id at #(note-comment event reply (names thread) at))
+        read    #(note-comment event reply (names thread) at)
+        c       (common/guarded id at read)
         gone?   (contains? (get deletions id) (get event "pubkey"))]
     (cond
-      known?                                          thread
-      (not (or root? reply))                          thread
-      (>= (count comments) (:thread common/limits))   (common/truncate thread :thread 1)
-      gone?                                           (assoc-in thread [:comments id] (deleted c at))
-      :else                                           (assoc-in thread [:comments id] c))))
+      known?
+      thread
+
+      (not (or root? reply))
+      thread
+
+      (>= (count comments) (:thread common/limits))
+      (common/truncate thread :thread 1)
+
+      gone?
+      (assoc-in thread [:comments id] (deleted c at))
+
+      :else
+      (assoc-in thread [:comments id] c))))
 
 (defn- with-event
   "The `thread` with the verified `event` read into it at `at` by its kind,
@@ -555,8 +631,11 @@
   passes none of `filters`. It doesn't check again a comment that the
   thread has."
   [thread events filters]
-  (let [known?   #(or (:read-at (get-in thread [:comments (get % "id")]))
-                      (= (get % "id") (::event-id (get-in thread [:authors (get % "pubkey")]))))
+  (let [known?   (fn [event]
+                   (let [id     (get event "id")
+                         author (get-in thread [:authors (get event "pubkey")])]
+                     (or (:read-at (get-in thread [:comments id]))
+                         (= id (::event-id author)))))
         fresh    (remove known? (filter map? events))
         wanted?  #(and (nostr/event? %)
                        (some (fn [f] (nostr/matches? f %)) filters)
@@ -573,13 +652,17 @@
   The root of a thread about a show or an episode is a comment without
   content. A note that no relay gave is a comment with the problem of it."
   [thread {:keys [id external] :as root} at]
-  (let [root (or id external)]
+  (let [root    (or id external)
+        missing {:id     :comments/unreachable
+                 :url    (:uri thread)
+                 :reason "No relay gave the note"
+                 :retry? true}]
     (cond-> (assoc thread :root root :read-at at)
       (not (:read-at (get-in thread [:comments root])))
       (assoc-in [:comments root]
                 (if external
                   {:id external :read-at at}
-                  {:id id :error {:id :comments/unreachable :url (:uri thread) :reason "No relay gave the note" :retry? true}})))))
+                  {:id id :error missing})))))
 
 (defn- renamed
   "The `thread` with the content of each comment that mentions a profile of
@@ -588,7 +671,8 @@
   [thread changed]
   (let [known   (names thread)
         written (fn [{::keys [event mentions] :as c}]
-                  (let [content (when (and event (some changed mentions)) (note-html event known))]
+                  (let [content (when (and event (some changed mentions))
+                                  (note-html event known))]
                     (cond-> c content (assoc :content content))))]
     (cond-> thread
       (seq changed) (update :comments update-vals written))))
@@ -604,8 +688,11 @@
 
   The name of a profile comes after the comment that mentions it. The
   content of the comment then gets the name."
-  [{:keys [uri authors] :as thread} [{{:keys [url filters] [part _ asked] ::comments/for} :request :keys [response]} :as exchanges] at]
-  (let [root    (root-of uri)
+  [{:keys [uri authors] :as thread} [exchange :as exchanges] at]
+  (let [{:keys [request response]} exchange
+        {:keys [url filters]} request
+        [part _ asked] (::comments/for request)
+        root    (root-of uri)
         problem (refusal url response)
         {:keys [events left-out]} (kept thread (:events response) filters)
         noted   (fn [relay]
@@ -616,16 +703,23 @@
                       :replies (update relay :replies (fnil into #{}) asked)
                       :authors (update relay :asked (fnil into #{}) asked)
                       relay)))
-        changed (fn [t] (set (for [[k author] (:authors t) :when (not= author (get authors k))] k)))]
+        changed (fn [t]
+                  (set (for [[k author] (:authors t)
+                             :when (not= author (get authors k))]
+                         k)))
+        ordered (sort-by #(get % "created_at") events)]
     (as-> thread t
       (update-in t [::relays url] noted)
       (cond-> t (pos? left-out) (update ::left-out (fnil + 0) left-out))
-      (reduce #(with-event %1 %2 root at) t (sort-by #(get % "created_at") events))
+      (reduce #(with-event %1 %2 root at) t ordered)
       (renamed t (changed t))
       (with-root t root at))))
 
 (comment
-  (root-of "nostr:note1tjpa5aa0rhkx6u5fsdye3tt6477eugv389khtmpucfl45aezdumqkkhgwy")
+  (def note-name
+    "nostr:note1tjpa5aa0rhkx6u5fsdye3tt6477eugv389khtmpucfl45aezdumqkkhgwy")
+
+  (root-of note-name)
   (root-of "podcast:item:guid:d98d189b-dc7b-45b1-8720-d4b98690f31f")
 
   (def episode
@@ -636,14 +730,17 @@
     {:relays ["wss://relay.example"] :max-comments 100})
 
   ;; the one request of an unread thread, to the one relay
-  (requests episode sample-opts (constantly true))
+  (def sample-request
+    (first (requests episode sample-opts (constantly true))))
 
   ;; an answer without events: the thread has its root, and the relay
   ;; gets no more questions
   (def sample-read
     (with-exchanges episode
-                    [{:request  (first (requests episode sample-opts (constantly true)))
-                      :response {:url "wss://relay.example" :events [] :complete? true}}]
+                    [{:request  sample-request
+                      :response {:url       "wss://relay.example"
+                                 :events    []
+                                 :complete? true}}]
                     #inst "2026-09-29T12:00:00Z"))
 
   (:comments sample-read)
@@ -651,15 +748,24 @@
 
   ;; the content of a note as Hiccup: a mention with its name, and no line
   ;; for the web page of the episode, which the i tag of the note names
+  (def ann
+    "nostr:npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6")
+
+  (def ann-key
+    "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d")
+
   (def note
-    {"content" (str "Is this nostr:npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6 approved? #podcast\n\n"
+    {"content" (str "Is this " ann " approved? #podcast\n\n"
                     "https://fountain.fm/episode/x")
-     "tags"    [["i" "podcast:item:guid:d98d189b-dc7b-45b1-8720-d4b98690f31f" "https://fountain.fm/episode/x"]
+     "tags"    [["i" "podcast:item:guid:d98d189b-dc7b-45b1-8720-d4b98690f31f"
+                 "https://fountain.fm/episode/x"]
                 ["t" "podcast"]]})
 
   (nostr/parts note)
   (hiccup note)
-  (hiccup note {:names {"3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d" "Ann"}
+  (hiccup note {:names {ann-key "Ann"}
                 :link  (fn [{:keys [uri tag]}]
-                         (if uri (str "https://njump.me/" (subs uri 6)) (str "https://njump.me/t/" tag)))})
+                         (if uri
+                           (str "https://njump.me/" (subs uri 6))
+                           (str "https://njump.me/t/" tag)))})
   #_.)

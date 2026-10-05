@@ -87,14 +87,32 @@
   reading asks again. The request failed and the response says :retry?,
   or the server answered 429 or a status from 500."
   [url {:keys [status error timeout? retry?] :as response}]
-  (cond
-    error                                             (cond-> {:id :comments/unreachable :url url :reason error}
-                                                        timeout? (assoc :timeout? true)
-                                                        retry?   (assoc :retry? true))
-    (#{401 403} status)                               {:id :comments/refused :url url :status status}
-    (not (and (integer? status) (<= 200 status 299))) (cond-> {:id :comments/unreachable :url url :status status}
-                                                        (and (integer? status) (or (= 429 status) (<= 500 status 599)))
-                                                        (assoc :retry? true))))
+  (let [success?   (and (integer? status) (<= 200 status 299))
+        transient? (and (integer? status)
+                        (or (= 429 status) (<= 500 status 599)))]
+    (cond
+      error
+      (cond-> {:id :comments/unreachable :url url :reason error}
+        timeout? (assoc :timeout? true)
+        retry?   (assoc :retry? true))
+
+      (#{401 403} status)
+      {:id :comments/refused :url url :status status}
+
+      (not success?)
+      (cond-> {:id :comments/unreachable :url url :status status}
+        transient? (assoc :retry? true)))))
+
+(defn- fit-link
+  "The Hiccup of the link with the attributes `attrs` and the fitted
+  children `kids`, in a post whose URL is `base`, as fit-links fits it."
+  [attrs kids base]
+  (let [target (:href attrs)
+        href   (if (and base target) (http/absolute-url base target) target)]
+    (into [:a (present {:href  (web-url href)
+                        :title (:title attrs)
+                        :rel   "nofollow ugc"})]
+          kids)))
 
 (defn ^:no-doc fit-links
   "The Hiccup `nodes` of a post whose URL is `base`, fit by `opts` to show
@@ -115,15 +133,10 @@
              (if-not (vector? x)
                (text x)
                (let [[tag attrs children] (html/parts x)
-                     kids (mapcat nodes-of children)]
+                     kids                 (mapcat nodes-of children)]
                  (case tag
                    :img (text (str (:alt attrs)))
-                   :a   [(or (a attrs kids)
-                             (let [target (:href attrs)]
-                               (into [:a (present {:href  (web-url (if (and base target) (http/absolute-url base target) target))
-                                                   :title (:title attrs)
-                                                   :rel   "nofollow ugc"})]
-                                     kids)))]
+                   :a   [(or (a attrs kids) (fit-link attrs kids base))]
                    [(into [tag attrs] kids)]))))]
      (mapcat nodes-of nodes))))
 
@@ -176,7 +189,10 @@
   (try
     (f)
     (catch #?(:clj Throwable :cljs :default) e
-      {:id id :error {:id :comments/malformed :url id :reason (async/explain e)} :read-at at})))
+      (let [error {:id     :comments/malformed
+                   :url    id
+                   :reason (async/explain e)}]
+        {:id id :error error :read-at at}))))
 
 (defn ^:no-doc withhold
   "The `thread` with the post `id` among the posts that it withholds, which
@@ -198,11 +214,12 @@
   The failure of a root that the Mastodon API gave stays, since it tells
   why the thread came through the API."
   [{:keys [error via comments authors] :as thread}]
-  (let [unread #(cond-> % (:retry? (:error %)) (dissoc :error :read-at))]
+  (let [unread #(cond-> % (:retry? (:error %)) (dissoc :error :read-at))
+        kept   #(into {} (remove (comp :retry? :error val)) %)]
     (cond-> thread
       (and (:retry? error) (not via)) (dissoc :error :read-at)
       comments                        (update :comments update-vals unread)
-      authors                         (update :authors #(into {} (remove (comp :retry? :error val)) %)))))
+      authors                         (update :authors kept))))
 
 (defn ^:no-doc depths
   "How many replies down from the root of `thread` each of its comments is,
@@ -213,14 +230,21 @@
     (loop [depth {root 0} level [root] n 1]
       (if (empty? level)
         depth
-        (let [below (into [] (comp (mapcat #(get children %)) (map :id) (remove depth) (distinct)) level)]
+        (let [below (into []
+                          (comp (mapcat #(get children %))
+                                (map :id)
+                                (remove depth)
+                                (distinct))
+                          level)]
           (recur (into depth (map #(vector % n)) below) below (inc n)))))))
 
 (defn ^:no-doc nearest-first
   "The requests `rs`, those for the comments nearest the root first, by the
   `depth` of the comment that the ::comments/for of each names."
   [depth rs]
-  (sort-by (fn [{[_ id] ::comments/for :keys [url]}] [(get depth id ##Inf) url]) rs))
+  (let [place (fn [{[_ id] ::comments/for :keys [url]}]
+                [(get depth id ##Inf) url])]
+    (sort-by place rs)))
 
 (comment
   (present {:name "Ann" :handle "" :avatar nil :labels #{} :hidden? false})
@@ -228,12 +252,16 @@
   ;; a failure that can pass with time is :retry?
   (failure "https://example.social/1" {:status 429})
   (failure "https://example.social/1" {:status 404})
-  (failure "https://example.social/1" {:error "Connection refused" :retry? true})
+  (failure "https://example.social/1"
+           {:error "Connection refused" :retry? true})
 
   ;; no handler, a link made absolute, and the alt text of an image
-  (safe-html "<p onclick=\"x()\">Hi <a href=\"/tags/podcast\">#podcast</a><img src=\"x.png\" alt=\"a cat\"></p>"
+  (safe-html (str "<p onclick=\"x()\">Hi <a href=\"/tags/podcast\">#podcast</a>"
+                  "<img src=\"x.png\" alt=\"a cat\"></p>")
              "https://example.social/users/ann/statuses/1")
 
   (depths {:root     "a"
-           :comments {"a" {:id "a"} "b" {:id "b" :in-reply-to "a"} "c" {:id "c" :in-reply-to "b"}}})
+           :comments {"a" {:id "a"}
+                      "b" {:id "b" :in-reply-to "a"}
+                      "c" {:id "c" :in-reply-to "b"}}})
   #_.)

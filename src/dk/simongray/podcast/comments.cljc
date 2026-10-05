@@ -92,7 +92,10 @@
 
   They're those of the Mastodon API, the conversation, the relays, the
   posts, the collections of their replies and the authors."
-  [{:keys [comments authors] ::keys [api conversation] ::nostr-comments/keys [relays] :as thread}]
+  [{:keys [comments authors]
+    ::keys [api conversation]
+    ::nostr-comments/keys [relays]
+    :as thread}]
   (concat (keep :error [api conversation])
           (keep :error (map val (sort-by key relays)))
           (keep :error (vals comments))
@@ -167,8 +170,12 @@
 (defn- distinct-by
   "The `xs` without those that have the same `f` as one before them."
   [f xs]
-  (let [seen (volatile! #{})]
-    (filterv #(let [k (f %)] (when-not (contains? @seen k) (vswap! seen conj k))) xs)))
+  (let [seen   (volatile! #{})
+        first? (fn [x]
+                 (let [k (f x)]
+                   (when-not (contains? @seen k)
+                     (vswap! seen conj k))))]
+    (filterv first? xs)))
 
 (defn requests
   "The requests that `thread` needs next, as `opts` allow, in the order to
@@ -192,8 +199,9 @@
   ([thread]
    (requests thread {}))
   ([thread opts]
-   (let [spared (spared-origins thread)]
-     (distinct-by :url (pending thread (merge default-limits opts) #(not (contains? spared (origin %))))))))
+   (let [spared (spared-origins thread)
+         ask?   #(not (contains? spared (origin %)))]
+     (distinct-by :url (pending thread (merge default-limits opts) ask?)))))
 
 (defn next-page
   "The request for the page after the one in `exchange`, an exchange of
@@ -252,6 +260,30 @@
   ([feed item opts]
    (first (filter #(readable? % opts) (resolve/social-interacts feed item)))))
 
+(defn- reading-report
+  "The diagnostics without their levels of the reading of `thread`, a
+  thread that fetch! can read with `opts`."
+  [{:keys [error via]
+    ::keys [withheld truncated]
+    ::nostr-comments/keys [left-out]
+    :as thread}
+   opts]
+  (let [unlimited (assoc opts :max-comments ##Inf)
+        more?     (seq (pending (resumed thread) unlimited (constantly true)))]
+    (concat (when error
+              [(cond-> error via (assoc :id :comments/through-api))])
+            (errors thread)
+            (when (seq withheld)
+              [{:id :comments/withheld :count (count withheld)}])
+            (when left-out
+              [{:id :comments/unverified :count left-out}])
+            (for [[limit n] (sort-by key truncated)]
+              {:id :comments/truncated :limit limit :count n})
+            ;; what the next fetch asks for, with no limit and no server
+            ;; spared
+            (when more?
+              [{:id :comments/incomplete}]))))
+
 (defn report
   "The diagnostics of `thread` as fetch! read it with `opts`, which name
   the :appview for the AT Protocol.
@@ -262,32 +294,27 @@
   For Nostr, they tell how many events from a relay aren't verified."
   ([thread]
    (report thread {}))
-  ([{:keys [protocol uri error via] ::keys [withheld truncated] ::nostr-comments/keys [left-out] :as thread} opts]
+  ([{:keys [protocol uri] :as thread} opts]
    (let [opts (merge default-limits opts)]
      (mapv diagnostics/describe
            (cond
              (not (contains? protocols protocol))
              [{:id :comments/unsupported :protocol protocol}]
 
-             (and (= "atproto" protocol) (not (string? (:appview opts))))
+             (and (= "atproto" protocol)
+                  (not (string? (:appview opts))))
              [{:id :comments/no-appview}]
 
-             (and (= "nostr" protocol) (nostr-comments/root-of uri) (empty? (nostr-comments/relays-of thread opts)))
+             (and (= "nostr" protocol)
+                  (nostr-comments/root-of uri)
+                  (empty? (nostr-comments/relays-of thread opts)))
              [{:id :comments/no-relay}]
 
              (not (readable? thread opts))
              [{:id :comments/malformed :url uri}]
 
              :else
-             (concat (when error [(cond-> error via (assoc :id :comments/through-api))])
-                     (errors thread)
-                     (when (seq withheld) [{:id :comments/withheld :count (count withheld)}])
-                     (when left-out [{:id :comments/unverified :count left-out}])
-                     (for [[limit n] (sort-by key truncated)]
-                       {:id :comments/truncated :limit limit :count n})
-                     ;; what the next fetch asks for, with no limit and no server spared
-                     (when (seq (pending (resumed thread) (assoc opts :max-comments ##Inf) (constantly true)))
-                       [{:id :comments/incomplete}])))))))
+             (reading-report thread opts))))))
 
 (defn- levels
   "The posts of a thread from the post `top` down, level by level, with
@@ -295,7 +322,10 @@
   replies to a post by its id, and `shown?` tells which replies count."
   [top children shown?]
   (loop [levels [[top]] seen #{(:id top)}]
-    (let [below (into [] (comp (mapcat #(get children (:id %))) (filter shown?) (remove #(seen (:id %))))
+    (let [below (into []
+                      (comp (mapcat #(get children (:id %)))
+                            (filter shown?)
+                            (remove #(seen (:id %))))
                       (peek levels))]
       (if (or (empty? below) (>= (count levels) 256))
         levels
@@ -317,11 +347,18 @@
   [levels children authors]
   (let [root (:id (ffirst levels))]
     (reduce (fn [built {:keys [id author deleted? error] :as c}]
-              (let [replies (->> (get children id) (keep #(get built (:id %))) (sort-by oldest-first) vec)]
-                (if (and (not= id root) (or deleted? error) (empty? replies))
+              (let [replies (->> (get children id)
+                                 (keep #(get built (:id %)))
+                                 (sort-by oldest-first)
+                                 vec)
+                    profile (when author (get authors author {:id author}))
+                    post    (cond-> (assoc c :replies replies)
+                              author (assoc :author profile))]
+                (if (and (not= id root)
+                         (or deleted? error)
+                         (empty? replies))
                   built
-                  (assoc built id (cond-> (assoc c :replies replies)
-                                    author (assoc :author (get authors author {:id author})))))))
+                  (assoc built id post))))
             {}
             (apply concat (rseq levels)))))
 
@@ -354,7 +391,8 @@
       {:type :hashtag :text \"#podcast\" :tag \"podcast\"}
       {:type :link :text \"example.org\" :url \"https://example.org/\"}
       {:type :reference :text \"nevent1qqs9…m9d82\" :uri \"nostr:nevent1…\"}
-      {:type :emoji :text \":blobcat:\" :shortcode \"blobcat\" :url \"https://…\"}
+      {:type :emoji :text \":blobcat:\" :shortcode \"blobcat\"
+       :url \"https://…\"}
 
   The :id of a mention is the id of an author, as the :authors of a
   thread have it. It's the id of an actor on ActivityPub, a DID on the AT
@@ -367,15 +405,19 @@
   parts function for what it keeps of a comment, and its docstring tells
   more."
   [{:keys [protocol] :as thread} {:keys [content] :as comment}]
-  (or (case protocol
-        "activitypub" (some-> (::activitypub/source comment) activitypub/parts)
-        "atproto"     (some-> (::atproto/record comment) atproto/parts)
-        "nostr"       (some-> (::nostr-comments/event comment)
-                              (nostr-comments/parts {:names (nostr-comments/names thread)}))
-        nil)
-      (if-let [text (common/first-text (some-> content html/text))]
-        [{:type :text :text text}]
-        [])))
+  (let [source       (::activitypub/source comment)
+        record       (::atproto/record comment)
+        event        (::nostr-comments/event comment)
+        author-names #(nostr-comments/names thread)]
+    (or (case protocol
+          "activitypub" (some-> source activitypub/parts)
+          "atproto"     (some-> record atproto/parts)
+          "nostr"       (some-> event
+                                (nostr-comments/parts {:names (author-names)}))
+          nil)
+        (if-let [text (common/first-text (some-> content html/text))]
+          [{:type :text :text text}]
+          []))))
 
 (defn hiccup
   "The content of `comment`, a comment of `thread`, as Hiccup that a page
@@ -409,17 +451,23 @@
   has only that HTML, and the Hiccup is then made of it."
   ([thread comment]
    (hiccup thread comment {}))
-  ([{:keys [protocol] :as thread} {:keys [content] :as comment} {:keys [link] :as opts}]
+  ([{:keys [protocol] :as thread}
+    {:keys [content] :as comment}
+    {:keys [link] :as opts}]
    {:pre [(map? opts)]}
-   (let [opts (cond-> opts
-                link (assoc :link #(link (assoc % :protocol protocol))))]
+   (let [opts       (cond-> opts
+                      link (assoc :link #(link (assoc % :protocol protocol))))
+         nostr-opts (fn []
+                      (cond-> opts
+                        (not (contains? opts :names))
+                        (assoc :names (nostr-comments/names thread))))
+         source     (::activitypub/source comment)
+         record     (::atproto/record comment)
+         event      (::nostr-comments/event comment)]
      (or (case protocol
-           "activitypub" (some-> (::activitypub/source comment) (activitypub/hiccup opts))
-           "atproto"     (some-> (::atproto/record comment) (atproto/hiccup opts))
-           "nostr"       (some-> (::nostr-comments/event comment)
-                                 (nostr-comments/hiccup (cond-> opts
-                                                          (not (contains? opts :names))
-                                                          (assoc :names (nostr-comments/names thread)))))
+           "activitypub" (some-> source (activitypub/hiccup opts))
+           "atproto"     (some-> record (atproto/hiccup opts))
+           "nostr"       (some-> event (nostr-comments/hiccup (nostr-opts)))
            nil)
          (html/hiccup content)))))
 
@@ -443,7 +491,8 @@
    (text thread comment {}))
   ([thread comment opts]
    {:pre [(map? opts)]}
-   (html/text (hiccup thread comment (dissoc opts :link)) (select-keys opts [:links?]))))
+   (let [nodes (hiccup thread comment (dissoc opts :link))]
+     (html/text nodes (select-keys opts [:links?])))))
 
 (defn ^:no-doc exchange!
   "Send `request` by the :send of `opts`, with its limits of time and size,
@@ -459,23 +508,32 @@
   A failed response is :retry?, unless the guard of the request refused
   its URL or the answer was too large. A later request gets the same
   failure then."
-  [request {:keys [send timeout-seconds max-bytes now] ::keys [deadline] :as opts}]
+  [request {:keys [send timeout-seconds max-bytes now] ::keys [deadline]
+            :as opts}]
   (let [left    (when deadline (quot (- deadline (inst-ms (now))) 1000))
         seconds (max 1 (min timeout-seconds (or left timeout-seconds)))
-        stays?  #(contains? #{::http/refused ::http/too-large} (:type (ex-data %)))]
-    (async/then (http/try-send! send request (assoc opts :timeout-seconds seconds))
-                (fn [{:keys [value error]}]
-                  (cond
-                    error
-                    {:request request :response (cond-> {:error (async/explain error)}
-                                                  (http/timeout? error) (assoc :timeout? true)
-                                                  (not (stays? error))  (assoc :retry? true))}
+        lasting #{::http/refused ::http/too-large}
+        stays?  #(contains? lasting (:type (ex-data %)))
+        failure (fn [error]
+                  (cond-> {:error (async/explain error)}
+                    (http/timeout? error) (assoc :timeout? true)
+                    (not (stays? error))  (assoc :retry? true)))
+        large?  #(and max-bytes (> (count (str (:body %))) max-bytes))]
+    (async/then
+     (http/try-send! send request (assoc opts :timeout-seconds seconds))
+     (fn [{:keys [value error]}]
+       (cond
+         error
+         {:request request :response (failure error)}
 
-                    (and max-bytes (> (count (str (:body value))) max-bytes))
-                    {:request request :response {:error (str "The answer is larger than " max-bytes " bytes")}}
+         (large? value)
+         (let [reason (str "The answer is larger than " max-bytes " bytes")]
+           {:request request :response {:error reason}})
 
-                    :else
-                    {:request request :response (dissoc value :body) :document (common/document value)})))))
+         :else
+         {:request  request
+          :response (dissoc value :body)
+          :document (common/document value)})))))
 
 (defn ^:no-doc failed
   "The exchanges of `request` when reading them failed with `e`: one, with
@@ -490,15 +548,17 @@
   The exchanges of a request are its own and those of the pages after it
   that next-page names, with none after the ::deadline of `opts`."
   [batch limit {:keys [now] ::keys [deadline] :as opts}]
-  (let [in-time? #(or (nil? deadline) (< (inst-ms (now)) deadline))]
-    (async/then (async/all (mapv (fn [request]
-                                   (async/attempt #(async/iteration (fn [r] (exchange! r opts))
-                                                                    :initk request
-                                                                    :kf    (fn [exchange] (when (in-time?) (next-page exchange)))
-                                                                    :limit limit)))
-                                 batch))
-                (fn [attempts]
-                  (mapv (fn [request {:keys [value error]}] (or value (failed request error))) batch attempts)))))
+  (let [in-time?  #(or (nil? deadline) (< (inst-ms (now)) deadline))
+        following (fn [exchange] (when (in-time?) (next-page exchange)))
+        pages!    (fn [request]
+                    (async/iteration #(exchange! % opts)
+                                     :initk request
+                                     :kf    following
+                                     :limit limit))
+        exchanges (fn [request {:keys [value error]}]
+                    (or value (failed request error)))]
+    (async/then (async/all (mapv #(async/attempt (fn [] (pages! %))) batch))
+                #(mapv exchanges batch %))))
 
 (defn- with-round
   "The `thread` with the exchanges of a `round` of requests read into it at
@@ -511,7 +571,8 @@
             (try
               (with-exchanges thread exchanges at)
               (catch #?(:clj Throwable :cljs :default) e
-                (with-exchanges thread (failed (:request (first exchanges)) e) at))))
+                (let [request (:request (first exchanges))]
+                  (with-exchanges thread (failed request e) at)))))
           thread
           round))
 
@@ -572,11 +633,15 @@
                  :allow? public?
                  :now    time/now}
                 opts)
-         opts  (cond-> opts max-seconds (assoc ::deadline (+ (inst-ms (now)) (* 1000 max-seconds))))
+         opts  (cond-> opts
+                 max-seconds (assoc ::deadline (+ (inst-ms (now))
+                                                  (* 1000 max-seconds))))
          start (resumed thread)
          batch (fn [thread sent]
-                 (when (or (not max-seconds) (< (inst-ms (now)) (::deadline opts)))
-                   (seq (take (min (max 1 concurrency) (- max-requests sent)) (requests thread opts)))))
+                 (when (or (not max-seconds)
+                           (< (inst-ms (now)) (::deadline opts)))
+                   (let [n (min (max 1 concurrency) (- max-requests sent))]
+                     (seq (take n (requests thread opts))))))
          limit (fn [b sent]
                  (max 1 (min max-pages (quot (- max-requests sent) (count b)))))
          ;; the thread after one more round, with the requests that went out
@@ -585,7 +650,9 @@
                  (when-let [b (batch thread sent)]
                    (async/then (send-round! b (limit b sent) opts)
                                (fn [exchanges]
-                                 [(with-round thread exchanges (now)) (+ sent (count (apply concat exchanges)))]))))]
+                                 (let [n (count (apply concat exchanges))]
+                                   [(with-round thread exchanges (now))
+                                    (+ sent n)])))))]
      (async/then (async/iteration round :initk [start 0] :vf first)
                  (fn [threads]
                    (let [read (or (peek threads) start)]
@@ -593,12 +660,14 @@
 
 (comment
   (def interact
-    {:protocol "activitypub" :uri "https://example.social/users/ann/statuses/1"})
+    {:protocol "activitypub"
+     :uri      "https://example.social/users/ann/statuses/1"})
 
   (readable? interact)
   (readable? {:protocol "atproto" :uri "at://did:plc:ann/app.bsky.feed.post/1"})
   (requests interact)
-  (map :id (report {:protocol "matrix" :uri "https://matrix.to/#/#podcast:example.org"}))
+  (map :id (report {:protocol "matrix"
+                    :uri      "https://matrix.to/#/#podcast:example.org"}))
 
   ;; a thread that a fetch read: the root, a reply, and a reply that the
   ;; author of the root hid
@@ -609,23 +678,39 @@
              :root     "a"
              :authors  {"ann" {:id "ann" :name "Ann"}}
              :comments {"a" {:id "a" :author "ann" :read-at at}
-                        "b" {:id "b" :author "bob" :in-reply-to "a" :read-at at}
-                        "c" {:id "c" :author "ann" :in-reply-to "a" :hidden? true :read-at at}})))
+                        "b" {:id          "b"
+                             :author      "bob"
+                             :in-reply-to "a"
+                             :read-at     at}
+                        "c" {:id          "c"
+                             :author      "ann"
+                             :in-reply-to "a"
+                             :hidden?     true
+                             :read-at     at}})))
 
   (tree read-thread)
   (tree read-thread {:hidden? true})
 
   ;; a fetch that sends no request to the network
-  (fetch! interact {:send (fn [request] {:status 404 :url (:url request) :headers {}})})
+  (fetch! interact
+          {:send (fn [request] {:status 404 :url (:url request) :headers {}})})
   #_.)
 
 #?(:clj
    (comment
+     (def dave
+       "https://podcastindex.social/@dave/117294750060235480")
+
      (def fetched
-       (fetch! {:protocol "activitypub" :uri "https://podcastindex.social/@dave/117294750060235480"}))
+       (fetch! {:protocol "activitypub" :uri dave}))
 
      (:report fetched)
      (tree fetched)
-     (fetch! {:protocol "atproto" :uri "at://did:plc:pzznkrzajsaqev3ffamg3jnr/app.bsky.feed.post/3mvzl4tmue22y"}
+
+     (def post
+       (str "at://did:plc:pzznkrzajsaqev3ffamg3jnr"
+            "/app.bsky.feed.post/3mvzl4tmue22y"))
+
+     (fetch! {:protocol "atproto" :uri post}
              {:appview "https://public.api.bsky.app"})
      #_.))
