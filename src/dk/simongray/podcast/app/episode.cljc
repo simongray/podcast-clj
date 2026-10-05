@@ -32,10 +32,12 @@
   "The :enclosure and :transcript of `item` in `feed`, as `opts` select
   them with the options of resolve/enclosure and resolve/transcript."
   [feed item {:keys [languages timed? transcript-types] :as opts}]
-  (into {} (remove (comp nil? val))
-        {:enclosure  (resolve/enclosure item (select-keys opts [:types :max-bitrate]))
-         :transcript (resolve/transcript feed item (cond-> {:languages languages :timed? timed?}
-                                                     transcript-types (assoc :types transcript-types)))}))
+  (let [media-opts      (select-keys opts [:types :max-bitrate])
+        transcript-opts (cond-> {:languages languages :timed? timed?}
+                          transcript-types (assoc :types transcript-types))]
+    (into {} (remove (comp nil? val))
+          {:enclosure  (resolve/enclosure item media-opts)
+           :transcript (resolve/transcript feed item transcript-opts)})))
 
 (defn- with-report
   "The `part` of a view with its `document`, and the diagnostics that
@@ -56,9 +58,9 @@
       (with-report {:source :inferred} inferred chapters/report))))
 
 (defn view
-  "The episode `item` of `feed` as a page shows it, with the
-  `opts` below: the item with the properties of resolve/properties merged
-  in, and these keys:
+  "The episode `item` of `feed` as a page shows it, with the `opts` below:
+  the item with the properties of resolve/properties merged in, and these
+  keys:
 
   - :guid, the guid of the item
   - :id, its id for the profile, when the feed has a guid or `opts` give
@@ -82,24 +84,33 @@
    (view feed item {}))
   ([feed item {:keys [url except] :or {except #{}} :as opts}]
    {:pre [(map? opts)]}
-   (let [wanted?     (complement except)
-         url         (or url (resolve/self-url feed))
-         feed-guid   (feed/feed-guid feed url)
-         notes       (when (and (or (wanted? :notes) (wanted? :text) (wanted? :chapters))
-                                (resolve/description item))
-                       (html/hiccup (resolve/description item)))
-         text        (when (and notes (or (wanted? :text) (wanted? :chapters)))
-                       (html/text notes))
-         own         (when (wanted? :chapters) (own-chapters item text))]
+   (let [wanted?   (complement except)
+         url       (or url (resolve/self-url feed))
+         feed-guid (feed/feed-guid feed url)
+         read?     (or (wanted? :notes) (wanted? :text) (wanted? :chapters))
+         notes     (when read?
+                     (some-> (resolve/description item) html/hiccup))
+         text      (when (and notes (or (wanted? :text) (wanted? :chapters)))
+                     (html/text notes))
+         own       (when (wanted? :chapters) (own-chapters item text))]
      (cond-> (merge item
                     (resolve/properties feed item)
                     (chosen feed item opts)
                     {:guid (feed/item-guid item)})
-       feed-guid                 (assoc :id (feed/episode-id feed url item))
-       (and notes (wanted? :notes)) (assoc :notes notes)
-       (and text (wanted? :text))   (assoc :text text)
-       own                       (assoc :chapters own)
-       (wanted? :links)          (assoc :links (links/links (links/ids feed item {:url url})))))))
+       feed-guid
+       (assoc :id (feed/episode-id feed url item))
+
+       (and notes (wanted? :notes))
+       (assoc :notes notes)
+
+       (and text (wanted? :text))
+       (assoc :text text)
+
+       own
+       (assoc :chapters own)
+
+       (wanted? :links)
+       (assoc :links (links/links (links/ids feed item {:url url})))))))
 
 (defn- unreachable
   "The diagnostic for the file at `url` that couldn't be fetched, because
@@ -117,20 +128,29 @@
   (async/then (http/try-send! send {:url url :headers {"Accept" accept}} opts)
               (fn [{:keys [value error]}]
                 (cond
-                  error                             {:error (unreachable url error nil)}
-                  (not (<= 200 (long (:status value)) 299)) {:error (unreachable url nil (:status value))}
-                  :else                             {:value (str (:body value))}))))
+                  error
+                  {:error (unreachable url error nil)}
+
+                  (not (<= 200 (long (:status value)) 299))
+                  {:error (unreachable url nil (:status value))}
+
+                  :else
+                  {:value (str (:body value))}))))
 
 (defn- read-chapters-file!
   "Read the chapters file at `url` with `opts`, in a future or a promise.
   The result is a map of its :url, :document and :report, or an :error,
   with :file as the :source."
   [url opts]
-  (async/then (fetch-text! url "application/json+chapters, application/json;q=0.9, */*;q=0.1" opts)
-              (fn [{:keys [value error]}]
-                (if error
-                  {:source :file :url url :error error}
-                  (with-report {:source :file :url url} (chapters/parse-json value) chapters/report)))))
+  (let [accept "application/json+chapters, application/json;q=0.9, */*;q=0.1"
+        part   {:source :file :url url}]
+    (async/then (fetch-text! url accept opts)
+                (fn [{:keys [value error]}]
+                  (if error
+                    (assoc part :error error)
+                    (with-report part
+                                 (chapters/parse-json value)
+                                 chapters/report))))))
 
 (defn- read-transcript-file!
   "Read the transcript that the reference `ref` names with `opts`, adding
@@ -140,19 +160,24 @@
               (fn [{:keys [value error]}]
                 (if error
                   (assoc ref :error error)
-                  (with-report ref (transcript/parse value type) transcript/report)))))
+                  (with-report ref
+                               (transcript/parse value type)
+                               transcript/report)))))
 
 (defn- read-media-file!
   "Read the media file at `url` with media/read! and `opts`, adding its
   :url and its :report as data, or an :error, in a future or a promise."
   [url opts]
-  (async/then (media/read! url (select-keys opts [:send :allow? :timeout-seconds :headers :except]))
-              (fn [file]
-                (if (:error file)
-                  {:url url :error (:error file)}
-                  (let [diagnostics (media/report file)]
-                    (cond-> (assoc file :url url)
-                      (seq diagnostics) (assoc :report (vec diagnostics))))))))
+  (let [read-opts (select-keys opts [:send :allow? :timeout-seconds :headers
+                                     :except])]
+    (async/then (media/read! url read-opts)
+                (fn [file]
+                  (if (:error file)
+                    {:url url :error (:error file)}
+                    (let [diagnostics (media/report file)]
+                      (cond-> (assoc file :url url)
+                        (seq diagnostics)
+                        (assoc :report (vec diagnostics)))))))))
 
 (defn- best-chapters
   "The :chapters of a view once its files are read, from the first of the
@@ -161,13 +186,26 @@
   The chapters carry the :error of a file that failed in their :report."
   [file own media]
   (let [failed (:error file)
-        from   (fn [part] (cond-> part failed (update :report (fnil conj []) failed)))]
+        from   (fn [part]
+                 (cond-> part
+                   failed (update :report (fnil conj []) failed)))]
     (cond
-      (:document file)                          file
-      (= :embedded (:source own))               (from own)
-      (:chapters media)                         (from (with-report {:source :media :url (:url media)} (:chapters media) chapters/report))
-      own                                       (from own)
-      failed                                    file)))
+      (:document file)
+      file
+
+      (= :embedded (:source own))
+      (from own)
+
+      (:chapters media)
+      (from (with-report {:source :media :url (:url media)}
+                         (:chapters media)
+                         chapters/report))
+
+      own
+      (from own)
+
+      failed
+      file)))
 
 (defn read-files!
   "Read the files of the episode `view` with the `opts` below, for a page
@@ -194,20 +232,31 @@
    (read-files! view {}))
   ([view {:keys [except] :or {except #{}} :as opts}]
    {:pre [(map? opts)]}
-   (let [opts    (merge default-limits {:send http/send!} opts)
-         wanted? (complement except)
-         own     (:chapters view)
-         url     (:url (:enclosure view))]
-     (async/then (async/all force [(delay (when-let [chapters-url (and (wanted? :chapters) (:chapters-url view))] (read-chapters-file! chapters-url opts)))
-                                   (delay (when-let [ref (and (wanted? :transcript) (:transcript view))] (read-transcript-file! ref opts)))
-                                   (delay (when (and (wanted? :media) url) (read-media-file! url opts)))])
+   (let [opts            (merge default-limits {:send http/send!} opts)
+         wanted?         (complement except)
+         own             (:chapters view)
+         url             (:url (:enclosure view))
+         chapters-file   (delay
+                           (when-let [chapters-url (and (wanted? :chapters)
+                                                        (:chapters-url view))]
+                             (read-chapters-file! chapters-url opts)))
+         transcript-file (delay
+                           (when-let [ref (and (wanted? :transcript)
+                                               (:transcript view))]
+                             (read-transcript-file! ref opts)))
+         media-file      (delay
+                           (when (and (wanted? :media) url)
+                             (read-media-file! url opts)))
+         files           [chapters-file transcript-file media-file]]
+     (async/then (async/all force files)
                  (fn [[file transcript media]]
-                   (let [chapters (best-chapters file own media)]
+                   (let [chapters (best-chapters file own media)
+                         duration (:duration media)]
                      (cond-> {}
-                       chapters          (assoc :chapters chapters)
-                       transcript        (assoc :transcript transcript)
-                       media             (assoc :media media)
-                       (:duration media) (assoc :duration (:duration media)))))))))
+                       chapters   (assoc :chapters chapters)
+                       transcript (assoc :transcript transcript)
+                       media      (assoc :media media)
+                       duration   (assoc :duration duration))))))))
 
 (defn report
   "The diagnostics of all the parts of `files`, as read-files! gives them,
@@ -240,13 +289,22 @@
         block  (:value answer)
         failed #(unresolved remote (assoc % :url url))]
     (cond
-      error               (failed {:reason (async/explain error)})
+      error
+      (failed {:reason (async/explain error)})
+
       ;; the index doesn't take or know the guid
-      (#{400 404} status) nil
-      (not ok?)           (failed {:status status})
-      (nil? answer)       (failed {:status status :reason "The answer isn't JSON."})
-      :else               (when (and (:status answer) (seq (:recipients block)))
-                            {:value block}))))
+      (#{400 404} status)
+      nil
+
+      (not ok?)
+      (failed {:status status})
+
+      (nil? answer)
+      (failed {:status status :reason "The answer isn't JSON."})
+
+      :else
+      (when (and (:status answer) (seq (:recipients block)))
+        {:value block}))))
 
 (defn- fetch-index-value!
   "Ask the Podcast Index with `opts` for the value block of the `remote`
@@ -267,7 +325,8 @@
   or of an :error."
   [{:keys [feed-url item-guid] :as remote} {fetched :value thrown :error}]
   (let [{:keys [feed status error]} fetched
-        item (some #(when (= item-guid (feed/item-guid %)) %) (:rss/items feed))]
+        item (some #(when (= item-guid (feed/item-guid %)) %)
+                   (:rss/items feed))]
     (cond
       item  {:value (resolve/value feed item)}
       feed  {:value (resolve/value feed)}
@@ -313,8 +372,8 @@
           force))))
 
 (defn- gathered
-  "What fetch-remote-values! gives for the `remotes` and what find-remote-value!
-  `found` for each of them, in the same order."
+  "What fetch-remote-values! gives for the `remotes` and what
+  find-remote-value! `found` for each of them, in the same order."
   [remotes found]
   (let [failed (keep :error found)
         values (for [[remote {:keys [value error]}] (zipmap remotes found)
@@ -352,7 +411,9 @@
   ([view opts]
    {:pre [(map? opts)]}
    (let [opts    (-> (merge default-limits
-                            {:send http/send! :now time/now :fetch podcast/fetch!}
+                            {:send  http/send!
+                             :now   time/now
+                             :fetch podcast/fetch!}
                             opts)
                      (update :fetch once-per-url))
          remotes (distinct (keep :remote-item (:time-splits (:value view))))]
@@ -363,7 +424,9 @@
   (def show (:feed (podcast/fetch! "https://feeds.podcastindex.org/pc20.xml")))
   (def item (first (resolve/episodes show)))
 
-  (select-keys (view show item) [:title :published :duration :enclosure :transcript :chapters-url :links])
+  (select-keys (view show item)
+               [:title :published :duration :enclosure :transcript
+                :chapters-url :links])
   (:source (:chapters (view show item)))
 
   ;; the files of the episode, read, and the page
@@ -376,9 +439,13 @@
   (keys (merge v files))
 
   ;; the value blocks of the songs of a mix tape, which its time splits name
-  (def mixtape (:feed (podcast/fetch! "https://mikesmixtape.com/mikesmixtaperss.xml")))
-  (def songs (view mixtape (first (resolve/episodes mixtape)) {:except #{:notes :text :chapters :links}}))
-  (def remotes (fetch-remote-values! songs {:index {:key "…" :secret "…"}}))
+  (def mixtape
+    (:feed (podcast/fetch! "https://mikesmixtape.com/mikesmixtaperss.xml")))
+  (def songs
+    (view mixtape (first (resolve/episodes mixtape))
+          {:except #{:notes :text :chapters :links}}))
+  (def remotes
+    (fetch-remote-values! songs {:index {:key "…" :secret "…"}}))
   (count (:remote-values remotes))
   (:remote-report remotes)
   #_.)

@@ -49,7 +49,9 @@
   the server's `not-before`, or else after the wait of `cadence`."
   [feed at not-before cadence]
   (or (resolve/next-check feed at {:not-before not-before})
-      (later at (if (resolve/complete? feed) (:complete cadence) (:silent cadence)))))
+      (later at (if (resolve/complete? feed)
+                  (:complete cadence)
+                  (:silent cadence)))))
 
 (defn- fetched
   "The entry `old` after a fetch from `url` gave the fresh feed of `result`
@@ -58,7 +60,8 @@
   The entry has the feed, its ETag and Last-Modified, and the new URL of a
   feed that moved."
   [old url result at cadence]
-  (let [{:keys [feed status etag last-modified not-before websub permanent-url new-feed-url]} result]
+  (let [{:keys [feed status etag last-modified not-before websub
+                permanent-url new-feed-url]} result]
     (-> (dissoc old :etag :last-modified :websub :status)
         (assoc :url (or permanent-url new-feed-url url)
                :feed feed
@@ -92,10 +95,11 @@
   (let [failures (inc (:failures old 0))
         waits    (:after-failure cadence)
         wait     (nth waits (min (dec failures) (dec (count waits))))
-        retry-at (later at wait)]
+        retry-at (later at wait)
+        waiting? (and not-before (> (inst-ms not-before) (inst-ms retry-at)))]
     (assoc old
            :fetched-at at
-           :next-check (if (and not-before (> (inst-ms not-before) (inst-ms retry-at))) not-before retry-at)
+           :next-check (if waiting? not-before retry-at)
            :failures failures
            :status status)))
 
@@ -111,16 +115,21 @@
   ([feeds url result at cadence]
    {:pre [(map? cadence)]}
    (when-not (map? (:feed result))
-     (throw (ex-info "A result without a :feed can't be added" {:url url :status (:status result)})))
+     (throw (ex-info "A result without a :feed can't be added"
+                     {:url url :status (:status result)})))
    (let [cadence   (merge default-cadence cadence)
-         feed-guid (feed/feed-guid (:feed result) url)]
-     (assoc feeds feed-guid (fetched (get feeds feed-guid {}) url result at cadence)))))
+         feed-guid (feed/feed-guid (:feed result) url)
+         old       (get feeds feed-guid {})]
+     (assoc feeds feed-guid (fetched old url result at cadence)))))
 
 (defn- slim-item
   "The part of `item` that slim keeps: its guid, date and media."
   [item]
-  (cond-> (select-keys item [:rss/guid :rss/pub-date :rss/enclosure :podcast/alternate-enclosures :media/contents])
-    (:media/group item) (assoc :media/group (select-keys (:media/group item) [:contents]))))
+  (let [kept [:rss/guid :rss/pub-date :rss/enclosure
+              :podcast/alternate-enclosures :media/contents]]
+    (cond-> (select-keys item kept)
+      (:media/group item)
+      (assoc :media/group (select-keys (:media/group item) [:contents])))))
 
 (defn slim
   "The part of `feed` that keeping it current needs: what says when to
@@ -131,25 +140,32 @@
   same next check, the same new episodes for profile/refresh and the same
   names for the gpodder API, but no titles, descriptions or the rest."
   [feed]
-  (-> (select-keys feed [:podcast/guid :itunes/complete :podcast/update-frequency
-                         :rss/ttl :sy/update-period :sy/update-frequency])
-      (assoc :rss/items (mapv slim-item (:rss/items feed)))))
+  (let [kept [:podcast/guid :itunes/complete :podcast/update-frequency
+              :rss/ttl :sy/update-period :sy/update-frequency]]
+    (-> (select-keys feed kept)
+        (assoc :rss/items (mapv slim-item (:rss/items feed))))))
 
 (defn due
   "The guids of the feeds of `feeds` that are due at `at`, the earliest
   first."
   [feeds at]
-  (->> feeds
-       (filter (fn [[_ {:keys [next-check]}]]
-                 (or (nil? next-check) (<= (inst-ms next-check) (inst-ms at)))))
-       (sort-by (fn [[_ {:keys [next-check]}]] (if next-check (inst-ms next-check) 0)))
-       (mapv key)))
+  (let [due?  (fn [[_ {:keys [next-check]}]]
+                (or (nil? next-check)
+                    (<= (inst-ms next-check) (inst-ms at))))
+        order (fn [[_ {:keys [next-check]}]]
+                (if next-check (inst-ms next-check) 0))]
+    (->> feeds
+         (filter due?)
+         (sort-by order)
+         (mapv key))))
 
 (defn affected
   "The guids of the feeds of `feeds` that the Podping `pings` name, to
   fetch now whatever their next check."
   [feeds pings]
-  (let [by-url (into {} (map (fn [[feed-guid {:keys [url]}]] [url feed-guid])) feeds)]
+  (let [by-url (into {}
+                     (map (fn [[feed-guid {:keys [url]}]] [url feed-guid]))
+                     feeds)]
     (mapv by-url (podping/affected pings (keys by-url)))))
 
 (defn refresh
@@ -171,11 +187,14 @@
    {:pre [(map? cadence)]}
    (let [cadence (merge default-cadence cadence)
          old     (get feeds feed-guid)
-         _       (when-not old (throw (ex-info (str "No feed of the guid " feed-guid) {:feed-guid feed-guid})))
+         _       (when-not old
+                   (throw (ex-info (str "No feed of the guid " feed-guid)
+                                   {:feed-guid feed-guid})))
          url     (:url old)
          failure (fn [error]
-                   {:feeds  (assoc feeds feed-guid (failed old result at cadence))
-                    :report [(assoc error :feed-guid feed-guid)]})]
+                   (let [entry (failed old result at cadence)]
+                     {:feeds  (assoc feeds feed-guid entry)
+                      :report [(assoc error :feed-guid feed-guid)]}))]
      (cond
        (:error result)
        (failure (:error result))
@@ -189,7 +208,17 @@
            (not= url (:url entry)) (assoc :moved {feed-guid (:url entry)})))
 
        :else
-       (failure (diagnostics/describe {:id :fetch/status :url url :status (:status result)}))))))
+       (failure (diagnostics/describe {:id     :fetch/status
+                                       :url    url
+                                       :status (:status result)}))))))
+
+(defn- unreachable
+  "The result of a fetch of `url` that threw `error`."
+  [url error]
+  {:url   url
+   :error (diagnostics/describe {:id     :fetch/unreachable
+                                 :url    url
+                                 :reason (async/explain error)})})
 
 (defn- merged
   "The changes of the refreshes so far in `acc`, with those of the `result`
@@ -228,20 +257,26 @@
    {:pre [(map? opts)]}
    (let [at     (or at (time/now))
          guids  (vec (or feed-guids (due feeds at)))
-         common (select-keys opts [:send :timeout-seconds :max-bytes :user-agent :allow?])
+         common (select-keys opts [:send :timeout-seconds :max-bytes
+                                   :user-agent :allow?])
          fetch1 (fn [feed-guid]
                   (let [{:keys [url etag last-modified]} (get feeds feed-guid)
                         credentials (when credentials-of (credentials-of url))
-                        fetch-opts  (cond-> (assoc common :etag etag :last-modified last-modified)
-                                      credentials (assoc :credentials credentials))]
+                        cached      {:etag etag :last-modified last-modified}
+                        fetch-opts  (cond-> (merge common cached)
+                                      credentials
+                                      (assoc :credentials credentials))]
                     (async/then (async/attempt #(fetch url fetch-opts))
                                 (fn [{:keys [value error]}]
                                   [feed-guid (if error
-                                               {:url url :error (diagnostics/describe {:id :fetch/unreachable :url url :reason (async/explain error)})}
-                                               value)]))))]
+                                               (unreachable url error)
+                                               value)]))))
+         step   (fn [acc [feed-guid result]]
+                  (->> (refresh (:feeds acc) feed-guid result at cadence)
+                       (merged acc)))]
      (async/then (async/in-groups fetch1 concurrency guids)
                  (fn [results]
-                   (reduce (fn [acc [feed-guid result]] (merged acc (refresh (:feeds acc) feed-guid result at cadence)))
+                   (reduce step
                            {:feeds feeds :changed [] :moved {} :report []}
                            results))))))
 
