@@ -35,7 +35,9 @@
 
 (def ^:no-doc sample-rates
   "The sample rates in Hz by MPEG version, by sample rate index."
-  {1 [44100 48000 32000] 2 [22050 24000 16000] 2.5 [11025 12000 8000]})
+  {1   [44100 48000 32000]
+   2   [22050 24000 16000]
+   2.5 [11025 12000 8000]})
 
 (defn frame-header
   "The header of the MPEG audio frame at `p` in `view`, or nil when no
@@ -52,9 +54,13 @@
         version (case (bit-and (bit-shift-right b1 3) 3) 0 2.5 2 2 3 1 nil)
         layer   (case (bit-and (bit-shift-right b1 1) 3) 1 3 2 2 3 1 nil)
         rate-i  (bit-and (bit-shift-right b2 2) 3)
+        table   [(if (= 1 version) 1 2) layer]
         kbps    (when (and version layer)
-                  (get (bitrates [(if (= 1 version) 1 2) layer]) (bit-shift-right b2 4)))]
-    (when (and (= 0xFF (bytes/u8 view p)) (= 0xE0 (bit-and b1 0xE0)) kbps (< rate-i 3))
+                  (get (bitrates table) (bit-shift-right b2 4)))]
+    (when (and (= 0xFF (bytes/u8 view p))
+               (= 0xE0 (bit-and b1 0xE0))
+               kbps
+               (< rate-i 3))
       (let [rate    (get-in sample-rates [version rate-i])
             samples (case layer 1 384 2 1152 3 (if (= 1 version) 1152 576))
             padding (if (bit-test b2 1) 1 0)
@@ -99,9 +105,13 @@
         (bytes/need view start (+ end 4096))
         (loop [p (inc start)]
           (when (< (+ p 4) end)
-            (if-let [h (and (= 0xFF (bytes/u8 view p)) (frame-at? view p))]
-              (do (vswap! (:report ctx) conj {:id :mp3/junk-before-audio :level :info :skipped (- p start)})
-                  [p h])
+            (if-let [h (and (= 0xFF (bytes/u8 view p))
+                            (frame-at? view p))]
+              (let [junk {:id      :mp3/junk-before-audio
+                          :level   :info
+                          :skipped (- p start)}]
+                (vswap! (:report ctx) conj junk)
+                [p h])
               (recur (inc p)))))))))
 
 (defn- side-info
@@ -119,7 +129,8 @@
         v (+ p 36)]
     (bytes/need view p (+ v 18))
     (cond
-      (and (#{"Xing" "Info"} (bytes/code view x 4)) (bit-test (bytes/u32 view (+ x 4)) 0))
+      (and (#{"Xing" "Info"} (bytes/code view x 4))
+           (bit-test (bytes/u32 view (+ x 4)) 0))
       (bytes/u32 view (+ x 8))
 
       (= "VBRI" (bytes/code view v 4))
@@ -141,7 +152,8 @@
       (let [size    (+ size (:length h))
             samples (+ samples (:samples h))
             next    (+ q (:length h))
-            h'      (when (<= (+ next 4) end) (frame-header view next))]
+            h'      (when (<= (+ next 4) end)
+                      (frame-header view next))]
         (if h'
           (recur next h' size samples)
           (/ (* 8.0 size (:sample-rate h)) samples))))))
@@ -162,8 +174,9 @@
       (/ (* frames (:samples h)) (double (:sample-rate h)))
 
       (and h total)
-      (do (vswap! (:report ctx) conj {:id :mp3/estimated-duration :level :info})
-          (/ (* 8.0 (- total p)) (average-bitrate view p h))))))
+      (let [estimated {:id :mp3/estimated-duration :level :info}]
+        (vswap! (:report ctx) conj estimated)
+        (/ (* 8.0 (- total p)) (average-bitrate view p h))))))
 
 (defn report
   "The diagnostics of `file`, which read gave, with those of its tags.
@@ -188,15 +201,17 @@
    (read view {}))
   ([view {:keys [except] :as opts}]
    {:pre [(map? opts)]}
-   (let [tags   (id3/read-all view 0 opts)
-         start  (or (:end (peek tags)) 0)
-         ctx    {:except (set except) :report (volatile! [])}
-         [p h]  (first-frame ctx view start)
-         result {:tags        tags
-                 :audio-start p
-                 :duration    (duration ctx view p h)}]
-     (bytes/reported result (cond-> (into (vec (mapcat id3/report tags)) @(:report ctx))
-                              (nil? h) (conj {:id :mp3/no-audio :level :warning}))))))
+   (let [tags        (id3/read-all view 0 opts)
+         start       (or (:end (peek tags)) 0)
+         ctx         {:except (set except) :report (volatile! [])}
+         [p h]       (first-frame ctx view start)
+         result      {:tags        tags
+                      :audio-start p
+                      :duration    (duration ctx view p h)}
+         diagnostics (into (vec (mapcat id3/report tags)) @(:report ctx))]
+     (bytes/reported result
+                     (cond-> diagnostics
+                       (nil? h) (conj {:id :mp3/no-audio :level :warning}))))))
 
 (comment
   ;; one MPEG-1 Layer III frame of 128 kbit/s at 44.1 kHz: 417 bytes
@@ -212,7 +227,9 @@
 
   ;; bytes that are no frame before the audio, with the quirk and without it
   (def padded
-    (id3/view-of (bytes/of (concat (repeat 10 0) (apply concat (repeat 20 frame))))))
+    (let [junk  (repeat 10 0)
+          audio (apply concat (repeat 20 frame))]
+      (id3/view-of (bytes/of (concat junk audio)))))
 
   (map :id (report (read padded)))
   (map :id (report (read padded {:except #{:mp3/junk-before-audio}})))

@@ -74,14 +74,19 @@
   after the footer, when the tag has one."
   [view p]
   (bytes/need view p (+ p 10))
-  (let [version (bytes/u8 view (+ p 3))
-        flags   (bytes/u8 view (+ p 5))
-        size    (syncsafe view (+ p 6))]
-    (when (and (= "ID3" (bytes/code view p 3)) (#{2 3 4} version) (< (bytes/u8 view (+ p 4)) 0xFF) size)
+  (let [version  (bytes/u8 view (+ p 3))
+        revision (bytes/u8 view (+ p 4))
+        flags    (bytes/u8 view (+ p 5))
+        size     (syncsafe view (+ p 6))
+        footer?  (and (= 4 version) (bit-test flags 4))]
+    (when (and (= "ID3" (bytes/code view p 3))
+               (#{2 3 4} version)
+               (< revision 0xFF)
+               size)
       {:version version
        :flags   flags
        :start   p
-       :end     (+ p 10 size (if (and (= 4 version) (bit-test flags 4)) 10 0))})))
+       :end     (+ p 10 size (if footer? 10 0))})))
 
 (defn ^:no-doc resync
   "The bytes `b` with unsynchronisation undone, i.e. without the zero byte
@@ -92,14 +97,21 @@
     (loop [i 0 j 0]
       (if (>= i n)
         (bytes/copy out 0 j)
-        (let [x (bytes/at b i)]
-          #?(:clj (aset-byte out j (unchecked-byte x)) :cljs (aset out j x))
-          (recur (if (and (= 0xFF x) (< (inc i) n) (zero? (bytes/at b (inc i)))) (+ i 2) (inc i))
+        (let [x         (bytes/at b i)
+              inserted? (and (= 0xFF x)
+                             (< (inc i) n)
+                             (zero? (bytes/at b (inc i))))]
+          #?(:clj  (aset-byte out j (unchecked-byte x))
+             :cljs (aset out j x))
+          (recur (if inserted? (+ i 2) (inc i))
                  (inc j)))))))
 
 (def ^:no-doc encodings
   "The text encoding of each encoding byte, and the width of its terminator."
-  {0 [:latin1 1] 1 [:utf16 2] 2 [:utf16be 2] 3 [:utf8 1]})
+  {0 [:latin1 1]
+   1 [:utf16 2]
+   2 [:utf16be 2]
+   3 [:utf8 1]})
 
 (defn ^:no-doc text-encoding
   "The text encoding that the first byte of the frame in `view` names, and
@@ -120,7 +132,8 @@
             [:latin1 1])
 
         :else
-        (throw (ex-info "A text encoding that ID3 does not define" {:encoding b}))))))
+        (throw (ex-info "A text encoding that ID3 does not define"
+                        {:encoding b}))))))
 
 (defn ^:no-doc terminator
   "Where the text in `view` from `start` ends, before `end`: at the first
@@ -129,9 +142,14 @@
   [view start end width]
   (loop [p start]
     (cond
-      (> (+ p width) end)                                     end
-      (every? #(zero? (bytes/u8 view (+ p %))) (range width)) p
-      :else                                                   (recur (+ p width)))))
+      (> (+ p width) end)
+      end
+
+      (every? #(zero? (bytes/u8 view (+ p %))) (range width))
+      p
+
+      :else
+      (recur (+ p width)))))
 
 (defn- utf16-order
   "The byte order of the UTF-16 text in `view` from `start` to `end`, read
@@ -141,24 +159,34 @@
   Without one, the order is big-endian, as Unicode has it. By the quirk,
   it's the order in which the zero bytes of plain letters fall instead."
   [ctx view start end]
-  (let [a (when (< (inc start) end) (bytes/u8 view start))
-        b (when (< (inc start) end) (bytes/u8 view (inc start)))]
+  (let [room? (< (inc start) end)
+        a     (when room? (bytes/u8 view start))
+        b     (when room? (bytes/u8 view (inc start)))
+        zeros (fn [k]
+                (count (filter #(zero? (bytes/u8 view %))
+                               (range (+ start k) end 2))))]
     (cond
-      (and (= 0xFF a) (= 0xFE b))   [:utf16le (+ start 2)]
-      (and (= 0xFE a) (= 0xFF b))   [:utf16be (+ start 2)]
+      (and (= 0xFF a) (= 0xFE b))
+      [:utf16le (+ start 2)]
+
+      (and (= 0xFE a) (= 0xFF b))
+      [:utf16be (+ start 2)]
+
       (or (>= start end)
-          (not (quirk? ctx :id3/utf16-bom))) [:utf16be start]
+          (not (quirk? ctx :id3/utf16-bom)))
+      [:utf16be start]
+
       :else
-      (let [zeros #(count (filter (fn [p] (zero? (bytes/u8 view p))) (range (+ start %) end 2)))]
-        (note! ctx (diagnostic :id3/utf16-bom :info))
-        [(if (> (zeros 1) (zeros 0)) :utf16le :utf16be) start]))))
+      (do (note! ctx (diagnostic :id3/utf16-bom :info))
+          [(if (> (zeros 1) (zeros 0)) :utf16le :utf16be) start]))))
 
 (defn- decoded
   "The text in `view` from `start` to `end` in the ID3 `encoding`, read in
   the context `ctx`."
   [ctx view start end encoding]
   (case encoding
-    :latin1 (if (and (quirk? ctx :id3/utf8-latin1) (bytes/utf8? (bytes/slice view start end) 0 (- end start)))
+    :latin1 (if (and (quirk? ctx :id3/utf8-latin1)
+                     (bytes/utf8? (bytes/slice view start end) 0 (- end start)))
               (do (note! ctx (diagnostic :id3/utf8-latin1 :info))
                   (bytes/text view start end :utf8))
               (bytes/text view start end :latin1))
@@ -183,15 +211,19 @@
     (if (>= p end)
       acc
       (let [[s next] (text-at ctx view p end encoding width)]
-        (recur (max next (inc p)) (cond-> acc (not (str/blank? s)) (conj s)))))))
+        (recur (max next (inc p))
+               (cond-> acc
+                 (not (str/blank? s)) (conj s)))))))
 
 (defn- image-type
   "The MIME type of a picture, as `declared` in its frame, or by the quirk
   from the image `data`, read in the context `ctx`. The quirk applies
   when the declared type is loose, such as JPG or image/jpg, or missing."
   [ctx declared data]
-  (let [t (str/lower-case (str/trim (str declared)))]
-    (if-let [sniffed (and (not (and (re-matches #"image/[a-z0-9.+-]+" t) (not= "image/jpg" t)))
+  (let [t      (str/lower-case (str/trim (str declared)))
+        loose? (not (and (re-matches #"image/[a-z0-9.+-]+" t)
+                         (not= "image/jpg" t)))]
+    (if-let [sniffed (and loose?
                           (quirk? ctx :id3/image-type)
                           (bytes/image-type data))]
       (do (note! ctx (diagnostic :id3/image-type :info :declared declared))
@@ -206,8 +238,9 @@
   [ctx view _ id]
   (let [end                (:total view)
         [encoding width]   (text-encoding ctx view)
-        [description next] (text-at ctx view 1 end encoding width)]
-    {:id id :description description :text (first (text-at ctx view next end encoding width))}))
+        [description next] (text-at ctx view 1 end encoding width)
+        [text _]           (text-at ctx view next end encoding width)]
+    {:id id :description description :text text}))
 
 (defn- user-url
   "The WXXX frame `id` in `view`, read in the context `ctx`: a description,
@@ -215,8 +248,9 @@
   [ctx view _ id]
   (let [end                (:total view)
         [encoding width]   (text-encoding ctx view)
-        [description next] (text-at ctx view 1 end encoding width)]
-    {:id id :description description :url (str/trim (first (text-at ctx view next end :latin1 1)))}))
+        [description next] (text-at ctx view 1 end encoding width)
+        [url _]            (text-at ctx view next end :latin1 1)]
+    {:id id :description description :url (str/trim url)}))
 
 (defn- remark
   "The COMM or USLT frame `id` in `view`, read in the context `ctx`: a
@@ -232,7 +266,8 @@
 
 (def ^:no-doc picture-formats
   "The MIME type of each image format that a PIC frame of ID3v2.2 names."
-  {"JPG" "image/jpeg" "PNG" "image/png"})
+  {"JPG" "image/jpeg"
+   "PNG" "image/png"})
 
 (defn- picture
   "The APIC or PIC frame `id` in `view`, read in the context `ctx`. It has
@@ -242,13 +277,19 @@
   (let [end              (:total view)
         [encoding width] (text-encoding ctx view)
         [declared next]  (if (= "PIC" id)
-                           (let [image-format (bytes/code view 1 3)]
-                             [(get picture-formats (str/upper-case image-format) image-format) 4])
+                           (let [image-format (bytes/code view 1 3)
+                                 mime-type    (get picture-formats
+                                                   (str/upper-case image-format)
+                                                   image-format)]
+                             [mime-type 4])
                            (text-at ctx view 1 end :latin1 1))
         picture-type     (bytes/u8 view next)
         [description p]  (text-at ctx view (inc next) end encoding width)]
     (if (= "-->" declared)
-      {:id id :picture-type picture-type :description description :url (bytes/text view p end :latin1)}
+      {:id           id
+       :picture-type picture-type
+       :description  description
+       :url          (bytes/text view p end :latin1)}
       (let [data (bytes/slice view p end)]
         {:id           id
          :type         (image-type ctx declared data)
@@ -261,14 +302,15 @@
   an element id, a start and an end in milliseconds, and the frames inside
   it."
   [ctx view version id]
-  (let [end  (:total view)
-        stop (terminator view 0 end 1)
-        p    (inc stop)]
+  (let [end   (:total view)
+        stop  (terminator view 0 end 1)
+        p     (inc stop)
+        inner (assoc ctx :embedded? true)]
     {:id         id
      :element-id (bytes/text view 0 stop :latin1)
      :start-ms   (bytes/u32 view p)
      :end-ms     (bytes/u32 view (+ p 4))
-     :frames     (frames (assoc ctx :embedded? true) view version (+ p 16) end)}))
+     :frames     (frames inner view version (+ p 16) end)}))
 
 (defn- child-ids
   "The element ids of the `n` children of a table of contents in `view`
@@ -280,7 +322,9 @@
       [acc p]
       (let [s (terminator view p end 1)]
         (when (>= p end)
-          (throw (ex-info "A table of contents with fewer children than it counts" {})))
+          (throw (ex-info (str "A table of contents with fewer children "
+                               "than it counts")
+                          {})))
         (recur (inc s) (conj acc (bytes/text view p s :latin1)))))))
 
 (defn- contents
@@ -291,13 +335,15 @@
   (let [end          (:total view)
         stop         (terminator view 0 end 1)
         flags        (bytes/u8 view (inc stop))
-        [children p] (child-ids view (+ stop 3) end (bytes/u8 view (+ stop 2)))]
+        n            (bytes/u8 view (+ stop 2))
+        [children p] (child-ids view (+ stop 3) end n)
+        inner        (assoc ctx :embedded? true)]
     {:id         id
      :element-id (bytes/text view 0 stop :latin1)
      :top-level? (bit-test flags 1)
      :ordered?   (bit-test flags 0)
      :children   children
-     :frames     (frames (assoc ctx :embedded? true) view version p end)}))
+     :frames     (frames inner view version p end)}))
 
 (defn- text-frame
   "The text frame `id` in `view`, read in the context `ctx`: one text, or
@@ -311,7 +357,8 @@
 (defn- url-frame
   "The URL frame `id` in `view`, read in the context `ctx`."
   [ctx view _ id]
-  {:id id :url (str/trim (first (text-at ctx view 0 (:total view) :latin1 1)))})
+  (let [[url _] (text-at ctx view 0 (:total view) :latin1 1)]
+    {:id id :url (str/trim url)}))
 
 (defn- unread
   "The frame `id` in `view` of a kind that the reader doesn't read, with
@@ -359,8 +406,11 @@
     kilobyte is looked at"
   [view version p end]
   (or (= p end)
-      (and (<= (+ p 10) end) (frame-id? version (bytes/code view p 4)))
-      (and (< p end) (every? #(zero? (bytes/u8 view %)) (range p (min end (+ p 1024)))))))
+      (and (<= (+ p 10) end)
+           (frame-id? version (bytes/code view p 4)))
+      (and (< p end)
+           (every? #(zero? (bytes/u8 view %))
+                   (range p (min end (+ p 1024)))))))
 
 (defn- frame-size
   "The size of the frame of `version` 2.3 or 2.4 whose header is at `p` in
@@ -375,10 +425,15 @@
         [own other] (if (= 4 version) [safe plain] [plain safe])
         fits?       #(and % (plausible-end? view version (+ p 10 %) end))]
     (cond
-      (fits? own)                                      own
-      (and (quirk? ctx :id3/frame-size) (fits? other)) (do (note! ctx (diagnostic :id3/frame-size :info))
-                                                           other)
-      (and own (<= (+ p 10 own) end))                  own)))
+      (fits? own)
+      own
+
+      (and (quirk? ctx :id3/frame-size) (fits? other))
+      (do (note! ctx (diagnostic :id3/frame-size :info))
+          other)
+
+      (and own (<= (+ p 10 own) end))
+      own)))
 
 (defn- frame-flags
   "What the flags of the frame of `version` whose header is at `p` in
@@ -418,6 +473,25 @@
       (note! ctx (diagnostic :id3/malformed :warning :offset p :frame id))
       nil)))
 
+(defn- frame-header
+  "The header of the frame of `version` at `p` in `view`, read in the
+  context `ctx`, or nil when no frame that ends within `end` is there.
+  It's a map of :id, :flags, :start of the content and :stop of the frame."
+  [ctx view version p end]
+  (let [v2?    (= 2 version)
+        header (if v2? 6 10)
+        id     (bytes/code view p (if v2? 3 4))
+        size   (when (frame-id? version id)
+                 (if v2?
+                   (bytes/u24 view (+ p 3))
+                   (frame-size ctx view version p end)))]
+    (when (and size (<= (+ p header size) end))
+      (let [flags (frame-flags ctx view version p)]
+        {:id    id
+         :flags flags
+         :start (content-start version (+ p header) flags)
+         :stop  (+ p header size)}))))
+
 (defn ^:no-doc frames
   "The frames of `version` in `view` from `p` to `end`, read in the context
   `ctx`, until padding or the end. A frame that doesn't read ends them,
@@ -425,24 +499,25 @@
   [ctx view version p end]
   (let [header (if (= 2 version) 6 10)]
     (loop [p p acc []]
-      (if (or (>= p end) (zero? (bytes/u8 view p)) (> (+ p header) end))
-        (do (when (and (< p end) (not (plausible-end? view version p end)))
+      (if (or (>= p end)
+              (zero? (bytes/u8 view p))
+              (> (+ p header) end))
+        (do (when (and (< p end)
+                       (not (plausible-end? view version p end)))
               (note! ctx (diagnostic :id3/padding-junk :info :offset p)))
             acc)
-        (let [id   (bytes/code view p (if (= 2 version) 3 4))
-              size (when (frame-id? version id)
-                     (if (= 2 version) (bytes/u24 view (+ p 3)) (frame-size ctx view version p end)))]
-          (if (or (nil? size) (> (+ p header size) end))
-            (do (note! ctx (diagnostic :id3/malformed :warning :offset p)) acc)
-            (let [{:keys [compressed? encrypted? unsync?] :as flags} (frame-flags ctx view version p)
-                  start (content-start version (+ p header) flags)
-                  stop  (+ p header size)]
-              (if (or compressed? encrypted? (> start stop))
-                (do (note! ctx (diagnostic :id3/skipped-frame :info :frame id))
-                    (recur stop acc))
-                (let [data  (cond-> (bytes/slice view start stop) unsync? resync)
-                      frame (frame-body ctx data version id p)]
-                  (recur stop (cond-> acc frame (conj frame))))))))))))
+        (if-let [{:keys [id flags start stop]}
+                 (frame-header ctx view version p end)]
+          (let [{:keys [compressed? encrypted? unsync?]} flags]
+            (if (or compressed? encrypted? (> start stop))
+              (do (note! ctx (diagnostic :id3/skipped-frame :info :frame id))
+                  (recur stop acc))
+              (let [data  (cond-> (bytes/slice view start stop)
+                            unsync? resync)
+                    frame (frame-body ctx data version id p)]
+                (recur stop (cond-> acc frame (conj frame))))))
+          (do (note! ctx (diagnostic :id3/malformed :warning :offset p))
+              acc))))))
 
 (defn- tag
   "The tag of the header `h` in `view`, read in the context `ctx`. A tag
@@ -450,22 +525,25 @@
   so."
   [ctx view {:keys [version flags start end] :as h}]
   (bytes/need view start end)
-  (let [body-end (- end (if (and (= 4 version) (bit-test flags 4)) 10 0))
-        body     (cond-> (bytes/slice view (+ start 10) body-end)
-                   (and (#{2 3} version) (bit-test flags 7)) resync)
-        body     (view-of body)
-        extended (fn []
-                   (cond
-                     (not (bit-test flags 6)) 0
-                     (= 4 version)            (or (syncsafe body 0) 0)
-                     (= 3 version)            (+ 4 (bytes/u32 body 0))
-                     :else                    0))
-        ctx      (assoc ctx :unsync-all? (and (= 4 version) (bit-test flags 7)))]
+  (let [footer?   (and (= 4 version) (bit-test flags 4))
+        unsync?   (bit-test flags 7)
+        body-end  (- end (if footer? 10 0))
+        body      (cond-> (bytes/slice view (+ start 10) body-end)
+                    (and (#{2 3} version) unsync?) resync)
+        body      (view-of body)
+        extended  (fn []
+                    (cond
+                      (not (bit-test flags 6)) 0
+                      (= 4 version)            (or (syncsafe body 0) 0)
+                      (= 3 version)            (+ 4 (bytes/u32 body 0))
+                      :else                    0))
+        ctx       (assoc ctx :unsync-all? (and (= 4 version) unsync?))
+        malformed (diagnostic :id3/malformed :warning :offset start)]
     (assoc (select-keys h [:version :start :end])
            :frames (try
                      (frames ctx body version (extended) (:total body))
                      (catch #?(:clj Exception :cljs :default) _
-                       (note! ctx (diagnostic :id3/malformed :warning :offset start))
+                       (note! ctx malformed)
                        [])))))
 
 (defn report
@@ -504,14 +582,15 @@
    (let [first-tag (read view p opts)
          more?     (not (contains? (set (:except opts)) :id3/second-tag))]
      (loop [acc (if first-tag [first-tag] []) p (:end first-tag)]
-       (if-let [more (and p more?
+       (if-let [more (and p
+                          more?
                           (try (read view p opts)
                                (catch #?(:clj Exception :cljs :default) e
                                  (when (bytes/missing e) (throw e))
                                  nil)))]
-         (recur (conj acc (vary-meta more update :podcast/report conj
-                                     (diagnostic :id3/second-tag :info :offset p)))
-                (:end more))
+         (let [quirk (diagnostic :id3/second-tag :info :offset p)
+               noted (vary-meta more update :podcast/report conj quirk)]
+           (recur (conj acc noted) (:end more)))
          acc)))))
 
 (defn ^:no-doc frame
@@ -524,8 +603,9 @@
   nil when they hold none. The front cover comes before each other
   picture."
   [frames]
-  (let [pictures (filter #(and (#{"APIC" "PIC"} (:id %)) (:data %)) frames)]
-    (some-> (or (first (filter #(= 3 (:picture-type %)) pictures)) (first pictures))
+  (let [pictures (filter #(and (#{"APIC" "PIC"} (:id %)) (:data %)) frames)
+        front    (first (filter #(= 3 (:picture-type %)) pictures))]
+    (some-> (or front (first pictures))
             (select-keys [:type :data :description]))))
 
 (defn duration
@@ -566,29 +646,37 @@
   `frames`, as a map of element id to index, or nil when the frames hold
   no table."
   [frames]
-  (let [tocs (into {} (map (juxt :element-id identity)) (filter #(= "CTOC" (:id %)) frames))
-        top  (or (some #(when (:top-level? %) %) (vals tocs)) (first (vals tocs)))]
+  (let [tocs (into {}
+                   (comp (filter #(= "CTOC" (:id %)))
+                         (map (juxt :element-id identity)))
+                   frames)
+        top  (or (some #(when (:top-level? %) %) (vals tocs))
+                 (first (vals tocs)))]
     (when top
-      (into {} (comp (distinct) (map-indexed (fn [i id] [id i]))) (listed top tocs)))))
+      (into {}
+            (comp (distinct) (map-indexed (fn [i id] [id i])))
+            (listed top tocs)))))
 
 (defn- chapter-of
   "The chapter of the CHAP frame `chap`, read in the context `ctx`. It has
   :toc false when the `places` that toc-places gives lack it."
   [ctx {:keys [element-id start-ms end-ms frames] :as chap} places]
-  (let [title   (:text (frame frames "TIT2"))
-        url     (some #(when (and (re-matches #"W[A-Z0-9]{3}" (:id %)) (not (str/blank? (:url %))))
-                         (:url %))
-                      frames)
-        picture (artwork frames)
-        drop?   (and (<= end-ms start-ms) (quirk? ctx :id3/chapter-end))]
+  (let [title     (:text (frame frames "TIT2"))
+        link?     #(and (re-matches #"W[A-Z0-9]{3}" (:id %))
+                        (not (str/blank? (:url %))))
+        url       (some #(when (link? %) (:url %)) frames)
+        picture   (artwork frames)
+        drop?     (and (<= end-ms start-ms)
+                       (quirk? ctx :id3/chapter-end))
+        unlisted? (and places (not (contains? places element-id)))]
     (when drop?
       (note! ctx (diagnostic :id3/chapter-end :info :element-id element-id)))
     (cond-> {:start-time (/ start-ms 1000.0)}
-      (not drop?)                                       (assoc :end-time (/ end-ms 1000.0))
-      title                                             (assoc :title title)
-      url                                               (assoc :url url)
-      picture                                           (assoc :img (bytes/data-url (:type picture) (:data picture)))
-      (and places (not (contains? places element-id))) (assoc :toc false))))
+      (not drop?) (assoc :end-time (/ end-ms 1000.0))
+      title       (assoc :title title)
+      url         (assoc :url url)
+      picture     (assoc :img (bytes/data-url (:type picture) (:data picture)))
+      unlisted?   (assoc :toc false))))
 
 (defn chapters
   "The chapters in `frames`, from their CHAP and CTOC frames, read with
@@ -607,17 +695,20 @@
   ([frames opts]
    (let [ctx    (context opts)
          places (toc-places frames)
+         order  (fn [{:keys [element-id start-ms]}]
+                  [(get places element-id ##Inf) start-ms])
          result (->> (filter #(= "CHAP" (:id %)) frames)
-                     (sort-by (fn [{:keys [element-id start-ms]}] [(get places element-id ##Inf) start-ms]))
+                     (sort-by order)
                      (mapv #(chapter-of ctx % places)))]
      (bytes/reported result @(:report ctx)))))
 
 (comment
   ;; a tag of ID3v2.4 with a title, TIT2, and a length in milliseconds, TLEN
   (def sample
-    (view-of (bytes/of (concat [0x49 0x44 0x33 4 0 0 0 0 0 28]
-                               [0x54 0x49 0x54 0x32 0 0 0 3 0 0 3 0x48 0x69]
-                               [0x54 0x4C 0x45 0x4E 0 0 0 5 0 0 0 0x31 0x35 0x30 0x30]))))
+    (let [header [0x49 0x44 0x33 4 0 0 0 0 0 28]
+          tit2   [0x54 0x49 0x54 0x32 0 0 0 3 0 0 3 0x48 0x69]
+          tlen   [0x54 0x4C 0x45 0x4E 0 0 0 5 0 0 0 0x31 0x35 0x30 0x30]]
+      (view-of (bytes/of (concat header tit2 tlen)))))
 
   (header sample 0)
   (read sample 0)
@@ -626,8 +717,9 @@
 
   ;; a text encoding that ID3 does not define, with the quirk and without it
   (def loose
-    (view-of (bytes/of (concat [0x49 0x44 0x33 4 0 0 0 0 0 13]
-                               [0x54 0x49 0x54 0x32 0 0 0 3 0 0 9 0x48 0x69]))))
+    (let [header [0x49 0x44 0x33 4 0 0 0 0 0 13]
+          tit2   [0x54 0x49 0x54 0x32 0 0 0 3 0 0 9 0x48 0x69]]
+      (view-of (bytes/of (concat header tit2)))))
 
   (map :id (report (read loose 0)))
   (map :id (report (read loose 0 {:except #{:id3/text-encoding}})))

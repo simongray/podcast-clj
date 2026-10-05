@@ -59,9 +59,10 @@
 (defn- mp4-result
   "What read gives for the MP4 file in `view`, read with `opts`."
   [view opts]
-  (let [{:keys [chapters] :as file} (mp4/read view opts)]
+  (let [{:keys [chapters] :as file} (mp4/read view opts)
+        document {:version chapters/version :chapters chapters}]
     (cond-> (assoc (dissoc file :chapters) :format :mp4)
-      chapters (assoc :chapters {:version chapters/version :chapters chapters}))))
+      chapters (assoc :chapters document))))
 
 (defn report
   "The diagnostics of `file`, which read or read! gave. Each diagnostic has
@@ -89,10 +90,11 @@
    (read view {}))
   ([view opts]
    {:pre [(map? opts)]}
-   (bytes/reading #(case (sniff view)
-                     :mp3 (mp3-result view opts)
-                     :mp4 (mp4-result view opts)
-                     (bytes/reported {} [{:id :file/unknown-format :level :warning}])))))
+   (let [unknown {:id :file/unknown-format :level :warning}]
+     (bytes/reading #(case (sniff view)
+                       :mp3 (mp3-result view opts)
+                       :mp4 (mp4-result view opts)
+                       (bytes/reported {} [unknown]))))))
 
 (defn read!
   "Read what the media file at `url` says about itself as read does,
@@ -136,7 +138,8 @@
   \"sha384\", and the set of its base64 :digests."
   [s]
   (let [rank      (into {} (map-indexed (fn [i [a _]] [a i])) sri-algorithms)
-        hashes    (keep #(when-let [[_ a v] (re-matches #"(?i)(sha256|sha384|sha512)-([A-Za-z0-9+/]+={0,2})(?:\?\S*)?" %)]
+        sri-hash  #"(?i)(sha256|sha384|sha512)-([A-Za-z0-9+/]+={0,2})(?:\?\S*)?"
+        hashes    (keep #(when-let [[_ a v] (re-matches sri-hash %)]
                            [(str/lower-case a) v])
                         (str/split (str/trim (str s)) #"\s+"))
         strongest (last (sort-by rank (map first hashes)))]
@@ -166,7 +169,8 @@
   "The base64 digest of the bytes `b` by `algorithm`, as MessageDigest and
   WebCrypto name it. In ClojureScript, it's in a promise."
   [algorithm b]
-  #?(:clj  (bytes/base64 (.digest (MessageDigest/getInstance algorithm) ^bytes b))
+  #?(:clj  (let [md (MessageDigest/getInstance algorithm)]
+             (bytes/base64 (.digest md ^bytes b)))
      :cljs (.then (.digest (.-subtle js/crypto) algorithm b)
                   #(bytes/base64 (js/Uint8Array. %)))))
 
@@ -175,13 +179,23 @@
   give the verdict against `metadata` by `algorithm`, in a future or a
   promise."
   [send url metadata algorithm opts]
-  (async/then
-   (http/try-send! send {:url url :as :bytes :headers (:headers opts) :timeout-seconds 600} opts)
-   (fn [{:keys [error] {:keys [status body]} :value}]
-     (cond
-       error          (absent url error)
-       (= 200 status) (async/then (digest algorithm (or body (bytes/of []))) #(verdict metadata %))
-       :else          (absent url (http/failed url status))))))
+  (let [request {:url             url
+                 :as              :bytes
+                 :headers         (:headers opts)
+                 :timeout-seconds 600}]
+    (async/then
+     (http/try-send! send request opts)
+     (fn [{:keys [error] {:keys [status body]} :value}]
+       (cond
+         error
+         (absent url error)
+
+         (= 200 status)
+         (async/then (digest algorithm (or body (bytes/of [])))
+                     #(verdict metadata %))
+
+         :else
+         (absent url (http/failed url status)))))))
 
 #?(:clj
    (defn- stream!
@@ -226,26 +240,34 @@
          metadata  (when (= "sri" kind) (sri value))
          algorithm (get (into {} sri-algorithms) (:algorithm metadata))
          reason    (cond
-                     (= "pgp-signature" kind) "A PGP signature needs the key of the publisher."
-                     (nil? metadata)          "The integrity names no hash of sha256, sha384 or sha512.")]
+                     (= "pgp-signature" kind)
+                     "A PGP signature needs the key of the publisher."
+
+                     (nil? metadata)
+                     (str "The integrity names no hash of sha256, sha384 "
+                          "or sha512."))]
      (if reason
-       (async/then (unverified {:id :file/unverifiable :reason reason}) identity)
+       (let [unchecked (unverified {:id :file/unverifiable :reason reason})]
+         (async/then unchecked identity))
        #?(:clj  (if send
                   (fetch-whole! send url metadata algorithm opts)
                   (stream! url metadata algorithm opts))
-          :cljs (fetch-whole! (or send http/send!) url metadata algorithm opts))))))
+          :cljs (fetch-whole! (or send http/send!)
+                              url metadata algorithm opts))))))
 
 (comment
   ;; an MP3 file of 20 frames of 128 kbit/s, with no tag
   (def sample
-    (let [b (bytes/of (apply concat (repeat 20 (concat [0xFF 0xFB 0x90 0x00] (repeat 413 0)))))]
+    (let [frame (concat [0xFF 0xFB 0x90 0x00] (repeat 413 0))
+          b     (bytes/of (apply concat (repeat 20 frame)))]
       (bytes/add (bytes/view) 0 b (bytes/length b))))
 
   (read sample)
   (map :id (report (read sample)))
 
   ;; a file that is no media file
-  (report (read (bytes/add (bytes/view) 0 (bytes/encode "<html>not audio</html>") 22)))
+  (report (read (bytes/add (bytes/view) 0
+                           (bytes/encode "<html>not audio</html>") 22)))
 
   (read! "https://example.org/episode.mp3")
   (sri "sha256-abc= sha384-def=")

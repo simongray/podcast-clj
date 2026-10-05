@@ -33,8 +33,12 @@
                         1 [(bytes/u64 view (+ p 8)) 16]
                         0 [(- limit p) 8]
                         [size32 8])]
-    (when (and (>= size header) (<= (+ p size) limit))
-      {:type (bytes/code view (+ p 4) 4) :start p :content (+ p header) :end (+ p size)})))
+    (when (and (>= size header)
+               (<= (+ p size) limit))
+      {:type    (bytes/code view (+ p 4) 4)
+       :start   p
+       :content (+ p header)
+       :end     (+ p size)})))
 
 (defn ^:no-doc children
   "The boxes in `view` from `p` to `end`."
@@ -89,7 +93,8 @@
   (let [wide? (= 1 (bytes/u8 view content))
         p     (+ content (if wide? 24 16))
         ones? (and (= 0xFFFFFFFF (bytes/u32 view p))
-                   (or (not wide?) (= 0xFFFFFFFF (bytes/u32 view (+ p 4)))))]
+                   (or (not wide?)
+                       (= 0xFFFFFFFF (bytes/u32 view (+ p 4)))))]
     [(bytes/u32 view (+ content (if wide? 20 12)))
      (when-not ones? (versioned view b p))]))
 
@@ -98,19 +103,25 @@
   full box `b` in `view`, each `width` bytes long and read by `row` from
   its offset. No more rows are read than the box holds."
   [view {:keys [content end] :as b} skip width row]
-  (let [n (min (bytes/u32 view (+ content 4 skip)) (quot (- end content 8 skip) width))]
+  (let [listed (bytes/u32 view (+ content 4 skip))
+        held   (quot (- end content 8 skip) width)
+        n      (min listed held)]
     (mapv #(row (+ content 8 skip (* % width))) (range n))))
 
 (defn- track
   "What the reading needs of the trak box `t` in `view`: its id, timescale
   and duration, the tracks its chapters are in, and its sample table."
   [view t]
-  (let [tkhd (child view t "tkhd")
-        mdia (child view t "mdia")
-        chap (at-path view t "tref" "chap")]
-    {:id       (when tkhd (bytes/u32 view (+ (:content tkhd) (if (= 1 (bytes/u8 view (:content tkhd))) 20 12))))
+  (let [tkhd  (child view t "tkhd")
+        mdia  (child view t "mdia")
+        chap  (at-path view t "tref" "chap")
+        wide? (and tkhd (= 1 (bytes/u8 view (:content tkhd))))]
+    {:id       (when tkhd
+                 (bytes/u32 view (+ (:content tkhd) (if wide? 20 12))))
      :timing   (some->> (child view mdia "mdhd") (timing view))
-     :chapters (when chap (mapv #(bytes/u32 view %) (range (:content chap) (- (:end chap) 3) 4)))
+     :chapters (when chap
+                 (mapv #(bytes/u32 view %)
+                       (range (:content chap) (- (:end chap) 3) 4)))
      :stbl     (at-path view mdia "minf" "stbl")}))
 
 (def ^:no-doc max-samples
@@ -124,9 +135,14 @@
   [runs n]
   (loop [i 1 runs (seq runs) per 0 acc (transient [])]
     (cond
-      (> i n)                         (persistent! acc)
-      (and runs (<= (ffirst runs) i)) (recur i (next runs) (second (first runs)) acc)
-      :else                           (recur (inc i) runs per (conj! acc per)))))
+      (> i n)
+      (persistent! acc)
+
+      (and runs (<= (ffirst runs) i))
+      (recur i (next runs) (second (first runs)) acc)
+
+      :else
+      (recur (inc i) runs per (conj! acc per)))))
 
 (defn- samples-of
   "The samples of a sample table in `view`, as samples gives them, from its
@@ -137,14 +153,19 @@
   and their counts need not agree."
   [view stts stsz stsc stco]
   (let [wide?   (= "co64" (:type stco))
-        deltas  (into [] (comp (mapcat (fn [[n d]] (repeat n d))) (take max-samples))
-                      (entries view stts 0 8 #(vector (bytes/u32 view %) (bytes/u32 view (+ % 4)))))
+        pair    #(vector (bytes/u32 view %) (bytes/u32 view (+ % 4)))
+        offset  #(if wide? (bytes/u64 view %) (bytes/u32 view %))
+        deltas  (into []
+                      (comp (mapcat (fn [[n d]] (repeat n d)))
+                            (take max-samples))
+                      (entries view stts 0 8 pair))
         fixed   (bytes/u32 view (+ (:content stsz) 4))
         sizes   (if (pos? fixed)
-                  (vec (repeat (min max-samples (bytes/u32 view (+ (:content stsz) 8))) fixed))
+                  (let [listed (bytes/u32 view (+ (:content stsz) 8))]
+                    (vec (repeat (min max-samples listed) fixed)))
                   (entries view stsz 4 4 #(bytes/u32 view %)))
-        runs    (entries view stsc 0 12 #(vector (bytes/u32 view %) (bytes/u32 view (+ % 4))))
-        offsets (entries view stco 0 (if wide? 8 4) #(if wide? (bytes/u64 view %) (bytes/u32 view %)))
+        runs    (entries view stsc 0 12 pair)
+        offsets (entries view stco 0 (if wide? 8 4) offset)
         counts  (per-chunk runs (count offsets))
         n       (min max-samples (count sizes) (count deltas))]
     (loop [chunk 0 k 0 at 0 i 0 start 0 acc (transient [])]
@@ -156,9 +177,13 @@
         (recur (inc chunk) 0 0 i start acc)
 
         :else
-        (let [at (if (zero? k) (offsets chunk) at)]
+        (let [at     (if (zero? k) (offsets chunk) at)
+              sample {:offset   at
+                      :size     (sizes i)
+                      :start    start
+                      :duration (deltas i)}]
           (recur chunk (inc k) (+ at (sizes i)) (inc i) (+ start (deltas i))
-                 (conj! acc {:offset at :size (sizes i) :start start :duration (deltas i)})))))))
+                 (conj! acc sample)))))))
 
 (defn- samples
   "The samples of the sample table `stbl` in `view`, or none when a table
@@ -180,7 +205,9 @@
   (when (>= size 2)
     (let [n (min (bytes/u16 view offset) (- size 2))
           p (+ offset 2)]
-      (if (and (>= n 2) (= 0xFE (bytes/u8 view p)) (= 0xFF (bytes/u8 view (inc p))))
+      (if (and (>= n 2)
+               (= 0xFE (bytes/u8 view p))
+               (= 0xFF (bytes/u8 view (inc p))))
         (bytes/text view (+ p 2) (+ p n) :utf16be)
         (bytes/text view p (+ p n) :utf8)))))
 
@@ -189,7 +216,8 @@
   or nil when none names one. Each is a map of :start-time, :end-time and
   :title. When the view lacks text samples, it throws for all at once."
   [view tracks]
-  (when-let [chapter-track (some (fn [id] (some #(when (= id (:id %)) %) tracks))
+  (when-let [chapter-track (some (fn [id]
+                                   (some #(when (= id (:id %)) %) tracks))
                                  (mapcat :chapters tracks))]
     (let [[scale _] (:timing chapter-track)
           samples   (when (and scale (pos? scale) (:stbl chapter-track))
@@ -198,10 +226,10 @@
       ;; count: no more of it is needed
       (bytes/need-all view (for [{:keys [offset size]} samples]
                              [offset (+ offset (min size 65537))]))
-      (seq (for [s samples]
+      (seq (for [{:keys [start duration] :as s} samples]
              (let [title (sample-text view s)]
-               (cond-> {:start-time (/ (:start s) (double scale))
-                        :end-time   (/ (+ (:start s) (:duration s)) (double scale))}
+               (cond-> {:start-time (/ start (double scale))
+                        :end-time   (/ (+ start duration) (double scale))}
                  (seq title) (assoc :title title))))))))
 
 (defn- nero-chapters
@@ -214,11 +242,11 @@
     (loop [p (inc p) k 0 acc []]
       (if (or (= k n) (> (+ p 9) end))
         acc
-        (let [length (bytes/u8 view (+ p 8))
-              title  (bytes/text view (+ p 9) (min end (+ p 9 length)) :utf8)]
-          (recur (+ p 9 length) (inc k)
-                 (conj acc (cond-> {:start-time (/ (bytes/u64 view p) 1e7)}
-                             (seq title) (assoc :title title)))))))))
+        (let [length  (bytes/u8 view (+ p 8))
+              title   (bytes/text view (+ p 9) (min end (+ p 9 length)) :utf8)
+              chapter (cond-> {:start-time (/ (bytes/u64 view p) 1e7)}
+                        (seq title) (assoc :title title))]
+          (recur (+ p 9 length) (inc k) (conj acc chapter)))))))
 
 (defn- movie-chapters
   "The chapters in `view` of the movie whose tracks are `tracks`: those of
@@ -231,7 +259,9 @@
 
 (def ^:no-doc image-types
   "The MIME type of each type of data that a covr item names."
-  {13 "image/jpeg" 14 "image/png" 27 "image/bmp"})
+  {13 "image/jpeg"
+   14 "image/png"
+   27 "image/bmp"})
 
 (defn- artwork
   "The artwork of the covr item of the iTunes metadata in the `udta` box in
@@ -245,9 +275,9 @@
           data (when-let [ilst (child view meta "ilst" skip)]
                  (at-path view ilst "covr" "data"))]
       (when data
-        (let [image (bytes/slice view (+ (:content data) 8) (:end data))]
-          {:type (or (get image-types (bit-and (bytes/u32 view (:content data)) 0xFFFFFF))
-                     (bytes/image-type image))
+        (let [image     (bytes/slice view (+ (:content data) 8) (:end data))
+              data-type (bit-and (bytes/u32 view (:content data)) 0xFFFFFF)]
+          {:type (or (get image-types data-type) (bytes/image-type image))
            :data image})))))
 
 (defn- fragment-index
@@ -258,9 +288,11 @@
   (when-let [total (:total view)]
     ;; the index and the last fragments most often lie in the last 64 KB
     (bytes/need view (max 0 (- total 65536)) total)
-    (when (and (>= total 16) (= "mfro" (bytes/code view (- total 12) 4)))
+    (when (and (>= total 16)
+               (= "mfro" (bytes/code view (- total 12) 4)))
       (let [start (- total (bytes/u32 view (- total 4)))
-            mfra  (when (<= 0 start (- total 16)) (box view start total))]
+            mfra  (when (<= 0 start (- total 16))
+                    (box view start total))]
         (when (= "mfra" (:type mfra))
           (bytes/need view start total)
           mfra)))))
@@ -276,32 +308,40 @@
                sizes  (bytes/u32 view (+ c 8))
                ;; the time and the offset, then the numbers of the traf, the
                ;; trun and the sample, each as wide as `sizes` says
-               width  (+ (if wide? 16 8) 3
-                         (bit-and (bit-shift-right sizes 4) 3) (bit-and (bit-shift-right sizes 2) 3) (bit-and sizes 3))
-               n      (min (bytes/u32 view (+ c 12)) (quot (- (:end tfra) c 16) width))]
+               width  (+ (if wide? 16 8)
+                         (inc (bit-and (bit-shift-right sizes 4) 3))
+                         (inc (bit-and (bit-shift-right sizes 2) 3))
+                         (inc (bit-and sizes 3)))
+               listed (bytes/u32 view (+ c 12))
+               held   (quot (- (:end tfra) c 16) width)
+               n      (min listed held)]
         i     (range n)
         :let  [p (+ c 16 (* i width))]]
-    (if wide? (bytes/u64 view (+ p 8)) (bytes/u32 view (+ p 4)))))
+    (if wide?
+      (bytes/u64 view (+ p 8))
+      (bytes/u32 view (+ p 4)))))
 
 (defn- default-durations
   "The default sample duration of each track by its id, as the trex boxes
   of the mvex box `mvex` in `view` give them."
   [view mvex]
   (into {} (for [trex  (children view (:content mvex) (:end mvex))
-                 :when (= "trex" (:type trex))]
-             [(bytes/u32 view (+ (:content trex) 4)) (bytes/u32 view (+ (:content trex) 12))])))
+                 :when (= "trex" (:type trex))
+                 :let  [c (:content trex)]]
+             [(bytes/u32 view (+ c 4)) (bytes/u32 view (+ c 12))])))
 
 (defn- run-duration
   "The duration of the samples of the trun box `trun` in `view`, each its
   own or else `default`."
   [view trun default]
-  (let [f (flags view trun)
-        c (:content trun)
-        n (bytes/u32 view (+ c 4))]
-    (if (zero? (bit-and f 0x100))
+  (let [f     (flags view trun)
+        flag? #(pos? (bit-and f %))
+        c     (:content trun)
+        n     (bytes/u32 view (+ c 4))]
+    (if-not (flag? 0x100)
       (* n default)
-      (let [start (+ c 8 (if (pos? (bit-and f 0x001)) 4 0) (if (pos? (bit-and f 0x004)) 4 0))
-            width (* 4 (count (filter #(pos? (bit-and f %)) [0x100 0x200 0x400 0x800])))]
+      (let [start (+ c 8 (if (flag? 0x001) 4 0) (if (flag? 0x004) 4 0))
+            width (* 4 (count (filter flag? [0x100 0x200 0x400 0x800])))]
         (reduce + (map #(bytes/u32 view (+ start (* % width)))
                        (range (min n (quot (- (:end trun) start) width)))))))))
 
@@ -321,11 +361,15 @@
                tfdt (child view traf "tfdt")]
         :when (and tfhd tfdt)
         :let  [f       (flags view tfhd)
-               id      (bytes/u32 view (+ (:content tfhd) 4))
-               default (if (pos? (bit-and f 0x08))
-                         (bytes/u32 view (+ (:content tfhd) 8 (if (pos? (bit-and f 0x01)) 8 0) (if (pos? (bit-and f 0x02)) 4 0)))
+               flag?   #(pos? (bit-and f %))
+               c       (:content tfhd)
+               id      (bytes/u32 view (+ c 4))
+               at      (+ c 8 (if (flag? 0x01) 8 0) (if (flag? 0x02) 4 0))
+               default (if (flag? 0x08)
+                         (bytes/u32 view at)
                          (get defaults id 0))
-               runs    (filter #(= "trun" (:type %)) (children view (:content traf) (:end traf)))]]
+               boxes   (children view (:content traf) (:end traf))
+               runs    (filter #(= "trun" (:type %)) boxes)]]
     [id (+ (versioned view tfdt (+ (:content tfdt) 4))
            (reduce + (map #(run-duration view % default) runs)))]))
 
@@ -344,10 +388,13 @@
           (when (and timescale (pos? timescale) (pos? d))
             (/ d (double timescale)))))
       (when-let [mfra (fragment-index view)]
-        (when-let [offsets (seq (filter #(< % (:start mfra)) (fragment-offsets view mfra)))]
+        (when-let [offsets (->> (fragment-offsets view mfra)
+                                (filter #(< % (:start mfra)))
+                                seq)]
           (let [scales   (into {} (map (juxt :id (comp first :timing))) tracks)
                 defaults (default-durations view mvex)
-                ends     (for [b        (children view (apply max offsets) (:start mfra))
+                latest   (apply max offsets)
+                ends     (for [b        (children view latest (:start mfra))
                                :when    (= "moof" (:type b))
                                [id end] (fragment-ends view b defaults)
                                :let     [scale (scales id)]
@@ -360,7 +407,9 @@
   gives a duration."
   [tracks]
   (some->> tracks
-           (keep (fn [{[s n] :timing}] (when (and s n (pos? s) (pos? n)) (/ n (double s)))))
+           (keep (fn [{[s n] :timing}]
+                   (when (and s n (pos? s) (pos? n))
+                     (/ n (double s)))))
            seq
            (apply max)))
 
@@ -374,23 +423,29 @@
         tracks    (mapv #(track view %) (filter #(= "trak" (:type %)) boxes))
         mvex      (child view moov "mvex")
         udta      (child view moov "udta")
-        fragments (bytes/part :fragments #(when mvex (fragmented-duration view mvex scale tracks)))
+        fragments (bytes/part :fragments
+                              #(when mvex
+                                 (fragmented-duration view mvex scale tracks)))
         chapters  (bytes/part :chapters #(movie-chapters view tracks udta))
         art       (bytes/part :artwork #(when udta (artwork view udta)))
         longest   (longest-track tracks)
-        longest?  (and (not mvex) (not (and d (pos? d))) longest
+        stated?   (and d (pos? d))
+        longest?  (and (not mvex)
+                       (not stated?)
+                       longest
                        (not (contains? (set except) :mp4/zero-duration)))
-        duration  (cond mvex                                (:value fragments)
-                        longest?                            longest
-                        (and d (pos? d) scale (pos? scale)) (/ d (double scale)))]
+        unread?   (and mvex (not (:value fragments)))
+        duration  (cond mvex                             (:value fragments)
+                        longest?                         longest
+                        (and stated? scale (pos? scale)) (/ d (double scale)))]
     (bytes/reported
      (cond-> {}
        duration                (assoc :duration duration)
        (seq (:value chapters)) (assoc :chapters (vec (:value chapters)))
        (:value art)            (assoc :artwork (:value art)))
      (cond-> (into [] (mapcat :report) [fragments chapters art])
-       longest?                            (conj {:id :mp4/zero-duration :level :info})
-       (and mvex (not (:value fragments))) (conj {:id :mp4/fragments-unread :level :info})))))
+       longest? (conj {:id :mp4/zero-duration :level :info})
+       unread?  (conj {:id :mp4/fragments-unread :level :info})))))
 
 (defn report
   "The diagnostics of `file`, which read gave. Each diagnostic has its
@@ -427,8 +482,11 @@
   (def sample-bytes
     (let [be4  (fn [n] (map #(bit-and (bit-shift-right n %) 0xFF) [24 16 8 0]))
           code (fn [s] (seq (bytes/encode s)))
-          box  (fn [type content] (concat (be4 (+ 8 (count content))) (code type) content))
-          mvhd (box "mvhd" (concat (be4 0) (be4 0) (be4 0) (be4 1000) (be4 90000) (repeat 80 0)))]
+          box  (fn [type content]
+                 (concat (be4 (+ 8 (count content))) (code type) content))
+          mvhd (box "mvhd" (concat (be4 0) (be4 0) (be4 0)
+                                   (be4 1000) (be4 90000)
+                                   (repeat 80 0)))]
       (bytes/of (concat (box "ftyp" (concat (code "M4A ") (be4 0)))
                         (box "moov" mvhd)))))
 
@@ -440,5 +498,6 @@
   (report (read sample))
 
   ;; the first 40 bytes alone: the reading tells the range that it needs
-  (bytes/reading #(read (bytes/add (bytes/view) 0 (bytes/copy sample-bytes 0 40) nil)))
+  (let [start (bytes/copy sample-bytes 0 40)]
+    (bytes/reading #(read (bytes/add (bytes/view) 0 start nil))))
   #_.)

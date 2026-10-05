@@ -42,15 +42,20 @@
   (try
     (f)
     (catch #?(:clj Exception :cljs :default) e
-      (when (or (bytes/missing e) (bytes/truncated? e)) (throw e))
+      (when (or (bytes/missing e)
+                (bytes/truncated? e))
+        (throw e))
       nil)))
 
 (defn- chunk-type?
   "Whether the four bytes at `p` in `view` can be the type of a PNG chunk,
   which is ASCII letters."
   [view p]
-  (every? #(let [c (bytes/u8 view %)] (or (and (<= 65 c) (<= c 90)) (and (<= 97 c) (<= c 122))))
-          (range p (+ p 4))))
+  (let [letter? (fn [c]
+                  (or (and (<= 65 c) (<= c 90))
+                      (and (<= 97 c) (<= c 122))))]
+    (every? #(letter? (bytes/u8 view %))
+            (range p (+ p 4)))))
 
 (defn- transparent?
   "Whether the PNG image in `view` of the color type `kind` has a tRNS
@@ -69,17 +74,25 @@
      (loop [p 33]
        (bytes/need view p (+ p 8))
        (let [n    (long (bytes/u32 view p))
-             type (when (chunk-type? view (+ p 4)) (bytes/code view (+ p 4) 4))]
+             type (when (chunk-type? view (+ p 4))
+                    (bytes/code view (+ p 4) 4))]
          (cond
-           (or (nil? type) (> n 0x7FFFFFFF)) nil
-           (= "tRNS" type)                   (if (= 3 kind)
-                                               (let [end (+ p 8 (min n 256))]
-                                                 (bytes/need view (+ p 8) end)
-                                                 (boolean (some #(< (bytes/u8 view %) 255)
-                                                                (range (+ p 8) end))))
-                                               true)
-           (#{"IDAT" "IEND"} type)           false
-           :else                             (recur (+ p 12 n))))))))
+           (or (nil? type) (> n 0x7FFFFFFF))
+           nil
+
+           (= "tRNS" type)
+           (if (= 3 kind)
+             (let [end (+ p 8 (min n 256))]
+               (bytes/need view (+ p 8) end)
+               (boolean (some #(< (bytes/u8 view %) 255)
+                              (range (+ p 8) end))))
+             true)
+
+           (#{"IDAT" "IEND"} type)
+           false
+
+           :else
+           (recur (+ p 12 n))))))))
 
 ;; PNG (Third Edition), section 11.2.1
 (def ^:no-doc png-colors
@@ -110,11 +123,21 @@
 
   The names are those of ITU-T T.81, and T.87 for JPEG-LS. DHP gives the
   size of a hierarchical image before its frames."
-  {0xC0 :baseline 0xC1 :extended 0xC2 :progressive 0xC3 :lossless
-   0xC5 :differential 0xC6 :differential 0xC7 :differential
-   0xC9 :extended-arithmetic 0xCA :progressive-arithmetic 0xCB :lossless-arithmetic
-   0xCD :differential-arithmetic 0xCE :differential-arithmetic 0xCF :differential-arithmetic
-   0xDE :hierarchical 0xF7 :jpeg-ls})
+  {0xC0 :baseline
+   0xC1 :extended
+   0xC2 :progressive
+   0xC3 :lossless
+   0xC5 :differential
+   0xC6 :differential
+   0xC7 :differential
+   0xC9 :extended-arithmetic
+   0xCA :progressive-arithmetic
+   0xCB :lossless-arithmetic
+   0xCD :differential-arithmetic
+   0xCE :differential-arithmetic
+   0xCF :differential-arithmetic
+   0xDE :hierarchical
+   0xF7 :jpeg-ls})
 
 (defn- orientation
   "The EXIF orientation, 1 to 8, of the APP1 segment at `p` in `view`,
@@ -125,16 +148,20 @@
         t   (+ p 10)]
     (unless-broken
      #(do (bytes/need view p end)
-          (when (and (<= (+ t 8) end) (= "Exif" (bytes/code view (+ p 4) 4)))
-            (let [le?  (= "II" (bytes/code view t 2))
-                  u16* (fn [q] (if le? (u16le view q) (bytes/u16 view q)))
-                  ifd  (+ t (if le? (u32le view (+ t 4)) (bytes/u32 view (+ t 4))))
-                  n    (when (<= (+ ifd 2) end) (min (u16* ifd) (quot (- end ifd 2) 12)))]
-              (some (fn [i]
-                      (let [e (+ ifd 2 (* 12 i))]
-                        (when (= 0x0112 (u16* e))
-                          (let [o (u16* (+ e 8))] (when (and (<= 1 o) (<= o 8)) o)))))
-                    (range (or n 0)))))))))
+          (when (and (<= (+ t 8) end)
+                     (= "Exif" (bytes/code view (+ p 4) 4)))
+            (let [le?      (= "II" (bytes/code view t 2))
+                  u16*     (fn [q] (if le? (u16le view q) (bytes/u16 view q)))
+                  u32*     (fn [q] (if le? (u32le view q) (bytes/u32 view q)))
+                  ifd      (+ t (u32* (+ t 4)))
+                  n        (when (<= (+ ifd 2) end)
+                             (min (u16* ifd) (quot (- end ifd 2) 12)))
+                  oriented (fn [i]
+                             (let [e (+ ifd 2 (* 12 i))]
+                               (when (= 0x0112 (u16* e))
+                                 (let [o (u16* (+ e 8))]
+                                   (when (and (<= 1 o) (<= o 8)) o)))))]
+              (some oriented (range (or n 0)))))))))
 
 (def ^:no-doc jpeg-colors
   "The color model of a JPEG image by the number of its components. Three
@@ -151,15 +178,16 @@
   image data, so it's left out."
   [view p marker turned]
   (bytes/need view p (+ p 10))
-  (let [height  (bytes/u16 view (+ p 5))
-        process (frame-markers marker)]
+  (let [height      (bytes/u16 view (+ p 5))
+        process     (frame-markers marker)
+        progressive #{:progressive :progressive-arithmetic}]
     (cond-> {:type         "image/jpeg"
              :width        (bytes/u16 view (+ p 7))
              :color        (get jpeg-colors (bytes/u8 view (+ p 9)))
              :alpha?       false
              :process      process
              :bits         (bytes/u8 view (+ p 4))
-             :progressive? (contains? #{:progressive :progressive-arithmetic} process)}
+             :progressive? (contains? progressive process)}
       (pos? height) (assoc :height height)
       turned        (assoc :orientation turned))))
 
@@ -188,13 +216,17 @@
         nil
 
         ;; markers that stand alone, without a length
-        (or (= 0x01 marker) (and (<= 0xD0 marker) (<= marker 0xD7)))
+        (or (= 0x01 marker)
+            (and (<= 0xD0 marker) (<= marker 0xD7)))
         (recur (+ p 2) turned)
 
         :else
-        (let [length (long (bytes/u16 view (+ p 2)))]
+        (let [length (long (bytes/u16 view (+ p 2)))
+              app1?  (= 0xE1 marker)]
           (recur (+ p 2 length)
-                 (or turned (when (= 0xE1 marker) (orientation view p length)))))))))
+                 (or turned
+                     (when app1?
+                       (orientation view p length)))))))))
 
 (defn- gif
   "The header of the GIF image in `view`, from the logical screen
@@ -202,7 +234,10 @@
   [view]
   (bytes/need view 0 10)
   (when (contains? #{"87a" "89a"} (bytes/code view 3 3))
-    {:type "image/gif" :width (u16le view 6) :height (u16le view 8) :color :indexed}))
+    {:type   "image/gif"
+     :width  (u16le view 6)
+     :height (u16le view 8)
+     :color  :indexed}))
 
 (defn- webp
   "The header of the WebP image in `view`, from its first chunk:
@@ -225,7 +260,9 @@
                 :height (inc (bit-and (bit-shift-right bits 14) 0x3FFF))
                 :color  :rgb
                 :alpha? (bit-test bits 28)}))
-    "VP8 " (when (and (= 0x9D (bytes/u8 view 23)) (= 0x01 (bytes/u8 view 24)) (= 0x2A (bytes/u8 view 25)))
+    "VP8 " (when (and (= 0x9D (bytes/u8 view 23))
+                      (= 0x01 (bytes/u8 view 24))
+                      (= 0x2A (bytes/u8 view 25)))
              {:type   "image/webp"
               :width  (bit-and (u16le view 26) 0x3FFF)
               :height (bit-and (u16le view 28) 0x3FFF)
@@ -240,36 +277,55 @@
   [view]
   (let [n  (min 256 (or (:total view) 256))
         b  #(bytes/u8 view %)
-        is (fn [& xs] (every? (fn [[i x]] (= x (b i))) (map-indexed vector xs)))]
+        is (fn [& xs]
+             (every? (fn [[i x]] (= x (b i))) (map-indexed vector xs)))]
     (bytes/need view 0 n)
     (cond
-      (and (>= n 2) (is 0x42 0x4D))                                "image/bmp"
-      (and (>= n 4) (or (is 0x49 0x49 0x2A 0) (is 0x4D 0x4D 0 0x2A))) "image/tiff"
-      (and (>= n 4) (is 0 0 1 0))                                  "image/vnd.microsoft.icon"
+      (and (>= n 2) (is 0x42 0x4D))
+      "image/bmp"
+
+      (and (>= n 4)
+           (or (is 0x49 0x49 0x2A 0)
+               (is 0x4D 0x4D 0 0x2A)))
+      "image/tiff"
+
+      (and (>= n 4) (is 0 0 1 0))
+      "image/vnd.microsoft.icon"
+
       (and (>= n 12) (= "ftyp" (bytes/code view 4 4)))
       (let [brand (bytes/code view 8 4)]
         (cond
-          (contains? #{"avif" "avis"} brand)                      "image/avif"
-          (contains? #{"heic" "heix" "hevc" "hevx" "heim" "heis"} brand) "image/heic"
-          (contains? #{"mif1" "msf1"} brand)                      "image/heif"))
-      (re-find #"<svg[\s>]" (bytes/code view 0 n))                   "image/svg+xml")))
+          (contains? #{"avif" "avis"} brand)
+          "image/avif"
+
+          (contains? #{"heic" "heix" "hevc" "hevx" "heim" "heis"} brand)
+          "image/heic"
+
+          (contains? #{"mif1" "msf1"} brand)
+          "image/heif"))
+
+      (re-find #"<svg[\s>]" (bytes/code view 0 n))
+      "image/svg+xml")))
 
 (defn- read-header
   "What read gives for the image in `view` when the view holds the bytes
   that the reading needs."
   [view]
   (bytes/need view 0 12)
-  (let [type   (bytes/image-type (bytes/slice view 0 (min 12 (or (:total view) 12))))
-        header (case type
-                 "image/png"  (png view)
-                 "image/jpeg" (jpeg view)
-                 "image/gif"  (gif view)
-                 "image/webp" (webp view)
-                 nil)]
+  (let [start   (bytes/slice view 0 (min 12 (or (:total view) 12)))
+        type    (bytes/image-type start)
+        header  (case type
+                  "image/png"  (png view)
+                  "image/jpeg" (jpeg view)
+                  "image/gif"  (gif view)
+                  "image/webp" (webp view)
+                  nil)
+        failure {:id    (if type :file/malformed :file/unknown-format)
+                 :level :warning}]
     (or header
-        (when-not type (some->> (other-type view) (hash-map :type)))
-        (bytes/reported (if type {:type type} {})
-                        [{:id (if type :file/malformed :file/unknown-format) :level :warning}]))))
+        (when-not type
+          (some->> (other-type view) (hash-map :type)))
+        (bytes/reported (if type {:type type} {}) [failure]))))
 
 (defn report
   "The diagnostics of `image`, which read or read! gave. Each diagnostic
@@ -346,7 +402,8 @@
   (read (bytes/add (bytes/view) 0 (bytes/copy sample-bytes 0 20) nil))
 
   ;; a file that is no image
-  (report (read (bytes/add (bytes/view) 0 (bytes/encode "<html>not an image</html>") 25)))
+  (report (read (bytes/add (bytes/view) 0
+                           (bytes/encode "<html>not an image</html>") 25)))
 
   (read! "https://example.org/artwork.png")
   #_.)
