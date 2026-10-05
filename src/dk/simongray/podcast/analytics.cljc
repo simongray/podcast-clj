@@ -52,7 +52,8 @@
   (when (and (number? size) (pos? size))
     (let [header (min size (max 0 (or header 0)))]
       (if (and (number? duration) (> duration 60))
-        (min size (+ header (long (Math/ceil (/ (* (- size header) 60.0) duration)))))
+        (let [minute (long (Math/ceil (/ (* (- size header) 60.0) duration)))]
+          (min size (+ header minute)))
         size))))
 
 (defn- ipv6-text
@@ -65,7 +66,9 @@
                            (if (and (>= run 2) (> run n)) [i run] best)))
                        [nil 0]
                        (range 8))
-        hex    (fn [ws] (str/join ":" (map #?(:clj #(Integer/toHexString %) :cljs #(.toString % 16)) ws)))]
+        group  #?(:clj  #(Integer/toHexString %)
+                  :cljs #(.toString % 16))
+        hex    (fn [ws] (str/join ":" (map group ws)))]
     (if at
       (str (hex (subvec words 0 at)) "::" (hex (subvec words (+ at n))))
       (hex words))))
@@ -121,16 +124,23 @@
   so. The list changes often, so a host keeps a copy of one commit."
   [files]
   (let [parsed  (fn [x] (if (string? x) (json/read-str x) x))
+        known   #{:bots :apps :libraries :browsers :devices :referrers}
         entries (for [[file x] files
-                      :when (contains? #{:bots :apps :libraries :browsers :devices :referrers} file)
-                      e (get (parsed x) "entries")
-                      :let [found (entry file e)]
+                      :when (contains? known file)
+                      e     (get (parsed x) "entries")
+                      :let  [found (entry file e)]
                       :when found]
-                  [file found])]
-    (with-meta (reduce (fn [m [file e]] (cond-> m (:pattern e) (update file (fnil conj []) e)))
-                       {}
-                       entries)
-      {:podcast/report (into [] (comp (map second) (remove :pattern) (map diagnostics/describe)) entries)})))
+                  [file found])
+        add     (fn [m [file e]]
+                  (cond-> m
+                    (:pattern e) (update file (fnil conj []) e)))
+        report  (into []
+                      (comp (map second)
+                            (remove :pattern)
+                            (map diagnostics/describe))
+                      entries)]
+    (with-meta (reduce add {} entries)
+      {:podcast/report report})))
 
 (defn- matching
   "The first entry of the file `file` of `user-agents` whose pattern `s`
@@ -156,16 +166,22 @@
   ([user-agents user-agent]
    (identify user-agents user-agent nil))
   ([user-agents user-agent referer]
-   (let [ua                 (str/replace (str user-agent) #"[\r\n]" "")
-         [[_ kind] found]   (some (fn [[file :as f]] (some->> (matching user-agents file ua) (vector f))) agent-files)
-         agent-type         (cond
-                              (and (= "library" kind) (= "bot" (:category found))) "bot-library"
-                              kind                                                 kind
-                              :else                                                "unknown")
-         device             (when (not= "bot" agent-type) (matching user-agents :devices ua))
-         referrer           (when (and (= "browser" agent-type) (not (str/blank? referer)))
-                              (or (matching user-agents :referrers referer)
-                                  (some->> (http/host referer) (hash-map :category "domain" :name))))]
+   (let [ua               (str/replace (str user-agent) #"[\r\n]" "")
+         match-in         (fn [[file :as f]]
+                            (some->> (matching user-agents file ua) (vector f)))
+         [[_ kind] found] (some match-in agent-files)
+         bot-library?     (and (= "library" kind) (= "bot" (:category found)))
+         agent-type       (cond
+                            bot-library? "bot-library"
+                            kind         kind
+                            :else        "unknown")
+         device           (when (not= "bot" agent-type)
+                            (matching user-agents :devices ua))
+         referrer         (when (and (= "browser" agent-type)
+                                     (not (str/blank? referer)))
+                            (or (matching user-agents :referrers referer)
+                                (some->> (http/host referer)
+                                         (hash-map :category "domain" :name))))]
      (into {} (remove (comp nil? val))
            {:agent-type    agent-type
             :agent-name    (if found (:name found) (not-empty ua))
@@ -178,7 +194,8 @@
   "Whether `user-agent` is that of Apple Podcasts on a watch, whose
   downloads repeat those of the phone, as the IAB guidelines tell it."
   [user-agent]
-  (or (and (str/starts-with? user-agent "atc/") (str/includes? user-agent "watchOS"))
+  (or (and (str/starts-with? user-agent "atc/")
+           (str/includes? user-agent "watchOS"))
       (str/includes? user-agent "(null)/(null) watchOS")))
 
 (defn- bot?
@@ -194,7 +211,12 @@
   "The bytes that the byte ranges `ranges` ask for together, or ##Inf for
   a range with no end."
   [ranges]
-  (reduce + 0 (for [[a b] ranges] (cond (nil? a) b (nil? b) ##Inf :else (inc (- b a))))))
+  (let [size (fn [[a b]]
+               (cond
+                 (nil? a) b
+                 (nil? b) ##Inf
+                 :else    (inc (- b a))))]
+    (reduce + 0 (map size ranges))))
 
 (defn ^:no-doc malformed?
   "Whether the rules can't read `request`.
@@ -237,16 +259,17 @@
     from the lists of the host."
   ([request]
    (drop-reason request {}))
-  ([{:keys [method status range user-agent] :as request} {:keys [exclude?] :as opts}]
+  ([{:keys [method status range user-agent] :as request}
+    {:keys [exclude?] :as opts}]
    (cond
-     (malformed? request)                                          :malformed
-     (not= "get" (some-> method name str/lower-case))              :method
-     (not (contains? #{nil 200 206 0} status))                     :status
-     (some-> (http/byte-ranges range) asked-size (<= 2))           :two-bytes
-     (str/blank? user-agent)                                       :no-user-agent
-     (watch? user-agent)                                           :watch
-     (bot? request)                                                :bot
-     (and exclude? (exclude? request))                             :excluded)))
+     (malformed? request)                                :malformed
+     (not= "get" (some-> method name str/lower-case))    :method
+     (not (contains? #{nil 200 206 0} status))           :status
+     (some-> (http/byte-ranges range) asked-size (<= 2)) :two-bytes
+     (str/blank? user-agent)                             :no-user-agent
+     (watch? user-agent)                                 :watch
+     (bot? request)                                      :bot
+     (and exclude? (exclude? request))                   :excluded)))
 
 (defn- held
   "The byte ranges of its file that `request` holds. These are the ranges
@@ -256,9 +279,10 @@
   (let [asked (or (http/byte-ranges range) [[0 nil]])]
     (if (and (number? bytes) (<= 0 bytes))
       (first (reduce (fn [[acc left] [a b]]
-                       (let [n (min left (asked-size [[a b]]))]
+                       (let [n    (min left (asked-size [[a b]]))
+                             part (if a [a (+ a n -1)] [nil n])]
                          (if (pos? n)
-                           [(conj acc (if a [a (+ a n -1)] [nil n])) (- left n)]
+                           [(conj acc part) (- left n)]
                            (reduced [acc 0]))))
                      [[] bytes]
                      asked))
@@ -308,16 +332,42 @@
   others by the reason that drop-reason gives, as a pair. Each request has
   the agent that the :user-agents of `opts` names."
   [requests {:keys [user-agents] :as opts}]
-  (let [known (memoize (fn [ua referer] (identify user-agents ua referer)))]
+  (let [known (memoize (fn [ua referer] (identify user-agents ua referer)))
+        named (fn [{:keys [user-agent referer] :as request}]
+                (if (and user-agents (not (malformed? request)))
+                  (merge request (known user-agent referer))
+                  request))]
     (reduce (fn [[kept dropped] request]
-              (let [request (cond-> request
-                              (and user-agents (not (malformed? request)))
-                              (merge (known (:user-agent request) (:referer request))))]
+              (let [request (named request)]
                 (if-let [reason (drop-reason request opts)]
                   [kept (update dropped reason (fnil inc 0))]
                   [(conj kept request) dropped])))
             [[] {}]
             requests)))
+
+(defn- with-request
+  "The `windows`, a pair of the open windows by listener and file and the
+  closed ones, with `request` in the open window of its listener and file,
+  or else in a new one. The `file` and `window` are those of windows."
+  [file window [open closed :as windows] {:keys [ip user-agent] :as request}]
+  (let [listener [(listener-ip ip) user-agent]
+        k        (conj listener (file request))
+        ms       (inst-ms (:time request))
+        w        (get open k)]
+    (if (and w (same-window? window w ms))
+      (let [grown (-> w
+                      (update :ranges into (held request))
+                      (update :n inc)
+                      (assoc :last ms))]
+        [(assoc open k grown) closed])
+      (let [opened {:first-request request
+                    :start         ms
+                    :last          ms
+                    :ranges        (held request)
+                    :n             1
+                    :listener      listener
+                    :file          (peek k)}]
+        [(assoc open k opened) (cond-> closed w (conj w))]))))
 
 (defn- windows
   "The windows of `requests` for each listener and file, where `file`
@@ -327,17 +377,9 @@
   A window has its first request, the byte ranges that its requests hold,
   and their number."
   [requests file window]
-  (let [step          (fn [[open closed] {:keys [ip user-agent] :as request}]
-                        (let [listener [(listener-ip ip) user-agent]
-                              k        (conj listener (file request))
-                              ms       (inst-ms (:time request))
-                              w        (get open k)]
-                          (if (and w (same-window? window w ms))
-                            [(assoc open k (-> w (update :ranges into (held request)) (update :n inc) (assoc :last ms))) closed]
-                            [(assoc open k {:first-request request :start ms :last ms :ranges (held request) :n 1
-                                            :listener listener :file (peek k)})
-                             (cond-> closed w (conj w))])))
-        [open closed] (reduce step [{} []] (sort-by (comp inst-ms :time) requests))]
+  (let [by-time       (sort-by (comp inst-ms :time) requests)
+        step          (partial with-request file window)
+        [open closed] (reduce step [{} []] by-time)]
     (into closed (vals open))))
 
 (defn downloads
@@ -376,15 +418,21 @@
   number of requests that ask for it."
   ([requests]
    (downloads requests {}))
-  ([requests {:keys [threshold file window] :or {file (comp file-url :url) window :day} :as opts}]
+  ([requests {:keys [threshold file window]
+              :or   {file (comp file-url :url) window :day}
+              :as   opts}]
    (when-not (contains? #{:day :rolling :extending} window)
-     (throw (ex-info (str "A window that downloads does not know: " window) {:window window})))
-   (let [[kept dropped]             (judged requests opts)
-         enough?                    (fn [{:keys [ranges] :as w}]
-                                      (let [needed (when threshold (threshold (:file w)))]
-                                        (or (nil? needed) (>= (held-size ranges) needed))))
-         {counted true short false} (group-by enough? (windows kept file window))]
-     {:downloads (mapv (fn [w] (assoc (:first-request w) :listener (:listener w)))
+     (throw (ex-info (str "A window that downloads does not know: " window)
+                     {:window window})))
+   (let [[kept dropped] (judged requests opts)
+         enough?        (fn [{:keys [ranges] :as w}]
+                          (let [needed (when threshold (threshold (:file w)))]
+                            (or (nil? needed)
+                                (>= (held-size ranges) needed))))
+         windowed       (windows kept file window)
+         {counted true short false} (group-by enough? windowed)]
+     {:downloads (mapv (fn [w]
+                         (assoc (:first-request w) :listener (:listener w)))
                        (sort-by :start counted))
       :dropped   (cond-> dropped
                    (seq short) (assoc :short (reduce + (map :n short))))})))
@@ -395,22 +443,37 @@
   (listener-ip "2001:db8:1:2:3:4:5:6")
 
   (def agents
-    (user-agents {:apps {"entries" [{"name" "Overcast" "pattern" "^Overcast/"}]}
-                  :bots {"entries" [{"name" "Googlebot" "pattern" "Googlebot"}]}}))
+    (user-agents
+     {:apps {"entries" [{"name" "Overcast" "pattern" "^Overcast/"}]}
+      :bots {"entries" [{"name" "Googlebot" "pattern" "Googlebot"}]}}))
 
   (identify agents "Overcast/3.0 (+http://overcast.fm/; iOS podcast app)")
 
   ;; two requests of one listener for one file, and the request of a bot
   (def requests
-    [{:time   #inst "2026-09-26T08:15:02Z" :ip     "203.0.113.5"   :user-agent "Overcast/3.0"
-      :method :get                         :url    "https://cdn.example.com/54.mp3"
-      :status 206                          :range  "bytes=0-"      :bytes      1048576}
-     {:time   #inst "2026-09-26T08:15:09Z" :ip     "203.0.113.5"   :user-agent "Overcast/3.0"
-      :method :get                         :url    "https://cdn.example.com/54.mp3"
-      :status 206                          :range  "bytes=1048576-" :bytes     2000000}
-     {:time   #inst "2026-09-26T09:00:00Z" :ip     "198.51.100.7"  :user-agent "Googlebot/2.1"
-      :method :get                         :url    "https://cdn.example.com/54.mp3"
-      :status 200                          :bytes  30000000}])
+    [{:time       #inst "2026-09-26T08:15:02Z"
+      :ip         "203.0.113.5"
+      :user-agent "Overcast/3.0"
+      :method     :get
+      :url        "https://cdn.example.com/54.mp3"
+      :status     206
+      :range      "bytes=0-"
+      :bytes      1048576}
+     {:time       #inst "2026-09-26T08:15:09Z"
+      :ip         "203.0.113.5"
+      :user-agent "Overcast/3.0"
+      :method     :get
+      :url        "https://cdn.example.com/54.mp3"
+      :status     206
+      :range      "bytes=1048576-"
+      :bytes      2000000}
+     {:time       #inst "2026-09-26T09:00:00Z"
+      :ip         "198.51.100.7"
+      :user-agent "Googlebot/2.1"
+      :method     :get
+      :url        "https://cdn.example.com/54.mp3"
+      :status     200
+      :bytes      30000000}])
 
   (drop-reason (assoc (peek requests) :agent-type "bot"))
   (downloads requests {:user-agents agents :threshold (constantly 1000000)})

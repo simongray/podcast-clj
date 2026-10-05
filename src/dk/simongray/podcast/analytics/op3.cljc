@@ -45,10 +45,13 @@
   ([url]
    (prefixed? url {}))
   ([url opts]
-   (let [site  (str/lower-case (str/replace (instance opts) #"(?i)^https?://" ""))
-         lower (str/lower-case (first (str/split (str url) #"[?#]" 2)))]
-     (boolean (some #(or (str/starts-with? lower %) (str/includes? lower (str "/" %)))
-                    [(str site "/e/") (str site "/e,")])))))
+   (let [host   (str/replace (instance opts) #"(?i)^https?://" "")
+         site   (str/lower-case host)
+         lower  (str/lower-case (first (str/split (str url) #"[?#]" 2)))
+         starts [(str site "/e/") (str site "/e,")]
+         found? #(or (str/starts-with? lower %)
+                     (str/includes? lower (str "/" %)))]
+     (boolean (some found? starts)))))
 
 (defn accepts?
   "Whether OP3 takes the URL `url` behind its prefix, as its server did in
@@ -61,14 +64,15 @@
   address, that has no dot, or that RFC 2606 keeps for tests, such as
   example.test."
   [url]
-  (boolean
-   (when-let [[_ domain port] (re-matches #"(?i)https?://([a-z0-9.-]+)(?::(\d{1,5}))?/.+"
-                                          (str url))]
-     (and (not (re-find #"^[.-]|-$|\.\." domain))
-          (str/includes? domain ".")
-          (not (contains? #{"test" "example" "invalid" "localhost"}
-                          (peek (str/split (str/lower-case domain) #"\."))))
-          (or (nil? port) (<= 1 (parse-long port) 65535))))))
+  (let [web-url  #"(?i)https?://([a-z0-9.-]+)(?::(\d{1,5}))?/.+"
+        reserved #{"test" "example" "invalid" "localhost"}]
+    (boolean
+     (when-let [[_ domain port] (re-matches web-url (str url))]
+       (let [tld (peek (str/split (str/lower-case domain) #"\."))]
+         (and (not (re-find #"^[.-]|-$|\.\." domain))
+              (str/includes? domain ".")
+              (not (contains? reserved tld))
+              (or (nil? port) (<= 1 (parse-long port) 65535))))))))
 
 (defn- target
   "The scheme of the http or https URL `url` and the rest of the URL, as a
@@ -93,12 +97,14 @@
   ([url]
    (prefix url {}))
   ([url {:keys [podcast-guid] :as opts}]
-   (if (prefixed? url opts)
-     url
-     (when-let [[scheme tail] (when ((:accepts? opts accepts?) url) (target url))]
-       (str (instance opts) "/e"
-            (when (guid/guid? podcast-guid) (str ",pg=" (str/lower-case podcast-guid)))
-            "/" (when (= "http" scheme) "http://") tail)))))
+   (let [takes? (:accepts? opts accepts?)]
+     (if (prefixed? url opts)
+       url
+       (when-let [[scheme tail] (when (takes? url) (target url))]
+         (let [show (when (guid/guid? podcast-guid)
+                      (str ",pg=" (str/lower-case podcast-guid)))]
+           (str (instance opts) "/e" show
+                "/" (when (= "http" scheme) "http://") tail)))))))
 
 (defn with-prefix
   "The `feed` with the prefix of OP3 in front of the URL of each enclosure,
@@ -127,7 +133,8 @@
   :top-apps-for-show, it can also be its podcast guid or the URL of its
   feed. The :start and :end are instants, or text that OP3 reads: a date
   such as 2026-09 or 2026-09-26, or a time before now, such as -24h."
-  #{:show :downloads :show-download-counts :episode-download-counts :top-apps-for-show})
+  #{:show :downloads :show-download-counts :episode-download-counts
+    :top-apps-for-show})
 
 (defn- show-param
   "The query parameter of OP3 that names the show `id`: its show UUID, its
@@ -142,10 +149,46 @@
   "The query string of `params`, a map of OP3's names, whose values are
   text, numbers, instants or collections of them, with nil left out."
   [params]
-  (str/join "&" (for [[k v] params
-                      v (if (coll? v) v [v])
-                      :when (some? v)]
-                  (str (http/percent-encode k) "=" (http/percent-encode (if (inst? v) (time/format-iso8601 v) v))))))
+  (let [text #(if (inst? %) (time/format-iso8601 %) %)]
+    (str/join "&" (for [[k v] params
+                        v     (if (coll? v) v [v])
+                        :when (some? v)]
+                    (str (http/percent-encode k) "="
+                         (http/percent-encode (text v)))))))
+
+(defn- endpoint
+  "The path of the call `call` below the API of OP3, and its query
+  parameters by the names of OP3, as a pair, for `params` as calls lists
+  them."
+  [call {:keys [show episodes? start end episode bots? limit
+                continuation-token]}]
+  (case call
+    :show
+    (let [id (if (http/web-url? show) (http/base64url show) show)]
+      [(str "shows/" (http/percent-encode id))
+       {"episodes" (when episodes? "include")}])
+
+    :downloads
+    [(str "downloads/show/" (http/percent-encode show))
+     {"format"            "json"
+      "start"             start
+      "end"               end
+      "episodeId"         episode
+      "bots"              (when bots? "include")
+      "limit"             limit
+      "continuationToken" continuation-token}]
+
+    :show-download-counts
+    ["queries/show-download-counts" {"showUuid" show}]
+
+    :episode-download-counts
+    ["queries/episode-download-counts" {"showUuid" show "limit" limit}]
+
+    :top-apps-for-show
+    ["queries/top-apps-for-show" (show-param show)]
+
+    (throw (ex-info (str "A call that the API of OP3 does not have: " call)
+                    {:call call}))))
 
 (defn request
   "The request map of the call `call` with `params`, as calls lists
@@ -153,37 +196,33 @@
   another instance of OP3."
   ([token call params]
    (request token call params {}))
-  ([token call {:keys [show episodes? start end episode bots? limit continuation-token] :as params} opts]
-   (let [[path params] (case call
-                         :show                    [(str "shows/" (http/percent-encode (if (http/web-url? show) (http/base64url show) show)))
-                                                   {"episodes" (when episodes? "include")}]
-                         :downloads               [(str "downloads/show/" (http/percent-encode show))
-                                                   {"format" "json" "start" start "end" end "episodeId" episode
-                                                    "bots" (when bots? "include") "limit" limit
-                                                    "continuationToken" continuation-token}]
-                         :show-download-counts    ["queries/show-download-counts" {"showUuid" show}]
-                         :episode-download-counts ["queries/episode-download-counts" {"showUuid" show "limit" limit}]
-                         :top-apps-for-show       ["queries/top-apps-for-show" (show-param show)]
-                         (throw (ex-info (str "A call that the API of OP3 does not have: " call) {:call call})))
-         q             (query params)]
+  ([token call params opts]
+   (let [[path query-params] (endpoint call params)
+         q                   (query query-params)]
      {:method  :get
       :url     (str (instance opts) "/api/1/" path (when (seq q) (str "?" q)))
-      :headers {"Authorization" (http/authorization {:token token}) "User-Agent" http/user-agent}})))
+      :headers {"Authorization" (http/authorization {:token token})
+                "User-Agent"    http/user-agent}})))
 
 (defn ^:no-doc record
   "The JSON object `m` with its fields as keywords in kebab-case, and its
   times as instants."
   [m]
-  (into {} (map (fn [[k v]]
-                  (let [k (keyword (xml/kebab k))]
-                    [k (if (and (#{:time :pubdate} k) (string? v)) (or (time/parse-iso8601 v) v) v)])))
-        m))
+  (let [timed (fn [k v]
+                (if (and (#{:time :pubdate} k) (string? v))
+                  (or (time/parse-iso8601 v) v)
+                  v))]
+    (into {} (map (fn [[k v]]
+                    (let [k (keyword (xml/kebab k))]
+                      [k (timed k v)])))
+          m)))
 
 (defn- download
   "The row `row` of the downloads of OP3 as a download, with the keys of
   dk.simongray.podcast.analytics/downloads where it tells the same fact."
   [row]
-  (set/rename-keys (record row) {:hashed-ip-address :ip :audience-id :listener}))
+  (let [renames {:hashed-ip-address :ip :audience-id :listener}]
+    (set/rename-keys (record row) renames)))
 
 (defn response
   "The data in the JSON `body` of the answer to the call `call`. The
@@ -202,19 +241,30 @@
 
   It throws ::failed for a body that holds no JSON object."
   [call body]
-  (let [raw (json/object body)]
+  (let [raw    (json/object body)
+        fields #(record (dissoc raw "queryTime"))
+        {:strs [episodes rows continuationToken showDownloadCounts]} raw]
     (when-not raw
-      (throw (ex-info "OP3 answered with no JSON object" {:type ::failed :call call})))
+      (throw (ex-info "OP3 answered with no JSON object"
+                      {:type ::failed :call call})))
     (case call
-      :show                    (cond-> (record raw)
-                                 (get raw "episodes") (assoc :episodes (mapv record (get raw "episodes"))))
-      :downloads               (cond-> {:downloads (mapv download (get raw "rows"))}
-                                 (get raw "continuationToken") (assoc :continuation-token (get raw "continuationToken")))
-      :show-download-counts    (-> (record (dissoc raw "queryTime"))
-                                   (assoc :show-download-counts (update-vals (get raw "showDownloadCounts") record)))
-      :episode-download-counts (-> (record (dissoc raw "queryTime"))
-                                   (assoc :episodes (mapv record (get raw "episodes"))))
-      :top-apps-for-show       (record (dissoc raw "queryTime")))))
+      :show
+      (cond-> (record raw)
+        episodes (assoc :episodes (mapv record episodes)))
+
+      :downloads
+      (cond-> {:downloads (mapv download rows)}
+        continuationToken (assoc :continuation-token continuationToken))
+
+      :show-download-counts
+      (assoc (fields)
+             :show-download-counts (update-vals showDownloadCounts record))
+
+      :episode-download-counts
+      (assoc (fields) :episodes (mapv record episodes))
+
+      :top-apps-for-show
+      (fields))))
 
 (defn- message
   "What the answer `body` of OP3 says went wrong: the error or the message
@@ -242,16 +292,49 @@
   ([token call params]
    (call! token call params {}))
   ([token call params opts]
-   (let [{:keys [send timeout-seconds]} (merge {:send http/send! :timeout-seconds 30} opts)
-         failed (fn [status said]
-                  (ex-info (str "OP3 answered " status ": " said) {:type ::failed :status status :message said}))]
-     (async/then (send (assoc (request token call params opts) :timeout-seconds timeout-seconds))
-                 (fn [{:keys [status body]}]
-                   (cond
-                     (= 404 status)                         nil
-                     (not (and status (<= 200 status 299))) (throw (failed status (message body)))
-                     (json/object body)                     (response call body)
-                     :else                                  (throw (failed status "no JSON object"))))))))
+   (let [defaults {:send http/send! :timeout-seconds 30}
+         {:keys [send timeout-seconds]} (merge defaults opts)
+         req      (assoc (request token call params opts)
+                         :timeout-seconds timeout-seconds)
+         failed   (fn [status said]
+                    (ex-info (str "OP3 answered " status ": " said)
+                             {:type ::failed :status status :message said}))]
+     (async/then
+      (send req)
+      (fn [{:keys [status body]}]
+        (cond
+          (= 404 status)
+          nil
+
+          (not (and status (<= 200 status 299)))
+          (throw (failed status (message body)))
+
+          (json/object body)
+          (response call body)
+
+          :else
+          (throw (failed status "no JSON object"))))))))
+
+(defn- unreachable
+  "The page of downloads that the call for the page `from` gives when it
+  fails with `error`: no downloads, and the :error as a diagnostic."
+  [from error]
+  {::from from
+   :error (diagnostics/describe {:id     :analytics/unreachable
+                                 :status (:status (ex-data error))
+                                 :reason (async/explain error)})})
+
+(defn- gathered
+  "The result of fetch-downloads! for the `pages` that it fetched: the
+  downloads of the pages before the one that failed, the continuation
+  token of the page after them, and the :error of the page that failed."
+  [pages]
+  (let [{:keys [error] ::keys [from]} (first (filter :error pages))
+        token     (if error from (:continuation-token (peek pages)))
+        downloads (into [] (comp (remove :error) (mapcat :downloads)) pages)]
+    (cond-> {:downloads downloads}
+      token (assoc :continuation-token token)
+      error (assoc :error error))))
 
 (defn fetch-downloads!
   "Fetch the downloads of the show that `params` name, page after page,
@@ -272,42 +355,44 @@
   ([token params]
    (fetch-downloads! token params {}))
   ([token params opts]
-   (let [params (merge {:limit 20000} params)
-         page!  (fn [from]
-                  (async/then (async/attempt #(call! token :downloads (cond-> params from (assoc :continuation-token from)) opts))
-                              (fn [{:keys [value error]}]
-                                (if error
-                                  {::from from
-                                   :error (diagnostics/describe {:id     :analytics/unreachable
-                                                                 :status (:status (ex-data error))
-                                                                 :reason (async/explain error)})}
-                                  value))))
-         pages  (async/iteration page!
-                                 :kf    #(when-not (:error %) (:continuation-token %))
-                                 :initk (:continuation-token params)
-                                 :limit (:max-pages opts 5))]
-     (async/then pages
-                 (fn [pages]
-                   (let [{:keys [error] ::keys [from]} (first (filter :error pages))
-                         token (if error from (:continuation-token (peek pages)))]
-                     (cond-> {:downloads (into [] (comp (remove :error) (mapcat :downloads)) pages)}
-                       token (assoc :continuation-token token)
-                       error (assoc :error error))))))))
+   (let [params     (merge {:limit 20000} params)
+         page!      (fn [from]
+                      (let [paged (cond-> params
+                                    from (assoc :continuation-token from))]
+                        (async/then
+                         (async/attempt #(call! token :downloads paged opts))
+                         (fn [{:keys [value error]}]
+                           (if error (unreachable from error) value)))))
+         next-token #(when-not (:error %) (:continuation-token %))
+         pages      (async/iteration page!
+                                     :kf    next-token
+                                     :initk (:continuation-token params)
+                                     :limit (:max-pages opts 5))]
+     (async/then pages gathered))))
 
 (comment
-  (prefix "https://cdn.example.com/episode-54.mp3" {:podcast-guid "917393e3-1b1e-5cef-ace4-edaa54e1f810"})
+  (prefix "https://cdn.example.com/episode-54.mp3"
+          {:podcast-guid "917393e3-1b1e-5cef-ace4-edaa54e1f810"})
   (prefixed? "https://op3.dev/e/cdn.example.com/episode-54.mp3")
   (accepts? "https://localhost/episode-54.mp3")
-  (with-prefix {:rss/items [{:rss/enclosure {:url "https://cdn.example.com/episode-54.mp3"}}]})
+  (with-prefix
+   {:rss/items
+    [{:rss/enclosure {:url "https://cdn.example.com/episode-54.mp3"}}]})
 
-  (request "a-token" :downloads {:show "fb3d03641442410e881acb0562ef27c6" :start "-24h" :limit 10})
-  (response :downloads "{\"rows\": [{\"time\": \"2026-09-26T08:15:02Z\", \"hashedIpAddress\": \"abc\"}]}")
+  (request "a-token" :downloads
+           {:show "fb3d03641442410e881acb0562ef27c6" :start "-24h" :limit 10})
+  (response :downloads
+            (str "{\"rows\": [{\"time\": \"2026-09-26T08:15:02Z\", "
+                 "\"hashedIpAddress\": \"abc\"}]}"))
   #_.)
 
 #?(:clj
    (comment
      ;; the sample token of the API docs of OP3, for a try
-     (call! "preview07ce" :show {:show "917393e3-1b1e-5cef-ace4-edaa54e1f810" :episodes? true})
-     (call! "preview07ce" :top-apps-for-show {:show "917393e3-1b1e-5cef-ace4-edaa54e1f810"})
-     (fetch-downloads! "preview07ce" {:show "fb3d03641442410e881acb0562ef27c6" :start "-24h" :limit 10} {:max-pages 2})
+     (def pc20 "917393e3-1b1e-5cef-ace4-edaa54e1f810")
+     (def show-uuid "fb3d03641442410e881acb0562ef27c6")
+     (call! "preview07ce" :show {:show pc20 :episodes? true})
+     (call! "preview07ce" :top-apps-for-show {:show pc20})
+     (fetch-downloads! "preview07ce" {:show show-uuid :start "-24h" :limit 10}
+                       {:max-pages 2})
      #_.))

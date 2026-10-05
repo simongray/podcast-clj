@@ -59,7 +59,12 @@
   - :max-episodes and :max-bytes, the most files and bytes on the device
   - :make-room?, whether the files of played episodes go when a download
     needs room"
-  {:default {} :shows {} :queue nil :max-episodes nil :max-bytes nil :make-room? false})
+  {:default      {}
+   :shows        {}
+   :queue        nil
+   :max-episodes nil
+   :max-bytes    nil
+   :make-room?   false})
 
 (def bytes-per-second
   "The bytes of one second of an episode whose feed gives no length, audio
@@ -72,8 +77,9 @@
   rule, as profile/prefer and profile/configure write them."
   [profile]
   (let [listener (:downloads (profile/preferences profile))
+        rule-of  #(:downloads (profile/settings profile %))
         shows    (into {} (for [feed-guid (keys (profile/subscriptions profile))
-                                :let [rule (:downloads (profile/settings profile feed-guid))]
+                                :let  [rule (rule-of feed-guid)]
                                 :when (some? rule)]
                             [feed-guid rule]))]
     (if (or (nil? listener) (map? listener))
@@ -84,14 +90,19 @@
   "The rule of the show `feed-guid` in `rules`: the rule of the show, over
   the :default of the rules, over default-rule."
   [rules feed-guid]
-  (let [part   #(when (map? %) %)
-        merged (merge default-rule (part (:default rules)) (part (get (part (:shows rules)) feed-guid)))]
+  (let [part    #(when (map? %) %)
+        default (part (:default rules))
+        own     (part (get (part (:shows rules)) feed-guid))
+        merged  (merge default-rule default own)]
     (cond-> merged
-      (map? (:episodes merged)) (update :episodes #(merge (:episodes default-rule) %)))))
+      (map? (:episodes merged))
+      (update :episodes #(merge (:episodes default-rule) %)))))
 
 (defn- amount?
   [x]
-  (and (number? x) (== x x) (not (neg? x))))
+  (and (number? x)
+       (== x x)
+       (not (neg? x))))
 
 (defn- rule-problem
   "A description of what this version of podcast-clj doesn't know in
@@ -100,24 +111,43 @@
   (let [unknown (remove #(contains? default-rule %) (keys rule))
         kept    (:keep rule)]
     (cond
-      (seq unknown)                              (str "the keys " (str/join ", " (map pr-str unknown)) " are not known")
-      (not (or (nil? episodes) (map? episodes))) (str "the value of :episodes is " (pr-str episodes) ", not a map")
-      (search/problem (or episodes {}))          (search/problem (or episodes {}))
-      (not (or (nil? played) (amount? played)))  (str "the value of :played is " (pr-str played)
-                                                      ", not a number of seconds")
+      (seq unknown)
+      (str "the keys " (str/join ", " (map pr-str unknown)) " are not known")
+
+      (not (or (nil? episodes) (map? episodes)))
+      (str "the value of :episodes is " (pr-str episodes) ", not a map")
+
+      (search/problem (or episodes {}))
+      (search/problem (or episodes {}))
+
+      (not (or (nil? played) (amount? played)))
+      (str "the value of :played is " (pr-str played)
+           ", not a number of seconds")
+
       (not (or (nil? inactive) (amount? inactive)))
-      (str "the value of :inactive is " (pr-str inactive) ", not a number of seconds")
+      (str "the value of :inactive is " (pr-str inactive)
+           ", not a number of seconds")
+
       (not (or (nil? kept) (and (set? kept) (every? keeps kept))))
-      (str "the value of :keep is " (pr-str kept) ", not a set of " (str/join ", " (sort keeps))))))
+      (str "the value of :keep is " (pr-str kept) ", not a set of "
+           (str/join ", " (sort keeps))))))
 
 (def ^:no-doc checks
   "The tests of the values of the rules, by key."
-  {:queue       #(or (nil? %) (boolean? %) (amount? %))
+  {:queue        #(or (nil? %) (boolean? %) (amount? %))
    :max-episodes #(or (nil? %) (amount? %))
    :max-bytes    #(or (nil? %) (amount? %))
    :make-room?   #(or (nil? %) (boolean? %))
    :default      #(or (nil? %) (map? %))
    :shows        #(or (nil? %) (map? %))})
+
+(defn- show-problem
+  "A description of what this version of podcast-clj doesn't know in
+  `own`, the rule of the show `feed-guid` in `rules`, or nil."
+  [rules feed-guid own]
+  (if (map? own)
+    (rule-problem (rule rules feed-guid))
+    (str "the rule is " (pr-str own) ", not a map")))
 
 (defn problems
   "A description of what in `rules` this version of podcast-clj doesn't
@@ -130,21 +160,23 @@
   [rules]
   (if-not (map? rules)
     {:rules (str "the rules are " (pr-str rules) ", not a map")}
-    (not-empty
-     (into {}
-           (concat
-            (for [k (keys rules) :when (not (contains? default-rules k))]
-              [k (str "the key " (pr-str k) " is not known")])
-            (for [[k ok?] checks :when (not (ok? (get rules k)))]
-              [k (str "the value of " (pr-str k) " is " (pr-str (get rules k)))])
-            (when-let [problem (rule-problem (rule rules nil))]
-              [[:default problem]])
-            (for [[feed-guid own] (when (map? (:shows rules)) (:shows rules))
-                  :let [problem (if (map? own)
-                                  (rule-problem (rule rules feed-guid))
-                                  (str "the rule is " (pr-str own) ", not a map"))]
-                  :when problem]
-              [feed-guid problem]))))))
+    (let [shows (when (map? (:shows rules)) (:shows rules))]
+      (not-empty
+       (into {}
+             (concat
+              (for [k     (keys rules)
+                    :when (not (contains? default-rules k))]
+                [k (str "the key " (pr-str k) " is not known")])
+              (for [[k ok?] checks
+                    :let  [v (get rules k)]
+                    :when (not (ok? v))]
+                [k (str "the value of " (pr-str k) " is " (pr-str v))])
+              (when-let [problem (rule-problem (rule rules nil))]
+                [[:default problem]])
+              (for [[feed-guid own] shows
+                    :let  [problem (show-problem rules feed-guid own)]
+                    :when problem]
+                [feed-guid problem])))))))
 
 (defn estimate
   "The bytes that the file of `item` takes when its feed gives no length:
@@ -156,13 +188,16 @@
   "The episode ids of `profile` under each name in keeps, e.g. the starred
   ones under :starred."
   [profile]
-  {:starred     (set (profile/starred profile))
-   :queued      (set (profile/queue profile))
-   :playlists   (into #{} cat (vals (profile/playlists profile)))
-   :in-progress (into #{}
-                      (keep (fn [[id {:keys [position played?]}]]
-                              (when (and (not played?) (number? position) (pos? position)) id)))
-                      (profile/episode-entries profile))})
+  (let [started? (fn [[_ {:keys [position played?]}]]
+                   (and (not played?)
+                        (number? position)
+                        (pos? position)))]
+    {:starred     (set (profile/starred profile))
+     :queued      (set (profile/queue profile))
+     :playlists   (into #{} cat (vals (profile/playlists profile)))
+     :in-progress (into #{}
+                        (comp (filter started?) (map first))
+                        (profile/episode-entries profile))}))
 
 (defn- context
   "The map that plan passes to its helpers, from `profile`, the
@@ -193,14 +228,17 @@
   Shows without a feed guid are left out, and so are those whose rule has
   a problem or neither downloads nor trims."
   [{:keys [rules problems] :as ctx} feeds]
-  (into {}
-        (for [feed feeds
-              :let [feed-guid (guid-of ctx feed)
-                    {:keys [download? trim? episodes]} (rule rules feed-guid)]
-              :when (and feed-guid (or download? trim?) (not (contains? problems feed-guid)))
-              :let [criteria (select-keys episodes [:where :order :limit :scale])]]
-          [feed-guid (mapv #(vector feed-guid (feed/item-guid %))
-                           (search/episodes feed (merge ctx criteria)))])))
+  (let [criteria #(select-keys % [:where :order :limit :scale])]
+    (into {}
+          (for [feed feeds
+                :let  [feed-guid (guid-of ctx feed)
+                       own       (rule rules feed-guid)]
+                :when (and feed-guid
+                           (or (:download? own) (:trim? own))
+                           (not (contains? problems feed-guid)))
+                :let  [options (merge ctx (criteria (:episodes own)))
+                       found   (search/episodes feed options)]]
+            [feed-guid (mapv #(vector feed-guid (feed/item-guid %)) found)]))))
 
 (defn- catalogue
   "The items of `feeds` with the episode `ids`, by id, with the :url of
@@ -225,7 +263,8 @@
   (not (or (:removed? file)
            (:keep? file)
            (contains? problems (first id))
-           (some #(contains? (get held %) id) (:keep (rule rules (first id)))))))
+           (let [kept (:keep (rule rules (first id)))]
+             (some #(contains? (get held %) id) kept)))))
 
 (defn- instants
   [xs]
@@ -245,9 +284,14 @@
   for a show whose feed wasn't given to plan."
   [{:keys [profile rules at] :as ctx} selected id file]
   (let [{:keys [played inactive trim?]} (rule rules (first id))
-        {:keys [played? reported-at updated-at] :as e} (profile/episode-entry profile id)
-        past?  (fn [from seconds] (and from seconds (<= (+ from (* 1000 seconds)) (inst-ms at))))
-        active (some->> (instants [(:at file) reported-at updated-at]) (apply max))]
+        e      (profile/episode-entry profile id)
+        {:keys [played? reported-at updated-at]} e
+        past?  (fn [from seconds]
+                 (and from
+                      seconds
+                      (<= (+ from (* 1000 seconds)) (inst-ms at))))
+        active (some->> (instants [(:at file) reported-at updated-at])
+                        (apply max))]
     (cond
       (and played? (past? (played-ms e) played))         :played
       (and (not played?) (past? active inactive))        :inactive
@@ -277,23 +321,32 @@
   download, the earliest played first. They're the files of played
   episodes that the rules of `ctx` allow deleting."
   [{:keys [profile] :as ctx} files]
-  (->> files
-       (filter (fn [[id file]] (and (profile/played? profile id) (free? ctx id file))))
-       (search/sorted-by (fn [[id _]] [(or (played-ms (profile/episode-entry profile id)) 0) (pr-str id)]))
-       (mapv (fn [[id file]] (gone id file :room)))))
+  (let [spare?   (fn [[id file]]
+                   (and (profile/played? profile id)
+                        (free? ctx id file)))
+        earliest (fn [[id _]]
+                   (let [e (profile/episode-entry profile id)]
+                     [(or (played-ms e) 0) (pr-str id)]))]
+    (->> files
+         (filter spare?)
+         (search/sorted-by earliest)
+         (mapv (fn [[id file]] (gone id file :room))))))
 
 (defn- dismissed?
   "Whether the listener took the episode `id` out of the inbox of `profile`
   without queueing it."
   [profile id]
-  (boolean (and (:removed? (get-in profile [:inbox id])) (not (profile/queued? profile id)))))
+  (boolean (and (:removed? (get-in profile [:inbox id]))
+                (not (profile/queued? profile id)))))
 
 (defn- wanted?
   "Whether to download the episode `id`, by the profile and files of `ctx`.
   It's false when the device has or had the file, or when the listener
   played or dismissed the episode."
   [{:keys [profile files] :as ctx} id]
-  (not (or (contains? files id) (profile/played? profile id) (dismissed? profile id))))
+  (not (or (contains? files id)
+           (profile/played? profile id)
+           (dismissed? profile id))))
 
 (defn- download
   "The plan entry for downloading the `item` of the episode `id` for
@@ -303,12 +356,16 @@
   `ctx` as options. The bytes are the length in the feed, or else what the
   :estimate of `ctx` gives for the item."
   [ctx id item reason]
-  (when-let [{:keys [url type length]} (some-> item (resolve/enclosure (:enclosure ctx)))]
-    (cond-> {:id     id
-             :url    url
-             :bytes  (if (and (number? length) (pos? length)) length ((:estimate ctx estimate) item))
-             :reason reason}
-      type (assoc :type type))))
+  (let [enclosure (some-> item (resolve/enclosure (:enclosure ctx)))
+        estimator (:estimate ctx estimate)]
+    (when-let [{:keys [url type length]} enclosure]
+      (cond-> {:id     id
+               :url    url
+               :bytes  (if (and (number? length) (pos? length))
+                         length
+                         (estimator item))
+               :reason reason}
+        type (assoc :type type)))))
 
 (defn- front
   "The episode ids at the front of the queue of `profile` that the rules'
@@ -326,32 +383,43 @@
   These are the front of the queue, in order, and then the episodes that
   the shows' rules select, the newest first."
   [{:keys [profile rules] :as ctx} selected feeds]
-  (let [queued (front profile (:queue rules))
-        chosen (->> selected
-                    (filter (fn [[feed-guid _]] (:download? (rule rules feed-guid))))
-                    (mapcat val)
-                    (remove (set queued))
-                    distinct)
-        items  (catalogue ctx feeds (concat queued chosen))
-        newest (fn [id] [(- (or (some-> (get items id) resolve/published inst-ms) 0)) (pr-str id)])]
-    (concat (keep #(when (wanted? ctx %) (download ctx % (get items %) :queue)) queued)
-            (keep #(when (wanted? ctx %) (download ctx % (get items %) :rule))
-                  (search/sorted-by newest chosen)))))
+  (let [queued     (front profile (:queue rules))
+        downloads? (fn [[feed-guid _]] (:download? (rule rules feed-guid)))
+        chosen     (->> selected
+                        (filter downloads?)
+                        (mapcat val)
+                        (remove (set queued))
+                        distinct)
+        items      (catalogue ctx feeds (concat queued chosen))
+        newest     (fn [id]
+                     (let [ms (some-> (get items id) resolve/published inst-ms)]
+                       [(- (or ms 0)) (pr-str id)]))
+        entry      (fn [reason id]
+                     (when (wanted? ctx id)
+                       (download ctx id (get items id) reason)))]
+    (concat (keep #(entry :queue %) queued)
+            (keep #(entry :rule %) (search/sorted-by newest chosen)))))
 
 (defn- over
   "How far `total` and one more file of `bytes` go over the limits of
   `rules`, as a map of :episodes and :bytes, each 0 within its limit. The
   `total` is a map of the same shape."
   [{:keys [max-episodes max-bytes] :as rules} total bytes]
-  {:episodes (if max-episodes (max 0 (- (inc (:episodes total)) max-episodes)) 0)
-   :bytes    (if max-bytes (max 0 (- (+ (:bytes total) bytes) max-bytes)) 0)})
+  {:episodes (if max-episodes
+               (max 0 (- (inc (:episodes total)) max-episodes))
+               0)
+   :bytes    (if max-bytes
+               (max 0 (- (+ (:bytes total) bytes) max-bytes))
+               0)})
 
 (defn- room
   "The fewest files from the start of `spare` that free the `need`, as
   over gives it, or nil when all of `spare` isn't enough."
   [spare {:keys [episodes bytes] :as need}]
   (let [freed (reductions + 0 (map #(:bytes % 0) spare))]
-    (some (fn [[n sum]] (when (and (>= n episodes) (>= sum bytes)) (take n spare)))
+    (some (fn [[n sum]]
+            (when (and (>= n episodes) (>= sum bytes))
+              (take n spare)))
           (map vector (range) freed))))
 
 (defn- placed
@@ -375,21 +443,23 @@
                  :total {:episodes (- (inc (:episodes total)) (count clear))
                          :bytes    (- (+ (:bytes total) (:bytes entry))
                                       (reduce + (map #(:bytes % 0) clear)))}))
-      (update plan :waiting conj
-              (assoc entry :limit (if (pos? (:episodes need)) :max-episodes :max-bytes))))))
+      (let [limit (if (pos? (:episodes need)) :max-episodes :max-bytes)]
+        (update plan :waiting conj (assoc entry :limit limit))))))
 
 (defn- planned
   "The result of plan for the context `ctx` and the `feeds`."
   [{:keys [files rules] :as ctx} feeds]
-  (let [selected (selections ctx feeds)
-        going    (vec (deletes ctx selected))
-        staying  (apply dissoc (into {} (remove (comp :removed? val)) files) (map :id going))
-        start    {:download []
-                  :delete   going
-                  :waiting  []
-                  :spare    (spare ctx staying)
-                  :total    {:episodes (count staying)
-                             :bytes    (reduce + (map #(:bytes % 0) (vals staying)))}}]
+  (let [selected  (selections ctx feeds)
+        going     (vec (deletes ctx selected))
+        on-device (into {} (remove (comp :removed? val)) files)
+        staying   (apply dissoc on-device (map :id going))
+        total     {:episodes (count staying)
+                   :bytes    (reduce + (map #(:bytes % 0) (vals staying)))}
+        start     {:download []
+                   :delete   going
+                   :waiting  []
+                   :spare    (spare ctx staying)
+                   :total    total}]
     (-> (reduce #(placed rules %1 %2) start (downloads ctx selected feeds))
         (dissoc :spare :total))))
 
@@ -455,24 +525,37 @@
      :rss/items    [{:rss/title     "Episode 3"
                      :rss/guid      {:content "ep-3"}
                      :rss/pub-date  #inst "2026-09-22"
-                     :rss/enclosure {:url "https://example.org/3.mp3" :type "audio/mpeg" :length 48211004}}
+                     :rss/enclosure {:url    "https://example.org/3.mp3"
+                                     :type   "audio/mpeg"
+                                     :length 48211004}}
                     {:rss/title     "Episode 2 (rerun)"
                      :rss/guid      {:content "ep-2"}
                      :rss/pub-date  #inst "2026-09-15"
-                     :rss/enclosure {:url "https://example.org/2.mp3" :type "audio/mpeg" :length 51093220}}
+                     :rss/enclosure {:url    "https://example.org/2.mp3"
+                                     :type   "audio/mpeg"
+                                     :length 51093220}}
                     {:rss/title     "Episode 1"
                      :rss/guid      {:content "ep-1"}
                      :rss/pub-date  #inst "2026-09-08"
-                     :rss/enclosure {:url "https://example.org/1.mp3" :type "audio/mpeg" :length 50117331}}]})
+                     :rss/enclosure {:url    "https://example.org/1.mp3"
+                                     :type   "audio/mpeg"
+                                     :length 50117331}}]})
 
-  ;; the newest two episodes without a rerun, and a played file goes after a day
+  ;; the newest two episodes without a rerun, and a played file goes after
+  ;; a day
   (def profile
     (-> (profile/make "phone")
-        (profile/subscribe "feed-1" {:url "https://example.org/feed.xml" :title "A show"} #inst "2026-09-01")
-        (profile/prefer {:downloads {:default {:played 86400} :max-episodes 50}} #inst "2026-09-01")
+        (profile/subscribe "feed-1"
+                           {:url "https://example.org/feed.xml" :title "A show"}
+                           #inst "2026-09-01")
+        (profile/prefer {:downloads {:default      {:played 86400}
+                                     :max-episodes 50}}
+                        #inst "2026-09-01")
         (profile/configure "feed-1"
-                           {:downloads {:download? true
-                                        :episodes  {:where {:not {:text #{"rerun"}}} :limit 2}}}
+                           {:downloads
+                            {:download? true
+                             :episodes  {:where {:not {:text #{"rerun"}}}
+                                         :limit 2}}}
                            #inst "2026-09-01")
         (profile/mark-played ["feed-1" "ep-1"] #inst "2026-09-20")))
 
@@ -480,7 +563,9 @@
   (rule (rules profile) "feed-1")
   (problems (rules profile))
 
-  (plan profile [show] {["feed-1" "ep-1"] {:bytes 50117331 :at #inst "2026-09-09"}} #inst "2026-09-29")
+  (plan profile [show]
+        {["feed-1" "ep-1"] {:bytes 50117331 :at #inst "2026-09-09"}}
+        #inst "2026-09-29")
 
   ;; rules of this device in the place of those of the profile
   (plan profile [show] {} #inst "2026-09-29"

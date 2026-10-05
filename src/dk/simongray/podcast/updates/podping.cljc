@@ -41,7 +41,10 @@
 
 (def nodes
   "Public Hive API nodes, tried in this order until one answers."
-  ["https://api.hive.blog" "https://api.deathwing.me" "https://api.openhive.network" "https://hive-api.arcange.eu"])
+  ["https://api.hive.blog"
+   "https://api.deathwing.me"
+   "https://api.openhive.network"
+   "https://hive-api.arcange.eu"])
 
 (def gateway
   "The URL of podping.cloud, the service that writes a podping for a host.
@@ -59,6 +62,19 @@
   - :following, for the accounts that podping follows, its writers"
   #{:head-block :blocks :operations :following})
 
+(defn- rpc-call
+  "The JSON-RPC method and params of `call` with its `params`, as a pair."
+  [call params]
+  (case call
+    :head-block ["condenser_api.get_dynamic_global_properties" []]
+    :blocks     ["block_api.get_block_range"
+                 {"starting_block_num" (:from params)
+                  "count"              (:count params)}]
+    :operations ["condenser_api.get_ops_in_block" [(:block params) false]]
+    :following  ["condenser_api.get_following" ["podping" "" "blog" 1000]]
+    (throw (ex-info (str "A call the consumer does not make: " call)
+                    {:call call}))))
+
 (defn request
   "The JSON-RPC request map for `call`, one of calls, with its `params`
   when it takes any, sent to the :node of `opts`, or else the first of
@@ -69,17 +85,16 @@
    (request call params {}))
   ([call params {:keys [node] :or {node (first nodes)} :as opts}]
    {:pre [(map? opts)]}
-   (let [[method rpc-params] (case call
-                               :head-block ["condenser_api.get_dynamic_global_properties" []]
-                               :blocks     ["block_api.get_block_range" {"starting_block_num" (:from params)
-                                                                         "count"              (:count params)}]
-                               :operations ["condenser_api.get_ops_in_block" [(:block params) false]]
-                               :following  ["condenser_api.get_following" ["podping" "" "blog" 1000]]
-                               (throw (ex-info (str "A call the consumer does not make: " call) {:call call})))]
+   (let [[method rpc-params] (rpc-call call params)
+         body                {"jsonrpc" "2.0"
+                              "method"  method
+                              "params"  rpc-params
+                              "id"      1}]
      {:method  :post
       :url     node
-      :headers {"Content-Type" "application/json" "User-Agent" http/user-agent}
-      :body    (json/write-str {"jsonrpc" "2.0" "method" method "params" rpc-params "id" 1})})))
+      :headers {"Content-Type" "application/json"
+                "User-Agent"   http/user-agent}
+      :body    (json/write-str body)})))
 
 (defn ^:no-doc result
   "The result in the JSON-RPC `body`. A body that isn't JSON, or a node
@@ -88,11 +103,14 @@
   (let [raw (json/object body)]
     (cond
       (nil? raw)
-      (throw (ex-info "The node did not answer with JSON"
-                      {:type ::malformed :body (subs (str body) 0 (min 200 (count (str body))))}))
+      (let [text (str body)]
+        (throw (ex-info "The node did not answer with JSON"
+                        {:type ::malformed
+                         :body (subs text 0 (min 200 (count text)))})))
 
       (get raw "error")
-      (throw (ex-info (str "The node answered with an error: " (get-in raw ["error" "message"]))
+      (throw (ex-info (str "The node answered with an error: "
+                           (get-in raw ["error" "message"]))
                       {:type ::error :error (get raw "error")}))
 
       :else
@@ -110,7 +128,8 @@
 
 (defn- podping-id?
   [id]
-  (and (string? id) (or (= "podping" id) (str/starts-with? id "pp_"))))
+  (and (string? id)
+       (or (= "podping" id) (str/starts-with? id "pp_"))))
 
 (defn- reason-of
   "The `reason` of a ping in today's words: the first versions said
@@ -137,10 +156,13 @@
   [block timestamp op]
   (let [[kind {:strs [id json required_posting_auths]}] (operation op)]
     (when (and (= "custom_json" kind) (podping-id? id))
-      (let [body (json/parse json)
+      (let [body              (json/parse json)
             [_ medium reason] (re-matches #"pp_([A-Za-z]+)_([A-Za-z]+)" id)
-            iris (->> (or (get body "iris") (get body "urls") (some-> (get body "url") vector))
-                      (filter #(and (string? %) (not (str/blank? %)))))]
+            listed            (or (get body "iris")
+                                  (get body "urls")
+                                  (some-> (get body "url") vector))
+            iris              (filter #(and (string? %) (not (str/blank? %)))
+                                      listed)]
         (when (and (map? body) (seq iris))
           {:block     block
            :timestamp (some-> timestamp time/parse-iso8601)
@@ -176,7 +198,9 @@
   (let [r (result body)]
     (vec (if (map? r)
            (block-pings (get r "blocks"))
-           (keep (fn [{:strs [block timestamp op]}] (ping block timestamp op)) r)))))
+           (keep (fn [{:strs [block timestamp op]}]
+                   (ping block timestamp op))
+                 r)))))
 
 (defn writers
   "The accounts that may write podpings, from `body`, the answer to a
@@ -214,26 +238,30 @@
     place of gateway"
   ([token url]
    (notify-request token url {}))
-  ([token url {:keys [medium reason] :or {medium "podcast" reason "update"} :as opts}]
+  ([token url {:keys [medium reason]
+               :or   {medium "podcast" reason "update"}
+               :as   opts}]
    {:pre [(map? opts)]}
-   (let [service (:gateway opts gateway)]
+   (let [service (:gateway opts gateway)
+         query   (http/query-string {:url url :reason reason :medium medium})]
      {:method  :get
-      :url     (str service
-                    (if (str/includes? service "?") "&" "?")
-                    (http/query-string {:url url :reason reason :medium medium}))
-      :headers {"Authorization" (secret/hide token) "User-Agent" http/user-agent}})))
+      :url     (str service (if (str/includes? service "?") "&" "?") query)
+      :headers {"Authorization" (secret/hide token)
+                "User-Agent"    http/user-agent}})))
 
 (defn- call-node!
   "Send `call` with `params` to `node` as `opts` say, and give the body of
   the answer, in ClojureScript in a promise. It throws for each failure
   that call! lists."
-  [call params node {:keys [send timeout-seconds] :or {send http/send! timeout-seconds 10}}]
+  [call params node {:keys [send timeout-seconds]
+                     :or   {send http/send! timeout-seconds 10}}]
   (-> (request call params {:node node})
       (assoc :timeout-seconds timeout-seconds)
       send
       (async/then (fn [{:keys [status body]}]
                     (when-not (= 200 status)
-                      (throw (ex-info (str "answered " status) {:status status})))
+                      (throw (ex-info (str "answered " status)
+                                      {:status status})))
                     (result body)
                     body))))
 
@@ -264,11 +292,16 @@
              (if (empty? candidates)
                (throw (ex-info (str "No node answered " (name call))
                                {:type ::unavailable :failures failures}))
-               (async/then (async/attempt #(call-node! call params node opts))
-                           (fn [{:keys [value error]}]
-                             (or value
-                                 (call-in-turn! more (conj failures [node (async/explain error)])))))))]
-     (call-in-turn! (if-let [node (:node opts)] [node] (or (:nodes opts) nodes)) []))))
+               (async/then
+                (async/attempt #(call-node! call params node opts))
+                (fn [{:keys [value error]}]
+                  (or value
+                      (let [failure [node (async/explain error)]]
+                        (call-in-turn! more (conj failures failure))))))))]
+     (let [candidates (if-let [node (:node opts)]
+                        [node]
+                        (or (:nodes opts) nodes))]
+       (call-in-turn! candidates [])))))
 
 #?(:clj
    (defn ^:no-doc attempted
@@ -289,11 +322,13 @@
      request by `opts`. It gives the :pings and :through, the last block
      before the first one that the answer left out."
      [chunk opts]
-     (let [blocks  (get (result (call! :blocks {:from (first chunk) :count (count chunk)} opts)) "blocks")
+     (let [params  {:from (first chunk) :count (count chunk)}
+           blocks  (get (result (call! :blocks params opts)) "blocks")
            numbers (set (map #(block-number (get % "block_id")) blocks))
-           through (last (take-while numbers chunk))]
+           through (last (take-while numbers chunk))
+           read?   #(and through (<= (:block %) through))]
        {:through through
-        :pings   (filterv #(and through (<= (:block %) through)) (block-pings blocks))})))
+        :pings   (filterv read? (block-pings blocks))})))
 
 #?(:clj
    (defn- read-blocks!
@@ -309,9 +344,10 @@
      (loop [chunks (partition-all 100 (range start (inc end)))
             found  []
             read   (dec start)]
-       (let [chunk                         (first chunks)
-             {:keys [pings through error]} (when chunk (attempted #(read-chunk! chunk opts)))
-             found                         (into found pings)]
+       (let [chunk  (first chunks)
+             answer (when chunk (attempted #(read-chunk! chunk opts)))
+             {:keys [pings through error]} answer
+             found  (into found pings)]
          (cond
            (nil? chunk)             {:pings found :block read}
            error                    {:pings found :block read :error error}
@@ -353,21 +389,31 @@
       (poll! nil {}))
      ([from]
       (poll! from {}))
-     ([from {:keys [max-blocks verify? up-to] :or {max-blocks 100 verify? true up-to :head} :as opts}]
+     ([from {:keys [max-blocks verify? up-to]
+             :or   {max-blocks 100 verify? true up-to :head}
+             :as   opts}]
       {:pre [(map? opts)]}
       (let [known    (or (:writers opts)
-                         (when verify? (attempted #(writers (call! :following {} opts)))))
+                         (when verify?
+                           (attempted #(writers (call! :following {} opts)))))
             position (if (:error known)
                        known
                        (attempted #(head-block (call! :head-block {} opts))))]
         (if-let [error (:error position)]
-          {:pings [] :refused [] :block from :writers (:writers opts) :error error}
-          (let [head  (if (= :irreversible up-to) (:irreversible position) (:block position))
-                start (if from (inc from) head)
-                end   (min head (+ start (dec max-blocks)))
+          {:pings   []
+           :refused []
+           :block   from
+           :writers (:writers opts)
+           :error   error}
+          (let [head    (if (= :irreversible up-to)
+                          (:irreversible position)
+                          (:block position))
+                start   (if from (inc from) head)
+                end     (min head (+ start (dec max-blocks)))
+                writer? #(contains? known (:account %))
                 {:keys [pings block error]} (read-blocks! start end opts)
                 {ok true refused false}     (if verify?
-                                              (group-by #(contains? known (:account %)) pings)
+                                              (group-by writer? pings)
                                               {true pings})]
             (cond-> {:pings   (vec ok)
                      :refused (vec refused)

@@ -59,7 +59,13 @@
   "Whether the link `link` has the relation type `rel` among the types of
   its :rel."
   [rel link]
-  (contains? (set (str/split (str/lower-case (str (:rel link))) #"\s+")) rel))
+  (let [types (str/split (str/lower-case (str (:rel link))) #"\s+")]
+    (contains? (set types) rel)))
+
+(defn- hrefs
+  "The hrefs of the `links` that have the relation type `rel`."
+  [rel links]
+  (keep #(when (relation? rel %) (:href %)) links))
 
 (defn discover
   "The hubs and the topic of the parsed `feed`, from the `response` that
@@ -75,11 +81,13 @@
   URL of the response when no link names it. A URL can be relative to the
   URL of the response."
   [{:keys [url headers] :as response} feed]
-  (let [links    (http/links headers)
-        absolute #(if url (http/absolute-url url %) %)
-        named    (fn [rel] (keep #(when (relation? rel %) (:href %)) links))
-        hubs     (or (seq (named "hub")) (resolve/hubs feed))
-        self     (if (seq (named "hub")) (first (named "self")) (resolve/self-url feed))]
+  (let [links       (http/links headers)
+        absolute    #(if url (http/absolute-url url %) %)
+        header-hubs (seq (hrefs "hub" links))
+        hubs        (or header-hubs (resolve/hubs feed))
+        self        (if header-hubs
+                      (first (hrefs "self" links))
+                      (resolve/self-url feed))]
     (when (seq hubs)
       {:hubs  (mapv absolute hubs)
        :topic (if self (absolute self) url)})))
@@ -117,13 +125,16 @@
   ([mode hub topic callback {:keys [lease-seconds] :as opts}]
    {:pre [(map? opts)]}
    (when-not (contains? #{:subscribe :unsubscribe} mode)
-     (throw (ex-info "The mode of a request is :subscribe or :unsubscribe" {:mode mode})))
+     (throw (ex-info "The mode of a request is :subscribe or :unsubscribe"
+                     {:mode mode})))
    (when-not (every? http/web-url? [hub topic callback])
-     (throw (ex-info "The hub, the topic and the callback are http or https URLs"
+     (throw (ex-info (str "The hub, the topic and the callback are http or "
+                          "https URLs")
                      {:hub hub :topic topic :callback callback})))
    (let [secret (secret/reveal (:secret opts))]
      (when secret
-       (when-not (and (string? secret) (< 0 (bytes/length (bytes/encode secret)) 200))
+       (when-not (and (string? secret)
+                      (< 0 (bytes/length (bytes/encode secret)) 200))
          (throw (ex-info "A secret is a text of fewer than 200 bytes" {})))
        (when-not (re-find #"(?i)^https:" hub)
          (throw (ex-info "A secret goes to an https hub alone" {:hub hub}))))
@@ -154,7 +165,8 @@
   ([hub topic {form :publish-form :or {form publish-form} :as opts}]
    {:pre [(map? opts)]}
    (when-not (every? http/web-url? [hub topic])
-     (throw (ex-info "The hub and the topic are http or https URLs" {:hub hub :topic topic})))
+     (throw (ex-info "The hub and the topic are http or https URLs"
+                     {:hub hub :topic topic})))
    (hub-request hub (conj (vec (:fields form)) [(:url-field form) topic]))))
 
 (defn call!
@@ -179,14 +191,43 @@
                (fn [{:keys [status url body]}]
                  (if (and (integer? status) (<= 200 status 299))
                    {:status status :url url}
-                   (throw (ex-info (str "The hub answered " status)
-                                   {:type    ::failed
-                                    :status  status
-                                    :message (when (string? body) (subs body 0 (min 200 (count body))))})))))))
+                   (let [message (when (string? body)
+                                   (subs body 0 (min 200 (count body))))]
+                     (throw (ex-info (str "The hub answered " status)
+                                     {:type    ::failed
+                                      :status  status
+                                      :message message}))))))))
 
 (def ^:no-doc algorithms
   "The name of each signature method in the Mac of the JVM."
-  {"sha1" "HmacSHA1" "sha256" "HmacSHA256" "sha384" "HmacSHA384" "sha512" "HmacSHA512"})
+  {"sha1"   "HmacSHA1"
+   "sha256" "HmacSHA256"
+   "sha384" "HmacSHA384"
+   "sha512" "HmacSHA512"})
+
+#?(:cljs
+   (defn- hmac-hasher
+     "The hasher of the Closure Library for the signature `method`, and the
+     block size of its HMAC, as a pair."
+     [method]
+     (case method
+       "sha1"   [(goog.crypt.Sha1.) 64]
+       "sha256" [(goog.crypt.Sha256.) 64]
+       "sha384" [(goog.crypt.Sha384.) 128]
+       "sha512" [(goog.crypt.Sha512.) 128])))
+
+(defn- hmac
+  "The HMAC of the bytes `body` with the key bytes `k`, by the signature
+  `method`."
+  [method k body]
+  #?(:clj  (let [algorithm (algorithms method)
+                 mac       (doto (Mac/getInstance algorithm)
+                             (.init (SecretKeySpec. k algorithm)))]
+             (.doFinal mac ^bytes body))
+     :cljs (let [[hasher block] (hmac-hasher method)
+                 key-array      (js/Array.from k)
+                 mac            (goog.crypt.Hmac. hasher key-array block)]
+             (.getHmac mac (js/Array.from body)))))
 
 (defn signature
   "The signature of the bytes `body` with the text `secret`, by the hash
@@ -199,28 +240,16 @@
   [method secret body]
   (when (contains? algorithms method)
     (let [k (bytes/encode (secret/reveal secret))]
-      (str method "="
-           (bytes/hex
-            #?(:clj  (let [algorithm (algorithms method)]
-                       (.doFinal (doto (Mac/getInstance algorithm)
-                                   (.init (SecretKeySpec. k algorithm)))
-                                 ^bytes body))
-               :cljs (let [[hasher block] (case method
-                                            "sha1"   [(goog.crypt.Sha1.) 64]
-                                            "sha256" [(goog.crypt.Sha256.) 64]
-                                            "sha384" [(goog.crypt.Sha384.) 128]
-                                            "sha512" [(goog.crypt.Sha512.) 128])]
-                       (.getHmac (goog.crypt.Hmac. hasher (js/Array.from k) block)
-                                 (js/Array.from body)))))))))
+      (str method "=" (bytes/hex (hmac method k body))))))
 
 (defn- same?
   "Whether the texts `a` and `b` are the same, in a time that doesn't tell
   where they differ."
   [a b]
   #?(:clj  (MessageDigest/isEqual (bytes/encode a) (bytes/encode b))
-     :cljs (and (= (count a) (count b))
-                (zero? (reduce bit-or 0 (map #(bit-xor (.charCodeAt a %) (.charCodeAt b %))
-                                             (range (count a))))))))
+     :cljs (let [diff #(bit-xor (.charCodeAt a %) (.charCodeAt b %))]
+             (and (= (count a) (count b))
+                  (zero? (reduce bit-or 0 (map diff (range (count a)))))))))
 
 (defn signed?
   "Whether `header`, the value of X-Hub-Signature, is the signature of the
@@ -231,12 +260,14 @@
   ([secret header body]
    (signed? secret header body signature-methods))
   ([secret header body methods]
-   (let [[_ method hex] (re-matches #"(?i)\s*([a-z0-9]{1,16})=([0-9a-f]{1,256})\s*" (str header))
+   (let [signature-form #"(?i)\s*([a-z0-9]{1,16})=([0-9a-f]{1,256})\s*"
+         [_ method hex] (re-matches signature-form (str header))
          method         (some-> method str/lower-case)]
      (boolean (and method
                    (contains? methods method)
                    (when-let [expected (signature method secret body)]
-                     (same? expected (str method "=" (str/lower-case hex)))))))))
+                     (let [given (str method "=" (str/lower-case hex))]
+                       (same? expected given))))))))
 
 (defn ^:no-doc answer
   "The Ring response of `status` with the text `body`. The media type and
@@ -270,9 +301,10 @@
   as section 5.3 of WebSub has it. Or it tells that it denied a
   subscription, as section 5.2 has it."
   [{:keys [wanted? denied! max-challenge] :as env} request params]
-  (let [mode   (get params "hub.mode")
-        topic  (get params "hub.topic")
-        facts  {:topic topic :request request}]
+  (let [mode      (get params "hub.mode")
+        topic     (get params "hub.topic")
+        challenge (get params "hub.challenge")
+        facts     {:topic topic :request request}]
     (cond
       (= "denied" mode)
       (do (when denied!
@@ -281,11 +313,12 @@
 
       (and (contains? #{"subscribe" "unsubscribe"} mode)
            (string? topic)
-           (challenge? (get params "hub.challenge") max-challenge)
-           (wanted? (assoc facts
-                           :mode (keyword mode)
-                           :lease-seconds (some-> (get params "hub.lease_seconds") parse-long))))
-      (answer 200 (get params "hub.challenge"))
+           (challenge? challenge max-challenge)
+           (let [lease (get params "hub.lease_seconds")]
+             (wanted? (assoc facts
+                             :mode          (keyword mode)
+                             :lease-seconds (some-> lease parse-long)))))
+      (answer 200 challenge)
 
       :else
       (answer 404 ""))))
@@ -299,22 +332,25 @@
   signature, and that it can answer with a success. So the hub gets the
   same answer for a feed that the app didn't get, and a stranger learns
   nothing about the secret."
-  [{:keys [secret deliver! signature-methods max-bytes] :as env} {:keys [headers] :as request}]
-  (let [body   (http/request-bytes (:body request) max-bytes)
-        secret (if (fn? secret) (secret request) secret)
-        links  (http/links headers)]
+  [{:keys [secret deliver! signature-methods max-bytes] :as env}
+   {:keys [headers] :as request}]
+  (let [body      (http/request-bytes (:body request) max-bytes)
+        secret    (if (fn? secret) (secret request) secret)
+        signature (get headers "x-hub-signature")
+        links     (http/links headers)]
     (cond
       (nil? body)
       (answer 413 "")
 
-      (and secret (not (signed? secret (get headers "x-hub-signature") body signature-methods)))
+      (and secret
+           (not (signed? secret signature body signature-methods)))
       (answer 200 "")
 
       :else
       (do (deliver! {:body         body
                      :content-type (get headers "content-type")
-                     :topic        (some #(when (relation? "self" %) (:href %)) links)
-                     :hubs         (vec (keep #(when (relation? "hub" %) (:href %)) links))
+                     :topic        (first (hrefs "self" links))
+                     :hubs         (vec (hrefs "hub" links))
                      :request      request})
           (answer 200 "")))))
 
@@ -362,7 +398,8 @@
 (comment
   ;; the hubs of a feed, from the headers first
   (discover {:url     "https://example.org/feed.xml"
-             :headers {"link" "<https://hub.example.org/>; rel=\"hub\", </feed.xml>; rel=\"self\""}}
+             :headers {"link" (str "<https://hub.example.org/>; rel=\"hub\", "
+                                   "</feed.xml>; rel=\"self\"")}}
             {})
 
   (discover {:url "https://example.org/feed.xml" :headers {}}
@@ -377,22 +414,35 @@
 
   ;; a callback that wants one feed, and the three calls of a hub
   (def serve
-    (handler {:wanted?  (fn [{:keys [topic]}] (= "https://example.org/feed.xml" topic))
-              :deliver! (fn [{:keys [body]}] (println (bytes/length body) "bytes came"))
+    (handler {:wanted?  (fn [{:keys [topic]}]
+                          (= "https://example.org/feed.xml" topic))
+              :deliver! (fn [{:keys [body]}]
+                          (println (bytes/length body) "bytes came"))
               :secret   "a text that nobody can guess"}))
 
   (serve {:request-method :get
-          :query-string   "hub.mode=subscribe&hub.topic=https%3A%2F%2Fexample.org%2Ffeed.xml&hub.challenge=abc123&hub.lease_seconds=864000"})
+          :query-string   (str "hub.mode=subscribe"
+                               "&hub.topic=https%3A%2F%2Fexample.org%2Ffeed.xml"
+                               "&hub.challenge=abc123"
+                               "&hub.lease_seconds=864000")})
 
   (def feed-bytes
-    (bytes/encode "<rss version=\"2.0\"><channel><title>A show</title></channel></rss>"))
+    (bytes/encode (str "<rss version=\"2.0\"><channel><title>A show</title>"
+                       "</channel></rss>")))
+
+  (def signed
+    (signature "sha256" "a text that nobody can guess" feed-bytes))
+
+  (def self-link
+    "<https://example.org/feed.xml>; rel=\"self\"")
 
   (serve {:request-method :post
-          :headers        {"x-hub-signature" (signature "sha256" "a text that nobody can guess" feed-bytes)
+          :headers        {"x-hub-signature" signed
                            "content-type"    "application/rss+xml"
-                           "link"            "<https://example.org/feed.xml>; rel=\"self\""}
+                           "link"            self-link}
           :body           feed-bytes})
 
-  ;; a feed without the signature gets the same answer, and the app gets nothing
+  ;; a feed without the signature gets the same answer, and the app gets
+  ;; nothing
   (serve {:request-method :post :headers {} :body feed-bytes})
   #_.)
