@@ -13,7 +13,7 @@
        :episodes       {id {:position :duration :reported-at}}
        :played         {id {:played? true :played-at}}
        :queue          {id {:rank \"V\" :removed? false}}
-       :queue-moves    {id {:rank \"W\" :removed? false}}  ; where moves put them
+       :queue-moves    {id {:rank \"W\" :removed? false}}  ; moved ranks
        :playlists      {name {id {:rank \"V\" :removed? false}}}
        :playlist-moves {name {id {:rank \"W\" :removed? false}}}
        :inbox          {id {:removed? false}}
@@ -31,9 +31,8 @@
   that time and the :device of the profile. A profile is a CRDT of
   dk.simongray.podcast.util.crdt, so merge joins the profiles of a
   listener's devices, and compact drops the tombstones that every device
-  has seen. A feed is identified by its
-  podcast:guid, and an episode by its id, [feed-guid item-guid], as
-  feed/episode-id gives it."
+  has seen. A feed is identified by its podcast:guid, and an episode by
+  its id, [feed-guid item-guid], as feed/episode-id gives it."
   (:refer-clojure :exclude [merge])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -112,7 +111,9 @@
   (->> (:subscriptions profile)
        (filter (comp :url val))
        (sort-by (fn [[g {:keys [removed? updated-at]}]]
-                  [(if removed? 0 1) (or (some-> updated-at inst-ms) 0) (str g)]))
+                  [(if removed? 0 1)
+                   (or (some-> updated-at inst-ms) 0)
+                   (str g)]))
        (into {} (map (fn [[g e]] [(normal-url (:url e)) g])))))
 
 (defn takeover
@@ -128,7 +129,10 @@
   (when (subscribed? profile feed-guid)
     (let [other (get-in profile [:subscriptions feed-guid :url])]
       (when (not= (normal-url other) (normal-url url))
-        (diagnostics/describe {:id :fetch/guid-taken :url url :feed-guid feed-guid :other-url other})))))
+        (diagnostics/describe {:id        :fetch/guid-taken
+                               :url       url
+                               :feed-guid feed-guid
+                               :other-url other})))))
 
 (defn subscribe
   "Subscribe `profile` to the feed `feed-guid` at `at`, with the :url and
@@ -138,12 +142,17 @@
   subscription, :added-at can give an earlier time of subscribing, e.g.
   from the OPML of another app."
   [profile feed-guid {:keys [url title added-at] :as details} at]
-  (crdt/write profile [:subscriptions feed-guid]
-              (fn [sub]
-                (assoc sub
-                       :url url :title title :removed? false
-                       :added-at (if (subscribed? profile feed-guid) (:added-at sub) (time/date (or added-at at)))))
-              at))
+  (let [known? (subscribed? profile feed-guid)]
+    (crdt/write profile [:subscriptions feed-guid]
+                (fn [sub]
+                  (assoc sub
+                         :url      url
+                         :title    title
+                         :removed? false
+                         :added-at (if known?
+                                     (:added-at sub)
+                                     (time/date (or added-at at)))))
+                at)))
 
 (defn unsubscribe
   "Unsubscribe `profile` from `feed-guid` at `at`, leaving a tombstone even
@@ -169,12 +178,15 @@
   did on another device meanwhile, e.g. an unsubscription. Nothing changes
   without a live subscription."
   [profile feed-guid {:keys [url title] :as details}]
-  (let [sub (get-in profile [:subscriptions feed-guid])]
+  (let [sub  (get-in profile [:subscriptions feed-guid])
+        move (fn [p]
+               (let [moved (assoc sub :url url :title title)
+                     after (time/->inst (inc (crdt/stamp-ms sub)))]
+                 (crdt/write p [:subscriptions feed-guid]
+                             (constantly moved)
+                             after)))]
     (cond-> profile
-      (crdt/live? sub) (crdt/as-device (feed-author feed-guid)
-                                       #(crdt/write % [:subscriptions feed-guid]
-                                                    (constantly (assoc sub :url url :title title))
-                                                    (time/->inst (inc (crdt/stamp-ms sub))))))))
+      (crdt/live? sub) (crdt/as-device (feed-author feed-guid) move))))
 
 (defn- values
   [entries]
@@ -192,21 +204,23 @@
   [profile feed-guid new-guid at]
   (if (or (= feed-guid new-guid) (not (subscribed? profile feed-guid)))
     profile
-    (let [sub (get-in profile [:subscriptions feed-guid])]
-      (crdt/write-each profile
-                       (concat [[[:subscriptions new-guid] (constantly (select-keys sub [:url :title :added-at :removed?]))]
-                                [[:subscriptions feed-guid] #(assoc % :removed? true)]]
-                               (for [[k v] (values (get-in profile [:settings feed-guid]))]
-                                 [[:settings new-guid k] (constantly {:value v})])
-                               (for [t (tags profile feed-guid)]
-                                 [[:tags new-guid t] (constantly {:removed? false})]))
-                       at))))
+    (let [sub        (get-in profile [:subscriptions feed-guid])
+          kept       (select-keys sub [:url :title :added-at :removed?])
+          moved      [[[:subscriptions new-guid] (constantly kept)]
+                      [[:subscriptions feed-guid] #(assoc % :removed? true)]]
+          old        (values (get-in profile [:settings feed-guid]))
+          configured (for [[k v] old]
+                       [[:settings new-guid k] (constantly {:value v})])
+          retagged   (for [t (tags profile feed-guid)]
+                       [[:tags new-guid t] (constantly {:removed? false})])]
+      (crdt/write-each profile (concat moved configured retagged) at))))
 
 (defn settings
   "The settings of the subscription `feed-guid` in `profile`, over
   default-settings."
   [profile feed-guid]
-  (clojure.core/merge default-settings (values (get-in profile [:settings feed-guid]))))
+  (clojure.core/merge default-settings
+                      (values (get-in profile [:settings feed-guid]))))
 
 (defn configure
   "Change the `settings` of the subscription `feed-guid` in `profile` at
@@ -221,7 +235,10 @@
   settings both keep their change."
   [profile feed-guid settings at]
   (if (get-in profile [:subscriptions feed-guid])
-    (crdt/write-each profile (for [[k v] settings] [[:settings feed-guid k] (constantly {:value v})]) at)
+    (crdt/write-each profile
+                     (for [[k v] settings]
+                       [[:settings feed-guid k] (constantly {:value v})])
+                     at)
     profile))
 
 (def default-preferences
@@ -239,7 +256,10 @@
   default-preferences, and :downloads, the listener's rules for
   dk.simongray.podcast.downloads."
   [profile preferences at]
-  (crdt/write-each profile (for [[k v] preferences] [[:preferences k] (constantly {:value v})]) at))
+  (crdt/write-each profile
+                   (for [[k v] preferences]
+                     [[:preferences k] (constantly {:value v})])
+                   at))
 
 (defn playback-rate
   "The playback rate for the feed `feed-guid` in `profile`: its own setting,
@@ -251,37 +271,46 @@
   "The feed guids of the live subscriptions of `profile` by folder, in the
   order of their titles, with the shows in no folder under nil."
   [profile]
-  (reduce (fn [m [feed-guid _]] (update m (:folder (settings profile feed-guid)) (fnil conj []) feed-guid))
-          {}
-          (sort-by (comp str :title val) (subscriptions profile))))
+  (let [add (fn [m [feed-guid _]]
+              (let [folder (:folder (settings profile feed-guid))]
+                (update m folder (fnil conj []) feed-guid)))]
+    (reduce add {} (sort-by (comp str :title val) (subscriptions profile)))))
 
 (defn rename-folder
   "Move the shows of `profile` in the folder `from` to the folder `to` at
   `at`, or out of all folders when `to` is nil."
   [profile from to at]
   (if-let [feed-guids (get (folders profile) from)]
-    (crdt/write-each profile (for [g feed-guids] [[:settings g :folder] (constantly {:value to})]) at)
+    (crdt/write-each profile
+                     (for [g feed-guids]
+                       [[:settings g :folder] (constantly {:value to})])
+                     at)
     profile))
 
 (defn tags
   "The tags that the listener gave the show `feed-guid` in `profile`, as a
   sorted set. Unlike folders, a show can have many tags."
   [profile feed-guid]
-  (into (sorted-set) (keep (fn [[t e]] (when-not (:removed? e) t))) (get-in profile [:tags feed-guid])))
+  (into (sorted-set)
+        (keep (fn [[t e]] (when-not (:removed? e) t)))
+        (get-in profile [:tags feed-guid])))
 
 (defn tagged
   "The feed guids of the live subscriptions of `profile` by tag, each tag's
   shows in the order of their titles."
   [profile]
-  (reduce (fn [m [feed-guid _]] (reduce #(update %1 %2 (fnil conj []) feed-guid) m (tags profile feed-guid)))
-          {}
-          (sort-by (comp str :title val) (subscriptions profile))))
+  (let [add (fn [m [feed-guid _]]
+              (reduce #(update %1 %2 (fnil conj []) feed-guid)
+                      m
+                      (tags profile feed-guid)))]
+    (reduce add {} (sort-by (comp str :title val) (subscriptions profile)))))
 
 (defn tag
   "Give the show `feed-guid` in `profile` the tag `t`, a string, at `at`, when
   the profile has the subscription."
   [profile feed-guid t at]
-  (if (and (get-in profile [:subscriptions feed-guid]) (not (contains? (tags profile feed-guid) t)))
+  (if (and (get-in profile [:subscriptions feed-guid])
+           (not (contains? (tags profile feed-guid) t)))
     (crdt/write profile [:tags feed-guid t] (constantly {:removed? false}) at)
     profile))
 
@@ -298,18 +327,21 @@
   off them when `to` is nil."
   [profile from to at]
   (if-let [feed-guids (get (tagged profile) from)]
-    (crdt/write-each profile (for [g feed-guids
-                                   w (cond-> [[[:tags g from] #(assoc % :removed? true)]]
-                                       to (conj [[:tags g to] (constantly {:removed? false})]))]
-                               w)
-                     at)
+    (let [writes (fn [g]
+                   (cond-> [[[:tags g from] #(assoc % :removed? true)]]
+                     to (conj [[:tags g to] (constantly {:removed? false})])))]
+      (crdt/write-each profile (mapcat writes feed-guids) at))
     profile))
 
 (defn filters
   "The saved filters of `profile` by name, as criteria for
   dk.simongray.podcast.search/episodes."
   [profile]
-  (into {} (keep (fn [[name e]] (when-not (:removed? e) [name (:criteria e)]))) (:filters profile)))
+  (into {}
+        (keep (fn [[name e]]
+                (when-not (:removed? e)
+                  [name (:criteria e)])))
+        (:filters profile)))
 
 (defn save-filter
   "Save the `criteria` of search/episodes in `profile` as the filter
@@ -321,8 +353,11 @@
   [profile name criteria at]
   (let [criteria (dissoc criteria :profile :url)]
     (when (some fn? (tree-seq coll? seq criteria))
-      (throw (ex-info "A saved filter holds data only, not functions" {:name name :criteria criteria})))
-    (crdt/write profile [:filters name] (constantly {:criteria criteria :removed? false}) at)))
+      (throw (ex-info "A saved filter holds data only, not functions"
+                      {:name name :criteria criteria})))
+    (crdt/write profile [:filters name]
+                (constantly {:criteria criteria :removed? false})
+                at)))
 
 (defn remove-filter
   "Remove the saved filter `name` from `profile` at `at`, leaving a
@@ -343,8 +378,10 @@
   ([profile at]
    (compact profile at {}))
   ([profile at opts]
-   (let [follows? (some crdt/live? (vals (:lists profile)))]
-     (crdt/compact (cond-> collections follows? (assoc-in [:subscriptions :compact?] false)) profile at opts))))
+   (let [follows? (some crdt/live? (vals (:lists profile)))
+         schema   (cond-> collections
+                    follows? (assoc-in [:subscriptions :compact?] false))]
+     (crdt/compact schema profile at opts))))
 
 (def played-threshold
   "How many seconds before the end of an episode count as having heard it,
@@ -381,13 +418,15 @@
     (when (or e m)
       (clojure.core/merge (dissoc e :played? :played-at)
                           (select-keys m [:played? :played-at])
-                          (select-keys (max-key crdt/stamp-ms m e) [:updated-at :device])))))
+                          (select-keys (max-key crdt/stamp-ms m e)
+                                       [:updated-at :device])))))
 
 (defn episode-entries
   "The entries of the episodes of `profile` by id, as episode-entry gives
   them."
   [profile]
-  (let [ids (distinct (concat (keys (:episodes profile)) (keys (:played profile))))]
+  (let [ids (distinct (concat (keys (:episodes profile))
+                              (keys (:played profile))))]
     (zipmap ids (map (partial episode-entry profile) ids))))
 
 (defn played?
@@ -413,18 +452,23 @@
   entry of the episode `id` in `profile` to an entry of its own, if it's
   the later mark."
   [profile id]
-  (let [e (get-in profile [:episodes id])]
+  (let [e    (get-in profile [:episodes id])
+        mark (select-keys e [:played? :played-at])]
     (when (contains? e :played?)
       (cond-> [[[:episodes id] #(dissoc % :played? :played-at)]]
         (> (crdt/stamp-ms e) (crdt/stamp-ms (get-in profile [:played id])))
-        (conj [[:played id] (constantly (select-keys e [:played? :played-at]))])))))
+        (conj [[:played id] (constantly mark)])))))
 
 (defn ^:no-doc marked-as
   "The writes that mark the episode `id` of `profile` as `played?` at `at`.
   A played episode leaves the inbox."
   [profile id played? at]
-  (into [[[:played id] (constantly (if played? {:played? true :played-at (time/date at)} {:played? false}))]]
-        (when played? (out-of-inbox profile id))))
+  (let [mark (if played?
+               {:played? true :played-at (time/date at)}
+               {:played? false})]
+    (into [[[:played id] (constantly mark)]]
+          (when played?
+            (out-of-inbox profile id)))))
 
 (defn progress
   "Record in `profile` that the listener is `position` seconds into the
@@ -439,13 +483,16 @@
    (progress profile id position duration at {}))
   ([profile id position duration at opts]
    {:pre [(map? opts)]}
-   (let [duration (or duration (:duration (episode-entry profile id)))
-         done?    (and (not (played? profile id))
-                       (heard-to-the-end? position duration (:played-threshold opts played-threshold)))]
+   (let [duration  (or duration (:duration (episode-entry profile id)))
+         threshold (:played-threshold opts played-threshold)
+         done?     (and (not (played? profile id))
+                        (heard-to-the-end? position duration threshold))
+         reported  #(cond-> (assoc % :position    position
+                                     :reported-at (time/date at))
+                      duration (assoc :duration duration))]
      (crdt/write-each profile
                       (concat (migrated profile id)
-                              [[[:episodes id] #(cond-> (assoc % :position position :reported-at (time/date at))
-                                                   duration (assoc :duration duration))]]
+                              [[[:episodes id] reported]]
                               (when done? (marked-as profile id true at)))
                       at))))
 
@@ -453,17 +500,20 @@
   "Mark the episode `id` in `profile` as played at `at`, which takes it out
   of the inbox."
   [profile id at]
-  (crdt/write-each profile (concat (migrated profile id) (marked-as profile id true at)) at))
+  (crdt/write-each profile
+                   (concat (migrated profile id) (marked-as profile id true at))
+                   at))
 
 (defn mark-unplayed
   "Mark the episode `id` in `profile` as not played at `at`, with its
   position back at the start."
   [profile id at]
-  (crdt/write-each profile
-                   (concat (migrated profile id)
-                           [[[:episodes id] #(assoc % :position 0 :reported-at (time/date at))]]
-                           (marked-as profile id false at))
-                   at))
+  (let [restarted #(assoc % :position 0 :reported-at (time/date at))]
+    (crdt/write-each profile
+                     (concat (migrated profile id)
+                             [[[:episodes id] restarted]]
+                             (marked-as profile id false at))
+                     at)))
 
 (defn skip
   "Move `seconds` forward, or back when negative, in the episode `id` of
@@ -480,7 +530,8 @@
    (let [{:keys [position duration]} (episode-entry profile id)
          finite?  #(and (number? %) (== % %) (not (infinite? %)))
          target   (+ (if (finite? position) position 0) seconds)
-         target   (max 0 (if (and (finite? duration) (pos? duration)) (min target duration) target))]
+         known?   (and (finite? duration) (pos? duration))
+         target   (max 0 (if known? (min target duration) target))]
      (progress profile id target nil at opts))))
 
 (defn- heard
@@ -502,9 +553,10 @@
                     (when (and (pos? moved) (pos? spent) (<= spent gap))
                       (min moved (* 3 spent)))))]
     (if seconds
-      (crdt/write profile [:listened (first id) (subs (time/format-iso8601 at) 0 7) (:device profile)]
-                  #(update % :seconds (fnil + 0) seconds)
-                  at)
+      (let [month (subs (time/format-iso8601 at) 0 7)]
+        (crdt/write profile [:listened (first id) month (:device profile)]
+                    #(update % :seconds (fnil + 0) seconds)
+                    at))
       profile)))
 
 (defn listened
@@ -515,8 +567,10 @@
   :progress, report the position at least every 30 seconds while an
   episode plays (see listening-gap)."
   [profile]
-  (update-vals (:listened profile)
-               (fn [months] (update-vals months #(reduce + 0 (keep :seconds (vals %)))))))
+  (let [total (fn [devices]
+                (reduce + 0 (keep :seconds (vals devices))))]
+    (update-vals (:listened profile)
+                 (fn [months] (update-vals months total)))))
 
 (defn resume-position
   "Where to start playing the episode `id` of `feed-guid` in `profile`: where
@@ -544,9 +598,13 @@
   "The episode ids in `profile`, most recently played or touched first: an
   episode heard again comes first again."
   [profile]
-  (->> (episode-entries profile)
-       (sort-by (fn [[_ e]] (- (or (some-> (crdt/later-inst (:played-at e) (:updated-at e)) inst-ms) 0))))
-       (map key)))
+  (let [touched (fn [[_ e]]
+                  (or (some-> (crdt/later-inst (:played-at e) (:updated-at e))
+                              inst-ms)
+                      0))]
+    (->> (episode-entries profile)
+         (sort-by #(- (touched %)))
+         (map key))))
 
 (defn starred?
   "Whether the episode `id` has a star in `profile`."
@@ -589,7 +647,9 @@
    (bookmark profile id position nil at))
   ([profile id position title at]
    (if-let [s (second-of position)]
-     (crdt/write profile [:bookmarks id s] (constantly {:title title :removed? false}) at)
+     (crdt/write profile [:bookmarks id s]
+                 (constantly {:title title :removed? false})
+                 at)
      profile)))
 
 (defn ^:no-doc unmark
@@ -651,9 +711,14 @@
   ([profile id start duration at]
    (clip profile id start duration nil at))
   ([profile id start duration title at]
-   (let [s (second-of start)]
-     (if (and s (number? duration) (pos? duration) (not (infinite? duration)))
-       (crdt/write profile [:clips id s] (constantly {:duration duration :title title :removed? false}) at)
+   (let [s     (second-of start)
+         kept? (and s
+                    (number? duration)
+                    (pos? duration)
+                    (not (infinite? duration)))]
+     (if kept?
+       (let [entry {:duration duration :title title :removed? false}]
+         (crdt/write profile [:clips id s] (constantly entry) at))
        profile))))
 
 (defn unclip
@@ -698,7 +763,9 @@
   [scale]
   (if (scale? scale)
     (select-keys scale [:worst :best])
-    (throw (ex-info "A scale of ratings has a :worst and a :best, two different numbers" {:scale scale}))))
+    (throw (ex-info (str "A scale of ratings has a :worst and a :best, two "
+                         "different numbers")
+                    {:scale scale}))))
 
 (defn ^:no-doc scale-of
   "The scale of the rating entry `e`, or rating-scale when it names none."
@@ -768,9 +835,14 @@
    {:pre [(map? opts)]}
    (let [scale (checked-scale (or scale rating-scale))
          e     (get-in profile [:ratings id])
-         same? #(and (not (:removed? e)) (number? (:rating e)) (== n (:rating e)) (= scale (scale-of e)))]
+         same? #(and (not (:removed? e))
+                     (number? (:rating e))
+                     (== n (:rating e))
+                     (= scale (scale-of e)))]
      (if (and (rating? n scale) (not (same?)))
-       (crdt/write profile [:ratings id] (constantly (assoc scale :rating n :removed? false)) at)
+       (crdt/write profile [:ratings id]
+                   (constantly (assoc scale :rating n :removed? false))
+                   at)
        profile))))
 
 (defn unrate-episode
@@ -791,14 +863,16 @@
   "The entries of the playlist `name` of `profile`, each at the place of its
   latest move."
   [profile name]
-  (crdt/with-moves (get-in profile [:playlists name]) (get-in profile [:playlist-moves name])))
+  (crdt/with-moves (get-in profile [:playlists name])
+                   (get-in profile [:playlist-moves name])))
 
 (defn ^:no-doc removed-from
   "The writes that take the entry at `path` out of a ranked list of
   `profile`, along with its move at `move-path` if it has one."
   [profile path move-path]
   (cond-> [[path #(assoc % :removed? true)]]
-    (crdt/live? (get-in profile move-path)) (conj [move-path #(assoc % :removed? true)])))
+    (crdt/live? (get-in profile move-path))
+    (conj [move-path #(assoc % :removed? true)])))
 
 (defn queue
   "The episode ids queued in `profile`, the current one first."
@@ -841,7 +915,8 @@
   "The `profile` with the episode `id` queued at `rank` at `at`, and out of
   the inbox."
   [profile id rank at]
-  (crdt/write-each profile (into [[[:queue id] (constantly {:rank rank :removed? false})]] (out-of-inbox profile id)) at))
+  (let [queued [[:queue id] (constantly {:rank rank :removed? false})]]
+    (crdt/write-each profile (into [queued] (out-of-inbox profile id)) at)))
 
 (defn enqueue
   "Put the episode `id` at the end of the queue of `profile` at `at`, unless
@@ -849,7 +924,8 @@
   [profile id at]
   (if (queued? profile id)
     profile
-    (place profile id (rank/between (crdt/last-rank (queue-entries profile)) nil) at)))
+    (let [rank (rank/between (crdt/last-rank (queue-entries profile)) nil)]
+      (place profile id rank at))))
 
 (defn play-next
   "Put the episode `id` right after the current episode of `profile` at `at`,
@@ -860,7 +936,9 @@
     (let [[first-id second-id] (remove #{id} (queue profile))
           rank (crdt/rank-between (queue-entries profile) first-id second-id)]
       (if (queued? profile id)
-        (crdt/write profile [:queue-moves id] (constantly {:rank rank :removed? false}) at)
+        (crdt/write profile [:queue-moves id]
+                    (constantly {:rank rank :removed? false})
+                    at)
         (place profile id rank at)))))
 
 (defn dequeue
@@ -868,7 +946,9 @@
   tombstone, so that it outlives an older addition on another device."
   [profile id at]
   (if (queued? profile id)
-    (crdt/write-each profile (removed-from profile [:queue id] [:queue-moves id]) at)
+    (crdt/write-each profile
+                     (removed-from profile [:queue id] [:queue-moves id])
+                     at)
     profile))
 
 (defn move
@@ -880,10 +960,11 @@
   [profile id index at]
   (if-not (queued? profile id)
     profile
-    (crdt/write profile
-                [:queue-moves id]
-                (constantly {:rank (crdt/rank-at (queue-entries profile) id index) :removed? false})
-                at)))
+    (let [rank (crdt/rank-at (queue-entries profile) id index)]
+      (crdt/write profile
+                  [:queue-moves id]
+                  (constantly {:rank rank :removed? false})
+                  at))))
 
 (defn advance
   "Drop the current episode from the queue of `profile` at `at`, so that the
@@ -912,14 +993,22 @@
   "Put the episode `id` at the end of the playlist `name` of `profile` at
   `at`, unless the playlist holds it."
   [profile name id at]
-  (crdt/append profile [:playlists name] (playlist-entries profile name) [id] at))
+  (crdt/append profile
+               [:playlists name]
+               (playlist-entries profile name)
+               [id]
+               at))
 
 (defn remove-from-playlist
   "Take the episode `id` out of the playlist `name` of `profile` at `at`,
   leaving a tombstone."
   [profile name id at]
   (if (crdt/live? (get-in profile [:playlists name id]))
-    (crdt/write-each profile (removed-from profile [:playlists name id] [:playlist-moves name id]) at)
+    (crdt/write-each profile
+                     (removed-from profile
+                                   [:playlists name id]
+                                   [:playlist-moves name id])
+                     at)
     profile))
 
 (defn move-in-playlist
@@ -928,10 +1017,11 @@
   [profile name id index at]
   (let [entries (playlist-entries profile name)]
     (if (crdt/live? (get entries id))
-      (crdt/write profile
-                  [:playlist-moves name id]
-                  (constantly {:rank (crdt/rank-at entries id index) :removed? false})
-                  at)
+      (let [rank (crdt/rank-at entries id index)]
+        (crdt/write profile
+                    [:playlist-moves name id]
+                    (constantly {:rank rank :removed? false})
+                    at))
       profile)))
 
 (defn rename-playlist
@@ -944,10 +1034,16 @@
   (let [ids (playlist profile from)]
     (if (or (empty? ids) (= from to))
       profile
-      (crdt/write-each profile
-                       (concat (mapcat #(removed-from profile [:playlists from %] [:playlist-moves from %]) ids)
-                               (when to (crdt/appended profile [:playlists to] (playlist-entries profile to) ids)))
-                       at))))
+      (let [removed  (mapcat #(removed-from profile
+                                            [:playlists from %]
+                                            [:playlist-moves from %])
+                             ids)
+            appended (when to
+                       (crdt/appended profile
+                                      [:playlists to]
+                                      (playlist-entries profile to)
+                                      ids))]
+        (crdt/write-each profile (concat removed appended) at)))))
 
 (defn to-list-feed
   "The playlist `name` of `profile` as a list feed of the podcast namespace,
@@ -967,17 +1063,21 @@
   for other people."
   ([profile name]
    (to-list-feed profile name {}))
-  ([profile name {:keys [url link description medium] :or {medium "podcastL"} :as opts}]
+  ([profile name {:keys [url link description medium]
+                  :or   {medium "podcastL"}
+                  :as   opts}]
    {:pre [(map? opts)]}
-   (let [subs (subscriptions profile)]
+   (let [subs        (subscriptions profile)
+         remote-item (fn [[feed-guid item-guid]]
+                       (let [subscribed (get-in subs [feed-guid :url])
+                             [feed-url] (http/split-credentials subscribed)]
+                         (cond-> {:feed-guid feed-guid :item-guid item-guid}
+                           feed-url (assoc :feed-url feed-url))))]
      (cond-> {:rss/version          "2.0"
               :rss/title            name
               :rss/description      (or description name)
               :podcast/medium       medium
-              :podcast/remote-items (vec (for [[feed-guid item-guid] (playlist profile name)
-                                               :let [[feed-url] (http/split-credentials (get-in subs [feed-guid :url]))]]
-                                           (cond-> {:feed-guid feed-guid :item-guid item-guid}
-                                             feed-url (assoc :feed-url feed-url))))}
+              :podcast/remote-items (mapv remote-item (playlist profile name))}
        (or link url) (assoc :rss/link (or link url))
        url           (assoc :podcast/guid (guid/from-url url))))))
 
@@ -1003,7 +1103,10 @@
   (if (nil? before)
     []
     (let [feed-guid     (feed/feed-guid after url)
-          dates         (keep #(let [d (:rss/pub-date %)] (when (inst? d) (inst-ms d))) (:rss/items after))
+          date-ms       (fn [item]
+                          (let [d (:rss/pub-date item)]
+                            (when (inst? d) (inst-ms d))))
+          dates         (keep date-ms (:rss/items after))
           oldest-first? (< (or (first dates) 0) (or (last dates) 0))
           added         (:added (feed/diff before after))]
       (mapv #(vector feed-guid (feed/item-guid %))
@@ -1022,8 +1125,9 @@
                              :when (inst? date)]
                          [(feed/item-guid item) date]))]
     (into {} (map-indexed (fn [i [_ item-guid :as id]]
-                            (let [latest (time/->inst (- (inst-ms at) i))]
-                              [id (min-key inst-ms (get dates item-guid latest) latest)]))
+                            (let [latest (time/->inst (- (inst-ms at) i))
+                                  date   (get dates item-guid latest)]
+                              [id (min-key inst-ms date latest)]))
                           (reverse ids)))))
 
 (defn refresh
@@ -1041,24 +1145,41 @@
   [profile url before after at]
   (let [feed-guid (feed/feed-guid after url)
         added     (new-episodes url before after)
-        {:keys [auto-queue? inbox?]} (when (subscribed? profile feed-guid) (settings profile feed-guid))
-        unknown   (remove #(or (played? profile %) (contains? (:queue profile) %) (contains? (:inbox profile) %))
-                          added)
+        {:keys [auto-queue? inbox?]}
+        (when (subscribed? profile feed-guid)
+          (settings profile feed-guid))
+
+        known?    #(or (played? profile %)
+                       (contains? (:queue profile) %)
+                       (contains? (:inbox profile) %))
+        unknown   (remove known? added)
         writes    (cond
-                    auto-queue? (crdt/appended profile [:queue] (queue-entries profile) unknown)
-                    inbox?      (for [id unknown] [[:inbox id] (constantly {:removed? false})])
-                    :else       [])
+                    auto-queue?
+                    (crdt/appended profile [:queue] (queue-entries profile)
+                                   unknown)
+
+                    inbox?
+                    (for [id unknown]
+                      [[:inbox id] (constantly {:removed? false})])
+
+                    :else
+                    [])
         stamps    (joined-at after unknown at)
-        write     (fn [s [[_ id :as path] f]] (crdt/write s path f (stamps id)))]
-    {:profile (crdt/as-device profile (feed-author feed-guid) #(reduce write % writes))
-     :added added}))
+        write     (fn [s [[_ id :as path] f]]
+                    (crdt/write s path f (stamps id)))
+        author    (feed-author feed-guid)]
+    {:profile (crdt/as-device profile author #(reduce write % writes))
+     :added   added}))
 
 (defn lists
   "The OPML lists that the listener follows in `profile`, as a map from URL
   to :title and :folder. The folder is the one that the shows of the list
   go into."
   [profile]
-  (into {} (keep (fn [[url e]] (when-not (:removed? e) [url (select-keys e [:title :folder])])))
+  (into {}
+        (keep (fn [[url e]]
+                (when-not (:removed? e)
+                  [url (select-keys e [:title :folder])])))
         (:lists profile)))
 
 (defn follow-list
@@ -1070,7 +1191,9 @@
   ([profile url at]
    (follow-list profile url {} at))
   ([profile url {:keys [title folder] :as details} at]
-   (crdt/write profile [:lists url] (constantly {:title title :folder folder :removed? false}) at)))
+   (crdt/write profile [:lists url]
+               (constantly {:title title :folder folder :removed? false})
+               at)))
 
 (defn unfollow-list
   "Stop following the OPML list at `url` in `profile` at `at`, leaving a
@@ -1103,16 +1226,19 @@
   and outline in the order of the list. The `names` are as by-url gives
   them, and a show that the list had before, in `was`, doesn't join."
   [profile names was list]
-  (:joining (reduce (fn [{:keys [names joined] :as acc} {:keys [xml-url] :as outline}]
-                      (let [g (named names outline)]
-                        (if (or (was g) (get-in profile [:subscriptions g]) (joined g))
-                          acc
-                          (-> acc
-                              (assoc-in [:names (normal-url xml-url)] g)
-                              (update :joined conj g)
-                              (update :joining conj [g outline])))))
-                    {:names names :joined #{} :joining []}
-                    (outlines list))))
+  (let [join (fn [{:keys [names joined] :as acc} {:keys [xml-url] :as outline}]
+               (let [g (named names outline)]
+                 (if (or (was g)
+                         (get-in profile [:subscriptions g])
+                         (joined g))
+                   acc
+                   (-> acc
+                       (assoc-in [:names (normal-url xml-url)] g)
+                       (update :joined conj g)
+                       (update :joining conj [g outline])))))]
+    (:joining (reduce join
+                      {:names names :joined #{} :joining []}
+                      (outlines list)))))
 
 (defn refresh-list
   "Note in `profile` at `at` a new parse `after` of the OPML list at `url`,
@@ -1131,11 +1257,16 @@
           is    (set (guids after))
           joins (joining profile names (set (guids before)) after)
           join  (fn [profile [g {:keys [xml-url title text]}]]
-                  (cond-> (subscribe profile g {:url xml-url :title (or title text)} at)
-                    folder (configure g {:folder folder} at)))]
+                  (let [show {:url xml-url :title (or title text)}]
+                    (cond-> (subscribe profile g show at)
+                      folder (configure g {:folder folder} at))))]
       {:profile (crdt/at-once profile at #(reduce join % joins))
-       :added (mapv first joins)
-       :left  (into [] (comp (distinct) (remove is) (filter #(subscribed? profile %))) (guids before))})
+       :added   (mapv first joins)
+       :left    (into []
+                      (comp (distinct)
+                            (remove is)
+                            (filter #(subscribed? profile %)))
+                      (guids before))})
     {:profile profile :added [] :left []}))
 
 (defn to-opml
@@ -1148,22 +1279,27 @@
   a tag is written as an underscore, since OPML separates categories with
   commas."
   [profile]
-  (let [subs (subscriptions profile)
-        ls   (lists profile)]
+  (let [subs    (subscriptions profile)
+        ls      (lists profile)
+        ordered (sort-by (fn [[folder _]] [(nil? folder) (str folder)])
+                         (folders profile))
+        outline (fn [folder feed-guid]
+                  (let [{:keys [url title added-at]} (get subs feed-guid)
+                        ts (tags profile feed-guid)]
+                    (cond-> {:text (or title url) :xml-url url :guid feed-guid}
+                      title            (assoc :title title)
+                      folder           (assoc :path [folder])
+                      (seq ts)         (assoc :category (vec ts))
+                      (inst? added-at) (assoc :created added-at))))
+        include (fn [[url {:keys [title folder]}]]
+                  (cond-> {:url url}
+                    title  (assoc :text title)
+                    folder (assoc :path [folder])))]
     (cond-> {:title         "Subscriptions"
-             :subscriptions (vec (for [[folder feed-guids] (sort-by (fn [[folder _]] [(nil? folder) (str folder)]) (folders profile))
-                                       feed-guid feed-guids
-                                       :let [{:keys [url title added-at]} (get subs feed-guid)
-                                             ts (tags profile feed-guid)]]
-                                   (cond-> {:text (or title url) :xml-url url :guid feed-guid}
-                                     title            (assoc :title title)
-                                     folder           (assoc :path [folder])
-                                     (seq ts)         (assoc :category (vec ts))
-                                     (inst? added-at) (assoc :created added-at))))}
-      (seq ls) (assoc :includes (vec (for [[url {:keys [title folder]}] (sort-by key ls)]
-                                       (cond-> {:url url}
-                                         title  (assoc :text title)
-                                         folder (assoc :path [folder]))))))))
+             :subscriptions (vec (for [[folder feed-guids] ordered
+                                       feed-guid           feed-guids]
+                                   (outline folder feed-guid)))}
+      (seq ls) (assoc :includes (mapv include (sort-by key ls))))))
 
 ;; Pocket Casts and Overcast write <outline text="feeds"> around the feeds.
 ;; Seen in September 2026, in an export file of each app:
@@ -1186,14 +1322,21 @@
 (defn- imported
   "The import `acc` of from-opml with the feed of `outline` subscribed
   to at `at`, in `folder` if any, and its categories as tags."
-  [{:keys [profile names] :as acc} {:keys [xml-url text title category created] :as outline} folder at]
-  (let [g       (named names outline)
-        known   (when (get names (normal-url xml-url)) (get-in profile [:subscriptions g :url]))
-        details {:url (or known xml-url) :title (or title text) :added-at (when (inst? created) created)}]
-    {:names (assoc names (normal-url xml-url) g)
+  [{:keys [profile names] :as acc}
+   {:keys [xml-url text title category created] :as outline}
+   folder
+   at]
+  (let [g          (named names outline)
+        known      (when (get names (normal-url xml-url))
+                     (get-in profile [:subscriptions g :url]))
+        details    {:url      (or known xml-url)
+                    :title    (or title text)
+                    :added-at (when (inst? created) created)}
+        categories (when (sequential? category) category)]
+    {:names   (assoc names (normal-url xml-url) g)
      :profile (as-> (subscribe profile g details at) profile
                 (if folder (configure profile g {:folder folder} at) profile)
-                (reduce #(tag %1 g %2 at) profile (when (sequential? category) category)))}))
+                (reduce #(tag %1 g %2 at) profile categories))}))
 
 (defn from-opml
   "Subscribe `profile` at `at` to each feed of the OPML subscription `list`
@@ -1212,7 +1355,10 @@
   ([profile list at opts]
    {:pre [(map? opts)]}
    (let [around  (wrapper list (:wrappers opts wrappers))
-         folder  (fn [path] (last (if (and around (= around (first path))) (rest path) path)))
+         folder  (fn [path]
+                   (last (if (and around (= around (first path)))
+                           (rest path)
+                           path)))
          feeds   (fn [profile]
                    (:profile (reduce #(imported %1 %2 (folder (:path %2)) at)
                                      {:profile profile :names (by-url profile)}
@@ -1220,7 +1366,8 @@
          include (fn [profile {:keys [url text path]}]
                    (if (contains? (lists profile) url)
                      profile
-                     (follow-list profile url {:title text :folder (folder path)} at)))]
+                     (let [details {:title text :folder (folder path)}]
+                       (follow-list profile url details at))))]
      (crdt/at-once profile at #(reduce include (feeds %) (:includes list))))))
 
 (defn merge
@@ -1234,36 +1381,42 @@
   "A description of the first rank in the queue or a playlist of `profile`
   that isn't a rank, which would make ranked throw."
   [profile]
-  (some (fn [[where entries]]
-          (some (fn [[id {:keys [rank]}]]
-                  (when (and (some? rank) (not (rank/rank? rank)))
-                    (str "the rank of " (pr-str id) " in " where " is " (pr-str rank) ", not a rank")))
-                entries))
-        (concat [["the queue" (:queue profile)] ["the moves of the queue" (:queue-moves profile)]]
-                (for [[name entries] (:playlists profile)]
-                  [(str "the playlist " (pr-str name)) entries])
-                (for [[name entries] (:playlist-moves profile)]
-                  [(str "the moves of the playlist " (pr-str name)) entries]))))
+  (let [bad    (fn [where [id {:keys [rank]}]]
+                 (when (and (some? rank) (not (rank/rank? rank)))
+                   (str "the rank of " (pr-str id) " in " where " is "
+                        (pr-str rank) ", not a rank")))
+        ranked (concat [["the queue" (:queue profile)]
+                        ["the moves of the queue" (:queue-moves profile)]]
+                       (for [[name entries] (:playlists profile)]
+                         [(str "the playlist " (pr-str name)) entries])
+                       (for [[name entries] (:playlist-moves profile)]
+                         [(str "the moves of the playlist " (pr-str name))
+                          entries]))]
+    (some (fn [[where entries]]
+            (some #(bad where %) entries))
+          ranked)))
 
 (defn- key-problem
   "A description of the first key of `profile` of the wrong type for its
   collection. Lists and tags have strings as keys, and bookmarks and clips
   whole seconds."
   [profile]
-  (or (some (fn [url]
-              (when-not (string? url)
-                (str "the list at " (pr-str url) " is not at a URL")))
-            (keys (:lists profile)))
-      (some (fn [[what k]]
-              (some (fn [[id entries]]
-                      (when-not (every? #(and (integer? %) (<= 0 %)) (keys entries))
-                        (str "a " what " of " (pr-str id) " is not at a whole number of seconds")))
-                    (get profile k)))
-            [["bookmark" :bookmarks] ["clip" :clips]])
-      (some (fn [[feed-guid ts]]
-              (when-not (every? string? (keys ts))
-                (str "a tag of " (pr-str feed-guid) " is not a string")))
-            (:tags profile))))
+  (let [whole-second? #(and (integer? %) (<= 0 %))]
+    (or (some (fn [url]
+                (when-not (string? url)
+                  (str "the list at " (pr-str url) " is not at a URL")))
+              (keys (:lists profile)))
+        (some (fn [[what k]]
+                (some (fn [[id entries]]
+                        (when-not (every? whole-second? (keys entries))
+                          (str "a " what " of " (pr-str id)
+                               " is not at a whole number of seconds")))
+                      (get profile k)))
+              [["bookmark" :bookmarks] ["clip" :clips]])
+        (some (fn [[feed-guid ts]]
+                (when-not (every? string? (keys ts))
+                  (str "a tag of " (pr-str feed-guid) " is not a string")))
+              (:tags profile)))))
 
 (defn- mark-problem
   "A description of the first live rating of `profile` outside its scale,
@@ -1276,8 +1429,10 @@
             (:ratings profile))
       (some (fn [[id entries]]
               (some (fn [[start {:keys [duration removed?]}]]
-                      (when-not (or removed? (and (number? duration) (pos? duration)))
-                        (str "the clip of " (pr-str id) " at " start " lasts " (pr-str duration)
+                      (when-not (or removed?
+                                    (and (number? duration) (pos? duration)))
+                        (str "the clip of " (pr-str id) " at " start
+                             " lasts " (pr-str duration)
                              ", not a number of seconds")))
                     entries))
             (:clips profile))))
@@ -1285,8 +1440,10 @@
 (defn- count-problem
   [profile]
   (some (fn [[feed-guid months]]
-          (when-not (every? #(number? (:seconds % 0)) (mapcat vals (vals months)))
-            (str "the listening of " (pr-str feed-guid) " is not counted in seconds")))
+          (let [counts (mapcat vals (vals months))]
+            (when-not (every? #(number? (:seconds % 0)) counts)
+              (str "the listening of " (pr-str feed-guid)
+                   " is not counted in seconds"))))
         (:listened profile)))
 
 (defn- criteria-problem
@@ -1347,7 +1504,9 @@
         left     (some-> (:episodes sleep) dec)]
     (if (and left (not (pos? left)))
       (stepped profile' [[:stop id]] nil)
-      (stepped profile' (if next [[:play next]] []) (cond-> sleep left (assoc :episodes left))))))
+      (stepped profile'
+               (if next [[:play next]] [])
+               (cond-> sleep left (assoc :episodes left))))))
 
 (defn- moved
   "The result of step, with the `effects` and the sleep timer `sleep`,
@@ -1369,7 +1528,8 @@
                      (remove #{[:stop id]})
                      %))
       (stepped profile'
-               (cond-> effects (and (not was) (played? profile' id)) (conj [:played id]))
+               (cond-> effects
+                 (and (not was) (played? profile' id)) (conj [:played id]))
                sleep))))
 
 (defn step
@@ -1407,39 +1567,63 @@
   ([profile [kind id & args :as event] at {:keys [sleep] :as opts}]
    {:pre [(map? opts)]}
    (case kind
-     :skip     (let [[amount] args
-                     {:keys [skip-forward skip-back]} (preferences profile)
-                     seconds  (case amount :forward skip-forward :back (- skip-back) amount)
-                     profile' (skip profile id seconds at (select-keys opts [:played-threshold]))]
-                 (moved profile profile' id [[:seek id (:position (episode-entry profile' id))]] at sleep))
-     :chapter  (let [[direction doc] args
-                     position (:position (episode-entry profile id))
-                     from     (if (number? position) position 0)]
-                 (if-let [target (chapters/jump doc from direction (select-keys opts [:restart]))]
-                   (step profile [:skip id (- target from)] at opts)
-                   (stepped profile [] sleep)))
-     :progress (let [[position duration] args
-                     profile' (-> profile
-                                  (heard id position at (:listening-gap opts listening-gap))
-                                  (progress id position duration at (select-keys opts [:played-threshold])))]
-                 (moved profile profile' id [] at sleep))
-     :ended    (ended profile id at sleep)
-     :play     (stepped (place profile id (crdt/rank-between (queue-entries profile) nil (first (remove #{id} (queue profile)))) at)
-                        []
-                        sleep)
+     :skip
+     (let [[amount] args
+           {:keys [skip-forward skip-back]} (preferences profile)
+           seconds  (case amount
+                      :forward skip-forward
+                      :back    (- skip-back)
+                      amount)
+           played   (select-keys opts [:played-threshold])
+           profile' (skip profile id seconds at played)
+           position (:position (episode-entry profile' id))]
+       (moved profile profile' id [[:seek id position]] at sleep))
+
+     :chapter
+     (let [[direction doc] args
+           position (:position (episode-entry profile id))
+           from     (if (number? position) position 0)
+           restart  (select-keys opts [:restart])]
+       (if-let [target (chapters/jump doc from direction restart)]
+         (step profile [:skip id (- target from)] at opts)
+         (stepped profile [] sleep)))
+
+     :progress
+     (let [[position duration] args
+           gap      (:listening-gap opts listening-gap)
+           played   (select-keys opts [:played-threshold])
+           profile' (-> profile
+                        (heard id position at gap)
+                        (progress id position duration at played))]
+       (moved profile profile' id [] at sleep))
+
+     :ended
+     (ended profile id at sleep)
+
+     :play
+     (let [others  (remove #{id} (queue profile))
+           entries (queue-entries profile)
+           rank    (crdt/rank-between entries nil (first others))]
+       (stepped (place profile id rank at) [] sleep))
+
      (stepped profile [] sleep))))
 
 (comment
   (def sample
     (-> (make "laptop")
-        (subscribe "feed-1" {:url "https://example.org/feed.xml" :title "A show"} #inst "2026-01-01")
+        (subscribe "feed-1"
+                   {:url "https://example.org/feed.xml" :title "A show"}
+                   #inst "2026-01-01")
         (configure "feed-1" {:folder "Tech" :skip-outro 30} #inst "2026-01-01")
         (tag "feed-1" "news" #inst "2026-01-01")
         (enqueue ["feed-1" "ep-1"] #inst "2026-01-01T01:00:00Z")
-        (add-to-playlist "Road trip" ["feed-1" "ep-2"] #inst "2026-01-01T01:00:00Z")
+        (add-to-playlist "Road trip" ["feed-1" "ep-2"]
+                         #inst "2026-01-01T01:00:00Z")
         (star ["feed-1" "ep-1"] #inst "2026-01-01T01:00:00Z")
-        (bookmark ["feed-1" "ep-1"] 754 "The answer" #inst "2026-01-01T01:30:00Z")
-        (clip ["feed-1" "ep-1"] 754 42.5 "The answer, in full" #inst "2026-01-01T01:31:00Z")
+        (bookmark ["feed-1" "ep-1"] 754 "The answer"
+                  #inst "2026-01-01T01:30:00Z")
+        (clip ["feed-1" "ep-1"] 754 42.5 "The answer, in full"
+              #inst "2026-01-01T01:31:00Z")
         (rate-episode ["feed-1" "ep-1"] 5 #inst "2026-01-01T01:32:00Z")))
 
   (folders sample)
@@ -1451,7 +1635,8 @@
 
   ;; a thumb up, and the same rating in the scale of another app
   (def thumbs
-    (rate-episode sample ["feed-1" "ep-2"] 1 #inst "2026-01-01T01:33:00Z" {:scale {:worst 0 :best 1}}))
+    (rate-episode sample ["feed-1" "ep-2"] 1 #inst "2026-01-01T01:33:00Z"
+                  {:scale {:worst 0 :best 1}}))
 
   (rating thumbs ["feed-1" "ep-2"])
   (rating thumbs ["feed-1" "ep-2"] {:scale rating-scale})
@@ -1464,15 +1649,19 @@
   (problem (assoc-in sample [:queue ["feed-1" "ep-1"] :rank] 5))
 
   ;; a report that moves the position into the outro ends the episode
-  (step (progress sample ["feed-1" "ep-1"] 3500 3600 #inst "2026-01-01T02:00:00Z")
+  (step (progress sample ["feed-1" "ep-1"] 3500 3600
+                  #inst "2026-01-01T02:00:00Z")
         [:progress ["feed-1" "ep-1"] 3580 3600]
         #inst "2026-01-01T02:00:20Z")
 
   ;; a jump to the next chapter, from 100 seconds into the episode
   (def doc
-    {:chapters [{:start-time 0 :title "Intro"} {:start-time 90 :title "News"} {:start-time 600 :title "Talk"}]})
+    {:chapters [{:start-time 0 :title "Intro"}
+                {:start-time 90 :title "News"}
+                {:start-time 600 :title "Talk"}]})
 
-  (:effects (step (progress sample ["feed-1" "ep-1"] 100 3600 #inst "2026-01-01T02:00:00Z")
+  (:effects (step (progress sample ["feed-1" "ep-1"] 100 3600
+                            #inst "2026-01-01T02:00:00Z")
                   [:chapter ["feed-1" "ep-1"] :next doc]
                   #inst "2026-01-01T02:00:05Z"))
 
@@ -1487,7 +1676,8 @@
    (comment
      (-> (make (str (random-uuid)))
          (crdt/identify {:name "laptop"} #inst "2026-01-01")
-         (subscribe "feed-1" {:url "https://a/rss" :title "A"} #inst "2026-01-01")
+         (subscribe "feed-1" {:url "https://a/rss" :title "A"}
+                    #inst "2026-01-01")
          (enqueue ["feed-1" "ep-1"] #inst "2026-01-01T01:00:00Z")
          (progress ["feed-1" "ep-1"] 120 3600 #inst "2026-01-01T02:00:00Z"))
      (crdt/after *1 #inst "2026-01-01")
