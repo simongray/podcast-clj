@@ -84,12 +84,13 @@
   "The text whose SHA-256 is the id of `event`, as the section Events and
   signatures of NIP-01 defines it."
   [{:strs [pubkey created_at kind tags content] :as event}]
-  (str "[0," (quoted pubkey)
-       "," (json/whole created_at)
-       "," (json/whole kind)
-       ",[" (str/join "," (map #(str "[" (str/join "," (map quoted %)) "]") tags)) "]"
-       "," (quoted content)
-       "]"))
+  (let [tag #(str "[" (str/join "," (map quoted %)) "]")]
+    (str "[0," (quoted pubkey)
+         "," (json/whole created_at)
+         "," (json/whole kind)
+         ",[" (str/join "," (map tag tags)) "]"
+         "," (quoted content)
+         "]")))
 
 (defn event-id
   "The id that NIP-01 gives `event`: the SHA-256 of its fields, in
@@ -105,14 +106,17 @@
   [event]
   (boolean (and (event? event)
                 (= (get event "id") (event-id event))
-                (secp256k1/verify (get event "pubkey") (get event "id") (get event "sig")))))
+                (secp256k1/verify (get event "pubkey")
+                                  (get event "id")
+                                  (get event "sig")))))
 
 (defn signed
   "The `event` signed with `secret-key` and `aux`: with the public key of
   the owner, the id of NIP-01 and the signature of BIP-340. Nil when
   `secret-key` isn't a secret key.
 
-      (signed {\"kind\" 1 \"created_at\" 1790000000 \"tags\" [] \"content\" \"Hi\"}
+      (signed {\"kind\" 1 \"created_at\" 1790000000
+               \"tags\" [] \"content\" \"Hi\"}
               secret-key
               (bytes/hex (bytes/generate! 32)))
 
@@ -143,22 +147,28 @@
   A key that NIP-01 doesn't define lets every event pass, and so does
   \"limit\", which counts events."
   [filter event]
-  (let [{:strs [id pubkey kind created_at]} event]
+  (let [{:strs [id pubkey kind created_at]} event
+        tagged? (fn [tag values]
+                  (boolean (some (set values) (tag-values event tag))))]
     (every? (fn [[k v]]
               (cond
-                (= "ids" k)                (contains? (set v) id)
-                (= "authors" k)            (contains? (set v) pubkey)
-                (= "kinds" k)              (contains? (set v) kind)
-                (= "since" k)              (<= v created_at)
-                (= "until" k)              (<= created_at v)
-                (re-matches #"#[a-zA-Z]" k) (boolean (some (set v) (tag-values event (subs k 1))))
-                :else                      true))
+                (= "ids" k)                 (contains? (set v) id)
+                (= "authors" k)             (contains? (set v) pubkey)
+                (= "kinds" k)               (contains? (set v) kind)
+                (= "since" k)               (<= v created_at)
+                (= "until" k)               (<= created_at v)
+                (re-matches #"#[a-zA-Z]" k) (tagged? (subs k 1) v)
+                :else                       true))
             filter)))
 
 (def ^:no-doc name-types
   "The prefix of each name of NIP-19 that podcast-clj reads, with the type
   of the name."
-  {"npub" :npub "note" :note "nprofile" :nprofile "nevent" :nevent "naddr" :naddr})
+  {"npub"     :npub
+   "note"     :note
+   "nprofile" :nprofile
+   "nevent"   :nevent
+   "naddr"    :naddr})
 
 ;; NIP-19, part "Shareable identifiers with extra metadata": the types 0
 ;; (the thing), 1 (a relay), 2 (the author) and 3 (the kind)
@@ -169,14 +179,20 @@
 
   A field is a byte for the type, a byte for the length, and the value."
   [b]
-  (loop [i 0 out []]
-    (cond
-      (= i (bytes/length b))       out
-      (> (+ i 2) (bytes/length b)) nil
-      :else
-      (let [end (+ i 2 (long (bytes/at b (inc i))))]
-        (when (<= end (bytes/length b))
-          (recur end (conj out [(bytes/at b i) (bytes/copy b (+ i 2) end)])))))))
+  (let [n (bytes/length b)]
+    (loop [i 0 out []]
+      (cond
+        (= i n)
+        out
+
+        (> (+ i 2) n)
+        nil
+
+        :else
+        (let [end (+ i 2 (long (bytes/at b (inc i))))]
+          (when (<= end n)
+            (let [entry [(bytes/at b i) (bytes/copy b (+ i 2) end)]]
+              (recur end (conj out entry)))))))))
 
 (defn- text-of
   "The text of the bytes `b`, as UTF-8."
@@ -193,14 +209,19 @@
         author  (key-of (first (of-type 2)))
         kind    (when-let [b (first (of-type 3))]
                   (when (= 4 (bytes/length b))
-                    (reduce (fn [acc i] (+ (* 256 acc) (bytes/at b i))) 0 (range 4))))
+                    (reduce (fn [acc i] (+ (* 256 acc) (bytes/at b i)))
+                            0
+                            (range 4))))
         extras  (cond-> {:relays (mapv text-of (of-type 1))}
                   author (assoc :author author)
                   kind   (assoc :kind kind))]
     (case type
-      :nprofile (when-let [k (key-of special)] {:type type :public-key k :relays (:relays extras)})
-      :nevent   (when-let [id (key-of special)] (assoc extras :type type :id id))
-      :naddr    (when (and special author kind) (assoc extras :type type :identifier (text-of special))))))
+      :nprofile (when-let [k (key-of special)]
+                  {:type type :public-key k :relays (:relays extras)})
+      :nevent   (when-let [id (key-of special)]
+                  (assoc extras :type type :id id))
+      :naddr    (when (and special author kind)
+                  (assoc extras :type type :identifier (text-of special))))))
 
 (defn decode
   "What the name `s` names, as a map with its :type, or nil for another
@@ -217,19 +238,23 @@
   field that NIP-19 doesn't define is left out, as NIP-19 asks."
   [s]
   (when (string? s)
-    (let [text (str/replace (str/trim s) #"(?i)^nostr:" "")]
-      (when-let [{:keys [prefix] b :bytes} (bech32/decode text {:max-length max-name-length})]
+    (let [text  (str/replace (str/trim s) #"(?i)^nostr:" "")
+          named (bech32/decode text {:max-length max-name-length})]
+      (when-let [{:keys [prefix] b :bytes} named]
         (when-let [type (name-types prefix)]
           (case type
-            :npub (when (= 32 (bytes/length b)) {:type type :public-key (bytes/hex b)})
-            :note (when (= 32 (bytes/length b)) {:type type :id (bytes/hex b)})
+            :npub (when (= 32 (bytes/length b))
+                    {:type type :public-key (bytes/hex b)})
+            :note (when (= 32 (bytes/length b))
+                    {:type type :id (bytes/hex b)})
             (some->> (fields b) (with-fields type))))))))
 
 (defn- field
   "The bytes of a field of the type `t` with the value `b`, which has 255
   bytes or fewer."
   [t b]
-  (bytes/of (concat [t (bytes/length b)] (map #(bytes/at b %) (range (bytes/length b))))))
+  (let [octets (map #(bytes/at b %) (range (bytes/length b)))]
+    (bytes/of (concat [t (bytes/length b)] octets))))
 
 (defn encode
   "The name of NIP-19 for `x`, a map of the form that decode gives, or nil
@@ -237,18 +262,32 @@
 
   A relay with more than 255 bytes in its URL is left out."
   [{:keys [type id public-key identifier author kind relays] :as x}]
-  (let [short? #(<= (bytes/length %) 255)
-        extras (concat (for [b (map bytes/encode relays) :when (short? b)] (field 1 b))
-                       (when (hex-id? author) [(field 2 (bytes/from-hex author))])
-                       (when (and (integer? kind) (<= 0 kind 0xffffffff))
-                         [(field 3 (bytes/of (map #(bit-and (quot kind %) 255) [16777216 65536 256 1])))]))
-        named  (fn [prefix special] (bech32/encode prefix (bytes/join (cons (field 0 special) extras))))]
+  (let [short?     #(<= (bytes/length %) 255)
+        kind-bytes (fn [kind]
+                     (bytes/of (map #(bit-and (quot kind %) 255)
+                                    [16777216 65536 256 1])))
+        extras     (concat (for [b     (map bytes/encode relays)
+                                 :when (short? b)]
+                             (field 1 b))
+                           (when (hex-id? author)
+                             [(field 2 (bytes/from-hex author))])
+                           (when (and (integer? kind) (<= 0 kind 0xffffffff))
+                             [(field 3 (kind-bytes kind))]))
+        named      (fn [prefix special]
+                     (let [parts (cons (field 0 special) extras)]
+                       (bech32/encode prefix (bytes/join parts))))]
     (case type
-      :npub     (when (hex-id? public-key) (bech32/encode "npub" (bytes/from-hex public-key)))
-      :note     (when (hex-id? id) (bech32/encode "note" (bytes/from-hex id)))
-      :nprofile (when (hex-id? public-key) (named "nprofile" (bytes/from-hex public-key)))
-      :nevent   (when (hex-id? id) (named "nevent" (bytes/from-hex id)))
-      :naddr    (when (and (string? identifier) (hex-id? author) (integer? kind)
+      :npub     (when (hex-id? public-key)
+                  (bech32/encode "npub" (bytes/from-hex public-key)))
+      :note     (when (hex-id? id)
+                  (bech32/encode "note" (bytes/from-hex id)))
+      :nprofile (when (hex-id? public-key)
+                  (named "nprofile" (bytes/from-hex public-key)))
+      :nevent   (when (hex-id? id)
+                  (named "nevent" (bytes/from-hex id)))
+      :naddr    (when (and (string? identifier)
+                           (hex-id? author)
+                           (integer? kind)
                            (short? (bytes/encode identifier)))
                   (named "naddr" (bytes/encode identifier)))
       nil)))
@@ -262,7 +301,11 @@
 (def ^:no-doc part-pattern
   "What parts finds in the content of an event: a nostr: URI with a name,
   a web URL, and a word after a number sign."
-  #"(?u)nostr:(?:npub|nprofile|note|nevent|naddr)1[02-9ac-hj-np-z]+|https?://[^\s<>]+|#[\p{L}\p{N}_]+")
+  (re-pattern
+   (str "(?u)"
+        "nostr:(?:npub|nprofile|note|nevent|naddr)1[02-9ac-hj-np-z]+"
+        "|https?://[^\\s<>]+"
+        "|#[\\p{L}\\p{N}_]+")))
 
 (defn- part
   "The part that the match `s` of part-pattern gives, in an event whose
@@ -304,12 +347,17 @@
   a number sign that the event names in a t tag, as NIP-24 defines. A
   mention of a profile can have :relays."
   [event]
-  (let [content  (if (string? (get event "content")) (get event "content") "")
-        hashtags (set (map str/lower-case (filter string? (tag-values event "t"))))
+  (let [content   (get event "content")
+        content   (if (string? content) content "")
+        hashtags  (->> (tag-values event "t")
+                       (filter string?)
+                       (map str/lower-case)
+                       set)
         ;; the text from `from` to `to` goes into `out`, unless it is empty
         with-text (fn [out from to]
                     (cond-> out
-                      (< from to) (conj {:type :text :text (subs content from to)})))]
+                      (< from to)
+                      (conj {:type :text :text (subs content from to)})))]
     ;; `at` is where the next match starts or later, and `from` is where
     ;; the text starts that no part has yet
     (loop [found (re-seq part-pattern content) at 0 from 0 out []]
@@ -330,9 +378,11 @@
   in lower case, and without a slash at the end."
   [s]
   (when (string? s)
-    (let [url (str/replace (str/trim s) #"/+$" "")]
+    (let [url   (str/replace (str/trim s) #"/+$" "")
+          lower (fn [[_ scheme host]]
+                  (str (str/lower-case scheme) "://" (str/lower-case host)))]
       (when (re-matches #"(?i)wss?://[^\s/?#]+(?:[/?#]\S*)?" url)
-        (str/replace url #"(?i)^(wss?)://([^/?#]+)" (fn [[_ scheme host]] (str (str/lower-case scheme) "://" (str/lower-case host))))))))
+        (str/replace url #"(?i)^(wss?)://([^/?#]+)" lower)))))
 
 (defn public?
   "Whether the host of the relay at `url` is on the public internet, as
@@ -374,12 +424,17 @@
     (when (vector? message)
       (let [[kind a b c] message]
         (case kind
-          "EVENT"  (when (and (string? a) (map? b)) {:type :event :subscription a :event b})
-          "EOSE"   (when (string? a) {:type :eose :subscription a})
-          "CLOSED" (when (string? a) {:type :closed :subscription a :message (str b)})
+          "EVENT"  (when (and (string? a) (map? b))
+                     {:type :event :subscription a :event b})
+          "EOSE"   (when (string? a)
+                     {:type :eose :subscription a})
+          "CLOSED" (when (string? a)
+                     {:type :closed :subscription a :message (str b)})
           "NOTICE" {:type :notice :message (str a)}
-          "OK"     (when (string? a) {:type :ok :id a :accepted? (true? b) :message (str c)})
-          "AUTH"   (when (string? a) {:type :auth :challenge a})
+          "OK"     (when (string? a)
+                     {:type :ok :id a :accepted? (true? b) :message (str c)})
+          "AUTH"   (when (string? a)
+                     {:type :auth :challenge a})
           nil)))))
 
 (defn received
@@ -425,10 +480,12 @@
       (assoc answer :done? true :truncated :max-bytes)
 
       (and ours? (= :event (:type message)))
-      (let [answer (update answer :events (fnil conj []) (:event message))]
+      (let [answer (update answer :events (fnil conj []) (:event message))
+            full?  (and max-events
+                        (>= (count (:events answer)) max-events))]
         (cond-> answer
           (= :event until) (assoc :done? true)
-          (and max-events (>= (count (:events answer)) max-events)) (assoc :done? true :truncated :max-events)))
+          full?            (assoc :done? true :truncated :max-events)))
 
       (and ours? (= :eose (:type message)))
       (cond-> (assoc answer :complete? true)
@@ -437,11 +494,18 @@
       (and ours? (= :closed (:type message)))
       (assoc answer :done? true :closed (:message message))
 
-      (and published (= :ok (:type message)) (= published (:id message)))
+      (and published
+           (= :ok (:type message))
+           (= published (:id message)))
       (cond
-        (not (:accepted? message)) (assoc answer :done? true :refused (:message message))
-        (= :ok until)              (assoc answer :done? true :accepted? true)
-        :else                      (assoc answer :accepted? true))
+        (not (:accepted? message))
+        (assoc answer :done? true :refused (:message message))
+
+        (= :ok until)
+        (assoc answer :done? true :accepted? true)
+
+        :else
+        (assoc answer :accepted? true))
 
       (= :notice (:type message))
       (update answer :notices (fnil conj []) (:message message))
@@ -523,8 +587,10 @@
      [^WebSocket socket]
      (try
        (when-not (.isOutputClosed socket)
-         (.get (.sendText socket (close-message subscription) true) 2 TimeUnit/SECONDS)
-         (.get (.sendClose socket WebSocket/NORMAL_CLOSURE "") 2 TimeUnit/SECONDS))
+         (-> (.sendText socket (close-message subscription) true)
+             (.get 2 TimeUnit/SECONDS))
+         (-> (.sendClose socket WebSocket/NORMAL_CLOSURE "")
+             (.get 2 TimeUnit/SECONDS)))
        (catch Exception _
          nil)
        (finally
@@ -540,9 +606,15 @@
   them, the event is the first message, and the map has :sent? true."
   [filters event]
   (cond
-    (and (seq filters) event) {:first (request-message subscription filters) :later (event-message event)}
-    event                     {:first (event-message event) :sent? true}
-    :else                     {:first (request-message subscription filters)}))
+    (and (seq filters) event)
+    {:first (request-message subscription filters)
+     :later (event-message event)}
+
+    event
+    {:first (event-message event) :sent? true}
+
+    :else
+    {:first (request-message subscription filters)}))
 
 #?(:clj
    (defn- exchange
@@ -556,14 +628,18 @@
                       (-> (.newWebSocketBuilder ^HttpClient @http/client)
                           (.connectTimeout (Duration/ofSeconds timeout-seconds))
                           (.header "User-Agent" http/user-agent)
-                          (.buildAsync (URI. url) (listener answer ready done limits))
+                          (.buildAsync (URI. url)
+                                       (listener answer ready done limits))
                           (.get timeout-seconds TimeUnit/SECONDS))
                       (catch Exception e
-                        (throw (failure url "The relay gave no connection" e {}))))
+                        (throw (failure url "The relay gave no connection"
+                                        e {}))))
            deadline (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
            left     #(max 0 (- deadline (System/currentTimeMillis)))
            write!   (fn [text]
-                      (.get (.sendText ^WebSocket socket text true) (left) TimeUnit/MILLISECONDS))]
+                      (-> (.sendText ^WebSocket socket text true)
+                          (.get (left) TimeUnit/MILLISECONDS)))
+           failed   "The connection to the relay failed"]
        (try
          (when (:sent? messages)
            (swap! answer assoc :sent? true))
@@ -575,11 +651,16 @@
            (write! (:later messages)))
          (let [result (deref done (left) ::timeout)]
            (cond
-             (= ::timeout result) (assoc @answer :timeout? true)
-             (:error result)      (throw (failure url "The connection to the relay failed" (:error result) @answer))
-             :else                result))
+             (= ::timeout result)
+             (assoc @answer :timeout? true)
+
+             (:error result)
+             (throw (failure url failed (:error result) @answer))
+
+             :else
+             result))
          (catch java.util.concurrent.ExecutionException e
-           (throw (failure url "The connection to the relay failed" (ex-cause e) @answer)))
+           (throw (failure url failed (ex-cause e) @answer)))
          (catch java.util.concurrent.TimeoutException e
            (throw (failure url "The relay took no message in time" e @answer)))
          (finally
@@ -592,18 +673,19 @@
      [url messages {:keys [timeout-seconds] :as limits}]
      (js/Promise.
       (fn [resolve reject]
-        (let [answer (atom (if (:sent? messages) {:sent? true} {}))
-              socket (js/WebSocket. url)
-              timer  (atom nil)
-              end    (fn [f x]
-                       (js/clearTimeout @timer)
-                       (try
-                         (when (= 1 (.-readyState socket))
-                           (.send socket (close-message subscription)))
-                         (.close socket)
-                         (catch :default _ nil))
-                       (f x))]
-          (reset! timer (js/setTimeout #(end resolve (assoc @answer :timeout? true)) (* 1000 timeout-seconds)))
+        (let [answer  (atom (if (:sent? messages) {:sent? true} {}))
+              socket  (js/WebSocket. url)
+              timer   (atom nil)
+              end     (fn [f x]
+                        (js/clearTimeout @timer)
+                        (try
+                          (when (= 1 (.-readyState socket))
+                            (.send socket (close-message subscription)))
+                          (.close socket)
+                          (catch :default _ nil))
+                        (f x))
+              time-up #(end resolve (assoc @answer :timeout? true))]
+          (reset! timer (js/setTimeout time-up (* 1000 timeout-seconds)))
           (set! (.-onopen socket) #(.send socket (:first messages)))
           (set! (.-onmessage socket)
                 (fn [e]
@@ -620,7 +702,9 @@
                 (fn [e]
                   (if (seq (:events @answer))
                     (end resolve @answer)
-                    (end reject (failure url "The connection to the relay failed" (.-error e) @answer))))))))))
+                    (end reject
+                         (failure url "The connection to the relay failed"
+                                  (.-error e) @answer))))))))))
 
 (defn send!
   "Ask the relay of the `request` for the events of its filters, and give
@@ -628,7 +712,8 @@
   a promise of it.
 
       {:url     \"wss://relay.example\"
-       :filters [{\"kinds\" [1111] \"#I\" [\"podcast:item:guid:…\"] \"limit\" 100}]}
+       :filters [{\"kinds\" [1111] \"#I\" [\"podcast:item:guid:…\"]
+                  \"limit\" 100}]}
 
   The exchange is one subscription. It opens a WebSocket, sends the REQ
   of NIP-01, reads until the relay sends EOSE, and closes. The response
@@ -664,13 +749,18 @@
 
   The events aren't verified. Use verified? and matches? to choose which
   to keep."
-  [{:keys [url filters event allow?] :or {allow? (constantly true)} :as request}]
+  [{:keys [url filters event allow?]
+    :or   {allow? (constantly true)}
+    :as   request}]
   (let [relay    (relay-url url)
         messages (opening filters event)
-        limits   (cond-> (merge default-limits (select-keys request (keys default-limits)))
-                   event (assoc :published (get event "id") :until (if (seq filters) :event :ok)))]
+        limits   (cond-> (merge default-limits
+                                (select-keys request (keys default-limits)))
+                   event (assoc :published (get event "id")
+                                :until     (if (seq filters) :event :ok)))]
     (if-not (and relay (allow? relay))
-      (let [refused (ex-info (str "The request to " url " is not allowed") {:type ::refused :url url})]
+      (let [refused (ex-info (str "The request to " url " is not allowed")
+                             {:type ::refused :url url})]
         #?(:clj (throw refused) :cljs (js/Promise.reject refused)))
       #?(:clj  (response relay (exchange relay messages limits))
          :cljs (.then (exchange relay messages limits) #(response relay %))))))
@@ -688,7 +778,9 @@
 
   ;; the filter of NIP-22 for the comments on an episode, by its guid
   (def about-episode
-    {"kinds" [1111] "#I" ["podcast:item:guid:d98d189b-dc7b-45b1-8720-d4b98690f31f"] "limit" 100})
+    {"kinds" [1111]
+     "#I"    ["podcast:item:guid:d98d189b-dc7b-45b1-8720-d4b98690f31f"]
+     "limit" 100})
 
   (request-message subscription [about-episode])
 
@@ -700,6 +792,8 @@
 
 #?(:clj
    (comment
-     (send! {:url "wss://relay.damus.io" :filters [about-episode] :timeout-seconds 10})
+     (send! {:url             "wss://relay.damus.io"
+             :filters         [about-episode]
+             :timeout-seconds 10})
      (map verified? (:events *1))
      #_.))

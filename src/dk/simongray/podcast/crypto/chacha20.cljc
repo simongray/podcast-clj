@@ -67,7 +67,10 @@
   bytes `key` and `nonce`, as numbers. Section 2.3 of RFC 8439 defines the
   block function, with 20 rounds."
   [key nonce counter]
-  (let [state (vec (concat constants (words key) [(word counter)] (words nonce)))
+  (let [state (vec (concat constants
+                           (words key)
+                           [(word counter)]
+                           (words nonce)))
         mixed (nth (iterate #(reduce quarter % rounds) state) 10)]
     (for [w (map #(word (+ %1 %2)) mixed state)
           i (range 4)]
@@ -86,11 +89,16 @@
   ([key nonce data {:keys [counter] :or {counter 0} :as opts}]
    {:pre [(map? opts)]}
    (when-not (= 32 (bytes/length key))
-     (throw (ex-info "The key doesn't have 32 bytes" {:bytes (bytes/length key)})))
+     (throw (ex-info "The key doesn't have 32 bytes"
+                     {:bytes (bytes/length key)})))
    (when-not (= 12 (bytes/length nonce))
-     (throw (ex-info "The nonce doesn't have 12 bytes" {:bytes (bytes/length nonce)})))
-   (let [stream (mapcat #(block key nonce (+ counter %)) (range))]
-     (bytes/of (map #(bit-xor (bytes/at data %1) %2) (range (bytes/length data)) stream)))))
+     (throw (ex-info "The nonce doesn't have 12 bytes"
+                     {:bytes (bytes/length nonce)})))
+   (let [stream (mapcat #(block key nonce (+ counter %)) (range))
+         xored  (map #(bit-xor (bytes/at data %1) %2)
+                     (range (bytes/length data))
+                     stream)]
+     (bytes/of xored))))
 
 (comment
   (def sample-key
@@ -101,8 +109,11 @@
 
   ;; the example of section 2.4.2 of RFC 8439
   (def sealed
-    (encrypt sample-key sample-nonce (bytes/encode "Ladies and Gentlemen of the class of '99") {:counter 1}))
+    (encrypt sample-key sample-nonce
+             (bytes/encode "Ladies and Gentlemen of the class of '99")
+             {:counter 1}))
 
   (bytes/hex sealed)
-  (bytes/decode (encrypt sample-key sample-nonce sealed {:counter 1}) 0 40 :utf8)
+  (bytes/decode (encrypt sample-key sample-nonce sealed {:counter 1})
+                0 40 :utf8)
   #_.)

@@ -60,12 +60,15 @@
 
 (defn- stamped?
   [x]
-  (and (map? x) (contains? x :updated-at)))
+  (and (map? x)
+       (contains? x :updated-at)))
 
 (defn ^:no-doc later-inst
   "The later of the instants `a` and `b`, either of which can be nil."
   [a b]
-  (if (and a b) (max-key inst-ms b a) (or a b)))
+  (if (and a b)
+    (max-key inst-ms b a)
+    (or a b)))
 
 (defn ^:no-doc stamp-ms
   "The stamp of the entry `e` in milliseconds, 0 for an entry without one."
@@ -108,10 +111,14 @@
   clock. Within at-once, the stamp is that of at-once. Within as-device,
   it's `at` itself, and an entry that's later than the write stays."
   [state writes at]
-  (let [foreign? (contains? state ::author)
-        at       (if foreign? (time/date at) (or (::at state) (after state at)))
-        put      (if foreign? later (fn [_ new] new))]
-    (-> (reduce (fn [s [path f]] (update-in s path #(put % (stamp state (f %) at)))) state writes)
+  (let [foreign?  (contains? state ::author)
+        at        (if foreign?
+                    (time/date at)
+                    (or (::at state) (after state at)))
+        put       (if foreign? later (fn [_ new] new))
+        write-one (fn [s [path f]]
+                    (update-in s path #(put % (stamp state (f %) at))))]
+    (-> (reduce write-one state writes)
         (assoc :clock (later-inst (:clock state) at)))))
 
 (defn write
@@ -160,7 +167,10 @@
   `description` such as its :name and :platform, merged into what it
   said before."
   [state description at]
-  (write state [:devices (:device state)] #(clojure.core/merge % description) at))
+  (write state
+         [:devices (:device state)]
+         #(clojure.core/merge % description)
+         at))
 
 (defn retire
   "Retire the device `device` from `state` at `at`, from any device.
@@ -204,10 +214,12 @@
   the changes that a service sends. The entry is only written when it
   grew, so that a sync alone never rewrites a document."
   [state others at]
-  (let [me    (:device state)
-        known (get-in state [:devices me :seen] {})
-        seen  (dissoc (apply merge-with later-inst known (map latest-by-author others)) me)]
-    (if (and (= seen known) (get-in state [:devices me]))
+  (let [me     (:device state)
+        known  (get-in state [:devices me :seen] {})
+        merged (apply merge-with later-inst known (map latest-by-author others))
+        seen   (dissoc merged me)]
+    (if (and (= seen known)
+             (get-in state [:devices me]))
       state
       (write state [:devices me] #(assoc % :seen seen) at))))
 
@@ -235,7 +247,9 @@
          (seq judges)
          (every? (fn [[id {:keys [seen]}]]
                    (or (= id (:device state))
-                       (some-> (get seen device) inst-ms (>= (inst-ms updated-at)))))
+                       (some-> (get seen device)
+                               inst-ms
+                               (>= (inst-ms updated-at)))))
                  judges))))
 
 (defn compact
@@ -253,19 +267,28 @@
    {:pre [(map? opts)]}
    (let [droppable? (fn [e]
                       (and (:removed? e)
-                           (<= (+ (inst-ms (:updated-at e)) keep-for) (inst-ms at))
+                           (<= (+ (inst-ms (:updated-at e)) keep-for)
+                               (inst-ms at))
                            (seen-by-all? state e)))
          sweep      (fn sweep [m]
                       (reduce-kv (fn [m k v]
                                    (cond
-                                     (stamped? v) (cond-> m (droppable? v) (dissoc k))
-                                     (map? v)     (if-some [w (not-empty (sweep v))] (assoc m k w) (dissoc m k))
-                                     :else        m))
+                                     (stamped? v)
+                                     (cond-> m (droppable? v) (dissoc k))
+
+                                     (map? v)
+                                     (if-some [w (not-empty (sweep v))]
+                                       (assoc m k w)
+                                       (dissoc m k))
+
+                                     :else
+                                     m))
                                  m
-                                 m))]
-     (reduce-kv (fn [s k {:keys [compact?]}] (cond-> s (and compact? (map? (get s k))) (update k sweep)))
-                state
-                schema))))
+                                 m))
+         compact-in (fn [s k {:keys [compact?]}]
+                      (cond-> s
+                        (and compact? (map? (get s k))) (update k sweep)))]
+     (reduce-kv compact-in state schema))))
 
 (defn lagging
   "The live devices of `state` that haven't merged everything this one has,
@@ -274,16 +297,19 @@
   Such a device holds compact back until it catches up or is retired."
   [state]
   (let [me   (:device state)
-        mine (assoc (get-in state [:devices me :seen] {}) me (get (latest-by-author state) me))]
+        seen (get-in state [:devices me :seen] {})
+        mine (assoc seen me (get (latest-by-author state) me))]
     (into {}
           (for [[id {theirs :seen}] (dissoc (devices state) me)
-                :let [behind (for [[author latest] (dissoc mine id)
-                                   :when latest
-                                   :let [t (get theirs author)]
-                                   :when (or (nil? t) (< (inst-ms t) (inst-ms latest)))]
-                               t)]
+                :let  [behind (for [[author latest] (dissoc mine id)
+                                    :when latest
+                                    :let  [t (get theirs author)]
+                                    :when (or (nil? t)
+                                              (< (inst-ms t) (inst-ms latest)))]
+                                t)]
                 :when (seq behind)]
-            [id (when (every? some? behind) (apply min-key inst-ms behind))]))))
+            [id (when (every? some? behind)
+                  (apply min-key inst-ms behind))]))))
 
 (defn- key-order
   "A comparison of the keys `a` and `b` of mixed types: keywords first, as
@@ -291,7 +317,8 @@
   [a b]
   (if (and (keyword? a) (keyword? b))
     (compare a b)
-    (compare [(if (keyword? a) 0 1) (pr-str a)] [(if (keyword? b) 0 1) (pr-str b)])))
+    (let [kind #(if (keyword? %) 0 1)]
+      (compare [(kind a) (pr-str a)] [(kind b) (pr-str b)]))))
 
 (defn- float-bits
   "The bits of the float `x` as 16 hex digits, the same on every platform."
@@ -320,6 +347,12 @@
   [e]
   (pr-str (walk/postwalk in-order e)))
 
+(defn- tie-key
+  "What orders two entries with the same stamp: the device id of the entry
+  `e`, and then the entry printed."
+  [e]
+  [(str (:device e)) (printed e)])
+
 ;; The merge of an LWW-Register (Shapiro et al. 2011, section 3.2.1), with
 ;; ties broken by device as in RFC 677. Deviation: two entries of one device
 ;; at one instant, e.g. from as-device, fall back to the printed entry.
@@ -332,15 +365,13 @@
   on all of them."
   [a b]
   (cond
-    (nil? a)                         b
-    (nil? b)                         a
-    (> (stamp-ms a) (stamp-ms b))    a
-    (< (stamp-ms a) (stamp-ms b))    b
-    (= a b)                          a
-    :else                            (if (pos? (compare [(str (:device a)) (printed a)]
-                                                        [(str (:device b)) (printed b)]))
-                                       a
-                                       b)))
+    (nil? a)                                 b
+    (nil? b)                                 a
+    (> (stamp-ms a) (stamp-ms b))            a
+    (< (stamp-ms a) (stamp-ms b))            b
+    (= a b)                                  a
+    (pos? (compare (tie-key a) (tie-key b))) a
+    :else                                    b))
 
 ;; A G-Counter (Shapiro et al. 2011, section 3.1.2) with an entry per device,
 ;; ordered as a lexicographic product of count and stamp (Almeida 2024,
@@ -351,7 +382,9 @@
   higher count includes the lower one."
   [k a b]
   (let [n #(let [n (get % k)] (if (number? n) n 0))]
-    (if (== (n a) (n b)) (later a b) (max-key n a b))))
+    (if (== (n a) (n b))
+      (later a b)
+      (max-key n a b))))
 
 ;; The join of a state-based CRDT (Shapiro et al. 2011, section 2.3.1): maps
 ;; merge pointwise and the clock by max (Almeida 2024, section 5.1, figure
@@ -384,10 +417,14 @@
   The merge is commutative, associative and idempotent, so it's safe to
   apply in any order and any number of times."
   [schema a b]
-  (let [pick (fn [k] (if-let [n (get-in schema [k :count])] (partial higher n) later))]
+  (let [pick (fn [k]
+               (if-let [n (get-in schema [k :count])]
+                 (partial higher n)
+                 later))
+        ks   (disj (into (set (keys a)) (keys b)) :device)]
     (into {:device (:device a)}
           (map (fn [k] [k (join (pick k) (get a k) (get b k))]))
-          (disj (into (set (keys a)) (keys b)) :device))))
+          ks)))
 
 ;; Fractional indexing (Wallace 2017). Deviation: with no server to make the
 ;; ranks unique, equal ranks stay, and the stamp orders them.
@@ -408,8 +445,11 @@
   [entries moves]
   (reduce-kv (fn [m id mv]
                (let [e (get entries id)]
-                 (if (and e (live? mv) (identical? mv (later e mv)))
-                   (assoc m id (into e (select-keys mv [:rank :updated-at :device])))
+                 (if (and e
+                          (live? mv)
+                          (identical? mv (later e mv)))
+                   (let [place (select-keys mv [:rank :updated-at :device])]
+                     (assoc m id (into e place)))
                    m)))
              entries
              moves))
@@ -431,7 +471,11 @@
   "The greatest rank among the live `entries`, or nil, found in one pass
   so that appending many entries doesn't sort them each time."
   [entries]
-  (reduce-kv (fn [r _ {:keys [rank removed?]}] (if (and (not removed?) (pos? (compare rank r))) rank r))
+  (reduce-kv (fn [r _ {:keys [rank removed?]}]
+               (if (and (not removed?)
+                        (pos? (compare rank r)))
+                 rank
+                 r))
              nil
              entries))
 
@@ -441,7 +485,8 @@
   as 0."
   [entries id index]
   (let [others (vec (remove #{id} (map key (ranked entries))))
-        index  (long (max 0 (min (if (== index index) index 0) (count others))))]
+        index  (if (== index index) index 0)
+        index  (long (max 0 (min index (count others))))]
     (rank-between entries (get others (dec index)) (get others index))))
 
 ;; The device blocks keep appends clear of the interleaving anomaly
@@ -456,10 +501,12 @@
   the state's device, so that ids that another device appends at the same
   time don't mix with them."
   [state path entries ids]
-  (let [fresh (remove #(live? (get entries %)) (distinct ids))]
-    (map (fn [id rank] [(conj path id) (constantly {:rank rank :removed? false})])
+  (let [fresh (remove #(live? (get entries %)) (distinct ids))
+        ranks (rank/after (last-rank entries) (count fresh) (:device state))]
+    (map (fn [id rank]
+           [(conj path id) (constantly {:rank rank :removed? false})])
          fresh
-         (rank/after (last-rank entries) (count fresh) (:device state)))))
+         ranks)))
 
 (defn ^:no-doc append
   "The `state` with the `ids` at the end of the ranked `entries` at `path`,
@@ -481,9 +528,14 @@
   `v`."
   [path depth v]
   (cond
-    (not (map? v))     (str "the entry at " (pr-str path) " is not a map")
-    (pos? depth)       (some (fn [[k x]] (entry-problem (conj path k) (dec depth) x)) v)
-    (not (stamped? v)) (str "the entry at " (pr-str path) " is not stamped")))
+    (not (map? v))
+    (str "the entry at " (pr-str path) " is not a map")
+
+    (pos? depth)
+    (some (fn [[k x]] (entry-problem (conj path k) (dec depth) x)) v)
+
+    (not (stamped? v))
+    (str "the entry at " (pr-str path) " is not stamped")))
 
 (defn- collection-problem
   "A description of the first collection of `state` in the `schema` that
@@ -502,26 +554,38 @@
   the devices never agree on it."
   [path v]
   (cond
-    (or (nil? v) (stamped? v)) nil
-    (map? v)                   (some (fn [[k x]] (value-problem (conj path k) x)) v)
-    :else                      (str "the value at " (pr-str path) " is not in a stamped entry")))
+    (or (nil? v) (stamped? v))
+    nil
+
+    (map? v)
+    (some (fn [[k x]] (value-problem (conj path k) x)) v)
+
+    :else
+    (str "the value at " (pr-str path) " is not in a stamped entry")))
 
 (defn- stamp-problem
   "A description of the first entry in `v`, at `path`, whose stamp isn't
   an instant."
   [path v]
   (cond
-    (stamped? v) (when-not (inst? (:updated-at v))
-                   (str "the entry at " (pr-str path) " is stamped " (pr-str (:updated-at v))
-                        ", not an instant"))
-    (map? v)     (some (fn [[k x]] (stamp-problem (conj path k) x)) v)
-    :else        nil))
+    (stamped? v)
+    (when-not (inst? (:updated-at v))
+      (str "the entry at " (pr-str path) " is stamped "
+           (pr-str (:updated-at v)) ", not an instant"))
+
+    (map? v)
+    (some (fn [[k x]] (stamp-problem (conj path k) x)) v)
+
+    :else
+    nil))
 
 (defn- seen-problem
   [state]
   (some (fn [[id {:keys [seen]}]]
-          (when-not (or (nil? seen) (and (map? seen) (every? inst? (vals seen))))
-            (str "what device " (pr-str id) " has seen is not a map of instants")))
+          (when-not (or (nil? seen)
+                        (and (map? seen) (every? inst? (vals seen))))
+            (str "what device " (pr-str id)
+                 " has seen is not a map of instants")))
         (:devices state)))
 
 (defn problem
@@ -551,9 +615,17 @@
   earlier state, or nil when nothing changed."
   [v was]
   (cond
-    (stamped? v) (when (not= v was) v)
-    (map? v)     (not-empty (into {} (keep (fn [[k x]] (some->> (changed-part x (get was k)) (vector k)))) v))
-    :else        nil))
+    (stamped? v)
+    (when (not= v was) v)
+
+    (map? v)
+    (not-empty (into {} (keep (fn [[k x]]
+                                (some->> (changed-part x (get was k))
+                                         (vector k))))
+                     v))
+
+    :else
+    nil))
 
 ;; A delta-state (Almeida, Shoker and Baquero 2018), found by comparing two
 ;; states rather than made by each write.
@@ -565,7 +637,8 @@
   is what a sync pushes to a service that wants changes rather than the
   whole state."
   [state previous]
-  (into (select-keys state header) (changed-part (apply dissoc state header) previous)))
+  (let [entries (apply dissoc state header)]
+    (into (select-keys state header) (changed-part entries previous))))
 
 (comment
   (def schema
@@ -575,7 +648,8 @@
   (def phone
     (-> {:device "phone"}
         (write [:notes "n1"] (constantly {:text "Buy milk"}) #inst "2026-01-01")
-        (write [:plays "song" "phone"] #(update % :n (fnil inc 0)) #inst "2026-01-01")))
+        (write [:plays "song" "phone"] #(update % :n (fnil inc 0))
+               #inst "2026-01-01")))
 
   (def laptop
     (-> {:device "laptop"}

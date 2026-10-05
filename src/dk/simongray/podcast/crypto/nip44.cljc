@@ -52,7 +52,8 @@
   (loop [i 1 last (bytes/of []) out []]
     (if (<= n (* 32 (count out)))
       (bytes/copy (bytes/join out) 0 n)
-      (let [part (bytes/hmac-sha256 key (bytes/join [last info (bytes/of [i])]))]
+      (let [input (bytes/join [last info (bytes/of [i])])
+            part  (bytes/hmac-sha256 key input)]
         (recur (inc i) part (conj out part))))))
 
 (defn- key?
@@ -60,7 +61,8 @@
   conversation key and a nonce are."
   [x]
   (let [text (secret/reveal x)]
-    (boolean (and (string? text) (re-matches #"[0-9a-fA-F]{64}" text)))))
+    (boolean (and (string? text)
+                  (re-matches #"[0-9a-fA-F]{64}" text)))))
 
 (defn- check-key
   "Throw unless `x` is a key, as key? tells, with `what` it is in the
@@ -68,7 +70,8 @@
   ClojureScript leaves assertions out."
   [x what]
   (when-not (key? x)
-    (throw (ex-info (str "The " what " isn't hexadecimal text of 32 bytes") {}))))
+    (throw (ex-info (str "The " what " isn't hexadecimal text of 32 bytes")
+                    {}))))
 
 (defn conversation-key
   "The key that the owner of `secret-key` shares with the owner of
@@ -85,7 +88,9 @@
   secp256k1/shared-x gives, extracted by HKDF with the salt nip44-v2."
   [secret-key public-key]
   (when-let [x (secp256k1/shared-x secret-key public-key)]
-    (secret/hide (bytes/hex (extracted (bytes/encode salt) (bytes/from-hex (secret/reveal x)))))))
+    (let [material (bytes/from-hex (secret/reveal x))
+          key      (extracted (bytes/encode salt) material)]
+      (secret/hide (bytes/hex key)))))
 
 (defn ^:no-doc message-keys
   "The keys of one payload from `conversation-key` and `nonce`, which are
@@ -96,7 +101,8 @@
 
   They're 76 bytes that HKDF expands."
   [conversation-key nonce]
-  (let [b (expanded (bytes/from-hex (secret/reveal conversation-key)) (bytes/from-hex nonce) 76)]
+  (let [key (bytes/from-hex (secret/reveal conversation-key))
+        b   (expanded key (bytes/from-hex nonce) 76)]
     {:cipher-key   (bytes/copy b 0 32)
      :cipher-nonce (bytes/copy b 32 44)
      :check-key    (bytes/copy b 44 76)}))
@@ -182,10 +188,16 @@
    (check-key nonce "nonce")
    (let [text (bytes/encode plaintext)]
      (when (<= 1 (bytes/length text) (:max-bytes (merge default-limits opts)))
-       (let [{:keys [cipher-key cipher-nonce check-key]} (message-keys conversation-key nonce)
+       (let [{:keys [cipher-key cipher-nonce check-key]}
+             (message-keys conversation-key nonce)
+
              nonce  (bytes/from-hex nonce)
-             sealed (chacha20/encrypt cipher-key cipher-nonce (padded text))]
-         (bytes/base64 (bytes/join [(bytes/of [version]) nonce sealed (check check-key nonce sealed)])))))))
+             sealed (chacha20/encrypt cipher-key cipher-nonce (padded text))
+             parts  [(bytes/of [version])
+                     nonce
+                     sealed
+                     (check check-key nonce sealed)]]
+         (bytes/base64 (bytes/join parts)))))))
 
 (defn payload-version
   "The version of the `payload`, a number, or nil for a text that isn't a
@@ -195,7 +207,8 @@
   This namespace reads version 2. With another version, an app can tell
   the user that the other side has a later version of NIP-44."
   [payload]
-  (when (and (string? payload) (<= 4 (count payload)))
+  (when (and (string? payload)
+             (<= 4 (count payload)))
     (some-> (bytes/from-base64 (subs payload 0 4)) (bytes/at 0))))
 
 (defn decrypt
@@ -217,16 +230,21 @@
    {:pre [(map? opts)]}
    (check-key conversation-key "conversation key")
    (let [most (payload-length (:max-bytes (merge default-limits opts)))
-         b    (when (and (string? payload) (<= 132 (count payload) most))
+         b    (when (and (string? payload)
+                         (<= 132 (count payload) most))
                 (bytes/from-base64 payload))
          n    (if b (bytes/length b) 0)]
-     (when (and (<= 99 n) (= version (bytes/at b 0)))
+     (when (and (<= 99 n)
+                (= version (bytes/at b 0)))
        (let [nonce  (bytes/copy b 1 33)
              sealed (bytes/copy b 33 (- n 32))
-             {:keys [cipher-key cipher-nonce check-key]} (message-keys conversation-key (bytes/hex nonce))]
-         (when (bytes/same? (check check-key nonce sealed) (bytes/copy b (- n 32) n))
-           (when-let [text (unpadded (chacha20/encrypt cipher-key cipher-nonce sealed))]
-             (bytes/decode text 0 (bytes/length text) :utf8))))))))
+             mac    (bytes/copy b (- n 32) n)
+             {:keys [cipher-key cipher-nonce check-key]}
+             (message-keys conversation-key (bytes/hex nonce))]
+         (when (bytes/same? (check check-key nonce sealed) mac)
+           (let [opened (chacha20/encrypt cipher-key cipher-nonce sealed)]
+             (when-let [text (unpadded opened)]
+               (bytes/decode text 0 (bytes/length text) :utf8)))))))))
 
 (comment
   ;; the secret keys 1 and 2, and the public key of each
@@ -239,13 +257,17 @@
 
   ;; the example of NIP-44
   (def payload
-    (encrypt "a"
-             "c41c775356fd92eadc63ff5a0dc1da211b268cbea22316767095b2871ea1412d"
-             "0000000000000000000000000000000000000000000000000000000000000001"))
+    (encrypt
+     "a"
+     "c41c775356fd92eadc63ff5a0dc1da211b268cbea22316767095b2871ea1412d"
+     "0000000000000000000000000000000000000000000000000000000000000001"))
 
   (payload-version payload)
-  (decrypt payload "c41c775356fd92eadc63ff5a0dc1da211b268cbea22316767095b2871ea1412d")
+  (decrypt payload
+           "c41c775356fd92eadc63ff5a0dc1da211b268cbea22316767095b2871ea1412d")
 
   ;; a new nonce for each payload
-  (encrypt "a" (conversation-key ann (secp256k1/public-key bob)) (bytes/hex (bytes/generate! 32)))
+  (encrypt "a"
+           (conversation-key ann (secp256k1/public-key bob))
+           (bytes/hex (bytes/generate! 32)))
   #_.)

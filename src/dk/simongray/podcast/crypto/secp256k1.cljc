@@ -91,7 +91,9 @@
   it back, which costs less than a division."
   [a b]
   #?(:clj  (let [sum (.add ^BigInteger a ^BigInteger b)]
-             (if (neg? (.compareTo sum ^BigInteger p)) sum (.subtract sum ^BigInteger p)))
+             (if (neg? (.compareTo sum ^BigInteger p))
+               sum
+               (.subtract sum ^BigInteger p)))
      :cljs (let [sum (+ a b)]
              (if (< sum p) sum (- sum p)))))
 
@@ -100,7 +102,9 @@
   field."
   [a b]
   #?(:clj  (let [difference (.subtract ^BigInteger a ^BigInteger b)]
-             (if (neg? (.signum difference)) (.add difference ^BigInteger p) difference))
+             (if (neg? (.signum difference))
+               (.add difference ^BigInteger p)
+               difference))
      :cljs (let [difference (- a b)]
              (if (neg? difference) (+ difference p) difference))))
 
@@ -122,7 +126,8 @@
   `k`, plus its higher bits times overflow."
   [k]
   #?(:clj  (.add (.and ^BigInteger k ^BigInteger low-bits)
-                 (.multiply (.shiftRight ^BigInteger k (int shift)) ^BigInteger overflow))
+                 (.multiply (.shiftRight ^BigInteger k (int shift))
+                            ^BigInteger overflow))
      :cljs (+ (bit-and k low-bits) (* (bit-shift-right k shift) overflow))))
 
 (defn- mul
@@ -132,7 +137,9 @@
   [a b]
   (let [product #?(:clj (.multiply ^BigInteger a ^BigInteger b) :cljs (* a b))
         small   (folded (folded product))]
-    #?(:clj  (if (neg? (.compareTo ^BigInteger small ^BigInteger p)) small (.subtract ^BigInteger small ^BigInteger p))
+    #?(:clj  (if (neg? (.compareTo ^BigInteger small ^BigInteger p))
+               small
+               (.subtract ^BigInteger small ^BigInteger p))
        :cljs (if (< small p) small (- small p)))))
 
 (defn- bits
@@ -218,7 +225,9 @@
         full  (bit-shift-left 1 width)
         bit   #(get low % 0)
         ;; the number that the bits from `i` show in the window
-        shown (fn [i] (reduce + (map #(bit-shift-left (bit (+ i %)) %) (range width))))]
+        shown (fn [i]
+                (reduce + (map #(bit-shift-left (bit (+ i %)) %)
+                               (range width))))]
     (loop [i 0 carry 0 out []]
       (let [lowest (long (+ (bit i) carry))]
         (cond
@@ -230,17 +239,19 @@
 
           :else
           (let [v      (long (+ (shown i) carry))
-                above? (< (quot full 2) v)]
+                above? (< (quot full 2) v)
+                digit  (if above? (- v full) v)]
             (recur (+ i width)
                    (if above? 1 0)
-                   (into (conj out (if above? (- v full) v)) (repeat (dec width) 0)))))))))
+                   (into (conj out digit) (repeat (dec width) 0)))))))))
 
 (defn- multiples
   "The odd multiples of the point `point` for digits of `width` bits, as
   a vector: the point times 1, 3, 5 and so on."
   [point width]
-  (let [twice (doubled point)]
-    (vec (take (bit-shift-left 1 (- width 2)) (iterate #(added % twice) point)))))
+  (let [twice (doubled point)
+        n     (bit-shift-left 1 (- width 2))]
+    (vec (take n (iterate #(added % twice) point)))))
 
 (defn- summed
   "The sum of the products of `terms`. Each term is the digits of a
@@ -251,9 +262,14 @@
             (reduce (fn [acc [ds points]]
                       (let [d (get ds i 0)]
                         (cond
-                          (zero? d) acc
-                          (pos? d)  (added acc (nth points (quot d 2)))
-                          :else     (added acc (negative (nth points (quot (- d) 2)))))))
+                          (zero? d)
+                          acc
+
+                          (pos? d)
+                          (added acc (nth points (quot d 2)))
+
+                          :else
+                          (added acc (negative (nth points (quot (- d) 2)))))))
                     (doubled acc)
                     terms))
           nil
@@ -344,8 +360,10 @@
   "The bytes of the hexadecimal texts `a` and `b`, each byte of `a` with
   the byte of `b` at its place by exclusive or, in hexadecimal."
   [a b]
-  (let [[a b] (map bytes/from-hex [a b])]
-    (bytes/hex (bytes/of (map #(bit-xor (bytes/at a %) (bytes/at b %)) (range (bytes/length a)))))))
+  (let [[a b] (map bytes/from-hex [a b])
+        xored (map #(bit-xor (bytes/at a %) (bytes/at b %))
+                   (range (bytes/length a)))]
+    (bytes/hex (bytes/of xored))))
 
 (defn verify
   "Whether `signature` is the signature of the `message` by the owner of
@@ -357,17 +375,24 @@
   y coordinate."
   [public-key message signature]
   (boolean
-   (when (and (string? public-key) (re-matches #"[0-9a-fA-F]{64}" public-key)
-              (string? signature) (re-matches #"[0-9a-fA-F]{128}" signature)
+   (when (and (string? public-key)
+              (re-matches #"[0-9a-fA-F]{64}" public-key)
+              (string? signature)
+              (re-matches #"[0-9a-fA-F]{128}" signature)
               (some? (bytes/from-hex message)))
-     (let [[public-key message signature] (map str/lower-case [public-key message signature])
+     (let [[public-key message signature]
+           (map str/lower-case [public-key message signature])
+
            point (lifted (big public-key))
            r     (big (subs signature 0 64))
            s     (big (subs signature 64))]
        (when (and point (< r p) (< s n))
          (let [e     (challenge (subs signature 0 64) public-key message)
-               [x y] (affine (summed [(by-generator s) (by-point (negated e) point)]))]
-           (and (some? x) (even-number? y) (= x r))))))))
+               terms [(by-generator s) (by-point (negated e) point)]
+               [x y] (affine (summed terms))]
+           (and (some? x)
+                (even-number? y)
+                (= x r))))))))
 
 (defn public-key
   "The public key of the `secret-key`, both hexadecimal text of 32 bytes,
@@ -405,7 +430,10 @@
   (when-let [d (secret-number secret-key)]
     (when (public-key? public-key)
       (let [point (lifted (big (str/lower-case public-key)))]
-        (some-> (affine (summed [(by-point d point)])) first hex32 secret/hide)))))
+        (some-> (affine (summed [(by-point d point)]))
+                first
+                hex32
+                secret/hide)))))
 
 (defn sign
   "The signature of the `message` with the `secret-key` and the random
@@ -422,7 +450,8 @@
   [secret-key message aux]
   (when-let [d (secret-number secret-key)]
     (when (and (some? (bytes/from-hex message))
-               (string? aux) (re-matches #"[0-9a-fA-F]{64}" aux))
+               (string? aux)
+               (re-matches #"[0-9a-fA-F]{64}" aux))
       (let [[px py] (multiplied d)
             d       (if (even-number? py) d (negated d))
             t       (xor (hex32 d) (tagged "BIP0340/aux" aux))
@@ -433,8 +462,10 @@
           (let [[rx ry]   (multiplied k)
                 k         (if (even-number? ry) k (negated k))
                 e         (challenge (hex32 rx) (hex32 px) message)
-                s         #?(:clj  (.mod (.add ^BigInteger k (.multiply ^BigInteger e ^BigInteger d)) n)
-                             :cljs (mod (+ k (* e d)) n))
+                ed        #?(:clj  (.multiply ^BigInteger e ^BigInteger d)
+                             :cljs (* e d))
+                s         #?(:clj  (.mod (.add ^BigInteger k ^BigInteger ed) n)
+                             :cljs (mod (+ k ed) n))
                 signature (str (hex32 rx) (hex32 s))]
             (when (verify (hex32 px) message signature)
               signature)))))))
