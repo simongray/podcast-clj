@@ -23,29 +23,45 @@
 
 (def css
   "The inspector's stylesheet, inlined into every page."
-  "body{font:15px/1.45 system-ui,sans-serif;margin:0;color:#222;background:#fafafa}
+  "body{font:15px/1.45 system-ui,sans-serif;margin:0;color:#222;
+        background:#fafafa}
    main{max-width:1100px;margin:0 auto;padding:1rem 1.5rem 3rem}
    header{display:flex;gap:1rem;align-items:center}
    header img{width:96px;height:96px;border-radius:8px;object-fit:cover}
-   h1{margin:.2rem 0;font-size:1.5rem} h2{margin-top:2rem;border-bottom:1px solid #ddd;padding-bottom:.2rem}
+   h1{margin:.2rem 0;font-size:1.5rem}
+   h2{margin-top:2rem;border-bottom:1px solid #ddd;padding-bottom:.2rem}
    table{border-collapse:collapse;width:100%;font-size:14px}
-   th,td{text-align:left;vertical-align:top;padding:.3rem .5rem;border-bottom:1px solid #eee}
+   th,td{text-align:left;vertical-align:top;padding:.3rem .5rem;
+         border-bottom:1px solid #eee}
    th{background:#f0f0f0} code,pre{font:13px/1.4 ui-monospace,Menlo,monospace}
-   pre{background:#f4f4f4;padding:.6rem;overflow:auto;max-height:24rem;white-space:pre-wrap}
+   pre{background:#f4f4f4;padding:.6rem;overflow:auto;max-height:24rem;
+       white-space:pre-wrap}
    .error{color:#b00020} .warning{color:#a15c00} .info{color:#555}
-   .muted{color:#777} .badge{display:inline-block;padding:0 .4rem;border-radius:4px;background:#e8e8e8;margin-right:.3rem;font-size:12px}
-   nav a{margin-right:1rem} form input[type=url],form input[type=search],form input[type=password],form input[type=text]{width:60%;padding:.4rem} form button{padding:.4rem .8rem}
-   form input[type=number]{width:8rem;padding:.4rem} form input[name=message]{width:40%;padding:.4rem}
-   form.selection input[type=search]{width:30%} form.selection input,form.selection select{padding:.3rem}
-   .results li{margin:.6rem 0} .snippet{color:#444;max-width:80ch} mark{background:#fff3a0}
+   .muted{color:#777}
+   .badge{display:inline-block;padding:0 .4rem;border-radius:4px;
+          background:#e8e8e8;margin-right:.3rem;font-size:12px}
+   nav a{margin-right:1rem}
+   form input[type=url],form input[type=search],form input[type=password],
+   form input[type=text]{width:60%;padding:.4rem}
+   form button{padding:.4rem .8rem}
+   form input[type=number]{width:8rem;padding:.4rem}
+   form input[name=message]{width:40%;padding:.4rem}
+   form.selection input[type=search]{width:30%}
+   form.selection input,form.selection select{padding:.3rem}
+   .results li{margin:.6rem 0} .snippet{color:#444;max-width:80ch}
+   mark{background:#fff3a0}
    ul.compact{margin:0;padding-left:1.2rem}
    .notes{max-width:70ch} .notes img{max-width:100%;height:auto}
-   ol.comments{list-style:none;padding-left:1rem;border-left:2px solid #eee} .comment{margin:.8rem 0}
-   .avatar{width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:.4rem}
+   ol.comments{list-style:none;padding-left:1rem;border-left:2px solid #eee}
+   .comment{margin:.8rem 0}
+   .avatar{width:24px;height:24px;border-radius:50%;vertical-align:middle;
+           margin-right:.4rem}
    img.attachment{max-width:240px;max-height:240px;margin:.3rem .3rem 0 0}
    #player-bar:empty{display:none}
-   #player-bar{position:sticky;top:0;z-index:1;background:#fff;border-bottom:1px solid #ddd;padding:.5rem 1.5rem}
-   #player-bar .bar{max-width:1100px;margin:0 auto;display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+   #player-bar{position:sticky;top:0;z-index:1;background:#fff;
+               border-bottom:1px solid #ddd;padding:.5rem 1.5rem}
+   #player-bar .bar{max-width:1100px;margin:0 auto;display:flex;gap:1rem;
+                    align-items:center;flex-wrap:wrap}
    #player-bar audio{height:32px}")
 
 (defn layout
@@ -62,7 +78,10 @@
     ;; swapped on navigation, so that playback survives moving between pages.
     [:div#player-bar]
     (into [:main#content
-           [:nav [:a {:href "/"} "Inspector"] [:a {:href "/queue"} "Queue"] [:a {:href "/podping"} "Podping"]
+           [:nav
+            [:a {:href "/"} "Inspector"]
+            [:a {:href "/queue"} "Queue"]
+            [:a {:href "/podping"} "Podping"]
             [:span.muted "podcast-clj reference implementation"]]]
           body)
     [:script {:src "/js/player.js"}]]])
@@ -73,8 +92,10 @@
 
 (defn- feed-href
   [route url & [params]]
-  (str route "?url=" (http/percent-encode url)
-       (apply str (for [[k v] params :when v] (str "&" (name k) "=" (http/percent-encode v))))))
+  (let [query (for [[k v] params
+                    :when v]
+                (str "&" (name k) "=" (http/percent-encode v)))]
+    (str route "?url=" (http/percent-encode url) (apply str query))))
 
 (defn- link
   "The URL `url`, which a feed chose, when a link may lead there: over http
@@ -84,38 +105,55 @@
   (when (re-find #"(?i)^https?://" (str url))
     url))
 
+(defn- field
+  "A required input of the type `kind`, named `field-name`, with the
+  `placeholder`."
+  [kind field-name placeholder]
+  [:input {:type        kind
+           :name        field-name
+           :placeholder placeholder
+           :required    true}])
+
 (defn home
   "The landing page: a URL form and the corpus, `corpus` being a seq of
   `[name url]`."
   [corpus]
   (layout "Home"
           [:h1 "Podcast feed inspector"]
-          [:p "Parse any RSS feed with the library, see what it understood, what it had to forgive, and how the feed measures up to the standards."]
+          [:p (str "Parse any RSS feed with the library, see what it "
+                   "understood, what it had to forgive, and how the feed "
+                   "measures up to the standards.")]
           [:form {:method "get" :action "/find"}
-           [:input {:type "text" :name "q" :placeholder "a feed, a website, or a link from a podcast app" :required true}]
+           (field "text" "q" "a feed, a website, or a link from a podcast app")
            " "
            [:button {:type "submit"} "Inspect"]]
           [:form {:method "get" :action "/directory"}
-           [:input {:type "search" :name "q" :placeholder "or find a podcast in the directories" :required true}]
+           (field "search" "q" "or find a podcast in the directories")
            " "
            [:button {:type "submit"} "Find"]
            " "
            [:a.muted {:href "/directory"} "charts"]]
           [:form {:method "get" :action "/thread"}
-           [:input {:type "text" :name "uri" :placeholder "or read the comments below a post" :required true}]
+           (field "text" "uri" "or read the comments below a post")
            " "
            [:button {:type "submit"} "Read"]]
-          [:p [:a {:href "/wallet"} "Connect a wallet"] [:span.muted " with Nostr Wallet Connect"]]
+          [:p
+           [:a {:href "/wallet"} "Connect a wallet"]
+           [:span.muted " with Nostr Wallet Connect"]]
           (when (seq corpus)
             (list [:h2 "Corpus"]
-                  [:p.muted "Real feeds from the hosting platforms the library is tested against."]
+                  [:p.muted (str "Real feeds from the hosting platforms the "
+                                 "library is tested against.")]
                   [:form {:method "get" :action "/search"}
-                   [:input {:type "search" :name "q" :placeholder "Search every episode in the corpus" :required true}]
+                   (field "search" "q" "Search every episode in the corpus")
                    " "
                    [:button {:type "submit"} "Search"]]
                   [:ul.compact
                    (for [[name url] corpus]
-                     [:li [:a {:href (str "/corpus/" name)} name] " " [:span.muted url]])]))))
+                     [:li
+                      [:a {:href (str "/corpus/" name)} name]
+                      " "
+                      [:span.muted url]])]))))
 
 (defn- level-class
   [level]
@@ -128,16 +166,20 @@
   (if (empty? diagnostics)
     [:p.muted "None."]
     [:table
-     [:thead [:tr [:th "Level"] [:th "Diagnostic"] [:th "Count"] [:th "Example"]]]
+     [:thead
+      [:tr [:th "Level"] [:th "Diagnostic"] [:th "Count"] [:th "Example"]]]
      [:tbody
-      (for [{:keys [id level message example] n :count} (diagnostics/summarize diagnostics)]
+      (for [{:keys [id level message example] n :count}
+            (diagnostics/summarize diagnostics)]
         [:tr
          [:td {:class (level-class level)} (name (or level :info))]
          [:td [:code (str id)]]
          [:td n]
          [:td message
           (when-let [extras (seq (dissoc example :id :level :message :path))]
-            [:span.muted (str " · " (str/join ", " (for [[k v] extras] (str (name k) "=" (pr-str v)))))])]])]]))
+            (let [pairs (for [[k v] extras]
+                          (str (name k) "=" (pr-str v)))]
+              [:span.muted (str " · " (str/join ", " pairs))]))]])]]))
 
 (defn- kv-table
   "A table of the entries of `m`, values pretty-printed."
@@ -161,21 +203,23 @@
   reads through dk.simongray.podcast.feed.resolve, and the raw fields each
   answer came from."
   [properties sources]
-  [:table
-   [:thead [:tr [:th "Property"] [:th "Value"] [:th "From"]]]
-   [:tbody
-    (for [[k v] (sort-by key properties)]
-      [:tr
-       [:td [:code (name k)]]
-       [:td [:code (shorten (pr-str v) 160)]]
-       [:td.muted (str/join ", " (for [path (get sources k)]
-                                   (str/join " " (map #(if (namespace %) (str %) (name %)) path))))]])]])
+  (let [key-str  #(if (namespace %) (str %) (name %))
+        path-str #(str/join " " (map key-str %))]
+    [:table
+     [:thead [:tr [:th "Property"] [:th "Value"] [:th "From"]]]
+     [:tbody
+      (for [[k v] (sort-by key properties)]
+        [:tr
+         [:td [:code (name k)]]
+         [:td [:code (shorten (pr-str v) 160)]]
+         [:td.muted (str/join ", " (map path-str (get sources k)))]])]]))
 
 (defn- numbering-str
   "S2E3-style label for the `numbering` of an item, empty without numbers."
   [{:keys [season episode episode-display type]}]
   (str (when season (str "S" season))
-       (when (or episode episode-display) (str "E" (or episode-display episode)))
+       (when (or episode episode-display)
+         (str "E" (or episode-display episode)))
        (when-not (= "full" type) (str " " type))))
 
 (defn- size-str
@@ -194,12 +238,15 @@
         alternatives             (count (resolve/enclosures item))
         people                   (resolve/people feed item)
         own-people?              (seq (:podcast/people item))
-        guid                     (feed/item-guid item)]
+        guid                     (feed/item-guid item)
+        title                    (or (resolve/title item) "(untitled)")
+        href                     (when guid
+                                   (feed-href "/item" feed-url {:guid guid}))
+        chapters-url             (resolve/chapters-url item)
+        embedded                 (resolve/embedded-chapters item)]
     [:tr
      [:td (inc i)]
-     [:td [:strong (if guid
-                     [:a {:href (feed-href "/item" feed-url {:guid guid})} (or (resolve/title item) "(untitled)")]
-                     (or (resolve/title item) "(untitled)"))]
+     [:td [:strong (if href [:a {:href href} title] title)]
       (when-let [n (not-empty (numbering-str (resolve/numbering item)))]
         [:span.badge n])
       [:br] [:span.muted (inst-str (resolve/published item))]
@@ -209,21 +256,34 @@
         [:span.muted " · explicit"])]
      [:td (when url
             [:span [:a {:href (link url)} (or type "media")]
-             (when (number? length) [:span.muted (str " · " (size-str length))])
-             (when (> alternatives 1) [:span.muted (str " · " alternatives " sources")])])]
+             (when (number? length)
+               [:span.muted (str " · " (size-str length))])
+             (when (> alternatives 1)
+               [:span.muted (str " · " alternatives " sources")])])]
      [:td (concat
-           (when-let [t (resolve/transcript item)] [[:span.badge (str "transcript " (:type t))]])
-           (when (resolve/chapters-url item) [[:span.badge "chapters"]])
-           (when (resolve/embedded-chapters item) [[:span.badge "embedded chapters"]])
-           (when (and (not (resolve/chapters-url item)) (not (resolve/embedded-chapters item))
+           (when-let [t (resolve/transcript item)]
+             [[:span.badge (str "transcript " (:type t))]])
+           (when chapters-url
+             [[:span.badge "chapters"]])
+           (when embedded
+             [[:span.badge "embedded chapters"]])
+           (when (and (not chapters-url)
+                      (not embedded)
                       (resolve/inferred-chapters item))
              [[:span.badge "chapters in the notes"]])
-           (for [p people] [:span.badge {:class (when-not own-people? "muted")} (str (:role p) ": " (:name p))])
-           (when (resolve/value feed item) [[:span.badge "value"]])
-           (when (seq (:podcast/soundbites item)) [[:span.badge "soundbites"]])
-           (when (seq (:podcast/social-interacts item)) [[:span.badge "social"]])
-           (when-let [art (resolve/artwork item)] [[:span.badge [:a {:href (link art)} "artwork"]]])
-           (for [[tag] (:xml/unknown item)] [:span.badge.muted (str tag)]))]]))
+           (for [p people]
+             [:span.badge {:class (when-not own-people? "muted")}
+              (str (:role p) ": " (:name p))])
+           (when (resolve/value feed item)
+             [[:span.badge "value"]])
+           (when (seq (:podcast/soundbites item))
+             [[:span.badge "soundbites"]])
+           (when (seq (:podcast/social-interacts item))
+             [[:span.badge "social"]])
+           (when-let [art (resolve/artwork item)]
+             [[:span.badge [:a {:href (link art)} "artwork"]]])
+           (for [[tag] (:xml/unknown item)]
+             [:span.badge.muted (str tag)]))]]))
 
 (def orders
   "The orders the feed page offers: those of `search/orders` that need no
@@ -236,26 +296,41 @@
   the library's own criteria and orders, so a client's UI has the same to
   offer."
   [url {:keys [where order]} requirements]
-  [:form.selection {:method "get" :action "/feed"}
-   [:input {:type "hidden" :name "url" :value url}]
-   (when requirements
-     [:input {:type "hidden" :name "requirements" :value (name requirements)}])
-   [:input {:type "search" :name "q" :placeholder "words in the title or notes" :value (:text where)}]
-   " season "
-   [:input {:type "number" :name "season" :min 0 :value (:season where) :style {:width "4em"}}]
-   " "
-   [:select {:name "type"}
-    (for [[v label] [["" "any type"] ["full" "full"] ["trailer" "trailer"] ["bonus" "bonus"]]]
-      [:option {:value v :selected (= v (or (:type where) ""))} label])]
-   " "
-   [:select {:name "order"}
-    (for [o orders]
-      [:option {:value (name o) :selected (= o (or order :listening))} (name o)])]
-   " "
-   [:button {:type "submit"} "Apply"]
-   " "
-   [:a {:href (str "/search?url=" (http/percent-encode url) (when-let [q (:text where)] (str "&q=" (http/percent-encode q))))}
-    "full-text search"]])
+  (let [types       [["" "any type"] ["full" "full"] ["trailer" "trailer"]
+                     ["bonus" "bonus"]]
+        search-href (str "/search?url=" (http/percent-encode url)
+                         (when-let [q (:text where)]
+                           (str "&q=" (http/percent-encode q))))]
+    [:form.selection {:method "get" :action "/feed"}
+     [:input {:type "hidden" :name "url" :value url}]
+     (when requirements
+       [:input {:type  "hidden"
+                :name  "requirements"
+                :value (name requirements)}])
+     [:input {:type        "search"
+              :name        "q"
+              :placeholder "words in the title or notes"
+              :value       (:text where)}]
+     " season "
+     [:input {:type  "number"
+              :name  "season"
+              :min   0
+              :value (:season where)
+              :style {:width "4em"}}]
+     " "
+     [:select {:name "type"}
+      (for [[v label] types]
+        [:option {:value v :selected (= v (or (:type where) ""))} label])]
+     " "
+     [:select {:name "order"}
+      (for [o orders]
+        [:option {:value    (name o)
+                  :selected (= o (or order :listening))}
+         (name o)])]
+     " "
+     [:button {:type "submit"} "Apply"]
+     " "
+     [:a {:href search-href} "full-text search"]]))
 
 (defn feed-page
   "The inspector page for `feed`, fetched from `url`, with its parse
@@ -265,70 +340,99 @@
   (let [items      (search/episodes feed (or selection {}))
         total      (count (:rss/items feed))
         validation (validate/validate feed {:requirements requirements})
-        feed-url   (or feed-url url)]
+        feed-url   (or feed-url url)
+        live       (seq (:podcast/live-items feed))
+        serial?    (= "serial" (some-> (:itunes/type feed) str/lower-case))
+        next-check (resolve/next-check feed (time/now))
+        facts      [(resolve/author feed)
+                    (:rss/language feed)
+                    (str "medium " (resolve/medium feed))
+                    (str total " items")
+                    (when live (str (count live) " live"))
+                    (when (resolve/explicit? feed) "explicit")
+                    (when (resolve/complete? feed) "complete")
+                    (when (resolve/locked? feed) "locked")
+                    (when serial? "serial")
+                    (when next-check
+                      (str "next check " (time/format-rfc2822 next-check)))]
+        required   (some-> requirements name)
+        op3?       (some #(op3/prefixed? (get-in % [:rss/enclosure :url]))
+                         (:rss/items feed))
+        guid       (feed/feed-guid feed feed-url)
+        op3-href   (str op3/origin "/show/" guid)
+        selected   {:q      (get-in selection [:where :text])
+                    :season (some-> (get-in selection [:where :season]) str)
+                    :type   (get-in selection [:where :type])
+                    :order  (some-> (:order selection) name)}
+        under      (fn [p]
+                     (->> selected
+                          (into {:requirements (some-> p name)})
+                          (feed-href "/feed" url)))
+        against    (when requirements
+                     (str " against "
+                          (:name (validate/requirements requirements))))
+        shown      (count items)]
     (layout (or (resolve/title feed) url)
             [:header
              (when-let [img (link (resolve/artwork feed))]
                [:img {:src img :alt ""}])
              [:div
               [:h1 (or (resolve/title feed) "(untitled)")]
-              [:div.muted (str/join " · " (keep not-empty
-                                                [(resolve/author feed)
-                                                 (:rss/language feed)
-                                                 (str "medium " (resolve/medium feed))
-                                                 (str total " items")
-                                                 (when-let [live (seq (:podcast/live-items feed))] (str (count live) " live"))
-                                                 (when (resolve/explicit? feed) "explicit")
-                                                 (when (resolve/complete? feed) "complete")
-                                                 (when (resolve/locked? feed) "locked")
-                                                 (when (= "serial" (some-> (:itunes/type feed) str/lower-case)) "serial")
-                                                 (when-let [t (resolve/next-check feed (time/now))]
-                                                   (str "next check " (time/format-rfc2822 t)))]))]
+              [:div.muted (str/join " · " (keep not-empty facts))]
               (when-let [paths (seq (resolve/categories feed))]
                 [:div.muted (str/join " · " (map #(str/join " › " %) paths))])
-              [:div.muted "guid " [:code (or (feed/feed-guid feed feed-url) "?")]
-               (when-not (:podcast/guid feed) [:span.muted " (computed from the URL)"])]
-              [:div.muted (if-let [href (link feed-url)] [:a {:href href} feed-url] feed-url)
+              [:div.muted "guid " [:code (or guid "?")]
+               (when-not (:podcast/guid feed)
+                 [:span.muted " (computed from the URL)"])]
+              [:div.muted (if-let [href (link feed-url)]
+                            [:a {:href href} feed-url]
+                            feed-url)
                (when status (str " · HTTP " status))]]]
             [:p
              [:a {:href (feed-href "/feed.edn" url)} "model as EDN"] " · "
              [:a {:href (feed-href "/feed.xml" url)} "round-tripped XML"] " · "
-             [:a {:href (feed-href "/check" url {:requirements (some-> requirements name)})} "check the files over the network"] " · "
-             (when (some #(op3/prefixed? (get-in % [:rss/enclosure :url])) (:rss/items feed))
-               (list [:a {:href (str op3/origin "/show/" (feed/feed-guid feed feed-url))} "downloads at OP3"] " · "))
+             [:a {:href (feed-href "/check" url {:requirements required})}
+              "check the files over the network"]
+             " · "
+             (when op3?
+               (list [:a {:href op3-href} "downloads at OP3"] " · "))
              "requirements: "
              (for [p [nil :psp-1 :apple]]
                (list (if (= p requirements)
                        [:strong (if p (name p) "none")]
-                       [:a {:href (feed-href "/feed" url {:requirements (some-> p name)
-                                                          :q            (get-in selection [:where :text])
-                                                          :season       (some-> (get-in selection [:where :season]) str)
-                                                          :type         (get-in selection [:where :type])
-                                                          :order        (some-> (:order selection) name)})}
-                        (if p (name p) "none")])
+                       [:a {:href (under p)} (if p (name p) "none")])
                      " "))]
             [:h2 "Parse report"]
-            [:p.muted "What the parser had to repair, normalize or give up on. An empty report means the feed is written the way the standards say."]
+            [:p.muted (str "What the parser had to repair, normalize or give "
+                           "up on. An empty report means the feed is written "
+                           "the way the standards say.")]
             (diagnostics-table report)
-            [:h2 (str "Validation" (when requirements (str " against " (:name (validate/requirements requirements)))))]
+            [:h2 (str "Validation" against)]
             (diagnostics-table validation)
             [:h2 "Resolved"]
-            [:p.muted "One answer per property where the vocabularies overlap, and the fields it was read from; a default names none."]
+            [:p.muted (str "One answer per property where the vocabularies "
+                           "overlap, and the fields it was read from; a "
+                           "default names none.")]
             (resolved-table (resolve/properties feed) (resolve/sources feed))
             [:h2 "Channel"]
             (kv-table (dissoc feed :rss/items :podcast/live-items :xml/unknown))
             (when-let [unknown (:xml/unknown feed)]
               (list [:h2 "Unknown channel elements"]
                     [:pre (pretty unknown)]))
-            (when-let [live (seq (:podcast/live-items feed))]
+            (when live
               (list [:h2 "Live items"] (kv-table (zipmap (range) live))))
-            [:h2 (str "Items (" (count items) (when (not= (count items) total) (str " of " total)) ")")]
+            [:h2 (str "Items (" shown
+                      (when (not= shown total) (str " of " total))
+                      ")")]
             (selection-form url selection requirements)
             [:table
-             [:thead [:tr [:th "#"] [:th "Episode"] [:th "Enclosure"] [:th "Podcasting 2.0 and more"]]]
-             [:tbody (map-indexed (partial item-row url feed) (take 200 items))]]
-            (when (> (count items) 200)
-              [:p.muted (str "Showing the first 200 of " (count items) " items.")]))))
+             [:thead
+              [:tr [:th "#"] [:th "Episode"] [:th "Enclosure"]
+               [:th "Podcasting 2.0 and more"]]]
+             [:tbody
+              (map-indexed (partial item-row url feed) (take 200 items))]]
+            (when (> shown 200)
+              [:p.muted (str "Showing the first 200 of " shown " items.")]))))
 
 (defn- told
   "What the diagnostic `d` tells about a failure: its reason, or its
@@ -362,27 +466,45 @@
             :else
             (list (str "HTTP " (:status answer))
                   (when-let [hops (seq (:redirects answer))]
-                    [:span.muted (str " · " (count hops) (if (next hops) " redirects" " redirect"))])
+                    (let [unit (if (next hops) " redirects" " redirect")]
+                      [:span.muted (str " · " (count hops) unit)]))
                   (when (= :media kind)
-                    [:span.muted (if (= 206 (:status got)) " · ranges" " · no ranges")])
+                    [:span.muted (if (= 206 (:status got))
+                                   " · ranges"
+                                   " · no ranges")])
                   (when-let [cors (:cors answer)]
                     [:span.muted (str " · CORS " cors)])))]
      [:td (:type answer) (when size [:span.muted (str " · " (size-str size))])]
      [:td (cond
-            unread          [:span.error unread]
-            (:width image)  (str (:width image) "×" (or (:height image) "?") " " (some-> (:color image) name)
-                                 (when (:alpha? image) ", alpha"))
-            (:type image)   (:type image)
-            (:format media) (str (name (:format media))
-                                 (when-let [d (time/format-clock (:duration media))] (str " · " d)))
-            read            (str (:count read) (if (= :transcript kind) " segments" " chapters")))
+            unread
+            [:span.error unread]
+
+            (:width image)
+            (str (:width image) "×" (or (:height image) "?") " "
+                 (some-> (:color image) name)
+                 (when (:alpha? image) ", alpha"))
+
+            (:type image)
+            (:type image)
+
+            (:format media)
+            (str (name (:format media))
+                 (when-let [d (time/format-clock (:duration media))]
+                   (str " · " d)))
+
+            read
+            (str (:count read)
+                 (if (= :transcript kind) " segments" " chapters")))
       (when integrity
-        (case (:valid? integrity)
-          true  [:span.muted (str " · " (:algorithm integrity) " matches")]
-          false [:span.error (str " · " (:algorithm integrity) " does not match")]
-          [:span.muted (str " · integrity not checked: " (told (:error integrity)))]))]
+        (let [algorithm (:algorithm integrity)]
+          (case (:valid? integrity)
+            true  [:span.muted (str " · " algorithm " matches")]
+            false [:span.error (str " · " algorithm " does not match")]
+            [:span.muted (str " · integrity not checked: "
+                              (told (:error integrity)))])))]
      [:td (for [{:keys [id level]} findings]
-            (list [:code {:class (level-class level)} (subs (str id) 1)] " "))]]))
+            (list [:code {:class (level-class level)} (subs (str id) 1)]
+                  " "))]]))
 
 (defn check-page
   "The check over the network of `feed`, fetched from `url`, against
@@ -390,38 +512,55 @@
   and the files it fetched, of the newest `items`, with their integrity
   when `integrity?`."
   [{:keys [url feed requirements items integrity? result]}]
-  (let [files  (:files result)
-        hashed (count (filter #(get-in % [:declared :integrity]) files))
-        judged (count (filter #(boolean? (get-in % [:facts :integrity :valid?])) files))
-        by-url (group-by :url (:report result))]
+  (let [files    (:files result)
+        hashed   (count (filter #(get-in % [:declared :integrity]) files))
+        valid?   #(boolean? (get-in % [:facts :integrity :valid?]))
+        judged   (count (filter valid? files))
+        by-url   (group-by :url (:report result))
+        required (some-> requirements name)
+        under    (fn [p]
+                   (feed-href "/check" url
+                              {:requirements (some-> p name)
+                               :items        items
+                               :integrity    (when integrity? "1")}))
+        whole    (feed-href "/check" url
+                            {:requirements required
+                             :items        items
+                             :integrity    "1"})]
     (layout (str "Check · " (or (resolve/title feed) url))
             [:h1 (or (resolve/title feed) "(untitled)")]
-            [:p [:a {:href (feed-href "/feed" url {:requirements (some-> requirements name)})} "back to the feed"] " · "
+            [:p [:a {:href (feed-href "/feed" url {:requirements required})}
+                 "back to the feed"]
+             " · "
              "requirements: "
              (for [p [nil :psp-1 :apple]]
                (list (if (= p requirements)
                        [:strong (if p (name p) "none")]
-                       [:a {:href (feed-href "/check" url {:requirements (some-> p name) :items items
-                                                           :integrity (when integrity? "1")})}
-                        (if p (name p) "none")])
+                       [:a {:href (under p)} (if p (name p) "none")])
                      " "))]
-            [:p.muted (str "The files that the feed and its " items " newest items link to, fetched as a listener's app "
-                           "fetches them: HEAD and the first two bytes of the feed and of each media file, HEAD and "
-                           "the header of each image, HEAD and the whole of each transcript and chapters file, and "
-                           "what the media reader needs of each media file.")]
+            [:p.muted (str "The files that the feed and its " items " newest "
+                           "items link to, fetched as a listener's app fetches "
+                           "them: HEAD and the first two bytes of the feed and "
+                           "of each media file, HEAD and the header of each "
+                           "image, HEAD and the whole of each transcript and "
+                           "chapters file, and what the media reader needs of "
+                           "each media file.")]
             (when (pos? hashed)
               [:p (if integrity?
-                    [:span.muted (str judged " of the " hashed " files with a podcast:integrity were fetched whole "
+                    [:span.muted (str judged " of the " hashed " files with a "
+                                      "podcast:integrity were fetched whole "
                                       "and checked against it.")]
                     (list (str hashed " files have a podcast:integrity. ")
-                          [:a {:href (feed-href "/check" url {:requirements (some-> requirements name) :items items :integrity "1"})}
-                           "Check them against it"]
-                          [:span.muted " (this fetches each of them whole)."]))])
+                          [:a {:href whole} "Check them against it"]
+                          [:span.muted
+                           " (this fetches each of them whole)."]))])
             [:h2 "Diagnostics"]
             (diagnostics-table (:report result))
             [:h2 (str "Files (" (count files) ")")]
             [:table
-             [:thead [:tr [:th "Kind"] [:th "File"] [:th "Answer"] [:th "Type"] [:th "Holds"] [:th "Findings"]]]
+             [:thead
+              [:tr [:th "Kind"] [:th "File"] [:th "Answer"] [:th "Type"]
+               [:th "Holds"] [:th "Findings"]]]
              [:tbody (map #(file-row (by-url (:url %)) %) files)]])))
 
 (defn- part-status
@@ -429,14 +568,18 @@
   the `error` when the file did not come."
   [{:keys [url error]} label]
   [:p.muted label " " (when url [:a {:href (link url)} url])
-   (when error [:span.error (str " · " (:message error) (when (:status error) (str " HTTP " (:status error))))])])
+   (when error
+     (let [status (:status error)]
+       [:span.error (str " · " (:message error)
+                         (when status (str " HTTP " status)))]))])
 
 (def chapter-sources
   "What the page says of each source of chapters."
   {:file     "JSON chapters file:"
    :embedded "Embedded Podlove chapters."
    :media    "Read from the media file:"
-   :inferred "Read from the timestamps in the show notes; the feed offers no chapters."})
+   :inferred (str "Read from the timestamps in the show notes; the feed "
+                  "offers no chapters.")})
 
 (defn- chapters-section
   "The chapters of the view of an episode: `{:source :url :document
@@ -449,21 +592,28 @@
      (when source (part-status chapters (chapter-sources source)))
      (if-not document
        [:p.muted "None."]
-       (list
-        [:p.muted (str (count (:chapters document)) " chapters, format version " (:version document)
-                       (when (some :location (:chapters document)) ", with locations"))]
-        (when (seq report)
-          (diagnostics-table report))
-        [:table
-         [:thead [:tr [:th "Start"] [:th "Title"] [:th "Links"]]]
-         [:tbody
-          (for [{:keys [start-time title url img toc location]} (chapters/sorted document)]
-            [:tr
-             [:td (when (number? start-time) (time/format-clock start-time))]
-             [:td (or title [:span.muted "(silent chapter)"])
-              (when (false? toc) [:span.badge.muted "hidden"])
-              (when location [:span.badge (str (:name location) " " (:geo location))])]
-             [:td (when url [:a {:href (link url)} "link"]) " " (when img [:a {:href (link img)} "image"])]])]])))))
+       (let [found    (:chapters document)
+             located? (some :location found)]
+         (list
+          [:p.muted (str (count found) " chapters, format version "
+                         (:version document)
+                         (when located? ", with locations"))]
+          (when (seq report)
+            (diagnostics-table report))
+          [:table
+           [:thead [:tr [:th "Start"] [:th "Title"] [:th "Links"]]]
+           [:tbody
+            (for [{:keys [start-time title url img toc location]}
+                  (chapters/sorted document)]
+              [:tr
+               [:td (when (number? start-time) (time/format-clock start-time))]
+               [:td (or title [:span.muted "(silent chapter)"])
+                (when (false? toc) [:span.badge.muted "hidden"])
+                (when location
+                  [:span.badge (str (:name location) " " (:geo location))])]
+               [:td (when url [:a {:href (link url)} "link"])
+                " "
+                (when img [:a {:href (link img)} "image"])]])]]))))))
 
 (defn- transcript-section
   "The transcript of the view of an episode: the chosen reference with its
@@ -477,22 +627,32 @@
            segments (:segments document)
            speakers (distinct (keep :speaker segments))]
        (list
-        (part-status transcript (str "Chosen " type (when language (str ", " language)) ":"))
+        (part-status transcript
+                     (str "Chosen " type
+                          (when language (str ", " language))
+                          ":"))
         (when document
           (list
-           [:p.muted (str (count segments) " segments · format " (name (:format document))
-                          (when (seq speakers) (str " · speakers: " (str/join ", " (take 8 speakers)))))]
+           [:p.muted (str (count segments) " segments · format "
+                          (name (:format document))
+                          (when (seq speakers)
+                            (str " · speakers: "
+                                 (str/join ", " (take 8 speakers)))))]
            (when (seq report)
              (diagnostics-table report))
            [:table
             [:tbody
-             (for [{:keys [start-time end-time speaker body]} (take 40 segments)]
+             (for [{:keys [start-time end-time speaker body]}
+                   (take 40 segments)]
                [:tr
-                [:td.muted (when (number? start-time) (time/format-clock start-time))
-                 (when (number? end-time) (str "–" (time/format-clock end-time)))]
+                [:td.muted (when (number? start-time)
+                             (time/format-clock start-time))
+                 (when (number? end-time)
+                   (str "–" (time/format-clock end-time)))]
                 [:td (when speaker [:strong (str speaker ": ")]) body]])]]
            (when (> (count segments) 40)
-             [:p.muted (str "Showing the first 40 of " (count segments) " segments.")]))))))))
+             [:p.muted (str "Showing the first 40 of " (count segments)
+                            " segments.")]))))))))
 
 (defn- media-file-section
   "What the media file of the view of an episode says of itself: its
@@ -504,9 +664,13 @@
        [:h2 "Media file"]
        (part-status media "Read by range requests:")
        (when-not error
-         [:p.muted (str/join " · " (remove nil? [(when duration (str "duration " (time/format-clock duration)))
-                                                 (when artwork (str "artwork " (:type artwork) ", " (size-str (bytes/length (:data artwork)))))
-                                                 (when-not (or duration artwork) "nothing read")]))])
+         (let [size  (when artwork (size-str (bytes/length (:data artwork))))
+               facts [(when duration
+                        (str "duration " (time/format-clock duration)))
+                      (when artwork
+                        (str "artwork " (:type artwork) ", " size))
+                      (when-not (or duration artwork) "nothing read")]]
+           [:p.muted (str/join " · " (remove nil? facts))]))
        (when (seq report)
          (diagnostics-table report))))))
 
@@ -516,77 +680,113 @@
    [:thead [:tr [:th "Recipient"] [:th "Type"] [:th "Split"] [:th "Of 1000"]]]
    [:tbody
     (for [{:keys [recipient amount]} (value/payments recipients 1000)]
-      [:tr [:td (:name recipient)] [:td (:type recipient) (when (:fee recipient) " (fee)")]
-       [:td (:split recipient)] [:td amount]])]])
+      [:tr
+       [:td (:name recipient)]
+       [:td (:type recipient) (when (:fee recipient) " (fee)")]
+       [:td (:split recipient)]
+       [:td amount]])]])
 
 (defn- time-split-section
   "One time split of `block`: who is paid during it, with the remote item
   folded in when `remote-values` has its block."
-  [block {:keys [remote-values remote-report index?]} {:keys [start-time duration remote-item remote-percentage] :as split}]
+  [block {:keys [remote-values remote-report index?]}
+   {:keys [start-time duration remote-item remote-percentage] :as split}]
   (let [paid    (value/recipients-at block start-time remote-values)
-        failure (some #(when (= remote-item (:remote-item %)) %) remote-report)]
+        failure (some #(when (= remote-item (:remote-item %)) %) remote-report)
+        remote  (when remote-item
+                  (str " · remote item " (:feed-guid remote-item)
+                       (when (:item-guid remote-item)
+                         (str " / " (:item-guid remote-item)))
+                       " at " (or remote-percentage 100) "%"))]
     (list
-     [:h3 (str "From " (time/format-clock start-time) " for " (time/format-clock duration)
-               (when remote-item (str " · remote item " (:feed-guid remote-item)
-                                      (when (:item-guid remote-item) (str " / " (:item-guid remote-item)))
-                                      " at " (or remote-percentage 100) "%")))]
+     [:h3 (str "From " (time/format-clock start-time)
+               " for " (time/format-clock duration)
+               remote)]
      (cond
-       (or (nil? remote-item) (get remote-values remote-item)) (payments-table (:recipients paid))
-       (contains? remote-values remote-item) [:p.muted "No value block was found for this remote item; the feed's own recipients apply."]
-       (or index? (:feed-url remote-item))   [:p.muted (str "The value block of this remote item couldn't be fetched, so only the fees are paid: "
-                                                            (or (:reason failure) (str "status " (:status failure))))]
-       :else                                 [:p.muted "Set PODCASTINDEX_API_KEY and PODCASTINDEX_API_SECRET to resolve the remote item through the Podcast Index."]))))
+       (or (nil? remote-item) (get remote-values remote-item))
+       (payments-table (:recipients paid))
+
+       (contains? remote-values remote-item)
+       [:p.muted (str "No value block was found for this remote item; the "
+                      "feed's own recipients apply.")]
+
+       (or index? (:feed-url remote-item))
+       [:p.muted (str "The value block of this remote item couldn't be "
+                      "fetched, so only the fees are paid: "
+                      (or (:reason failure) (str "status " (:status failure))))]
+
+       :else
+       [:p.muted (str "Set PODCASTINDEX_API_KEY and PODCASTINDEX_API_SECRET "
+                      "to resolve the remote item through the Podcast "
+                      "Index.")]))))
 
 (defn- value-section
   [{:keys [value]} remotes]
   (when-let [block value]
-    (list
-     [:h2 "Value"]
-     [:p.muted (str (:type block) " / " (:method block)
-                    (when-let [sats (value/sats block)] (str " · suggested " sats " sats per minute"))
-                    (when (seq (:time-splits block)) (str " · " (count (:time-splits block)) " time splits")))]
-     (payments-table (:recipients block))
-     (for [split (sort-by :start-time (filter (comp number? :start-time) (:time-splits block)))]
-       (time-split-section block remotes split)))))
+    (let [sats   (value/sats block)
+          splits (:time-splits block)
+          timed  (->> splits
+                      (filter (comp number? :start-time))
+                      (sort-by :start-time))]
+      (list
+       [:h2 "Value"]
+       [:p.muted (str (:type block) " / " (:method block)
+                      (when sats (str " · suggested " sats " sats per minute"))
+                      (when (seq splits)
+                        (str " · " (count splits) " time splits")))]
+       (payments-table (:recipients block))
+       (for [split timed]
+         (time-split-section block remotes split))))))
 
 (defn item-page
   "The page for one `item` of `feed` at `url`, from its `view` as
   `episode/view` gives it with what `episode/read-files!` read merged
   in, and the `remotes` of its time splits as the service resolved them."
   [{:keys [url feed item view remotes]}]
-  (let [{:keys [title guid numbering published duration explicit? people artwork notes enclosures value]} view
-        into-player (fn [mode] (str "/queue?add=" (http/percent-encode url) "&guid=" (http/percent-encode guid) "&mode=" mode))]
+  (let [{:keys [title guid numbering published duration explicit? people
+                artwork notes enclosures value]} view
+        into-player (fn [mode]
+                      (str "/queue?add=" (http/percent-encode url)
+                           "&guid=" (http/percent-encode guid)
+                           "&mode=" mode))]
     (layout (or title "(untitled)")
-            [:p [:a {:href (feed-href "/feed" url)} "← " (or (resolve/title feed) url)]]
+            [:p [:a {:href (feed-href "/feed" url)}
+                 "← " (or (resolve/title feed) url)]]
             [:header
              (when-let [src (link artwork)]
                [:img {:src src :alt ""}])
              [:div
               [:h1 (or title "(untitled)")]
               [:div.muted
-               (when-let [n (not-empty (numbering-str numbering))] (str n " · "))
+               (when-let [n (not-empty (numbering-str numbering))]
+                 (str n " · "))
                (inst-str published)
                (when duration (str " · " (time/format-clock duration)))
                (when explicit? " · explicit")]
               [:div.muted "guid " [:code guid]]
               (when (seq people)
-                [:div.muted (str/join " · " (map #(str (:role %) ": " (:name %)) people))])
+                (let [roles (map #(str (:role %) ": " (:name %)) people)]
+                  [:div.muted (str/join " · " roles)]))
               [:div
                (if (:url (resolve/enclosure item))
                  (list [:a.badge {:href (into-player "now")} "Play now"]
                        [:a.badge {:href (into-player "last")} "Add to queue"]
                        [:a.badge {:href (into-player "next")} "Play next"])
                  [:span.badge.muted "No audio to play"])
-               [:a.badge {:href (feed-href "/comments" url {:guid guid})} "Comments"]
+               [:a.badge {:href (feed-href "/comments" url {:guid guid})}
+                "Comments"]
                (when value
-                 [:a.badge {:href (feed-href "/wallet" url {:guid guid})} "Boost"])]]]
+                 [:a.badge {:href (feed-href "/wallet" url {:guid guid})}
+                  "Boost"])]]]
             [:h2 "Description"]
             [:div.notes notes]
             [:h2 "Media"]
             [:table
-             [:thead [:tr [:th "Source"] [:th "Type"] [:th "URL"] [:th "Details"]]]
+             [:thead
+              [:tr [:th "Source"] [:th "Type"] [:th "URL"] [:th "Details"]]]
              [:tbody
-              (for [{:keys [source type url length bitrate title default]} enclosures
+              (for [{:keys [source type url length bitrate title default]}
+                    enclosures
                     :let [details [(when (number? length) (size-str length))
                                    (when bitrate (str bitrate " b/s"))
                                    title]]]
@@ -600,8 +800,11 @@
             (transcript-section view)
             (value-section view remotes)
             [:h2 "Resolved"]
-            [:p.muted "What an app shows for this episode, inherited from the show where the item says nothing, and the fields each answer was read from."]
-            (resolved-table (resolve/properties feed item) (resolve/sources feed item))
+            [:p.muted (str "What an app shows for this episode, inherited from "
+                           "the show where the item says nothing, and the "
+                           "fields each answer was read from.")]
+            (resolved-table (resolve/properties feed item)
+                            (resolve/sources feed item))
             [:h2 "Item as data"]
             (kv-table (dissoc item :rss/description :content/encoded)))))
 
@@ -616,32 +819,45 @@
   notes."
   [{:keys [q url results]}]
   (layout (str "Search: " q)
-          (when url [:p [:a {:href (feed-href "/feed" url)} "← back to the feed"]])
+          (when url
+            [:p [:a {:href (feed-href "/feed" url)} "← back to the feed"]])
           [:h1 (if url "Search this feed" "Search the corpus")]
           [:form {:method "get" :action "/search"}
            (when url [:input {:type "hidden" :name "url" :value url}])
-           [:input {:type "search" :name "q" :value q :placeholder "words, a prefix, \"a phrase\"" :required true}]
+           [:input {:type        "search"
+                    :name        "q"
+                    :value       q
+                    :placeholder "words, a prefix, \"a phrase\""
+                    :required    true}]
            " "
            [:button {:type "submit"} "Search"]]
-          [:p.muted "Every word must occur; the last matches as a prefix unless a space follows it; words in quotes must occur in a row. A word in a title weighs more than one in the notes; the snippet is from the notes."]
+          [:p.muted (str "Every word must occur; the last matches as a prefix "
+                         "unless a space follows it; words in quotes must "
+                         "occur in a row. A word in a title weighs more than "
+                         "one in the notes; the snippet is from the notes.")]
           (when (= result-limit (count results))
             [:p.muted (str "The " result-limit " best matches.")])
           (if (empty? results)
-            [:p.muted (if (str/blank? q) "Type something to search for." "Nothing matched.")]
+            [:p.muted (if (str/blank? q)
+                        "Type something to search for."
+                        "Nothing matched.")]
             [:ol.results
              (for [{:keys [score stored item]} results
-                   :let [{:keys [title show published duration url guid]} stored]]
+                   :let [{:keys [title show published duration url guid]}
+                         stored]]
                [:li
-                [:strong [:a {:href (feed-href "/item" url {:guid guid})} (or title "(untitled)")]]
+                [:strong [:a {:href (feed-href "/item" url {:guid guid})}
+                          (or title "(untitled)")]]
                 " " [:span.muted show]
                 [:br]
                 [:span.muted (inst-str published)
                  (when duration (str " · " (time/format-clock duration)))
                  (str " · score " (/ (Math/round (* 100.0 score)) 100.0))]
                 (when item
-                  [:div.snippet
-                   (for [{:keys [text match?]} (search/snippet (html/text (resolve/description item)) q)]
-                     (if match? [:mark text] text))])])])))
+                  (let [notes (html/text (resolve/description item))]
+                    [:div.snippet
+                     (for [{:keys [text match?]} (search/snippet notes q)]
+                       (if match? [:mark text] text))]))])])))
 
 (defn find-page
   "The `feeds` that discovery/find-feeds! found for the text `q`, best first,
@@ -657,9 +873,13 @@
                 [:strong [:a {:href (feed-href "/feed" url)} (or title url)]]
                 (when-not podcast? (list " " [:span.badge "not a podcast"]))
                 [:br] [:span.muted url " · found by " (name found-by)]])]
-            (list [:p.warning (:message error) (when-let [reason (:reason error)] [:span.muted " " reason])]
+            (list [:p.warning (:message error)
+                   (when-let [reason (:reason error)]
+                     [:span.muted " " reason])]
                   [:p "Try another address, or "
-                   [:a {:href (str "/directory?q=" (http/percent-encode q))} "search the directories"] "."]))
+                   [:a {:href (str "/directory?q=" (http/percent-encode q))}
+                    "search the directories"]
+                   "."]))
           (when (seq report)
             (list [:h2 "What failed"]
                   (diagnostics-table report)))))
@@ -670,45 +890,65 @@
   `results` as `directory/combine` folds them, and the `report` of the
   sources that failed."
   [{:keys [q country category results report]}]
-  (let [charts? (str/blank? q)
-        chart   (fn [params] (str "/directory?" (http/query-string params)))]
+  (let [charts?    (str/blank? q)
+        chart      (fn [params] (str "/directory?" (http/query-string params)))
+        categories ["Technology" "News" "Society & Culture" "True Crime"
+                    "Comedy" "Science"]]
     (layout (if charts? "Charts" (str "Find: " q))
             [:h1 (if charts?
-                   (str "The charts" (when country (str ", " country)) (when category (str ", " category)))
+                   (str "The charts"
+                        (when country (str ", " country))
+                        (when category (str ", " category)))
                    "Find a podcast")]
             [:form {:method "get" :action "/directory"}
-             [:input {:type "search" :name "q" :value q :placeholder "words in a show's title" :required true}]
+             [:input {:type        "search"
+                      :name        "q"
+                      :value       q
+                      :placeholder "words in a show's title"
+                      :required    true}]
              " "
              [:button {:type "submit"} "Find"]]
-            [:p.muted "Apple Podcasts, fyyd and gpodder.net, and the Podcast Index when its credentials are set, asked at once and combined into one entry per show. Charts: "
+            [:p.muted (str "Apple Podcasts, fyyd and gpodder.net, and the "
+                           "Podcast Index when its credentials are set, asked "
+                           "at once and combined into one entry per show. "
+                           "Charts: ")
              [:a {:href "/directory?country="} "all sources"] " · "
-             [:a {:href "/directory?country=us"} "US"] " · " [:a {:href "/directory?country=dk"} "Denmark"]
-             " · " [:a {:href "/directory?country=de"} "Germany"]]
+             [:a {:href "/directory?country=us"} "US"] " · "
+             [:a {:href "/directory?country=dk"} "Denmark"] " · "
+             [:a {:href "/directory?country=de"} "Germany"]]
             (when charts?
               [:p.muted "The chart of one category: "
                (interpose " · "
-                          (for [c ["Technology" "News" "Society & Culture" "True Crime" "Comedy" "Science"]]
-                            [:a {:href (chart {:country country :category c})} c]))])
+                          (for [c categories]
+                            [:a {:href (chart {:country country :category c})}
+                             c]))])
             (when (seq report)
-              [:p.warning (str "No answer from " (str/join ", " (map (comp name :source) report)) ": "
-                               (str/join "; " (map :reason report)))])
+              (let [sources (str/join ", " (map (comp name :source) report))
+                    reasons (str/join "; " (map :reason report))]
+                [:p.warning (str "No answer from " sources ": " reasons)]))
             (if (empty? results)
               [:p.muted "Nothing found."]
               [:ol.results
                (for [show results
-                     :let [{:directory/keys [sources episode-count subscribers rank]} show
+                     :let [{:directory/keys [sources episode-count
+                                             subscribers rank]} show
                            feed-url (resolve/self-url show)
                            title    (or (resolve/title show) "(untitled)")]]
                  [:li
-                  [:strong (if feed-url [:a {:href (feed-href "/feed" feed-url)} title] title)]
+                  [:strong (if feed-url
+                             [:a {:href (feed-href "/feed" feed-url)} title]
+                             title)]
                   " " [:span.muted (resolve/author show)]
                   [:br]
                   (for [source (keys sources)]
                     [:span.badge (:name (directory/sources source))])
                   (when rank [:span.muted (str " · rank " rank)])
-                  (when episode-count [:span.muted (str " · " episode-count " episodes")])
-                  (when subscribers [:span.muted (str " · " subscribers " subscribers")])
-                  (when-not feed-url [:span.muted " · no feed URL from these sources"])
+                  (when episode-count
+                    [:span.muted (str " · " episode-count " episodes")])
+                  (when subscribers
+                    [:span.muted (str " · " subscribers " subscribers")])
+                  (when-not feed-url
+                    [:span.muted " · no feed URL from these sources"])
                   (when-let [d (resolve/description show)]
                     [:div.snippet (shorten (html/text d) 200)])])]))))
 
@@ -719,17 +959,29 @@
   [{:keys [pings refused block head writers error]}]
   (layout "Podping"
           [:h1 "Podping"]
-          [:p.muted "The feeds that just announced a change on the Hive blockchain, read by dk.simongray.podcast.updates.podping from the twenty blocks before the head, about a minute of the chain, in one request. A poller keeps the block it reached and asks for the blocks since; a ping counts only when the podping account follows its writer."]
+          [:p.muted (str "The feeds that just announced a change on the Hive "
+                         "blockchain, read by "
+                         "dk.simongray.podcast.updates.podping from the "
+                         "twenty blocks before the head, about a minute of "
+                         "the chain, in one request. A poller keeps the block "
+                         "it reached and asks for the blocks since; a ping "
+                         "counts only when the podping account follows its "
+                         "writer.")]
           [:p.muted (str "Head block " head ", read up to " block "; "
-                         (count pings) " pings from the " (count writers) " writers podping follows"
+                         (count pings) " pings from the " (count writers)
+                         " writers podping follows"
                          (when (seq refused)
-                           (str "; " (count refused) " refused, from " (str/join ", " (distinct (map :account refused))))))]
+                           (let [accounts (distinct (map :account refused))]
+                             (str "; " (count refused) " refused, from "
+                                  (str/join ", " accounts)))))]
           (when error
             [:p [:span.error (str (:message error) " " (:reason error))]])
           (if (empty? pings)
             [:p.muted "No pings in these blocks."]
             [:table
-             [:thead [:tr [:th "Block"] [:th "Time"] [:th "Writer"] [:th "Medium"] [:th "Reason"] [:th "Feeds"]]]
+             [:thead
+              [:tr [:th "Block"] [:th "Time"] [:th "Writer"] [:th "Medium"]
+               [:th "Reason"] [:th "Feeds"]]]
              [:tbody
               (for [{:keys [block timestamp account medium reason iris]} pings]
                 [:tr
@@ -739,7 +991,8 @@
                  [:td medium]
                  [:td reason]
                  [:td (for [iri iris]
-                        [:div [:a {:href (feed-href "/feed" iri)} (shorten iri 90)]])]])]])))
+                        [:div [:a {:href (feed-href "/feed" iri)}
+                               (shorten iri 90)]])]])]])))
 
 (defn queue-page
   "The shell of the play queue: the browser player, written in
@@ -749,7 +1002,8 @@
   (layout "Queue"
           [:h1 "Play queue"]
           [:div#app
-           [:p.muted "Loading the player… If nothing appears, compile it first: "
+           [:p.muted (str "Loading the player… If nothing appears, compile it "
+                          "first: ")
             [:code "clojure -M:cljs compile player"]]]))
 
 (defn- web-link
@@ -762,7 +1016,8 @@
       (let [{:keys [authority collection rkey]} (atproto/at-uri id)]
         (when (and (= "app.bsky.feed.post" collection) rkey)
           (str "https://bsky.app/profile/" authority "/post/" rkey)))
-      (some->> (nostr/encode {:type :nevent :id id}) (str "https://njump.me/"))))
+      (some->> (nostr/encode {:type :nevent :id id})
+               (str "https://njump.me/"))))
 
 (defn- part-link
   "The web page of the part `part` of the content of a comment: a mention,
@@ -775,35 +1030,51 @@
                 (str "https://njump.me/" (subs uri (count "nostr:")))
                 (str "https://njump.me/t/" (http/percent-encode tag)))
     "atproto" (case type
-                :mention (str "https://bsky.app/profile/" (http/percent-encode id))
-                :hashtag (str "https://bsky.app/hashtag/" (http/percent-encode tag))
+                :mention (str "https://bsky.app/profile/"
+                              (http/percent-encode id))
+                :hashtag (str "https://bsky.app/hashtag/"
+                              (http/percent-encode tag))
                 nil)
     nil))
 
 (defn- comment-item
   "The comment `c` of the tree of `thread`, and the replies below it."
-  [thread {:keys [author published title content summary sensitive? labels attachments deleted? error hidden? replies]
+  [thread {:keys [author published title content summary sensitive? labels
+                  attachments deleted? error hidden? replies]
            ::nostr-comments/keys [receipts]
            :as   c}]
   (let [body (list (when title [:strong title])
                    [:div.notes (comments/hiccup thread c {:link part-link})]
                    (for [{:keys [kind url preview alt]} attachments]
                      (if (= :image kind)
-                       [:a {:href (link url)} [:img.attachment {:src (link (or preview url)) :alt (str alt)}]]
+                       [:a {:href (link url)}
+                        [:img.attachment {:src (link (or preview url))
+                                          :alt (str alt)}]]
                        [:a.badge {:href (link url)} (name kind)])))]
     [:li.comment
      [:div.muted
       (when-let [avatar (link (:avatar author))]
         [:img.avatar {:src avatar :alt ""}])
-      [:strong (or (:name author) (:handle author) (:id author))] " " (:handle author)
-      " · " [:a {:href (web-link c)} (if published (inst-str published) "open")]
+      [:strong (or (:name author) (:handle author) (:id author))]
+      " " (:handle author)
+      " · " [:a {:href (web-link c)}
+             (if published (inst-str published) "open")]
       (when (seq receipts) " · with a payment")
       (when hidden? " · hidden by the author of the root post")]
      (cond
-       deleted?                  [:p.muted "This post was deleted."]
-       (and error (not content)) [:p.muted "The inspector did not get this post."]
-       (or summary sensitive?)   [:details [:summary (or summary (str "Sensitive: " (str/join ", " labels)))] body]
-       :else                     body)
+       deleted?
+       [:p.muted "This post was deleted."]
+
+       (and error (not content))
+       [:p.muted "The inspector did not get this post."]
+
+       (or summary sensitive?)
+       [:details
+        [:summary (or summary (str "Sensitive: " (str/join ", " labels)))]
+        body]
+
+       :else
+       body)
      (when (seq replies)
        [:ol.comments (map #(comment-item thread %) replies)])]))
 
@@ -814,21 +1085,33 @@
   shows. A thread about an episode itself has no root post, so the view
   shows the comments on the episode."
   [thread hidden? toggle]
-  (let [about? (str/starts-with? (str (:uri thread)) "podcast:")
-        tree   (comments/tree thread {:hidden? hidden?})
+  (let [about?   (str/starts-with? (str (:uri thread)) "podcast:")
+        tree     (comments/tree thread {:hidden? hidden?})
         ;; the root of a thread about an episode is the episode, no post
-        posts  (count (filter #(and (:read-at %) (not (and about? (= (:root thread) (:id %)))))
-                              (vals (:comments thread))))]
-    (list [:p.muted "The thread of " [:code (:uri thread)] " over " (:protocol thread)
+        counted? #(and (:read-at %)
+                       (not (and about? (= (:root thread) (:id %)))))
+        posts    (count (filter counted? (vals (:comments thread))))
+        hiding?  (or hidden? (some :hidden? (vals (:comments thread))))]
+    (list [:p.muted "The thread of " [:code (:uri thread)]
+           " over " (:protocol thread)
            (when (:via thread) ", read through the Mastodon API")
            ", " posts (if (= 1 posts) " post. " " posts. ")
-           (when (or hidden? (some :hidden? (vals (:comments thread))))
-             [:a {:href toggle} (if hidden? "Leave out the hidden replies" "Show the hidden replies")])]
+           (when hiding?
+             [:a {:href toggle} (if hidden?
+                                  "Leave out the hidden replies"
+                                  "Show the hidden replies")])]
           (cond
-            (nil? tree)           [:p.muted "The inspector did not get the root post."]
-            (not about?)          [:ol.comments (comment-item thread tree)]
-            (seq (:replies tree)) [:ol.comments (map #(comment-item thread %) (:replies tree))]
-            :else                 [:p.muted "The relays have no note about this episode."])
+            (nil? tree)
+            [:p.muted "The inspector did not get the root post."]
+
+            (not about?)
+            [:ol.comments (comment-item thread tree)]
+
+            (seq (:replies tree))
+            [:ol.comments (map #(comment-item thread %) (:replies tree))]
+
+            :else
+            [:p.muted "The relays have no note about this episode."])
           [:h2 "Report"]
           (diagnostics-table (:report thread)))))
 
@@ -847,19 +1130,27 @@
             [:h1 "Comments"]
             (cond
               (= "disabled" (:protocol (first interacts)))
-              [:p.muted "The podcaster wants no public comments shown with this episode."]
+              [:p.muted (str "The podcaster wants no public comments shown "
+                             "with this episode.")]
 
               (and (nil? thread) (empty? interacts))
-              [:p.muted "The feed names no thread of comments for this episode."]
+              [:p.muted (str "The feed names no thread of comments for this "
+                             "episode.")]
 
               (nil? thread)
-              [:p.muted (str "podcast-clj reads no comments over " (str/join ", " (distinct (map :protocol interacts))) ".")]
+              (let [protocols (distinct (map :protocol interacts))]
+                [:p.muted (str "podcast-clj reads no comments over "
+                               (str/join ", " protocols) ".")])
 
               :else
-              (list (when (str/starts-with? (str (:uri thread)) "podcast:")
-                      [:p.muted "The feed names no thread of comments that podcast-clj reads for this episode. "
-                       "These are the notes about the episode on Nostr."])
-                    (thread-view thread hidden? (feed-href "/comments" url {:guid guid :hidden (when-not hidden? "1")})))))))
+              (let [params {:guid guid :hidden (when-not hidden? "1")}
+                    toggle (feed-href "/comments" url params)]
+                (list (when (str/starts-with? (str (:uri thread)) "podcast:")
+                        [:p.muted (str "The feed names no thread of comments "
+                                       "that podcast-clj reads for this "
+                                       "episode. ")
+                         "These are the notes about the episode on Nostr."])
+                      (thread-view thread hidden? toggle)))))))
 
 (defn thread-page
   "The page of the comments below the post that `address` names, from the
@@ -872,19 +1163,28 @@
   (layout "Thread"
           [:h1 "The comments below a post"]
           [:form {:method "get" :action "/thread"}
-           [:input {:type "text" :name "uri" :value (str address) :placeholder "The address of a post" :required true}]
+           [:input {:type        "text"
+                    :name        "uri"
+                    :value       (str address)
+                    :placeholder "The address of a post"
+                    :required    true}]
            " "
            [:button {:type "submit"} "Read"]]
-          [:p.muted "The address is the web page of a post of Mastodon or of another server of ActivityPub, "
+          [:p.muted (str "The address is the web page of a post of Mastodon "
+                         "or of another server of ActivityPub, ")
            "the web page of a post at bsky.app or its at:// URI, "
            "or the name of a note of Nostr, such as nostr:nevent1… or note1…. "
-           "An id of NIP-73, such as podcast:item:guid:…, gives the notes about an episode."]
+           (str "An id of NIP-73, such as podcast:item:guid:…, gives the notes "
+                "about an episode.")]
           (cond
             thread
-            (thread-view thread hidden? (str "/thread?uri=" (http/percent-encode address) (when-not hidden? "&hidden=1")))
+            (let [toggle (str "/thread?uri=" (http/percent-encode address)
+                              (when-not hidden? "&hidden=1"))]
+              (thread-view thread hidden? toggle))
 
             (not (str/blank? (str address)))
-            [:p.error "The inspector does not know this address as the address of a post."])))
+            [:p.error (str "The inspector does not know this address as the "
+                           "address of a post.")])))
 
 (defn- sats-str
   "The amount of `msat` millisatoshis in sats, as text."
@@ -897,19 +1197,25 @@
   problem of `answer`, or what `told` gives for it."
   [answer told]
   (cond
-    (nil? answer)   [:span.muted "Not asked"]
-    (:error answer) (let [{:keys [level message code reason relays expires-at]} (:error answer)]
-                      [:span {:class (name (or level :warning))}
-                       (str/join " " (remove nil? [code reason]))
-                       (when (or code reason) [:br])
-                       [:span.muted message]
-                       (when (inst? expires-at)
-                         [:span.muted (str " It expires at " (inst-str expires-at) ".")])
-                       (when (seq relays)
-                         [:ul.compact
-                          (for [{:keys [url reason]} relays]
-                            [:li [:code url] " " reason])])])
-    :else           (told answer)))
+    (nil? answer)
+    [:span.muted "Not asked"]
+
+    (:error answer)
+    (let [{:keys [level message code reason relays expires-at]}
+          (:error answer)]
+      [:span {:class (name (or level :warning))}
+       (str/join " " (remove nil? [code reason]))
+       (when (or code reason) [:br])
+       [:span.muted message]
+       (when (inst? expires-at)
+         [:span.muted (str " It expires at " (inst-str expires-at) ".")])
+       (when (seq relays)
+         [:ul.compact
+          (for [{:keys [url reason]} relays]
+            [:li [:code url] " " reason])])])
+
+    :else
+    (told answer)))
 
 (defn- wallet-facts
   "What the wallet told of itself and of the connection."
@@ -932,32 +1238,43 @@
      [:tr [:th "The encryption that it reads"]
       [:td (answer-cell info #(str/join ", " (:encryption %)))]]
      [:tr [:th "Its name and its network"]
-      [:td (answer-cell wallet #(str/join " · " (remove nil? [(:alias %) (:network %)])))]]
+      [:td (answer-cell wallet
+                        #(->> [(:alias %) (:network %)]
+                              (remove nil?)
+                              (str/join " · ")))]]
      [:tr [:th "Its balance, after the payments of this page"]
       [:td (answer-cell balance #(sats-str (:msat % 0)))]]]]))
 
 (defn- boost-results
   "The payments of a `boost`, one row for each recipient."
   [{:keys [sats payments]}]
-  (list
-   [:h2 (str "A boost of " sats " sats")]
-   [:table
-    [:thead [:tr [:th "Recipient"] [:th "Type"] [:th "Sats"] [:th "The answer of the wallet"]]]
-    [:tbody
-     (for [{:keys [recipient sats answer]} payments]
-       [:tr
-        [:td (or (:name recipient) (:address recipient))]
-        [:td (:type recipient) (when (:fee recipient) " (fee)")]
-        [:td sats]
-        [:td (answer-cell answer
-                          (fn [{:keys [preimage fees-msat proven?]}]
-                            (list "Paid"
-                                  (when fees-msat (str ", with a fee of " (sats-str fees-msat)))
-                                  (when (true? proven?)
-                                    ", and the preimage is the proof of the invoice")
-                                  (when (false? proven?)
-                                    [:span.warning ". The wallet tells so, and its preimage is no proof of the invoice. Do not pay again."])
-                                  (when preimage (list [:br] [:span.muted "preimage " [:code (shorten preimage 24)]])))))]])]]))
+  (let [paid (fn [{:keys [preimage fees-msat proven?]}]
+               (list "Paid"
+                     (when fees-msat
+                       (str ", with a fee of " (sats-str fees-msat)))
+                     (when (true? proven?)
+                       ", and the preimage is the proof of the invoice")
+                     (when (false? proven?)
+                       [:span.warning (str ". The wallet tells so, and its "
+                                           "preimage is no proof of the "
+                                           "invoice. Do not pay again.")])
+                     (when preimage
+                       (list [:br]
+                             [:span.muted "preimage "
+                              [:code (shorten preimage 24)]]))))]
+    (list
+     [:h2 (str "A boost of " sats " sats")]
+     [:table
+      [:thead
+       [:tr [:th "Recipient"] [:th "Type"] [:th "Sats"]
+        [:th "The answer of the wallet"]]]
+      [:tbody
+       (for [{:keys [recipient sats answer]} payments]
+         [:tr
+          [:td (or (:name recipient) (:address recipient))]
+          [:td (:type recipient) (when (:fee recipient) " (fee)")]
+          [:td sats]
+          [:td (answer-cell answer paid)]])]])))
 
 (defn wallet-page
   "The page of the wallet of the listener, with a form for the connection
@@ -969,32 +1286,52 @@
   is the token of the form, which a post that pays needs."
   [{:keys [episode problem connection boost token] :as answers}]
   (let [{:keys [url feed item]} episode
-        block (when episode (resolve/value feed item))]
+        block (when episode (resolve/value feed item))
+        guid  (when episode (feed/item-guid item))]
     (layout "Wallet"
             [:h1 "The wallet of the listener"]
-            [:p "Give the connection URI of Nostr Wallet Connect that your wallet made for this app. "
+            [:p (str "Give the connection URI of Nostr Wallet Connect that "
+                     "your wallet made for this app. ")
              "The inspector asks the wallet what it takes and what it holds."]
-            [:p.muted "The URI holds a secret key, and who has it can spend from the wallet. "
-             "The inspector uses the URI for this one request, and keeps it nowhere. "
+            [:p.muted (str "The URI holds a secret key, and who has it can "
+                           "spend from the wallet. ")
+             (str "The inspector uses the URI for this one request, and keeps "
+                  "it nowhere. ")
              "Give the connection a small budget in the wallet."]
             (when episode
-              (list [:h2 "A boost for " [:a {:href (feed-href "/item" url {:guid (feed/item-guid item)})}
-                                         (or (resolve/title item) "(untitled)")]]
+              (list [:h2 "A boost for "
+                     [:a {:href (feed-href "/item" url {:guid guid})}
+                      (or (resolve/title item) "(untitled)")]]
                     (if block
                       (payments-table (:recipients block))
-                      [:p.muted "The episode has no value block, so it has no recipients."])))
+                      [:p.muted (str "The episode has no value block, so it "
+                                     "has no recipients.")])))
             [:form {:method "post" :action "/wallet"}
-             [:p [:input {:type "password" :name "uri" :placeholder "nostr+walletconnect://…" :required true :autocomplete "off"}]]
+             [:p [:input {:type         "password"
+                          :name         "uri"
+                          :placeholder  "nostr+walletconnect://…"
+                          :required     true
+                          :autocomplete "off"}]]
              [:input {:type "hidden" :name "token" :value token}]
              (when block
                (list [:input {:type "hidden" :name "url" :value url}]
-                     [:input {:type "hidden" :name "guid" :value (feed/item-guid item)}]
-                     [:p [:input {:type "number" :name "sats" :min 1 :placeholder "sats"}]
+                     [:input {:type "hidden" :name "guid" :value guid}]
+                     [:p [:input {:type        "number"
+                                  :name        "sats"
+                                  :min         1
+                                  :placeholder "sats"}]
                       " "
-                      [:input {:type "text" :name "message" :placeholder "a message for the show" :maxlength 500}]]
-                     [:p.muted "Without an amount, the inspector asks the wallet and pays nothing. "
-                      "With an amount, the wallet pays each recipient its share. This is real money."]))
-             [:button {:type "submit"} (if block "Ask the wallet, and pay the amount" "Ask the wallet")]]
+                      [:input {:type        "text"
+                               :name        "message"
+                               :placeholder "a message for the show"
+                               :maxlength   500}]]
+                     [:p.muted (str "Without an amount, the inspector asks "
+                                    "the wallet and pays nothing. ")
+                      (str "With an amount, the wallet pays each recipient "
+                           "its share. This is real money.")]))
+             [:button {:type "submit"} (if block
+                                         "Ask the wallet, and pay the amount"
+                                         "Ask the wallet")]]
             (when problem
               [:p.error problem])
             (when connection
