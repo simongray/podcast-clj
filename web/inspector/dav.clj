@@ -22,8 +22,15 @@
                        (fn [{:keys [path-info uri] :as request}]
                          (let [path (or path-info uri)]
                            (cond
-                             (= path base)                (assoc request :path-info collection :uri collection)
-                             (str/starts-with? path base) (-> request
-                                                              (update :headers dissoc "content-type")
-                                                              (dissoc :content-type))
-                             :else                        request)))))})))
+                             (= path base)
+                             (assoc request
+                                    :path-info collection
+                                    :uri       collection)
+
+                             (str/starts-with? path base)
+                             (-> request
+                                 (update :headers dissoc "content-type")
+                                 (dissoc :content-type))
+
+                             :else
+                             request)))))})))

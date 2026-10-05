@@ -47,11 +47,14 @@
 (defn corpus
   "The corpus feeds on disk as `[name url]`, the URL being the local route."
   []
-  (->> (when (.isDirectory ^java.io.File corpus-dir) (.listFiles ^java.io.File corpus-dir))
-       (filter #(str/ends-with? (.getName ^java.io.File %) ".xml"))
-       (map #(str/replace (.getName ^java.io.File %) #"\.xml$" ""))
-       sort
-       (map (fn [name] [name (str "corpus/" name)]))))
+  (let [dir  ^java.io.File corpus-dir
+        xml? #(str/ends-with? (.getName ^java.io.File %) ".xml")
+        base #(str/replace (.getName ^java.io.File %) #"\.xml$" "")]
+    (->> (when (.isDirectory dir) (.listFiles dir))
+         (filter xml?)
+         (map base)
+         sort
+         (map (fn [name] [name (str "corpus/" name)])))))
 
 (defn- corpus-file
   "The file of the corpus feed `name`."
@@ -76,12 +79,14 @@
   one `make` makes of it, or of nil when there is none, kept in its place."
   [k fresh? make]
   (let [old   (get @cache k)
-        entry (assoc (if (and old (fresh? old)) old (make old)) :used (System/nanoTime))]
-    (swap! cache (fn [c]
-                   (let [c (assoc c k entry)]
-                     (if (> (count c) cache-limit)
-                       (into {} (take cache-limit) (sort-by (comp :used val) > c))
-                       c))))
+        kept  (if (and old (fresh? old)) old (make old))
+        entry (assoc kept :used (System/nanoTime))
+        trim  (fn [c]
+                (let [c (assoc c k entry)]
+                  (if (> (count c) cache-limit)
+                    (into {} (take cache-limit) (sort-by (comp :used val) > c))
+                    c)))]
+    (swap! cache trim)
     entry))
 
 (defn- fetch
@@ -90,17 +95,29 @@
   A fetch is reused for `cache-seconds`, and after that for as long as the
   server answers that the body has not changed."
   [kind url read]
-  (let [now (System/currentTimeMillis)]
-    (cached [kind url]
-            #(< (- now (:at %)) (* 1000 cache-seconds))
-            (fn [old]
-              (let [{:keys [status body] :as response} (http/fetch! url (select-keys old [:etag :last-modified]))]
-                (cond
-                  (and old (= 304 status))  (assoc old :at now)
-                  (and (= 200 status) body) (-> (select-keys response [:url :status :etag :last-modified])
-                                                (assoc :at now :value (read body)))
-                  (= 200 status)            (throw (ex-info (str url " answered with an empty body") {:status status}))
-                  :else                     (throw (ex-info (str "HTTP " status " for " url) {:status status}))))))))
+  (let [now     (System/currentTimeMillis)
+        fresh?  #(< (- now (:at %)) (* 1000 cache-seconds))
+        refetch (fn [old]
+                  (let [validators (select-keys old [:etag :last-modified])
+                        {:keys [status body] :as response}
+                        (http/fetch! url validators)]
+                    (cond
+                      (and old (= 304 status))
+                      (assoc old :at now)
+
+                      (and (= 200 status) body)
+                      (-> response
+                          (select-keys [:url :status :etag :last-modified])
+                          (assoc :at now :value (read body)))
+
+                      (= 200 status)
+                      (throw (ex-info (str url " answered with an empty body")
+                                      {:status status}))
+
+                      :else
+                      (throw (ex-info (str "HTTP " status " for " url)
+                                      {:status status})))))]
+    (cached [kind url] fresh? refetch)))
 
 (defn- load-feed
   "The parsed feed at `url`, or the corpus file when `url` names one, as
@@ -111,14 +128,24 @@
   (if-let [[_ name] (re-matches #"corpus/([\w.-]+)" url)]
     (let [file     (corpus-file name)
           _        (when-not (.exists file)
-                     (throw (ex-info (str "No feed " name " in the corpus") {::status 404})))
+                     (throw (ex-info (str "No feed " name " in the corpus")
+                                     {::status 404})))
           modified (.lastModified file)
+          parsed   (fn [_]
+                     {:modified modified :value (rss/parse (slurp file))})
           feed     (:value (cached [:corpus name]
                                    #(= modified (:modified %))
-                                   (fn [_] {:modified modified :value (rss/parse (slurp file))})))]
-      {:url url :feed-url (or (resolve/self-url feed) url) :feed feed :report (rss/report feed)})
+                                   parsed))]
+      {:url      url
+       :feed-url (or (resolve/self-url feed) url)
+       :feed     feed
+       :report   (rss/report feed)})
     (let [{:keys [value status]} (fetch :feed url rss/parse)]
-      {:url url :feed-url url :feed value :report (rss/report value) :status status})))
+      {:url      url
+       :feed-url url
+       :feed     value
+       :report   (rss/report value)
+       :status   status})))
 
 (defn- html
   [hiccup]
@@ -127,7 +154,8 @@
    ;; Replicant 2026.06.2 and later write a double quote as &#39;, which is
    ;; an apostrophe. They write an apostrophe as &apos; and an ampersand as
    ;; &amp;, so every &#39; stands for a double quote.
-   :body    (str "<!DOCTYPE html>\n" (str/replace (replicant/render hiccup) "&#39;" "&quot;"))})
+   :body    (->> (str/replace (replicant/render hiccup) "&#39;" "&quot;")
+                 (str "<!DOCTYPE html>\n"))})
 
 (defn- text
   [content-type s]
@@ -150,6 +178,14 @@
   (when-not (str/blank? guid)
     (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))))
 
+(defn- no-item
+  "The page with the status 404 for the item `guid` that the feed at `url`
+  doesn't have."
+  [url guid]
+  (-> (html (page/error-page "No such item in the feed" url
+                             (str "No item with guid " guid)))
+      (assoc :status 404)))
+
 (defn- with-feed
   "Call `f` with the loaded feed for the `url` query parameter of `request`,
   rendering an error page when anything fails, a stack overflow included."
@@ -160,9 +196,11 @@
       (try
         (f (load-feed url))
         (catch Throwable e
-          (failure "Could not inspect the feed" url e
-                   [:p "If this is the address of a website or a page, "
-                    [:a {:href (str "/find?q=" (http/percent-encode url))} "find the feeds that it names"] "."]))))))
+          (let [find-href (str "/find?q=" (http/percent-encode url))]
+            (failure "Could not inspect the feed" url e
+                     [:p "If this is the address of a website or a page, "
+                      [:a {:href find-href} "find the feeds that it names"]
+                      "."])))))))
 
 (defn home
   "The landing page: the URL form and the corpus."
@@ -174,11 +212,13 @@
   criteria and the order of `search/episodes`, an order the page does not
   offer left out."
   [{:keys [q season type order]}]
-  (let [where (cond-> {}
-                (not (str/blank? q))                         (assoc :text q)
-                (some-> season parse-long)                   (assoc :season (parse-long season))
-                (contains? #{"full" "trailer" "bonus"} type) (assoc :type type))
-        order (some-> order not-empty keyword)]
+  (let [season (some-> season parse-long)
+        types  #{"full" "trailer" "bonus"}
+        where  (cond-> {}
+                 (not (str/blank? q))   (assoc :text q)
+                 season                 (assoc :season season)
+                 (contains? types type) (assoc :type type))
+        order  (some-> order not-empty keyword)]
     (cond-> {:where where}
       (some #{order} page/orders) (assoc :order order))))
 
@@ -190,10 +230,14 @@
   [request]
   (with-feed request
     (fn [loaded]
-      (let [requirements (some-> (get-in request [:query-params :requirements]) not-empty keyword)]
-        (html (page/feed-page (assoc loaded
-                                     :requirements (when (contains? validate/requirements requirements) requirements)
-                                     :selection (selection (:query-params request)))))))))
+      (let [asked        (some-> (get-in request [:query-params :requirements])
+                                 not-empty
+                                 keyword)
+            requirements (when (contains? validate/requirements asked) asked)]
+        (html (page/feed-page
+               (assoc loaded
+                      :requirements requirements
+                      :selection    (selection (:query-params request)))))))))
 
 (defn- checked
   "The check over the network of `feed`, fetched from `url`, for its newest
@@ -201,13 +245,18 @@
   `integrity?`: reused for `cache-seconds` while the feed is the same, so
   that the page judges one check by each choice of requirements."
   [url feed items integrity?]
-  (let [now (System/currentTimeMillis)]
-    (:value (cached [:check url items integrity?]
-                    #(and (identical? feed (:feed %)) (< (- now (:at %)) (* 1000 cache-seconds)))
-                    (fn [_]
-                      {:at    now
-                       :feed  feed
-                       :value (check/check-files! feed {:url url :max-items items :read? true :integrity? integrity?})})))))
+  (let [now       (System/currentTimeMillis)
+        fresh?    #(and (identical? feed (:feed %))
+                        (< (- now (:at %)) (* 1000 cache-seconds)))
+        run-check (fn [_]
+                    {:at    now
+                     :feed  feed
+                     :value (check/check-files! feed
+                                                {:url        url
+                                                 :max-items  items
+                                                 :read?      true
+                                                 :integrity? integrity?})})]
+    (:value (cached [:check url items integrity?] fresh? run-check))))
 
 (defn check-page
   "The check over the network of the files that the feed named by the `url`
@@ -220,12 +269,19 @@
     (fn [{:keys [url feed-url feed]}]
       (let [{:keys [requirements items integrity]} (:query-params request)
             requirements (some-> requirements not-empty keyword)
-            requirements (when (contains? check/requirements requirements) requirements)
+            requirements (when (contains? check/requirements requirements)
+                           requirements)
             items        (or (some-> items parse-long (max 1) (min 50)) 5)
             integrity?   (= "1" integrity)
-            {:keys [files]} (checked feed-url feed items integrity?)]
-        (html (page/check-page {:url url :feed feed :requirements requirements :items items :integrity? integrity?
-                                :result {:files files :report (check/report files requirements)}}))))))
+            {:keys [files]} (checked feed-url feed items integrity?)
+            result       {:files  files
+                          :report (check/report files requirements)}]
+        (html (page/check-page {:url          url
+                                :feed         feed
+                                :requirements requirements
+                                :items        items
+                                :integrity?   integrity?
+                                :result       result}))))))
 
 (defn feed-edn
   "The parsed feed as EDN, pretty-printed for a feed of up to a hundred
@@ -237,7 +293,8 @@
       (text "text/plain; charset=utf-8"
             (if (<= (count (:rss/items feed)) 100)
               (with-out-str (pprint/pprint feed))
-              (str ";; on one line, since pretty-printing more than a hundred items takes too long\n"
+              (str ";; on one line, since pretty-printing more than a "
+                   "hundred items takes too long\n"
                    (pr-str feed)))))))
 
 (defn feed-xml
@@ -261,14 +318,17 @@
   (let [key    (System/getenv "PODCASTINDEX_API_KEY")
         secret (System/getenv "PODCASTINDEX_API_SECRET")]
     (when (and (seq key) (seq secret))
-      {:key key :secret (secret/hide secret) :user-agent "podcast-clj inspector"})))
+      {:key        key
+       :secret     (secret/hide secret)
+       :user-agent "podcast-clj inspector"})))
 
 (defn- known!
   "Keep `feed`, which find-feeds! fetched from `url`, as if the inspector
   had fetched it, so that its page doesn't fetch it again."
   [url feed]
   (cached [:feed url] (constantly false)
-          (fn [_] {:url url :status 200 :value feed :at (System/currentTimeMillis)})))
+          (fn [_]
+            {:url url :status 200 :value feed :at (System/currentTimeMillis)})))
 
 (defn find-page
   "The feeds that discovery/find-feeds! finds for the text in the `q`
@@ -283,18 +343,22 @@
     (if (str/blank? q)
       {:status 302 :headers {"Location" "/"}}
       (try
-        (let [opts                            (cond-> {:search [:apple :fyyd :gpodder]}
-                                                index-credentials (-> (assoc :index index-credentials)
-                                                                      (update :search conj :podcastindex)))
+        (let [opts     (cond-> {:search [:apple :fyyd :gpodder]}
+                         index-credentials
+                         (-> (assoc :index index-credentials)
+                             (update :search conj :podcastindex)))
               {:keys [feeds error] :as found} (discovery/find-feeds! q opts)
-              best                            (first feeds)]
+              best     (first feeds)
+              redirect (fn [location]
+                         {:status 302 :headers {"Location" location}})]
           (cond
             (= :discovery/unreadable (:id error))
-            {:status 302 :headers {"Location" (str "/directory?q=" (http/percent-encode q))}}
+            (redirect (str "/directory?q=" (http/percent-encode q)))
 
-            (or (= :input (:found-by best)) (= 1 (count (filter :podcast? feeds))))
+            (or (= :input (:found-by best))
+                (= 1 (count (filter :podcast? feeds))))
             (do (known! (:url best) (:feed best))
-                {:status 302 :headers {"Location" (str "/feed?url=" (http/percent-encode (:url best)))}})
+                (redirect (str "/feed?url=" (http/percent-encode (:url best)))))
 
             :else
             (html (page/find-page (assoc found :q q)))))
@@ -310,8 +374,9 @@
     (:value (cached [:episode url (feed/item-guid item)]
                     #(< (- now (:at %)) (* 1000 cache-seconds))
                     (fn [_]
-                      (let [view (episode/view feed item {:url url})]
-                        {:at now :value (merge view (episode/read-files! view))}))))))
+                      (let [view  (episode/view feed item {:url url})
+                            files (episode/read-files! view)]
+                        {:at now :value (merge view files)}))))))
 
 (defn- remotes
   "The value blocks that the time splits of the episode `view` point at, as
@@ -332,9 +397,11 @@
             item (item-in feed guid)]
         (if item
           (let [view (episode-view feed feed-url item)]
-            (html (page/item-page (assoc loaded :item item :view view :remotes (remotes view)))))
-          (-> (html (page/error-page "No such item in the feed" (:url loaded) (str "No item with guid " guid)))
-              (assoc :status 404)))))))
+            (html (page/item-page (assoc loaded
+                                         :item    item
+                                         :view    view
+                                         :remotes (remotes view)))))
+          (no-item (:url loaded) guid))))))
 
 (def appview
   "The AppView that the comments page reads AT Protocol threads from. It is
@@ -349,15 +416,20 @@
   The inspector keeps a thread for `cache-seconds`. While the thread is
   incomplete, or a read of it failed, the next visit reads on."
   [interact]
-  (let [now      (System/currentTimeMillis)
-        fresh?   #(< (- now (:at %)) (* 1000 cache-seconds))
-        read-on? #(some #{:comments/incomplete :comments/unreachable :comments/malformed} (map :id (:report (:value %))))]
+  (let [now       (System/currentTimeMillis)
+        fresh?    #(< (- now (:at %)) (* 1000 cache-seconds))
+        again     #{:comments/incomplete :comments/unreachable
+                    :comments/malformed}
+        read-on?  #(some again (map :id (:report (:value %))))
+        read-more (fn [old]
+                    (let [old  (when (and old (fresh? old)) old)
+                          from (or (:value old) interact)]
+                      {:at    (or (:at old) now)
+                       :value (comments/fetch! from {:appview     appview
+                                                     :max-seconds 10})}))]
     (:value (cached [:comments interact]
                     #(and (fresh? %) (not (read-on? %)))
-                    (fn [old]
-                      (let [old (when (and old (fresh? old)) old)]
-                        {:at    (or (:at old) now)
-                         :value (comments/fetch! (or (:value old) interact) {:appview appview :max-seconds 10})}))))))
+                    read-more))))
 
 (defn comments-page
   "The comments page of the item that the `guid` parameter names, in the
@@ -374,9 +446,10 @@
       (let [{:keys [guid hidden]} (:query-params request)
             item      (item-in feed guid)
             interacts (when item (resolve/social-interacts feed item))
+            disabled? (= "disabled" (:protocol (first interacts)))
             thread    (when item
                         (or (comments/thread feed item {:appview appview})
-                            (when-not (= "disabled" (:protocol (first interacts)))
+                            (when-not disabled?
                               (nostr-comments/about feed item))))]
         (if item
           (html (page/comments-page {:url       url
@@ -384,8 +457,7 @@
                                      :interacts interacts
                                      :hidden?   (= "1" hidden)
                                      :thread    (some-> thread thread-of)}))
-          (-> (html (page/error-page "No such item in the feed" url (str "No item with guid " guid)))
-              (assoc :status 404)))))))
+          (no-item url guid))))))
 
 (defn- interact-of
   "The thread below the post that the address `s` names, as the interact
@@ -396,15 +468,25 @@
   of a post at bsky.app and at njump.me too. These are the pages of two
   web apps that the inspector chose."
   [s]
-  (let [s (str/trim (str s))
-        [_ profile rkey] (re-matches #"https://bsky\.app/profile/([^/\s?#]+)/post/([^/\s?#]+).*" s)
-        [_ note]         (re-matches #"https://njump\.me/((?:note|nevent)1[a-z0-9]+).*" s)
-        nostr            {:protocol "nostr" :uri (if note (str "nostr:" note) s)}]
+  (let [s       (str/trim (str s))
+        bluesky #"https://bsky\.app/profile/([^/\s?#]+)/post/([^/\s?#]+).*"
+        njump   #"https://njump\.me/((?:note|nevent)1[a-z0-9]+).*"
+        [_ profile rkey] (re-matches bluesky s)
+        [_ note]         (re-matches njump s)
+        nostr   {:protocol "nostr" :uri (if note (str "nostr:" note) s)}]
     (cond
-      profile                       {:protocol "atproto" :uri (str "at://" profile "/app.bsky.feed.post/" rkey)}
-      (str/starts-with? s "at://")  {:protocol "atproto" :uri s}
-      (comments/readable? nostr)    nostr
-      (re-find #"^https?://\S+$" s) {:protocol "activitypub" :uri s})))
+      profile
+      {:protocol "atproto"
+       :uri      (str "at://" profile "/app.bsky.feed.post/" rkey)}
+
+      (str/starts-with? s "at://")
+      {:protocol "atproto" :uri s}
+
+      (comments/readable? nostr)
+      nostr
+
+      (re-find #"^https?://\S+$" s)
+      {:protocol "activitypub" :uri s})))
 
 (defn thread-page
   "The page of the comments below the post that the `uri` parameter names,
@@ -431,7 +513,8 @@
   `info` of the wallet does not name the method of the command."
   [connection info command]
   (when (or (:error info) (some #{(:method command)} (:methods info)))
-    (nwc/ask! connection command (assoc wallet-opts :info (when-not (:error info) info)))))
+    (let [known (when-not (:error info) info)]
+      (nwc/ask! connection command (assoc wallet-opts :info known)))))
 
 (defn- paid
   "What the wallet of `connection` answers to `payment` for `recipient`:
@@ -441,33 +524,48 @@
   (let [opts    (assoc wallet-opts :info (when-not (:error info) info))
         keysend (when (= "node" type) (nwc/pay-keysend payment recipient))
         invoice (when (= "lnaddress" type)
-                  (lnaddress/request-invoice! address (* 1000 (:sats payment)) {:comment (:message payment)}))]
+                  (let [msat         (* 1000 (:sats payment))
+                        invoice-opts {:comment (:message payment)}]
+                    (lnaddress/request-invoice! address msat invoice-opts)))]
     (cond
-      (seq (value/report keysend)) {:error (first (value/report keysend))}
-      keysend                      (nwc/ask! connection keysend opts)
-      (:error invoice)             invoice
-      invoice                      (nwc/ask! connection (nwc/pay-invoice (:invoice invoice)) opts)
-      :else                        {:error {:level :warning :message "The inspector pays a node and a Lightning address only."}})))
+      (seq (value/report keysend))
+      {:error (first (value/report keysend))}
+
+      keysend
+      (nwc/ask! connection keysend opts)
+
+      (:error invoice)
+      invoice
+
+      invoice
+      (nwc/ask! connection (nwc/pay-invoice (:invoice invoice)) opts)
+
+      :else
+      {:error {:level   :warning
+               :message (str "The inspector pays a node and a Lightning "
+                             "address only.")}})))
 
 (defn- boosted
   "The payments of a boost of `sats` with `message` for `item` of `feed`
   at `url`, from the wallet of `connection`: the share of each recipient
   of the value block, with the answer of the wallet."
   [connection info {:keys [feed item feed-url]} sats message]
-  (let [payment {:action     :boost
-                 :total-sats sats
-                 :message    (not-empty message)
-                 :app-name   app-name
-                 :feed-url   feed-url
-                 :feed-guid  (feed/feed-guid feed feed-url)
-                 :feed-title (resolve/title feed)
-                 :item-guid  (feed/item-guid item)
-                 :item-title (resolve/title item)}]
-    (vec (for [{:keys [recipient amount]} (value/payments (:recipients (resolve/value feed item)) sats)]
+  (let [payment    {:action     :boost
+                    :total-sats sats
+                    :message    (not-empty message)
+                    :app-name   app-name
+                    :feed-url   feed-url
+                    :feed-guid  (feed/feed-guid feed feed-url)
+                    :feed-title (resolve/title feed)
+                    :item-guid  (feed/item-guid item)
+                    :item-title (resolve/title item)}
+        recipients (:recipients (resolve/value feed item))]
+    (vec (for [{:keys [recipient amount]} (value/payments recipients sats)]
            {:recipient recipient
             :sats      amount
             :answer    (when (pos? amount)
-                         (paid connection info (assoc payment :sats amount) recipient))}))))
+                         (paid connection info (assoc payment :sats amount)
+                               recipient))}))))
 
 (defn- episode-of
   "The episode that the parameters `url` and `guid` name, as `{:url
@@ -504,8 +602,7 @@
     (try
       (let [episode (episode-of url guid)]
         (if (and (not (str/blank? url)) (nil? episode))
-          (-> (html (page/error-page "No such item in the feed" url (str "No item with guid " guid)))
-              (assoc :status 404))
+          (no-item url guid)
           (html (page/wallet-page {:episode episode :token (new-token!)}))))
       (catch Throwable e
         (failure "Could not inspect the feed" url e)))))
@@ -529,19 +626,31 @@
       (let [episode (episode-of url guid)
             info    (some-> connection (nwc/fetch-info! wallet-opts))
             boost   (when (and fresh? episode)
-                      {:sats sats :payments (boosted connection info episode sats message)})]
+                      (let [payments (boosted connection info episode sats
+                                              message)]
+                        {:sats sats :payments payments}))
+            ask     #(asked connection info %)
+            not-uri "The text is no connection URI of Nostr Wallet Connect."
+            resent  (str "The inspector paid nothing. This form was sent "
+                         "before, or it is old. Give the amount again in the "
+                         "form of this page.")]
         (html (page/wallet-page
                (cond-> {:episode episode :token (new-token!)}
-                 (nil? connection) (assoc :problem "The text is no connection URI of Nostr Wallet Connect.")
+                 (nil? connection)
+                 (assoc :problem not-uri)
+
                  (and pays? (not fresh?))
-                 (assoc :problem (str "The inspector paid nothing. This form was sent before, or it is old. "
-                                      "Give the amount again in the form of this page."))
-                 boost             (assoc :boost boost)
-                 connection        (assoc :connection (dissoc connection :secret)
-                                          :app        (nwc/public-key connection)
-                                          :info       info
-                                          :wallet     (asked connection info (nwc/get-info))
-                                          :balance    (asked connection info (nwc/get-balance)))))))
+                 (assoc :problem resent)
+
+                 boost
+                 (assoc :boost boost)
+
+                 connection
+                 (assoc :connection (dissoc connection :secret)
+                        :app        (nwc/public-key connection)
+                        :info       info
+                        :wallet     (ask (nwc/get-info))
+                        :balance    (ask (nwc/get-balance)))))))
       (catch Throwable e
         (failure "Could not ask the wallet" nil e)))))
 
@@ -556,11 +665,14 @@
   []
   (or @corpus-search
       (reset! corpus-search
-              (let [feeds (into {} (for [[name url] (corpus)] [url (rss/parse (slurp (corpus-file name)))]))]
+              (let [parsed #(rss/parse (slurp (corpus-file %)))
+                    feeds  (into {} (for [[name url] (corpus)]
+                                      [url (parsed name)]))
+                    docs   (for [[url feed] feeds
+                                 item       (:rss/items feed)]
+                             (search/item-document feed item {:url url}))]
                 {:feeds feeds
-                 :index (search/index (for [[url feed] feeds
-                                            item       (:rss/items feed)]
-                                        (search/item-document feed item {:url url})))}))))
+                 :index (search/index docs)}))))
 
 (defn- with-items
   "The search `results` with the feed and item each came from, looked up in
@@ -568,7 +680,8 @@
   [results feeds]
   (for [{:keys [stored] :as result} results
         :let [feed (get feeds (:url stored))
-              item (some #(when (= (:guid stored) (feed/item-guid %)) %) (:rss/items feed))]]
+              item (some #(when (= (:guid stored) (feed/item-guid %)) %)
+                         (:rss/items feed))]]
     (assoc result :feed feed :item item)))
 
 (defn search-page
@@ -578,9 +691,9 @@
   (let [q      (str (get-in request [:query-params :q]))
         url    (get-in request [:query-params :url])
         render (fn [index feeds url]
-                 (html (page/search-page {:q       q
-                                          :url     url
-                                          :results (with-items (search/query index q {:limit page/result-limit}) feeds)})))]
+                 (let [found   (search/query index q {:limit page/result-limit})
+                       results (with-items found feeds)]
+                   (html (page/search-page {:q q :url url :results results}))))]
     (if (str/blank? url)
       (try
         (let [{:keys [index feeds]} (corpus-index)]
@@ -591,11 +704,13 @@
         (fn [{:keys [feed url]}]
           ;; the index of a big feed takes a second to make, so it is kept
           ;; for as long as the feed it was made of
-          (let [index (:value (cached [:index url]
-                                      #(identical? feed (:feed %))
-                                      (fn [_] {:feed  feed
-                                               :value (search/index (map #(search/item-document feed % {:url url})
-                                                                         (:rss/items feed)))})))]
+          (let [document #(search/item-document feed % {:url url})
+                indexed  (fn [_]
+                           (let [docs (map document (:rss/items feed))]
+                             {:feed feed :value (search/index docs)}))
+                index    (:value (cached [:index url]
+                                         #(identical? feed (:feed %))
+                                         indexed))]
             (render index {url feed} url)))))))
 
 (defn directory-page
@@ -606,16 +721,25 @@
   [request]
   (let [{:keys [q country category]} (:query-params request)
         opts (cond-> {:limit 10}
-               (not (str/blank? country))  (assoc :country country)
-               index-credentials           (assoc :credentials index-credentials)
-               (not (str/blank? category)) (assoc :category category))]
+               (not (str/blank? country))
+               (assoc :country country)
+
+               index-credentials
+               (assoc :credentials index-credentials)
+
+               (not (str/blank? category))
+               (assoc :category category))]
     (try
       (let [answer (if (str/blank? q)
                      (directory/fetch-chart! opts)
                      (directory/search! q opts))]
-        (html (page/directory-page (assoc answer :q q :country (:country opts) :category (:category opts)))))
+        (html (page/directory-page (assoc answer
+                                          :q        q
+                                          :country  (:country opts)
+                                          :category (:category opts)))))
       (catch Throwable e
-        (failure "Could not ask the directories" (if (str/blank? q) (:country opts) q) e)))))
+        (let [subject (if (str/blank? q) (:country opts) q)]
+          (failure "Could not ask the directories" subject e))))))
 
 (defn podping-page
   "The podpings of the last minute or so of the Hive chain: twenty blocks
@@ -653,7 +777,9 @@
                          :duration   (resolve/duration item)
                          :url        url
                          :guid       guid}))
-          {:status 404 :headers {"Content-Type" "text/plain"} :body (str "No item with guid " guid)})))))
+          {:status  404
+           :headers {"Content-Type" "text/plain"}
+           :body    (str "No item with guid " guid)})))))
 
 (def player-js-dir
   "Where shadow-cljs puts the compiled browser player."
@@ -664,24 +790,30 @@
   that a browser fetches it again only after a build; or a note on how to
   compile the player."
   [request]
-  (let [path  (str (get-in request [:path-params :path]))
-        file  (io/file player-js-dir path)
-        built (when (and (not (str/includes? path "..")) (.isFile file))
-                (time/format-rfc2822 (java.util.Date. (* 1000 (quot (.lastModified file) 1000)))))]
+  (let [path         (str (get-in request [:path-params :path]))
+        file         (io/file player-js-dir path)
+        modified     (fn [^java.io.File f]
+                       (java.util.Date. (* 1000 (quot (.lastModified f) 1000))))
+        built        (when (and (not (str/includes? path "..")) (.isFile file))
+                       (time/format-rfc2822 (modified file)))
+        content-type (if (str/ends-with? path ".map")
+                       "application/json"
+                       "application/javascript; charset=utf-8")]
     (cond
       (nil? built)
       {:status  404
        :headers {"Content-Type" "text/plain"}
        :body    (if (.isFile (io/file player-js-dir "player.js"))
                   (str "No file " path " in the player")
-                  "The browser player is not compiled; run: clojure -M:cljs compile player")}
+                  (str "The browser player is not compiled; run: "
+                       "clojure -M:cljs compile player"))}
 
       (= built (get-in request [:headers "if-modified-since"]))
       {:status 304 :headers {"Last-Modified" built} :body ""}
 
       :else
       {:status  200
-       :headers {"Content-Type"  (if (str/ends-with? path ".map") "application/json" "application/javascript; charset=utf-8")
+       :headers {"Content-Type"  content-type
                  "Last-Modified" built}
        :body    file})))
 
@@ -704,11 +836,15 @@
   of an episode's media, and the episode of a media URL or a guid of its
   feed."
   [state]
-  (let [episodes (keep :value (vals (:inspector/episodes state)))]
-    {:episode-url (fn [id] (get-in state [:inspector/episodes id :value :enclosure]))
+  (let [episodes (keep :value (vals (:inspector/episodes state)))
+        same?    (fn [podcast media guid {:keys [url enclosure] :as episode}]
+                   (or (= media enclosure)
+                       (and guid (= guid (:guid episode)) (= podcast url))))]
+    {:episode-url (fn [id]
+                    (get-in state [:inspector/episodes id :value :enclosure]))
      :episode-id  (fn [podcast media guid]
-                    (some (fn [{:keys [id url enclosure] :as episode}]
-                            (when (or (= media enclosure) (and guid (= guid (:guid episode)) (= podcast url)))
+                    (some (fn [{:keys [id] :as episode}]
+                            (when (same? podcast media guid episode)
                               id))
                           episodes))}))
 
@@ -729,15 +865,18 @@
   [sync-store]
   (let [cursors (atom nil)
         backend (store/backend sync-store)
-        state   (atom (profile/make "inspector-gpodder"))]
+        state   (atom (profile/make "inspector-gpodder"))
+        names   #(either (gpodder/identities (cached-feeds))
+                         (added-here @state))
+        sync!   (fn [state]
+                  (let [result (sync/sync! state [backend] {:cursors @cursors})]
+                    (reset! cursors (:cursors result))
+                    (:state result)))]
     (gpodder-server/handler
      {:state       state
       :authorized? (constantly true)
-      :identities  #(either (gpodder/identities (cached-feeds)) (added-here @state))
-      :sync        (fn [state]
-                     (let [result (sync/sync! state [backend] {:cursors @cursors})]
-                       (reset! cursors (:cursors result))
-                       (:state result)))})))
+      :identities  names
+      :sync        sync!})))
 
 (defn routes
   "The inspector's routes, in Pedestal's set syntax, the WebDAV ones and the
@@ -763,8 +902,10 @@
      ["/episode.edn" :get episode-edn :route-name :episode-edn]
      ["/queue" :get queue-page :route-name :queue]
      ["/js/*path" :get js-file :route-name :js]
-     ["/dav" :any (webdav-server/handler sync-store "/dav/") :route-name :dav-collection]
-     ["/dav/*path" :any (webdav-server/handler sync-store "/dav/") :route-name :dav]
+     ["/dav" :any (webdav-server/handler sync-store "/dav/")
+      :route-name :dav-collection]
+     ["/dav/*path" :any (webdav-server/handler sync-store "/dav/")
+      :route-name :dav]
      ["/api/2/*path" :any (gpodder-handler sync-store) :route-name :gpodder]
      ["/proxy" :any (proxy/handler) :route-name :proxy]
      ["/corpus/:name" :get corpus-page :route-name :corpus]}))
@@ -779,7 +920,9 @@
              (update context :request
                      (fn [{:keys [path-info uri] :as request}]
                        (if (str/starts-with? (str (or path-info uri)) "/api/2/")
-                         (-> request (update :headers dissoc "content-type") (dissoc :content-type))
+                         (-> request
+                             (update :headers dissoc "content-type")
+                             (dissoc :content-type))
                          request))))}))
 
 (def single-params
@@ -788,12 +931,13 @@
   (interceptor/interceptor
    {:name  ::single-params
     :enter (fn [context]
-             (reduce (fn [context k]
-                       (cond-> context
-                         (get-in context [:request k])
-                         (update-in [:request k] update-vals #(if (vector? %) (first %) %))))
-                     context
-                     [:query-params :form-params]))}))
+             (let [one #(if (vector? %) (first %) %)]
+               (reduce (fn [context k]
+                         (cond-> context
+                           (get-in context [:request k])
+                           (update-in [:request k] update-vals one)))
+                       context
+                       [:query-params :form-params])))}))
 
 (def local-only
   "An interceptor that answers only requests addressed to localhost, since
@@ -802,12 +946,18 @@
   (interceptor/interceptor
    {:name  ::local-only
     :enter (fn [context]
-             (let [host (some-> (get-in context [:request :headers "host"]) str/lower-case (str/replace #":\d+$" ""))]
-               (if (or (nil? host) (#{"localhost" "127.0.0.1" "[::1]"} host))
+             (let [host      (some-> (get-in context [:request :headers "host"])
+                                     str/lower-case
+                                     (str/replace #":\d+$" ""))
+                   local?    (or (nil? host)
+                                 (#{"localhost" "127.0.0.1" "[::1]"} host))
+                   forbidden {:status  403
+                              :headers {"Content-Type" "text/plain"}
+                              :body    (str "The inspector answers requests "
+                                            "to localhost only.")}]
+               (if local?
                  context
-                 (assoc context :response {:status  403
-                                           :headers {"Content-Type" "text/plain"}
-                                           :body    "The inspector answers requests to localhost only."}))))}))
+                 (assoc context :response forbidden))))}))
 
 (defonce ^{:doc "The running connector, nil when stopped."}
   server
@@ -827,10 +977,12 @@
        (conn/with-default-interceptors
          :secure-headers {:content-security-policy-settings
                           (secure-headers/content-security-policy-header
-                           {:object-src "'none'" :script-src "'self' 'unsafe-eval'"})})
+                           {:object-src "'none'"
+                            :script-src "'self' 'unsafe-eval'"})})
        ;; ahead of the default interceptors, so that a put's body reaches
        ;; the WebDAV handler unread
-       (update :interceptors #(into [local-only (dav/requests "/dav/") unread-bodies] %))
+       (update :interceptors
+               #(into [local-only (dav/requests "/dav/") unread-bodies] %))
        (conn/with-interceptor single-params)
        (conn/with-routes (routes (file/store sync-dir)))
        (jetty/create-connector nil))))
