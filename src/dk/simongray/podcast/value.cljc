@@ -70,8 +70,10 @@
   "The valueTimeSplit of `block` in effect `seconds` into playback, if any."
   [block seconds]
   (some (fn [{:keys [start-time duration] :as split}]
-          (when (and (number? start-time) (number? duration)
-                     (<= start-time seconds) (< seconds (+ start-time duration)))
+          (when (and (number? start-time)
+                     (number? duration)
+                     (<= start-time seconds)
+                     (< seconds (+ start-time duration)))
             split))
         (:time-splits block)))
 
@@ -92,17 +94,18 @@
   the fee recipients alone."
   ([block seconds]
    (let [recipients (:recipients block)
-         fees       (filter fee? recipients)]
-     (if-let [{:keys [remote-item remote-percentage remote-start-time] :as split}
-              (time-split-at block seconds)]
+         fees       (filter fee? recipients)
+         split      (time-split-at block seconds)
+         {:keys [remote-item remote-percentage remote-start-time]} split]
+     (if split
        (if remote-item
-         {:recipients (vec fees)
-          :remote     {:remote-item remote-item
-                       :percentage  (-> (if (number? remote-percentage) remote-percentage 100)
-                                        (max 0)
-                                        (min 100))
-                       :start-time  (if (number? remote-start-time) remote-start-time 0)
-                       :offset      (- seconds (:start-time split))}}
+         (let [percentage (if (number? remote-percentage) remote-percentage 100)
+               start      (if (number? remote-start-time) remote-start-time 0)]
+           {:recipients (vec fees)
+            :remote     {:remote-item remote-item
+                         :percentage  (-> percentage (max 0) (min 100))
+                         :start-time  start
+                         :offset      (- seconds (:start-time split))}})
          {:recipients (into (vec fees) (:recipients split))})
        {:recipients (vec recipients)})))
   ([block seconds remotes]
@@ -129,22 +132,34 @@
   the block apply. Outside a remote split, `paid` stays as it is."
   [block paid remote]
   (if-let [{:keys [percentage]} (:remote paid)]
-    (let [local  (remove fee? (:recipients block))
-          others (remove fee? (:recipients remote))
-          fees   (filter fee? (concat (:recipients block) (:recipients remote)))
-          total  (share-total local)
-          total' (share-total others)]
+    (let [local        (remove fee? (:recipients block))
+          others       (remove fee? (:recipients remote))
+          fees         (filter fee? (concat (:recipients block)
+                                            (:recipients remote)))
+          total        (share-total local)
+          total'       (share-total others)
+          local-share  #(* (split-of %) (- 100 percentage) total')
+          remote-share #(* (split-of %) percentage (max total 1))]
       (assoc paid :recipients
              (if (zero? total')
                (vec (:recipients block))
                (->> (concat fees
-                            (for [r local]
-                              (assoc r :split (* (split-of r) (- 100 percentage) total')))
-                            (for [r others]
-                              (assoc r :split (* (split-of r) percentage (max total 1)))))
+                            (map #(assoc % :split (local-share %)) local)
+                            (map #(assoc % :split (remote-share %)) others))
                     (remove #(and (not (fee? %)) (zero? (:split %))))
                     vec))))
     paid))
+
+(defn- fee-payments
+  "The payments of `amount` to the fee `recipients`: each takes its split
+  as a percentage off the top, until the amount runs out."
+  [recipients amount]
+  (second (reduce (fn [[left paid] r]
+                    (let [fee (/ (* amount (min 100 (split-of r))) 100)
+                          n   (min left (long (Math/floor fee)))]
+                      [(- left n) (conj paid {:recipient r :amount n})]))
+                  [amount []]
+                  recipients)))
 
 (defn payments
   "The shares of `amount` that `recipients` get, as the podcast:value
@@ -160,23 +175,18 @@
   - a fee takes at most all
   - the fees stop where the amount runs out"
   [recipients amount]
-  (let [fees      (filter fee? recipients)
+  (let [fee-paid  (fee-payments (filter fee? recipients) amount)
         shares    (remove fee? recipients)
-        fee-paid  (second (reduce (fn [[left paid] r]
-                                    (let [fee (/ (* amount (min 100 (split-of r))) 100)
-                                          n   (min left (long (Math/floor fee)))]
-                                      [(- left n) (conj paid {:recipient r :amount n})]))
-                                  [amount []]
-                                  fees))
         remaining (- amount (transduce (map :amount) + 0 fee-paid))
         total     (share-total shares)
         ;; *' on the JVM, where a large split times the amount can overflow a
         ;; long; a JavaScript number cannot
+        share     (fn [r]
+                    (let [product (#?(:clj *' :cljs *) remaining (split-of r))]
+                      (long (Math/floor (/ product total)))))
         paid      (for [r shares]
                     {:recipient r
-                     :amount    (if (pos? total)
-                                  (long (Math/floor (/ (#?(:clj *' :cljs *) remaining (split-of r)) total)))
-                                  0)})
+                     :amount    (if (pos? total) (share r) 0)})
         leftover  (- remaining (transduce (map :amount) + 0 paid))
         largest   (when (seq paid)
                     (apply max-key #(split-of (:recipient %)) paid))]
@@ -236,7 +246,9 @@
   [s n]
   (if (<= (count s) n)
     s
-    (let [high? #(<= 0xD800 #?(:clj (int (.charAt ^String s %)) :cljs (.charCodeAt s %)) 0xDBFF)]
+    (let [code  #?(:clj  #(int (.charAt ^String s %))
+                   :cljs #(.charCodeAt s %))
+          high? #(<= 0xD800 (code %) 0xDBFF)]
       (subs s 0 (if (and (pos? n) (high? (dec n))) (dec n) n)))))
 
 (defn ^:no-doc amounts
@@ -246,8 +258,13 @@
   The amount is its :msat, or else its :sats. The total is its
   :total-msat, or else its :total-sats, or else the amount itself."
   [{:keys [msat total-msat sats total-sats] :as payment}]
-  (let [amount (cond (number? msat) (long msat) (number? sats) (* 1000 (long sats)))
-        total  (cond (number? total-msat) (long total-msat) (number? total-sats) (* 1000 (long total-sats)) :else amount)]
+  (let [amount (cond
+                 (number? msat) (long msat)
+                 (number? sats) (* 1000 (long sats)))
+        total  (cond
+                 (number? total-msat) (long total-msat)
+                 (number? total-sats) (* 1000 (long total-sats))
+                 :else                amount)]
     (when amount
       [amount total])))
 
@@ -268,7 +285,9 @@
 
   Nil values are left out."
   [{:keys [position action speed] :as payment}]
-  (let [record         (json-record payment boostagram-keys #{:position :action :speed :msat :total-msat :sats :total-sats})
+  (let [own            #{:position :action :speed
+                         :msat :total-msat :sats :total-sats}
+        record         (json-record payment boostagram-keys own)
         clock          (time/format-timestamp position)
         [amount total] (amounts payment)]
     (cond-> (assoc record "action" (name (or action :boost)))
@@ -294,13 +313,22 @@
   value of the recipient. A payment with such records reaches the node,
   and not the wallet, so don't send it."
   [payment {recipient-name :name :keys [custom-key custom-value] :as recipient}]
-  (let [k       (some-> custom-key str str/trim parse-long)
-        custom? (and k (<= 65536 k) (not (contains? #{7629169 5482373484} k)) (some? custom-value))
-        asked?  (or (some? custom-key) (some? custom-value))]
-    (with-meta (cond-> {7629169 (json/write-str (boostagram (merge {:recipient-name recipient-name} payment)))}
+  (let [k        (some-> custom-key str str/trim parse-long)
+        reserved #{7629169 5482373484}
+        custom?  (and k
+                      (<= 65536 k)
+                      (not (contains? reserved k))
+                      (some? custom-value))
+        asked?   (or (some? custom-key) (some? custom-value))
+        named    (merge {:recipient-name recipient-name} payment)
+        record   (json/write-str (boostagram named))
+        missing  {:id           :value/custom-record
+                  :custom-key   custom-key
+                  :custom-value custom-value}]
+    (with-meta (cond-> {7629169 record}
                  custom? (assoc k (str custom-value)))
       {:podcast/report (if (and asked? (not custom?))
-                         [(diagnostics/describe {:id :value/custom-record :custom-key custom-key :custom-value custom-value})]
+                         [(diagnostics/describe missing)]
                          [])})))
 
 (def ^:no-doc boostagram-fields
@@ -349,20 +377,44 @@
   since the formats have numbers for amounts, positions and ids, and none
   of these is below zero."
   [type v]
-  (let [n     (cond
-                (number? v)                                        v
-                (and (string? v) (re-matches #"\s*-?\d+\s*" v))     (parse-long (str/trim v))
-                (and (string? v) (re-matches #"\s*-?\d*\.\d+\s*" v)) (parse-double (str/trim v)))
-        text? (and (string? v) (not= :decimal type))]
+  (let [integer #"\s*-?\d+\s*"
+        decimal #"\s*-?\d*\.\d+\s*"
+        n       (cond
+                  (number? v)
+                  v
+
+                  (and (string? v) (re-matches integer v))
+                  (parse-long (str/trim v))
+
+                  (and (string? v) (re-matches decimal v))
+                  (parse-double (str/trim v)))
+        text?   (and (string? v) (not= :decimal type))
+        whole?  (#{:int :msat} type)
+        as-text (when text? :as-text)]
     (cond
-      (or (nil? v) (and (string? v) (str/blank? v))) [nil]
-      (= :text type)                                  (if-some [s (json/text v)] [s] [nil :unreadable])
-      (or (nil? n) (neg? n))                          [nil :unreadable]
-      (and (#{:int :msat} type) (>= n 9e15))          [nil :unreadable]
-      (== n (Math/floor n))                            [(if (#{:int :msat} type) (long n) n) (when text? :as-text)]
-      (= :msat type)                                   [(Math/round (double n)) :rounded]
-      (= :int type)                                    [nil :unreadable]
-      :else                                            [n (when text? :as-text)])))
+      (or (nil? v) (and (string? v) (str/blank? v)))
+      [nil]
+
+      (= :text type)
+      (if-some [s (json/text v)] [s] [nil :unreadable])
+
+      (or (nil? n) (neg? n))
+      [nil :unreadable]
+
+      (and whole? (>= n 9e15))
+      [nil :unreadable]
+
+      (== n (Math/floor n))
+      [(if whole? (long n) n) as-text]
+
+      (= :msat type)
+      [(Math/round (double n)) :rounded]
+
+      (= :int type)
+      [nil :unreadable]
+
+      :else
+      [n as-text])))
 
 (defn ^:no-doc json-object
   "The JSON object that `x` holds, or nil for anything else. It's a map as
@@ -406,15 +458,20 @@
   numbers written as text, of values not of their type, except in the
   fields of `forgiven`, and of fields that the format doesn't define."
   [read other forgiven]
-  (let [of      #(vec (sort (for [[k [_ how]] read :when (and (= % how) (not (contains? forgiven k)))] k)))
+  (let [of      (fn [kind]
+                  (vec (sort (for [[k [_ how]] read
+                                   :when (and (= kind how)
+                                              (not (contains? forgiven k)))]
+                               k))))
         as-text (of :as-text)
         rounded (of :rounded)
-        unread  (of :unreadable)]
+        unread  (of :unreadable)
+        unknown (vec (sort (keys other)))]
     (cond-> []
       (seq as-text) (conj {:id :value/text-for-number :keys as-text})
       (seq rounded) (conj {:id :value/rounded :keys rounded})
       (seq unread)  (conj {:id :value/unreadable :keys unread})
-      (seq other)   (conj {:id :value/unknown-keys :keys (vec (sort (keys other)))}))))
+      (seq other)   (conj {:id :value/unknown-keys :keys unknown}))))
 
 (def ^:no-doc boostagram-aliases
   "The other names that apps give fields of a bLIP-10 record, and the name
@@ -438,7 +495,8 @@
   [raw aliases]
   (reduce-kv (fn [[o taken :as acc] alias field]
                (if (and (contains? o alias) (not (contains? o field)))
-                 [(-> o (dissoc alias) (assoc field (get o alias))) (conj taken alias)]
+                 (let [moved (-> o (dissoc alias) (assoc field (get o alias)))]
+                   [moved (conj taken alias)])
                  acc))
              [raw []]
              aliases))
@@ -481,11 +539,13 @@
           value         #(first (get read %))
           other         (other-fields raw boostagram-fields)
           [action said] (read-action (value "action"))
-          position      (or (value "ts") (some-> (value "time") time/parse-clock))
+          clock         (value "time")
+          position      (or (value "ts") (some-> clock time/parse-clock))
+          id            (get raw "itemID")
           ;; Breez writes the guid of the episode as its itemID
-          item-guid     (let [id (get raw "itemID")]
-                          (when (and (string? id) (= :unreadable (second (get read "itemID"))))
-                            (str/trim id)))
+          item-guid     (when (and (string? id)
+                                   (= :unreadable (second (get read "itemID"))))
+                          (str/trim id))
           names         (assoc (set/map-invert boostagram-keys)
                                "value_msat" :msat
                                "value_msat_total" :total-msat)
@@ -493,16 +553,19 @@
                           action    (assoc :action action)
                           position  (assoc :position position)
                           (and item-guid (nil? (value "episode_guid")))
-                          (assoc :item-guid item-guid))]
+                          (assoc :item-guid item-guid))
+          forgiven      (if item-guid #{"itemID"} #{})
+          podcast?      (some value ["guid" "podcast" "feedID" "url"])
+          alias-note    {:id :value/field-alias :keys (vec (sort aliases))}
+          found         (cond-> (field-diagnostics read other forgiven)
+                          (seq aliases)  (conj alias-note)
+                          item-guid      (conj {:id :value/guid-as-item-id})
+                          said           (conj said)
+                          (not podcast?) (conj {:id :value/no-podcast}))]
       (with-meta (merge payment other)
-        {:podcast/report (mapv diagnostics/describe
-                               (cond-> (field-diagnostics read other (if item-guid #{"itemID"} #{}))
-                                 (seq aliases) (conj {:id :value/field-alias :keys (vec (sort aliases))})
-                                 item-guid     (conj {:id :value/guid-as-item-id})
-                                 said          (conj said)
-                                 (not-any? value ["guid" "podcast" "feedID" "url"])
-                                 (conj {:id :value/no-podcast})))}))
-    (with-meta {} {:podcast/report [(diagnostics/describe {:id :value/not-an-object})]})))
+        {:podcast/report (mapv diagnostics/describe found)}))
+    (let [none (diagnostics/describe {:id :value/not-an-object})]
+      (with-meta {} {:podcast/report [none]}))))
 
 (defn report
   "The diagnostics recorded while reading `payment`."
@@ -518,26 +581,43 @@
   can send a record, or name metadata, with a payment of one satoshi, so
   what the node received is the fact."
   [payment {:keys [msat address] :as received}]
-  (let [claimed (:msat payment)
-        to      (:recipient-address payment)]
+  (let [claimed          (:msat payment)
+        to               (:recipient-address payment)
+        other-amount?    (and (some? msat) (some? claimed) (not= msat claimed))
+        other-recipient? (and address
+                              to
+                              (not= (str/lower-case (str address))
+                                    (str/lower-case (str to))))
+        found            (cond-> []
+                           other-amount?
+                           (conj {:id      :value/claimed-amount
+                                  :msat    msat
+                                  :claimed claimed})
+
+                           other-recipient?
+                           (conj {:id      :value/claimed-recipient
+                                  :address address
+                                  :claimed to}))]
     (vary-meta (cond-> payment (some? msat) (assoc :msat msat))
                update :podcast/report (fnil into [])
-               (map diagnostics/describe
-                    (cond-> []
-                      (and (some? msat) (some? claimed) (not= msat claimed))
-                      (conj {:id :value/claimed-amount :msat msat :claimed claimed})
-
-                      (and address to (not= (str/lower-case (str address)) (str/lower-case (str to))))
-                      (conj {:id :value/claimed-recipient :address address :claimed to}))))))
+               (map diagnostics/describe found))))
 
 (comment
-  (def block {:type "lightning" :method "keysend" :suggested 0.00000015
-              :recipients [{:name "Host" :type "node" :address "02d5" :split 50}
-                           {:name "Co-Host" :type "node" :address "032f" :split 40}
-                           {:name "Producer" :type "node" :address "03ae" :split 10}
-                           {:name "Index" :type "node" :address "03ae" :split 1 :fee true}]
-              :time-splits [{:start-time 60 :duration 237 :remote-percentage 95
-                             :remote-item {:feed-guid "a94f" :item-guid "x"}}]})
+  (def recipients
+    [{:name "Host" :type "node" :address "02d5" :split 50}
+     {:name "Co-Host" :type "node" :address "032f" :split 40}
+     {:name "Producer" :type "node" :address "03ae" :split 10}
+     {:name "Index" :type "node" :address "03ae" :split 1 :fee true}])
+
+  (def block
+    {:type        "lightning"
+     :method      "keysend"
+     :suggested   0.00000015
+     :recipients  recipients
+     :time-splits [{:start-time        60
+                    :duration          237
+                    :remote-percentage 95
+                    :remote-item       {:feed-guid "a94f" :item-guid "x"}}]})
   (payments (:recipients block) 100)
   (recipients-at block 100)
   (sats block)

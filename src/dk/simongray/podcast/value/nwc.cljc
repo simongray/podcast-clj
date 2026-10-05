@@ -18,10 +18,11 @@
 
   The ask! function sends a command to the wallet and gives its answer.
   For an app that holds its own connections to relays, request-event
-  writes the event of a command and answer reads the event of the wallet. The content
-  of each event is encrypted with NIP-44. The encryption of NIP-04, which
-  NIP-47 keeps for old wallets, isn't written here. NIP-04 has no check of
-  a change, and its own text tells not to use it.
+  writes the event of a command and answer reads the event of the
+  wallet. The content of each event is encrypted with NIP-44. The
+  encryption of NIP-04, which NIP-47 keeps for old wallets, isn't written
+  here. NIP-04 has no check of a change, and its own text tells not to
+  use it.
 
   NIP-47 has the commands of invoices. The command of keysend is in the
   extension NWC-04, in the repository nostr-wallet-connect/nwc. A wallet
@@ -46,7 +47,9 @@
   "The kinds of the events of NIP-47, in its section Events: the info
   event of a wallet, the request of an app and the response of the
   wallet."
-  {:info 13194 :request 23194 :response 23195})
+  {:info     13194
+   :request  23194
+   :response 23195})
 
 (def default-limits
   "The limits of ask! and fetch-info! that their options don't set.
@@ -80,10 +83,10 @@
   "The connection that the URI `uri` of Nostr Wallet Connect names, or nil
   for a text that isn't such a URI.
 
-      {:wallet \"b889…\"                  ; the public key of the wallet service
-       :relays [\"wss://relay.example\"]  ; where the wallet service listens
-       :secret #<secret>                ; the secret key of the app, hidden
-       :lud16  \"ann@example.org\"}       ; the Lightning address of the listener
+      {:wallet \"b889…\"                 ; the public key of the wallet service
+       :relays [\"wss://relay.example\"] ; where the wallet service listens
+       :secret #<secret>               ; the secret key of the app, hidden
+       :lud16  \"ann@example.org\"}      ; the Lightning address of the listener
 
   The section Nostr Wallet Connect URI of NIP-47 defines the URI. It has
   the scheme nostr+walletconnect, one relay or more, and a secret. The
@@ -100,16 +103,21 @@
   wants payments to go, so an app asks the listener before it uses the
   address."
   [uri]
-  (when-let [[_ wallet params] (when (string? uri)
-                                 (re-matches #"(?i)nostr\+walletconnect:(?://)?([0-9a-f]{64})/?\?(.*)" (str/trim uri)))]
-    (let [params (query params)
-          named  (fn [k] (map second (filter #(= k (first %)) params)))
-          relays (vec (distinct (keep nostr/relay-url (named "relay"))))
-          secret (some-> (first (named "secret")) str/lower-case)
-          lud16  (first (named "lud16"))]
-      (when (and (seq relays) (secp256k1/public-key secret) (secp256k1/public-key? wallet))
-        (cond-> {:wallet (str/lower-case wallet) :relays relays :secret (secret/hide secret)}
-          (seq lud16) (assoc :lud16 lud16))))))
+  (let [form  #"(?i)nostr\+walletconnect:(?://)?([0-9a-f]{64})/?\?(.*)"
+        found (when (string? uri) (re-matches form (str/trim uri)))]
+    (when-let [[_ wallet params] found]
+      (let [params (query params)
+            named  (fn [k] (map second (filter #(= k (first %)) params)))
+            relays (vec (distinct (keep nostr/relay-url (named "relay"))))
+            secret (some-> (first (named "secret")) str/lower-case)
+            lud16  (first (named "lud16"))]
+        (when (and (seq relays)
+                   (secp256k1/public-key secret)
+                   (secp256k1/public-key? wallet))
+          (cond-> {:wallet (str/lower-case wallet)
+                   :relays relays
+                   :secret (secret/hide secret)}
+            (seq lud16) (assoc :lud16 lud16)))))))
 
 (defn ^:no-doc secret-key
   "The secret key of the app in `connection`, as text. It's the one place
@@ -151,9 +159,11 @@
   The text has the secret of the connection. Keep it where the app keeps
   passwords."
   [{:keys [wallet relays lud16] :as connection}]
-  (str "nostr+walletconnect://" wallet "?"
-       (str/join "&" (concat (map #(http/query-string {"relay" %}) relays)
-                             [(http/query-string {"secret" (secret-key connection) "lud16" lud16})]))))
+  (let [relay-params (map #(http/query-string {"relay" %}) relays)
+        own-params   (http/query-string {"secret" (secret-key connection)
+                                         "lud16"  lud16})]
+    (str "nostr+walletconnect://" wallet "?"
+         (str/join "&" (concat relay-params [own-params])))))
 
 (defn public-key
   "The public key of the app in `connection`, by which the wallet knows
@@ -197,13 +207,14 @@
   records leave out the custom key or value. Don't send the command then."
   [payment {:keys [address] :as recipient}]
   (let [[msat]  (value/amounts payment)
-        records (value/records payment recipient)]
+        records (value/records payment recipient)
+        tlv     (fn [[type text]]
+                  {"type" type "value" (bytes/hex (bytes/encode text))})]
     (when (and msat (pos? msat) (node-key? address))
       (with-meta {:method "pay_keysend"
                   :params {"amount"      msat
                            "pubkey"      (str/lower-case address)
-                           "tlv_records" (vec (for [[type text] (sort-by key records)]
-                                                {"type" type "value" (bytes/hex (bytes/encode text))}))}}
+                           "tlv_records" (mapv tlv (sort-by key records))}}
         (meta records)))))
 
 (defn make-invoice
@@ -217,7 +228,8 @@
   ([msat {:keys [description description-hash expiry metadata] :as opts}]
    {:pre [(map? opts)]}
    (when-not (number? msat)
-     (throw (ex-info "The amount isn't a number of millisatoshis" {:msat msat})))
+     (throw (ex-info "The amount isn't a number of millisatoshis"
+                     {:msat msat})))
    {:method "make_invoice"
     :params (cond-> {"amount" msat}
               description      (assoc "description" description)
@@ -231,7 +243,8 @@
   payment by its :invoice or by its :payment-hash."
   [{:keys [invoice payment-hash] :as x}]
   (when-not (or (string? invoice) (string? payment-hash))
-    (throw (ex-info "A payment is named by its :invoice or its :payment-hash" {})))
+    (throw (ex-info "A payment is named by its :invoice or its :payment-hash"
+                    {})))
   {:method "lookup_invoice"
    :params (cond-> {}
              payment-hash (assoc "payment_hash" payment-hash)
@@ -272,23 +285,32 @@
 
   Use new bytes for each request, such as (bytes/hex (bytes/generate!
   32))."
-  [{:keys [wallet] :as connection} {:keys [method params] :as command} {:keys [at nonce aux expires-at] :as opts}]
+  [{:keys [wallet] :as connection}
+   {:keys [method params] :as command}
+   {:keys [at nonce aux expires-at] :as opts}]
   (check-connection connection)
   (when-let [wrong (cond
-                     (not (string? method)) "The command has no :method"
-                     (not (map? params))    "The :params of the command aren't a map"
-                     (not (inst? at))       "The request needs its instant under :at")]
+                     (not (string? method))
+                     "The command has no :method"
+
+                     (not (map? params))
+                     "The :params of the command aren't a map"
+
+                     (not (inst? at))
+                     "The request needs its instant under :at")]
     (throw (ex-info wrong {})))
-  (let [secret (secret-key connection)
-        shared (nip44/conversation-key secret wallet)]
-    (when-let [content (nip44/encrypt (json/write-str {"method" method "params" params}) shared nonce)]
-      (nostr/signed {"kind"       (:request kinds)
-                     "created_at" (seconds at)
-                     "tags"       (cond-> [["encryption" encryption] ["p" wallet]]
-                                    expires-at (conj ["expiration" (str (seconds expires-at))]))
-                     "content"    content}
-                    secret
-                    aux))))
+  (let [secret  (secret-key connection)
+        shared  (nip44/conversation-key secret wallet)
+        payload (json/write-str {"method" method "params" params})]
+    (when-let [content (nip44/encrypt payload shared nonce)]
+      (let [tags (cond-> [["encryption" encryption] ["p" wallet]]
+                   expires-at (conj ["expiration" (str (seconds expires-at))]))]
+        (nostr/signed {"kind"       (:request kinds)
+                       "created_at" (seconds at)
+                       "tags"       tags
+                       "content"    content}
+                      secret
+                      aux)))))
 
 (defn ^:no-doc failure
   "A map with the diagnostic `d` under :error."
@@ -371,33 +393,51 @@
   (let [unreadable #(failure {:id :value/wallet-unreadable :reason %})
         verified?  (nostr/verified? event)
         content    (when (and verified? (= wallet (get event "pubkey")))
-                     (nip44/decrypt (get event "content")
-                                    (nip44/conversation-key (secret-key connection) wallet)))
+                     (let [app-key (secret-key connection)
+                           shared  (nip44/conversation-key app-key wallet)]
+                       (nip44/decrypt (get event "content") shared)))
         body       (some-> content json/object)
         method     (json/text (get body "result_type"))
         request    (first (nostr/tag-values event "e"))
         payment?   (contains? #{"pay_invoice" "pay_keysend"} method)]
     (cond
-      (not verified?)                               (unreadable "The event has a wrong id or a wrong signature")
-      (not= (:response kinds) (get event "kind"))   (unreadable "The event is no response of NIP-47")
-      (not= wallet (get event "pubkey"))            (unreadable "The event is not from the wallet of the connection")
-      (nil? content)                                (unreadable (if (= 2 (nip44/payload-version (get event "content")))
-                                                                  "The content is not encrypted for this connection"
-                                                                  "The content is not encrypted with NIP-44 version 2"))
-      (nil? body)                                   (unreadable "The content is no JSON object")
-      (map? (get body "error"))                     (failure (cond-> {:id      :value/wallet-refused
-                                                                      :code    (json/text (get-in body ["error" "code"]))
-                                                                      :reason  (json/text (get-in body ["error" "message"]))}
-                                                               method  (assoc :method method)
-                                                               request (assoc :request request)))
-      (not (map? (get body "result")))              (unreadable "The answer has no result and no error")
+      (not verified?)
+      (unreadable "The event has a wrong id or a wrong signature")
+
+      (not= (:response kinds) (get event "kind"))
+      (unreadable "The event is no response of NIP-47")
+
+      (not= wallet (get event "pubkey"))
+      (unreadable "The event is not from the wallet of the connection")
+
+      (nil? content)
+      (unreadable (if (= 2 (nip44/payload-version (get event "content")))
+                    "The content is not encrypted for this connection"
+                    "The content is not encrypted with NIP-44 version 2"))
+
+      (nil? body)
+      (unreadable "The content is no JSON object")
+
+      (map? (get body "error"))
+      (let [{:strs [code message]} (get body "error")]
+        (failure (cond-> {:id     :value/wallet-refused
+                          :code   (json/text code)
+                          :reason (json/text message)}
+                   method  (assoc :method method)
+                   request (assoc :request request))))
+
+      (not (map? (get body "result")))
+      (unreadable "The answer has no result and no error")
+
       (and payment?
            (str/blank? (str (json/text (get-in body ["result" "preimage"])))))
       (unreadable "The result of a payment has no preimage")
-      :else                                         (cond-> (assoc (result (get body "result"))
-                                                                   :method method
-                                                                   :result (get body "result"))
-                                                      request (assoc :request request)))))
+
+      :else
+      (cond-> (assoc (result (get body "result"))
+                     :method method
+                     :result (get body "result"))
+        request (assoc :request request)))))
 
 (defn info-request
   "The request that asks the relay at `url` for the info event of the
@@ -436,7 +476,9 @@
       (failure {:id :value/wallet-unsupported :encryption (:encryption info)})
 
       (not (some #{method} (:methods info)))
-      (failure {:id :value/wallet-unsupported :method method :methods (:methods info)}))))
+      (failure {:id      :value/wallet-unsupported
+                :method  method
+                :methods (:methods info)}))))
 
 (defn- ask-relays!
   "Send the request that `request-of` makes to each of `relays` in turn,
@@ -455,20 +497,26 @@
   events, so the response is read as for a relay that has no answer."
   [opts request-of read relays tried]
   (if-let [[url & more] (seq relays)]
-    (async/then (http/try-send! (:send opts) (request-of url) opts)
-                (fn [{:keys [value error]}]
-                  (let [next! #(ask-relays! opts request-of read more (conj tried (assoc % :url url)))]
-                    (cond
-                      (:sent? (ex-data error))
-                      (read {:url url :events [] :sent? true})
+    (async/then
+     (http/try-send! (:send opts) (request-of url) opts)
+     (fn [{:keys [value error]}]
+       (let [next! (fn [failed]
+                     (let [tried (conj tried (assoc failed :url url))]
+                       (ask-relays! opts request-of read more tried)))]
+         (cond
+           (:sent? (ex-data error))
+           (read {:url url :events [] :sent? true})
 
-                      error
-                      (next! {:reason (async/explain error) :answered? false})
+           error
+           (next! {:reason (async/explain error) :answered? false})
 
-                      :else
-                      (or (read value)
-                          (next! {:reason    (or (:refused value) (:closed value) "The relay has no event")
-                                  :answered? (not (:timeout? value))}))))))
+           :else
+           (or (read value)
+               (let [reason (or (:refused value)
+                                (:closed value)
+                                "The relay has no event")]
+                 (next! {:reason    reason
+                         :answered? (not (:timeout? value))})))))))
     (failure {:id :value/wallet-unreachable :relays tried})))
 
 (defn- prepared
@@ -509,7 +557,8 @@
      (async/then (ask-relays! opts #(info-request connection %) known relays [])
                  (fn [{:keys [error] :as read}]
                    (if (some :answered? (:relays error))
-                     (failure {:id :value/no-wallet-info :relays (:relays error)})
+                     (failure {:id     :value/no-wallet-info
+                               :relays (:relays error)})
                      read))))))
 
 (defn- answered
@@ -524,26 +573,64 @@
 
   The answer to the payment of an invoice has :proven?, which tells
   whether its preimage is the proof of that invoice."
-  [connection {:keys [method params] :as command} event expires-at {:keys [events refused sent?] :as response}]
-  (let [read (some-> (first events) (->> (answer connection)))]
+  [connection {:keys [method params] :as command} event expires-at
+   {:keys [events refused sent?] :as response}]
+  (let [read (some-> (first events) (->> (answer connection)))
+        id   (get event "id")]
     (cond
       (and (empty? events) (or refused (not sent?)))
       nil
 
       (empty? events)
-      (failure {:id :value/wallet-silent :request (get event "id") :expires-at expires-at})
+      (failure {:id :value/wallet-silent :request id :expires-at expires-at})
 
       (:error read)
       read
 
-      (or (not= method (:method read)) (not= (get event "id") (:request read)))
-      (failure {:id :value/wallet-unreadable :reason "The answer is the answer to another request"})
+      (or (not= method (:method read))
+          (not= id (:request read)))
+      (failure {:id     :value/wallet-unreadable
+                :reason "The answer is the answer to another request"})
 
       (= "pay_invoice" method)
-      (assoc read :proven? (lnaddress/proves? (:preimage read) (get params "invoice")))
+      (let [proof (lnaddress/proves? (:preimage read) (get params "invoice"))]
+        (assoc read :proven? proof))
 
       :else
       read)))
+
+(defn- send-command!
+  "Send `command` over `connection` with the prepared `opts`, given the
+  `info` that the wallet gave, and give the answer as ask! gives it."
+  [{:keys [wallet relays] :as connection} command
+   {:keys [now random timeout-seconds] :as opts} info]
+  (let [info    (when-not (= :value/no-wallet-info (:id (:error info)))
+                  info)
+        at      (now)
+        expires (time/->inst (+ (inst-ms at) (* 1000 timeout-seconds)))
+        event   (when-not (:error info)
+                  (request-event connection command
+                                 {:at         at
+                                  :nonce      (bytes/hex (random 32))
+                                  :aux        (bytes/hex (random 32))
+                                  :expires-at expires}))
+        filters [{"kinds"   [(:response kinds)]
+                  "authors" [wallet]
+                  "#e"      [(get event "id")]}]
+        asking  (fn [url] {:url url :event event :filters filters})
+        read    #(answered connection command event expires %)]
+    (cond
+      (:error info)
+      info
+
+      (unsupported info command)
+      (unsupported info command)
+
+      (nil? event)
+      (failure {:id :value/command-too-large :method (:method command)})
+
+      :else
+      (ask-relays! opts asking read relays []))))
 
 (defn ask!
   "Ask the wallet of `connection` to do `command` with `opts`, and give its
@@ -595,39 +682,26 @@
     bytes/generate! by default"
   ([connection command]
    (ask! connection command {}))
-  ([{:keys [wallet relays] :as connection} command opts]
+  ([connection command opts]
    {:pre [(map? opts)]}
    (check-connection connection)
    (when-not (string? (:method command))
      (throw (ex-info "The command has no :method" {})))
-   (let [{:keys [now random timeout-seconds] :as opts} (prepared opts)
-         known (if (contains? opts :info) (:info opts) (fetch-info! connection opts))]
-     (async/then known
-                 (fn [info]
-                   (let [info    (when-not (= :value/no-wallet-info (:id (:error info))) info)
-                         at      (now)
-                         expires (time/->inst (+ (inst-ms at) (* 1000 timeout-seconds)))
-                         event   (when-not (:error info)
-                                   (request-event connection command {:at         at
-                                                                      :nonce      (bytes/hex (random 32))
-                                                                      :aux        (bytes/hex (random 32))
-                                                                      :expires-at expires}))
-                         asking  (fn [url]
-                                   {:url     url
-                                    :event   event
-                                    :filters [{"kinds" [(:response kinds)] "authors" [wallet] "#e" [(get event "id")]}]})]
-                     (cond
-                       (:error info)              info
-                       (unsupported info command) (unsupported info command)
-                       (nil? event)               (failure {:id :value/command-too-large :method (:method command)})
-                       :else                      (ask-relays! opts asking #(answered connection command event expires %) relays []))))))))
+   (let [opts  (prepared opts)
+         known (if (contains? opts :info)
+                 (:info opts)
+                 (fetch-info! connection opts))]
+     (async/then known #(send-command! connection command opts %)))))
 
 (comment
   ;; the example of NIP-47
   (def connection
-    (parse (str "nostr+walletconnect://b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4"
-                "?relay=wss%3A%2F%2Frelay.damus.io"
-                "&secret=71a8c14c1407c113601079c4302dab36460f0ccd0ad506f1f2dc73b5100e4f3c")))
+    (parse
+     (str "nostr+walletconnect://"
+          "b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4"
+          "?relay=wss%3A%2F%2Frelay.damus.io"
+          "&secret="
+          "71a8c14c1407c113601079c4302dab36460f0ccd0ad506f1f2dc73b5100e4f3c")))
 
   (dissoc connection :secret)
   (public-key connection)
@@ -637,19 +711,28 @@
 
   ;; a keysend payment of 50 sats, with the record of a boost
   (def command
-    (pay-keysend {:action :boost :sats 50 :message "Great episode" :app-name "My app"}
-                 {:type "node" :name "Ann" :address (apply str "03" (repeat 64 "a"))
-                  :custom-key "696969" :custom-value "22"}))
+    (pay-keysend {:action   :boost
+                  :sats     50
+                  :message  "Great episode"
+                  :app-name "My app"}
+                 {:type         "node"
+                  :name         "Ann"
+                  :address      (apply str "03" (repeat 64 "a"))
+                  :custom-key   "696969"
+                  :custom-value "22"}))
 
   (value/report command)
 
   ;; the event of a command: the relay sees the kind and the tags, and not
   ;; the command
-  (-> (request-event connection (get-balance) {:at    #inst "2026-09-29T12:00:00Z"
-                                               :nonce (bytes/hex (bytes/generate! 32))
-                                               :aux   (bytes/hex (bytes/generate! 32))})
+  (-> (request-event connection
+                     (get-balance)
+                     {:at    #inst "2026-09-29T12:00:00Z"
+                      :nonce (bytes/hex (bytes/generate! 32))
+                      :aux   (bytes/hex (bytes/generate! 32))})
       (select-keys ["kind" "tags" "pubkey"]))
 
-  (info {"content" "pay_invoice get_balance" "tags" [["encryption" "nip44_v2 nip04"]]})
+  (info {"content" "pay_invoice get_balance"
+         "tags"    [["encryption" "nip44_v2 nip04"]]})
   (unsupported (info {"content" "get_balance" "tags" []}) (get-balance))
   #_.)

@@ -26,7 +26,8 @@
 
       {\"destination\"   \"03…\"
        \"amount\"        \"50\"
-       \"customRecords\" {\"7629169\" \"{\\\"action\\\":\\\"boost\\\",…}\" \"696969\" \"22\"}}
+       \"customRecords\" {\"7629169\" \"{\\\"action\\\":\\\"boost\\\",…}\"
+                        \"696969\"  \"22\"}}
 
   The payment is the map of dk.simongray.podcast.value, and the recipient
   is a recipient of a value block, of the type node. WebLN counts in whole
@@ -37,12 +38,16 @@
   payment then."
   [payment {:keys [address] :as recipient}]
   (let [[msat] (value/amounts payment)
-        sats   (when msat (quot msat 1000))]
-    (when (and sats (pos? sats) (string? address) (re-matches #"(?i)0[23][0-9a-f]{64}" address))
-      (let [records (value/records (-> payment (dissoc :sats) (assoc :msat (* 1000 sats))) recipient)]
+        sats   (when msat (quot msat 1000))
+        node?  (and (string? address)
+                    (re-matches #"(?i)0[23][0-9a-f]{64}" address))]
+    (when (and sats (pos? sats) node?)
+      (let [whole   (-> payment (dissoc :sats) (assoc :msat (* 1000 sats)))
+            records (value/records whole recipient)
+            by-name (into {} (map (fn [[k v]] [(str k) v])) records)]
         (with-meta {"destination"   (str/lower-case address)
                     "amount"        (str sats)
-                    "customRecords" (into {} (map (fn [[k v]] [(str k) v])) records)}
+                    "customRecords" by-name}
           (meta records))))))
 
 (defn ^:no-doc failure
@@ -70,7 +75,8 @@
            (.then (fn [_] (f provider)))
            (.then (fn [result] (read (js->clj result))))
            (.catch (fn [e]
-                     (failure {:id :value/wallet-refused :reason (str (or (some-> e .-message) e))}))))
+                     (let [reason (str (or (some-> e .-message) e))]
+                       (failure {:id :value/wallet-refused :reason reason})))))
        (js/Promise.resolve (failure {:id :value/no-provider})))))
 
 #?(:cljs
@@ -103,10 +109,14 @@
       (call-provider! opts
                       (fn [^js provider] (.getInfo provider))
                       (fn [{:strs [node methods]}]
-                        (cond-> {}
-                          (string? (get node "alias"))  (assoc :alias (get node "alias"))
-                          (string? (get node "pubkey")) (assoc :public-key (get node "pubkey"))
-                          (sequential? methods)         (assoc :methods (vec (filter string? methods)))))))))
+                        (let [node-alias (get node "alias")
+                              public-key (get node "pubkey")
+                              named      (when (sequential? methods)
+                                           (vec (filter string? methods)))]
+                          (cond-> {}
+                            (string? node-alias) (assoc :alias node-alias)
+                            (string? public-key) (assoc :public-key public-key)
+                            named                (assoc :methods named))))))))
 
 #?(:cljs
    (defn pay-invoice!
@@ -128,7 +138,8 @@
       (call-provider! opts
                       (fn [^js provider] (.sendPayment provider invoice))
                       (fn [{:strs [preimage]}]
-                        {:preimage preimage :proven? (lnaddress/proves? preimage invoice)})))))
+                        {:preimage preimage
+                         :proven?  (lnaddress/proves? preimage invoice)})))))
 
 #?(:cljs
    (defn pay-keysend!
@@ -147,27 +158,43 @@
       (let [args    (keysend-args payment recipient)
             [msat]  (value/amounts payment)
             problem (cond
-                      args                     (first (value/report args))
-                      (and msat (< msat 1000)) (diagnostics/describe {:id :value/below-one-sat :msat msat})
-                      :else                    (diagnostics/describe {:id :value/not-a-node :address (:address recipient)}))]
+                      args
+                      (first (value/report args))
+
+                      (and msat (< msat 1000))
+                      (diagnostics/describe {:id   :value/below-one-sat
+                                             :msat msat})
+
+                      :else
+                      (diagnostics/describe {:id      :value/not-a-node
+                                             :address (:address recipient)}))]
         (if problem
           (js/Promise.resolve {:error problem})
           (call-provider! opts
                           (fn [^js provider] (.keysend provider (clj->js args)))
                           (fn [{:strs [preimage]}]
-                            {:preimage preimage :sats (parse-long (get args "amount"))})))))))
+                            {:preimage preimage
+                             :sats     (parse-long (get args "amount"))})))))))
 
 (comment
   ;; 50,500 millisatoshis are 50 sats in WebLN
+  (def node-address (apply str "03" (repeat 64 "a")))
+
   (def args
-    (keysend-args {:action :boost :msat 50500 :message "Great episode" :app-name "My app"}
-                  {:type "node" :name "Ann" :address (apply str "03" (repeat 64 "a"))
-                   :custom-key "696969" :custom-value "22"}))
+    (keysend-args {:action   :boost
+                   :msat     50500
+                   :message  "Great episode"
+                   :app-name "My app"}
+                  {:type         "node"
+                   :name         "Ann"
+                   :address      node-address
+                   :custom-key   "696969"
+                   :custom-value "22"}))
 
   args
   (value/report args)
 
   ;; below 1 sat, and a Lightning address, which gets an invoice
-  (keysend-args {:msat 999} {:type "node" :address (apply str "03" (repeat 64 "a"))})
+  (keysend-args {:msat 999} {:type "node" :address node-address})
   (keysend-args {:sats 50} {:type "lnaddress" :address "ann@example.org"})
   #_.)

@@ -57,8 +57,10 @@
   the dot that can end a name is left out. A feed chooses the address,
   and so the domain that the app asks."
   [s]
-  (when (string? s)
-    (when-let [[_ user domain] (re-matches #"([a-z0-9_.+-]*)@([^@\s/?#\\:]*[^@\s/?#\\:.])\.?" (str/lower-case (str/trim s)))]
+  (let [form  #"([a-z0-9_.+-]*)@([^@\s/?#\\:]*[^@\s/?#\\:.])\.?"
+        found (when (string? s)
+                (re-matches form (str/lower-case (str/trim s))))]
+    (when-let [[_ user domain] found]
       (let [host (http/host (str "https://" domain "/"))]
         (when (and host
                    (http/public-name? host)
@@ -69,22 +71,27 @@
   "The URL of the well-known answer of `kind` about the `parts` of an
   address: http for an onion service, as LUD-01 has it, or else https."
   [{:keys [user domain] :as parts} kind]
-  (str (if (str/ends-with? (first (str/split domain #":")) ".onion") "http" "https")
-       "://" domain "/.well-known/" kind "/" user))
+  (let [host   (first (str/split domain #":"))
+        scheme (if (str/ends-with? host ".onion") "http" "https")]
+    (str scheme "://" domain "/.well-known/" kind "/" user)))
 
 (defn lnurlp-request
   "The request for the terms on which the Lightning `address` takes a
   payment with LNURL-pay, or nil when `address` isn't one."
   [address]
   (when-let [parts (parse address)]
-    {:method :get :url (well-known parts "lnurlp") :headers {"Accept" "application/json"}}))
+    {:method  :get
+     :url     (well-known parts "lnurlp")
+     :headers {"Accept" "application/json"}}))
 
 (defn keysend-request
   "The request for the node that pays the Lightning `address` with
   keysend, or nil when `address` isn't one."
   [address]
   (when-let [parts (parse address)]
-    {:method :get :url (well-known parts "keysend") :headers {"Accept" "application/json"}}))
+    {:method  :get
+     :url     (well-known parts "keysend")
+     :headers {"Accept" "application/json"}}))
 
 (defn ^:no-doc failure
   "A map with the diagnostic `d` under :error."
@@ -96,7 +103,9 @@
   ERROR, with its reason, or nil for another answer."
   [raw url]
   (when (= "ERROR" (get raw "status"))
-    (failure {:id :value/lnurl-error :url url :reason (json/text (get raw "reason"))})))
+    (failure {:id     :value/lnurl-error
+              :url    url
+              :reason (json/text (get raw "reason"))})))
 
 (defn ^:no-doc secure-url?
   "Whether `s` is an https URL, or an http URL of an onion service, as
@@ -126,9 +135,12 @@
   LNURL-pay, or nil when it has none. The metadata is the JSON of a list
   of pairs of a type and a text."
   [metadata mime]
-  (let [entries (when (string? metadata) (json/parse metadata))]
-    (some #(when (and (sequential? %) (= mime (first %)) (string? (second %))) (second %))
-          (when (sequential? entries) entries))))
+  (let [entries (when (string? metadata) (json/parse metadata))
+        text-of #(when (and (sequential? %)
+                            (= mime (first %))
+                            (string? (second %)))
+                   (second %))]
+    (some text-of (when (sequential? entries) entries))))
 
 (defn terms
   "The terms on which a Lightning address takes a payment, from the
@@ -153,24 +165,37 @@
         (let [callback    (get raw "callback")
               low         (whole-of (get raw "minSendable") :up)
               high        (whole-of (get raw "maxSendable") :down)
+              comments    (whole-of (get raw "commentAllowed") :down)
               metadata    (get raw "metadata")
-              description (or (entry metadata "text/long-desc") (entry metadata "text/plain"))
-              identifier  (or (entry metadata "text/identifier") (entry metadata "text/email"))]
-          (if (and (= "payRequest" (get raw "tag")) (secure-url? callback) low high (<= low high))
+              description (or (entry metadata "text/long-desc")
+                              (entry metadata "text/plain"))
+              identifier  (or (entry metadata "text/identifier")
+                              (entry metadata "text/email"))
+              valid?      (and (= "payRequest" (get raw "tag"))
+                               (secure-url? callback)
+                               low
+                               high
+                               (<= low high))]
+          (if valid?
             (cond-> {:callback       callback
                      :min-msat       low
                      :max-msat       high
-                     :comment-length (or (whole-of (get raw "commentAllowed") :down) 0)}
+                     :comment-length (or comments 0)}
               description        (assoc :description description)
               identifier         (assoc :identifier identifier)
               (string? metadata) (assoc :metadata metadata))
-            (failure {:id :value/malformed :url url :status (:status response)}))))))
+            (failure {:id     :value/malformed
+                      :url    url
+                      :status (:status response)}))))))
 
 (defn sendable?
   "Whether a Lightning address with `terms` takes a payment of `msat`
   millisatoshis."
   [{:keys [min-msat max-msat] :as terms} msat]
-  (boolean (and (integer? msat) min-msat max-msat (<= min-msat msat max-msat))))
+  (boolean (and (integer? msat)
+                min-msat
+                max-msat
+                (<= min-msat msat max-msat))))
 
 ;; LUD-12
 (defn sent-comment
@@ -178,7 +203,9 @@
   `comment`, cut to the :comment-length of the terms. It's nil when the
   terms take no comment, and for a comment that's blank or isn't text."
   [{:keys [comment-length] :as terms} comment]
-  (when (and (string? comment) (not (str/blank? comment)) (pos? (or comment-length 0)))
+  (when (and (string? comment)
+             (not (str/blank? comment))
+             (pos? (or comment-length 0)))
     (value/cut comment comment-length)))
 
 (defn invoice-request
@@ -193,11 +220,15 @@
   ([{:keys [callback] :as terms} msat comment]
    (when-not (sendable? terms msat)
      (throw (ex-info "The address does not take this amount"
-                     {:type ::amount :msat msat :min-msat (:min-msat terms) :max-msat (:max-msat terms)})))
-   {:method  :get
-    :url     (str callback (if (str/includes? callback "?") "&" "?")
-                  (http/query-string {"amount" msat "comment" (sent-comment terms comment)}))
-    :headers {"Accept" "application/json"}}))
+                     {:type     ::amount
+                      :msat     msat
+                      :min-msat (:min-msat terms)
+                      :max-msat (:max-msat terms)})))
+   (let [query (http/query-string {"amount"  msat
+                                   "comment" (sent-comment terms comment)})]
+     {:method  :get
+      :url     (str callback (if (str/includes? callback "?") "&" "?") query)
+      :headers {"Accept" "application/json"}})))
 
 (def ^:no-doc max-invoice-length
   "The most characters of an invoice that podcast-clj reads: the most
@@ -208,12 +239,27 @@
 (def ^:no-doc networks
   "The network of each prefix of a BOLT 11 invoice (part Human-Readable
   Part), and sb, which btcd has for its simnet."
-  {"bc" :bitcoin "tb" :testnet "tbs" :signet "bcrt" :regtest "sb" :simnet})
+  {"bc"   :bitcoin
+   "tb"   :testnet
+   "tbs"  :signet
+   "bcrt" :regtest
+   "sb"   :simnet})
 
 (def ^:no-doc multipliers
   "The millisatoshis in one of each unit of an amount in a BOLT 11 invoice,
   a fraction of a bitcoin."
-  {"" 100000000000 "m" 100000000 "u" 100000 "n" 100})
+  {""  100000000000
+   "m" 100000000
+   "u" 100000
+   "n" 100})
+
+(def ^:no-doc invoice-form
+  "The pattern of a BOLT 11 invoice in lower case: the prefix of its
+  network, its amount and unit, if it has one, and a 1 before six or more
+  characters of Bech32 data."
+  (re-pattern (str "ln(bcrt|bc|tbs|tb|sb)"
+                   "(?:([1-9][0-9]{0,15})([munp]?))?"
+                   "1[02-9ac-hj-np-z]{6,}")))
 
 (defn invoice-amount
   "The network and the amount of the BOLT 11 `invoice` from the part
@@ -227,19 +273,27 @@
   [invoice]
   (when (and (string? invoice)
              (<= (count invoice) max-invoice-length)
-             (or (= invoice (str/lower-case invoice)) (= invoice (str/upper-case invoice))))
-    (when-let [[_ prefix digits unit] (re-matches #"ln(bcrt|bc|tbs|tb|sb)(?:([1-9][0-9]{0,15})([munp]?))?1[02-9ac-hj-np-z]{6,}"
-                                                  (str/lower-case invoice))]
-      (let [network (networks prefix)]
+             (or (= invoice (str/lower-case invoice))
+                 (= invoice (str/upper-case invoice))))
+    (when-let [[_ prefix digits unit] (->> (str/lower-case invoice)
+                                           (re-matches invoice-form))]
+      (let [network (networks prefix)
+            factor  (multipliers unit)]
         (cond
-          (nil? digits) {:network network}
+          (nil? digits)
+          {:network network}
+
           ;; a tenth of the amount, from its digits, since JavaScript holds no
           ;; whole number of sixteen digits
-          (= "p" unit)  (when (str/ends-with? digits "0")
-                          {:network network :msat (parse-long (subs digits 0 (dec (count digits))))})
-          :else         (let [n (parse-long digits)]
-                          (when (and n (<= n (quot 9007199254740991 (multipliers unit))))
-                            {:network network :msat (* n (multipliers unit))})))))))
+          (= "p" unit)
+          (when (str/ends-with? digits "0")
+            {:network network
+             :msat    (parse-long (subs digits 0 (dec (count digits))))})
+
+          :else
+          (let [n (parse-long digits)]
+            (when (and n (<= n (quot 9007199254740991 factor)))
+              {:network network :msat (* n factor)})))))))
 
 (defn- tagged-fields
   "The tagged fields in the data `words` of an invoice, numbers of five
@@ -253,20 +307,26 @@
   (let [end (- (count words) 104)]
     (loop [i 7 out []]
       (cond
-        (= i end)       out
-        (< end (+ i 3)) nil
+        (= i end)
+        out
+
+        (< end (+ i 3))
+        nil
+
         :else
         (let [n    (long (+ (* 32 (nth words (+ i 1))) (nth words (+ i 2))))
               next (+ i 3 n)]
           (when (<= next end)
-            (recur next (conj out [(nth words i) (subvec words (+ i 3) next)]))))))))
+            (let [field [(nth words i) (subvec words (+ i 3) next)]]
+              (recur next (conj out field)))))))))
 
 (defn- whole-bytes
   "The whole bytes in the numbers of five bits `words`, the highest bit
   first, in hexadecimal."
   [words]
-  (let [bits (for [w words, i [4 3 2 1 0]] (bit-and 1 (bit-shift-right w i)))]
-    (bytes/hex (bytes/of (map #(reduce (fn [acc bit] (+ (* 2 acc) bit)) 0 %) (partition 8 bits))))))
+  (let [bits    (for [w words, i [4 3 2 1 0]] (bit-and 1 (bit-shift-right w i)))
+        byte-of (fn [eight] (reduce (fn [acc bit] (+ (* 2 acc) bit)) 0 eight))]
+    (bytes/hex (bytes/of (map byte-of (partition 8 bits))))))
 
 (defn payment-hash
   "The payment hash of the BOLT 11 `invoice`, as hexadecimal text of 32
@@ -278,10 +338,14 @@
   checks the invoice when it pays."
   [invoice]
   (when (invoice-amount invoice)
-    (when-let [fields (some-> (bech32/decode-words invoice {:max-length max-invoice-length}) :words tagged-fields)]
-      (let [hashes (filter #(= 1 (first %)) fields)]
-        (when (and (= 1 (count hashes)) (= 52 (count (second (first hashes)))))
-          (whole-bytes (second (first hashes))))))))
+    (let [limits  {:max-length max-invoice-length}
+          decoded (bech32/decode-words invoice limits)]
+      (when-let [fields (some-> decoded :words tagged-fields)]
+        (let [hashes (filter #(= 1 (first %)) fields)
+              data   (second (first hashes))]
+          (when (and (= 1 (count hashes))
+                     (= 52 (count data)))
+            (whole-bytes data)))))))
 
 (defn proves?
   "Whether `preimage` is the proof that somebody paid the BOLT 11
@@ -295,7 +359,8 @@
   (boolean (and (string? preimage)
                 (re-matches #"[0-9a-fA-F]{64}" preimage)
                 (when-let [hash (payment-hash invoice)]
-                  (= hash (bytes/hex (bytes/sha256 (bytes/from-hex preimage))))))))
+                  (let [digest (bytes/sha256 (bytes/from-hex preimage))]
+                    (= hash (bytes/hex digest)))))))
 
 (defn- success-action
   "The success action `a` of an answer to a request to `callback`, as
@@ -306,21 +371,32 @@
   and a description are cut to the 144 characters that LUD-09 allows."
   [a callback]
   (when (map? a)
-    (let [text  #(json/text (get a %))
-          shown #(some-> (text %) (value/cut 144))]
+    (let [text      #(json/text (get a %))
+          shown     #(some-> (text %) (value/cut 144))
+          described #(cond-> %
+                       (shown "description")
+                       (assoc :description (shown "description")))]
       (case (get a "tag")
-        "message" {:tag "message" :message (shown "message")}
-        "url"     (let [url (get a "url")]
-                    (if (and (secure-url? url) (= (http/host url) (http/host callback)))
-                      (cond-> {:tag "url" :url url}
-                        (shown "description") (assoc :description (shown "description")))
-                      ::refused))
-        "aes"     (let [ciphertext (text "ciphertext")
-                        iv         (text "iv")]
-                    (if (and ciphertext iv (<= (count ciphertext) 4096) (= 24 (count iv)))
-                      (cond-> {:tag "aes" :ciphertext ciphertext :iv iv}
-                        (shown "description") (assoc :description (shown "description")))
-                      ::refused))
+        "message"
+        {:tag "message" :message (shown "message")}
+
+        "url"
+        (let [url (get a "url")]
+          (if (and (secure-url? url)
+                   (= (http/host url) (http/host callback)))
+            (described {:tag "url" :url url})
+            ::refused))
+
+        "aes"
+        (let [ciphertext (text "ciphertext")
+              iv         (text "iv")]
+          (if (and ciphertext
+                   iv
+                   (<= (count ciphertext) 4096)
+                   (= 24 (count iv)))
+            (described {:tag "aes" :ciphertext ciphertext :iv iv})
+            ::refused))
+
         ::refused))))
 
 (defn invoice
@@ -351,20 +427,29 @@
           ;; checked: the service writes both the terms and the invoice, and
           ;; some services hash other terms than they serve.
           (cond
-            (nil? amount)         (failure {:id :value/malformed :url url :status (:status response)})
-            (not= msat (:msat amount))
-            (failure {:id :value/wrong-amount :url url :msat msat :invoice-msat (:msat amount)})
+            (nil? amount)
+            (failure {:id :value/malformed :url url :status (:status response)})
 
-            (= ::refused action)  (failure {:id :value/unknown-success-action :url url})
-            :else                 (cond-> {:invoice pr :msat msat :network (:network amount)}
-                                    action               (assoc :success-action action)
-                                    (secure-url? verify) (assoc :verify verify)))))))
+            (not= msat (:msat amount))
+            (failure {:id           :value/wrong-amount
+                      :url          url
+                      :msat         msat
+                      :invoice-msat (:msat amount)})
+
+            (= ::refused action)
+            (failure {:id :value/unknown-success-action :url url})
+
+            :else
+            (cond-> {:invoice pr :msat msat :network (:network amount)}
+              action               (assoc :success-action action)
+              (secure-url? verify) (assoc :verify verify)))))))
 
 (defn node
   "The node that the `response` to a keysend-request names, as the keys of
   a recipient of type node, or a map with a diagnostic under :error.
 
-      {:type \"node\" :address \"02…\" :custom-key \"696969\" :custom-value \"1\"}
+      {:type \"node\" :address \"02…\" :custom-key \"696969\"
+       :custom-value \"1\"}
 
   Merged into a recipient of type lnaddress, it keeps the name, the split
   and the fee of the recipient. A service that holds many wallets on one
@@ -372,16 +457,22 @@
   [response]
   (let [raw    (json/object (:body response))
         url    (:url response)
-        pubkey (get raw "pubkey")]
+        pubkey (get raw "pubkey")
+        node?  (and (= "keysend" (get raw "tag"))
+                    (string? pubkey)
+                    (re-matches #"0[23][0-9a-fA-F]{64}" pubkey))
+        listed (get raw "customData")]
     (or (insecure url)
         (refusal raw url)
-        (if (and (= "keysend" (get raw "tag")) (string? pubkey) (re-matches #"0[23][0-9a-fA-F]{64}" pubkey))
-          (let [data  (first (filter map? (let [x (get raw "customData")] (if (sequential? x) x []))))
-                k     (json/text (get data "customKey"))
-                v     (json/text (get data "customValue"))]
+        (if node?
+          (let [data (first (filter map? (if (sequential? listed) listed [])))
+                k    (json/text (get data "customKey"))
+                v    (json/text (get data "customValue"))]
             (cond-> {:type "node" :address (str/lower-case pubkey)}
               (and k v) (assoc :custom-key k :custom-value v)))
-          (failure {:id :value/no-keysend :url url :status (:status response)})))))
+          (failure {:id     :value/no-keysend
+                    :url    url
+                    :status (:status response)})))))
 
 (defn ^:no-doc send!
   "Send `request` by the :send of `opts` within its limits, and give the
@@ -391,7 +482,9 @@
   (async/then (http/try-send! send request opts)
               (fn [{:keys [value] e :error}]
                 (if e
-                  (failure {:id :value/unreachable :url (:url request) :reason (async/explain e)})
+                  (failure {:id     :value/unreachable
+                            :url    (:url request)
+                            :reason (async/explain e)})
                   value))))
 
 (defn ^:no-doc ask!
@@ -419,7 +512,9 @@
   (let [sent (sent-comment offer text)]
     (async/then (send! (invoice-request offer msat text) opts)
                 (fn [response]
-                  (let [read (if (:error response) response (invoice offer msat response))]
+                  (let [read (if (:error response)
+                               response
+                               (invoice offer msat response))]
                     (cond-> read
                       (and sent (not (:error read))) (assoc :comment sent)))))))
 
@@ -450,7 +545,8 @@
   ([address msat]
    (request-invoice! address msat {}))
   ([address msat {:keys [comment] :as opts}]
-   (let [opts (merge default-limits {:send http/send! :allow? http/public?} opts)]
+   (let [defaults {:send http/send! :allow? http/public?}
+         opts     (merge default-limits defaults opts)]
      (async/then (ask! (lnurlp-request address) address terms opts)
                  (fn [offer]
                    (cond
@@ -464,7 +560,8 @@
                                :max-msat (:max-msat offer)})
 
                      :else
-                     (fetch-invoice! offer msat (if (fn? comment) (comment offer) comment) opts)))))))
+                     (let [text (if (fn? comment) (comment offer) comment)]
+                       (fetch-invoice! offer msat text opts))))))))
 
 (defn fetch-node!
   "Fetch the node that pays the Lightning `address` with keysend, with
@@ -476,7 +573,8 @@
   ([address]
    (fetch-node! address {}))
   ([address opts]
-   (let [opts (merge default-limits {:send http/send! :allow? http/public?} opts)]
+   (let [defaults {:send http/send! :allow? http/public?}
+         opts     (merge default-limits defaults opts)]
      (ask! (keysend-request address) address node opts))))
 
 (comment
@@ -488,15 +586,18 @@
   (def sample-terms
     (terms {:status 200
             :url    "https://example.org/.well-known/lnurlp/ann"
-            :body   (json/write-str {"tag"            "payRequest"
-                                     "callback"       "https://example.org/pay/ann"
-                                     "minSendable"    1000
-                                     "maxSendable"    100000000
-                                     "commentAllowed" 40
-                                     "metadata"       "[[\"text/plain\",\"Pay Ann\"]]"})}))
+            :body   (json/write-str
+                     {"tag"            "payRequest"
+                      "callback"       "https://example.org/pay/ann"
+                      "minSendable"    1000
+                      "maxSendable"    100000000
+                      "commentAllowed" 40
+                      "metadata"       "[[\"text/plain\",\"Pay Ann\"]]"})}))
 
   (sendable? sample-terms 25000)
-  (sent-comment sample-terms "A comment that is longer than the forty characters of the terms")
+  (sent-comment sample-terms
+                (str "A comment that is longer than the forty characters"
+                     " of the terms"))
   (invoice-request sample-terms 25000 "Thanks!")
 
   ;; 250,000 millisatoshis, from the part of an invoice before its data
@@ -506,7 +607,8 @@
          :url    "https://example.org/.well-known/keysend/ann"
          :body   (json/write-str {"tag"        "keysend"
                                   "pubkey"     (apply str "02" (repeat 64 "a"))
-                                  "customData" [{"customKey" "696969" "customValue" "1"}]})})
+                                  "customData" [{"customKey"   "696969"
+                                                 "customValue" "1"}]})})
 
   (request-invoice! "ann@example.org" 25000 {:comment "Thanks!"})
   (fetch-node! "ann@example.org")

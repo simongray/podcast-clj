@@ -11,8 +11,9 @@
   The URL answers with the header x-rss-payment, which holds the whole
   payment as JSON. The app that pays writes the comment with
   format-comment, and serves the header that format-header writes. The
-  host that receives the payment reads the comment with parse-comment. The fetch! function gets the header, and parse-header
-  reads it. A payment is the map of dk.simongray.podcast.value.
+  host that receives the payment reads the comment with parse-comment.
+  The fetch! function gets the header, and parse-header reads it. A
+  payment is the map of dk.simongray.podcast.value.
 
   The sender writes the metadata, and the page at the URL is public. So
   the metadata is a claim, which value/as-received puts next to what the
@@ -37,7 +38,9 @@
 (def ^:no-doc record-keys
   "The name in the metadata of each key of a payment whose name there
   isn't just its snake_case."
-  {:msat "value_msat" :total-msat "value_msat_total" :usd "value_usd"})
+  {:msat       "value_msat"
+   :total-msat "value_msat_total"
+   :usd        "value_usd"})
 
 (defn record
   "The metadata of `payment` as a map with the string keys of the JSON,
@@ -53,9 +56,10 @@
 
   Give the :timestamp of the payment, which the metadata holds."
   [{:keys [action] :as payment}]
-  (let [[amount total] (value/amounts payment)]
-    (cond-> (assoc (value/json-record payment record-keys #{:action :msat :total-msat :sats :total-sats})
-                   "action" (name (or action :boost)))
+  (let [[amount total] (value/amounts payment)
+        own            #{:action :msat :total-msat :sats :total-sats}
+        base           (value/json-record payment record-keys own)]
+    (cond-> (assoc base "action" (name (or action :boost)))
       amount (assoc "value_msat" amount "value_msat_total" total))))
 
 (defn format-header
@@ -103,29 +107,32 @@
   value/parse-boostagram tells it. A header that holds no JSON object
   reads as no payment."
   [s]
-  (let [text (when (string? s) (str/trim s))
-        raw  (value/json-object (if (and text (str/starts-with? text "{")) text (some-> text http/percent-decode)))]
+  (let [text    (when (string? s) (str/trim s))
+        json?   (and text (str/starts-with? text "{"))
+        decoded (if json? text (some-> text http/percent-decode))
+        raw     (value/json-object decoded)]
     (if raw
       (let [read          (value/read-fields raw fields)
             v             #(first (get read %))
             other         (value/other-fields raw fields)
             [action said] (value/read-action (v "action"))
             timestamp     (some-> (v "timestamp") time/parse-date)
-            names         (set/map-invert record-keys)]
-        (with-meta (merge (cond-> (value/payment-of read names #{"action" "timestamp"})
+            names         (set/map-invert record-keys)
+            own           #{"action" "timestamp"}
+            payment       (cond-> (value/payment-of read names own)
                             action    (assoc :action action)
                             timestamp (assoc :timestamp timestamp))
-                          other)
-          {:podcast/report (mapv diagnostics/describe
-                                 (cond-> (value/field-diagnostics read other #{})
-                                   (and (v "timestamp") (nil? timestamp))
-                                   (conj {:id :value/unreadable :keys ["timestamp"]})
-
-                                   said (conj said)
-
-                                   (not-any? v ["feed_guid" "feed_title" "remote_feed_guid"])
-                                   (conj {:id :value/no-podcast})))}))
-      (with-meta {} {:podcast/report [(diagnostics/describe {:id :value/not-an-object})]}))))
+            unread-time?  (and (v "timestamp") (nil? timestamp))
+            podcast?      (some v ["feed_guid" "feed_title" "remote_feed_guid"])
+            no-time       {:id :value/unreadable :keys ["timestamp"]}
+            found         (cond-> (value/field-diagnostics read other #{})
+                            unread-time?   (conj no-time)
+                            said           (conj said)
+                            (not podcast?) (conj {:id :value/no-podcast}))]
+        (with-meta (merge payment other)
+          {:podcast/report (mapv diagnostics/describe found)}))
+      (let [none (diagnostics/describe {:id :value/not-an-object})]
+        (with-meta {} {:podcast/report [none]})))))
 
 (defn format-comment
   "The comment of a payment to a Lightning address that names the metadata
@@ -145,11 +152,18 @@
            text (some-> message str/trim not-empty)
            full (cond-> head text (str " " text))]
        (cond
-         (> (count head) max-length)       nil
-         (<= (count full) max-length)      full
+         (> (count head) max-length)
+         nil
+
+         (<= (count full) max-length)
+         full
+
          ;; a space, a character of the message and the ellipsis
-         (< max-length (+ (count head) 3)) head
-         :else                             (str (str/trimr (value/cut full (dec max-length))) "…"))))))
+         (< max-length (+ (count head) 3))
+         head
+
+         :else
+         (str (str/trimr (value/cut full (dec max-length))) "…"))))))
 
 (defn parse-comment
   "What the comment `s` of a payment tells about its metadata, as a map of
@@ -159,15 +173,16 @@
   at the URL holds all of it. Fountain wrote the text undefined in place
   of no message, so that text counts as none."
   [s]
-  (when-let [[_ action url message] (when (string? s)
-                                      (re-matches #"(?s)rss::payment::(\S*)\s*(\S*)\s*(.*)" (str/trim s)))]
-    (let [[action] (value/read-action action)
-          message  (str/trim message)
-          said?    (not (contains? #{"" "undefined" "null"} message))]
-      (cond-> {}
-        action            (assoc :action action)
-        (http/origin url) (assoc :url url)
-        said?             (assoc :message message)))))
+  (let [form  #"(?s)rss::payment::(\S*)\s*(\S*)\s*(.*)"
+        found (when (string? s) (re-matches form (str/trim s)))]
+    (when-let [[_ action url message] found]
+      (let [[action] (value/read-action action)
+            message  (str/trim message)
+            said?    (not (contains? #{"" "undefined" "null"} message))]
+        (cond-> {}
+          action            (assoc :action action)
+          (http/origin url) (assoc :url url)
+          said?             (assoc :message message))))))
 
 (def default-limits
   "The limits of fetch! that its options don't set: the seconds that the
@@ -202,15 +217,28 @@
   ([url]
    (fetch! url {}))
   ([url opts]
-   (let [opts (merge default-limits {:send http/send! :allow? http/public?} opts)]
-     (async/then (when (http/origin url)
-                   (http/try-send! (:send opts) (request url) opts))
-                 (fn [{:keys [value error]}]
-                   (let [found (when (map? value) (http/header (:headers value) header-name))]
-                     (cond
-                       error {:error (diagnostics/describe {:id :value/unreachable :url url :reason (async/explain error)})}
-                       found (parse-header found)
-                       :else {:error (diagnostics/describe {:id :value/no-metadata :url url :status (:status value)})})))))))
+   (let [defaults {:send http/send! :allow? http/public?}
+         opts     (merge default-limits defaults opts)
+         failure  (fn [d] {:error (diagnostics/describe d)})]
+     (async/then
+      (when (http/origin url)
+        (http/try-send! (:send opts) (request url) opts))
+      (fn [{:keys [value error]}]
+        (let [found (when (map? value)
+                      (http/header (:headers value) header-name))]
+          (cond
+            error
+            (failure {:id     :value/unreachable
+                      :url    url
+                      :reason (async/explain error)})
+
+            found
+            (parse-header found)
+
+            :else
+            (failure {:id     :value/no-metadata
+                      :url    url
+                      :status (:status value)}))))))))
 
 (comment
   (def sample
@@ -230,7 +258,8 @@
   ;; what the host that receives the payment reads
   (parse-comment "rss::payment::boost https://example.org/p/1 Great episode!")
   (parse-header (format-header sample))
-  (value/report (parse-header "{\"action\": \"streaming\", \"value_msat\": \"1000\"}"))
+  (value/report
+   (parse-header "{\"action\": \"streaming\", \"value_msat\": \"1000\"}"))
 
   (fetch! "https://example.org/p/1")
   #_.)
