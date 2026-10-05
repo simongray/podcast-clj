@@ -39,7 +39,10 @@
   (reduce (fn [sum v]
             (let [top (bit-shift-right sum 25)
                   sum (bit-xor (bit-shift-left (bit-and sum 0x1ffffff) 5) v)]
-              (reduce (fn [sum i] (if (bit-test top i) (bit-xor sum (nth generators i)) sum))
+              (reduce (fn [sum i]
+                        (if (bit-test top i)
+                          (bit-xor sum (nth generators i))
+                          sum))
                       sum
                       (range 5))))
           1
@@ -49,7 +52,9 @@
   "The values of the prefix `prefix` that go into the checksum."
   [prefix]
   (let [codes (map #?(:clj int :cljs #(.charCodeAt % 0)) prefix)]
-    (concat (map #(bit-shift-right % 5) codes) [0] (map #(bit-and % 31) codes))))
+    (concat (map #(bit-shift-right % 5) codes)
+            [0]
+            (map #(bit-and % 31) codes))))
 
 (defn- regrouped
   "The numbers `xs` of `from` bits each as numbers of `to` bits each. With
@@ -59,16 +64,23 @@
   (let [mask (dec (bit-shift-left 1 to))]
     (loop [xs xs acc 0 bits 0 out []]
       (if-let [[x & more] (seq xs)]
-        (let [acc  (bit-or (bit-shift-left acc from) x)
-              bits (+ bits from)
-              n    (quot bits to)
-              out  (into out (map #(bit-and (bit-shift-right acc (- bits (* to (inc %)))) mask)) (range n))
-              bits (- bits (* n to))]
+        (let [acc   (bit-or (bit-shift-left acc from) x)
+              bits  (+ bits from)
+              n     (quot bits to)
+              group #(bit-and (bit-shift-right acc (- bits (* to (inc %))))
+                              mask)
+              out   (into out (map group) (range n))
+              bits  (- bits (* n to))]
           (recur more (bit-and acc (dec (bit-shift-left 1 bits))) bits out))
         (cond
-          (and pad? (pos? bits))           (conj out (bit-and (bit-shift-left acc (- to bits)) mask))
-          pad?                             out
-          (and (< bits from) (zero? acc))  out)))))
+          (and pad? (pos? bits))
+          (conj out (bit-and (bit-shift-left acc (- to bits)) mask))
+
+          pad?
+          out
+
+          (and (< bits from) (zero? acc))
+          out)))))
 
 (defn decode-words
   "The prefix and the data of the Bech32 text `s`, read with `opts`, as a
@@ -86,7 +98,8 @@
    {:pre [(map? opts)]}
    (when (and (string? s)
               (<= 8 (count s) (:max-length opts max-length))
-              (or (= s (str/lower-case s)) (= s (str/upper-case s))))
+              (or (= s (str/lower-case s))
+                  (= s (str/upper-case s))))
      (let [s      (str/lower-case s)
            split  (str/last-index-of s "1")
            prefix (when split (subs s 0 split))
@@ -102,9 +115,11 @@
   "The Bech32 text of the prefix `prefix` and the numbers of five bits
   `words`, in lower case, with its checksum."
   [prefix words]
-  (let [prefix (str/lower-case prefix)
-        sum    (bit-xor 1 (polymod (concat (expanded prefix) words [0 0 0 0 0 0])))
-        check  (map #(bit-and (bit-shift-right sum (* 5 (- 5 %))) 31) (range 6))]
+  (let [prefix  (str/lower-case prefix)
+        checked (concat (expanded prefix) words [0 0 0 0 0 0])
+        sum     (bit-xor 1 (polymod checked))
+        check   (map #(bit-and (bit-shift-right sum (* 5 (- 5 %))) 31)
+                     (range 6))]
     (str prefix "1" (apply str (map #(nth charset %) (concat words check))))))
 
 (defn decode
@@ -126,7 +141,8 @@
   "The Bech32 text of the prefix `prefix` and the bytes `b`, in lower
   case."
   [prefix b]
-  (encode-words prefix (regrouped (map #(bytes/at b %) (range (bytes/length b))) 8 5 true)))
+  (let [octets (map #(bytes/at b %) (range (bytes/length b)))]
+    (encode-words prefix (regrouped octets 8 5 true))))
 
 (comment
   ;; the example of NIP-19: a public key of Nostr

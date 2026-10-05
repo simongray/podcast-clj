@@ -43,8 +43,8 @@
   {:allow?     http/public?
    :send       http/send!
    :forward    #{"accept" "if-modified-since" "if-none-match" "range"}
-   :expose     #{"age" "cache-control" "content-range" "content-type" "etag" "expires" "last-modified" "link"
-                 "retry-after"}
+   :expose     #{"age" "cache-control" "content-range" "content-type" "etag"
+                 "expires" "last-modified" "link" "retry-after"}
    :user-agent http/user-agent
    :max-bytes  (* 32 1024 1024)})
 
@@ -95,15 +95,16 @@
   "The answer of the proxy with `status` when it doesn't send the request:
   the `error` of RFC 9209, and the `details` as text."
   [status error details]
-  {:status  status
-   :headers (assoc safety
-                   "Content-Type" "text/plain; charset=utf-8"
-                   "Proxy-Status" (str "podcast-clj; error=" error "; details=\""
-                                       (-> details
-                                           (str/replace #"[\\\"]" #(str "\\" %))
-                                           (str/replace #"[^\x20-\x7E]" "?"))
-                                       "\""))
-   :body    (bytes/encode details)})
+  (let [quoted       (-> details
+                         (str/replace #"[\\\"]" #(str "\\" %))
+                         (str/replace #"[^\x20-\x7E]" "?"))
+        proxy-status (str "podcast-clj; error=" error
+                          "; details=\"" quoted "\"")]
+    {:status  status
+     :headers (assoc safety
+                     "Content-Type" "text/plain; charset=utf-8"
+                     "Proxy-Status" proxy-status)
+     :body    (bytes/encode details)}))
 
 ;; Fetch Metadata Request Headers, W3C Working Draft of 2021-03-29
 (defn refusal
@@ -126,16 +127,21 @@
       ;; each redirect meets it. Hosts that listeners choose would make the
       ;; proxy a relay of writes for every account.
       (not (#{:get :head} request-method))
-      (assoc-in (answer 405 "http_request_denied" "The proxy answers GET and HEAD.") [:headers "Allow"] "GET, HEAD")
+      (-> (answer 405 "http_request_denied" "The proxy answers GET and HEAD.")
+          (assoc-in [:headers "Allow"] "GET, HEAD"))
 
       (str/includes? (str (get headers "via")) via)
       (answer 502 "proxy_loop_detected" "The proxy doesn't fetch itself.")
 
-      (or (= "navigate" (get headers "sec-fetch-mode")) (= "cross-site" (get headers "sec-fetch-site")))
-      (answer 403 "http_request_denied" "The proxy answers the requests of the pages of its own site, and isn't a page itself.")
+      (or (= "navigate" (get headers "sec-fetch-mode"))
+          (= "cross-site" (get headers "sec-fetch-site")))
+      (answer 403 "http_request_denied"
+              (str "The proxy answers the requests of the pages of its own"
+                   " site, and isn't a page itself."))
 
       (not (http/web-url? (get (target ring-request) "url")))
-      (answer 400 "http_request_error" "The url parameter names no http or https URL."))))
+      (answer 400 "http_request_error"
+              "The url parameter names no http or https URL."))))
 
 (defn upstream-request
   "The request that the proxy sends for `ring-request`, with `opts` over
@@ -151,13 +157,16 @@
    (let [{:keys [forward user-agent] :as opts} (merge defaults opts)
          {:strs [url as]} (target ring-request)
          headers          (header-names ring-request)
-         [asked :as asks] (when (contains? forward "range") (http/byte-ranges (get headers "range")))]
+         [asked :as asks] (when (contains? forward "range")
+                            (http/byte-ranges (get headers "range")))
+         forwarded        (select-keys headers (disj forward "range"))
+         sent-headers     (cond-> (assoc forwarded "Via" via)
+                            user-agent (assoc "User-Agent" user-agent))]
      (when (http/web-url? url)
-       (cond-> (assoc (select-keys opts [:allow? :timeout-seconds :max-bytes])
+       (cond-> (assoc (select-keys opts http/limit-keys)
                       :method  request-method
                       :url     url
-                      :headers (cond-> (assoc (select-keys headers (disj forward "range")) "Via" via)
-                                 user-agent (assoc "User-Agent" user-agent)))
+                      :headers sent-headers)
          (= "bytes" as)     (assoc :as :bytes)
          (= 1 (count asks)) (assoc :range asked))))))
 
@@ -173,17 +182,19 @@
    (ring-response response {}))
   ([{:keys [status url permanent-url headers body] :as response}
     {:keys [expose] :or {expose (:expose defaults)} :as opts}]
-   (let [type    (when (contains? expose "content-type") (http/header headers "content-type"))
-         text    (when (string? body) (http/media-type type))
-         exposed (for [h (disj expose "content-type")
-                       :let [v (http/joined headers h)]
-                       :when v]
-                   [h v])]
+   (let [type         (when (contains? expose "content-type")
+                        (http/header headers "content-type"))
+         text         (when (string? body) (http/media-type type))
+         content-type (if text (str text "; charset=utf-8") type)
+         exposed      (for [h (disj expose "content-type")
+                            :let [v (http/joined headers h)]
+                            :when v]
+                        [h v])]
      {:status  status
       ;; under this name, since a Ring adapter such as Pedestal's adds its own
       ;; Content-Type to a body of bytes otherwise
       :headers (cond-> (into safety exposed)
-                 type          (assoc "Content-Type" (if text (str text "; charset=utf-8") type))
+                 type          (assoc "Content-Type" content-type)
                  url           (assoc "Content-Location" url)
                  permanent-url (assoc permanent-header permanent-url))
       :body    (if (string? body) (bytes/encode body) body)})))
@@ -193,10 +204,11 @@
   the Proxy-Status of RFC 9209 that unproxied turns back into the same
   exception."
   [e]
-  (let [kind           (cond
-                         (http/timeout? e)                      ::http/timeout
-                         (contains? errors (:type (ex-data e))) (:type (ex-data e))
-                         :else                                  ::failed)
+  (let [type           (:type (ex-data e))
+        kind           (cond
+                         (http/timeout? e)       ::http/timeout
+                         (contains? errors type) type
+                         :else                   ::failed)
         [error status] (errors kind)]
     (answer status error (async/explain e))))
 
@@ -217,7 +229,8 @@
         (fn [ring-request]
           (or (refusal ring-request)
               (try
-                (ring-response ((:send opts) (upstream-request ring-request opts)) opts)
+                (let [request (upstream-request ring-request opts)]
+                  (ring-response ((:send opts) request) opts))
                 (catch Exception e
                   (error-response e)))))))))
 
@@ -226,9 +239,10 @@
   of the request as the url parameter, and without its :allow?, which the
   proxy applies itself."
   [base {:keys [url as] :as request}]
-  (-> request
-      (dissoc :allow?)
-      (assoc :url (http/with-query base {:url url :as (when (= :bytes as) "bytes")}))))
+  (let [as-param (when (= :bytes as) "bytes")]
+    (-> request
+        (dissoc :allow?)
+        (assoc :url (http/with-query base {:url url :as as-param})))))
 
 (defn- failure
   "The exception of http/send! for `request`, which the proxy failed to
@@ -236,10 +250,16 @@
   failure of this proxy."
   [request proxy-status]
   (when-let [[_ error] (re-find #"podcast-clj; error=([a-z_]+)" proxy-status)]
-    (let [details (some-> (re-find #"details=\"((?:[^\"\\]|\\.)*)\"" proxy-status) second (str/replace #"\\(.)" "$1"))]
-      (ex-info (or details (str "The proxy failed to send the request to " (:url request)))
-               {:type (or (some (fn [[kind [e]]] (when (= e error) kind)) errors) ::failed)
-                :url  (:url request)}))))
+    (let [quoted  #"details=\"((?:[^\"\\]|\\.)*)\""
+          details (some-> (re-find quoted proxy-status)
+                          second
+                          (str/replace #"\\(.)" "$1"))
+          kind    (or (some (fn [[kind [e]]] (when (= e error) kind)) errors)
+                      ::failed)
+          message (or details
+                      (str "The proxy failed to send the request to "
+                           (:url request)))]
+      (ex-info message {:type kind :url (:url request)}))))
 
 (defn unproxied
   "The `response` of the proxy to `request`, as http/send! would give it
@@ -252,8 +272,10 @@
   [request {:keys [headers] :as response}]
   (if-let [e (some->> (http/joined headers "proxy-status") (failure request))]
     (throw e)
-    (let [moved (http/header headers permanent-header)]
-      (cond-> (assoc response :url (or (http/header headers "content-location") (:url request)))
+    (let [moved (http/header headers permanent-header)
+          url   (or (http/header headers "content-location")
+                    (:url request))]
+      (cond-> (assoc response :url url)
         moved (assoc :permanent-url moved)))))
 
 (defn sender
@@ -275,11 +297,15 @@
 #?(:clj
    (comment
      (def server (handler))
-     (def response (server {:request-method :get
-                            :query-string   "url=https%3A%2F%2Ffeeds.podcastindex.org%2Fpc20.xml"
-                            :headers        {"accept" "application/rss+xml"}}))
+     (def feed-url "https://feeds.podcastindex.org/pc20.xml")
+     (def response
+       (server {:request-method :get
+                :query-string   (http/query-string {:url feed-url})
+                :headers        {"accept" "application/rss+xml"}}))
      (select-keys response [:status :headers])
 
      ;; a page that opens the proxy is refused
-     (:status (server {:request-method :get :query-string "url=https%3A%2F%2Fexample.org%2F" :headers {"sec-fetch-mode" "navigate"}}))
+     (:status (server {:request-method :get
+                       :query-string   "url=https%3A%2F%2Fexample.org%2F"
+                       :headers        {"sec-fetch-mode" "navigate"}}))
      #_.))

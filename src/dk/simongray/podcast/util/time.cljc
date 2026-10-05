@@ -28,7 +28,11 @@
   (let [z   (+ days 719468)
         era (quot (if (neg? z) (- z 146096) z) 146097)
         doe (- z (* era 146097))
-        yoe (quot (- doe (quot doe 1460) (- (quot doe 36524)) (quot doe 146096)) 365)
+        yoe (quot (- doe
+                     (quot doe 1460)
+                     (- (quot doe 36524))
+                     (quot doe 146096))
+                  365)
         y   (+ yoe (* era 400))
         doy (- doe (+ (* 365 yoe) (quot yoe 4) (- (quot yoe 100))))
         mp  (quot (+ (* 5 doy) 2) 153)
@@ -114,7 +118,10 @@
 (def ^:no-doc rfc2822-strict-pattern
   "The RFC 2822 date in the narrow form that the examples of RSS 2.0 have,
   weekday included."
-  #"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}(?::\d{2})? (?:[+-]\d{4}|GMT|UT)")
+  (re-pattern
+   (str "(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \\d{2} "
+        "(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \\d{4} "
+        "\\d{2}:\\d{2}(?::\\d{2})? (?:[+-]\\d{4}|GMT|UT)")))
 
 (def ^:no-doc rfc2822-lenient-pattern
   "A lenient RFC 2822 date, with groups for the day, the month name, the
@@ -124,7 +131,20 @@
   separators are forgiving. The spaces before the zone belong to the
   optional zone group, so that they and the trailing spaces never compete
   for one run of whitespace, which backtracks quadratically."
-  #"(?i)^\s*(?:[a-z]{3,9}\.?,?\s+)?(\d{1,2})(?:st|nd|rd|th)?[\s-]+([a-z]{3,9})\.?,?[\s-]+(\d{2,4})(?:[\s,T]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?(?:\s*([a-z]{1,5}|[+-]\d{1,2}:?\d{2}|(?:gmt|utc)[+-]\d{1,2}:?\d{2}))?\s*$")
+  (re-pattern
+   (str "(?i)^\\s*"
+        ;; the weekday
+        "(?:[a-z]{3,9}\\.?,?\\s+)?"
+        ;; the day, the month and the year
+        "(\\d{1,2})(?:st|nd|rd|th)?[\\s-]+"
+        "([a-z]{3,9})\\.?,?[\\s-]+"
+        "(\\d{2,4})"
+        ;; the time
+        "(?:[\\s,T]+(\\d{1,2}):(\\d{2})(?::(\\d{2})(?:\\.\\d+)?)?)?"
+        ;; the zone: a name, an offset, or an offset from GMT or UTC
+        "(?:\\s*([a-z]{1,5}|[+-]\\d{1,2}:?\\d{2}"
+        "|(?:gmt|utc)[+-]\\d{1,2}:?\\d{2}))?"
+        "\\s*$")))
 
 ;; RFC 5322, section 4.3: a zone that is not known reads as -0000
 (defn- parse-zone
@@ -139,12 +159,14 @@
     0
     (let [s (str/lower-case s)]
       (or (zones s)
-          (when-let [[_ sign hh mm] (re-find #"^(?:gmt|utc)?([+-])(\d{1,2}):?(\d{2})$" s)]
+          (when-let [[_ sign hh mm]
+                     (re-find #"^(?:gmt|utc)?([+-])(\d{1,2}):?(\d{2})$" s)]
             (let [h (parse-long hh)
                   m (parse-long mm)]
               (when (and (< h 24) (< m 60))
                 (* (if (= sign "-") -1 1) (+ (* 60 h) m)))))
-          (when (and (re-matches #"[a-z]+" s) (not (#{"am" "pm"} s)))
+          (when (and (re-matches #"[a-z]+" s)
+                     (not (#{"am" "pm"} s)))
             0)))))
 
 (defn- expand-year
@@ -177,20 +199,28 @@
           y          (expand-year (parse-long y))
           d          (parse-long d)
           [hh mm ss] (map #(if % (parse-long %) 0) [hh mm ss])]
-      (when (and m offset (civil? y m d hh mm ss))
+      (when (and m
+                 offset
+                 (civil? y m d hh mm ss))
         (->inst (civil->ms y m d hh mm ss 0 offset))))))
 
 (defn rfc2822-strict?
   "Whether `s` is a date that RFC 2822 permits, written the way that RSS
   feeds are expected to write it, on a day and at a time that exist."
   [s]
-  (boolean (and (re-matches rfc2822-strict-pattern s) (parse-rfc2822 s))))
+  (boolean (and (re-matches rfc2822-strict-pattern s)
+                (parse-rfc2822 s))))
 
 (def ^:no-doc iso8601-pattern
   "An ISO 8601 date or date-time, with groups for the year, the month, the
   day, the hour, the minute, the second, the fraction and the zone. As in
   rfc2822-lenient-pattern, the spaces before the zone belong to its group."
-  #"^\s*(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?(?:\s*(Z|z|[+-]\d{2}:?\d{2}))?)?\s*$")
+  (re-pattern
+   (str "^\\s*(\\d{4})-(\\d{2})-(\\d{2})"
+        ;; the time, with the zone in it
+        "(?:[T ](\\d{2}):(\\d{2})(?::(\\d{2})(?:[.,](\\d{1,9}))?)?"
+        "(?:\\s*(Z|z|[+-]\\d{2}:?\\d{2}))?)?"
+        "\\s*$")))
 
 ;; RFC 3339, section 5.6, and the forms of ISO 8601 in its appendix A
 (defn parse-iso8601
@@ -201,7 +231,8 @@
     (let [ms               (if frac (parse-long (subs (str frac "00") 0 3)) 0)
           offset           (parse-zone zone)
           [y m d hh mm ss] (map #(if % (parse-long %) 0) [y m d hh mm ss])]
-      (when (and offset (civil? y m d hh mm ss))
+      (when (and offset
+                 (civil? y m d hh mm ss))
         (->inst (civil->ms y m d hh mm ss ms offset))))))
 
 (defn parse-date
@@ -209,7 +240,8 @@
   it's neither."
   [s]
   (when (string? s)
-    (or (parse-rfc2822 s) (parse-iso8601 s))))
+    (or (parse-rfc2822 s)
+        (parse-iso8601 s))))
 
 (defn- pad2
   [n]
@@ -258,7 +290,9 @@
   "The long equal to `n` when it's a whole number, or else `n` itself, so
   that \"16.0\" and \"16\" read as the same value."
   [n]
-  (if (and (float? n) (== n (Math/floor n)) (< (abs n) max-whole))
+  (if (and (float? n)
+           (== n (Math/floor n))
+           (< (abs n) max-whole))
     (long n)
     n))
 
@@ -268,7 +302,9 @@
   is a long, however it was written."
   [s]
   (let [s (str/replace s "," ".")
-        n (if (str/includes? s ".") (parse-double s) (parse-long s))]
+        n (if (str/includes? s ".")
+            (parse-double s)
+            (parse-long s))]
     (when (and n (not (infinite? n)))
       (whole->long n))))
 
@@ -277,10 +313,11 @@
   \"02:03\", \"00:00:02.760\" or the SRT-style \"00:00:02,760\", or nil when
   `s` isn't one."
   [s]
-  (when-let [[_ hh mm ss] (re-find #"^\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{1,2}(?:[.,]\d+)?)\s*$" s)]
-    (+ (* 3600 (if hh (parse-long hh) 0))
-       (* 60 (parse-long mm))
-       (parse-number ss))))
+  (let [clock #"^\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{1,2}(?:[.,]\d+)?)\s*$"]
+    (when-let [[_ hh mm ss] (re-find clock s)]
+      (+ (* 3600 (if hh (parse-long hh) 0))
+         (* 60 (parse-long mm))
+         (parse-number ss)))))
 
 (defn parse-duration
   "The seconds of the duration `s`, as itunes:duration writes it, or nil
@@ -306,7 +343,8 @@
   "Whether `x` is a number of seconds that format-clock and
   format-timestamp can write, one that both platforms count exactly."
   [x]
-  (and (number? x) (< (abs x) max-whole)))
+  (and (number? x)
+       (< (abs x) max-whole)))
 
 (defn format-clock
   "The `seconds` as \"H:MM:SS\", or \"M:SS\" under an hour, without any
@@ -335,9 +373,12 @@
   ([seconds separator]
    (when (countable? seconds)
      (let [millis (max 0 (long (Math/round (* 1000.0 seconds))))
-           total  (quot millis 1000)]
-       (str (pad2 (quot total 3600)) ":" (pad2 (rem (quot total 60) 60)) ":"
-            (pad2 (rem total 60)) separator (subs (str (+ 1000 (rem millis 1000))) 1))))))
+           total  (quot millis 1000)
+           h      (quot total 3600)
+           m      (rem (quot total 60) 60)
+           s      (rem total 60)
+           ms     (subs (str (+ 1000 (rem millis 1000))) 1)]
+       (str (pad2 h) ":" (pad2 m) ":" (pad2 s) separator ms)))))
 
 (comment
   (parse-rfc2822 "Fri, 25 Sep 2026 16:42:40 +0000")

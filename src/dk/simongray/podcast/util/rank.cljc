@@ -34,23 +34,33 @@
 (defn rank?
   "Whether `x` is a rank: a string of digits that doesn't end in a zero."
   [x]
-  (boolean (and (string? x) (re-find #"^[0-9A-Za-z]*[1-9A-Za-z]$" x))))
+  (boolean (and (string? x)
+                (re-find #"^[0-9A-Za-z]*[1-9A-Za-z]$" x))))
 
 (defn- midpoint
   "A string of digits strictly between `a` and `b`, `a` below `b`, where
   \"\" is the bottom and a nil `b` the top, neither ending in a zero."
   [a b]
-  (let [shared (if b
-                 (count (take-while (fn [[x y]] (= x y)) (map vector (concat a (repeat \0)) b)))
+  (let [padded (concat a (repeat \0))
+        shared (if b
+                 (count (take-while (fn [[x y]] (= x y))
+                                    (map vector padded b)))
                  0)]
     (if (pos? shared)
-      (str (subs b 0 shared) (midpoint (subs a (min shared (count a))) (subs b shared)))
+      (str (subs b 0 shared)
+           (midpoint (subs a (min shared (count a))) (subs b shared)))
       (let [da (if (seq a) (digit (first a)) 0)
             db (if b (digit (first b)) (count digits))]
         (cond
-          (> (- db da) 1)        (str (nth digits (quot (+ da db 1) 2)))
-          (and b (> (count b) 1)) (subs b 0 1)
-          :else                   (str (nth digits da) (midpoint (subs a (min 1 (count a))) nil)))))))
+          (> (- db da) 1)
+          (str (nth digits (quot (+ da db 1) 2)))
+
+          (and b (> (count b) 1))
+          (subs b 0 1)
+
+          :else
+          (str (nth digits da)
+               (midpoint (subs a (min 1 (count a))) nil)))))))
 
 ;; At an end of a list, the ranks count in levels. After the last rank, a
 ;; rank of level k is k times z, and then a number of k + 1 digits that
@@ -105,9 +115,14 @@
         down  (numbered (subs s level) width)]
     (cond
       ;; the number without the digits after it is below the rank
-      (< width (- (count s) level))        (str lead (written down))
-      (= down (into [1] (repeat level 0))) (str lead "0" (apply str (repeat (inc width) "z")))
-      :else                                (str lead (written (plus down -1))))))
+      (< width (- (count s) level))
+      (str lead (written down))
+
+      (= down (into [1] (repeat level 0)))
+      (str lead "0" (apply str (repeat (inc width) "z")))
+
+      :else
+      (str lead (written (plus down -1))))))
 
 (defn between
   "A rank between `before` and `after`, where nil stands for an end of the
@@ -123,8 +138,11 @@
   (when-not (and (or (nil? before) (= "" before) (rank? before))
                  (or (nil? after) (rank? after)))
     (throw (ex-info "Not a rank" {:before before :after after})))
-  (when (and before after (not (neg? (compare before after))))
-    (throw (ex-info "The ranks are not in order, or are the same" {:before before :after after})))
+  (when (and before
+             after
+             (not (neg? (compare before after))))
+    (throw (ex-info "The ranks are not in order, or are the same"
+                    {:before before :after after})))
   (cond
     (and before after) (midpoint before after)
     (seq before)       (above before)
@@ -135,7 +153,10 @@
   "Two digits from the string `tag`, the same on every platform."
   [tag]
   (let [base (count digits)
-        n    (reduce (fn [h c] (mod (+ (* 31 h) #?(:clj (int c) :cljs (.charCodeAt c 0))) (* base base))) 0 tag)]
+        code #?(:clj int :cljs #(.charCodeAt % 0))
+        n    (reduce (fn [h c] (mod (+ (* 31 h) (code c)) (* base base)))
+                     0
+                     tag)]
     (str (nth digits (quot n base)) (nth digits (mod n base)))))
 
 ;; The tag keeps two batches clear of the interleaving anomaly of Kleppmann
@@ -168,7 +189,8 @@
   ([before n tag]
    (if (< n 2)
      (after before n)
-     (map (partial str (between before nil) (tag-digits (str tag))) (after nil n)))))
+     (let [block (str (between before nil) (tag-digits (str tag)))]
+       (map (partial str block) (after nil n))))))
 
 (comment
   (take 40 (iterate #(between % nil) (between nil nil)))
