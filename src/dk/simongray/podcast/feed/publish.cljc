@@ -4,6 +4,7 @@
 
   The functions are pure, and rss/emit writes the feeds they give."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.secret :as secret]))
 
@@ -16,7 +17,8 @@
   "The link relations of RFC 5005 that tie the documents of one feed
   together, and self, the link of a document to itself. Section 3 has
   those of a paged feed, and section 4 those of an archived feed."
-  #{"self" "first" "last" "previous" "next" "prev-archive" "next-archive" "current"})
+  #{"self" "first" "last" "previous" "next"
+    "prev-archive" "next-archive" "current"})
 
 (defn ^:no-doc document-link?
   "Whether the atom:link `link` has one of the document-rels."
@@ -31,15 +33,17 @@
   relation without a URL is left out. They take the place of the links of
   document-rels that the feed has."
   [feed url items links]
-  (let [type  (or (some #(when (= "self" (some-> (:rel %) str/lower-case)) (:type %)) (:atom/links feed))
+  (let [self? #(= "self" (some-> (:rel %) str/lower-case))
+        type  (or (some #(when (self? %) (:type %)) (:atom/links feed))
                   "application/rss+xml")
         links (for [[rel href] (cons ["self" url] links)
                     :when href]
-                {:rel rel :href href :type type})]
+                {:rel rel :href href :type type})
+        other (remove document-link? (:atom/links feed))]
     {:url  url
      :feed (-> (dissoc feed :fh/complete :fh/archive)
-               (assoc :rss/items (vec items)
-                      :atom/links (into (vec links) (remove document-link?) (:atom/links feed))))}))
+               (assoc :rss/items  (vec items)
+                      :atom/links (into (vec links) other)))}))
 
 (defn- paged
   "The documents of `feed` as a paged feed, as section 3 of RFC 5005
@@ -75,14 +79,20 @@
         oldest   (vec (rseq items))
         archives (quot (max 0 (dec (count items))) size)
         archive  (fn [k]
-                   (-> (document feed (page-url k)
-                                 (rseq (subvec oldest (* (dec k) size) (* k size)))
-                                 [["current" url]
-                                  ["prev-archive" (when (< 1 k) (page-url (dec k)))]
-                                  ["next-archive" (when (< k archives) (page-url (inc k)))]])
-                       (assoc-in [:feed :fh/archive] true)))]
+                   (let [chunk (subvec oldest (* (dec k) size) (* k size))
+                         older (when (< 1 k)
+                                 (page-url (dec k)))
+                         newer (when (< k archives)
+                                 (page-url (inc k)))]
+                     (-> (document feed (page-url k) (rseq chunk)
+                                   [["current" url]
+                                    ["prev-archive" older]
+                                    ["next-archive" newer]])
+                         (assoc-in [:feed :fh/archive] true))))
+        latest   (when (pos? archives)
+                   (page-url archives))]
     (into [(document feed url (take size items)
-                     [["prev-archive" (when (pos? archives) (page-url archives))]])]
+                     [["prev-archive" latest]])]
           (map archive)
           (range archives 0 -1))))
 
@@ -114,14 +124,17 @@
   ([feed {:keys [kind url page-url] :or {kind :paged} :as opts}]
    {:pre [(map? opts)]}
    (let [size     (:page-size opts page-size)
-         self     (some #(when (= "self" (some-> (:rel %) str/lower-case)) (:href %)) (:atom/links feed))
-         url      (or url self)
+         url      (or url (resolve/self-url feed))
          param    (case kind :paged "page" :archived "archive")
          page-url (or page-url #(http/with-query url {param %}))]
      (when-not (string? url)
-       (throw (ex-info "The pages of a feed need its URL, as :url or as its atom:link rel=self" {:feed feed})))
-     (when-not (and (integer? size) (pos? size))
-       (throw (ex-info "The size of a page is a whole number above 0" {:page-size size})))
+       (throw (ex-info (str "The pages of a feed need its URL, as :url or as"
+                            " its atom:link rel=self")
+                       {:feed feed})))
+     (when-not (and (integer? size)
+                    (pos? size))
+       (throw (ex-info "The size of a page is a whole number above 0"
+                       {:page-size size})))
      (case kind
        :paged    (paged feed size url page-url)
        :archived (archived feed size url page-url)))))
@@ -134,15 +147,21 @@
   prefix or a token on the URLs of its media files."
   [feed f]
   (let [rewritten #(if (string? %) (f %) %)
+        source    (fn [source]
+                    (cond-> source
+                      (:uri source) (update :uri rewritten)))
         sources   (fn [alternate]
                     (cond-> alternate
                       (:sources alternate)
-                      (update :sources (partial mapv #(cond-> % (:uri %) (update :uri rewritten))))))
+                      (update :sources (partial mapv source))))
         item      (fn [item]
                     (cond-> item
-                      (get-in item [:rss/enclosure :url])  (update-in [:rss/enclosure :url] rewritten)
-                      (:podcast/alternate-enclosures item) (update :podcast/alternate-enclosures
-                                                                   (partial mapv sources))))]
+                      (get-in item [:rss/enclosure :url])
+                      (update-in [:rss/enclosure :url] rewritten)
+
+                      (:podcast/alternate-enclosures item)
+                      (update :podcast/alternate-enclosures
+                              (partial mapv sources))))]
     (cond-> feed
       (:rss/items feed) (update :rss/items (partial mapv item)))))
 
@@ -183,12 +202,19 @@
    {:pre [(map? opts)]}
    (let [token      (secret/reveal token)
          with-token (or with-token #(http/with-query %1 {param %2}))
-         personal   #(if (and (http/web-url? %) (own? %)) (with-token % token) %)
+         personal   (fn [url]
+                      (if (and (http/web-url? url)
+                               (own? url))
+                        (with-token url token)
+                        url))
          hub?       #(= "hub" (some-> (:rel %) str/lower-case))
+         link       (fn [link]
+                      (cond-> link
+                        (document-link? link) (update :href personal)))
          links      (fn [links]
                       (into []
                             (comp (remove #(and block? (hub? %)))
-                                  (map #(cond-> % (document-link? %) (update :href personal))))
+                                  (map link))
                             links))]
      (cond-> (update-media-urls feed personal)
        (:atom/links feed) (update :atom/links links)

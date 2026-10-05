@@ -11,11 +11,12 @@
   "The name-based UUID (RFC 4122, section 4.3) of the string `name` in the
   UUID namespace `ns`, as a lower-case string."
   [ns name]
-  (let [h (bytes/sha1 (bytes/join [(bytes/from-hex (str/replace ns "-" "")) (bytes/encode name)]))
-        h (-> (mapv #(bytes/at h %) (range 16))
-              (update 6 #(bit-or (bit-and % 0x0f) 0x50))
-              (update 8 #(bit-or (bit-and % 0x3f) 0x80)))
-        s (bytes/hex (bytes/of h))]
+  (let [ns-bytes (bytes/from-hex (str/replace ns "-" ""))
+        digest   (bytes/sha1 (bytes/join [ns-bytes (bytes/encode name)]))
+        octets   (-> (mapv #(bytes/at digest %) (range 16))
+                     (update 6 #(bit-or (bit-and % 0x0f) 0x50))
+                     (update 8 #(bit-or (bit-and % 0x3f) 0x80)))
+        s        (bytes/hex (bytes/of octets))]
     (str (subs s 0 8) "-" (subs s 8 12) "-" (subs s 12 16) "-"
          (subs s 16 20) "-" (subs s 20 32))))
 
@@ -42,7 +43,8 @@
 (defn guid?
   "Whether `s` looks like a UUID, and so like a podcast:guid."
   [s]
-  (boolean (and (string? s) (re-matches guid-pattern s))))
+  (boolean (and (string? s)
+                (re-matches guid-pattern s))))
 
 (comment
   (from-url "https://mp3s.nashownotes.com/pc20rss.xml")

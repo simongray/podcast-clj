@@ -32,10 +32,12 @@
    (if-not quirks?
      (let [tree (xml/parse xml)]
        (vary-meta tree assoc :podcast/report (xml/report tree)))
-     (let [{:keys [raw report]} (quirks/parse-raw xml (select-keys opts [:except]))
+     (let [raw-opts             (select-keys opts [:except])
+           normalize-opts       (select-keys opts [:registry :except])
+           {:keys [raw report]} (quirks/parse-raw xml raw-opts)
            tree                 (-> raw
                                     (xml/resolve-namespaces quirks/uri->alias)
-                                    (quirks/normalize (select-keys opts [:registry :except])))]
+                                    (quirks/normalize normalize-opts))]
        (vary-meta tree assoc :podcast/report
                   (-> report
                       (into (quirks/namespace-variants raw))
@@ -50,10 +52,11 @@
    (parse xml {}))
   ([xml opts]
    {:pre [(map? opts)]}
-   (let [tree (parse-tree xml opts)
-         feed (feed/parse tree (select-keys opts [:registry]))]
-     (vary-meta feed assoc :podcast/report
-                (into (vec (:podcast/report (meta tree))) (feed/report feed))))))
+   (let [tree   (parse-tree xml opts)
+         feed   (feed/parse tree (select-keys opts [:registry]))
+         report (into (vec (:podcast/report (meta tree)))
+                      (feed/report feed))]
+     (vary-meta feed assoc :podcast/report report))))
 
 (defn try-parse
   "Parse the RSS string `xml` as parse does, with the `opts` below, and
@@ -76,8 +79,10 @@
      (catch #?(:clj Exception :cljs :default) e
        (when (= ::xml/no-parser (:type (ex-data e)))
          (throw e))
-       {:error (diagnostics/describe (cond-> {:id :fetch/malformed :reason (async/explain e)}
-                                       url (assoc :url url)))}))))
+       (let [malformed (cond-> {:id     :fetch/malformed
+                                :reason (async/explain e)}
+                         url (assoc :url url))]
+         {:error (diagnostics/describe malformed)})))))
 
 (defn report
   "The diagnostics of `feed`, or of a tree from parse-tree. Each is a map

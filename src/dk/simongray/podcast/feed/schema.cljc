@@ -19,6 +19,24 @@
   (:require [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.util.xml :as xml]))
 
+(def ^:no-doc rrule
+  "The Malli schema of a recurrence rule, as rrule/parse reads it."
+  (let [weekdays ["MO" "TU" "WE" "TH" "FR" "SA" "SU"]
+        byday    [:re {:gen/elements (conj weekdays "1MO" "-1FR")}
+                  #"^([+-]?(?:0?[1-9]|[1-4]\d|5[0-3]))?(MO|TU|WE|TH|FR|SA|SU)$"]
+        monthday [:or [:int {:min 1 :max 31}] [:int {:min -31 :max -1}]]
+        month    [:int {:min 1 :max 12}]]
+    [:map
+     [:freq [:enum "SECONDLY" "MINUTELY" "HOURLY" "DAILY" "WEEKLY" "MONTHLY"
+             "YEARLY"]]
+     [:interval {:optional true} 'pos-int?]
+     [:count {:optional true} 'pos-int?]
+     [:until {:optional true} 'inst?]
+     [:byday {:optional true} [:vector {:gen/max 3} byday]]
+     [:bymonthday {:optional true} [:vector {:gen/max 3} monthday]]
+     [:bymonth {:optional true} [:vector {:gen/max 3} month]]
+     [:wkst {:optional true} (into [:enum] weekdays)]]))
+
 (def types
   "The Malli schema of each value type of the registry, which is a string
   for any other type."
@@ -30,18 +48,7 @@
    :rfc2822  'inst?
    :iso8601  'inst?
    :duration 'number?
-   :rrule    [:map
-              [:freq [:enum "SECONDLY" "MINUTELY" "HOURLY" "DAILY" "WEEKLY" "MONTHLY" "YEARLY"]]
-              [:interval {:optional true} 'pos-int?]
-              [:count {:optional true} 'pos-int?]
-              [:until {:optional true} 'inst?]
-              [:byday {:optional true} [:vector {:gen/max 3}
-                                        [:re {:gen/elements ["MO" "TU" "WE" "TH" "FR" "SA" "SU" "1MO" "-1FR"]}
-                                         #"^([+-]?(?:0?[1-9]|[1-4]\d|5[0-3]))?(MO|TU|WE|TH|FR|SA|SU)$"]]]
-              [:bymonthday {:optional true} [:vector {:gen/max 3}
-                                             [:or [:int {:min 1 :max 31}] [:int {:min -31 :max -1}]]]]
-              [:bymonth {:optional true} [:vector {:gen/max 3} [:int {:min 1 :max 12}]]]
-              [:wkst {:optional true} [:enum "MO" "TU" "WE" "TH" "FR" "SA" "SU"]]]
+   :rrule    rrule
    :geo      [:map
               [:lat 'number?]
               [:lon 'number?]
@@ -79,7 +86,9 @@
   "The map entries of the declared attributes of `entry`."
   [entry]
   (for [[k {:keys [type required]}] (:attrs entry)]
-    [(xml/attr-key k) {:optional (not required)} (type-schema (or type :text))]))
+    [(xml/attr-key k)
+     {:optional (not required)}
+     (type-schema (or type :text))]))
 
 (defn- child-entries
   "The map entries of the elements of `registry` that can appear in the
@@ -119,12 +128,13 @@
    (schemas {}))
   ([{:keys [registry] :or {registry spec/default} :as opts}]
    {:pre [(map? opts)]}
-   (let [registry (spec/registry registry)]
-     (-> (into {} (for [[tag [entry]] (:by-tag registry)]
-                    [(ref-key tag) (entry-schema registry entry)]))
-         (assoc ::feed (-> [:map [:rss/version {:optional true} :string]]
-                           (into (child-entries registry :channel))
-                           (conj [:xml/unknown {:optional true} unknown])))))))
+   (let [registry (spec/registry registry)
+         elements (for [[tag [entry]] (:by-tag registry)]
+                    [(ref-key tag) (entry-schema registry entry)])
+         channel  (-> [:map [:rss/version {:optional true} :string]]
+                      (into (child-entries registry :channel))
+                      (conj [:xml/unknown {:optional true} unknown]))]
+     (assoc (into {} elements) ::feed channel))))
 
 (defn feed-schema
   "The self-contained schema of a feed map, with the `opts` of schemas."
@@ -153,5 +163,6 @@
   (tag-schema :podcast/transcript)
   ;; => [:schema {:registry ...} :podcast/transcript]
   (get (schemas) :podcast/transcript)
-  ;; => [:map [:url :string] [:type :string] [:language {:optional true} :string] ...]
+  ;; => [:map [:url :string] [:type :string]
+  ;;     [:language {:optional true} :string] ...]
   #_.)

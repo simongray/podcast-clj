@@ -57,8 +57,11 @@
                  (let [k' (model-key ctx k)
                        v' (coerce/parse (or type :text) v)]
                    (cond
-                     (and (= "" (xml/trim v)) (not required))
-                     (do (note! ctx {:id :feed/empty-attribute :level :info :path (conj path k')})
+                     (and (= "" (xml/trim v))
+                          (not required))
+                     (do (note! ctx {:id    :feed/empty-attribute
+                                     :level :info
+                                     :path  (conj path k')})
                          m)
 
                      (coerce/invalid? v')
@@ -112,6 +115,48 @@
           (xml/deep-text element)))
     (xml/text element)))
 
+(defn- parse-map-element
+  "The model map of the map-shaped `element` of `entry` at `path`, with
+  its `text` as the :content, parsed with `ctx`."
+  [ctx entry element text path]
+  (let [m (cond-> (parse-attrs ctx entry (xml/attrs element) path)
+            (not (folds-markup? ctx entry element))
+            (merge (parse-children ctx (spec/children-context entry)
+                                   (xml/elements element) path)))]
+    (cond
+      (= :none (spec/content-type entry))
+      (do (when (seq text)
+            (note! ctx {:id :feed/unexpected-text :level :info
+                        :path path :value text}))
+          m)
+
+      (seq text)
+      (assoc m :content (parse-content ctx entry text path))
+
+      :else
+      m)))
+
+(defn- parse-scalar-element
+  "The model value of the scalar `element` of `entry` at `path`, read from
+  its `text` with `ctx`, or ::empty when it has no text."
+  [ctx entry element text path]
+  (when-let [attrs (not-empty (xml/attrs element))]
+    (note! ctx {:id :feed/dropped-attributes :level :info :path path
+                :attributes (vec (keys attrs))}))
+  (cond
+    (= :presence (spec/content-type entry))
+    (do (when (seq text)
+          (note! ctx {:id :feed/unexpected-text :level :info
+                      :path path :value text}))
+        true)
+
+    (seq text)
+    (parse-content ctx entry text path)
+
+    :else
+    (do (note! ctx {:id :feed/empty-element :level :info :path path})
+        ::empty)))
+
 (defn- parse-element
   "The model value of the Hiccup `element` at `path`, parsed by its
   registry `entry` with `ctx`, or ::empty for a scalar element without
@@ -120,42 +165,9 @@
   (let [text (element-text ctx entry element path)
         ;; the spaces kept between two elements are no text of their own
         text (when-not (= "" (xml/trim text)) text)]
-    (cond
-      (spec/map-shaped? (:registry ctx) entry)
-      (let [m (cond-> (parse-attrs ctx entry (xml/attrs element) path)
-                (not (folds-markup? ctx entry element))
-                (merge (parse-children ctx (spec/children-context entry)
-                                       (xml/elements element) path)))]
-        (cond
-          (= :none (spec/content-type entry))
-          (do (when (seq text)
-                (note! ctx {:id :feed/unexpected-text :level :info
-                            :path path :value text}))
-              m)
-
-          (seq text)
-          (assoc m :content (parse-content ctx entry text path))
-
-          :else
-          m))
-
-      :else
-      (do (when-let [attrs (not-empty (xml/attrs element))]
-            (note! ctx {:id :feed/dropped-attributes :level :info :path path
-                        :attributes (vec (keys attrs))}))
-          (cond
-            (= :presence (spec/content-type entry))
-            (do (when (seq text)
-                  (note! ctx {:id :feed/unexpected-text :level :info
-                              :path path :value text}))
-                true)
-
-            (seq text)
-            (parse-content ctx entry text path)
-
-            :else
-            (do (note! ctx {:id :feed/empty-element :level :info :path path})
-                ::empty))))))
+    (if (spec/map-shaped? (:registry ctx) entry)
+      (parse-map-element ctx entry element text path)
+      (parse-scalar-element ctx entry element text path))))
 
 (defn- parse-children
   "The child `elements` of an element in the `parent` context at `path`,
@@ -167,7 +179,8 @@
               (if-let [entry (spec/entry-for (:registry ctx) tag parent)]
                 (let [k     (spec/key-for entry parent)
                       many? (= :many (spec/count-for entry parent))
-                      path' (cond-> (conj path k) many? (conj (count (get m k))))
+                      path' (cond-> (conj path k)
+                              many? (conj (count (get m k))))
                       v     (parse-element ctx entry element path')]
                   (cond
                     (= v ::empty)
@@ -187,6 +200,22 @@
           {}
           elements))
 
+(defn- note-leftovers!
+  "Note in `ctx` what the rss element `tree` and its `channel` hold that
+  has no place in the model: the attributes of rss other than its version,
+  those of channel, and the text of channel."
+  [ctx tree channel]
+  (let [dropped [[:rss (dissoc (xml/attrs tree) :version)]
+                 [:channel (xml/attrs channel)]]
+        text    (xml/text channel)]
+    (doseq [[tag attrs] dropped
+            :when (seq attrs)]
+      (note! ctx {:id :feed/dropped-attributes :level :info :path [] :tag tag
+                  :attributes (vec (keys attrs))}))
+    (when-not (= "" (xml/trim text))
+      (note! ctx {:id :feed/unexpected-text :level :info :path []
+                  :value text}))))
+
 (defn parse
   "Parse the canonical Hiccup `tree` of an RSS 2.0 document into a feed map
   by the :registry of `opts`, spec/default by default.
@@ -201,20 +230,19 @@
   ([tree {:keys [registry] :or {registry spec/default} :as opts}]
    {:pre [(map? opts)]}
    (when-not (= :rss (xml/tag tree))
-     (throw (ex-info "Not an RSS 2.0 document" {:type ::unsupported :root (xml/tag tree)})))
-   (let [ctx     {:registry (spec/registry registry) :report (volatile! []) :keys (volatile! {})}
+     (throw (ex-info "Not an RSS 2.0 document"
+                     {:type ::unsupported :root (xml/tag tree)})))
+   (let [ctx     {:registry (spec/registry registry)
+                  :report   (volatile! [])
+                  :keys     (volatile! {})}
          channel (or (xml/element tree :channel)
-                     (throw (ex-info "No channel element" {:type ::unsupported})))
+                     (throw (ex-info "No channel element"
+                                     {:type ::unsupported})))
          version (:version (xml/attrs tree))
          feed    (parse-children ctx :channel (xml/elements channel) [])
          ;; by identity: a set of the channel would hash all of the feed
          others  (remove #(identical? % channel) (xml/elements tree))]
-     (doseq [[tag attrs] [[:rss (dissoc (xml/attrs tree) :version)] [:channel (xml/attrs channel)]]
-             :when (seq attrs)]
-       (note! ctx {:id :feed/dropped-attributes :level :info :path [] :tag tag
-                   :attributes (vec (keys attrs))}))
-     (when-not (= "" (xml/trim (xml/text channel)))
-       (note! ctx {:id :feed/unexpected-text :level :info :path [] :value (xml/text channel)}))
+     (note-leftovers! ctx tree channel)
      (with-meta (cond-> feed
                   version      (assoc :rss/version version)
                   (seq others) (update :xml/unknown (fnil into []) others))
@@ -238,9 +266,10 @@
   [registry entry v]
   (if-not (spec/map-shaped? registry entry)
     v
-    (let [m (if (and (some? v) (not (coll? v)) (not= :none (spec/content-type entry)))
-              {:content v}
-              v)]
+    (let [bare? (and (some? v)
+                     (not (coll? v))
+                     (not= :none (spec/content-type entry)))
+          m     (if bare? {:content v} v)]
       (if (map? m)
         (normalize-children registry (spec/children-context entry) m)
         m))))
@@ -256,7 +285,8 @@
               (if (nil? v)
                 m
                 (assoc m k (if (= :many (spec/count-for entry parent))
-                             (mapv #(normalize-value registry entry %) (if (sequential? v) v [v]))
+                             (mapv #(normalize-value registry entry %)
+                                   (if (sequential? v) v [v]))
                              (normalize-value registry entry v))))))
           m
           (spec/entries-for registry parent)))
@@ -298,11 +328,16 @@
   [ctx entry]
   (let [plans (:plans ctx)]
     (or (get @plans entry)
-        (let [context (spec/children-context entry)
-              plan    {:taken    (into #{:content :xml/unknown}
-                                       (concat (map #(spec/key-for % context) (spec/entries-for (:registry ctx) context))
-                                               (map xml/attr-key (keys (:attrs entry)))))
-                       :declared (mapv (fn [[k {:keys [type]}]] [k (xml/attr-key k) (or type :text)]) (:attrs entry))}]
+        (let [context    (spec/children-context entry)
+              child-keys (map #(spec/key-for % context)
+                              (spec/entries-for (:registry ctx) context))
+              attr-keys  (map xml/attr-key (keys (:attrs entry)))
+              declared   (mapv (fn [[k {:keys [type]}]]
+                                 [k (xml/attr-key k) (or type :text)])
+                               (:attrs entry))
+              plan       {:taken    (into #{:content :xml/unknown}
+                                          (concat child-keys attr-keys))
+                          :declared declared}]
           (vswap! plans assoc entry plan)
           plan))))
 
@@ -317,11 +352,16 @@
   (let [{:keys [taken declared]} (attr-plan ctx entry)
         declared (reduce (fn [acc [k k' type]]
                            (let [v (get m k')]
-                             (if (some? v) (assoc acc k (coerce/format type v)) acc)))
+                             (if (some? v)
+                               (assoc acc k (coerce/format type v))
+                               acc)))
                          {}
                          declared)
         rest     (reduce-kv (fn [acc k v]
-                              (if (and (keyword? k) (not (contains? taken k)) (string? v) (xml-name? k))
+                              (if (and (keyword? k)
+                                       (not (contains? taken k))
+                                       (string? v)
+                                       (xml-name? k))
                                 (assoc acc k v)
                                 acc))
                             {}
@@ -387,9 +427,11 @@
    {:pre [(map? opts)]}
    (let [registry (spec/registry registry)
          ctx      {:registry registry :plans (volatile! {})}
-         feed     (normalize feed {:registry registry})]
-     (with-meta [:rss {:version (or (:rss/version feed) "2.0")}
-                 (into [:channel {}] (emit-children ctx :channel (dissoc feed :rss/version)))]
+         feed     (normalize feed {:registry registry})
+         version  (or (:rss/version feed) "2.0")
+         children (emit-children ctx :channel (dissoc feed :rss/version))]
+     (with-meta [:rss {:version version}
+                 (into [:channel {}] children)]
        {:xml/namespaces (merge (:xml/namespaces (meta feed)) namespaces)}))))
 
 (defn item-guid
@@ -451,10 +493,15 @@
   channel counts as changed when anything but its items, live items and
   timestamps differs."
   [before after]
-  (let [churn [:rss/items :podcast/live-items :rss/last-build-date :rss/pub-date]]
-    (assoc (item-changes (:rss/items before) (:rss/items after))
-           :live-items (item-changes (:podcast/live-items before) (:podcast/live-items after))
-           :channel-changed? (not= (apply dissoc before churn) (apply dissoc after churn)))))
+  (let [churn [:rss/items :podcast/live-items
+               :rss/last-build-date :rss/pub-date]
+        items (item-changes (:rss/items before) (:rss/items after))
+        live  (item-changes (:podcast/live-items before)
+                            (:podcast/live-items after))]
+    (assoc items
+           :live-items       live
+           :channel-changed? (not= (apply dissoc before churn)
+                                   (apply dissoc after churn)))))
 
 (defn- page-report
   "The diagnostics of `page` for the feed that join-pages makes, by the
@@ -468,9 +515,14 @@
   [page places first?]
   (keep (fn [{[k i & more] :path :as diagnostic}]
           (cond
-            (and (= :rss/items k) (some? i))               (when-some [j (places i)]
-                                                             (assoc diagnostic :path (into [k j] more)))
-            (or first? (not (contains? diagnostic :path))) diagnostic))
+            (and (= :rss/items k)
+                 (some? i))
+            (when-some [j (places i)]
+              (assoc diagnostic :path (into [k j] more)))
+
+            (or first?
+                (not (contains? diagnostic :path)))
+            diagnostic))
         (report page)))
 
 (defn- with-page
@@ -480,9 +532,13 @@
   The feed is a map of the :items, the guids :seen, the :report, and
   whether the next page is the :first?."
   [{:keys [items seen report first?] :as acc} page]
-  (let [fresh  (keep-indexed (fn [i item] (when-not (contains? seen (item-guid item)) [i item]))
+  (let [fresh  (keep-indexed (fn [i item]
+                               (when-not (contains? seen (item-guid item))
+                                 [i item]))
                              (:rss/items page))
-        places (into {} (map-indexed (fn [n [i _]] [i (+ (count items) n)])) fresh)]
+        places (into {}
+                     (map-indexed (fn [n [i _]] [i (+ (count items) n)]))
+                     fresh)]
     {:items  (into items (map second) fresh)
      :seen   (into seen (keep (comp item-guid second)) fresh)
      :report (into report (page-report page places first?))
@@ -502,15 +558,20 @@
   where the feed has it."
   [pages]
   (when-let [first-page (first pages)]
-    (let [{:keys [items report]} (reduce with-page {:items [] :seen #{} :report [] :first? true} pages)]
-      (vary-meta (cond-> first-page (seq items) (assoc :rss/items items))
+    (let [start                  {:items [] :seen #{} :report [] :first? true}
+          {:keys [items report]} (reduce with-page start pages)]
+      (vary-meta (cond-> first-page
+                   (seq items) (assoc :rss/items items))
                  assoc :podcast/report report))))
 
 (comment
-  (-> "<rss version=\"2.0\" xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">
-        <channel><title>T</title><podcast:funding url=\"https://x\">Give</podcast:funding>
-        <item><title>E1</title><enclosure url=\"https://a/1.mp3\" length=\"12\" type=\"audio/mpeg\"/></item>
-        </channel></rss>"
+  (-> "<rss version=\"2.0\"
+        xmlns:podcast=\"https://podcastindex.org/namespace/1.0\">
+        <channel><title>T</title>
+        <podcast:funding url=\"https://x\">Give</podcast:funding>
+        <item><title>E1</title>
+        <enclosure url=\"https://a/1.mp3\" length=\"12\" type=\"audio/mpeg\"/>
+        </item></channel></rss>"
       xml/parse parse)
   (-> *1 emit xml/emit println)
   #_.)

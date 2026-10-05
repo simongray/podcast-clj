@@ -14,7 +14,8 @@
 (def coerced-types
   "The value types whose model values aren't strings, so that a string
   where one is expected means that the value didn't coerce."
-  #{:integer :decimal :boolean :yes-no :presence :rfc2822 :iso8601 :duration :rrule :geo :osm})
+  #{:integer :decimal :boolean :yes-no :presence
+    :rfc2822 :iso8601 :duration :rrule :geo :osm})
 
 (def types
   "The value types that a registry entry can give an attribute or node
@@ -40,7 +41,8 @@
   "The whole number written as `s`, when both platforms hold it exactly. A
   larger one doesn't read, on the JVM either, so that the two agree."
   [s]
-  (let [n (when (re-matches #"[+-]?\d+" s) (parse-long s))]
+  (let [n (when (re-matches #"[+-]?\d+" s)
+            (parse-long s))]
     (if (and n (<= (abs n) time/max-whole))
       n
       ::invalid)))
@@ -50,12 +52,24 @@
   as a double. One too large for a double doesn't read."
   [s]
   (let [n (cond
-            (re-matches #"[+-]?\d+" s)                       (let [n (read-integer s)]
-                                                               (if (= ::invalid n) (parse-double s) n))
-            (re-matches #"[+-]?\d*\.\d+(?:[eE][+-]?\d+)?" s) (time/whole->long (parse-double s)))]
+            (re-matches #"[+-]?\d+" s)
+            (let [n (read-integer s)]
+              (if (= ::invalid n)
+                (parse-double s)
+                n))
+
+            (re-matches #"[+-]?\d*\.\d+(?:[eE][+-]?\d+)?" s)
+            (time/whole->long (parse-double s)))]
     (if (and n (not (infinite? n)))
       n
       ::invalid)))
+
+(def ^:no-doc geo-pattern
+  "The pattern of a geo URI (RFC 5870, section 3.3), with the latitude,
+  the longitude, the altitude and the uncertainty as its groups."
+  (let [n "[+-]?\\d+(?:\\.\\d+)?"]
+    (re-pattern (str "(?i)\\s*geo:(" n "),\\s*(" n ")(?:,\\s*(" n "))?"
+                     "(?:;u=(\\d+(?:\\.\\d+)?))?\\s*"))))
 
 (defn- read-geo
   "The geo URI `s` (RFC 5870, section 3.3) as a map, or nil when a part
@@ -64,8 +78,7 @@
   A geo URI looks like \"geo:30.2672,-97.7431\", with an optional altitude
   after another comma and an uncertainty after ;u=."
   [s]
-  (when-let [[_ lat lon alt u] (re-matches #"(?i)\s*geo:([+-]?\d+(?:\.\d+)?),\s*([+-]?\d+(?:\.\d+)?)(?:,\s*([+-]?\d+(?:\.\d+)?))?(?:;u=(\d+(?:\.\d+)?))?\s*"
-                                           (str s))]
+  (when-let [[_ lat lon alt u] (re-matches geo-pattern (str s))]
     (let [m (cond-> {:lat (read-decimal lat) :lon (read-decimal lon)}
               alt (assoc :altitude (read-decimal alt))
               u   (assoc :uncertainty (read-decimal u)))]
@@ -77,7 +90,8 @@
   map. It's nil when a number in it doesn't read or is 0, which
   OpenStreetMap never gives."
   [s]
-  (when-let [[_ type id revision] (re-matches #"\s*([NWR])(\d+)(?:#(\d+))?\s*" (str s))]
+  (when-let [[_ type id revision] (re-matches #"\s*([NWR])(\d+)(?:#(\d+))?\s*"
+                                              (str s))]
     (let [m (cond-> {:type type :id (read-integer id)}
               revision (assoc :revision (read-integer revision)))]
       (when (every? #(and (number? %) (pos? %)) (vals (dissoc m :type)))
@@ -140,8 +154,12 @@
     :presence            (true? v)
     (:rfc2822 :iso8601)  (inst? v)
     :rrule               (and (map? v) (contains? rrule/freq-values (:freq v)))
-    :geo                 (and (map? v) (finite? (:lat v)) (finite? (:lon v)))
-    :osm                 (and (map? v) (string? (:type v)) (integer? (:id v)))
+    :geo                 (and (map? v)
+                              (finite? (:lat v))
+                              (finite? (:lon v)))
+    :osm                 (and (map? v)
+                              (string? (:type v))
+                              (integer? (:id v)))
     (string? v)))
 
 (defn plain-decimal
@@ -169,8 +187,10 @@
 (defn- format-geo
   [{:keys [lat lon altitude uncertainty]}]
   (str "geo:" (plain-decimal lat) "," (plain-decimal lon)
-       (when (some? altitude) (str "," (plain-decimal altitude)))
-       (when (some? uncertainty) (str ";u=" (plain-decimal uncertainty)))))
+       (when (some? altitude)
+         (str "," (plain-decimal altitude)))
+       (when (some? uncertainty)
+         (str ";u=" (plain-decimal uncertainty)))))
 
 (defn- format-osm
   [{:keys [type id revision]}]
