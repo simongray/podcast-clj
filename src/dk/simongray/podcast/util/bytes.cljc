@@ -58,26 +58,34 @@
      "The bytes `b` as a string of one character for each byte, in pieces so
      that a large image never overflows the stack of `apply`."
      [b]
-     (apply str (for [i (range 0 (alength b) 32768)]
-                  (.apply js/String.fromCharCode nil (.subarray b i (min (alength b) (+ i 32768))))))))
+     (let [n (alength b)]
+       (apply str (for [i (range 0 n 32768)]
+                    (.apply js/String.fromCharCode nil
+                            (.subarray b i (min n (+ i 32768)))))))))
 
 (defn hex
   "The bytes `b` in hexadecimal, two characters in lower case for each
   byte."
   [b]
-  (let [digits "0123456789abcdef"]
-    (apply str (mapcat (fn [i]
-                         (let [x (at b i)]
-                           [(nth digits (bit-shift-right x 4)) (nth digits (bit-and x 15))]))
-                       (range (length b))))))
+  (let [digits "0123456789abcdef"
+        pair   (fn [i]
+                 (let [x (at b i)]
+                   [(nth digits (bit-shift-right x 4))
+                    (nth digits (bit-and x 15))]))]
+    (apply str (mapcat pair (range (length b))))))
 
 (defn from-hex
   "The bytes that the hexadecimal text `s` names, in upper or lower case,
   or nil for a text that isn't hexadecimal, or that has a half byte."
   [s]
-  (when (and (string? s) (even? (count s)) (re-matches #"[0-9a-fA-F]*" s))
-    (of (map #(#?(:clj Integer/parseInt :cljs js/parseInt) (subs s % (+ % 2)) 16)
-             (range 0 (count s) 2)))))
+  (when (and (string? s)
+             (even? (count s))
+             (re-matches #"[0-9a-fA-F]*" s))
+    (let [byte-at (fn [i]
+                    (#?(:clj Integer/parseInt :cljs js/parseInt)
+                     (subs s i (+ i 2))
+                     16))]
+      (of (map byte-at (range 0 (count s) 2))))))
 
 (defn sha1
   "The SHA-1 digest of the bytes `b`, as 20 bytes.
@@ -116,7 +124,9 @@
   [a b]
   #?(:clj  (MessageDigest/isEqual ^bytes a ^bytes b)
      :cljs (and (= (.-length a) (.-length b))
-                (zero? (reduce bit-or 0 (map #(bit-xor (aget a %) (aget b %)) (range (.-length a))))))))
+                (let [diffs (map #(bit-xor (aget a %) (aget b %))
+                                 (range (.-length a)))]
+                  (zero? (reduce bit-or 0 diffs))))))
 
 (defn hmac-sha256
   "The HMAC of the bytes `message` with the bytes `key`, by SHA-256, as 32
@@ -125,8 +135,10 @@
   #?(:clj  (.doFinal (doto (Mac/getInstance "HmacSHA256")
                        (.init (SecretKeySpec. ^bytes key "HmacSHA256")))
                      ^bytes message)
-     :cljs (js/Uint8Array.from (.getHmac (goog.crypt.Hmac. (goog.crypt.Sha256.) (js/Array.from key) 64)
-                                         (js/Array.from message)))))
+     :cljs (let [hmac (goog.crypt.Hmac. (goog.crypt.Sha256.)
+                                        (js/Array.from key)
+                                        64)]
+             (js/Uint8Array.from (.getHmac hmac (js/Array.from message))))))
 
 (defn generate!
   "Generate `n` bytes that nobody can guess, from the generator of the
@@ -177,9 +189,12 @@
                       :utf16be StandardCharsets/UTF_16BE))
      :cljs (if (= :latin1 encoding)
              (binary-string (.subarray b start end))
-             (.decode (js/TextDecoder. (case encoding :utf8 "utf-8" :utf16le "utf-16le" :utf16be "utf-16be")
-                                       #js {:ignoreBOM true})
-                      (.subarray b start end)))))
+             (let [label   (case encoding
+                             :utf8    "utf-8"
+                             :utf16le "utf-16le"
+                             :utf16be "utf-16be")
+                   decoder (js/TextDecoder. label #js {:ignoreBOM true})]
+               (.decode decoder (.subarray b start end))))))
 
 (defn encode
   "The text `s` as the bytes of its UTF-8, which decode reads back with
@@ -196,18 +211,28 @@
   Such bytes are text that a writer meant as UTF-8, also when the writer
   names another encoding."
   [b start end]
-  (loop [i start wide? false]
-    (if (>= i end)
-      wide?
-      (let [x (at b i)
-            n (cond (< x 0x80) 0 (< x 0xC2) -1 (< x 0xE0) 1 (< x 0xF0) 2 (< x 0xF5) 3 :else -1)]
-        (cond
-          (neg? n)          false
-          (zero? n)         (recur (inc i) wide?)
-          (> (+ i n 1) end) false
-          (every? #(= 0x80 (bit-and (at b (+ i %)) 0xC0)) (range 1 (inc n)))
-          (recur (+ i n 1) true)
-          :else             false)))))
+  (let [continued? (fn [i n]
+                     (every? #(= 0x80 (bit-and (at b (+ i %)) 0xC0))
+                             (range 1 (inc n))))]
+    (loop [i start wide? false]
+      (if (>= i end)
+        wide?
+        (let [x (at b i)
+              ;; how many bytes follow the first of a character, or -1 for
+              ;; a byte that starts none
+              n (cond
+                  (< x 0x80) 0
+                  (< x 0xC2) -1
+                  (< x 0xE0) 1
+                  (< x 0xF0) 2
+                  (< x 0xF5) 3
+                  :else      -1)]
+          (cond
+            (neg? n)          false
+            (zero? n)         (recur (inc i) wide?)
+            (> (+ i n 1) end) false
+            (continued? i n)  (recur (+ i n 1) true)
+            :else             false))))))
 
 ;; WHATWG MIME Sniffing Standard, section 6.1
 (def ^:no-doc image-signatures
@@ -224,7 +249,8 @@
   [b]
   (some (fn [[type signature]]
           (when (and (>= (length b) (count signature))
-                     (every? (fn [[i x]] (or (nil? x) (= x (at b i)))) (map-indexed vector signature)))
+                     (every? (fn [[i x]] (or (nil? x) (= x (at b i))))
+                             (map-indexed vector signature)))
             type))
         image-signatures))
 
@@ -241,19 +267,23 @@
   place of the parts that they cover. The `total` is the size of the
   file, or nil when the size isn't known."
   [view offset b total]
-  (let [end (+ offset (length b))]
+  (let [end      (+ offset (length b))
+        covered? (fn [[o x]]
+                   (and (<= offset o)
+                        (<= (+ o (length x)) end)))]
     (cond-> view
-      (pos? (length b)) (update :parts (fn [parts]
-                                         (conj (into [] (remove (fn [[o x]] (and (<= offset o) (<= (+ o (length x)) end))))
-                                                     parts)
-                                               [offset b])))
+      (pos? (length b)) (update :parts #(conj (into [] (remove covered?) %)
+                                              [offset b]))
       total             (assoc :total total))))
 
 (defn ^:no-doc part-at
   "The part of `view` that holds the byte at `p`, as a pair of its offset
   and its bytes."
   [view p]
-  (some (fn [[o b]] (when (and (<= o p) (< p (+ o (length b)))) [o b])) (:parts view)))
+  (some (fn [[o b]]
+          (when (and (<= o p) (< p (+ o (length b))))
+            [o b]))
+        (:parts view)))
 
 (defn ^:no-doc past-end
   "The exception of a read at `p`, past the end of the file."
@@ -277,7 +307,9 @@
   exception that's truncated? when `start` lies past the end of the file."
   [view start end]
   (let [total (:total view)]
-    (when (and total (< start end) (>= start total))
+    (when (and total
+               (< start end)
+               (>= start total))
       (throw (past-end start)))
     (let [end (if total (min end total) end)]
       (loop [p start acc []]
@@ -285,7 +317,11 @@
           acc
           (if-let [[o b] (part-at view p)]
             (recur (+ o (length b)) acc)
-            (let [to (or (some->> (:parts view) (keep (fn [[o _]] (when (< p o end) o))) seq (apply min)) end)]
+            (let [next-part (some->> (:parts view)
+                                     (keep (fn [[o _]] (when (< p o end) o)))
+                                     seq
+                                     (apply min))
+                  to        (or next-part end)]
               (recur to (conj acc [p to])))))))))
 
 (defn need-all
@@ -296,8 +332,10 @@
   gives each range that it lacks. So a caller can fetch them all at one
   time."
   [view ranges]
-  (when-some [missing (seq (mapcat (fn [[start end]] (gaps view start end)) ranges))]
-    (throw (ex-info (str "Bytes missing from " (ffirst missing)) {::missing (vec missing)}))))
+  (when-some [missing (seq (mapcat (fn [[start end]] (gaps view start end))
+                                   ranges))]
+    (throw (ex-info (str "Bytes missing from " (ffirst missing))
+                    {::missing (vec missing)}))))
 
 (defn need
   "Nil when `view` holds the bytes from `start` to `end`, end excluded.
@@ -362,7 +400,8 @@
       (>= start end)                 (of [])
       (<= end (+ o (length b)))      (copy b (- start o) (- end o))
       :else
-      (let [out #?(:clj (byte-array (- end start)) :cljs (js/Uint8Array. (- end start)))]
+      (let [n   (- end start)
+            out #?(:clj (byte-array n) :cljs (js/Uint8Array. n))]
         (loop [p start]
           (if (< p end)
             (let [[o b] (part-at view p)
@@ -420,7 +459,10 @@
   which names the :part. A reading that lacks bytes of the view throws on,
   so that the caller can fetch them."
   [k f]
-  (let [failed #(if (missing %) (throw %) {:report [(assoc (failure %) :part k)]})]
+  (let [failed (fn [e]
+                 (if (missing e)
+                   (throw e)
+                   {:report [(assoc (failure e) :part k)]}))]
     (try
       {:value (f)}
       (catch #?(:clj Exception :cljs :default) e
@@ -439,7 +481,10 @@
   and :file/malformed for any other failure. On the JVM, a reading that
   overflows the stack is such a failure."
   [f]
-  (let [failed #(if (missing %) {:need (missing %)} (reported {} [(failure %)]))]
+  (let [failed (fn [e]
+                 (if (missing e)
+                   {:need (missing e)}
+                   (reported {} [(failure e)])))]
     (try
       (f)
       (catch #?(:clj Exception :cljs :default) e
@@ -488,23 +533,28 @@
   map of the :error, and no request goes out after it."
   [fetch ranges in-time?]
   (reduce (fn [parts [start end]]
-            (async/then parts
-                        (fn [got]
-                          (if (or (:error got) (not (in-time?)))
-                            got
-                            (async/then (async/attempt #(async/then (fetch start end) identity))
-                                        (fn [{:keys [value error]}]
-                                          (cond
-                                            error          {:error error}
-                                            (:bytes value) (conj got value)
-                                            :else          got)))))))
+            (async/then
+             parts
+             (fn [got]
+               (if (or (:error got) (not (in-time?)))
+                 got
+                 (let [fetched #(async/then (fetch start end) identity)]
+                   (async/then (async/attempt fetched)
+                               (fn [{:keys [value error]}]
+                                 (cond
+                                   error          {:error error}
+                                   (:bytes value) (conj got value)
+                                   :else          got))))))))
           []
           ranges))
 
 (defn- with-parts
   "The `view` with the `parts` that a round fetched."
   [view parts]
-  (reduce (fn [v {b :bytes :keys [start total]}] (add v start b total)) view parts))
+  (reduce (fn [v {b :bytes :keys [start total]}]
+            (add v start b total))
+          view
+          parts))
 
 (defn- size
   "The number of bytes in the `ranges`."
@@ -531,7 +581,10 @@
   a file asks for such ranges. The `walk` is a pair of where the round
   before ended and how far ahead it read."
   [[start end :as span] [until before :as walk]]
-  (if (and until (<= until start) (< (- start until) chunk-size) (< (- end start) chunk-size))
+  (if (and until
+           (<= until start)
+           (< (- start until) chunk-size)
+           (< (- end start) chunk-size))
     (min (* 2 before) (* 16 chunk-size))
     chunk-size))
 
@@ -564,7 +617,18 @@
                           spare)]
       (when-not (neg? spare)
         {:ranges ranges
-         :walk   (when (and more (not whole?)) [(second (first ranges)) more])}))))
+         :walk   (when (and more (not whole?))
+                   [(second (first ranges)) more])}))))
+
+(defn- after-round
+  "The state of read! after a round that fetched the `parts` that `plan`
+  asked for, for a reading that needed `need` in the `state` before it."
+  [{:keys [round room whole?] :as state} need plan parts]
+  {:round    (inc round)
+   :previous need
+   :room     (- room (reduce + (map (comp length :bytes) parts)))
+   :walk     (:walk plan)
+   :whole?   (or whole? (some? (some :whole? parts)))})
 
 (defn read!
   "Read the file whose bytes `fetch` gets with the reader `read`, within
@@ -603,16 +667,23 @@
          (merge default-limits {:now time/now} opts)
          deadline (when max-seconds (+ (inst-ms (now)) (* 1000 max-seconds)))
          in-time? #(or (nil? deadline) (< (inst-ms (now)) deadline))
-         step     (fn step [v {:keys [round previous room walk whole?]}]
+         step     (fn step [v {:keys [round previous room walk whole?]
+                               :as   state}]
                     (let [{:keys [need] :as result} (read v)
-                          more? (and need (< round max-rounds) (not= need previous) (in-time?))
-                          plan  (when more? (round-of need limits room walk whole?))]
+                          more? (and need
+                                     (< round max-rounds)
+                                     (not= need previous)
+                                     (in-time?))
+                          plan  (when more?
+                                  (round-of need limits room walk whole?))]
                       (cond
                         (nil? need)
                         result
 
                         (nil? plan)
-                        (reported {} [{:id :file/incomplete :level :warning :ranges need}])
+                        (reported {} [{:id     :file/incomplete
+                                       :level  :warning
+                                       :ranges need}])
 
                         :else
                         (async/then (fetch-all fetch (:ranges plan) in-time?)
@@ -620,11 +691,8 @@
                                       (if-let [e (:error parts)]
                                         {:error (unreachable e)}
                                         (step (with-parts v parts)
-                                              {:round    (inc round)
-                                               :previous need
-                                               :room     (- room (reduce + (map (comp length :bytes) parts)))
-                                               :walk     (:walk plan)
-                                               :whole?   (or whole? (some? (some :whole? parts)))})))))))
+                                              (after-round state need plan
+                                                           parts))))))))
          result   (step (view) {:round 0 :room (or max-bytes ##Inf)})]
      #?(:clj  result
         :cljs (js/Promise.resolve result)))))
@@ -649,6 +717,7 @@
   (report (reading #(u32 some-bytes 100)))
 
   ;; a reader that needs four bytes at two places, over a file of zeros
-  (read! (fn [start end] {:bytes (of (repeat (- end start) 0)) :start start :total 4000000})
+  (read! (fn [start end]
+           {:bytes (of (repeat (- end start) 0)) :start start :total 4000000})
          (fn [v] (reading #(+ (u32 v 0) (u32 v 3000000)))))
   #_.)

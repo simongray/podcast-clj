@@ -63,7 +63,9 @@
   "The concatenated text content of the Hiccup `element`."
   [element]
   ;; one string is the common case, and needs no concatenation
-  (if (and (vector? element) (== 3 (count element)) (string? (nth element 2)))
+  (if (and (vector? element)
+           (== 3 (count element))
+           (string? (nth element 2)))
     (nth element 2)
     (apply str (filter string? (children element)))))
 
@@ -93,8 +95,16 @@
   that Clojure compiles them inline. It runs for the ends of every value
   that a parse reads."
   [^long c]
-  (or (<= c 32) (== c 0xA0) (== c 0x1680) (and (<= 0x2000 c) (<= c 0x200A)) (== c 0x2028) (== c 0x2029)
-      (== c 0x202F) (== c 0x205F) (== c 0x3000) (== c 0xFEFF)))
+  (or (<= c 32)
+      (== c 0xA0)
+      (== c 0x1680)
+      (and (<= 0x2000 c) (<= c 0x200A))
+      (== c 0x2028)
+      (== c 0x2029)
+      (== c 0x202F)
+      (== c 0x205F)
+      (== c 0x3000)
+      (== c 0xFEFF)))
 
 (defn ^:no-doc trim
   "The string `s` without the white space at either end, the no-break
@@ -103,11 +113,15 @@
   [^String s]
   (let [n     (count s)
         start (loop [i 0]
-                (if (and (< i n) (space-code? #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))))
+                (if (and (< i n)
+                         (space-code? #?(:clj  (int (.charAt s i))
+                                         :cljs (.charCodeAt s i))))
                   (recur (inc i))
                   i))
         end   (loop [i n]
-                (if (and (> i start) (space-code? #?(:clj (int (.charAt s (dec i))) :cljs (.charCodeAt s (dec i)))))
+                (if (and (> i start)
+                         (space-code? #?(:clj  (int (.charAt s (dec i)))
+                                         :cljs (.charCodeAt s (dec i)))))
                   (recur (dec i))
                   i))]
     (if (and (zero? start) (== end n))
@@ -119,7 +133,10 @@
   blank. A blank run is kept when it's `between?` two elements on one
   line."
   [acc run between?]
-  (if (and run (or (not= "" (trim run)) (and between? (not (re-find #"[\r\n]" run)))))
+  (if (and run
+           (or (not= "" (trim run))
+               (and between?
+                    (not (re-find #"[\r\n]" run)))))
     (conj! acc run)
     acc))
 
@@ -135,7 +152,8 @@
       (let [node (first nodes)]
         (if (string? node)
           (recur (next nodes) acc (if run (str run node) node) after-element?)
-          (recur (next nodes) (conj! (kept-run acc run after-element?) node) nil true)))
+          (let [acc (conj! (kept-run acc run after-element?) node)]
+            (recur (next nodes) acc nil true))))
       (persistent! (kept-run acc run false)))))
 
 (defn kebab
@@ -175,16 +193,17 @@
           "brvbar" 166 "sect" 167 "uml" 168 "copy" 169 "ordf" 170 "laquo" 171
           "not" 172 "shy" 173 "reg" 174 "macr" 175 "deg" 176 "plusmn" 177
           "sup2" 178 "sup3" 179 "acute" 180 "micro" 181 "para" 182 "middot" 183
-          "cedil" 184 "sup1" 185 "ordm" 186 "raquo" 187 "frac14" 188 "frac12" 189
-          "frac34" 190 "iquest" 191 "OElig" 338 "oelig" 339 "Scaron" 352
-          "scaron" 353 "Yuml" 376 "fnof" 402 "circ" 710 "tilde" 732 "ensp" 8194
-          "emsp" 8195 "thinsp" 8201 "zwnj" 8204 "zwj" 8205 "lrm" 8206 "rlm" 8207
-          "ndash" 8211 "mdash" 8212 "lsquo" 8216 "rsquo" 8217 "sbquo" 8218
-          "ldquo" 8220 "rdquo" 8221 "bdquo" 8222 "dagger" 8224 "Dagger" 8225
-          "bull" 8226 "hellip" 8230 "permil" 8240 "prime" 8242 "Prime" 8243
-          "lsaquo" 8249 "rsaquo" 8250 "euro" 8364 "trade" 8482 "larr" 8592
-          "uarr" 8593 "rarr" 8594 "darr" 8595 "harr" 8596 "infin" 8734 "ne" 8800
-          "le" 8804 "ge" 8805 "hearts" 9829}))
+          "cedil" 184 "sup1" 185 "ordm" 186 "raquo" 187 "frac14" 188
+          "frac12" 189 "frac34" 190 "iquest" 191 "OElig" 338 "oelig" 339
+          "Scaron" 352 "scaron" 353 "Yuml" 376 "fnof" 402 "circ" 710 "tilde" 732
+          "ensp" 8194 "emsp" 8195 "thinsp" 8201 "zwnj" 8204 "zwj" 8205
+          "lrm" 8206 "rlm" 8207 "ndash" 8211 "mdash" 8212 "lsquo" 8216
+          "rsquo" 8217 "sbquo" 8218 "ldquo" 8220 "rdquo" 8221 "bdquo" 8222
+          "dagger" 8224 "Dagger" 8225 "bull" 8226 "hellip" 8230 "permil" 8240
+          "prime" 8242 "Prime" 8243 "lsaquo" 8249 "rsaquo" 8250 "euro" 8364
+          "trade" 8482 "larr" 8592 "uarr" 8593 "rarr" 8594 "darr" 8595
+          "harr" 8596 "infin" 8734 "ne" 8800 "le" 8804 "ge" 8805
+          "hearts" 9829}))
 
 (def xml-entities
   "The five entities that section 4.6 of XML 1.0 predefines."
@@ -201,10 +220,14 @@
   U+10FFFF."
   [ref]
   (let [n (if (re-find #"^#[xX]" ref)
-            #?(:clj  (try (Long/parseLong (subs ref 2) 16) (catch Exception _ nil))
+            #?(:clj  (try
+                       (Long/parseLong (subs ref 2) 16)
+                       (catch Exception _ nil))
                :cljs (js/parseInt (subs ref 2) 16))
             (parse-long (subs ref 1)))]
-    (when (and n (or (<= 1 n 0xD7FF) (<= 0xE000 n 0x10FFFF)))
+    (when (and n
+               (or (<= 1 n 0xD7FF)
+                   (<= 0xE000 n 0x10FFFF)))
       n)))
 
 (defn decode-entities
@@ -216,7 +239,9 @@
                (fn [[whole ref]]
                  (cond
                    (str/starts-with? ref "#")
-                   (if-let [n (code-point ref)] (code-point->str n) whole)
+                   (if-let [n (code-point ref)]
+                     (code-point->str n)
+                     whole)
 
                    (xml-entities ref)
                    ({"amp" "&" "lt" "<" "gt" ">" "quot" "\"" "apos" "'"} ref)
@@ -254,7 +279,8 @@
   it throws ::malformed."
   [depth]
   (when (> depth max-depth)
-    (throw (malformed (str "elements nest deeper than " max-depth " levels") nil))))
+    (throw (malformed (str "elements nest deeper than " max-depth " levels")
+                      nil))))
 
 #?(:cljs
    (defn- dom-parser
@@ -263,8 +289,36 @@
      []
      (if (exists? js/DOMParser)
        (js/DOMParser.)
-       (throw (ex-info "No DOMParser to read XML with. In Node, install one as globalThis.DOMParser, e.g. that of @xmldom/xmldom."
+       (throw (ex-info (str "No DOMParser to read XML with. In Node, install"
+                            " one as globalThis.DOMParser, e.g. that of"
+                            " @xmldom/xmldom.")
                        {:type ::no-parser})))))
+
+#?(:clj
+   (defn- input-factory
+     "A StAX factory with namespace processing off, DTDs and external
+     entities disabled, and no limits of the JDK on the size of a text or
+     the depth of nesting."
+     ^XMLInputFactory []
+     (let [factory (XMLInputFactory/newInstance)]
+       (doto factory
+         (.setProperty XMLInputFactory/IS_NAMESPACE_AWARE false)
+         (.setProperty XMLInputFactory/IS_COALESCING true)
+         (.setProperty XMLInputFactory/SUPPORT_DTD false)
+         (.setProperty XMLInputFactory/IS_SUPPORTING_EXTERNAL_ENTITIES false)
+         (.setProperty XMLInputFactory/IS_REPLACING_ENTITY_REFERENCES true))
+       ;; Recent JDKs cap a single text node at 100,000 characters, which
+       ;; show notes exceed in the wild, and JDK 24 caps nesting at 100
+       ;; levels. With DTDs off the entity limits guard nothing, and
+       ;; read-element checks the depth itself, the same on every JDK and in
+       ;; JavaScript.
+       (doseq [limit ["jdk.xml.maxGeneralEntitySizeLimit"
+                      "jdk.xml.totalEntitySizeLimit"
+                      "jdk.xml.maxElementDepth"]]
+         (try
+           (.setProperty factory limit "0")
+           (catch Exception _)))
+       factory)))
 
 (defn- document
   "The document in `xml`, ready to read.
@@ -282,26 +336,21 @@
   give a document without a root."
   [xml]
   #?(:clj
-     (let [factory (doto (XMLInputFactory/newInstance)
-                     (.setProperty XMLInputFactory/IS_NAMESPACE_AWARE false)
-                     (.setProperty XMLInputFactory/IS_COALESCING true)
-                     (.setProperty XMLInputFactory/SUPPORT_DTD false)
-                     (.setProperty XMLInputFactory/IS_SUPPORTING_EXTERNAL_ENTITIES false)
-                     (.setProperty XMLInputFactory/IS_REPLACING_ENTITY_REFERENCES true))]
-       ;; Recent JDKs cap a single text node at 100,000 characters, which show
-       ;; notes exceed in the wild, and JDK 24 caps nesting at 100 levels. With
-       ;; DTDs off the entity limits guard nothing, and read-element checks the
-       ;; depth itself, the same on every JDK and in JavaScript.
-       (doseq [limit ["jdk.xml.maxGeneralEntitySizeLimit" "jdk.xml.totalEntitySizeLimit"
-                      "jdk.xml.maxElementDepth"]]
-         (try
-           (.setProperty factory limit "0")
-           (catch Exception _)))
+     (let [factory (input-factory)]
        (cond
-         (string? xml)               (.createXMLStreamReader factory (StringReader. ^String (strip-bom xml)))
-         (instance? InputStream xml) (.createXMLStreamReader factory ^InputStream xml)
-         (instance? Reader xml)      (.createXMLStreamReader factory ^Reader xml)
-         :else                       (throw (ex-info "Cannot parse XML from this value" {:type (type xml)}))))
+         (string? xml)
+         (.createXMLStreamReader factory
+                                 (StringReader. ^String (strip-bom xml)))
+
+         (instance? InputStream xml)
+         (.createXMLStreamReader factory ^InputStream xml)
+
+         (instance? Reader xml)
+         (.createXMLStreamReader factory ^Reader xml)
+
+         :else
+         (throw (ex-info "Cannot parse XML from this value"
+                         {:type (type xml)}))))
      :cljs
      (let [parser (dom-parser)
            doc    (try
@@ -311,9 +360,14 @@
            errors (.getElementsByTagName doc "parsererror")
            root   (.-documentElement doc)]
        (cond
-         (pos? (.-length errors)) (throw (malformed (.-textContent (.item errors 0)) nil))
-         (nil? root)              (throw (malformed "no root element" nil))
-         :else                    root))))
+         (pos? (.-length errors))
+         (throw (malformed (.-textContent (.item errors 0)) nil))
+
+         (nil? root)
+         (throw (malformed "no root element" nil))
+
+         :else
+         root))))
 
 (defn- start-tag
   "The name and the attributes of the element at `x`, as a pair.
@@ -328,7 +382,8 @@
              [(qname (.getPrefix r) (.getLocalName r))
               (-> {}
                   (into (for [i (range (.getAttributeCount r))]
-                          [(qname (.getAttributePrefix r i) (.getAttributeLocalName r i))
+                          [(qname (.getAttributePrefix r i)
+                                  (.getAttributeLocalName r i))
                            (.getAttributeValue r i)]))
                   (into (for [i (range (.getNamespaceCount r))]
                           [(qname "xmlns" (.getNamespacePrefix r i))
@@ -485,21 +540,27 @@
   The alias of a declared URI is looked up once, where it's declared, not
   again for every name that uses it."
   [uri->alias scope problems [tag attrs & children :as element]]
-  (let [decls           (declarations attrs)
-        scope           (into scope (keep (fn [[prefix uri]] (when prefix [prefix [uri (uri->alias uri)]]))) decls)
-        problems        (cond-> problems
-                          (contains? decls nil)
-                          (conj {:id :xml/default-namespace :level :info :uri (get decls nil)}))
-        [tag' problem]  (resolve-name scope tag)
-        problems        (cond-> problems problem (conj problem))
-        [attrs' problems] (resolve-attrs scope problems attrs)
-        [children' problems] (reduce (fn [[acc problems] child]
-                                       (if (string? child)
-                                         [(conj acc child) problems]
-                                         (let [[child' problems] (resolve-element uri->alias scope problems child)]
-                                           [(conj acc child') problems])))
-                                     [[] problems]
-                                     children)]
+  (let [decls                (declarations attrs)
+        alias-of             (fn [[prefix uri]]
+                               (when prefix
+                                 [prefix [uri (uri->alias uri)]]))
+        scope                (into scope (keep alias-of) decls)
+        problems             (cond-> problems
+                               (contains? decls nil)
+                               (conj {:id    :xml/default-namespace
+                                      :level :info
+                                      :uri   (get decls nil)}))
+        [tag' problem]       (resolve-name scope tag)
+        problems             (cond-> problems problem (conj problem))
+        [attrs' problems]    (resolve-attrs scope problems attrs)
+        resolve-child        (fn [[acc problems] child]
+                               (if (string? child)
+                                 [(conj acc child) problems]
+                                 (let [[child' problems]
+                                       (resolve-element uri->alias scope
+                                                        problems child)]
+                                   [(conj acc child') problems])))
+        [children' problems] (reduce resolve-child [[] problems] children)]
     [(into [tag' attrs'] children') problems]))
 
 (defn resolve-namespaces
@@ -514,12 +575,14 @@
   [tree uri->alias]
   (let [[tree' problems] (resolve-element uri->alias {} [] tree)
         problems         (distinct problems)
-        by-prefix        (fn [id] (into {} (for [{:keys [prefix uri] :as problem} problems
-                                                 :when (= id (:id problem))]
-                                             [(keyword prefix) uri])))]
+        by-prefix        (fn [id]
+                           (into {} (for [p     problems
+                                          :when (= id (:id p))]
+                                      [(keyword (:prefix p)) (:uri p)])))
+        undeclared       (by-prefix :xml/undeclared-prefix)
+        unknown          (by-prefix :xml/unknown-namespace)]
     (with-meta tree' {:xml/report     (vec problems)
-                      :xml/namespaces (merge (by-prefix :xml/undeclared-prefix)
-                                             (by-prefix :xml/unknown-namespace))})))
+                      :xml/namespaces (merge undeclared unknown)})))
 
 (defn parse
   "The canonical Hiccup of `xml`, with the namespaces resolved by
@@ -557,7 +620,12 @@
       (if (= i n)
         true
         (let [c #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))]
-          (if (or (< c 9) (= c 11) (= c 12) (and (> c 13) (< c 32)) (= c 0xFFFE) (= c 0xFFFF))
+          (if (or (< c 9)
+                  (= c 11)
+                  (= c 12)
+                  (and (> c 13) (< c 32))
+                  (= c 0xFFFE)
+                  (= c 0xFFFF))
             false
             (recur (inc i))))))))
 
@@ -646,16 +714,22 @@
   "The set of namespace aliases that the tags and attributes in `tree` use,
   in one walk that makes no lazy sequence."
   [tree]
-  (letfn [(walk [acc el]
-            (let [acc (if-let [ns (namespace (tag el))] (conj! acc ns) acc)
-                  acc (reduce-kv (fn [acc k _] (if-let [ns (namespace k)] (conj! acc ns) acc)) acc (attrs el))
+  (letfn [(with-ns [acc k]
+            (if-let [ns (namespace k)]
+              (conj! acc ns)
+              acc))
+          (walk [acc el]
+            (let [acc (with-ns acc (tag el))
+                  acc (reduce-kv (fn [acc k _] (with-ns acc k)) acc (attrs el))
                   n   (count el)]
               (loop [i 2 acc acc]
                 (if (< i n)
                   (let [child (nth el i)]
                     (recur (inc i) (if (vector? child) (walk acc child) acc)))
                   acc))))]
-    (into #{} (comp (remove #{"xml"}) (map keyword)) (persistent! (walk (transient #{}) tree)))))
+    (into #{}
+          (comp (remove #{"xml"}) (map keyword))
+          (persistent! (walk (transient #{}) tree)))))
 
 (defn ^:no-doc append-attrs
   "The transient vector `acc` of string parts with the attributes `attrs`
@@ -663,7 +737,12 @@
   quotes."
   [acc attrs]
   (reduce-kv (fn [acc k v]
-               (-> acc (conj! " ") (conj! (qname k)) (conj! "=\"") (conj! (escape-attr (str v))) (conj! "\"")))
+               (-> acc
+                   (conj! " ")
+                   (conj! (qname k))
+                   (conj! "=\"")
+                   (conj! (escape-attr (str v)))
+                   (conj! "\"")))
              acc
              attrs))
 
@@ -688,20 +767,34 @@
     (if (and (some string? children) (some vector? children))
       (emit-compact* (conj! acc indent) element append-text)
       (let [name (qname (tag element))
-            acc  (-> acc (conj! indent) (conj! "<") (conj! name) (append-attrs (attrs element)))]
+            acc  (-> acc
+                     (conj! indent)
+                     (conj! "<")
+                     (conj! name)
+                     (append-attrs (attrs element)))]
         (cond
           (empty? children)
           (conj! acc "/>")
 
           (every? string? children)
-          (-> acc (conj! ">") (append-text (apply str children)) (conj! "</") (conj! name) (conj! ">"))
+          (-> acc
+              (conj! ">")
+              (append-text (apply str children))
+              (conj! "</")
+              (conj! name)
+              (conj! ">"))
 
           :else
           (-> (reduce (fn [acc [i child]]
-                        (emit-element* (if (pos? i) (conj! acc "\n") acc) (inc depth) child))
+                        (let [acc (if (pos? i) (conj! acc "\n") acc)]
+                          (emit-element* acc (inc depth) child)))
                       (conj! acc ">\n")
                       (map-indexed vector children))
-              (conj! "\n") (conj! indent) (conj! "</") (conj! name) (conj! ">")))))))
+              (conj! "\n")
+              (conj! indent)
+              (conj! "</")
+              (conj! name)
+              (conj! ">")))))))
 
 (defn- without
   "The Hiccup `element` without the elements and attributes in the
@@ -727,17 +820,23 @@
    (emit tree (merge namespaces (foreign-namespaces tree))))
   ([tree alias->uri]
    (let [undeclared (when (map? alias->uri)
-                      (set (keep (fn [[alias uri]] (when (nil? uri) alias)) alias->uri)))
-         tree       (if (seq undeclared) (or (without undeclared tree) tree) tree)
+                      (set (keep (fn [[alias uri]] (when (nil? uri) alias))
+                                 alias->uri)))
+         tree       (if (seq undeclared)
+                      (or (without undeclared tree) tree)
+                      tree)
+         uri-of     (fn [alias]
+                      (or (alias->uri alias)
+                          (throw (ex-info "Unknown namespace alias"
+                                          {:alias alias}))))
          decls      (into (sorted-map)
                           (for [alias (aliases tree)]
-                            [(keyword "xmlns" (name alias))
-                             (or (alias->uri alias)
-                                 (throw (ex-info "Unknown namespace alias" {:alias alias})))]))
-         root       (update tree 1 #(into decls %))]
+                            [(keyword "xmlns" (name alias)) (uri-of alias)]))
+         root       (update tree 1 #(into decls %))
+         xml-decl   "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"]
      ;; the declaration and the last line break are parts too, so that the
      ;; document is put together once
-     (str/join (persistent! (-> (transient ["<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"])
+     (str/join (persistent! (-> (transient [xml-decl])
                                 (emit-element* 0 root)
                                 (conj! "\n")))))))
 
@@ -780,8 +879,11 @@
                                  (children element)))))
 
 (comment
-  (parse "<rss xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" version=\"2.0\">
-            <channel><title>T</title><itunes:author>A</itunes:author></channel></rss>")
-  ;; => [:rss {:version "2.0"} [:channel {} [:title {} "T"] [:itunes/author {} "A"]]]
+  (parse "<rss version=\"2.0\"
+            xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\">
+            <channel><title>T</title><itunes:author>A</itunes:author></channel>
+          </rss>")
+  ;; => [:rss {:version "2.0"}
+  ;;     [:channel {} [:title {} "T"] [:itunes/author {} "A"]]]
   (println (emit *1))
   #_.)
