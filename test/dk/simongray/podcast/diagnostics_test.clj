@@ -38,11 +38,11 @@
   literals, the `diagnostic` helpers of the validator and companions, and
   the chosen requirements."
   []
-  (concat (for [[_ id level] (re-seq #"\{:id (:[a-z][a-z0-9]*/[a-z0-9-]+) :level (:[a-z]+)" source)]
+  (concat (for [[_ id level] (re-seq #"\{:id\s+(:[a-z][a-z0-9]*/[a-z0-9-]+)\s+:level\s+(:[a-z]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])
-          (for [[_ id level] (re-seq #"\(diagnostic (:[a-z][a-z0-9]*/[a-z0-9-]+) (:[a-z]+)" source)]
+          (for [[_ id level] (re-seq #"\(diagnostic\s+(:[a-z][a-z0-9]*/[a-z0-9-]+)\s+(:[a-z]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])
-          (for [[_ level id] (re-seq #"\(missing-diagnostics (:[a-z]+) (:validate/[a-z-]+)" source)]
+          (for [[_ level id] (re-seq #"\(missing-diagnostics\s+(:[a-z]+)\s+(:validate/[a-z-]+)" source)]
             [(keyword (subs id 1)) (keyword (subs level 1))])))
 
 (deftest the-catalogue-matches-the-source
