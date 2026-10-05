@@ -28,14 +28,24 @@
 
 (def ^:no-doc document-keys
   "The model key of each JSON property of a chapters document."
-  {"version" :version "author" :author "title" :title "podcastName" :podcast-name
-   "description" :description "fileName" :file-name "waypoints" :waypoints
-   "chapters" :chapters})
+  {"version"     :version
+   "author"      :author
+   "title"       :title
+   "podcastName" :podcast-name
+   "description" :description
+   "fileName"    :file-name
+   "waypoints"   :waypoints
+   "chapters"    :chapters})
 
 (def ^:no-doc chapter-keys
   "The model key of each JSON property of a chapter."
-  {"startTime" :start-time "endTime" :end-time "title" :title "img" :img
-   "url" :url "toc" :toc "location" :location})
+  {"startTime" :start-time
+   "endTime"   :end-time
+   "title"     :title
+   "img"       :img
+   "url"       :url
+   "toc"       :toc
+   "location"  :location})
 
 (def ^:no-doc location-keys
   "The model key of each JSON property of a chapter's location."
@@ -73,7 +83,9 @@
   was read from."
   [doc raw]
   (let [chapters (:chapters doc)
-        strings  (count (filter #(or (string? (get % "startTime")) (string? (get % "endTime"))) raw))
+        strings  (count (filter #(or (string? (get % "startTime"))
+                                     (string? (get % "endTime")))
+                                raw))
         not-text (count (for [m raw, path text-paths
                               :let [v (get-in m path)]
                               :when (and (some? v) (nil? (json/text v)))]
@@ -86,33 +98,40 @@
     (cond-> []
       (pos? strings)
       (conj (diagnostic :chapters/string-times :warning
-                     (str strings " chapters give their times as strings rather than numbers")
-                     :count strings))
+                        (str strings " chapters give their times as strings"
+                             " rather than numbers")
+                        :count strings))
 
       (pos? not-text)
       (conj (diagnostic :chapters/not-text :warning
-                     (str not-text " titles, links or place names are not text and were left out")
-                     :count not-text))
+                        (str not-text " titles, links or place names are not"
+                             " text and were left out")
+                        :count not-text))
 
       (pos? missing)
       (conj (diagnostic :chapters/missing-start-time :warning
-                     (str missing " chapters have no start time and cannot be placed")
-                     :count missing))
+                        (str missing " chapters have no start time and cannot"
+                             " be placed")
+                        :count missing))
 
       (not= starts (sort starts))
       (conj (diagnostic :chapters/unsorted :info
-                     "the chapters are not in order of start time, which the format assumes"))
+                        (str "the chapters are not in order of start time,"
+                             " which the format assumes")))
 
       (seq unknown)
       (conj (diagnostic :chapters/unknown-keys :info
-                     (str "keys the format does not define: " (str/join ", " unknown))
-                     :keys (vec unknown)))
+                        (str "keys the format does not define: "
+                             (str/join ", " unknown))
+                        :keys (vec unknown)))
 
-      (and (some? v) (not (str/starts-with? (str v) "1.2")))
+      (and (some? v)
+           (not (str/starts-with? (str v) "1.2")))
       (conj (diagnostic :chapters/old-version :info
-                     (str "written against version " (pr-str v) " of the format; "
-                          "the specification is at " version)
-                     :version v)))))
+                        (str "written against version " (pr-str v)
+                             " of the format; the specification is at "
+                             version)
+                        :version v)))))
 
 (defn- read-text
   "The raw chapter `m` with the value at `path` read as text by json/text,
@@ -123,15 +142,22 @@
       m
       (if-some [t (json/text v)]
         (assoc-in m path t)
-        (if (next path) (update-in m (pop path) dissoc (peek path)) (dissoc m (peek path)))))))
+        (if (next path)
+          (update-in m (pop path) dissoc (peek path))
+          (dissoc m (peek path)))))))
 
 (defn- read-chapter
   [m]
   (let [chapter (rename chapter-keys (reduce read-text m text-paths))]
     (cond-> chapter
-      (contains? chapter :start-time) (update :start-time time/seconds)
-      (contains? chapter :end-time)   (update :end-time time/seconds)
-      (map? (:location chapter))      (update :location #(rename location-keys %)))))
+      (contains? chapter :start-time)
+      (update :start-time time/seconds)
+
+      (contains? chapter :end-time)
+      (update :end-time time/seconds)
+
+      (map? (:location chapter))
+      (update :location #(rename location-keys %)))))
 
 (defn parse-json
   "The chapters map of the JSON Chapters document `s`.
@@ -147,16 +173,20 @@
     (if (map? raw)
       (let [entries (get raw "chapters")
             objects (if (sequential? entries) (filterv map? entries) [])
-            dropped (cond (sequential? entries) (- (count entries) (count objects))
-                          (some? entries)       1
-                          :else                 0)
-            doc     (assoc (rename document-keys raw) :chapters (mapv read-chapter objects))]
-        (with-meta doc
-          {:podcast/report (cond-> (diagnostics doc objects)
-                             (pos? dropped)
-                             (conj (diagnostic :chapters/malformed :warning
-                                               (str dropped " chapters are not JSON objects in a list and were left out")
-                                               :count dropped)))}))
+            dropped (cond
+                      (sequential? entries) (- (count entries) (count objects))
+                      (some? entries)       1
+                      :else                 0)
+            doc     (assoc (rename document-keys raw)
+                           :chapters (mapv read-chapter objects))
+            report  (cond-> (diagnostics doc objects)
+                      (pos? dropped)
+                      (conj (diagnostic :chapters/malformed :warning
+                                        (str dropped " chapters are not JSON"
+                                             " objects in a list and were"
+                                             " left out")
+                                        :count dropped)))]
+        (with-meta doc {:podcast/report report}))
       (with-meta {:chapters []}
         {:podcast/report [(diagnostic :chapters/not-an-object :warning
                                       "the document is not a JSON object")]}))))
@@ -164,7 +194,8 @@
 (defn- write-chapter
   [chapter]
   (let [m (cond-> chapter
-            (map? (:location chapter)) (update :location #(unname location-keys %)))]
+            (map? (:location chapter))
+            (update :location #(unname location-keys %)))]
     (unname chapter-keys m)))
 
 (defn emit-json
@@ -196,9 +227,10 @@
     (with-meta {:version version :chapters chapters}
       {:podcast/report (if (pos? dropped)
                          [(diagnostic :chapters/bad-timestamps :warning
-                                   (str dropped " Podlove chapters have a start that is not a "
-                                        "timestamp and were dropped")
-                                   :count dropped)]
+                                      (str dropped " Podlove chapters have a"
+                                           " start that is not a timestamp"
+                                           " and were dropped")
+                                      :count dropped)]
                          [])})))
 
 (defn to-psc
@@ -218,12 +250,25 @@
   "A line of show notes that starts with a timestamp, e.g. \"1. (12:34) -
   The topic\". The list marker, the brackets and the separator are
   optional."
-  #"^[ \t]*(?:[-*•–—]\s*|\d{1,2}[.)]\s+)?[\[(]?\s*((?:\d{1,2}:)?\d{1,2}:\d{2})\s*[\])]?\s*(?:[-–—:|.,]\s*)?(\S.*?)\s*$")
+  (re-pattern
+   (str ;; the list marker
+        "^[ \\t]*(?:[-*•–—]\\s*|\\d{1,2}[.)]\\s+)?"
+        ;; the time, in brackets or not
+        "[\\[(]?\\s*((?:\\d{1,2}:)?\\d{1,2}:\\d{2})\\s*[\\])]?"
+        ;; the separator, and the title
+        "\\s*(?:[-–—:|.,]\\s*)?"
+        "(\\S.*?)\\s*$")))
 
 (def ^:no-doc timestamp-last
   "A line of show notes that ends with a timestamp, e.g. \"- The topic
   (12:34)\". The list marker, the separator and the brackets are optional."
-  #"^[ \t]*(?:[-*•–—]\s*)?(\S.*?)\s*(?:[-–—:|,]\s*)?[\[(]?((?:\d{1,2}:)?\d{1,2}:\d{2})[\])]?[ \t]*$")
+  (re-pattern
+   (str ;; the list marker, the title and the separator
+        "^[ \\t]*(?:[-*•–—]\\s*)?"
+        "(\\S.*?)\\s*"
+        "(?:[-–—:|,]\\s*)?"
+        ;; the time, in brackets or not
+        "[\\[(]?((?:\\d{1,2}:)?\\d{1,2}:\\d{2})[\\])]?[ \\t]*$")))
 
 (defn- line-chapter
   "The chapter that `line` of show notes lists by `pattern`, or nil when it
@@ -257,13 +302,16 @@
                      (<= 2 (count leading))
                      leading
 
-                     (and (<= 3 (count trailing)) (apply < (map :start-time trailing)))
+                     (and (<= 3 (count trailing))
+                          (apply < (map :start-time trailing)))
                      trailing)]
       (when chapters
-        (with-meta {:version version :chapters (vec chapters)}
-          {:podcast/report [(diagnostic :chapters/inferred :info
-                                        (str (count chapters) " chapters were read from timestamps in the show notes")
-                                        :count (count chapters))]})))))
+        (let [n (count chapters)]
+          (with-meta {:version version :chapters (vec chapters)}
+            {:podcast/report [(diagnostic :chapters/inferred :info
+                                          (str n " chapters were read from"
+                                               " timestamps in the show notes")
+                                          :count n)]}))))))
 
 (defn from-text
   "The chapters map of the timestamps in the show notes `s`, HTML or plain
@@ -291,7 +339,7 @@
   [doc]
   (let [chapters (vec (sorted doc))]
     (map-indexed (fn [i chapter]
-                   (if-let [next-start (some-> (get chapters (inc i)) :start-time)]
+                   (if-let [next-start (:start-time (get chapters (inc i)))]
                      (update chapter :end-time #(or % next-start))
                      chapter))
                  chapters)))
@@ -336,7 +384,8 @@
      (parse-json (slurp "test/resources/chapters/example-complex.json"))
      (report *1)
      (println (emit-json *1))
-     (at (parse-json (slurp "test/resources/chapters/example.json")) 300)
-     (jump (parse-json (slurp "test/resources/chapters/example.json")) 300 :next)
-     (jump (parse-json (slurp "test/resources/chapters/example.json")) 300 :previous)
+     (def example (parse-json (slurp "test/resources/chapters/example.json")))
+     (at example 300)
+     (jump example 300 :next)
+     (jump example 300 :previous)
      #_.))

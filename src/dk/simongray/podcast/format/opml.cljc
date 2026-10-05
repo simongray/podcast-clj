@@ -35,8 +35,12 @@
 (def ^:no-doc head-elements
   "The head elements of OPML 2.0 besides the title that a subscription list
   holds, by key, in the order of the specification."
-  [[:date-created :dateCreated] [:date-modified :dateModified] [:owner-name :ownerName]
-   [:owner-email :ownerEmail] [:owner-id :ownerId] [:docs :docs]])
+  [[:date-created :dateCreated]
+   [:date-modified :dateModified]
+   [:owner-name :ownerName]
+   [:owner-email :ownerEmail]
+   [:owner-id :ownerId]
+   [:docs :docs]])
 
 (def ^:no-doc attr-names
   "The OPML attribute name of each model key that's camelCase in OPML."
@@ -46,9 +50,12 @@
   "The model key of the outline attribute `k`, kebab-cased. The camelCase
   ones match in any case, since some apps write xmlurl."
   [k]
-  (or (some (fn [[key attr]] (when (= (str/lower-case (name attr)) (str/lower-case (name k))) key))
-            attr-names)
-      (xml/attr-key k)))
+  (let [lower (str/lower-case (name k))]
+    (or (some (fn [[key attr]]
+                (when (= (str/lower-case (name attr)) lower)
+                  key))
+              attr-names)
+        (xml/attr-key k))))
 
 (defn- subscription
   "The subscription of the `outline` element with an xmlUrl, under `path`.
@@ -59,7 +66,9 @@
                                   :when (not (namespace k))]
                               [(outline-key k) v]))
         categories (when (string? (:category m))
-                     (not-empty (into [] (comp (map str/trim) (remove str/blank?)) (str/split (:category m) #","))))]
+                     (->> (str/split (:category m) #",")
+                          (into [] (comp (map str/trim) (remove str/blank?)))
+                          not-empty))]
     (cond-> (dissoc m :category)
       (seq path)             (assoc :path path)
       categories             (assoc :category categories)
@@ -69,11 +78,14 @@
   "The OPML list that `outline` includes, when it's an inclusion: the type
   include, or the type link to a URL that ends in .opml."
   [outline]
-  (let [{:keys [type url text title]} (into {} (for [[k v] (xml/attrs outline)] [(outline-key k) v]))
-        type (some-> type str/lower-case)]
+  (let [attrs (into {} (for [[k v] (xml/attrs outline)]
+                         [(outline-key k) v]))
+        {:keys [type url text title]} attrs
+        type  (some-> type str/lower-case)]
     (when (and (not (str/blank? url))
                (or (= "include" type)
-                   (and (= "link" type) (str/ends-with? (str/lower-case url) ".opml"))))
+                   (and (= "link" type)
+                        (str/ends-with? (str/lower-case url) ".opml"))))
       (cond-> {:url url}
         (or text title) (assoc :text (or text title))))))
 
@@ -85,13 +97,21 @@
   inclusion when inclusion says so. An inclusion is marked ::include."
   [path element]
   (mapcat (fn [outline]
-            (let [{:keys [text title]} (xml/attrs outline)
-                  url      (some (fn [[k v]] (when (= :xml-url (outline-key k)) v)) (xml/attrs outline))
+            (let [{:keys [text title] :as attrs} (xml/attrs outline)
+                  url      (some (fn [[k v]]
+                                   (when (= :xml-url (outline-key k)) v))
+                                 attrs)
                   included (inclusion outline)]
               (cond
-                (not (str/blank? url)) [(subscription path outline)]
-                included               [(cond-> (assoc included ::include true) (seq path) (assoc :path path))]
-                :else                  (outlines (conj path (or text title "")) outline))))
+                (not (str/blank? url))
+                [(subscription path outline)]
+
+                included
+                [(cond-> (assoc included ::include true)
+                   (seq path) (assoc :path path))]
+
+                :else
+                (outlines (conj path (or text title "")) outline))))
           (xml/elements element :outline)))
 
 (defn parse
@@ -103,14 +123,20 @@
         text     #(some-> head (xml/element %) xml/text str/trim not-empty)
         title    (text :title)
         entries  (outlines [] body)
-        includes (into [] (comp (filter ::include) (map #(dissoc % ::include))) entries)]
+        includes (into []
+                       (comp (filter ::include) (map #(dissoc % ::include)))
+                       entries)
+        value    (fn [k v]
+                   (if (#{:date-created :date-modified} k)
+                     (or (time/parse-rfc2822 v) v)
+                     v))]
     (into (cond-> {:subscriptions (into [] (remove ::include) entries)}
             title          (assoc :title title)
             (seq includes) (assoc :includes includes))
           (for [[k tag] head-elements
                 :let  [v (text tag)]
                 :when v]
-            [k (if (#{:date-created :date-modified} k) (or (time/parse-rfc2822 v) v) v)]))))
+            [k (value k v)]))))
 
 (defn ^:no-doc text-of
   "The OPML text of the value `v`:
@@ -154,17 +180,20 @@
   OPML separates the categories of an outline with commas, and it can't
   escape a comma. So a comma in a category goes out as an underscore."
   [subscription-list]
-  (let [entries (concat (:subscriptions subscription-list)
-                        (map #(assoc % ::include true) (:includes subscription-list)))
-        by-top  (group-by (comp first :path) entries)]
+  (let [includes (map #(assoc % ::include true) (:includes subscription-list))
+        entries  (concat (:subscriptions subscription-list) includes)
+        top      (comp first :path)
+        tops     (distinct (map top entries))
+        by-top   (group-by top entries)
+        title    (or (:title subscription-list) "Subscriptions")
+        head     (for [[k tag] head-elements
+                       :let  [v (get subscription-list k)]
+                       :when (some? v)]
+                   [tag {} (text-of v)])]
     (xml/emit
      [:opml {:version "2.0"}
-      (into [:head {} [:title {} (or (:title subscription-list) "Subscriptions")]]
-            (for [[k tag] head-elements
-                  :let  [v (get subscription-list k)]
-                  :when (some? v)]
-              [tag {} (text-of v)]))
-      (into [:body {}] (folders (mapcat by-top (distinct (map (comp first :path) entries)))))])))
+      (into [:head {} [:title {} title]] head)
+      (into [:body {}] (folders (mapcat by-top tops)))])))
 
 (comment
   (parse "<opml version=\"2.0\"><head><title>Mine</title></head><body>

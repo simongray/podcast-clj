@@ -32,11 +32,21 @@
   back what it took costs a stack frame for each value there, and a tag
   with thousands of values overflows the stack."
   (re-pattern
-   (str "(?s)<[sS][cC][rR][iI][pP][tT](?=[\\s/>])[^>]*>.*?(?:</[sS][cC][rR][iI][pP][tT]\\s*>|$)"
-        "|<[sS][tT][yY][lL][eE](?=[\\s/>])[^>]*>.*?(?:</[sS][tT][yY][lL][eE]\\s*>|$)"
-        "|<!--.*?(?:-->|$)|<!\\[CDATA\\[.*?(?:\\]\\]>|$)|<![^>]*>?|<\\?[^>]*>?|</[a-zA-Z][^>]*>?"
-        "|<[a-zA-Z][^>\"']*(?:(?:\"[^\"]*\"|'[^']*'|[\"'])[^>\"']*)*" #?(:clj "+" :cljs "")
-        ">?|[^<]+|<")))
+   (str "(?s)"
+        "<[sS][cC][rR][iI][pP][tT](?=[\\s/>])[^>]*>.*?"
+        "(?:</[sS][cC][rR][iI][pP][tT]\\s*>|$)"
+        "|<[sS][tT][yY][lL][eE](?=[\\s/>])[^>]*>.*?"
+        "(?:</[sS][tT][yY][lL][eE]\\s*>|$)"
+        "|<!--.*?(?:-->|$)"
+        "|<!\\[CDATA\\[.*?(?:\\]\\]>|$)"
+        "|<![^>]*>?"
+        "|<\\?[^>]*>?"
+        "|</[a-zA-Z][^>]*>?"
+        "|<[a-zA-Z][^>\"']*(?:(?:\"[^\"]*\"|'[^']*'|[\"'])[^>\"']*)*"
+        #?(:clj "+" :cljs "")
+        ">?"
+        "|[^<]+"
+        "|<")))
 
 (def ^:no-doc markup
   "What makes a description HTML rather than plain text: a comment or a
@@ -118,8 +128,11 @@
 (defn- raw-element
   "The script or style element of `token`, with its text as it is."
   [token]
-  (let [[_ name rest text] (re-matches #"(?is)^<(script|style)([^>]*)>(.*?)(?:</\1\s*>)?$" token)]
-    (cond-> [(keyword (str/lower-case name)) (parse-attributes (str/replace rest #"/$" ""))]
+  (let [[_ name rest text]
+        (re-matches #"(?is)^<(script|style)([^>]*)>(.*?)(?:</\1\s*>)?$" token)
+
+        attrs (parse-attributes (str/replace rest #"/$" ""))]
+    (cond-> [(keyword (str/lower-case name)) attrs]
       (seq text) (conj text))))
 
 (defn- end-tag
@@ -134,7 +147,10 @@
   "The element `node` with each run of adjacent strings among its children
   joined into one."
   [node]
-  (into [] (comp (partition-by string?) (mapcat #(if (string? (first %)) [(apply str %)] %))) node))
+  (into []
+        (comp (partition-by string?)
+              (mapcat #(if (string? (first %)) [(apply str %)] %)))
+        node))
 
 (defn- append
   "The parse `state` with `child` appended to its top element."
@@ -198,7 +214,9 @@
                 (close-through state names boundaries)
                 state)
         node  [(keyword name) attrs]]
-    (if (or (void-elements name) self-closing? (> (count (:stack state)) max-depth))
+    (if (or (void-elements name)
+            self-closing?
+            (> (count (:stack state)) max-depth))
       (append state node)
       (push state node))))
 
@@ -235,7 +253,8 @@
       (let [tokens (rest tokens)]
         (case (token-kind token)
           :text  (recur tokens (append state (xml/decode-entities token)))
-          :cdata (recur tokens (append state (str/replace token #"^<!\[CDATA\[|\]\]>$" "")))
+          :cdata (let [text (str/replace token #"^<!\[CDATA\[|\]\]>$" "")]
+                   (recur tokens (append state text)))
           :raw   (recur tokens (append state (raw-element token)))
           :start (let [[name attrs self-closing?] (start-tag token)]
                    (recur tokens (open-element state name attrs self-closing?)))
@@ -350,10 +369,11 @@
                        kids (mapcat node children)
                        kids (if (structural-tags tag)
                               (remove #(and (string? %) (str/blank? %)) kids)
-                              kids)]
+                              kids)
+                       safe (safe-attributes tag attrs attributes)]
                    (cond
                      (dropped tag) []
-                     (allowed tag) [(into [tag (safe-attributes tag attrs attributes)] kids)]
+                     (allowed tag) [(into [tag safe] kids)]
                      :else         kids))))]
        (apply list (mapcat node nodes))))))
 
@@ -361,10 +381,13 @@
   "The plain text `s` as paragraphs, with blank lines between them and line
   breaks within."
   [s]
-  (apply list (for [paragraph (str/split (str/trim (xml/decode-entities s)) #"\n\s*\n")
-                    :let [lines (remove str/blank? (map str/trim (str/split-lines paragraph)))]
-                    :when (seq lines)]
-                (into [:p {}] (interpose [:br {}] lines)))))
+  (let [text (str/trim (xml/decode-entities s))]
+    (apply list (for [paragraph (str/split text #"\n\s*\n")
+                      :let  [lines (->> (str/split-lines paragraph)
+                                        (map str/trim)
+                                        (remove str/blank?))]
+                      :when (seq lines)]
+                  (into [:p {}] (interpose [:br {}] lines))))))
 
 (defn hiccup
   "The Hiccup that a client can render for the description `s`, as a
@@ -382,7 +405,8 @@
 
 (def ^:no-doc line-tags
   "Elements that end a line in text and Markdown."
-  #{:div :li :tr :dt :dd :figcaption :address :caption :thead :tbody :tfoot :section :article})
+  #{:div :li :tr :dt :dd :figcaption :address :caption :thead :tbody :tfoot
+    :section :article})
 
 (defn- nodes-of
   "The nodes of `x`, which is a string, a node or nodes. A string is parsed
@@ -404,8 +428,14 @@
   run."
   [s]
   (let [blank? #(contains? #{\space \tab} (nth s %))
-        end    (loop [i (count s)] (if (and (pos? i) (blank? (dec i))) (recur (dec i)) i))
-        start  (loop [i 0] (if (and (< i end) (blank? i)) (recur (inc i)) i))]
+        end    (loop [i (count s)]
+                 (if (and (pos? i) (blank? (dec i)))
+                   (recur (dec i))
+                   i))
+        start  (loop [i 0]
+                 (if (and (< i end) (blank? i))
+                   (recur (inc i))
+                   i))]
     (subs s start end)))
 
 (def ^:no-doc pre-mark
@@ -428,10 +458,11 @@
   "The rendered `s`, trimmed, with each run of blank lines cut to one. Its
   lines are trimmed too, except those of preformatted text."
   [s]
-  (-> (str/join "\n" (map #(if (str/starts-with? % pre-mark) % (trim-blanks %)) (str/split-lines s)))
-      (str/replace #"\n{3,}" "\n\n")
-      str/trim
-      (str/replace pre-mark "")))
+  (let [trim-line #(if (str/starts-with? % pre-mark) % (trim-blanks %))]
+    (-> (str/join "\n" (map trim-line (str/split-lines s)))
+        (str/replace #"\n{3,}" "\n\n")
+        str/trim
+        (str/replace pre-mark ""))))
 
 (defn- render
   "The `nodes` rendered as text by the functions `inline` and `element`,
@@ -458,11 +489,11 @@
                     ctx (cond-> ctx
                           (#{:ul :ol} tag) (assoc :list tag :index (atom 0))
                           (= :pre tag)      (assoc :pre? true))
-                    inner (str/join (map #(node % ctx) children))]
-                (cond
-                  (dropped-tags tag) ""
-                  (= :pre tag)       (element [tag attrs] (marked-lines inner) ctx)
-                  :else              (element [tag attrs] inner ctx)))))]
+                    inner (str/join (map #(node % ctx) children))
+                    inner (if (= :pre tag) (marked-lines inner) inner)]
+                (if (dropped-tags tag)
+                  ""
+                  (element [tag attrs] inner ctx)))))]
     (tidy (str/join (map #(node % context) nodes)))))
 
 (defn- list-marker
@@ -471,6 +502,23 @@
     :ol (str (swap! index inc) ". ")
     :ul "- "
     ""))
+
+(defn- text-element
+  "The text of the element of `tag` and `attrs`, whose children render as
+  `inner`, in the context `ctx` of render, with the URL of a link when
+  `links?`."
+  [links? [tag attrs] inner ctx]
+  (let [href   (:href attrs)
+        shown? (and links? href (not= (str/trim inner) (str href)))]
+    (cond
+      (= :br tag)          "\n"
+      (= :hr tag)          "\n\n"
+      (= :img tag)         (str (:alt attrs))
+      (= :a tag)           (if shown? (str inner " (" href ")") inner)
+      (= :li tag)          (str (list-marker ctx) (str/trim inner) "\n")
+      (paragraph-tags tag) (str "\n\n" inner "\n\n")
+      (line-tags tag)      (str inner "\n")
+      :else                inner)))
 
 (defn text
   "The HTML text or Hiccup `x` as plain text, with the URLs of links when
@@ -485,19 +533,71 @@
   ([x {:keys [links?] :as opts}]
    (render (nodes-of x)
            (fn [s {:keys [pre?]}] (if pre? s (collapse s)))
-           (fn [[tag attrs] inner ctx]
-             (cond
-               (= :br tag)          "\n"
-               (= :hr tag)          "\n\n"
-               (= :img tag)         (str (:alt attrs))
-               (= :a tag)           (if (and links? (:href attrs) (not= (str/trim inner) (str (:href attrs))))
-                                      (str inner " (" (:href attrs) ")")
-                                      inner)
-               (= :li tag)          (str (list-marker ctx) (str/trim inner) "\n")
-               (paragraph-tags tag) (str "\n\n" inner "\n\n")
-               (line-tags tag)      (str inner "\n")
-               :else                inner))
+           (partial text-element links?)
            {})))
+
+(defn- markdown-element
+  "The Markdown of the element of `tag` and `attrs`, whose children render
+  as `inner`, in the context `ctx` of render."
+  [[tag attrs] inner ctx]
+  (let [heading (when-let [[_ n] (re-matches #"h([1-6])" (name tag))]
+                  (parse-long n))
+        quoted  #(->> (str/split-lines %)
+                      (map (fn [line] (str "> " line)))
+                      (str/join "\n"))]
+    (cond
+      heading
+      (str "\n\n" (apply str (repeat heading "#")) " " (str/trim inner) "\n\n")
+
+      (= :br tag)
+      "\\\n"
+
+      (= :hr tag)
+      "\n\n---\n\n"
+
+      (= :img tag)
+      (str "![" (:alt attrs) "](" (:src attrs) ")")
+
+      (= :a tag)
+      (if (:href attrs)
+        (str "[" inner "](" (:href attrs) ")")
+        inner)
+
+      (#{:strong :b} tag)
+      (str "**" inner "**")
+
+      (#{:em :i} tag)
+      (str "*" inner "*")
+
+      (#{:s :strike :del} tag)
+      (str "~~" inner "~~")
+
+      (= :code tag)
+      (if (:pre? ctx) inner (str "`" inner "`"))
+
+      (= :pre tag)
+      (str "\n\n```\n" (str/trim inner) "\n```\n\n")
+
+      (= :blockquote tag)
+      (str "\n\n" (quoted (str/trim inner)) "\n\n")
+
+      (= :li tag)
+      (str (list-marker ctx) (str/trim inner) "\n")
+
+      (#{:td :th} tag)
+      (str (str/trim inner) " | ")
+
+      (= :tr tag)
+      (str "| " inner "\n")
+
+      (paragraph-tags tag)
+      (str "\n\n" inner "\n\n")
+
+      (line-tags tag)
+      (str inner "\n")
+
+      :else
+      inner)))
 
 (defn markdown
   "The HTML text or Hiccup `x` as Markdown. Text isn't escaped, so a
@@ -510,38 +610,23 @@
   [x]
   (render (nodes-of x)
           (fn [s {:keys [pre?]}] (if pre? s (collapse s)))
-          (fn [[tag attrs] inner ctx]
-            (let [heading (when-let [[_ n] (re-matches #"h([1-6])" (name tag))] (parse-long n))]
-              (cond
-                heading              (str "\n\n" (apply str (repeat heading "#")) " " (str/trim inner) "\n\n")
-                (= :br tag)          "\\\n"
-                (= :hr tag)          "\n\n---\n\n"
-                (= :img tag)         (str "![" (:alt attrs) "](" (:src attrs) ")")
-                (= :a tag)           (if (:href attrs) (str "[" inner "](" (:href attrs) ")") inner)
-                (#{:strong :b} tag)  (str "**" inner "**")
-                (#{:em :i} tag)      (str "*" inner "*")
-                (#{:s :strike :del} tag) (str "~~" inner "~~")
-                (= :code tag)        (if (:pre? ctx) inner (str "`" inner "`"))
-                (= :pre tag)         (str "\n\n```\n" (str/trim inner) "\n```\n\n")
-                (= :blockquote tag)  (str "\n\n" (str/join "\n" (map #(str "> " %) (str/split-lines (str/trim inner)))) "\n\n")
-                (= :li tag)          (str (list-marker ctx) (str/trim inner) "\n")
-                (#{:td :th} tag)     (str (str/trim inner) " | ")
-                (= :tr tag)          (str "| " inner "\n")
-                (paragraph-tags tag) (str "\n\n" inner "\n\n")
-                (line-tags tag)      (str inner "\n")
-                :else                inner)))
+          markdown-element
           {}))
 
 (defn- escape
   [s]
-  (-> s (str/replace "&" "&amp;") (str/replace "<" "&lt;") (str/replace ">" "&gt;")))
+  (-> s
+      (str/replace "&" "&amp;")
+      (str/replace "<" "&lt;")
+      (str/replace ">" "&gt;")))
 
 (defn- attributes-html
   [attrs]
   (str/join (for [[k v] attrs]
               (if (true? v)
                 (str " " (name k))
-                (str " " (name k) "=\"" (str/replace (escape (str v)) "\"" "&quot;") "\"")))))
+                (let [value (str/replace (escape (str v)) "\"" "&quot;")]
+                  (str " " (name k) "=\"" value "\""))))))
 
 (defn emit
   "The Hiccup `nodes` as an HTML string, with the text escaped and the void
@@ -553,16 +638,19 @@
               (not (vector? x)) ""
               :else
               (let [[tag attrs children] (parts x)
-                    name (name tag)]
+                    name  (name tag)
+                    start (str "<" name (attributes-html attrs) ">")]
                 (if (void-elements name)
-                  (str "<" name (attributes-html attrs) ">")
-                  (str "<" name (attributes-html attrs) ">" (str/join (map node children)) "</" name ">")))))]
+                  start
+                  (str start (str/join (map node children)) "</" name ">")))))]
     (str/join (map node (nodes-of nodes)))))
 
 #?(:clj
    (comment
      (parse "<p>Hello <b>world</b><br>Line two<ul><li>one<li>two</ul>")
      (hiccup "Plain text\n\nwith two paragraphs\nand a break")
-     (text "<p>Hello <a href=\"https://x\">link</a></p><ul><li>one</li><li>two</li></ul>" {:links? true})
+     (text (str "<p>Hello <a href=\"https://x\">link</a></p>"
+                "<ul><li>one</li><li>two</li></ul>")
+           {:links? true})
      (markdown "<h2>Notes</h2><p>Hello <b>world</b></p>")
      #_.))

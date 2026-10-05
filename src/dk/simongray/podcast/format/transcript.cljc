@@ -6,7 +6,8 @@
   A transcript is a map:
 
       {:format   :vtt                     ; :srt :json :html :text
-       :segments [{:start-time 0.0 :end-time 2.76 :speaker \"Sarah\" :body \"…\"}]}
+       :segments [{:start-time 0.0 :end-time 2.76 :speaker \"Sarah\"
+                   :body \"…\"}]}
 
   Times are seconds, as in the chapters of format.chapters, and :end-time
   and :speaker are there when the source had them. Speakers are read from
@@ -43,7 +44,8 @@
   "A cue timing line in SRT or WebVTT: the start, an arrow, the end and any
   settings. The fraction of a second may be missing, as some exports leave
   it out."
-  #"^\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}(?:[.,]\d{1,3})?)")
+  (let [clock "((?:\\d{1,3}:)?\\d{1,2}:\\d{1,2}(?:[.,]\\d{1,3})?)"]
+    (re-pattern (str "^\\s*" clock "\\s*-->\\s*" clock))))
 
 (defn report
   "The diagnostics recorded while reading `transcript`."
@@ -68,9 +70,9 @@
   [n]
   (when (pos? n)
     [(diagnostic :transcript/speaker-prefixes :info
-              (str n " cues name their speaker with a \"Name:\" prefix; "
-                   "the name is carried over the cues that follow")
-              :count n)]))
+                 (str n " cues name their speaker with a \"Name:\" prefix; "
+                      "the name is carried over the cues that follow")
+                 :count n)]))
 
 (defn- paragraphs
   "The blank-line separated stretches of `s`."
@@ -90,20 +92,22 @@
   rest of `body`, as a pair. The speaker is nil when there's none, and a
   hit counts in `stats`."
   [stats body]
-  (if-let [[_ speaker rest] (re-find #"(?s)^\[?([A-Za-z][^:\n<>\[\]]{0,40}?)\]?:\s+(.*)$" body)]
-    (do (vswap! stats update :prefixes (fnil inc 0))
-        [speaker rest])
-    [nil body]))
+  (let [prefixed #"(?s)^\[?([A-Za-z][^:\n<>\[\]]{0,40}?)\]?:\s+(.*)$"]
+    (if-let [[_ speaker rest] (re-find prefixed body)]
+      (do (vswap! stats update :prefixes (fnil inc 0))
+          [speaker rest])
+      [nil body])))
 
 (defn- carry-speakers
   "The `segments`, each that names no speaker with the last one named
   before it, the way caption files mark only the changes of speaker."
   [segments]
   (second (reduce (fn [[speaker acc] segment]
-                    (let [speaker (or (:speaker segment) speaker)]
-                      [speaker (conj acc (if (and speaker (not (:speaker segment)))
-                                           (assoc segment :speaker speaker)
-                                           segment))]))
+                    (let [speaker (or (:speaker segment) speaker)
+                          carried (if (and speaker (not (:speaker segment)))
+                                    (assoc segment :speaker speaker)
+                                    segment)]
+                      [speaker (conj acc carried)]))
                   [nil []]
                   segments)))
 
@@ -114,7 +118,9 @@
   [stats timing lines]
   (when-let [[_ from to] (re-find timing-pattern timing)]
     (let [[speaker body] (speaker-prefix stats (str/join "\n" lines))]
-      (cond-> {:start-time (time/parse-clock from) :end-time (time/parse-clock to) :body body}
+      (cond-> {:start-time (time/parse-clock from)
+               :end-time   (time/parse-clock to)
+               :body       body}
         speaker (assoc :speaker speaker)))))
 
 (defn parse-srt
@@ -147,13 +153,13 @@
   "The `transcript` as SRT, with one numbered cue for each segment that has
   a start time, and the speaker as a \"Name: \" prefix."
   [transcript]
-  (str/join "\n\n"
-            (map-indexed (fn [i {:keys [start-time end-time speaker body]}]
-                           (str (inc i) "\n"
-                                (time/format-timestamp start-time ",") " --> "
-                                (time/format-timestamp (or end-time start-time) ",") "\n"
-                                (when speaker (str speaker ": ")) (cue-body body)))
-                         (timed-segments transcript))))
+  (let [srt-cue (fn [i {:keys [start-time end-time speaker body]}]
+                  (str (inc i) "\n"
+                       (time/format-timestamp start-time ",") " --> "
+                       (time/format-timestamp (or end-time start-time) ",") "\n"
+                       (when speaker (str speaker ": "))
+                       (cue-body body)))]
+    (str/join "\n\n" (map-indexed srt-cue (timed-segments transcript)))))
 
 (defn- strip-tags
   [s]
@@ -165,14 +171,21 @@
   "The segment of the WebVTT cue block `lines`, with its speaker from a
   voice span or else from a \"Name:\" prefix, which counts in `stats`."
   [stats lines]
-  (let [[timing & payload] (if (re-find timing-pattern (first lines)) lines (rest lines))]
+  (let [[timing & payload] (if (re-find timing-pattern (first lines))
+                             lines
+                             (rest lines))]
     (when-let [[_ from to] (some->> timing (re-find timing-pattern))]
-      (let [text            (str/join "\n" payload)
-            voice           (some-> (re-find #"<v(?:\.[^\s<>]*)?\s+([^<>]+)>" text) second xml/decode-entities)
+      (let [voice-span      #"<v(?:\.[^\s<>]*)?\s+([^<>]+)>"
+            text            (str/join "\n" payload)
+            voice           (some-> (re-find voice-span text)
+                                    second
+                                    xml/decode-entities)
             plain           (xml/decode-entities (str/trim (strip-tags text)))
             [prefixed body] (if voice [nil plain] (speaker-prefix stats plain))
             speaker         (or voice prefixed)]
-        (cond-> {:start-time (time/parse-clock from) :end-time (time/parse-clock to) :body body}
+        (cond-> {:start-time (time/parse-clock from)
+                 :end-time   (time/parse-clock to)
+                 :body       body}
           speaker (assoc :speaker speaker))))))
 
 (defn parse-vtt
@@ -180,10 +193,10 @@
   REGION blocks."
   [s]
   (let [stats    (volatile! {})
+        cue?     #(not (re-find #"^(?:WEBVTT|NOTE|STYLE|REGION)" (first %)))
         segments (->> (blocks s)
-                      (keep (fn [block]
-                              (when-not (re-find #"^(?:WEBVTT|NOTE|STYLE|REGION)" (first block))
-                                (vtt-cue stats block))))
+                      (filter cue?)
+                      (keep #(vtt-cue stats %))
                       carry-speakers)]
     (with-report {:format :vtt :segments segments}
       (prefix-diagnostics (:prefixes @stats 0)))))
@@ -205,7 +218,8 @@
                        (timed-segments transcript)]
                    (str (time/format-timestamp start-time) " --> "
                         (time/format-timestamp (or end-time start-time)) "\n"
-                        (when speaker (str "<v " (vtt-text speaker) ">")) (vtt-text (cue-body body)))))
+                        (when speaker (str "<v " (vtt-text speaker) ">"))
+                        (vtt-text (cue-body body)))))
        "\n"))
 
 (defn parse-json
@@ -222,37 +236,48 @@
   (let [doc      (json/parse s)
         raw      (when (map? doc) (get doc "segments"))
         objects  (if (sequential? raw) (filterv map? raw) [])
-        dropped  (cond (sequential? raw) (- (count raw) (count objects))
-                       (some? raw)       1
-                       :else             0)
-        strings  (count (filter #(or (string? (get % "startTime")) (string? (get % "endTime"))) objects))
-        not-text (count (filter #(let [v (get % "speaker")] (and (some? v) (nil? (json/text v)))) objects))
-        segments (vec (for [segment objects
-                            :let [start   (time/seconds (get segment "startTime"))
-                                  end     (time/seconds (get segment "endTime"))
-                                  speaker (json/text (get segment "speaker"))]]
-                        (cond-> {:body (str (get segment "body"))}
-                          (some? start) (assoc :start-time start)
-                          (some? end)   (assoc :end-time end)
-                          (seq speaker) (assoc :speaker speaker))))]
-    (with-report {:format :json :version (when (map? doc) (get doc "version")) :segments segments}
+        dropped  (cond
+                   (sequential? raw) (- (count raw) (count objects))
+                   (some? raw)       1
+                   :else             0)
+        strings  (count (filter #(or (string? (get % "startTime"))
+                                     (string? (get % "endTime")))
+                                objects))
+        not-text (count (filter #(let [v (get % "speaker")]
+                                   (and (some? v) (nil? (json/text v))))
+                                objects))
+        read-one (fn [segment]
+                   (let [start   (time/seconds (get segment "startTime"))
+                         end     (time/seconds (get segment "endTime"))
+                         speaker (json/text (get segment "speaker"))]
+                     (cond-> {:body (str (get segment "body"))}
+                       (some? start) (assoc :start-time start)
+                       (some? end)   (assoc :end-time end)
+                       (seq speaker) (assoc :speaker speaker))))
+        segments (mapv read-one objects)
+        version  (when (map? doc) (get doc "version"))]
+    (with-report {:format :json :version version :segments segments}
       (cond-> []
         (not (map? doc))
-        (conj (diagnostic :transcript/not-an-object :warning "the file is not a JSON object"))
+        (conj (diagnostic :transcript/not-an-object :warning
+                          "the file is not a JSON object"))
 
         (pos? dropped)
         (conj (diagnostic :transcript/malformed :warning
-                          (str dropped " segments are not JSON objects in a list and were left out")
+                          (str dropped " segments are not JSON objects in a"
+                               " list and were left out")
                           :count dropped))
 
         (pos? strings)
         (conj (diagnostic :transcript/string-times :warning
-                          (str strings " segments give their times as strings rather than numbers")
+                          (str strings " segments give their times as strings"
+                               " rather than numbers")
                           :count strings))
 
         (pos? not-text)
         (conj (diagnostic :transcript/not-text :warning
-                          (str not-text " speakers are not text and were left out")
+                          (str not-text " speakers are not text and were"
+                               " left out")
                           :count not-text))))))
 
 (defn emit-json
@@ -326,7 +351,8 @@
       (-> (parse-srt (str/join "\n" texts))
           (assoc :format :html)
           (add-diagnostic (diagnostic :transcript/wrapped-srt :warning
-                                "the HTML is an SRT file with every line wrapped in a p element")))
+                                      (str "the HTML is an SRT file with every"
+                                           " line wrapped in a p element"))))
       (with-report {:format :html :segments (html-segments tokens)} []))))
 
 (defn parse-text
@@ -335,13 +361,14 @@
   the paragraphs that follow."
   [s]
   (let [stats    (volatile! {})
+        segment  (fn [paragraph]
+                   (let [[speaker body] (speaker-prefix stats paragraph)]
+                     (cond-> {:body body}
+                       speaker (assoc :speaker speaker))))
         segments (->> (paragraphs s)
                       (map str/trim)
                       (remove str/blank?)
-                      (map (fn [paragraph]
-                             (let [[speaker body] (speaker-prefix stats paragraph)]
-                               (cond-> {:body body}
-                                 speaker (assoc :speaker speaker)))))
+                      (map segment)
                       carry-speakers)]
     (with-report {:format :text :segments segments}
       (prefix-diagnostics (:prefixes @stats 0)))))
@@ -398,21 +425,28 @@
                     :else                 sniffed)
          fallback (when (#{:json :html} guess) (or declared :text))
          tried    (parse-as guess s)
-         [format result] (if (and fallback (not= guess fallback) (empty? (:segments tried)))
+         retry?   (and fallback
+                       (not= guess fallback)
+                       (empty? (:segments tried)))
+         [format result] (if retry?
                            [fallback (parse-as fallback s)]
                            [guess tried])]
      (cond-> result
        (and (some? type) (nil? declared))
        (add-diagnostic (diagnostic :transcript/unknown-type :warning
-                             (str "the declared type " (pr-str type) " is not one the "
-                                  "specification names; the file was read as " (name format))
-                             :declared type))
+                                   (str "the declared type " (pr-str type)
+                                        " is not one the specification"
+                                        " names; the file was read as "
+                                        (name format))
+                                   :declared type))
 
        (and declared (not= declared format))
        (add-diagnostic (diagnostic :transcript/type-mismatch :warning
-                             (str "declared as " (name declared) " but the file is "
-                                  (name format) ", which is how it was read")
-                             :declared declared :used format))))))
+                                   (str "declared as " (name declared)
+                                        " but the file is " (name format)
+                                        ", which is how it was read")
+                                   :declared declared
+                                   :used format))))))
 
 (defn- turn
   "The segments `run` by one speaker as one turn: the first segment, with
@@ -431,10 +465,10 @@
   [transcript]
   (update transcript :segments
           (fn [segments]
-            (into []
-                  (comp (partition-by :speaker)
-                        (mapcat #(if (and (:speaker (first %)) (next %)) [(turn %)] %)))
-                  segments))))
+            (let [merged #(if (and (:speaker (first %)) (next %)) [(turn %)] %)]
+              (into []
+                    (comp (partition-by :speaker) (mapcat merged))
+                    segments)))))
 
 (defn text
   "The plain text of `transcript`: the bodies of its segments, with a line
@@ -443,19 +477,24 @@
   (->> (:segments transcript)
        (partition-by :speaker)
        (map (fn [run]
-              (str (when-let [speaker (:speaker (first run))] (str speaker ": "))
-                   (str/join " " (map :body run)))))
+              (let [speaker (:speaker (first run))]
+                (str (when speaker (str speaker ": "))
+                     (str/join " " (map :body run))))))
        (str/join "\n")))
 
 (defn at
   "The segment of `transcript` being spoken `seconds` into the media, among
   the segments that have a start time."
   [transcript seconds]
-  (last (take-while #(<= (:start-time %) seconds) (filter (comp number? :start-time) (:segments transcript)))))
+  (->> (:segments transcript)
+       (filter (comp number? :start-time))
+       (take-while #(<= (:start-time %) seconds))
+       last))
 
 #?(:clj
    (comment
      (parse (slurp "test/resources/transcripts/example.vtt"))
-     (report (parse (slurp "test/resources/transcripts/example.srt") "text/plain"))
-     (println (emit-vtt (parse (slurp "test/resources/transcripts/example.srt"))))
+     (def srt (slurp "test/resources/transcripts/example.srt"))
+     (report (parse srt "text/plain"))
+     (println (emit-vtt (parse srt)))
      #_.))
