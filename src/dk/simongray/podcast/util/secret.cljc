@@ -28,7 +28,9 @@
    (deftype Hidden [text]
      Object
      (toString [_] shown)
-     (equals [_ other] (and (instance? Hidden other) (= text (.-text ^Hidden other))))
+     (equals [_ other]
+       (and (instance? Hidden other)
+            (= text (.-text ^Hidden other))))
      (hashCode [_] (hash text)))
 
    :cljs
@@ -37,7 +39,9 @@
      (toString [_] shown)
      (toJSON [_] shown)
      IEquiv
-     (-equiv [_ other] (and (instance? Hidden other) (= text (.-text other))))
+     (-equiv [_ other]
+       (and (instance? Hidden other)
+            (= text (.-text other))))
      IHash
      (-hash [_] (hash text))
      IPrintWithWriter

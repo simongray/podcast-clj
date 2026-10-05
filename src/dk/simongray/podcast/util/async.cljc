@@ -31,9 +31,11 @@
    #?(:clj  (mapv #(if (future? %) @% %) (vec xs))
       :cljs (.then (js/Promise.all (into-array xs)) vec)))
   ([f xs]
-   #?(:clj  (->> (all (map (fn [x] (attempt #(f x))) xs))
-                 (map (fn [{:keys [value error]}] (if error (throw error) value)))
-                 all)
+   #?(:clj  (let [unwrap (fn [{:keys [value error]}]
+                           (if error (throw error) value))]
+              (->> (all (map (fn [x] (attempt #(f x))) xs))
+                   (map unwrap)
+                   all))
       :cljs (all (map f xs)))))
 
 (defn in-groups
@@ -85,18 +87,29 @@
   pages as the example of clojure.core/iteration does:
 
       (iteration get-page! :initk \"a\" :vf :items :kf :next-page :limit 10)"
-  [step! & {:keys [somef vf kf initk limit] :or {somef some? vf identity kf identity limit ##Inf} :as opts}]
-  #?(:clj  (into []
-                 (take limit)
-                 (clojure.core/iteration #(let [x (step! %)] (if (future? x) @x x))
-                                         :somef somef :vf vf :kf kf :initk initk))
+  [step! & {:keys [somef vf kf initk limit]
+            :or   {somef some? vf identity kf identity limit ##Inf}
+            :as   opts}]
+  #?(:clj  (let [step (fn [k]
+                        (let [x (step! k)]
+                          (if (future? x) @x x)))]
+             (into []
+                   (take limit)
+                   (clojure.core/iteration step
+                                           :somef somef
+                                           :vf    vf
+                                           :kf    kf
+                                           :initk initk)))
      :cljs (letfn [(more [values ret]
-                     (if (or (not (somef ret)) (>= (count values) limit))
+                     (if (or (not (somef ret))
+                             (>= (count values) limit))
                        values
                        (let [values (conj values (vf ret))
-                             k      (when (< (count values) limit) (kf ret))]
+                             k      (when (< (count values) limit)
+                                      (kf ret))]
                          (if (some? k)
-                           (.then (js/Promise.resolve (step! k)) #(more values %))
+                           (.then (js/Promise.resolve (step! k))
+                                  #(more values %))
                            values))))]
              (.then (js/Promise.resolve (step! initk)) #(more [] %)))))
 

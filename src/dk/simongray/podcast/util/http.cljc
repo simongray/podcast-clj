@@ -22,15 +22,19 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.time :as time])
-  #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream IOException]
+  #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream
+                            InputStream IOException]
                    [java.net IDN InetAddress URI]
-                   [java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$Builder
-                                  HttpRequest$BodyPublishers HttpResponse HttpResponse$BodyHandlers
+                   [java.net.http HttpClient HttpClient$Redirect HttpRequest
+                                  HttpRequest$Builder HttpRequest$BodyPublishers
+                                  HttpResponse HttpResponse$BodyHandlers
                                   HttpTimeoutException]
                    [java.nio.charset Charset StandardCharsets]
                    [java.security MessageDigest]
                    [java.time Duration]
-                   [java.util.concurrent ScheduledFuture ScheduledThreadPoolExecutor ThreadFactory TimeUnit]
+                   [java.util.concurrent ScheduledFuture
+                                         ScheduledThreadPoolExecutor
+                                         ThreadFactory TimeUnit]
                    [java.util.zip GZIPInputStream])))
 
 (def user-agent
@@ -58,7 +62,8 @@
   decode comes back as it is, rather than throwing."
   [s]
   #?(:clj  (try
-             (java.net.URLDecoder/decode (str/replace (str s) "+" "%2B") "UTF-8")
+             (java.net.URLDecoder/decode (str/replace (str s) "+" "%2B")
+                                         "UTF-8")
              (catch IllegalArgumentException _
                (str s)))
      :cljs (try
@@ -80,10 +85,11 @@
   "The parameters of the query string `s`, decoded, by name. A plus sign
   is a space, as in the body of a form."
   [s]
-  (into {} (for [part  (str/split (str s) #"&")
-                 :let  [[k v] (map #(percent-decode (str/replace (str %) "+" " ")) (str/split part #"=" 2))]
-                 :when (seq k)]
-             [k v])))
+  (let [decode #(percent-decode (str/replace (str %) "+" " "))]
+    (into {} (for [part  (str/split (str s) #"&")
+                   :let  [[k v] (map decode (str/split part #"=" 2))]
+                   :when (seq k)]
+               [k v]))))
 
 (defn with-query
   "The `url` with `params` added to its query, as query-string writes
@@ -109,7 +115,10 @@
   "The UTF-8 bytes of `s` in the base64 of URLs, without padding, as
   section 5 of RFC 4648 defines it."
   [s]
-  (-> (base64 s) (str/replace "+" "-") (str/replace "/" "_") (str/replace #"=+$" "")))
+  (-> (base64 s)
+      (str/replace "+" "-")
+      (str/replace "/" "_")
+      (str/replace #"=+$" "")))
 
 ;; RFC 7617, section 2 (Basic); RFC 6750, section 2.1 (Bearer)
 (defn authorization
@@ -126,13 +135,19 @@
   function reads the text when it sends the request, and revealed gives
   the request with the text, for another client."
   [credentials]
-  (let [{:keys [username password token]} (if (fn? credentials) (credentials) credentials)
-        password (secret/reveal password)
-        token    (secret/reveal token)]
+  (let [m        (if (fn? credentials) (credentials) credentials)
+        username (:username m)
+        password (secret/reveal (:password m))
+        token    (secret/reveal (:token m))]
     (cond
-      token    (secret/hide (str "Bearer " token))
-      username (secret/hide (str "Basic " (base64 (str username ":" password))))
-      :else    nil)))
+      token
+      (secret/hide (str "Bearer " token))
+
+      username
+      (secret/hide (str "Basic " (base64 (str username ":" password))))
+
+      :else
+      nil)))
 
 ;; RFC 7617, section 2 (Basic); RFC 6750, section 2.1 (Bearer)
 (defn credentials
@@ -143,13 +158,16 @@
   for a bearer token, and the password and the token are hidden texts. The
   header can be a hidden text too."
   [authorization]
-  (let [[_ scheme value] (some->> (secret/reveal authorization) (re-matches #"(?i)\s*(basic|bearer)\s+(\S+)\s*"))]
+  (let [auth-pattern     #"(?i)\s*(basic|bearer)\s+(\S+)\s*"
+        [_ scheme value] (some->> (secret/reveal authorization)
+                                  (re-matches auth-pattern))]
     (case (some-> scheme str/lower-case)
       "basic"  (let [b       (bytes/from-base64 value)
                      decoded (some-> b (bytes/decode 0 (bytes/length b) :utf8))
                      i       (some-> decoded (str/index-of ":"))]
                  (when i
-                   {:username (subs decoded 0 i) :password (secret/hide (subs decoded (inc i)))}))
+                   {:username (subs decoded 0 i)
+                    :password (secret/hide (subs decoded (inc i)))}))
       "bearer" {:token (secret/hide value)}
       nil)))
 
@@ -179,18 +197,23 @@
   joined by commas as fetch joins them, or nil for none."
   [headers header-name]
   (let [v (get headers (str/lower-case header-name))]
-    (if (string? v) v (some->> (seq v) (str/join ", ")))))
+    (if (string? v)
+      v
+      (some->> (seq v) (str/join ", ")))))
 
 (defn- link-of
   "The link that the `tokens` of one value of a Link header give, the
   target and then the parameters, each after a semicolon. Nil when the
   value starts with no target."
   [[target & params :as tokens]]
-  (when (and target (re-find #"^<\s*[^\s>]" target))
+  (when (and target
+             (re-find #"^<\s*[^\s>]" target))
     (reduce (fn [link [k eq v]]
               (let [k (keyword (str/lower-case k))]
                 (cond-> link
-                  (and (= "=" eq) v (not (contains? link k)))
+                  (and (= "=" eq)
+                       v
+                       (not (contains? link k)))
                   (assoc k (str/replace v #"^\"|\"$" "")))))
             {:href (str/trim (subs target 1 (dec (count target))))}
             (remove #(= ";" (first %)) (partition-by #(= ";" %) params)))))
@@ -204,7 +227,8 @@
   The first value of a parameter counts, and a target can be relative to
   the URL of the response."
   [headers]
-  (->> (re-seq #"<[^>]*>|\"[^\"]*\"|[;,=]|[^\s;,=<\"]+" (str (joined headers "link")))
+  (->> (re-seq #"<[^>]*>|\"[^\"]*\"|[;,=]|[^\s;,=<\"]+"
+               (str (joined headers "link")))
        (partition-by #(= "," %))
        (keep link-of)
        vec))
@@ -215,13 +239,18 @@
   [s]
   (some->> s str/trim (re-matches #"\d{1,10}") parse-long))
 
+(def ^:no-doc asctime-date
+  "The pattern of a date in the asctime form, with the month, the day,
+  the time and the year as its groups."
+  #"\s*[A-Za-z]{3} ([A-Za-z]{3}) +(\d{1,2}) (\d{2}:\d{2}:\d{2}) (\d{4})\s*")
+
 ;; RFC 9110, section 5.6.7: of the three forms of a date, asctime has no
 ;; zone and is UTC
 (defn ^:no-doc date-ms
   "The date that the header value `s` gives, in epoch milliseconds, or nil
   when it gives none."
   [s]
-  (let [asctime (some->> s (re-matches #"\s*[A-Za-z]{3} ([A-Za-z]{3}) +(\d{1,2}) (\d{2}:\d{2}:\d{2}) (\d{4})\s*"))
+  (let [asctime (some->> s (re-matches asctime-date))
         s       (if-let [[_ month day clock year] asctime]
                   (str day " " month " " year " " clock " GMT")
                   s)]
@@ -232,7 +261,9 @@
   client. The response that `arrived` names `served` as the time that the
   server sent it. Without `served`, the clocks count as one."
   [t arrived served]
-  (if served (+ arrived (- t served)) t))
+  (if served
+    (+ arrived (- t served))
+    t))
 
 ;; RFC 9110, section 10.2.3
 (defn- retry-after
@@ -252,12 +283,19 @@
 
   The freshness ends at the max-age less the Age, or else at the Expires."
   [headers arrived served]
-  (let [age   (* 1000 (or (seconds (header headers "age")) 0))
-        cache (some-> (joined headers "cache-control") str/lower-case)]
+  (let [age     (* 1000 (or (seconds (header headers "age")) 0))
+        cache   (some-> (joined headers "cache-control") str/lower-case)
+        max-age (some->> cache
+                         (re-find #"max-age=(\d{1,10})")
+                         second
+                         parse-long)
+        expires (date-ms (header headers "expires"))]
     (when-not (some->> cache (re-find #"no-cache|no-store"))
-      (if-let [max-age (some->> cache (re-find #"max-age=(\d{1,10})") second parse-long)]
+      (if max-age
         (- (+ arrived (* 1000 max-age)) age)
-        (some-> (date-ms (header headers "expires")) (ours arrived served) (- (if served age 0)))))))
+        (some-> expires
+                (ours arrived served)
+                (- (if served age 0)))))))
 
 (defn not-before
   "The earliest instant to ask again, by the response `headers` that arrived
@@ -302,13 +340,17 @@
   The password is a hidden text of util.secret, which the printer doesn't
   show. The secret/reveal function gives its text."
   [url]
-  (let [[_ scheme authority tail] (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://)([^/?#]*)(.*)" (str url))
-        at                        (some-> authority (str/last-index-of "@"))]
+  (let [[_ scheme authority tail]
+        (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://)([^/?#]*)(.*)"
+                    (str url))
+
+        at (some-> authority (str/last-index-of "@"))]
     (if at
       (let [[user password] (str/split (subs authority 0 at) #":" 2)]
         [(str scheme (subs authority (inc at)) tail)
          (when-not (str/blank? user)
-           {:username (percent-decode user) :password (secret/hide (percent-decode (or password "")))})])
+           {:username (percent-decode user)
+            :password (secret/hide (percent-decode (or password "")))})])
       [url nil])))
 
 #?(:clj
@@ -327,7 +369,10 @@
    (defn ^:no-doc gzipped?
      "Whether the response with `headers` says that its body is gzipped."
      [headers]
-     (contains? #{"gzip" "x-gzip"} (some-> (header headers "content-encoding") str/trim str/lower-case))))
+     (let [coding (some-> (header headers "content-encoding")
+                          str/trim
+                          str/lower-case)]
+       (contains? #{"gzip" "x-gzip"} coding))))
 
 #?(:clj
    (defn ^:no-doc headers-of
@@ -341,6 +386,13 @@
   "How much of a response body send! reads at most, unless the request
   sets another limit: 100 MB."
   (* 100 1024 1024))
+
+(defn ^:no-doc too-large
+  "The exception of a response body from `url` that holds more than
+  `max-bytes`."
+  [url max-bytes]
+  (ex-info (str "Response body exceeds " max-bytes " bytes: " url)
+           {:type ::too-large :url url :max-bytes max-bytes}))
 
 #?(:clj
    (defn ^:no-doc pump
@@ -356,8 +408,7 @@
            (when-not (neg? n)
              (let [total (+ total n)]
                (when (and max-bytes (> total max-bytes))
-                 (throw (ex-info (str "Response body exceeds " max-bytes " bytes: " url)
-                                 {:type ::too-large :url url :max-bytes max-bytes})))
+                 (throw (too-large url max-bytes)))
                (f buffer n)
                (recur total))))))))
 
@@ -367,13 +418,14 @@
      pump reads them."
      ^bytes [^InputStream in max-bytes url]
      (let [out (ByteArrayOutputStream.)]
-       (pump in max-bytes url (fn [^bytes buffer n] (.write out buffer 0 (int n))))
+       (pump in max-bytes url (fn [^bytes buffer n]
+                                (.write out buffer 0 (int n))))
        (.toByteArray out))))
 
 #?(:clj
    (defonce ^{:no-doc true
-              :doc    "The daemon thread that closes the body of a response still
-  being read when its time is up, built on first use."}
+              :doc    "The daemon thread that closes the body of a response
+  still being read when its time is up, built on first use."}
      watchdog
      (delay (doto (ScheduledThreadPoolExecutor.
                    1 (reify ThreadFactory
@@ -390,12 +442,14 @@
      At the deadline, the stream is closed and ::timeout thrown, so that a
      server that sends its body slowly holds no thread for longer."
      [^InputStream in deadline url f]
-     (let [late? (atom false)
-           task  (.schedule ^ScheduledThreadPoolExecutor @watchdog
-                            ^Runnable (fn [] (reset! late? true) (.close in))
-                            (long (max 0 (- deadline (System/currentTimeMillis))))
-                            TimeUnit/MILLISECONDS)
-           late  #(ex-info (str "The response did not arrive in time: " url) {:type ::timeout :url url})]
+     (let [late?   (atom false)
+           wait-ms (long (max 0 (- deadline (System/currentTimeMillis))))
+           task    (.schedule ^ScheduledThreadPoolExecutor @watchdog
+                              ^Runnable (fn [] (reset! late? true) (.close in))
+                              wait-ms
+                              TimeUnit/MILLISECONDS)
+           late    #(ex-info (str "The response did not arrive in time: " url)
+                             {:type ::timeout :url url})]
        (try
          (let [result (f)]
            ;; a stream closed under a read can end as if the body had ended
@@ -425,11 +479,14 @@
      "The charset that the byte order mark at the start of `body` names, or
      nil when there's none."
      [^bytes body]
-     (let [at (fn [i] (when (< i (alength body)) (bit-and (aget body i) 0xff)))]
+     (let [at   (fn [i]
+                  (when (< i (alength body))
+                    (bit-and (aget body i) 0xff)))
+           head (map at (range 3))]
        (cond
-         (and (= 0xef (at 0)) (= 0xbb (at 1)) (= 0xbf (at 2))) StandardCharsets/UTF_8
-         (and (= 0xfe (at 0)) (= 0xff (at 1)))                 StandardCharsets/UTF_16BE
-         (and (= 0xff (at 0)) (= 0xfe (at 1)))                 StandardCharsets/UTF_16LE))))
+         (= [0xef 0xbb 0xbf] head)     StandardCharsets/UTF_8
+         (= [0xfe 0xff] (take 2 head)) StandardCharsets/UTF_16BE
+         (= [0xff 0xfe] (take 2 head)) StandardCharsets/UTF_16LE))))
 
 ;; RFC 7303, section 3.2
 #?(:clj
@@ -441,9 +498,12 @@
      header, and then the XML declaration at the start of the body."
      [headers ^bytes body]
      (let [content-type (or (header headers "content-type") "")
-           head         (String. body 0 (min 200 (alength body)) StandardCharsets/ISO_8859_1)
-           name         (or (second (re-find #"(?i)charset=\"?([\w.:-]+)" content-type))
-                            (second (re-find #"(?i)<\?xml[^>]*encoding=[\"']([\w.:-]+)" head))
+           head         (String. body 0 (min 200 (alength body))
+                                 StandardCharsets/ISO_8859_1)
+           charset      #"(?i)charset=\"?([\w.:-]+)"
+           encoding     #"(?i)<\?xml[^>]*encoding=[\"']([\w.:-]+)"
+           name         (or (second (re-find charset content-type))
+                            (second (re-find encoding head))
                             "UTF-8")]
        (or (bom-charset body)
            (try
@@ -485,8 +545,29 @@
   It's nil when `s` doesn't read, and the :total is nil when the server
   doesn't know the size."
   [s]
-  (when-let [[_ start end total] (some->> s (re-matches #"(?i)\s*bytes\s+(\d{1,15})-(\d{1,15})/(\d{1,15}|\*)\s*"))]
-    {:start (parse-long start) :end (parse-long end) :total (when (not= "*" total) (parse-long total))}))
+  (let [pattern #"(?i)\s*bytes\s+(\d{1,15})-(\d{1,15})/(\d{1,15}|\*)\s*"]
+    (when-let [[_ start end total] (some->> s (re-matches pattern))]
+      {:start (parse-long start)
+       :end   (parse-long end)
+       :total (when (not= "*" total)
+                (parse-long total))})))
+
+(defn- byte-range
+  "The range that `spec`, one byte range of a Range header, asks for, as
+  byte-ranges gives it, or nil when it doesn't read."
+  [spec]
+  (when-let [[_ start end] (re-matches #"(\d{0,15})\s*-\s*(\d{0,15})" spec)]
+    (cond
+      (and (seq start) (seq end))
+      (let [a (parse-long start)
+            b (parse-long end)]
+        (when (<= a b) [a b]))
+
+      (seq start)
+      [(parse-long start) nil]
+
+      (seq end)
+      [nil (parse-long end)])))
 
 (defn byte-ranges
   "The byte ranges that the Range header value `s` asks for, as RFC 9110,
@@ -501,20 +582,18 @@
   (when-let [[_ specs] (some->> s (re-matches #"(?i)\s*bytes\s*=\s*(.*)"))]
     (let [ranges (for [spec (map str/trim (str/split specs #","))
                        :when (seq spec)]
-                   (when-let [[_ start end] (re-matches #"(\d{0,15})\s*-\s*(\d{0,15})" spec)]
-                     (cond
-                       (and (seq start) (seq end)) (let [a (parse-long start) b (parse-long end)]
-                                                     (when (<= a b) [a b]))
-                       (seq start)                 [(parse-long start) nil]
-                       (seq end)                   [nil (parse-long end)])))]
-      (when (and (seq ranges) (every? some? ranges))
+                   (byte-range spec))]
+      (when (and (seq ranges)
+                 (every? some? ranges))
         (vec ranges)))))
 
 (def ^:no-doc legal-url-characters
   "The ASCII characters that a URI may contain as they are, and the
   percent sign of an escape. They're the unreserved and reserved sets of
   RFC 3986, sections 2.3 and 2.2."
-  (set "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%"))
+  (set (str "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+            ":/?#[]@!$&'()*+,;="
+            "%")))
 
 #?(:clj
    (defn- encode-illegal
@@ -525,14 +604,27 @@
      (let [sb     (StringBuilder.)
            bytes  (.getBytes s StandardCharsets/UTF_8)
            n      (alength bytes)
-           digit? (fn [i] (and (< i n) (let [b (aget bytes i)] (or (<= 48 b 57) (<= 65 b 70) (<= 97 b 102)))))]
+           digit? (fn [i]
+                    (and (< i n)
+                         (let [b (aget bytes i)]
+                           (or (<= 48 b 57)
+                               (<= 65 b 70)
+                               (<= 97 b 102)))))]
        (dotimes [i n]
          (let [b (bit-and (aget bytes i) 0xFF)
                c (char b)]
            (cond
-             (and (= \% c) (not (and (digit? (inc i)) (digit? (+ i 2))))) (.append sb "%25")
-             (and (< b 128) (legal-url-characters c) (not (also c)))      (.append sb c)
-             :else                                                         (.append sb (format "%%%02X" b)))))
+             (and (= \% c)
+                  (not (and (digit? (inc i)) (digit? (+ i 2)))))
+             (.append sb "%25")
+
+             (and (< b 128)
+                  (legal-url-characters c)
+                  (not (also c)))
+             (.append sb c)
+
+             :else
+             (.append sb (format "%%%02X" b)))))
        (str sb))))
 
 #?(:clj
@@ -540,9 +632,14 @@
      "The scheme and the authority `head` of a URL, with its host in the
      ASCII form of IDNA, so that java.net.URI reads the host."
      [head]
-     (let [[_ before host after] (re-matches #"(?s)(.*?://(?:[^@]*@)?)([^:\[\]]*)(.*)" head)]
-       (if (and host (re-find #"[^\x00-\x7F]" host))
-         (str before (try (IDN/toASCII host IDN/ALLOW_UNASSIGNED) (catch Exception _ host)) after)
+     (let [[_ before host after]
+           (re-matches #"(?s)(.*?://(?:[^@]*@)?)([^:\[\]]*)(.*)" head)]
+       (if (and host
+                (re-find #"[^\x00-\x7F]" host))
+         (let [ascii (try
+                       (IDN/toASCII host IDN/ALLOW_UNASSIGNED)
+                       (catch Exception _ host))]
+           (str before ascii after))
          head))))
 
 #?(:clj
@@ -555,8 +652,12 @@
      as it is, so an encoded URL comes back unchanged. A host with letters
      outside ASCII gets the ASCII form of IDNA."
      [^String url]
-     (let [[_ head path tail] (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*)?([^?#]*)(.*)" url)]
-       (str (encode-illegal (ascii-host (str head)) #{}) (encode-illegal path #{\[ \]}) (encode-illegal tail #{})))))
+     (let [[_ head path tail]
+           (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*)?([^?#]*)(.*)"
+                       url)]
+       (str (encode-illegal (ascii-host (str head)) #{})
+            (encode-illegal path #{\[ \]})
+            (encode-illegal tail #{})))))
 
 #?(:clj
    (defn- stripped
@@ -566,9 +667,31 @@
      (let [^String s (str/replace (str s) #"[\t\n\r]" "")
            n         (.length s)
            space?    (fn [i] (<= (int (.charAt s (int i))) 32))
-           start     (loop [i 0] (if (and (< i n) (space? i)) (recur (inc i)) i))
-           end       (loop [i n] (if (and (< start i) (space? (dec i))) (recur (dec i)) i))]
+           start     (loop [i 0]
+                       (if (and (< i n) (space? i))
+                         (recur (inc i))
+                         i))
+           end       (loop [i n]
+                       (if (and (< start i) (space? (dec i)))
+                         (recur (dec i))
+                         i))]
        (subs s start end))))
+
+#?(:clj
+   (defn- resolved
+     "The legal URL `url` resolved against the URI `base` by java.net.URI,
+     with a base with no path read as one with the path /, and without the
+     dot segments that are left at the root, as browsers do."
+     [^URI base url]
+     (-> (if (and (.getRawAuthority base) (str/blank? (.getRawPath base)))
+           (URI. (str (.getScheme base) "://" (.getRawAuthority base) "/"))
+           base)
+         (.resolve (URI. url))
+         .normalize
+         str
+         (str/replace
+          #"^([a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*)(?:/\.\.)+(?:/|(?=[?#])|$)"
+          "$1/"))))
 
 (defn absolute-url
   "The `url` made absolute against `base`, the URL of the document that
@@ -584,25 +707,22 @@
   [base url]
   (when (and base url)
     #?(:clj  (try
-               (let [base (legal-url (stripped base))
-                     url  (legal-url (stripped url))
-                     b    (URI. base)]
-                 (when (and (.isAbsolute b) (not (.isOpaque b)))
-                   ;; java.net.URI resolves by RFC 2396, which differs from browsers on
-                   ;; a query or a fragment alone, on no reference, on a base with no
-                   ;; path, and on the dot segments that are left at the root
+               (let [base     (legal-url (stripped base))
+                     url      (legal-url (stripped url))
+                     b        (URI. base)
+                     document (first (str/split base #"#" 2))
+                     resource (first (str/split base #"[?#]" 2))]
+                 (when (and (.isAbsolute b)
+                            (not (.isOpaque b)))
+                   ;; java.net.URI resolves by RFC 2396, which differs from
+                   ;; browsers on a query or a fragment alone, on no
+                   ;; reference, on a base with no path, and on the dot
+                   ;; segments that are left at the root
                    (cond
-                     (= "" url)                 (first (str/split base #"#" 2))
-                     (str/starts-with? url "#") (str (first (str/split base #"#" 2)) url)
-                     (str/starts-with? url "?") (str (first (str/split base #"[?#]" 2)) url)
-                     :else
-                     (-> (if (and (.getRawAuthority b) (str/blank? (.getRawPath b)))
-                           (URI. (str (.getScheme b) "://" (.getRawAuthority b) "/"))
-                           b)
-                         (.resolve (URI. url))
-                         .normalize
-                         str
-                         (str/replace #"^([a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*)(?:/\.\.)+(?:/|(?=[?#])|$)" "$1/")))))
+                     (= "" url)                 document
+                     (str/starts-with? url "#") (str document url)
+                     (str/starts-with? url "?") (str resource url)
+                     :else                      (resolved b url))))
                (catch Exception _
                  nil))
        :cljs (try
@@ -618,20 +738,48 @@
      Gzip is accepted unless the headers name an Accept-Encoding. A header
      and a body that are hidden texts go out as their texts."
      ^HttpRequest [^URI uri method headers body timeout-ms]
-     (let [builder (cond-> (.timeout (HttpRequest/newBuilder uri) (Duration/ofMillis timeout-ms))
-                     (not-any? #(= "accept-encoding" (str/lower-case (str %))) (keys headers))
-                     (.header "Accept-Encoding" "gzip"))
-           builder (reduce-kv (fn [^HttpRequest$Builder b k v] (.header b (str k) (str (secret/reveal v))))
-                              builder
-                              headers)]
+     (let [gzip?   (not-any? #(= "accept-encoding" (str/lower-case (str %)))
+                             (keys headers))
+           add     (fn [^HttpRequest$Builder b k v]
+                     (.header b (str k) (str (secret/reveal v))))
+           builder (cond-> (.timeout (HttpRequest/newBuilder uri)
+                                     (Duration/ofMillis timeout-ms))
+                     gzip? (.header "Accept-Encoding" "gzip"))
+           builder (reduce-kv add builder headers)]
        (-> (if (or (nil? method) (= :get method))
              (.GET ^HttpRequest$Builder builder)
              (.method ^HttpRequest$Builder builder
                       (str/upper-case (name method))
                       (if (some? body)
-                        (HttpRequest$BodyPublishers/ofString (str (secret/reveal body)))
+                        (HttpRequest$BodyPublishers/ofString
+                         (str (secret/reveal body)))
                         (HttpRequest$BodyPublishers/noBody))))
            (.build)))))
+
+(def ^:no-doc default-ports
+  "The port of each scheme of the web, for a URL that names none."
+  {"http" 80 "https" 443})
+
+#?(:clj
+   (defn- host-and-port
+     "The host and the port of the `authority` of a URL, as origin reads
+     them, or nil when it holds no host that a URL can have. The host is in
+     lower case and in the ASCII form of IDNA, and the port is the text of
+     the URL."
+     [authority]
+     (let [;; the user name and the password end at the last @
+           at            (or (str/last-index-of authority "@") -1)
+           host-port     #"(\[[0-9a-fA-F:.]*\]|[^:\[\]]*)(?::([0-9]*))?"
+           [_ host port] (re-matches host-port (subs authority (inc at)))
+           host          (when (seq host)
+                           (try
+                             (str/lower-case (IDN/toASCII (percent-decode host)
+                                                          IDN/ALLOW_UNASSIGNED))
+                             (catch Exception _
+                               nil)))]
+       (when (and (seq host)
+                  (not (re-find #"[\x00-\x20\x7F\"#%/<>?@\\^`{|}]" host)))
+         [host port]))))
 
 (defn ^:no-doc origin
   "The scheme, host and port of the http or https URL `url`, as the URL
@@ -642,24 +790,23 @@
   the ASCII form of IDNA. When the URL names no port, the port is the one
   of the scheme."
   [url]
-  #?(:clj  (when-let [[_ scheme authority] (re-find #"^[\x00-\x20]*([hH][tT][tT][pP][sS]?):[/\\]*([^/\\?#]*)"
-                                                   (str/replace (str url) #"[\t\n\r]" ""))]
-             (let [scheme        (str/lower-case scheme)
-                   ;; the user name and the password end at the last @
-                   [_ host port] (re-matches #"(\[[0-9a-fA-F:.]*\]|[^:\[\]]*)(?::([0-9]*))?"
-                                             (subs authority (inc (or (str/last-index-of authority "@") -1))))
-                   host          (when (seq host)
-                                   (try
-                                     (str/lower-case (IDN/toASCII (percent-decode host) IDN/ALLOW_UNASSIGNED))
-                                     (catch Exception _
-                                       nil)))]
-               (when (and (seq host) (not (re-find #"[\x00-\x20\x7F\"#%/<>?@\\^`{|}]" host)))
-                 [scheme host (if (seq port) (parse-long port) (get {"http" 80 "https" 443} scheme))])))
+  #?(:clj  (when-let [[_ scheme authority]
+                      (re-find #"(?i)^[\x00-\x20]*(https?):[/\\]*([^/\\?#]*)"
+                               (str/replace (str url) #"[\t\n\r]" ""))]
+             (when-let [[host port] (host-and-port authority)]
+               (let [scheme (str/lower-case scheme)]
+                 [scheme host (if (seq port)
+                                (parse-long port)
+                                (default-ports scheme))])))
      :cljs (try
              (let [u      (js/URL. url)
-                   scheme (str/replace (.-protocol u) #":$" "")]
-               (when (and (#{"http" "https"} scheme) (seq (.-hostname u)))
-                 [scheme (.-hostname u) (if (seq (.-port u)) (parse-long (.-port u)) (get {"http" 80 "https" 443} scheme))]))
+                   scheme (str/replace (.-protocol u) #":$" "")
+                   port   (.-port u)]
+               (when (and (#{"http" "https"} scheme)
+                          (seq (.-hostname u)))
+                 [scheme (.-hostname u) (if (seq port)
+                                          (parse-long port)
+                                          (default-ports scheme))]))
              (catch :default _
                nil))))
 
@@ -671,16 +818,20 @@
 (defn ^:no-doc web-url?
   "Whether `s` is an http or https URL with a host."
   [s]
-  (boolean (and (string? s) (re-find #"(?i)^https?://" s) (origin s))))
+  (boolean (and (string? s)
+                (re-find #"(?i)^https?://" s)
+                (origin s))))
 
 (defn ^:no-doc timeout?
   "Whether the exception `e` from send!, or one of its causes, is a
   timeout."
   [e]
-  (boolean (some #(or (= ::timeout (:type (ex-data %)))
-                      #?(:clj  (instance? HttpTimeoutException %)
-                         :cljs (= "TimeoutError" (.-name %))))
-                 (take-while some? (iterate #?(:clj ex-cause :cljs #(.-cause %)) e)))))
+  (let [cause  #?(:clj ex-cause :cljs #(.-cause %))
+        causes (take-while some? (iterate cause e))]
+    (boolean (some #(or (= ::timeout (:type (ex-data %)))
+                        #?(:clj  (instance? HttpTimeoutException %)
+                           :cljs (= "TimeoutError" (.-name %))))
+                   causes))))
 
 (defn ^:no-doc same-origin?
   "Whether the URLs `a` and `b` have the same scheme, host and port, as
@@ -748,6 +899,14 @@
       (= 0xff (nth b 0))                                        false
       :else                                                     true)))
 
+(defn ^:no-doc public-ip?
+  "Whether the IP address of the numbers `b`, four of IPv4 or sixteen of
+  IPv6, is on the public internet, as public-ipv4? and public-ipv6? tell."
+  [b]
+  (if (= 4 (count b))
+    (public-ipv4? b)
+    (public-ipv6? b)))
+
 #?(:clj
    (defn- public-address?
      "Whether the IP address `a` is on the public internet, both by the
@@ -755,17 +914,21 @@
      and public-ipv6? check."
      [^InetAddress a]
      (let [b (mapv #(bit-and % 0xff) (.getAddress a))]
-       (and (not (or (.isAnyLocalAddress a) (.isLoopbackAddress a) (.isLinkLocalAddress a)
-                     (.isSiteLocalAddress a) (.isMulticastAddress a)))
-            (if (= 4 (count b)) (public-ipv4? b) (public-ipv6? b))))))
+       (and (not (or (.isAnyLocalAddress a)
+                     (.isLoopbackAddress a)
+                     (.isLinkLocalAddress a)
+                     (.isSiteLocalAddress a)
+                     (.isMulticastAddress a)))
+            (public-ip? b)))))
 
 (defn ^:no-doc ipv4
   "The four numbers of the IPv4 address that the text `s` writes, or nil
   for anything else."
   [s]
-  (when-let [[_ & parts] (re-matches #"(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})" s)]
-    (let [ns (mapv parse-long parts)]
-      (when (every? #(<= 0 % 255) ns) ns))))
+  (when (re-matches #"\d{1,3}(?:\.\d{1,3}){3}" s)
+    (let [ns (mapv parse-long (str/split s #"\."))]
+      (when (every? #(<= 0 % 255) ns)
+        ns))))
 
 (defn- words
   "The 16-bit words of the groups of `part`, a part of the text of an IPv6
@@ -776,9 +939,12 @@
     (reduce (fn [acc [i g]]
               (cond
                 (re-matches #"[0-9a-fA-F]{1,4}" g)
-                (conj acc #?(:clj (Long/parseLong g 16) :cljs (js/parseInt g 16)))
+                (conj acc #?(:clj  (Long/parseLong g 16)
+                             :cljs (js/parseInt g 16)))
 
-                (and end? (= i (dec (count gs))) (str/includes? g "."))
+                (and end?
+                     (= i (dec (count gs)))
+                     (str/includes? g "."))
                 (if-let [[a b c d] (ipv4 g)]
                   (conj acc (+ (* 256 a) b) (+ (* 256 c) d))
                   (reduced nil))
@@ -797,9 +963,15 @@
         back        (when tail (words tail true))
         n           (+ (count front) (count back))
         all         (cond
-                      (or (nil? front) (and tail (nil? back))) nil
-                      tail                                     (when (< n 8) (concat front (repeat (- 8 n) 0) back))
-                      :else                                    (when (= n 8) front))]
+                      (or (nil? front) (and tail (nil? back)))
+                      nil
+
+                      tail
+                      (when (< n 8)
+                        (concat front (repeat (- 8 n) 0) back))
+
+                      :else
+                      (when (= n 8) front))]
     (when all
       (vec (mapcat (fn [w] [(quot w 256) (rem w 256)]) all)))))
 
@@ -812,8 +984,9 @@
   [s]
   (when (string? s)
     (or (ipv4 s)
-        (when-let [[_ bracketed bare] (re-matches #"\[([0-9a-fA-F:.]+)\]|([0-9a-fA-F.]*:[0-9a-fA-F:.]*)" s)]
-          (ipv6 (or bracketed bare))))))
+        (let [pattern #"\[([0-9a-fA-F:.]+)\]|([0-9a-fA-F.]*:[0-9a-fA-F:.]*)"]
+          (when-let [[_ bracketed bare] (re-matches pattern s)]
+            (ipv6 (or bracketed bare)))))))
 
 ;; RFC 6761, section 6.3 (localhost); RFC 6762, section 3 (.local);
 ;; RFC 8375 (.home.arpa)
@@ -843,15 +1016,18 @@
   .internal or .home.arpa."
   [url]
   #?(:clj  (try
-             ;; the host as the client of the JDK reads it, which sends the request
+             ;; the host as the client of the JDK reads it, which sends the
+             ;; request
              (let [h (some-> url str legal-url URI. .getHost)]
-               (boolean (and h (every? public-address? (InetAddress/getAllByName h)))))
+               (boolean (and h
+                             (every? public-address?
+                                     (InetAddress/getAllByName h)))))
              (catch Exception _
                false))
      :cljs (let [h (some-> (host url) (str/replace #"\.$" ""))]
              (boolean (and h
                            (if-let [b (ip-address h)]
-                             (if (= 4 (count b)) (public-ipv4? b) (public-ipv6? b))
+                             (public-ip? b)
                              (public-name? h)))))))
 
 #?(:clj
@@ -860,7 +1036,9 @@
      http or https URL with a host. It's nil too when it leaves https for
      http, which the client of the JDK refuses as well."
      [^URI uri ^HttpResponse response]
-     (when-let [location (.orElse (.firstValue (.headers response) "location") nil)]
+     (when-let [location (-> (.headers response)
+                             (.firstValue "location")
+                             (.orElse nil))]
        (when-let [target (some-> (absolute-url (str uri) location) (URI.))]
          (let [from (some-> (.getScheme uri) str/lower-case)
                to   (some-> (.getScheme target) str/lower-case)]
@@ -872,7 +1050,8 @@
 (defn ^:no-doc refusal
   "The exception of a request to `url` that :allow? refused."
   [url]
-  (ex-info (str "The request to " url " is not allowed") {:type ::refused :url url}))
+  (ex-info (str "The request to " url " is not allowed")
+           {:type ::refused :url url}))
 
 (def ^:no-doc credential-headers
   "The names of the headers that hold credentials, in lower case."
@@ -887,13 +1066,16 @@
   browsers and the JDK do. A HEAD stays a HEAD. Credentials stay behind
   when the redirect leaves the origin."
   [{:keys [method url headers body] :as request} status target]
-  (let [get? (or (= 303 status) (and (#{301 302} status) (= :post method)))]
+  (let [get?        (or (= 303 status)
+                        (and (#{301 302} status) (= :post method)))
+        credential? (fn [[k _]]
+                      (credential-headers (str/lower-case (str k))))]
     (assoc request
            :url     target
            :method  (if (and get? (not= :head method)) :get method)
            :headers (cond->> headers
                       (not (same-origin? url target))
-                      (into {} (remove (fn [[k _]] (credential-headers (str/lower-case (str k)))))))
+                      (into {} (remove credential?)))
            :body    (when-not get? body))))
 
 #?(:clj
@@ -906,19 +1088,23 @@
      most, each as redirected says, since the JDK sends credentials on to
      another origin. A URL that `allow?` refuses throws ::refused."
      [request deadline allow?]
-     (loop [{:keys [url method headers body] :as request} (update request :url legal-url)
-            chain                                         []]
-       (let [uri  (URI. url)
+     (loop [request (update request :url legal-url)
+            chain   []]
+       (let [{:keys [url method headers body]} request
+             uri  (URI. url)
              left (- deadline (System/currentTimeMillis))]
          (when-not (pos? left)
            (throw (HttpTimeoutException. (str "request timed out: " uri))))
          (when-not (allow? url)
            (throw (refusal url)))
-         (let [response (.send ^HttpClient @client (java-request uri method headers body left)
-                               (HttpResponse$BodyHandlers/ofInputStream))
-               status   (.statusCode response)
-               target   (when (and (#{301 302 303 307 308} status) (< (count chain) 5))
-                          (redirect-target uri response))]
+         (let [outgoing  (java-request uri method headers body left)
+               response  (.send ^HttpClient @client outgoing
+                                (HttpResponse$BodyHandlers/ofInputStream))
+               status    (.statusCode response)
+               redirect? (and (#{301 302 303 307 308} status)
+                              (< (count chain) 5))
+               target    (when redirect?
+                           (redirect-target uri response))]
            (if-not target
              [response chain]
              (do (.close ^InputStream (.body response))
@@ -988,17 +1174,20 @@
    (defn- body-bytes
      "The bytes of the body of `response` to `request`, read until
      `deadline`, as much as prefix-length says."
-     ^bytes [^HttpResponse response {:keys [method url range max-bytes] :as request} deadline]
+     ^bytes [^HttpResponse response
+             {:keys [method url range max-bytes] :as request}
+             deadline]
      (let [headers (headers-of response)
-           start   (:start (content-range (header headers "content-range")))]
+           start   (:start (content-range (header headers "content-range")))
+           n       (prefix-length (.statusCode response) start
+                                  (gzipped? headers) range max-bytes)]
        (with-open [^InputStream in (.body response)]
-         (let [n (prefix-length (.statusCode response) start (gzipped? headers) range max-bytes)]
-           (cond
-             ;; an answer to HEAD has no content by RFC 9110, section
-             ;; 9.3.2, though some servers send one over HTTP/2
-             (= :head method) (byte-array 0)
-             n                (within in deadline url #(.readNBytes in (int n)))
-             :else            (read-within in deadline max-bytes url)))))))
+         (cond
+           ;; an answer to HEAD has no content by RFC 9110, section
+           ;; 9.3.2, though some servers send one over HTTP/2
+           (= :head method) (byte-array 0)
+           n                (within in deadline url #(.readNBytes in (int n)))
+           :else            (read-within in deadline max-bytes url))))))
 
 #?(:clj
    (defn- java-answer
@@ -1050,8 +1239,7 @@
                  (cond
                    (and all? (> got n))
                    (do (.catch (.cancel reader) (fn [_] nil))
-                       (throw (ex-info (str "Response body exceeds " n " bytes: " url)
-                                       {:type ::too-large :url url :max-bytes n})))
+                       (throw (too-large url n)))
 
                    (and (not all?) (>= got n))
                    (join chunks)
@@ -1061,7 +1249,9 @@
                           (fn [r]
                             (if (.-done r)
                               (join chunks)
-                              (step (conj chunks (.-value r)) (+ got (.-length (.-value r)))))))))]
+                              (let [chunk (.-value r)]
+                                (step (conj chunks chunk)
+                                      (+ got (.-length chunk)))))))))]
          (js/Promise.resolve (step [] 0))))))
 
 #?(:cljs
@@ -1071,21 +1261,26 @@
      [res {:keys [method url as range max-bytes] :as request}]
      (let [status   (.-status res)
            received (content-range (.get (.-headers res) "content-range"))
+           headers  (into {}
+                          (map (fn [[k v]] [k [v]]))
+                          (es6-iterator-seq (.entries (.-headers res))))
            response (cond-> {:status  status
                              :url     (.-url res)
-                             :headers (into {} (map (fn [[k v]] [k [v]]))
-                                            (es6-iterator-seq (.entries (.-headers res))))}
+                             :headers headers}
                       received                (assoc :content-range received)
                       (= "cors" (.-type res)) (assoc :filtered? true))
            ;; fetch undoes gzip itself, so a prefix is one of the file
-           n        (prefix-length status (:start received) false range max-bytes)]
+           n        (prefix-length status (:start received) false range
+                                   max-bytes)]
        (if (or (= :head method) (nil? (.-body res)))
          response
          (.then (read-body res url (if n {:first n} {:max-bytes max-bytes}))
                 (fn [b]
                   (cond-> response
                     (pos? (.-length b))
-                    (assoc :body (if (= :bytes as) b (.decode (js/TextDecoder.) b))))))))))
+                    (assoc :body (if (= :bytes as)
+                                   b
+                                   (.decode (js/TextDecoder.) b))))))))))
 
 (defn send!
   "Send the `request`, and give the response as a map of :status, :url,
@@ -1142,7 +1337,8 @@
         request (assoc (merge {:max-bytes default-max-bytes} request)
                        :method  method
                        :headers (request-headers headers (:range request)))]
-    #?(:clj  (let [deadline         (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
+    #?(:clj  (let [deadline         (+ (System/currentTimeMillis)
+                                       (* 1000 timeout-seconds))
                    [response chain] (send-following! request deadline allow?)
                    bytes            (body-bytes response request deadline)]
                (java-answer response bytes chain request))
@@ -1150,11 +1346,15 @@
                (if-not (allow? url)
                  (js/Promise.reject (refusal url))
                  ;; a hidden header and a hidden body go out as their texts
-                 (-> (js/fetch url (clj->js (cond-> {:method  (str/upper-case (name (or method :get)))
-                                                     :headers (:headers (revealed request))
-                                                     :signal  (js/AbortSignal.timeout (* 1000 timeout-seconds))}
-                                              (some? body) (assoc :body (secret/reveal body)))))
-                     (.then #(fetch-answer % request))))))))
+                 (let [signal (js/AbortSignal.timeout (* 1000 timeout-seconds))
+                       verb   (str/upper-case (name (or method :get)))
+                       init   (cond-> {:method  verb
+                                       :headers (:headers (revealed request))
+                                       :signal  signal}
+                                (some? body)
+                                (assoc :body (secret/reveal body)))]
+                   (-> (js/fetch url (clj->js init))
+                       (.then #(fetch-answer % request)))))))))
 
 (defn send-public!
   "Send the `request` with send!, but only to a host on the public
@@ -1167,6 +1367,11 @@
   their :allow?."
   [request]
   (send! (assoc request :allow? public?)))
+
+(def ^:no-doc limit-keys
+  "The keys of a request that limit what send! does for it, which the
+  functions that send take from their options."
+  [:timeout-seconds :max-bytes :allow?])
 
 (defn feed-request
   "The request for the feed at `url` that fetch! sends with `opts`, the
@@ -1181,11 +1386,12 @@
          :or   {user-agent dk.simongray.podcast.util.http/user-agent}
          :as   opts}]
    (let [[url in-url] (split-credentials url)
-         auth         (authorization (or credentials in-url))]
-     (assoc (select-keys opts [:timeout-seconds :max-bytes :allow?])
+         auth         (authorization (or credentials in-url))
+         accept       "application/rss+xml, application/xml, text/xml, */*"]
+     (assoc (select-keys opts limit-keys)
             :url     url
             :headers (cond-> {"User-Agent" user-agent
-                              "Accept"     "application/rss+xml, application/xml, text/xml, */*"}
+                              "Accept"     accept}
                        etag          (assoc "If-None-Match" etag)
                        last-modified (assoc "If-Modified-Since" last-modified)
                        auth          (assoc "Authorization" auth))))))
@@ -1212,10 +1418,12 @@
   ([url {:keys [send] :or {send send!} :as opts}]
    (async/then (send (feed-request url opts))
                (fn [{:keys [headers] :as response}]
-                 (let [wait (not-before headers (time/now))]
+                 (let [wait          (not-before headers (time/now))
+                       etag          (header headers "etag")
+                       last-modified (header headers "last-modified")]
                    (cond-> (assoc response
-                                  :etag          (header headers "etag")
-                                  :last-modified (header headers "last-modified"))
+                                  :etag          etag
+                                  :last-modified last-modified)
                      wait (assoc :not-before wait)))))))
 
 #?(:clj
@@ -1235,21 +1443,31 @@
      - :timeout-seconds, the limit of the whole exchange, 600 by default"
      ([url algorithms]
       (digest! url algorithms {}))
-     ([url algorithms {:keys [headers timeout-seconds allow?] :or {timeout-seconds 600 allow? (constantly true)} :as opts}]
-      (let [deadline      (+ (System/currentTimeMillis) (* 1000 timeout-seconds))
-            ;; before the request, since an algorithm that the platform lacks throws
-            digests       (into {} (for [a algorithms] [a (MessageDigest/getInstance a)]))
-            headers       (merge {"User-Agent" user-agent "Accept-Encoding" "identity"} headers)
-            [response _]  (send-following! {:url url :method :get :headers headers} deadline allow?)
-            status        (.statusCode ^HttpResponse response)]
+     ([url algorithms {:keys [headers timeout-seconds allow?]
+                       :or   {timeout-seconds 600 allow? (constantly true)}
+                       :as   opts}]
+      (let [deadline       (+ (System/currentTimeMillis)
+                              (* 1000 timeout-seconds))
+            ;; before the request, since an algorithm that the platform lacks
+            ;; throws
+            digests        (into {} (for [a algorithms]
+                                      [a (MessageDigest/getInstance a)]))
+            headers        (merge {"User-Agent"      user-agent
+                                   "Accept-Encoding" "identity"}
+                                  headers)
+            request        {:url url :method :get :headers headers}
+            [response _]   (send-following! request deadline allow?)
+            status         (.statusCode ^HttpResponse response)
+            update-digests (fn [^bytes buffer n]
+                             (doseq [^MessageDigest d (vals digests)]
+                               (.update d buffer 0 (int n))))]
         (with-open [^InputStream in (.body ^HttpResponse response)]
           (when (= 200 status)
-            (within in deadline url
-                    #(pump in nil url (fn [^bytes buffer n]
-                                        (doseq [^MessageDigest d (vals digests)]
-                                          (.update d buffer 0 (int n))))))))
+            (within in deadline url #(pump in nil url update-digests))))
         (cond-> {:status status :url (str (.uri ^HttpResponse response))}
-          (= 200 status) (assoc :digests (update-vals digests #(.digest ^MessageDigest %))))))))
+          (= 200 status)
+          (assoc :digests (update-vals digests
+                                       #(.digest ^MessageDigest %))))))))
 
 (defn- whole-size
   "The size of the file whose first `n` bytes came in a 200 to a request
@@ -1260,12 +1478,13 @@
   when that's less than asked, since the file ended. Otherwise it's the
   content length, unless the content encoding changed the size."
   [n asked content-length content-encoding]
-  (cond
-    (< n asked)
-    n
+  (let [coding (some-> content-encoding str/trim str/lower-case)]
+    (cond
+      (< n asked)
+      n
 
-    (contains? #{nil "identity"} (some-> content-encoding str/trim str/lower-case))
-    (some-> content-length str/trim parse-long)))
+      (contains? #{nil "identity"} coding)
+      (some-> content-length str/trim parse-long))))
 
 (defn- unsatisfied-total
   "The size of the whole file that the Content-Range value `s` of an
@@ -1278,7 +1497,7 @@
   "The `request` with :timeout-seconds, :max-bytes and :allow? from
   `opts`, each when the opts give it."
   [request opts]
-  (into request (remove (comp nil? val)) (select-keys opts [:timeout-seconds :max-bytes :allow?])))
+  (into request (remove (comp nil? val)) (select-keys opts limit-keys)))
 
 (defn ^:no-doc failed
   "The exception for the answer to a request for the file at `url` whose
@@ -1313,20 +1532,30 @@
    (fetcher url {}))
   ([url {:keys [headers send] :or {send send!} :as opts}]
    (fn [start end]
-     (async/then
-      (send (limited {:url url :headers headers :as :bytes :range [start (dec end)]} opts))
-      (fn [{:keys [status body content-range] :as response}]
-        (let [body (or body (bytes/of []))]
-          (case (long status)
-            206 {:bytes body :start (or (:start content-range) start) :total (:total content-range)}
-            200 {:bytes body :start 0 :whole? true
-                 :total (whole-size (bytes/length body) end
-                                    (header (:headers response) "content-length")
-                                    (header (:headers response) "content-encoding"))}
-            ;; the body of a 416 is at most a page about the error
-            416 {:bytes (bytes/of []) :start start
-                 :total (unsatisfied-total (header (:headers response) "content-range"))}
-            (throw (failed url status)))))))))
+     (let [request {:url     url
+                    :headers headers
+                    :as      :bytes
+                    :range   [start (dec end)]}]
+       (async/then
+        (send (limited request opts))
+        (fn [{:keys [status body content-range] :as response}]
+          (let [body (or body (bytes/of []))
+                h    #(header (:headers response) %)]
+            (case (long status)
+              206 {:bytes body
+                   :start (or (:start content-range) start)
+                   :total (:total content-range)}
+              200 {:bytes  body
+                   :start  0
+                   :whole? true
+                   :total  (whole-size (bytes/length body) end
+                                       (h "content-length")
+                                       (h "content-encoding"))}
+              ;; the body of a 416 is at most a page about the error
+              416 {:bytes (bytes/of [])
+                   :start start
+                   :total (unsatisfied-total (h "content-range"))}
+              (throw (failed url status))))))))))
 
 (defn ^:no-doc read-by-ranges!
   "Read the file at `url` with the reader `read` and `opts`, and give what
@@ -1376,18 +1605,23 @@
     the answer
   - :filtered?, as in the response"
   [response]
-  (let [h #(header (:headers response) %)]
+  (let [h        #(header (:headers response) %)
+        redirect (fn [[status url headers]]
+                   (let [allowed (cors headers)]
+                     (cond-> {:status status :url url}
+                       allowed (assoc :cors allowed))))
+        length   (some->> (h "content-length")
+                          str/trim
+                          (re-matches #"\d{1,15}")
+                          parse-long)]
     (into {} (remove (comp nil? val))
           {:status        (:status response)
            :url           (:url response)
-           :redirects     (not-empty (mapv (fn [[status url headers]]
-                                             (cond-> {:status status :url url}
-                                               (cors headers) (assoc :cors (cors headers))))
-                                           (:redirects response)))
+           :redirects     (not-empty (mapv redirect (:redirects response)))
            :permanent-url (:permanent-url response)
            :location      (h "location")
            :type          (media-type (h "content-type"))
-           :length        (some->> (h "content-length") str/trim (re-matches #"\d{1,15}") parse-long)
+           :length        length
            :range         (:content-range response)
            :encoding      (h "content-encoding")
            :etag          (h "etag")
@@ -1413,7 +1647,9 @@
   "The facts of the response of an `attempt` from try-send!, or a map with a
   diagnostic under :error for a request that failed."
   [{:keys [value error] :as attempt}]
-  (if error {:error (bytes/unreachable error)} (facts value)))
+  (if error
+    {:error (bytes/unreachable error)}
+    (facts value)))
 
 (defn probe!
   "Ask the server about the file at `url` with `opts`, and give the facts,
@@ -1441,11 +1677,15 @@
   ([url]
    (probe! url {}))
   ([url {:keys [headers send] :or {send send!} :as opts}]
-   (let [answer! (fn [request]
-                   (async/then (try-send! send (assoc request :url url) opts) sent-facts))]
-     (async/then (answer! {:method :head :headers (merge {"Accept-Encoding" "identity"} headers)})
+   (let [answer!       (fn [request]
+                         (-> (try-send! send (assoc request :url url) opts)
+                             (async/then sent-facts)))
+         head-request  {:method  :head
+                        :headers (merge {"Accept-Encoding" "identity"} headers)}
+         range-request {:range [0 1] :as :bytes :headers headers}]
+     (async/then (answer! head-request)
                  (fn [head]
-                   (async/then (answer! {:range [0 1] :as :bytes :headers headers})
+                   (async/then (answer! range-request)
                                (fn [got] {:head head :get got})))))))
 
 (defn ^:no-doc request-bytes
@@ -1454,12 +1694,17 @@
   for a stream in ClojureScript."
   [body max-bytes]
   (let [b (cond
-            (nil? body)    (bytes/of [])
-            (string? body) (bytes/encode body)
-            :else          #?(:clj  (if (bytes? body)
-                                      body
-                                      (.readNBytes ^InputStream body (int (inc max-bytes))))
-                              :cljs (when (instance? js/Uint8Array body) body)))]
+            (nil? body)
+            (bytes/of [])
+
+            (string? body)
+            (bytes/encode body)
+
+            :else
+            #?(:clj  (if (bytes? body)
+                       body
+                       (.readNBytes ^InputStream body (int (inc max-bytes))))
+               :cljs (when (instance? js/Uint8Array body) body)))]
     (when (and b (<= (bytes/length b) max-bytes))
       b)))
 
@@ -1469,12 +1714,17 @@
   stream in ClojureScript."
   [body max-bytes]
   (cond
-    (nil? body)    ""
-    (string? body) (when (<= (count body) max-bytes) body)
-    :else          #?(:clj  (let [bytes (.readNBytes ^InputStream body (int (inc max-bytes)))]
-                              (when (<= (alength bytes) max-bytes)
-                                (String. bytes StandardCharsets/UTF_8)))
-                      :cljs nil)))
+    (nil? body)
+    ""
+
+    (string? body)
+    (when (<= (count body) max-bytes) body)
+
+    :else
+    #?(:clj  (let [bytes (.readNBytes ^InputStream body (int (inc max-bytes)))]
+               (when (<= (alength bytes) max-bytes)
+                 (String. bytes StandardCharsets/UTF_8)))
+       :cljs nil)))
 
 (comment
   (query-string {:q "clojure podcasts" :max 10 :pretty true})
@@ -1488,8 +1738,12 @@
   (not-before {"cache-control" "max-age=86400"} #inst "2026-09-29T12:00:00Z")
 
   ;; a POST that a 303 turns into a GET, and credentials that stay behind
-  (redirected {:method :post :url "https://a.example/x" :headers {"Authorization" "Basic …"} :body "{}"}
-              303 "https://b.example/y")
+  (redirected {:method  :post
+               :url     "https://a.example/x"
+               :headers {"Authorization" "Basic …"}
+               :body    "{}"}
+              303
+              "https://b.example/y")
 
   (public? "http://192.168.1.10/feed.xml")
   (send! {:url "https://example.org/episode.mp3" :range [0 1023] :as :bytes})

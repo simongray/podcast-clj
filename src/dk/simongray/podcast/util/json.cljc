@@ -16,15 +16,20 @@
      (let [n (.length s)]
        (loop [i 0 run 0 quoted? false]
          (cond
-           (> run 1000) true
-           (>= i n)     false
-           :else        (let [c (int (.charAt s i))]
-                          (cond
-                            (= c 34)                   (recur (inc i) 0 (not quoted?))
-                            (and quoted? (= c 92))     (recur (+ i 2) 0 true)
-                            quoted?                    (recur (inc i) 0 true)
-                            (and (>= c 48) (<= c 57)) (recur (inc i) (inc run) false)
-                            :else                      (recur (inc i) 0 false))))))))
+           (> run 1000)
+           true
+
+           (>= i n)
+           false
+
+           :else
+           (let [c (int (.charAt s i))]
+             (cond
+               (= c 34)                  (recur (inc i) 0 (not quoted?))
+               (and quoted? (= c 92))    (recur (+ i 2) 0 true)
+               quoted?                   (recur (inc i) 0 true)
+               (and (>= c 48) (<= c 57)) (recur (inc i) (inc run) false)
+               :else                     (recur (inc i) 0 false))))))))
 
 (defn read-str
   "The JSON string `s` as Clojure data with string keys.
@@ -37,19 +42,27 @@
   [s]
   (let [s (cond-> s (str/starts-with? s "\uFEFF") (subs 1))]
     #?(:clj  (let [_ (when (long-digits? s)
-                       (throw (ex-info "The JSON holds a number of more than a thousand digits"
+                       (throw (ex-info (str "The JSON holds a number of more"
+                                            " than a thousand digits")
                                        {:type ::too-long})))
                    r (PushbackReader. (StringReader. s) 64)
                    v (try
                        (json/read r)
                        (catch StackOverflowError _
-                         (throw (ex-info "The JSON is nested too deep to read" {:type ::too-deep}))))]
+                         (throw (ex-info "The JSON is nested too deep to read"
+                                         {:type ::too-deep}))))]
                (loop []
                  (let [c (.read r)]
                    (cond
-                     (= -1 c)          v
-                     (#{9 10 13 32} c) (recur)
-                     :else             (throw (ex-info "Data after the JSON value" {:type ::trailing-data}))))))
+                     (= -1 c)
+                     v
+
+                     (#{9 10 13 32} c)
+                     (recur)
+
+                     :else
+                     (throw (ex-info "Data after the JSON value"
+                                     {:type ::trailing-data}))))))
        :cljs (js->clj (js/JSON.parse s)))))
 
 (defn ^:no-doc parse
@@ -80,7 +93,9 @@
   as an integer when it's a number without a fraction that JavaScript
   holds exactly, and nil for anything else."
   [v]
-  (when (and (number? v) (== v (Math/floor v)) (< (Math/abs (double v)) 9e15))
+  (when (and (number? v)
+             (== v (Math/floor v))
+             (< (Math/abs (double v)) 9e15))
     (long v)))
 
 (defn write-str
@@ -89,15 +104,19 @@
   ([x]
    (write-str x {}))
   ([x {:keys [pretty?] :as opts}]
-   #?(:clj  (json/write-str x :indent (boolean pretty?) :escape-slash false
-                            :escape-unicode false :escape-js-separators false)
+   #?(:clj  (json/write-str x
+                            :indent               (boolean pretty?)
+                            :escape-slash         false
+                            :escape-unicode       false
+                            :escape-js-separators false)
       :cljs (if pretty?
               (js/JSON.stringify (clj->js x) nil 2)
               (js/JSON.stringify (clj->js x))))))
 
 (comment
   (read-str "{\"title\": \"An episode\", \"duration\": 1800}")
-  (write-str {"title" "An episode" "chapters" [{"startTime" 0}]} {:pretty? true})
+  (write-str {"title" "An episode" "chapters" [{"startTime" 0}]}
+             {:pretty? true})
 
   ;; nil for what is no JSON, and for JSON that is no object
   (parse "<html>")
