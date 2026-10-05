@@ -24,7 +24,8 @@
 (defn item-href
   "The inspector's page for the `episode`."
   [{:keys [url guid] :as episode}]
-  (str "/item?url=" (js/encodeURIComponent url) "&guid=" (js/encodeURIComponent guid)))
+  (str "/item?url=" (js/encodeURIComponent url)
+       "&guid=" (js/encodeURIComponent guid)))
 
 (defn episode-of
   "What the page `state` knows of the episode `id`: the data that
@@ -57,15 +58,22 @@
       [:div.bar
        [:span (episode-link state id)]
        (cond
-         enclosure [:audio#player {:controls true :preload "metadata" :src enclosure
-                                   :replicant/key id
-                                   :on {:loadedmetadata [:audio/loaded id position]
-                                        :timeupdate     [:audio/time id]
-                                        :pause          [:audio/paused id]
-                                        :ended          [:ended id]}}]
-         episode   [:span.muted "No enclosure to play."]
-         :else     [:span.muted "This browser has no data of the episode. Remove it, or open its item and play it."])
-       [:span.muted (or readout (str "at " (time/format-clock (or position 0))))]
+         enclosure
+         [:audio#player {:controls true :preload "metadata" :src enclosure
+                         :replicant/key id
+                         :on {:loadedmetadata [:audio/loaded id position]
+                              :timeupdate     [:audio/time id]
+                              :pause          [:audio/paused id]
+                              :ended          [:ended id]}}]
+
+         episode
+         [:span.muted "No enclosure to play."]
+
+         :else
+         [:span.muted (str "This browser has no data of the episode. Remove "
+                           "it, or open its item and play it.")])
+       [:span.muted (or readout
+                        (str "at " (time/format-clock (or position 0))))]
        [:span
         [:button {:on {:click [:skip id :back]}} (str "−" skip-back "s")]
         " "
@@ -107,11 +115,17 @@
      [:p.muted "Nothing played yet."]
      [:ul.compact
       (for [id (profile/history profile)
-            :let [{:keys [position played?]} (profile/episode-entry profile id)]]
+            :let [{:keys [position played?]}
+                  (profile/episode-entry profile id)
+
+                  where (if played?
+                          "played"
+                          (str "at " (time/format-clock (or position 0))))]]
         [:li {:replicant/key id}
          (episode-link state id)
-         [:span.muted (str " · " (if played? "played" (str "at " (time/format-clock (or position 0)))))]
-         (when (and (episode-of state id) (not= id (profile/current profile)))
+         [:span.muted (str " · " where)]
+         (when (and (episode-of state id)
+                    (not= id (profile/current profile)))
            (list " " [:button {:on {:click [:play id]}} "Play now"]))])])])
 
 (defn- preferences
@@ -119,12 +133,19 @@
   (let [{:keys [skip-forward skip-back]} (profile/preferences profile)
         field (fn [label k value]
                 [:label label " "
-                 [:input {:type "number" :min 1 :max 300 :value value :style {:width "4em"}
-                          :on {:change [:prefer k]}}]
+                 [:input {:type  "number"
+                          :min   1
+                          :max   300
+                          :value value
+                          :style {:width "4em"}
+                          :on    {:change [:prefer k]}}]
                  " s"])]
     [:section
      [:h2 "Preferences"]
-     [:p (field "Skip back" :skip-back skip-back) "   " (field "Skip forward" :skip-forward skip-forward)]]))
+     [:p
+      (field "Skip back" :skip-back skip-back)
+      "   "
+      (field "Skip forward" :skip-forward skip-forward)]]))
 
 (defn- devices
   "The listener's devices and the sync through the inspector's folder. A
@@ -135,7 +156,11 @@
         lagging (crdt/lagging profile)]
     [:section
      [:h2 "Devices"]
-     [:p.muted "Every device writes its own document to the inspector's folder, served over WebDAV at /dav/, and reads the others'. This browser syncs when the page opens, when it's hidden, and when it's due while nothing plays."]
+     [:p.muted (str "Every device writes its own document to the "
+                    "inspector's folder, served over WebDAV at /dav/, and "
+                    "reads the others'. This browser syncs when the page "
+                    "opens, when it's hidden, and when it's due while "
+                    "nothing plays.")]
      (if (empty? known)
        [:p.muted "No device has described itself yet."]
        [:ul.compact
@@ -146,16 +171,23 @@
            (when (contains? lagging id) [:span.badge "behind"])
            " " [:span.muted id]
            (when (not= id (:device profile))
-             (list " " [:button {:on {:click [:device/retire id]}} "Retire"]))])])
+             (list " "
+                   [:button {:on {:click [:device/retire id]}} "Retire"]))])])
      [:p
-      [:button {:on {:click [:sync]} :disabled syncing?} (if syncing? "Syncing…" "Sync now")]
+      [:button {:on {:click [:sync]} :disabled syncing?}
+       (if syncing? "Syncing…" "Sync now")]
       (when synced
-        [:span.muted
-         (str " Synced at " (.toLocaleTimeString ^js (:at synced)))
-         (when-let [failed (seq (filter #(= :sync/backend-failed (:id %)) (:report synced)))]
-           (str "; failed: " (str/join ", " (for [{:keys [backend reason]} failed] (str backend ": " reason)))))
-         (when (seq (:report synced))
-           (str "; " (count (:report synced)) " remark" (when (> (count (:report synced)) 1) "s")))])]
+        (let [report  (:report synced)
+              failed  (seq (filter #(= :sync/backend-failed (:id %)) report))
+              reasons (for [{:keys [backend reason]} failed]
+                        (str backend ": " reason))
+              n       (count report)]
+          [:span.muted
+           (str " Synced at " (.toLocaleTimeString ^js (:at synced)))
+           (when failed
+             (str "; failed: " (str/join ", " reasons)))
+           (when (seq report)
+             (str "; " n " remark" (when (> n 1) "s")))]))]
      (when (seq (:report synced))
        [:ul.compact
         (for [{:keys [id message]} (:report synced)]
@@ -168,25 +200,40 @@
   (let [{:keys [name permission]} folder]
     [:section
      [:h2 "Sync folder"]
-     [:p.muted "A folder that a sync client mirrors, e.g. Dropbox or Syncthing, keeps the devices in step too: each device writes its own document into it."]
+     [:p.muted (str "A folder that a sync client mirrors, e.g. Dropbox or "
+                    "Syncthing, keeps the devices in step too: each device "
+                    "writes its own document into it.")]
      (cond
-       (not can-pick?)         [:p.muted "This browser can't keep a folder, so sync through one by hand."]
-       (nil? folder)           [:p [:button {:on {:click [:folder/pick]}} "Choose a sync folder…"]]
-       (= :granted permission) [:p "Syncing through " [:code name] " too. "
-                                [:button {:on {:click [:folder/forget]}} "Stop"]]
-       :else                   [:p "The browser needs your permission for " [:code name] " again. "
-                                [:button {:on {:click [:folder/allow]}} "Allow"] " "
-                                [:button {:on {:click [:folder/forget]}} "Stop"]])
+       (not can-pick?)
+       [:p.muted (str "This browser can't keep a folder, so sync through "
+                      "one by hand.")]
+
+       (nil? folder)
+       [:p [:button {:on {:click [:folder/pick]}} "Choose a sync folder…"]]
+
+       (= :granted permission)
+       [:p "Syncing through " [:code name] " too. "
+        [:button {:on {:click [:folder/forget]}} "Stop"]]
+
+       :else
+       [:p "The browser needs your permission for " [:code name] " again. "
+        [:button {:on {:click [:folder/allow]}} "Allow"] " "
+        [:button {:on {:click [:folder/forget]}} "Stop"]])
      [:p "By hand: "
       [:button {:on {:click [:document/save]}} "Save this browser's document"]
       " into the folder, and load the folder to read the others' documents: "
-      [:input {:type "file" :webkitdirectory true :on {:change [:document/load]}}]]]))
+      [:input {:type            "file"
+               :webkitdirectory true
+               :on              {:change [:document/load]}}]]]))
 
 (defn page
   "The queue page: the detailed view of the state the bar plays from."
   [{:keys [profile error] :as state}]
   [:div
-   [:p.muted "The listener's profile (dk.simongray.podcast.profile), running in this browser and kept in localStorage; Replicant renders it, the audio element in the bar reports to it, and its effects drive the audio."]
+   [:p.muted (str "The listener's profile (dk.simongray.podcast.profile), "
+                  "running in this browser and kept in localStorage; "
+                  "Replicant renders it, the audio element in the bar "
+                  "reports to it, and its effects drive the audio.")]
    (when error [:p.error error])
    (when-let [id (profile/current profile)]
      [:p "Now playing: " (episode-link state id)])

@@ -101,7 +101,9 @@
   browser, which is kept from now on."
   []
   (let [state (read-state (stored storage-key))
-        id    (or (stored device-key) (get-in state [:library :device]) (str (random-uuid)))]
+        id    (or (stored device-key)
+                  (get-in state [:library :device])
+                  (str (random-uuid)))]
     (store! device-key id)
     (or state {:library (library/make id) :titles {}})))
 
@@ -121,7 +123,8 @@
   [state library]
   (-> state
       (update :library library/merge library)
-      (assoc :syncing? false :synced (select-keys (:sync library) [:at :report]))))
+      (assoc :syncing? false
+             :synced   (select-keys (:sync library) [:at :report]))))
 
 (defn- save!
   [state]
@@ -130,8 +133,8 @@
 (defn- backend
   "The inspector's WebDAV folder on this origin, as a backend."
   []
-  (store/backend (webdav/store (str js/location.origin "/dav/") {:name "inspector"})
-                 {:opml? true :app "inspector"}))
+  (let [dav (webdav/store (str js/location.origin "/dav/") {:name "inspector"})]
+    (store/backend dav {:opml? true :app "inspector"})))
 
 (defn- backends
   "The backends of a sync: the inspector's folder, and the sync folder of
@@ -139,23 +142,33 @@
   []
   (let [{:keys [handle permission]} (:folder @app)]
     (cond-> [(backend)]
-      (= :granted permission) (conj (file/backend handle {:name "sync folder" :opml? true :app "inspector"})))))
+      (= :granted permission)
+      (conj (file/backend handle {:name  "sync folder"
+                                  :opml? true
+                                  :app   "inspector"})))))
 
 (defn- handles!
   "A promise of the result of `f` on the inspector's store of handles in
   IndexedDB, in a transaction of `mode`. A handle can't go in
   localStorage, but IndexedDB keeps it."
   [mode f]
-  (-> (js/Promise. (fn [resolve reject]
-                     (let [request (.open js/indexedDB "inspector" 1)]
-                       (set! (.-onupgradeneeded request) #(.createObjectStore (.-result request) "handles"))
-                       (set! (.-onsuccess request) #(resolve (.-result request)))
-                       (set! (.-onerror request) #(reject (.-error request))))))
-      (.then (fn [db]
-               (js/Promise. (fn [resolve reject]
-                              (let [request (f (.objectStore (.transaction db "handles" mode) "handles"))]
-                                (set! (.-onsuccess request) #(resolve (.-result request)))
-                                (set! (.-onerror request) #(reject (.-error request))))))))))
+  (let [opened (fn [resolve reject]
+                 (let [request (.open js/indexedDB "inspector" 1)]
+                   (set! (.-onupgradeneeded request)
+                         #(.createObjectStore (.-result request) "handles"))
+                   (set! (.-onsuccess request) #(resolve (.-result request)))
+                   (set! (.-onerror request) #(reject (.-error request)))))
+        asked  (fn [db]
+                 (js/Promise.
+                  (fn [resolve reject]
+                    (let [handles (.objectStore (.transaction db "handles" mode)
+                                                "handles")
+                          request (f handles)]
+                      (set! (.-onsuccess request) #(resolve (.-result request)))
+                      (set! (.-onerror request)
+                            #(reject (.-error request)))))))]
+    (-> (js/Promise. opened)
+        (.then asked))))
 
 (defn- use-folder!
   "Sync through the folder of the handle `h` from now on, as far as the
@@ -196,10 +209,14 @@
           (.then (library/sync! (:library @app) backends)
                  #(swap! app with-synced %))))
        (.catch (fn [e]
-                 (swap! app assoc :syncing? false
-                        :synced {:at     (time/now)
-                                 :report [{:id :sync/backend-failed :backend "inspector" :reason (str e)
-                                           :message "The sync through the inspector failed."}]})))
+                 (let [message "The sync through the inspector failed."
+                       failed  {:id      :sync/backend-failed
+                                :backend "inspector"
+                                :reason  (str e)
+                                :message message}]
+                   (swap! app assoc
+                          :syncing? false
+                          :synced   {:at (time/now) :report [failed]}))))
        (.then (fn [_] (check-folder!))))))
 
 (defn- playing?
@@ -212,14 +229,17 @@
   []
   (when (and (not (:syncing? @app))
              (not (playing?))
-             (<= (inst-ms (library/next-sync (:library @app))) (js/Date.now)))
+             (<= (inst-ms (library/next-sync (:library @app)))
+                 (js/Date.now)))
     (sync!)))
 
 (defn- restore-folder!
   "Take up the sync folder of the last visit, if there was one."
   []
   (-> (handles! "readonly" #(.get % "sync-folder"))
-      (.then (fn [h] (when h (.then (file/query-permission! h) #(use-folder! h %)))))
+      (.then (fn [h]
+               (when h
+                 (.then (file/query-permission! h) #(use-folder! h %)))))
       (.catch (fn [_] nil))))
 
 (defn- pick-folder!
@@ -256,9 +276,11 @@
   "Download this browser's sync document, for the listener to put into a
   sync folder."
   []
-  (let [{:keys [name body]} (library/document (:library @app) {:app "inspector"})
-        url (js/URL.createObjectURL (js/Blob. #js [body] #js {:type "application/edn"}))
-        a   (js/document.createElement "a")]
+  (let [{:keys [name body]} (library/document (:library @app)
+                                              {:app "inspector"})
+        blob (js/Blob. #js [body] #js {:type "application/edn"})
+        url  (js/URL.createObjectURL blob)
+        a    (js/document.createElement "a")]
     (set! (.-href a) url)
     (set! (.-download a) name)
     (.click a)
@@ -282,13 +304,15 @@
       :seek (when-let [el (audio-element)]
               (set! (.-currentTime el) arg))
       :stop (some-> (audio-element) .pause)
-      :play (js/setTimeout #(some-> (audio-element) .play (.catch (fn [_] nil))) 50)
+      :play (let [start #(some-> (audio-element) .play (.catch (fn [_] nil)))]
+              (js/setTimeout start 50))
       nil)))
 
 (defn dispatch!
   "Run the player `event` through the library, and perform its effects."
   [event]
-  (perform! (get-in (swap! app update :library library/step event) [:library :effects])))
+  (let [state (swap! app update :library library/step event)]
+    (perform! (get-in state [:library :effects]))))
 
 (defn- timed
   "The `library` with its sleep timer set to `n` episodes, or without one
@@ -316,15 +340,18 @@
   is first so that the skip starts from the truth."
   [id amount]
   (when-let [el (audio-element)]
-    (dispatch! [:progress id (or (seconds (.-currentTime el)) 0) (seconds (.-duration el))]))
+    (let [at (or (seconds (.-currentTime el)) 0)]
+      (dispatch! [:progress id at (seconds (.-duration el))])))
   (dispatch! [:skip id amount]))
 
 (defn- time-update!
   "Show the audio's position, and record it every five seconds."
   [id el]
-  (let [t (.-currentTime el)
-        d (seconds (.-duration el))]
-    (swap! app assoc :readout (str "at " (time/format-clock t) (when d (str " of " (time/format-clock d)))))
+  (let [t       (.-currentTime el)
+        d       (seconds (.-duration el))
+        readout (str "at " (time/format-clock t)
+                     (when d (str " of " (time/format-clock d))))]
+    (swap! app assoc :readout readout)
     (when (>= (js/Math.abs (- t (or (:reported @app) -10))) 5)
       (swap! app assoc :reported t)
       (dispatch! [:progress id (or (seconds t) 0) d]))))
@@ -334,7 +361,8 @@
   nothing plays now."
   [id el]
   (swap! app assoc :reported (.-currentTime el))
-  (dispatch! [:progress id (or (seconds (.-currentTime el)) 0) (seconds (.-duration el))])
+  (let [at (or (seconds (.-currentTime el)) 0)]
+    (dispatch! [:progress id at (seconds (.-duration el))]))
   (sync!))
 
 (defn handle!
@@ -355,7 +383,9 @@
     :folder/pick   (pick-folder!)
     :folder/allow  (allow-folder!)
     :folder/forget (forget-folder!)
-    :device/retire (when (js/confirm "Retire this device? Its document goes, and it can't sync under its id again.")
+    :device/retire (when (js/confirm (str "Retire this device? Its document "
+                                          "goes, and it can't sync under its "
+                                          "id again."))
                      (operate! crdt/retire (first args)))
     :document/save (save-document!)
     :document/load (load-folder! (.-target e))
@@ -391,10 +421,17 @@
         mode   (.get params "mode")]
     (when (and url guid)
       (js/history.replaceState nil "" "/queue")
-      (-> (js/fetch (str "/episode.edn?url=" (js/encodeURIComponent url) "&guid=" (js/encodeURIComponent guid)))
-          (.then #(if (.-ok %) (.text %) (throw (js/Error. (str "episode.edn answered " (.-status %))))))
-          (.then (fn [edn] (add! (reader/read-string edn) mode)))
-          (.catch #(swap! app assoc :error (str %)))))))
+      (let [query (str "/episode.edn?url=" (js/encodeURIComponent url)
+                       "&guid=" (js/encodeURIComponent guid))
+            text  (fn [response]
+                    (if (.-ok response)
+                      (.text response)
+                      (throw (js/Error. (str "episode.edn answered "
+                                             (.-status response))))))]
+        (-> (js/fetch query)
+            (.then text)
+            (.then (fn [edn] (add! (reader/read-string edn) mode)))
+            (.catch #(swap! app assoc :error (str %))))))))
 
 (defn- shown
   "The page state as the view reads it: with the profile and the sleep
@@ -421,7 +458,8 @@
   "Whether `href` leads to a raw view, such as the model as EDN or the
   round-tripped XML, which has no content area to swap in."
   [href]
-  (boolean (re-find #"\.(edn|xml)$" (.-pathname (js/URL. href js/location.href)))))
+  (let [path (.-pathname (js/URL. href js/location.href))]
+    (boolean (re-find #"\.(edn|xml)$" path))))
 
 (defn- after-navigation!
   []
@@ -436,7 +474,8 @@
   navigated to for real."
   [url push?]
   (-> (js/fetch url)
-      (.then (fn [response] (.then (.text response) #(vector (.-url response) %))))
+      (.then (fn [response]
+               (.then (.text response) #(vector (.-url response) %))))
       (.then (fn [[final html]]
                (let [doc     (.parseFromString (js/DOMParser.) html "text/html")
                      content (.getElementById doc "content")
@@ -444,10 +483,13 @@
                  (if (and content target)
                    ;; the queue page's root goes with the content, and
                    ;; Replicant forgets it only when told
-                   (do (some-> (js/document.getElementById "app") replicant/unmount)
+                   (do (some-> (js/document.getElementById "app")
+                               replicant/unmount)
                        (set! (.-innerHTML target) (.-innerHTML content))
                        (set! js/document.title (.-title doc))
-                       (when push? (js/history.pushState nil "" (or (not-empty final) url)))
+                       (when push?
+                         (let [address (or (not-empty final) url)]
+                           (js/history.pushState nil "" address)))
                        (js/window.scrollTo 0 0)
                        (after-navigation!))
                    (set! js/location.href url)))))
@@ -458,33 +500,43 @@
   (and (zero? (.-button e))
        (not (or (.-metaKey e) (.-ctrlKey e) (.-shiftKey e) (.-altKey e)))))
 
+(defn- follow-link!
+  "Swap in the page that the click `e` on a link of this origin leads to,
+  in place of the browser's navigation."
+  [e]
+  (when-let [a (some-> (.-target e) (.closest "a[href]"))]
+    (let [href (.-href a)]
+      (when (and (plain-click? e)
+                 (not (.-defaultPrevented e))
+                 (not= "_blank" (.-target a))
+                 (not (.hasAttribute a "download"))
+                 (same-origin? href)
+                 (not (raw-view? href))
+                 (not (str/includes? href "#")))
+        (.preventDefault e)
+        (swap-content! href true)))))
+
+(defn- submit-form!
+  "Swap in the page that the submission `e` of a GET form of this origin
+  asks for, in place of the browser's navigation."
+  [e]
+  (let [form (.-target e)]
+    (when (and (= "get" (str/lower-case (or (.-method form) "get")))
+               (same-origin? (.-action form)))
+      (.preventDefault e)
+      (let [action (js/URL. (.-action form))
+            params (js/URLSearchParams. (js/FormData. form))]
+        (swap-content! (str (.-pathname action) "?" (.toString params))
+                       true)))))
+
 (defn- intercept-navigation!
   "Turn same-origin link clicks and GET form submissions into content swaps,
   and the back and forward buttons too."
   []
-  (.addEventListener js/document "click"
-                     (fn [e]
-                       (when-let [a (some-> (.-target e) (.closest "a[href]"))]
-                         (let [href (.-href a)]
-                           (when (and (plain-click? e)
-                                      (not (.-defaultPrevented e))
-                                      (not= "_blank" (.-target a))
-                                      (not (.hasAttribute a "download"))
-                                      (same-origin? href)
-                                      (not (raw-view? href))
-                                      (not (str/includes? href "#")))
-                             (.preventDefault e)
-                             (swap-content! href true))))))
-  (.addEventListener js/document "submit"
-                     (fn [e]
-                       (let [form (.-target e)]
-                         (when (and (= "get" (str/lower-case (or (.-method form) "get")))
-                                    (same-origin? (.-action form)))
-                           (.preventDefault e)
-                           (let [action (js/URL. (.-action form))
-                                 params (js/URLSearchParams. (js/FormData. form))]
-                             (swap-content! (str (.-pathname action) "?" (.toString params)) true))))))
-  (.addEventListener js/window "popstate" (fn [_] (swap-content! js/location.href false))))
+  (.addEventListener js/document "click" follow-link!)
+  (.addEventListener js/document "submit" submit-form!)
+  (.addEventListener js/window "popstate"
+                     (fn [_] (swap-content! js/location.href false))))
 
 (defn- listen-to-other-tabs!
   "Merge in the state another tab of this browser saves, so that neither
@@ -501,7 +553,8 @@
   []
   (sync!)
   (.addEventListener js/document "visibilitychange"
-                     #(when (= "hidden" (.-visibilityState js/document)) (sync!)))
+                     #(when (= "hidden" (.-visibilityState js/document))
+                        (sync!)))
   (js/window.setInterval sync-when-due! 30000))
 
 (defn ^:export init
@@ -515,14 +568,17 @@
     (when (not= (browser-name) (get-in profile [:devices device :name]))
       (operate! crdt/identify {:name (browser-name)})))
   (save! @app)
-  (replicant/set-dispatch! (fn [{:replicant/keys [dom-event]} event] (handle! event dom-event)))
-  (add-watch app ::render (fn [_ _ old new]
-                            (let [kept [:library :titles]]
-                              (when (not= (select-keys old kept) (select-keys new kept))
-                                (save! new)))
-                            ;; the audio reports its time four times a second,
-                            ;; and only the bar shows it
-                            (render! (not= (dissoc old :readout :reported) (dissoc new :readout :reported)))))
+  (replicant/set-dispatch! (fn [{:replicant/keys [dom-event]} event]
+                             (handle! event dom-event)))
+  (add-watch app ::render
+             (fn [_ _ old new]
+               (let [kept [:library :titles]]
+                 (when (not= (select-keys old kept) (select-keys new kept))
+                   (save! new)))
+               ;; the audio reports its time four times a second, and only
+               ;; the bar shows it
+               (render! (not= (dissoc old :readout :reported)
+                              (dissoc new :readout :reported)))))
   (intercept-navigation!)
   (listen-to-other-tabs!)
   (render! true)
