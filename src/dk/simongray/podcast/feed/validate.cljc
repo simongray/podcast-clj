@@ -48,24 +48,37 @@
   - an http URL where https is expected"
   [type values v path https?]
   (cond
-    (and (contains? coerce/coerced-types type) (not (coerce/of-type? type v)))
+    (and (contains? coerce/coerced-types type)
+         (not (coerce/of-type? type v)))
     [(diagnostic :validate/invalid-value :error path
-              (str "value " (pr-str v) " is not a valid " (name type)))]
+                 (str "value " (pr-str v) " is not a valid " (name type)))]
 
-    (and (#{:integer :decimal :duration} type) (neg? v))
+    (and (#{:integer :decimal :duration} type)
+         (neg? v))
     [(diagnostic :validate/invalid-value :error path
-              (str "value " (pr-str v) " is below zero, as no quantity in a feed is"))]
+                 (str "value " (pr-str v)
+                      " is below zero, as no quantity in a feed is"))]
 
-    (and (= type :enum) values (not (enum-ok? values v)))
+    (and (= type :enum)
+         values
+         (not (enum-ok? values v)))
     [(diagnostic :validate/invalid-enum :warning path
-              (str "value " (pr-str v) " is not one of " (str/join ", " (sort values))))]
+                 (str "value " (pr-str v) " is not one of "
+                      (str/join ", " (sort values))))]
 
-    (and (= type :url) (string? v) (not (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:" v)))
-    [(diagnostic :validate/invalid-url :warning path (str "not an absolute URL: " (pr-str v)))]
+    (and (= type :url)
+         (string? v)
+         (not (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:" v)))
+    [(diagnostic :validate/invalid-url :warning path
+                 (str "not an absolute URL: " (pr-str v)))]
 
-    (and (= type :url) https? (string? v) (str/starts-with? (str/lower-case v) "http://"))
+    (and (= type :url)
+         https?
+         (string? v)
+         (str/starts-with? (str/lower-case v) "http://"))
     [(diagnostic :validate/http-url :info path
-              "the podcast namespace requires https for hypertext resources")]
+                 (str "the podcast namespace requires https for hypertext"
+                      " resources"))]
 
     :else
     []))
@@ -76,12 +89,15 @@
   [entry m path]
   (let [https? (= "podcast" (namespace (:tag entry)))]
     (mapcat (fn [[k {:keys [type required values]}]]
-              (let [k' (xml/attr-key k)]
+              (let [k'    (xml/attr-key k)
+                    path' (conj path k')
+                    type  (or type :text)]
                 (if (contains? m k')
-                  (typed-diagnostics (or type :text) values (get m k') (conj path k') https?)
+                  (typed-diagnostics type values (get m k') path' https?)
                   (when required
-                    [(diagnostic :validate/missing-attribute :error (conj path k')
-                              (str "required attribute " (name k) " is missing"))]))))
+                    [(diagnostic :validate/missing-attribute :error path'
+                                 (str "required attribute " (name k)
+                                      " is missing"))]))))
             (:attrs entry))))
 
 (defn- content-diagnostics
@@ -99,13 +115,13 @@
    (fn [v path]
      (when (zero? (count-children v :sources))
        [(diagnostic :validate/missing-child :error path
-                 "an alternateEnclosure needs at least one source")]))
+                    "an alternateEnclosure needs at least one source")]))
 
    :podcast/value
    (fn [v path]
      (when (zero? (count-children v :recipients))
        [(diagnostic :validate/missing-child :error path
-                 "a value block needs at least one valueRecipient")]))
+                    "a value block needs at least one valueRecipient")]))
 
    :podcast/valueTimeSplit
    (fn [v path]
@@ -114,40 +130,46 @@
        (when-not (or (and (pos? recipients) (zero? remote))
                      (and (zero? recipients) (= 1 remote)))
          [(diagnostic :validate/invalid-structure :error path
-                   "a valueTimeSplit holds either valueRecipients or exactly one remoteItem")])))
+                      (str "a valueTimeSplit holds either valueRecipients"
+                           " or exactly one remoteItem"))])))
 
    :podcast/podroll
    (fn [v path]
      (when (zero? (count-children v :remote-items))
-       [(diagnostic :validate/missing-child :error path "a podroll needs at least one remoteItem")]))
+       [(diagnostic :validate/missing-child :error path
+                    "a podroll needs at least one remoteItem")]))
 
    :podcast/publisher
    (fn [v path]
      (if-let [remote (:remote-item v)]
        (when-not (= "publisher" (some-> (:medium remote) str/lower-case))
-         [(diagnostic :validate/invalid-structure :error (conj path :remote-item)
-                   "the remoteItem of a publisher element needs medium=publisher")])
+         [(diagnostic :validate/invalid-structure :error
+                      (conj path :remote-item)
+                      (str "the remoteItem of a publisher element needs"
+                           " medium=publisher"))])
        [(diagnostic :validate/missing-child :error path
-                 "a publisher element needs exactly one remoteItem with medium=publisher")]))
+                    (str "a publisher element needs exactly one remoteItem"
+                         " with medium=publisher"))]))
 
    :podcast/liveItem
    (fn [v path]
      (when (zero? (count-children v :podcast/content-links))
        [(diagnostic :validate/missing-child :error path
-                 "a liveItem must have a contentLink as a fallback")]))
+                    "a liveItem must have a contentLink as a fallback")]))
 
    :podcast/person
    (fn [v path]
      (when-let [role (:role v)]
        (when-not (contains? spec/roles (str/lower-case role))
          [(diagnostic :validate/unknown-role :info (conj path :role)
-                   (str "role " (pr-str role) " is not in the Podcast Taxonomy"))])))
+                      (str "role " (pr-str role)
+                           " is not in the Podcast Taxonomy"))])))
 
    :podcast/guid
    (fn [v path]
      (when-not (guid/guid? v)
        [(diagnostic :validate/invalid-guid :warning path
-                 (str "podcast:guid " (pr-str v) " is not a UUID"))]))})
+                    (str "podcast:guid " (pr-str v) " is not a UUID"))]))})
 
 (declare children-diagnostics)
 
@@ -161,16 +183,22 @@
   namespace of the library counts, since any other can be an attribute
   that a parse kept."
   [registry context entry m path]
-  (let [known (cond-> (into #{:content :xml/unknown}
-                            (concat (map #(spec/key-for % context) (spec/entries-for registry context))
-                                    (map xml/attr-key (keys (:attrs entry)))))
-                (nil? entry) (conj :rss/version))
-        ours? (fn [k]
-                (let [ns (namespace k)]
-                  (or (= "rss" ns) (contains? xml/namespaces (keyword ns)))))]
+  (let [child-keys (map #(spec/key-for % context)
+                        (spec/entries-for registry context))
+        attr-keys  (map xml/attr-key (keys (:attrs entry)))
+        known      (cond-> (into #{:content :xml/unknown}
+                                 (concat child-keys attr-keys))
+                     (nil? entry) (conj :rss/version))
+        ours?      (fn [k]
+                     (let [ns (namespace k)]
+                       (or (= "rss" ns)
+                           (contains? xml/namespaces (keyword ns)))))]
     (for [k     (keys m)
           :when (and (not (contains? known k))
-                     (or (nil? entry) (and (keyword? k) (namespace k) (ours? k))))]
+                     (or (nil? entry)
+                         (and (keyword? k)
+                              (namespace k)
+                              (ours? k))))]
       (diagnostic :validate/unknown-key :warning (conj path k)
                   (str "unknown key " (pr-str k))))))
 
@@ -191,22 +219,26 @@
   attributes, content, children and structure."
   [registry entry v path]
   (let [structural  (get structural-rules (:tag entry))
-        map-shaped? (spec/map-shaped? registry entry)]
+        map-shaped? (spec/map-shaped? registry entry)
+        context     (spec/children-context entry)]
     (cond
       (and map-shaped? (not (map? v)))
       [(diagnostic :validate/wrong-shape :error path
-                   (str (xml/qname (:tag entry)) " takes a map of its attributes and children, not " (shape v)))]
+                   (str (xml/qname (:tag entry))
+                        " takes a map of its attributes and children, not "
+                        (shape v)))]
 
       (and (not map-shaped?) (coll? v))
       [(diagnostic :validate/wrong-shape :error path
-                   (str (xml/qname (:tag entry)) " takes a single value, not " (shape v)))]
+                   (str (xml/qname (:tag entry))
+                        " takes a single value, not " (shape v)))]
 
       map-shaped?
       (concat (attr-diagnostics entry v path)
               (when (some? (:content v))
                 (content-diagnostics entry (:content v) (conj path :content)))
-              (children-diagnostics registry (spec/children-context entry) v path)
-              (unknown-key-diagnostics registry (spec/children-context entry) entry v path)
+              (children-diagnostics registry context v path)
+              (unknown-key-diagnostics registry context entry v path)
               (when structural (structural v path)))
 
       :else
@@ -216,10 +248,11 @@
 (defn- deprecated-diagnostic
   [entry path]
   (when-let [d (:deprecated entry)]
-    [(cond-> (diagnostic :validate/deprecated :info path
-                         (str (xml/qname (:tag entry)) " is deprecated"
-                              (when (keyword? d) (str "; use " (xml/qname d)))))
-       (keyword? d) (assoc :replaced-by d))]))
+    (let [instead (when (keyword? d)
+                    (str "; use " (xml/qname d)))
+          message (str (xml/qname (:tag entry)) " is deprecated" instead)]
+      [(cond-> (diagnostic :validate/deprecated :info path message)
+         (keyword? d) (assoc :replaced-by d))])))
 
 (defn- children-diagnostics
   "The diagnostics of every entry of `registry` in the model map `m` at
@@ -239,27 +272,31 @@
      f)
    (for [element (:xml/unknown m)]
      (diagnostic :validate/unknown-element :info (conj path :xml/unknown)
-              (str "unknown element " (pr-str (first element)))
-              :tag (first element)))))
+                 (str "unknown element " (pr-str (first element)))
+                 :tag (first element)))))
 
 (defn- rss-diagnostics
   [feed]
-  (concat
-   (when-not (= "2.0" (:rss/version feed))
-     [(diagnostic :validate/rss-version :warning [:rss/version]
-               (str "rss version is " (pr-str (:rss/version feed)) ", expected 2.0"))])
-   (for [k [:rss/title :rss/link :rss/description]
-         :when (nil? (get feed k))]
-     (diagnostic :validate/missing-element :error [k]
-              (str "RSS 2.0 requires a channel " (name k))))
-   (for [[i item] (map-indexed vector (:rss/items feed))
-         :when (not (or (:rss/title item) (:rss/description item)))]
-     (diagnostic :validate/missing-element :error [:rss/items i]
-              "RSS 2.0 requires an item to have a title or a description"))
-   (for [[i item] (map-indexed vector (:rss/items feed))
-         :when (not (:rss/enclosure item))]
-     (diagnostic :validate/missing-enclosure :warning [:rss/items i :rss/enclosure]
-              "the item has no enclosure, so there is nothing to play"))))
+  (let [items (map-indexed vector (:rss/items feed))]
+    (concat
+     (when-not (= "2.0" (:rss/version feed))
+       [(diagnostic :validate/rss-version :warning [:rss/version]
+                    (str "rss version is " (pr-str (:rss/version feed))
+                         ", expected 2.0"))])
+     (for [k [:rss/title :rss/link :rss/description]
+           :when (nil? (get feed k))]
+       (diagnostic :validate/missing-element :error [k]
+                   (str "RSS 2.0 requires a channel " (name k))))
+     (for [[i item] items
+           :when (not (or (:rss/title item)
+                          (:rss/description item)))]
+       (diagnostic :validate/missing-element :error [:rss/items i]
+                   "RSS 2.0 requires an item to have a title or a description"))
+     (for [[i item] items
+           :when (not (:rss/enclosure item))]
+       (diagnostic :validate/missing-enclosure :warning
+                   [:rss/items i :rss/enclosure]
+                   "the item has no enclosure, so there is nothing to play")))))
 
 (def requirements
   "The required and recommended elements of the channel and of an item,
@@ -269,41 +306,54 @@
   value, and a description. They're the requirements of PSP-1, and of
   Apple's A Podcaster's Guide to RSS, as of September 2026. The function
   validate takes them by their name here, or as a map of this shape."
-  {:psp-1 {:name    "Podcast Standards Project PSP-1"
-           :channel {:required    [[:atom/links #(some (comp #{"self"} :rel) %) "atom:link rel=self"]
-                                   :rss/title :rss/description :rss/link :rss/language
-                                   :itunes/categories :itunes/explicit :itunes/image]
-                     :recommended [:podcast/locked :podcast/guid :itunes/author]}
-           :item    {:required    [:rss/title :rss/enclosure :rss/guid]
-                     :recommended [:rss/link :rss/pub-date :rss/description :itunes/duration
-                                   :itunes/image :itunes/explicit :podcast/transcripts]}}
-   :apple {:name    "Apple Podcasts"
-           :channel {:required    [:rss/title :rss/description :itunes/image :rss/language
-                                   :itunes/categories :itunes/explicit]
-                     :recommended [:itunes/author :rss/link]}
-           :item    {:required    [:rss/title :rss/enclosure :rss/guid]
-                     :recommended [:rss/pub-date :rss/description :itunes/duration
-                                   :rss/link :itunes/image :itunes/explicit]}}})
+  (let [self-link [:atom/links
+                   #(some (comp #{"self"} :rel) %)
+                   "atom:link rel=self"]]
+    {:psp-1 {:name    "Podcast Standards Project PSP-1"
+             :channel {:required    [self-link :rss/title :rss/description
+                                     :rss/link :rss/language :itunes/categories
+                                     :itunes/explicit :itunes/image]
+                       :recommended [:podcast/locked :podcast/guid
+                                     :itunes/author]}
+             :item    {:required    [:rss/title :rss/enclosure :rss/guid]
+                       :recommended [:rss/link :rss/pub-date :rss/description
+                                     :itunes/duration :itunes/image
+                                     :itunes/explicit :podcast/transcripts]}}
+     :apple {:name    "Apple Podcasts"
+             :channel {:required    [:rss/title :rss/description :itunes/image
+                                     :rss/language :itunes/categories
+                                     :itunes/explicit]
+                       :recommended [:itunes/author :rss/link]}
+             :item    {:required    [:rss/title :rss/enclosure :rss/guid]
+                       :recommended [:rss/pub-date :rss/description
+                                     :itunes/duration :rss/link :itunes/image
+                                     :itunes/explicit]}}}))
 
 (defn- missing-diagnostics
   [level id m reqs path]
-  (for [req reqs
-        :when (map? m)
-        :let [[k pred label] (if (vector? req) req [req nil (xml/qname req)])]
-        :when (not (and (some? (get m k)) (or (nil? pred) (pred (get m k)))))]
-    (diagnostic id level (conj path k) (str label " is " (if (= :error level) "required" "recommended")))))
+  (let [wanted (if (= :error level) "required" "recommended")]
+    (for [req   reqs
+          :when (map? m)
+          :let  [[k pred label] (if (vector? req)
+                                  req
+                                  [req nil (xml/qname req)])
+                 v              (get m k)]
+          :when (not (and (some? v)
+                          (or (nil? pred) (pred v))))]
+      (diagnostic id level (conj path k) (str label " is " wanted)))))
 
 (defn- requirements-diagnostics
   [feed chosen]
-  (let [{:keys [channel item]} (if (map? chosen) chosen (requirements chosen))]
-    (concat
-     (missing-diagnostics :error :validate/required feed (:required channel) [])
-     (missing-diagnostics :warning :validate/recommended feed (:recommended channel) [])
-     (mapcat (fn [[i it]]
-               (concat
-                (missing-diagnostics :error :validate/required it (:required item) [:rss/items i])
-                (missing-diagnostics :warning :validate/recommended it (:recommended item) [:rss/items i])))
-             (map-indexed vector (:rss/items feed))))))
+  (let [{:keys [channel item]} (if (map? chosen) chosen (requirements chosen))
+        missing (fn [m reqs path]
+                  (concat (missing-diagnostics :error :validate/required
+                                               m (:required reqs) path)
+                          (missing-diagnostics :warning :validate/recommended
+                                               m (:recommended reqs) path)))]
+    (concat (missing feed channel [])
+            (mapcat (fn [[i it]]
+                      (missing it item [:rss/items i]))
+                    (map-indexed vector (:rss/items feed))))))
 
 (defn validate
   "The diagnostics of `feed` with the `opts` below: the checks of the
@@ -317,10 +367,17 @@
   here too."
   ([feed]
    (validate feed {}))
-  ([feed {chosen :requirements :keys [registry] :or {registry spec/default} :as opts}]
+  ([feed {chosen :requirements
+          :keys  [registry]
+          :or    {registry spec/default}
+          :as    opts}]
    {:pre [(map? opts)]}
-   (when (and chosen (not (map? chosen)) (not (contains? requirements chosen)))
-     (throw (ex-info (str "Unknown requirements " chosen) {:requirements chosen :known (set (keys requirements))})))
+   (when (and chosen
+              (not (map? chosen))
+              (not (contains? requirements chosen)))
+     (throw (ex-info (str "Unknown requirements " chosen)
+                     {:requirements chosen
+                      :known        (set (keys requirements))})))
    (let [registry (spec/registry registry)
          feed     (feed/normalize feed {:registry registry})]
      (vec (concat (rss-diagnostics feed)

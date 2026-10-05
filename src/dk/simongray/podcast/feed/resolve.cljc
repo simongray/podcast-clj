@@ -15,7 +15,8 @@
 (defn title
   "The title of `x`: the RSS title, or else the iTunes one."
   [x]
-  (or (:rss/title x) (:itunes/title x)))
+  (or (:rss/title x)
+      (:itunes/title x)))
 
 (defn description
   "The fullest description of `x`, HTML allowed: content:encoded, then the
@@ -88,7 +89,8 @@
   :height, :aspect-ratio and :alt are there when declared."
   [x]
   (concat
-   (for [{:keys [href width height aspect-ratio alt] :as image} (:podcast/images x)
+   (for [image (:podcast/images x)
+         :let  [{:keys [href width height aspect-ratio alt]} image]
          :when href]
      (cond-> {:href href :source :podcast :purpose (purposes image)}
        width        (assoc :width width)
@@ -111,7 +113,8 @@
   "Whether `image` is square, or says nothing about its shape."
   [{:keys [aspect-ratio width height] :as image}]
   (cond
-    aspect-ratio       (contains? #{"1/1" "1" "1:1"} (str/replace aspect-ratio #"\s" ""))
+    aspect-ratio       (contains? #{"1/1" "1" "1:1"}
+                                  (str/replace aspect-ratio #"\s" ""))
     (and width height) (= width height)
     :else              true))
 
@@ -120,7 +123,8 @@
   has no stated purpose and isn't another shape."
   [image]
   (or (contains? (:purpose image) "artwork")
-      (and (empty? (:purpose image)) (square? image))))
+      (and (empty? (:purpose image))
+           (square? image))))
 
 (defn artwork
   "The URL of the square artwork of `x`, or of an `item` of `feed`, with
@@ -130,10 +134,12 @@
   image, the Google Play image, the RSS image or a media thumbnail."
   ([x]
    (let [candidates (images x)
-         artworks   (filter #(and (= :podcast (:source %)) (artwork? %)) candidates)
-         width      #(let [w (:width %)] (if (number? w) w 0))]
-     (:href (or (first (sort-by #(- (width %)) artworks))
-                (first (remove #(= :podcast (:source %)) candidates))))))
+         podcast?   #(= :podcast (:source %))
+         artworks   (filter (every-pred podcast? artwork?) candidates)
+         width      #(let [w (:width %)] (if (number? w) w 0))
+         largest    (first (sort-by #(- (width %)) artworks))]
+     (:href (or largest
+                (first (remove podcast? candidates))))))
   ([feed item]
    (or (artwork item) (artwork feed))))
 
@@ -164,9 +170,12 @@
   under nil. An item doesn't inherit the texts of its feed, except through
   ai-content?."
   [x]
-  (let [texts (filter #(let [s (:content %)] (and (string? s) (not (str/blank? s))))
-                      (:podcast/txt x))]
-    (update-vals (group-by #(some-> (:purpose %) str/lower-case) texts)
+  (let [text?   #(let [s (:content %)]
+                   (and (string? s)
+                        (not (str/blank? s))))
+        texts   (filter text? (:podcast/txt x))
+        purpose #(some-> (:purpose %) str/lower-case)]
+    (update-vals (group-by purpose texts)
                  #(mapv :content %))))
 
 (defn ai-content?
@@ -211,9 +220,12 @@
   [item]
   (let [season  (:podcast/season item)
         episode (:podcast/episode item)
-        s       (first (filter number? [(:content season) (:itunes/season item)]))
-        e       (first (filter number? [(:content episode) (:itunes/episode item)]))]
-    (cond-> {:type (str/lower-case (or (:itunes/episode-type item) "full"))}
+        s       (first (filter number? [(:content season)
+                                        (:itunes/season item)]))
+        e       (first (filter number? [(:content episode)
+                                        (:itunes/episode item)]))
+        type    (str/lower-case (or (:itunes/episode-type item) "full"))]
+    (cond-> {:type type}
       (number? s)        (assoc :season s)
       (:name season)     (assoc :season-name (:name season))
       (number? e)        (assoc :episode e)
@@ -261,9 +273,11 @@
   "The position of `type` among the preferred `types`, ignoring case, or
   after them all when it isn't among them."
   [types type]
-  (or (first (keep-indexed (fn [i wanted] (when (= (str/lower-case wanted) (str/lower-case (str type))) i))
-                           types))
-      (count types)))
+  (let [type (str/lower-case (str type))]
+    (or (first (keep-indexed (fn [i wanted]
+                               (when (= type (str/lower-case wanted)) i))
+                             types))
+        (count types))))
 
 (defn- source-rank
   "The order of the `source` of enclosures, when nothing else tells them
@@ -286,10 +300,15 @@
    (enclosure item nil))
   ([item {:keys [types max-bitrate] :as opts}]
    (let [rank (fn [{:keys [type bitrate default is-default source]}]
-                [(if types (type-rank types type) 0)
-                 (if (and max-bitrate (number? bitrate) (> bitrate max-bitrate)) 1 0)
-                 (source-rank source)
-                 (if (or (true? default) (true? is-default)) 0 1)])]
+                (let [over?    (and max-bitrate
+                                    (number? bitrate)
+                                    (> bitrate max-bitrate))
+                      default? (or (true? default)
+                                   (true? is-default))]
+                  [(if types (type-rank types type) 0)
+                   (if over? 1 0)
+                   (source-rank source)
+                   (if default? 0 1)]))]
      (first (sort-by rank (enclosures item))))))
 
 (def ^:no-doc transcript-preference
@@ -301,7 +320,8 @@
 
 (def timed-transcript-types
   "The transcript types whose files have timings as a rule."
-  #{"text/vtt" "application/x-subrip" "application/srt" "text/srt" "application/json"})
+  #{"text/vtt" "application/x-subrip" "application/srt" "text/srt"
+    "application/json"})
 
 (defn- language-tag
   "The primary subtag of the language `s` (RFC 5646, section 2.2.1), e.g.
@@ -316,13 +336,15 @@
   A language that matches none comes after them all, and an unknown
   language comes before those that don't match."
   [languages language]
-  (cond
-    (empty? languages) 0
-    (nil? language)    (count languages)
-    :else              (or (first (keep-indexed (fn [i wanted]
-                                                  (when (= (language-tag wanted) (language-tag language)) i))
-                                                languages))
-                           (inc (count languages)))))
+  (let [tag     (language-tag language)
+        matches (keep-indexed (fn [i wanted]
+                                (when (= tag (language-tag wanted)) i))
+                              languages)]
+    (cond
+      (empty? languages) 0
+      (nil? language)    (count languages)
+      :else              (or (first matches)
+                             (inc (count languages))))))
 
 (defn- timed-transcript?
   "Whether the transcript reference `ref` has timings: rel=captions, or a
@@ -347,12 +369,17 @@
    (transcript nil item nil))
   ([feed item]
    (transcript feed item nil))
-  ([feed item {:keys [types languages timed?] :or {types transcript-preference} :as opts}]
+  ([feed item {:keys [types languages timed?]
+               :or   {types transcript-preference}
+               :as   opts}]
    (let [default-language (:rss/language feed)
          rank             (fn [{:keys [type language] :as ref}]
-                            [(language-rank languages (or language default-language))
-                             (if (and timed? (not (timed-transcript? ref))) 1 0)
-                             (type-rank types type)])]
+                            (let [language (or language default-language)
+                                  untimed? (and timed?
+                                                (not (timed-transcript? ref)))]
+                              [(language-rank languages language)
+                               (if untimed? 1 0)
+                               (type-rank types type)]))]
      (first (sort-by rank (:podcast/transcripts item))))))
 
 (defn chapters-url
@@ -383,10 +410,14 @@
   no duration above zero."
   [item]
   (for [{:keys [start-time duration content]} (:podcast/soundbites item)
-        :when (and (number? start-time) (<= 0 start-time)
-                   (number? duration) (pos? duration))]
+        :when (and (number? start-time)
+                   (<= 0 start-time)
+                   (number? duration)
+                   (pos? duration))]
     (cond-> {:start-time start-time :duration duration}
-      (and (string? content) (not (str/blank? content))) (assoc :title content))))
+      (and (string? content)
+           (not (str/blank? content)))
+      (assoc :title content))))
 
 (defn people
   "The people credited on `x`, or on an `item` of `feed`, as maps of :name,
@@ -411,7 +442,8 @@
   "The value of `k` on `item` when it declares one, or else that of `feed`."
   [k feed item]
   (let [v (get item k)]
-    (if (or (nil? v) (and (coll? v) (empty? v)))
+    (if (or (nil? v)
+            (and (coll? v) (empty? v)))
       (get feed k)
       v)))
 
@@ -433,6 +465,16 @@
   ([x] (:podcast/chat x))
   ([feed item] (inherited :podcast/chat feed item)))
 
+(defn- social-interact
+  "The podcast:socialInteract `interact` as social-interacts gives it, or
+  nil when it names no protocol and URI, and isn't the protocol disabled."
+  [{:keys [protocol uri] :as interact}]
+  (let [protocol (some-> protocol str/lower-case)]
+    (when (or (= "disabled" protocol)
+              (and protocol uri))
+      (-> (select-keys interact [:uri :account-id :account-url :priority])
+          (assoc :protocol protocol)))))
+
 (defn social-interacts
   "Where the public comments on `x`, or on an `item` of `feed`, are: the
   root posts of the threads that its podcast:socialInteract elements name.
@@ -446,14 +488,11 @@
   public comments shown, and the answer is [{:protocol \"disabled\"}]. An
   item without an answer has that of its feed."
   ([x]
-   (let [interacts (for [{:keys [protocol uri] :as interact} (:podcast/social-interacts x)
-                         :let  [protocol (some-> protocol str/lower-case)]
-                         :when (or (= "disabled" protocol) (and protocol uri))]
-                     (-> (select-keys interact [:uri :account-id :account-url :priority])
-                         (assoc :protocol protocol)))]
+   (let [interacts (keep social-interact (:podcast/social-interacts x))
+         priority  #(let [p (:priority %)] (if (number? p) p ##Inf))]
      (if (some #(= "disabled" (:protocol %)) interacts)
        [{:protocol "disabled"}]
-       (sort-by #(let [p (:priority %)] (if (number? p) p ##Inf)) interacts))))
+       (sort-by priority interacts))))
   ([feed item]
    (let [own (social-interacts item)]
      (if (seq own) own (social-interacts feed)))))
@@ -480,11 +519,12 @@
   "The live items of `feed`: on air first, then upcoming, the soonest
   first, then ended, the most recent first."
   [feed]
-  (let [ms #(if (inst? %) (inst-ms %) 0)]
-    (sort-by (fn [{:keys [status start]}]
-               (let [rank (get live-status-order (some-> status str/lower-case) 3)]
-                 [rank (if (= 2 rank) (- (ms start)) (ms start))]))
-             (:podcast/live-items feed))))
+  (let [ms    #(if (inst? %) (inst-ms %) 0)
+        order (fn [{:keys [status start]}]
+                (let [status (some-> status str/lower-case)
+                      rank   (get live-status-order status 3)]
+                  [rank (if (= 2 rank) (- (ms start)) (ms start))]))]
+    (sort-by order (:podcast/live-items feed))))
 
 (defn live?
   "Whether the `live-item` is on air at `at`: its status says so, or the
@@ -493,9 +533,11 @@
   (let [status (some-> status str/lower-case)]
     (or (= "live" status)
         (and (not= "ended" status)
-             (inst? start) (inst? at)
+             (inst? start)
+             (inst? at)
              (<= (inst-ms start) (inst-ms at))
-             (or (not (inst? end)) (< (inst-ms at) (inst-ms end)))))))
+             (or (not (inst? end))
+                 (< (inst-ms at) (inst-ms end)))))))
 
 (defn medium
   "What the content of `feed` is, in lower case, or \"podcast\" when that's
@@ -509,7 +551,8 @@
   list."
   [feed]
   (let [m (medium feed)]
-    (or (= m "mixed") (str/ends-with? m "l"))))
+    (or (= m "mixed")
+        (str/ends-with? m "l"))))
 
 (defn complete?
   "Whether `feed` says it will publish no more episodes."
@@ -541,13 +584,21 @@
   one that the library doesn't evaluate, as rrule/occurrences says."
   [feed at]
   (let [{:keys [rrule dtstart]} (:podcast/update-frequency feed)
-        latest (some-> (first (dates feed (inst-ms at))) time/->inst)]
-    (when (and (map? rrule) (not (complete? feed)))
-      (rrule/next-occurrence rrule (or (when (inst? dtstart) dtstart) latest at) at))))
+        latest (some-> (first (dates feed (inst-ms at))) time/->inst)
+        anchor (or (when (inst? dtstart) dtstart)
+                   latest
+                   at)]
+    (when (and (map? rrule)
+               (not (complete? feed)))
+      (rrule/next-occurrence rrule anchor at))))
 
 (def ^:no-doc syndication-periods
   "The milliseconds of each period that sy:updatePeriod can name."
-  {"hourly" 3600000 "daily" 86400000 "weekly" 604800000 "monthly" 2629800000 "yearly" 31557600000})
+  {"hourly"  3600000
+   "daily"   86400000
+   "weekly"  604800000
+   "monthly" 2629800000
+   "yearly"  31557600000})
 
 (defn- median
   [xs]
@@ -566,6 +617,29 @@
         gaps   (filter pos? (map - recent (rest recent)))]
     (when (seq gaps)
       (median gaps))))
+
+(defn- syndication-due
+  "When the sy:updatePeriod and sy:updateFrequency of `feed` say to look
+  at it again after `at-ms`, or nil when it names no period."
+  [feed at-ms]
+  (when-let [period (syndication-periods (some-> (:sy/update-period feed)
+                                                 str/lower-case))]
+    (let [frequency (:sy/update-frequency feed)
+          frequency (if (and (number? frequency) (pos? frequency))
+                      frequency
+                      1)]
+      (+ at-ms (quot period frequency)))))
+
+(defn- cadence-due
+  "When the recent items of `feed` say to look at it again after `at-ms`:
+  the date of the latest plus the median gap between them, or `at-ms`
+  plus that gap when that time is past. It's nil without a gap."
+  [feed at-ms]
+  (when-let [gap (cadence feed at-ms)]
+    (let [due (+ (first (dates feed at-ms)) gap)]
+      (if (> due at-ms)
+        due
+        (+ at-ms gap)))))
 
 (defn next-check
   "When to look at `feed` again for something new, judged at `at`, with the
@@ -600,15 +674,13 @@
                      ;; in floating point, so that an absurd ttl cannot overflow
                      (when (and (number? ttl) (pos? ttl))
                        (+ at-ms (* 60000.0 ttl)))
-                     (when-let [period (syndication-periods (some-> (:sy/update-period feed) str/lower-case))]
-                       (let [frequency (:sy/update-frequency feed)]
-                         (+ at-ms (quot period (if (and (number? frequency) (pos? frequency)) frequency 1)))))
-                     (when-let [gap (cadence feed at-ms)]
-                       (let [due (+ (first (dates feed at-ms)) gap)]
-                         (if (> due at-ms) due (+ at-ms gap)))))
+                     (syndication-due feed at-ms)
+                     (cadence-due feed at-ms))
            due   (some-> due (min (+ at-ms (syndication-periods "yearly"))))
            floor (some-> not-before inst-ms)]
-       (when-let [t (if (and due floor) (max due floor) (or due floor))]
+       (when-let [t (if (and due floor)
+                      (max due floor)
+                      (or due floor))]
          (time/->inst (long t)))))))
 
 (defn locked?
@@ -626,7 +698,8 @@
   [x platform]
   (let [slug    (str/lower-case (name platform))
         blocks  (:podcast/blocks x)
-        named   (some #(when (= slug (some-> (:id %) str/lower-case)) %) blocks)
+        names?  #(= slug (some-> (:id %) str/lower-case))
+        named   (some #(when (names? %) %) blocks)
         general (some #(when (nil? (:id %)) %) blocks)]
     (cond
       named             (true? (:content named))
@@ -638,13 +711,20 @@
 (defn new-feed-url
   "Where `feed` says that it has moved to, if anywhere."
   [feed]
-  (or (:itunes/new-feed-url feed) (:googleplay/new-feed-url feed)))
+  (or (:itunes/new-feed-url feed)
+      (:googleplay/new-feed-url feed)))
+
+(defn ^:no-doc atom-links
+  "The atom:links of `feed` with the link relation `rel`, given in lower
+  case, in the order of the feed."
+  [feed rel]
+  (filter #(= rel (some-> (:rel %) str/lower-case))
+          (:atom/links feed)))
 
 (defn self-url
   "The canonical URL of `feed`, from its atom:link rel=self."
   [feed]
-  (some #(when (= "self" (some-> (:rel %) str/lower-case)) (:href %))
-        (:atom/links feed)))
+  (some :href (atom-links feed "self")))
 
 (defn hubs
   "The URLs of the WebSub hubs of `feed`, from its atom:links with
@@ -653,8 +733,7 @@
   A hub tells its subscribers when the feed changes.
   dk.simongray.podcast.updates.websub has the requests of a subscriber."
   [feed]
-  (keep #(when (= "hub" (some-> (:rel %) str/lower-case)) (:href %))
-        (:atom/links feed)))
+  (keep :href (atom-links feed "hub")))
 
 (defn next-page
   "The URL of the page with the older items of `feed`, when the feed comes
@@ -664,9 +743,9 @@
   rel=prev-archive of an archived feed. It's as the feed writes it, so it
   can be relative to the URL of the page."
   [feed]
-  (let [href (fn [rel] (some #(when (= rel (some-> (:rel %) str/lower-case)) (:href %))
-                             (:atom/links feed)))]
-    (or (href "next") (href "prev-archive"))))
+  (let [href #(some :href (atom-links feed %))]
+    (or (href "next")
+        (href "prev-archive"))))
 
 (defn podroll
   "The shows that `feed` recommends, from its podcast:podroll, in the order
@@ -712,12 +791,14 @@
       (or (:feed-guid item) (:feed-url item))
       item
 
-      (not (or (list-feed? feed) (= "publisher" (medium feed))))
+      (not (or (list-feed? feed)
+               (= "publisher" (medium feed))))
       (some #(when (= "publisher" (some-> (:medium %) str/lower-case)) %)
             (remote-items feed)))))
 
 (defn- category-paths
-  "The paths of `categories` and of their subcategories, each below `prefix`."
+  "The paths of `categories` and of their subcategories, each below
+  `prefix`."
   [prefix categories]
   (mapcat (fn [{:keys [text categories]}]
             (let [path (conj prefix text)]
@@ -826,17 +907,19 @@
 (def ^:no-doc episode-properties
   "The accessors of an episode by property, each of the feed and the item,
   inheriting as the forms with two arguments do."
-  (merge (update-vals {:title title :description description :author author
-                       :link link :published published :images images
-                       :duration duration :numbering numbering
-                       :enclosures enclosures :enclosure enclosure
-                       :chapters-url chapters-url :embedded-chapters embedded-chapters
-                       :soundbites soundbites :txt txt}
-                      of-item)
-         {:artwork artwork :explicit? explicit? :ai-content? ai-content?
-          :transcript transcript :people people :funding funding :license license
-          :chat chat :social-interacts social-interacts :locations locations
-          :value value}))
+  (let [of-items {:title title :description description :author author
+                  :link link :published published :images images
+                  :duration duration :numbering numbering
+                  :enclosures enclosures :enclosure enclosure
+                  :chapters-url chapters-url
+                  :embedded-chapters embedded-chapters
+                  :soundbites soundbites :txt txt}
+        of-both  {:artwork artwork :explicit? explicit?
+                  :ai-content? ai-content? :transcript transcript
+                  :people people :funding funding :license license
+                  :chat chat :social-interacts social-interacts
+                  :locations locations :value value}]
+    (merge (update-vals of-items of-item) of-both)))
 
 (defn- answer
   "The value `v` of an accessor as a property: a sequence as a vector, and
@@ -886,6 +969,29 @@
   [f arity]
   (some? (answer (apply f (repeat arity {})))))
 
+(defn- explaining-paths
+  "The paths into `m` of the keys whose entry alone makes the accessor `f`
+  give `expected`, in the order of the keys. A path is `prefix` and the
+  key, and `args` makes the arguments of `f` of the map of the entry."
+  [f expected m prefix args]
+  (for [k     (sort (keys m))
+        :when (explains? f expected (args (select-keys m [k])))]
+    (conj prefix k)))
+
+(defn- paths-by-property
+  "The paths of each property in the answers `full` of the accessors of
+  `table`, as `paths-of` gives them for the accessor and its answer.
+
+  A property that the accessor answers from `arity` empty maps, a default,
+  is left out, and so is one without paths."
+  [table full arity paths-of]
+  (into {} (for [[k f] table
+                 :when (and (contains? full k)
+                            (not (from-defaults? f arity)))
+                 :let  [paths (vec (paths-of f (get full k)))]
+                 :when (seq paths)]
+             [k paths])))
+
 (defn sources
   "Where the properties of `feed`, or of its `item`, were read from.
 
@@ -895,27 +1001,15 @@
   paths mean that several fields agree. A property put together from more
   than one field, or answered by a default, is left out."
   ([feed]
-   (let [full (properties feed)]
-     (into {} (for [[k f] show-properties
-                    :when (and (contains? full k) (not (from-defaults? f 1)))
-                    :let  [paths (vec (for [key (sort (keys feed))
-                                            :when (explains? f (get full k) [(select-keys feed [key])])]
-                                        [key]))]
-                    :when (seq paths)]
-                [k paths]))))
+   (paths-by-property show-properties (properties feed) 1
+                      (fn [f expected]
+                        (explaining-paths f expected feed [] vector))))
   ([feed item]
-   (let [full (properties feed item)]
-     (into {} (for [[k f] episode-properties
-                    :when (and (contains? full k) (not (from-defaults? f 2)))
-                    :let  [expected (get full k)
-                           paths    (vec (concat (for [key (sort (keys item))
-                                                       :when (explains? f expected [{} (select-keys item [key])])]
-                                                   [:item key])
-                                                 (for [key (sort (keys feed))
-                                                       :when (explains? f expected [(select-keys feed [key]) {}])]
-                                                   [:feed key])))]
-                    :when (seq paths)]
-                [k paths])))))
+   (paths-by-property episode-properties (properties feed item) 2
+                      (fn [f expected]
+                        (let [paths (partial explaining-paths f expected)]
+                          (concat (paths item [:item] #(vector {} %))
+                                  (paths feed [:feed] #(vector % {}))))))))
 
 #?(:clj
    (comment

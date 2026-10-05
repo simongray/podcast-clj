@@ -33,8 +33,7 @@
   relation without a URL is left out. They take the place of the links of
   document-rels that the feed has."
   [feed url items links]
-  (let [self? #(= "self" (some-> (:rel %) str/lower-case))
-        type  (or (some #(when (self? %) (:type %)) (:atom/links feed))
+  (let [type  (or (some :type (resolve/atom-links feed "self"))
                   "application/rss+xml")
         links (for [[rel href] (cons ["self" url] links)
                     :when href]
