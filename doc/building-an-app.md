@@ -607,9 +607,10 @@ kilobytes per episode, so 50 shows with 28,000 episodes take about 60
 megabytes. To leave it out, e.g. on a watch, give `:search? false` in
 the config.
 
-A word that no episode holds also matches words with typos. To allow
-typos in every word, give `{:fuzzy true}`, or `{:fuzzy false}` for none
-but those of `word~`. The words that matched with typos are in the
+A word that no episode holds also matches words with typos: one for a
+word of three to five letters, and two for a longer one, which e.g.
+`{:typo-lengths [4 8]}` changes. To allow typos in every word, give
+`{:fuzzy true}`, or `{:fuzzy false}` for none but those of `word~`. The words that matched with typos are in the
 metadata of the results, and a result that holds such a word only with
 typos has them too, so that the UI can say "Near matches for futrue":
 

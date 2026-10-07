@@ -993,17 +993,27 @@
       (cond-> {:phrase terms}
         prefix? (assoc :prefix? true)))))
 
+(defn- kind
+  "The kind of the query `node`: :and, :or, :not, :term or :phrase, or nil."
+  [node]
+  (some #(when (contains? node %) %) [:and :or :not :term :phrase]))
+
+(defn- map-leaves
+  "The query `node` with `f` applied to each of its terms and phrases,
+  those under a :not too."
+  [f node]
+  (let [k (kind node)]
+    (case k
+      (:and :or)      (update node k #(mapv (partial map-leaves f) %))
+      :not            (update node :not #(map-leaves f %))
+      (:term :phrase) (f node)
+      node)))
+
 (defn- in-field
   "The query `node` with `field` on each of its terms and phrases that
   names no field of its own."
   [node field]
-  (let [each #(mapv (fn [n] (in-field n field)) %)]
-    (cond
-      (contains? node :and) (update node :and each)
-      (contains? node :or)  (update node :or each)
-      (contains? node :not) (update node :not in-field field)
-      (:field node)         node
-      :else                 (assoc node :field field))))
+  (map-leaves #(cond-> % (not (:field %)) (assoc :field field)) node))
 
 (defn- combine
   "The `queries` joined by `op`, :and or :or, as one query, or nil when
@@ -1519,18 +1529,24 @@
               (recur (inc i) one row))))))))
 
 (defn- edits
-  "The edits that the fuzzy term `term` allows: those of :fuzzy when it's a
-  number, at most 2, or by its length for :auto, as the AUTO of
-  Elasticsearch has it, none below 3 characters and 2 above 5."
-  [{:keys [term fuzzy]}]
-  (cond
-    (number? fuzzy) (min 2 (long fuzzy))
-    (= :auto fuzzy) (let [n (count term)]
-                      (cond
-                        (< n 3)  0
-                        (<= n 5) 1
-                        :else    2))
-    :else           0))
+  "The edits that the term `leaf` allows, those of its :fuzzy, at most 2."
+  [{:keys [fuzzy] :as leaf}]
+  (if (number? fuzzy)
+    (min 2 (long fuzzy))
+    0))
+
+;; The AUTO:3,6 of Elasticsearch's fuzziness, and the min_len_1typo and
+;; min_len_2typo of Typesense
+(defn- auto-edits
+  "The edits that `term` allows by its length, with the shortest `lengths`
+  of a word with one edit and with two, [3 6] by default."
+  [term lengths]
+  (let [[one two] (or lengths [3 6])
+        n         (count term)]
+    (cond
+      (< n (long one)) 0
+      (< n (long two)) 1
+      :else            2)))
 
 (def ^:no-doc fuzzy-weight
   "How much a match with typos weighs before its edits count, as the
@@ -1715,49 +1731,37 @@
   "The query `node` with what scoring its terms and phrases takes, worked
   out once for all the segments of `ctx`."
   [ctx node]
-  (let [each #(mapv (fn [n] (prepared ctx n)) %)]
-    (cond
-      (contains? node :and)    (update node :and each)
-      (contains? node :or)     (update node :or each)
-      (contains? node :not)    (update node :not #(prepared ctx %))
-      (contains? node :phrase) (prepared-phrase ctx node)
-      (contains? node :term)   (prepared-term ctx node)
-      :else                    node)))
+  (map-leaves #(if (:phrase %)
+                 (prepared-phrase ctx %)
+                 (prepared-term ctx %))
+              node))
+
+(defn- with-edits
+  "The term `leaf` with the edits that it allows as its :fuzzy: those of
+  its own, or of `fuzzy` when that's true or a number, or else when
+  `unknown?` picks it and `fuzzy` is nil. Its length decides the edits of
+  true and :auto by the `lengths` of auto-edits."
+  [{:keys [term] :as leaf} fuzzy unknown? lengths]
+  (let [wanted (cond
+                 (:fuzzy leaf)    (:fuzzy leaf)
+                 (true? fuzzy)    :auto
+                 (number? fuzzy)  fuzzy
+                 (and (nil? fuzzy)
+                      (unknown? leaf)) :auto)]
+    (cond-> leaf
+      wanted (assoc :fuzzy (if (= :auto wanted)
+                             (auto-edits term lengths)
+                             wanted)))))
 
 (defn- with-fuzzy
-  "The query `node` with :fuzzy on each term that isn't of a script without
-  spaces and has none of its own: `fuzzy` when it's true or a number, and
-  :auto on those that `unknown?` picks when it's nil. When `fuzzy` is
-  false, `node` stays as it is."
-  [node fuzzy unknown?]
-  (let [fuzzy (if (true? fuzzy) :auto fuzzy)
-        each  #(mapv (fn [n] (with-fuzzy n fuzzy unknown?)) %)]
-    (cond
-      (false? fuzzy)
-      node
-
-      (contains? node :and)
-      (update node :and each)
-
-      (contains? node :or)
-      (update node :or each)
-
-      (contains? node :not)
-      (update node :not with-fuzzy fuzzy unknown?)
-
-      (or (not (:term node))
-          (:fuzzy node)
-          (text/unspaced? (:term node)))
-      node
-
-      fuzzy
-      (assoc node :fuzzy fuzzy)
-
-      (unknown? node)
-      (assoc node :fuzzy :auto)
-
-      :else
-      node)))
+  "The query `node` with the edits that each of its terms allows, as
+  with-edits gives them with `fuzzy`, `unknown?` and `lengths`, but none
+  for a script without spaces."
+  [node fuzzy unknown? lengths]
+  (map-leaves #(if (and (:term %) (not (text/unspaced? (:term %))))
+                 (with-edits % fuzzy unknown? lengths)
+                 %)
+              node))
 
 (defn- unknown-in
   "A predicate of a term that no document of `index` holds, or with
@@ -1974,6 +1978,16 @@
     (vector? q) (combine (:operator opts :and) (mapv #(hash-map :term %) q))
     :else       q))
 
+(defn- fuzzy-query
+  "The query `q` as as-query reads it with the `opts`, with the edits that
+  each of its terms allows by their :fuzzy and :typo-lengths, where the
+  words that no document holds are those of their :index."
+  [q opts]
+  (some-> (as-query q opts)
+          (with-fuzzy (:fuzzy opts)
+                      (unknown-in (:index opts))
+                      (:typo-lengths opts))))
+
 (defn- compare-ids
   "The order of the ids `x` and `y` of two results of the same score, as
   better gives it."
@@ -2157,6 +2171,8 @@
   - :fuzzy, which words match words with typos too: by default those that
     no document holds, true for all, a number for all with at most that
     many edits, and false for none but those marked with ~ in the query
+  - :typo-lengths, the shortest words with one edit and with two, [3 6]
+    by default, as the AUTO:3,6 of Elasticsearch
   - :boosts, the weight of a match in each field, 1 by default, where 0
     leaves a field out unless the query names it
   - :aliases, other names that a query can give the fields, as a map of a
@@ -2170,8 +2186,8 @@
   Equal scores come in the order of their ids, so the order is stable.
 
   A word with typos has as many edits as the number of :fuzzy, at most
-  2, or else by its length, none below 3 characters and 2 above 5. A
-  match with typos weighs less than an exact one. When words matched
+  2, or else as many as its length allows by the :typo-lengths. A match
+  with typos weighs less than an exact one. When words matched
   others with typos, the results have :typos in their metadata, a map of
   each such word to those it matched, the closest first. A result that
   holds a word only with typos has :typos too, e.g. for a UI to say so:
@@ -2197,11 +2213,8 @@
                    :total           (reduce + 0 (map size segments))
                    :max-completions (:max-completions opts)
                    :max-expansions  (:max-expansions opts)}
-         parsed   (as-query q (assoc opts :index index))
-         node     (when parsed
-                    (prepared ctx (with-fuzzy parsed
-                                    (:fuzzy opts)
-                                    (unknown-in index))))
+         node     (some->> (fuzzy-query q (assoc opts :index index))
+                           (prepared ctx))
          found    (if node
                     (matched ctx node)
                     [])
@@ -2369,8 +2382,8 @@
   parse, and these:
 
   - :width, the number of characters shown, 160 by default
-  - :fuzzy, as query takes it, where the words that no document holds
-    are those of the :index, and none without one"
+  - :fuzzy and :typo-lengths, as query takes them, where the words that
+    no document holds are those of the :index, and none without one"
   ([text q]
    (snippet text q {}))
   ([text q {:keys [width] :or {width 160} :as opts}]
@@ -2378,9 +2391,7 @@
    (let [opts       (merge (:defaults (:index opts)) opts)
          text       (str text)
          spans      (text/spans text)
-         query      (with-fuzzy (as-query q opts)
-                      (:fuzzy opts)
-                      (unknown-in (:index opts)))
+         query      (fuzzy-query q opts)
          found      (hits spans (leaves query))
          length     (count text)
          [from to]  (:window (window spans found width length))
@@ -2425,26 +2436,29 @@
 
 (defn matches?
   "Whether `text` matches the query `q`, read with the `opts` of parse,
-  and :fuzzy as snippet takes it, as one field of a document would."
+  and :fuzzy and :typo-lengths as snippet takes them, as one field of a
+  document would."
   ([text q]
    (matches? text q {}))
   ([text q opts]
    {:pre [(map? opts)]}
-   (let [text   (str text)
+   (let [opts   (merge (:defaults (:index opts)) opts)
+         text   (str text)
          terms  (delay (into #{}
                              (mapcat #(if (vector? %) % [%]))
                              (text/tokens text)))
          spans  (delay (text/spans text))
-         found? (fn [{:keys [term phrase prefix? fuzzy] :as leaf}]
+         found? (fn [{:keys [term phrase prefix?] :as leaf}]
                   (cond
-                    phrase           (boolean (seq (hits @spans [leaf])))
-                    (or prefix?
-                        fuzzy)       (boolean (some #(leaf-matches? leaf %)
-                                                    @terms))
-                    :else            (contains? @terms term)))]
-     (satisfied? found? (with-fuzzy (as-query q opts)
-                          (:fuzzy opts)
-                          (unknown-in (:index opts)))))))
+                    phrase
+                    (boolean (seq (hits @spans [leaf])))
+
+                    (or prefix? (pos? (edits leaf)))
+                    (boolean (some #(leaf-matches? leaf %) @terms))
+
+                    :else
+                    (contains? @terms term)))]
+     (satisfied? found? (fuzzy-query q opts)))))
 
 (comment
   (parse "title:clojure -rust | \"value for va")
