@@ -443,23 +443,23 @@
 (defn- read-feed
   "The candidate in the `attempt` at the feed at `url`, found where
   `where` says and parsed with `opts`, or the diagnostic as :error when
-  the request failed or the answer isn't a feed. Deferred."
+  the request failed or the answer isn't a feed. A platform without an
+  XML parser throws, as rss/try-parse does."
   [url where {response :value :as attempt} opts]
   (if-let [e (failure url attempt)]
     {:error e}
-    (let [body      (str (:body response))
-          found-at  (or (:permanent-url response) url)
-          rss-opts  (select-keys opts [:quirks? :registry :except])
-          malformed #(diagnostics/describe {:id     :fetch/malformed
-                                            :url    url
-                                            :reason %})]
+    (let [body     (str (:body response))
+          found-at (or (:permanent-url response) url)
+          rss-opts (-> (select-keys opts [:quirks? :registry :except])
+                       (assoc :url url))]
       (if-not (feed-document? body)
-        {:error (malformed "The answer isn't a feed")}
-        (async/then (async/attempt #(rss/parse body rss-opts))
-                    (fn [{feed :value error :error}]
-                      (if error
-                        {:error (malformed (async/explain error))}
-                        {:candidate (candidate found-at where feed)})))))))
+        {:error (diagnostics/describe {:id     :fetch/malformed
+                                       :url    url
+                                       :reason "The answer isn't a feed"})}
+        (let [{:keys [feed error]} (rss/try-parse body rss-opts)]
+          (if error
+            {:error error}
+            {:candidate (candidate found-at where feed)}))))))
 
 (defn- podcast-found?
   "Whether the state `acc` of find-feeds! has a podcast among its

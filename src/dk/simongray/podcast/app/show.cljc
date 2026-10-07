@@ -67,12 +67,13 @@
        (assoc :links (links/links (links/ids feed nil {:url url})))))))
 
 (defn- unreachable
-  "The diagnostic for the feed at `url` that couldn't be fetched, because
-  the request failed with `e` or the answer had the `status` of a failure."
-  [url e status]
-  (if e
-    (assoc (bytes/unreachable e) :url url :id :fetch/unreachable)
-    (diagnostics/describe {:id :fetch/unreachable :url url :status status})))
+  "The diagnostic for the feed at `url` that couldn't be fetched: that the
+  answer had the `status` of a failure, or else the `reason` that the
+  request failed."
+  [url status reason]
+  (diagnostics/describe (if status
+                          {:id :fetch/status :url url :status status}
+                          {:id :fetch/unreachable :url url :reason reason})))
 
 (defn- look-up-show!
   "Ask the Podcast Index with `opts` for the :show of the remote `item`,
@@ -102,10 +103,10 @@
                 (fn [{:keys [value error]}]
                   (cond
                     error
-                    {:error (unreachable url error nil)}
+                    {:error (unreachable url nil (async/explain error))}
 
                     (not (<= 200 (long (:status value)) 299))
-                    {:error (unreachable url nil (:status value))}
+                    {:error (unreachable url (:status value) nil)}
 
                     :else
                     (rss/try-parse (str (:body value)) {:url url}))))))
@@ -167,9 +168,7 @@
                   (rss/try-parse text {:url url})
 
                   error
-                  (let [d (-> (select-keys error [:url :status :reason])
-                              (assoc :id :fetch/unreachable))]
-                    {:error (diagnostics/describe d)})
+                  {:error (unreachable url (:status error) (:reason error))}
 
                   :else
                   {:error (assoc (first (bytes/report result)) :url url)}))))

@@ -41,8 +41,8 @@
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
   Each function also takes the same keys as options, for one call.
-  A config with functions doesn't print as EDN, so save the library
-  without its :config, and assoc the config back when you read it.
+  A config with functions doesn't print as EDN, so save! leaves it out,
+  and restore! keeps the config of the library that it's given.
 
   With :keep app.feeds/slim, a library holds a fraction of each feed,
   which is enough to sync and refresh. The functions that show the feeds,
@@ -242,13 +242,22 @@
                                   entry (assoc :feed (:feed entry)))]))]
     (into {} (map detailed) (profile/subscriptions profile))))
 
+(defn- list-check
+  "When to fetch an OPML list again after a fetch at `at`: `seconds` later,
+  or at the `not-before` of the server when that's later."
+  [at seconds not-before]
+  (let [later (+ (inst-ms at) (* 1000 seconds))]
+    (time/->inst (if (and not-before (< later (inst-ms not-before)))
+                   (inst-ms not-before)
+                   later))))
+
 (defn- listed
   "The `library` with the parse `list` of the OPML list at `url`, fetched
   at `at`, applied as profile/refresh-list does, and kept with the ETag
-  and Last-Modified of `fetched`."
-  [library url list at {:keys [etag last-modified] :as fetched}]
-  (let [seconds    (:list-seconds (options library {}))
-        next-check (time/->inst (+ (inst-ms at) (* 1000 seconds)))
+  and Last-Modified of `fetched` until it's `seconds` old."
+  [library url list at seconds
+   {:keys [etag last-modified not-before] :as fetched}]
+  (let [next-check (list-check at seconds not-before)
         entry      (cond-> {:list list :fetched-at at :next-check next-check}
                      etag          (assoc :etag etag)
                      last-modified (assoc :last-modified last-modified))
@@ -272,10 +281,11 @@
    (when-not (map? list)
      (throw (ex-info "The list isn't a parsed OPML list" {:url url})))
    (let [at      (time-of library opts)
-         details (select-keys opts [:title :folder])]
+         details (select-keys opts [:title :folder])
+         seconds (:list-seconds (options library opts))]
      (-> library
          (update :profile profile/follow-list url details at)
-         (listed url list at opts)))))
+         (listed url list at seconds opts)))))
 
 (defn unfollow-list
   "The `library` no longer following the list at `url`, with `opts`."
@@ -296,46 +306,58 @@
 
 (defn- fetch-list!
   "Fetch the OPML list at `url` with `opts` and the ETag and Last-Modified
-  in its library `entry`, in a future or a promise.
+  in its library `entry`, as http/fetch! fetches a feed, in a future or a
+  promise.
 
   The result has the :list, :etag and :last-modified, or :unchanged? when
-  the list didn't change, or an :error."
-  [url {:keys [etag last-modified] :as entry} {:keys [send] :as opts}]
-  (let [accept  "text/x-opml, application/xml;q=0.9, */*;q=0.1"
-        headers (cond-> {"Accept" accept}
-                  etag          (assoc "If-None-Match" etag)
-                  last-modified (assoc "If-Modified-Since" last-modified))
-        failure (fn [d] {:error (diagnostics/describe d)})
-        parsed  (fn [body]
-                  (try
-                    {:list (opml/parse (str body))}
-                    (catch #?(:clj Exception :cljs :default) e
-                      {:error e})))]
-    (async/then (http/try-send! send {:url url :headers headers} opts)
-                (fn [{:keys [value error]}]
-                  (let [status (:status value)
-                        h      #(http/header (:headers value) %)]
-                    (cond
-                      error
-                      (unreachable url error)
+  the list didn't change, or an :error. It also has the :not-before of a
+  server that says how long to wait."
+  [url {:keys [etag last-modified] :as entry}
+   {:keys [credentials-of] :as opts}]
+  (let [accept      "text/x-opml, application/xml;q=0.9, */*;q=0.1"
+        credentials (when credentials-of (credentials-of url))
+        fetch-opts  (-> opts
+                        (select-keys [:send :timeout-seconds :max-bytes
+                                      :user-agent :allow?])
+                        (assoc :accept accept)
+                        (cond->
+                          etag          (assoc :etag etag)
+                          last-modified (assoc :last-modified last-modified)
+                          credentials   (assoc :credentials credentials)))
+        failure     (fn [d] {:error (diagnostics/describe d)})
+        parsed      (fn [body]
+                      (try
+                        {:list (opml/parse (str body))}
+                        (catch #?(:clj Exception :cljs :default) e
+                          {:error e})))
+        result      (fn [{:keys [status body] :as response}]
+                      (cond
+                        (= 304 status)
+                        {:unchanged? true}
 
-                      (= 304 status)
-                      {:unchanged? true}
+                        (not= 200 status)
+                        (failure {:id :fetch/status :url url :status status})
 
-                      (not= 200 status)
-                      (failure {:id :fetch/status :url url :status status})
+                        :else
+                        (let [{:keys [list error]} (parsed body)]
+                          (if error
+                            (failure {:id     :fetch/malformed
+                                      :url    url
+                                      :reason (async/explain error)})
+                            (cond-> {:list list}
+                              (:etag response)
+                              (assoc :etag (:etag response))
 
-                      :else
-                      (let [{:keys [list error]} (parsed (:body value))
-                            tag      (h "etag")
-                            modified (h "last-modified")]
-                        (if error
-                          (failure {:id     :fetch/malformed
-                                    :url    url
-                                    :reason (async/explain error)})
-                          (cond-> {:list list}
-                            tag      (assoc :etag tag)
-                            modified (assoc :last-modified modified))))))))))
+                              (:last-modified response)
+                              (assoc :last-modified
+                                     (:last-modified response)))))))]
+    (async/then (async/attempt #(http/fetch! url fetch-opts))
+                (fn [{response :value error :error}]
+                  (if error
+                    (unreachable url error)
+                    (cond-> (result response)
+                      (:not-before response)
+                      (assoc :not-before (:not-before response))))))))
 
 (defn- refresh-lists!
   "Fetch the lists of `library` that are due at `at` with `opts`, and
@@ -349,9 +371,9 @@
                  (let [entry (get-in library [:fetched-lists url])]
                    (async/then (fetch-list! url entry opts) #(vector url %))))
         apply1 (fn [{:keys [library] :as acc} [url fetched]]
-                 (let [{:keys [list unchanged? error]} fetched
-                       seconds (:list-seconds (options library {}))
-                       later   (time/->inst (+ (inst-ms at) (* 1000 seconds)))
+                 (let [{:keys [list unchanged? error not-before]} fetched
+                       seconds (:list-seconds opts)
+                       later   (list-check at seconds not-before)
                        path    [:library :fetched-lists url]]
                    (cond
                      error
@@ -365,7 +387,7 @@
                          (assoc-in (conj path :next-check) later))
 
                      :else
-                     (->> (listed library url list at fetched)
+                     (->> (listed library url list at seconds fetched)
                           (assoc acc :library)))))]
     (async/then (async/all fetch! due)
                 (fn [results]
@@ -381,15 +403,16 @@
 
 (defn- known
   "The `library` with the feed of `result`, fetched from `url` at `at` for
-  the subscription `feed-guid`, and cut down by `keep`.
+  the subscription `feed-guid`, with the :cadence of `opts` and cut down by
+  their :keep.
 
   The subscription moves to the guid that the feed declares, as
   profile/rekey does."
-  [library feed-guid url result at keep]
+  [library feed-guid url result at {:keys [cadence keep] :as opts}]
   (let [declared (feed/feed-guid (:feed result) url)]
     (-> library
         (update :profile profile/rekey feed-guid declared at)
-        (update :feeds feeds/add url result at (:cadence (:config library) {}))
+        (update :feeds feeds/add url result at (or cadence {}))
         (reindexed declared)
         (kept declared keep))))
 
@@ -402,7 +425,7 @@
   them.
   A feed that couldn't be fetched, or that would take another
   subscription over, is tried again next time."
-  [library at {:keys [fetch credentials-of concurrency keep]
+  [library at {:keys [fetch credentials-of concurrency]
                :or   {concurrency feeds/default-concurrency}
                :as   opts}]
   (let [common (select-keys opts [:send :timeout-seconds :max-bytes
@@ -427,7 +450,7 @@
                      (update acc :report conj taken)
 
                      (:feed result)
-                     (update acc :library known feed-guid url result at keep)
+                     (update acc :library known feed-guid url result at opts)
 
                      (:error result)
                      (update acc :report conj

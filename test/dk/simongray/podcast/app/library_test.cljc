@@ -8,6 +8,7 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.opml :as opml]
@@ -161,7 +162,10 @@
                      (fn [linked]
                        (is (= [:podroll :publisher] (sort (keys linked))) "no credentials of the index: the feeds themselves")
                        (is (every? #(= :fetch/unreachable (:id (:error %))) (:podroll linked)))
-                       (is (= :fetch/unreachable (:id (:error (:publisher linked))))))))
+                       (is (= :fetch/unreachable (:id (:error (:publisher linked)))))
+                       (is (= (:message (diagnostics/describe {:id :fetch/unreachable}))
+                              (:message (:error (:publisher linked))))
+                           "with the message of a feed, not of a file"))))
        (fn []
          (let [block {:type        "lightning" :method "keysend"
                       :recipients  [{:name "Host" :type "node" :address "01" :split 100}]
@@ -273,6 +277,39 @@
                        (is (= 3 (count report)) "the list, the new subscription and the due feed")
                        (is (= show (get-in lib' [:feeds guid :feed])))
                        (is (= 1 (:failures (get-in lib' [:feeds guid])))))))))))
+
+(deftest the-options-of-one-refresh
+  (let [picks-url "https://example.org/picks.opml"
+        lib       (library/follow-list library picks-url picks {:title "Picks"})
+        later     (at 86400)
+        sent      (atom [])
+        fetch     (fn [u _]
+                    (case u
+                      "https://example.com/feed.xml"  {:status 304 :url u}
+                      "https://example.org/other.xml" {:status 200 :url u :feed other}))
+        unchanged (fn [request] (swap! sent conj request) {:status 304 :headers {} :body ""})
+        busy      (fn [request] (swap! sent conj request) {:status 503 :headers {"retry-after" "600"} :body ""})
+        cadence   {:silent 60 :complete 60}
+        next-of   #(get-in (feeds/add {} other-url {:status 200 :url other-url :feed other} later %) ["0ther-guid" :next-check])]
+    (is (not= (next-of cadence) (next-of {})) "a cadence that tells the two apart")
+    (run
+     (fn []
+       (async/then (library/refresh! lib {:at later :fetch fetch :send unchanged :list-seconds 60 :cadence cadence})
+                   (fn [lib']
+                     (is (= (at (+ 86400 60)) (get-in lib' [:fetched-lists picks-url :next-check])) "the :list-seconds of the call")
+                     (is (= (next-of cadence) (get-in lib' [:feeds "0ther-guid" :next-check]))
+                         "the :cadence of the call for the feed of a new subscription"))))
+     (fn []
+       (reset! sent [])
+       (async/then (library/refresh! lib {:at             later
+                                          :fetch          fetch
+                                          :send           busy
+                                          :credentials-of #(when (= picks-url %) {:username "simon" :password "x"})})
+                   (fn [{{:keys [report]} :refresh :as lib'}]
+                     (is (contains? (:headers (first @sent)) "Authorization") "the credentials of the list")
+                     (is (= [[:fetch/status 503]] (map (juxt :id :status) report)))
+                     (is (< (inst-ms (time/now)) (inst-ms (get-in lib' [:fetched-lists picks-url :next-check])))
+                         "not before the Retry-After")))))))
 
 (deftest a-new-subscription-through-the-send
   (let [xml  (fixture "feeds/namespace-example.xml")

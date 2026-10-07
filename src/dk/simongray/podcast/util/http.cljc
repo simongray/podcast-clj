@@ -1376,6 +1376,10 @@
   functions that send take from their options."
   [:timeout-seconds :max-bytes :allow?])
 
+(def ^:no-doc feed-types
+  "The Accept header of a request for a feed."
+  "application/rss+xml, application/xml, text/xml, */*")
+
 (defn feed-request
   "The request for the feed at `url` that fetch! sends with `opts`, the
   options of fetch!.
@@ -1385,12 +1389,12 @@
   split-credentials splits them."
   ([url]
    (feed-request url {}))
-  ([url {:keys [etag last-modified credentials user-agent]
-         :or   {user-agent dk.simongray.podcast.util.http/user-agent}
+  ([url {:keys [etag last-modified credentials user-agent accept]
+         :or   {user-agent dk.simongray.podcast.util.http/user-agent
+                accept     feed-types}
          :as   opts}]
    (let [[url in-url] (split-credentials url)
-         auth         (authorization (or credentials in-url))
-         accept       "application/rss+xml, application/xml, text/xml, */*"]
+         auth         (authorization (or credentials in-url))]
      (assoc (select-keys opts limit-keys)
             :url     url
             :headers (cond-> {"User-Agent" user-agent
@@ -1414,6 +1418,7 @@
     no body.
   - :credentials of a private feed, as authorization takes them
   - :user-agent, to send in place of user-agent
+  - :accept, the Accept header, which asks for a feed by default
   - :timeout-seconds, :max-bytes and :allow?, as send! takes them
   - :send, the function that sends the request, send! by default"
   ([url]

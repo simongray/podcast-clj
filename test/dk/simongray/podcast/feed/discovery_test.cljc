@@ -360,3 +360,16 @@
                        (is (empty? feeds))
                        (is (= :discovery/unreadable (:id error)))
                        (is (empty? @log)))))))))
+
+#?(:cljs
+   (deftest finding-feeds-without-a-dom-parser
+     (let [parser js/DOMParser
+           show   (feed-xml "The Show" {:link "https://show.example/" :episode? true})
+           send   (network {"https://show.example/feed.xml" {:body show}} (atom []))]
+       (run (fn []
+              (set! (.-DOMParser js/globalThis) js/undefined)
+              (-> (discovery/find-feeds! "https://show.example/feed.xml" {:send send :allow? (constantly true)})
+                  (.then (fn [_] (is false "a feed read without a parser"))
+                         (fn [e] (is (= :dk.simongray.podcast.util.xml/no-parser (:type (ex-data e)))
+                                     "it throws, rather than blame the feed")))
+                  (.finally #(set! (.-DOMParser js/globalThis) parser))))))))

@@ -5,6 +5,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.app.show :as show]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
@@ -90,9 +91,12 @@
                      (testing "without credentials, the podroll comes from the feeds at its URLs, without their items"
                        (is (= "Podcasting 2.0 Namespace Example" (:rss/title (:show (first (:podroll v))))))
                        (is (nil? (:rss/items (:show (first (:podroll v))))))
-                       (is (= [:fetch/unreachable 404] ((juxt :id :status) (:error (second (:podroll v)))))))
+                       (is (= [:fetch/status 404] ((juxt :id :status) (:error (second (:podroll v)))))))
                      (testing "and a publisher feed that is gone has :error"
-                       (is (= [:fetch/unreachable 404] ((juxt :id :status) (:error (:publisher v)))))
+                       (is (= [:fetch/status 404] ((juxt :id :status) (:error (:publisher v)))))
+                       (is (= (:message (diagnostics/describe {:id :fetch/status}))
+                              (:message (:error (:publisher v))))
+                           "with the message of its id")
                        (is (nil? (:confirmed? (:publisher v))))))))
      (fn []
        (let [other (str/replace publisher-feed (:podcast/guid feed) "11111111-2222-3333-4444-555555555555")]
