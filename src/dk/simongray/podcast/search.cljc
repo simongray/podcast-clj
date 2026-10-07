@@ -9,89 +9,31 @@
                       :order :newest})
 
   The full-text index is a map built with index and add, and searched with
-  query. Text is lower-cased with its diacritics folded, so \"cafe\"
-  finds \"Café\", and the results are ranked by BM25 per field."
+  query. Text is analyzed by util.text, so \"cafe\" finds \"Café\", and
+  the results are ranked by BM25 per field."
   (:refer-clojure :exclude [remove])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.profile :as profile]))
+            [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.util.text :as text]))
 
-(def ^:no-doc ligatures
-  "The letters that decomposition leaves whole, and how fold spells them
-  out."
-  {\æ "ae" \ø "o" \œ "oe" \ß "ss" \ð "d" \þ "th"
-   \ł "l" \đ "d" \ħ "h" \ı "i" \ŋ "n" \ŧ "t"})
-
-;; Unicode, Blocks.txt: the five blocks of combining marks
-(def ^:no-doc marks
-  "A pattern of the combining marks that decomposition splits off a letter
-  with diacritics."
-  #"[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]")
-
-(defn- decompose
+(defn- query-terms
+  "The terms of the query text `s`: its words, and the pairs of characters
+  of a run of Chinese, without the last character that tokens adds."
   [s]
-  #?(:clj  (java.text.Normalizer/normalize s java.text.Normalizer$Form/NFD)
-     :cljs (.normalize s "NFD")))
+  (mapv #(if (vector? %) (first %) %) (text/tokens s)))
 
-(defn- marked?
-  "Whether `s` has a combining mark in the ranges of marks.
-
-  A loop is far faster than the pattern on text without marks, and each
-  comparison takes two arguments so that Clojure compiles it inline."
-  [^String s]
-  (let [n (count s)]
-    (loop [i 0]
-      (if (= i n)
-        false
-        (let [c #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))]
-          (if (or (and (<= 0x0300 c) (<= c 0x036F))
-                  (and (<= 0x1AB0 c) (<= c 0x1AFF))
-                  (and (<= 0x1DC0 c) (<= c 0x1DFF))
-                  (and (<= 0x20D0 c) (<= c 0x20FF))
-                  (and (<= 0xFE20 c) (<= c 0xFE2F)))
-            true
-            (recur (inc i))))))))
-
-(defn fold
-  "The string `s` lower-cased, with its diacritics stripped and its
-  ligatures spelled out, e.g. \"Café Ø\" becomes \"cafe o\"."
+(defn- lone-character?
+  "Whether the query text `s` is one character of a script without spaces
+  between words, which a query completes as a prefix."
   [s]
-  (let [s        (str/lower-case (str s))
-        d        (decompose s)
-        stripped (if (and (identical? d s) (not (marked? s)))
-                   s
-                   (str/replace d marks ""))]
-    (str/escape stripped ligatures)))
-
-(def ^:no-doc word
-  "The pattern of a word: a run of letters, marks and digits."
-  #"(?u)[\p{L}\p{M}\p{N}]+")
-
-(defn tokens
-  "The terms of `s`, its words folded, with scripts that have no spaces
-  between words indexed as runs."
-  [s]
-  (let [folded (fold s)]
-    #?(:clj  (let [m (re-matcher word folded)]
-               (loop [acc (transient [])]
-                 (if (.find m)
-                   (recur (conj! acc (.group m)))
-                   (persistent! acc))))
-       :cljs (vec (re-seq word folded)))))
-
-(defn ^:no-doc spans
-  "The words of `s` as maps of :start, :end and :term, for highlighting
-  matches."
-  [s]
-  (loop [words (re-seq word s) from 0 acc []]
-    (if-let [[w & more] (seq words)]
-      (let [start (long (str/index-of s w from))
-            end   (+ start (count w))]
-        (recur more end (conj acc {:start start :end end :term (fold w)})))
-      acc)))
+  (let [[term :as terms] (text/tokens s)]
+    (and (= 1 (count terms))
+         (string? term)
+         (text/unspaced? term))))
 
 (defn ^:no-doc spaced
   "The query `q` with every kind of whitespace as a space, since the regex
@@ -104,7 +46,7 @@
   unless `q` ends in whitespace."
   [q]
   (let [q     (spaced q)
-        terms (tokens q)]
+        terms (query-terms q)]
     (if (and (seq terms) (not (re-find #"\s$" q)))
       {:terms (pop terms) :prefix (peek terms)}
       {:terms terms})))
@@ -240,13 +182,14 @@
     index))
 
 (defn- analyze
-  "The terms of the field value `v`: a string tokenized, a vector taken as
-  terms already, or each string of any other collection tokenized."
+  "The terms of the field value `v` by position: a string tokenized, a
+  vector taken as terms already, or each string of any other collection
+  tokenized."
   [v]
   (cond
-    (string? v) (tokens v)
+    (string? v) (text/tokens v)
     (vector? v) v
-    :else       (into [] (mapcat tokens) v)))
+    :else       (into [] (mapcat text/tokens) v)))
 
 (defn- numbered
   "The `fields` of an index with a number for each new field of
@@ -258,24 +201,32 @@
               (assoc fields field {:no (count fields) :docs 0 :length 0})))
           fields (keys analyzed)))
 
+(defn- placed
+  "The transient map `acc` of terms to positions with `term` at `at`. A
+  term has one position, or a vector of them."
+  [acc term at]
+  (let [seen (get acc term)]
+    (assoc! acc term (cond
+                       (nil? seen)    at
+                       (vector? seen) (conj seen at)
+                       :else          [seen at]))))
+
 (defn- positions
   "The positions of each term in the `analyzed` fields, by term, as one
   position or a vector of them. Each is offset into the block of its field
-  by the field `numbers`."
+  by the field `numbers`, and the terms of a vector share a position."
   [numbers analyzed]
   (persistent!
    (reduce-kv (fn [acc field terms]
                 (let [base (long (* span (get numbers field)))]
                   (loop [i 0 terms (seq terms) acc acc]
                     (if (and terms (< i span))
-                      (let [term   (first terms)
-                            at     (+ base i)
-                            seen   (get acc term)
-                            merged (cond
-                                     (nil? seen)    at
-                                     (vector? seen) (conj seen at)
-                                     :else          [seen at])]
-                        (recur (inc i) (next terms) (assoc! acc term merged)))
+                      (let [term (first terms)
+                            at   (+ base i)
+                            acc  (if (vector? term)
+                                   (reduce #(placed %1 %2 at) acc term)
+                                   (placed acc term at))]
+                        (recur (inc i) (next terms) acc))
                       acc))))
               (transient {}) analyzed)))
 
@@ -468,14 +419,16 @@
   its :phrase. A query that ends in whitespace or a quote has no prefix."
   [q prefix? min-prefix]
   (if (string? q)
-    (let [clause  (fn [terms]
-                    (if (= 1 (count terms))
-                      {:term (first terms)}
-                      {:phrase terms}))
+    (let [clause  (fn [s terms]
+                    (cond
+                      (lone-character? s) {:term (first terms) :prefix? true}
+                      (= 1 (count terms)) {:term (first terms)}
+                      :else               {:phrase terms}))
           clauses (vec (for [[_ quoted word] (re-seq #"\"([^\"]*)\"|(\S+)" q)
-                             :let  [terms (tokens (or quoted word))]
+                             :let  [s     (or quoted word)
+                                    terms (query-terms s)]
                              :when (seq terms)]
-                         (clause terms)))
+                         (clause s terms)))
           last    (dec (count clauses))
           term    (when (<= 0 last) (:term (clauses last)))]
       (if (and prefix?
@@ -609,6 +562,18 @@
          results  (into [] (comp (map result) wanted) (matching scored match))]
      (best before limit results))))
 
+(defn- merged
+  "The `hits`, maps of :start and :end in order, with those that overlap
+  or touch, e.g. the pairs of characters of a run of Chinese, made one."
+  [hits]
+  (reduce (fn [acc {:keys [start end] :as hit}]
+            (let [last-hit (peek acc)]
+              (if (and last-hit (<= start (:end last-hit)))
+                (conj (pop acc) (update last-hit :end max end))
+                (conj acc hit))))
+          []
+          hits))
+
 (defn snippet
   "A window of `text` around the first words that match the query `q`, as
   parts for a result list to render, with the :width in `opts`.
@@ -625,8 +590,8 @@
                   (boolean (or (some #(= term %) terms)
                                (and prefix (str/starts-with? term prefix)))))
          text   (str text)
-         spans  (spans text)
-         hits   (filter hit? spans)
+         spans  (text/spans text)
+         hits   (merged (filter hit? spans))
          length (count text)
          from   (if-let [{:keys [start]} (first hits)]
                   (max 0 (- start (quot width 3)))
@@ -707,8 +672,11 @@
   [v]
   (let [queries (mapv words (if (set? v) v [v]))]
     (fn [_ item]
-      (let [present (set (concat (tokens (resolve/title item))
-                                 (tokens (notes item))))]
+      (let [terms   (concat (text/tokens (resolve/title item))
+                            (text/tokens (notes item)))
+            present (into #{}
+                          (mapcat #(if (vector? %) % [%]))
+                          terms)]
         (boolean (some #(mentions? % present) queries))))))
 
 (defn- age
@@ -755,9 +723,9 @@
                   (fn [feed item]
                     (= (boolean v) (boolean (resolve/explicit? feed item)))))
    :person      (fn [v _]
-                  (let [q (fold v)]
+                  (let [q (text/fold v)]
                     (fn [feed item]
-                      (boolean (some #(str/includes? (fold (:name %)) q)
+                      (boolean (some #(str/includes? (text/fold (:name %)) q)
                                      (resolve/people feed item))))))
    :text        (fn [v _] (mentioned v))
    :not         (fn [v ctx] (complement (where v ctx)))
@@ -869,7 +837,7 @@
      :longest   (fn [_ item] (- (or (resolve/duration item) ##-Inf)))
      :title     (fn [_ item]
                   (if-let [title (resolve/title item)]
-                    [0 (fold title)]
+                    [0 (text/fold title)]
                     [1 ""]))
      :recent    (fn [feed item] (- (or (last-heard-ms ctx feed item) ##-Inf)))
      (if (fn? k)

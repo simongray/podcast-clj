@@ -50,14 +50,6 @@
   [opts]
   (mapv :rss/title (search/episodes show opts)))
 
-(deftest analysis
-  (is (= "cafe o strasse arhus" (search/fold "Café Ø Straße Århus")))
-  (is (= ["podcasting" "2" "0" "the" "value" "for" "value" "era"]
-         (search/tokens "Podcasting 2.0: the value-for-value era!")))
-  (is (= [] (search/tokens nil)))
-  (is (= [{:start 0 :end 3 :term "the"} {:start 4 :end 8 :term "cafe"}]
-         (search/spans "The Café"))))
-
 (deftest criteria
   (is (= ["Trailer" "Season one, episode one: Café" "Season one, episode two" "Season two, episode one" "Bonus"]
          (titles {}))
@@ -293,6 +285,22 @@
     (testing "every kind of white space is one, on both platforms"
       (is (= [2] (ids "value\u00A0for\u3000value")) "no-break and ideographic spaces"))
     (is (thrown? #?(:clj Exception :cljs js/Error) (search/add idx {:fields {:title "no id"}})))))
+
+(deftest scripts-without-spaces
+  (let [idx (search/index [{:id 1 :fields {:title "[HSK 3] 爸爸不在家的中秋节"}}
+                           {:id 2 :fields {:title "八百八的月饼礼盒值不值"}}
+                           {:id 3 :fields {:title "第13回 本番データ消去、AIメモリ管理 ほか"}}
+                           {:id 4 :fields {:title "今天天气很好 good"}}])
+        ids (fn [q] (mapv :id (search/query idx q)))]
+    (is (= [1] (ids "中秋")) "a word inside a sentence")
+    (is (= [2] (ids "月饼")))
+    (is (= [1] (ids "中秋节")) "the pairs of a longer word in a row")
+    (is (= [3] (ids "データ")))
+    (is (= [3] (ids "メモリ 管理")))
+    (is (= [4] (ids "好")) "one character, the end of a run")
+    (is (= [1] (ids "爸")) "one character, completed as a prefix")
+    (is (= [4] (ids "\"天气很好 good\"")) "a phrase across a run and a word")
+    (is (= [] (ids "\"很好天气\"")))))
 
 (deftest limits-and-ties
   (let [idx (search/index (for [i (range 200)] {:id i :fields {:title "same words"}}))]
