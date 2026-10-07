@@ -293,6 +293,23 @@
                                                       {:start-time 1 :speaker "A" :body "b"}]})))
           "a turn ends where the last segment with an end does"))))
 
+(deftest matches-in-a-transcript
+  (let [vtt (transcript/parse (fixture "transcripts/example.vtt"))]
+    (is (= [[2.76 "Sarah"] [21.45 "Gillian"]]
+           (mapv (juxt :start-time :speaker) (transcript/matches vtt "trailer")))
+        "at the start of the cue where the first match is")
+    (is (= [{:text "Hi Buzzsprout, Gillian here from breaking through careers podcast. My question is, do we need a podcast "}
+            {:text "trailer" :match? true}
+            {:text "?"}]
+           (:parts (second (transcript/matches vtt "trailer")))))
+    (is (= [] (transcript/matches vtt "trailer -podcast")))
+    (is (= 1 (count (transcript/matches vtt "\"podcast trailer\" gillian")))))
+  (testing "the words of a word-level transcript make up a passage"
+    (let [json (transcript/parse (fixture "transcripts/example.json"))]
+      (is (= [[1.5 "I am your father."]]
+             (mapv (juxt :start-time :body) (transcript/matches json "\"your father\""))))))
+  (is (= [] (transcript/matches {:segments []} "x"))))
+
 (deftest emitting-untimed-segments
   (let [untimed (transcript/parse "Justin: Hi.\n\nBye." "text/plain")
         mixed   (update untimed :segments conj {:start-time 1 :end-time 2 :body "Timed."})]

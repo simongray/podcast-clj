@@ -57,7 +57,7 @@ option replaces the function that sends.
 | Namespace | Contents |
 |---|---|
 | `profile` | The listener's profile, a CRDT that syncs between their devices: the queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions and their settings, followed lists, saved filters, listening counts and devices. Use `step` for the events of a player, `merge` to combine two profiles, and `compact` to drop old tombstones. |
-| `search` | Filters and orders of episodes as data, and a full-text index ranked by BM25. |
+| `search` | Filters and orders of episodes as data, and the search documents of episodes and shows, with `index` for an index of them that weighs the title most. |
 | `downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`. |
 
 ## Sync
@@ -106,7 +106,7 @@ option replaces the function that sends.
 | Namespace | Contents |
 |---|---|
 | `format.chapters` | JSON Chapters and Podlove Simple Chapters, read and written, and chapters from the timestamps in show notes, with `at` for the chapter at a position and `jump` for the target of a jump to the next or previous one. |
-| `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers, and `emit-srt`, `emit-vtt` and `emit-json` to write the first three. |
+| `format.transcript` | SRT, WebVTT, JSON, HTML and plain-text transcripts, with speakers, and `emit-srt`, `emit-vtt` and `emit-json` to write the first three. Also `matches`, the passages that match a query, with their times. |
 | `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
 | `format.html` | HTML in descriptions as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. |
 | `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. |
@@ -159,6 +159,8 @@ option replaces the function that sends.
 | `util.secret` | Secrets that print as `#<secret>`: `hide`, `reveal` and `hidden?`. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |
 | `util.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |
+| `util.text` | Text for search on both platforms: `fold`, which drops case and diacritics, and `tokens`, the words of a text, with Chinese, Japanese, Korean and Thai in pairs of characters. |
+| `util.search` | A full-text index as a plain map, ranked by BM25F: `index`, `add`, `remove` and `query`, with `parse` for its query language of AND, OR, NOT, phrases, prefixes and fields. Also `snippet` and `matches?` for one text. |
 | `util.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The profile is one. |
 
 ## Cryptography

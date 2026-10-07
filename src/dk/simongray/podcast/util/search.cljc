@@ -878,7 +878,8 @@
                   {:id     id
                    :score  score
                    :stored (get-in index [:docs id :stored])})]
-     (if rank
+     (cond
+       rank
        (->> found
             (map result)
             (filter (or keep? any?))
@@ -887,6 +888,22 @@
             (map second)
             (#(if limit (take limit %) %))
             vec)
+
+       ;; a filter that costs, e.g. criteria of a library, reads the best
+       ;; first, and more of them only when too few are kept
+       (and keep? limit)
+       (loop [n (* 2 (max 1 (long limit))) read 0 kept []]
+         (let [top  (best better n found)
+               kept (into kept
+                          (comp (filter #(keep? (result %)))
+                                (take (- (long limit) (count kept))))
+                          (subvec top read))]
+           (if (or (= (count kept) limit)
+                   (>= n (count found)))
+             (mapv result kept)
+             (recur (* 4 n) (count top) kept))))
+
+       :else
        (->> (if keep?
               (filter #(keep? (result %)) found)
               found)
@@ -1053,6 +1070,46 @@
      (cond-> parts
        (< to length) (conj {:text "…"})))))
 
+(defn- satisfied?
+  "Whether the query `node` holds when `found?` tells which of its terms
+  and phrases a text has, as query matches a document: all of :and, any
+  of :or, but none of those under a :not, and nothing for a :not alone."
+  [found? node]
+  (let [holds? (fn [op queries]
+                 (let [positive (clojure.core/remove :not queries)
+                       negative (keep :not queries)
+                       ok?      #(satisfied? found? %)]
+                   (boolean (and (seq positive)
+                                 (if (= :and op)
+                                   (every? ok? positive)
+                                   (some ok? positive))
+                                 (not-any? ok? negative)))))]
+    (cond
+      (contains? node :and) (holds? :and (:and node))
+      (contains? node :or)  (holds? :or (:or node))
+      (contains? node :not) false
+      (nil? node)           false
+      :else                 (found? node))))
+
+(defn matches?
+  "Whether `text` matches the query `q`, read with the `opts` of parse,
+  as one field of a document would, without an index."
+  ([text q]
+   (matches? text q {}))
+  ([text q opts]
+   {:pre [(map? opts)]}
+   (let [text   (str text)
+         terms  (delay (into #{}
+                             (mapcat #(if (vector? %) % [%]))
+                             (text/tokens text)))
+         spans  (delay (text/spans text))
+         found? (fn [{:keys [term phrase prefix?] :as leaf}]
+                  (cond
+                    phrase  (boolean (seq (hits @spans [leaf])))
+                    prefix? (boolean (some #(str/starts-with? % term) @terms))
+                    :else   (contains? @terms term)))]
+     (satisfied? found? (as-query nil q opts)))))
+
 (comment
   (parse "title:clojure -rust | \"value for va")
   (parse "a b OR c (d | e) -f g*")
@@ -1063,4 +1120,5 @@
   (query idx "cloj")
   (query idx "title:clojure | notes:clojure")
   (snippet "Systems programming, and a little Clojure" "clojure")
+  (matches? "Systems programming, and a little Clojure" "clojure -rust")
   #_.)

@@ -20,22 +20,6 @@
             [dk.simongray.podcast.util.search :as full-text]
             [dk.simongray.podcast.util.text :as text]))
 
-(defn- query-terms
-  "The terms of the query text `s`: its words, and the pairs of characters
-  of a run of Chinese, without the last character that tokens adds."
-  [s]
-  (mapv #(if (vector? %) (first %) %) (text/tokens s)))
-
-(defn- words
-  "The :terms of the query `q`, with the last one as a :prefix to complete
-  unless `q` ends in whitespace."
-  [q]
-  (let [q     (full-text/spaced q)
-        terms (query-terms q)]
-    (if (and (seq terms) (not (re-find #"\s$" q)))
-      {:terms (pop terms) :prefix (peek terms)}
-      {:terms terms})))
-
 (defn- notes
   [x]
   (some-> (resolve/description x) html/text))
@@ -150,13 +134,34 @@
                 (or (nil? hi) (<= x hi)))))
 
 (defn- url-of
+  "The URL of `feed` by the :url of the context, a string, or a function
+  of the feed such as a map of feeds to URLs."
   [{:keys [url]} feed]
-  (if (fn? url) (url feed) url))
+  (if (ifn? url)
+    (url feed)
+    url))
+
+(defn- with-feed-guids
+  "The context `ctx` with a function of a feed that gives its guid and
+  works each one out once, since that of a feed without a podcast:guid is
+  a hash of its URL."
+  [ctx]
+  (if (::feed-guid ctx)
+    ctx
+    (let [known (volatile! {})
+          guid  (fn [feed]
+                  (or (get @known feed)
+                      (let [guid (feed/feed-guid feed (url-of ctx feed))]
+                        (vswap! known assoc feed guid)
+                        guid)))]
+      (assoc ctx ::feed-guid guid))))
 
 (defn ^:no-doc episode-id
   "The episode id of `item` in `feed`, with the feed URL from `ctx`."
   [ctx feed item]
-  (feed/episode-id feed (url-of ctx feed) item))
+  (if-let [guid (::feed-guid ctx)]
+    [(guid feed) (feed/item-guid item)]
+    (feed/episode-id feed (url-of ctx feed) item)))
 
 (defn ^:no-doc entry
   "The entry of `item` in `feed`, from the profile in `ctx`."
@@ -178,26 +183,30 @@
                (resolve/embedded-chapters item)
                (resolve/inferred-chapters item))))
 
-(defn- mentions?
-  "Whether the set of terms `present` holds every term of the `parsed`
-  query, as words gives it, and a term that starts with its prefix."
-  [{:keys [terms prefix] :as parsed} present]
-  (boolean (and (every? present terms)
-                (or (nil? prefix)
-                    (some #(str/starts-with? % prefix) present)))))
-
 (defn- mentioned
   "The predicate of the criterion :text for `v`, a query or a set of
-  queries. It's true when the title or notes of an item match any of them."
+  queries. It's true when the title and notes of an item match any of
+  them, as util.search/matches? reads them."
   [v]
-  (let [queries (mapv words (if (set? v) v [v]))]
+  (let [queries (mapv full-text/parse (if (set? v) v [v]))]
     (fn [_ item]
-      (let [terms   (concat (text/tokens (resolve/title item))
-                            (text/tokens (notes item)))
-            present (into #{}
-                          (mapcat #(if (vector? %) % [%]))
-                          terms)]
-        (boolean (some #(mentions? % present) queries))))))
+      (let [text (str (resolve/title item) "\n" (notes item))]
+        (boolean (some #(full-text/matches? text %) queries))))))
+
+(defn- indexed
+  "The predicate of the criterion :text for `v`, a query or a set of
+  queries, with the index of the documents of the items under :index in
+  `ctx`. It's true when an item's title and notes match any of them."
+  [v ctx]
+  (let [index  (:index ctx)
+        only   (-> (zipmap (keys (:fields index)) (repeat 0))
+                   (assoc :title 1 :description 1))
+        query  #(full-text/query index % {:boosts only})
+        found  (into #{}
+                     (comp (mapcat query) (map :id))
+                     (if (set? v) v [v]))]
+    (fn [feed item]
+      (contains? found (episode-id ctx feed item)))))
 
 (defn- age
   "The seconds from the publication of `item` to `at`, at least 0, or nil
@@ -247,7 +256,10 @@
                     (fn [feed item]
                       (boolean (some #(str/includes? (text/fold (:name %)) q)
                                      (resolve/people feed item))))))
-   :text        (fn [v _] (mentioned v))
+   :text        (fn [v ctx]
+                  (if (:index ctx)
+                    (indexed v ctx)
+                    (mentioned v)))
    :not         (fn [v ctx] (complement (where v ctx)))
    :status      (fn [v ctx]
                   (fn [feed item] (in? v (status (entry ctx feed item)))))
@@ -281,8 +293,9 @@
   - :transcript?, :chapters? and :explicit?, where chapters count when
     linked, embedded or listed in the notes
   - :person, someone credited
-  - :text, words that must all be in the title or notes, the last as a
-    prefix. A set of such texts matches when any of them does.
+  - :text, a query that the title and notes must match, in the language
+    of util.search/parse, e.g. \"coffee -decaf\". A set of queries
+    matches when any of them does.
   - :not, criteria that the item doesn't meet, e.g. {:text #{\"rerun\"}}
   - :status, :unplayed, :in-progress or :played, or a set of them
   - :starred? and :inbox?
@@ -294,7 +307,9 @@
   An empty map takes every item. The criteria about the listener need the
   profile as :profile in `ctx`. For feeds without a podcast:guid, they
   also need the :url, a string or a function of the feed. The :age needs
-  the current time as :at, and with :scale, the :rating is in that scale."
+  the current time as :at, and with :scale, the :rating is in that scale.
+  With an index of the items' documents as :index, the :text reads it
+  instead of each item's notes."
   ([criteria]
    (where criteria {}))
   ([criteria ctx]
@@ -312,7 +327,8 @@
                 (not (inst? (:at ctx))))
        (throw (ex-info ":age needs the instant of now under :at"
                        {:criteria criteria})))
-     (let [tests (mapv (fn [[k v]] ((criterion k) v ctx)) criteria)]
+     (let [ctx   (with-feed-guids ctx)
+           tests (mapv (fn [[k v]] ((criterion k) v ctx)) criteria)]
        (fn [feed item]
          (every? #(% feed item) tests))))))
 
@@ -359,7 +375,9 @@
                   (if-let [title (resolve/title item)]
                     [0 (text/fold title)]
                     [1 ""]))
-     :recent    (fn [feed item] (- (or (last-heard-ms ctx feed item) ##-Inf)))
+     :recent    (let [ctx (with-feed-guids ctx)]
+                  (fn [feed item]
+                    (- (or (last-heard-ms ctx feed item) ##-Inf))))
      (if (fn? k)
        k
        (throw (ex-info (str "An order the library does not know: " k)
@@ -377,7 +395,8 @@
   - :where, criteria as where takes them, or else every item
   - :order, as order takes it, :listening by default
   - :limit, the most items
-  - :profile, :url, :at and :scale, the context that where and order need
+  - :profile, :url, :at, :scale and :index, the context that where and
+    order need
 
   For a collection of feeds, the result is [feed item] pairs in one order,
   e.g. for an inbox, with :url as a function of the feed. With a :limit
@@ -387,7 +406,8 @@
    (episodes feed {}))
   ([feed {:keys [limit] :as opts}]
    {:pre [(map? opts)]}
-   (let [ctx       (select-keys opts [:profile :url :scale :at])
+   (let [ctx       (-> (select-keys opts [:profile :url :scale :at :index])
+                       (with-feed-guids))
          pred      (where (or (:where opts) {}) ctx)
          k         (or (:order opts) :listening)
          key       (order k ctx)

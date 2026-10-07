@@ -500,13 +500,31 @@ through `feed.resolve`, so it means what the accessor means. Because the
 criteria are data, a UI can build them from a form, and saved filters and
 download rules use the same criteria.
 
-The full-text index is a value: `index`, `add` and `remove` build and change
-a map, `query` searches it, and nothing runs in the background. Text
-analysis only lower-cases words and folds diacritics, and a field given as a
-vector of strings isn't analysed, so an app can bring its own stemming and
-podcast-clj needs no language model. The ranking is BM25 per field. Lucene
-doesn't run in a browser, but this index runs wherever the model runs, and
-prints as EDN.
+Full-text search lives in two namespaces that know nothing about podcasts,
+`util.text` and `util.search`, so other projects can use them too. The
+index is a value: `index`, `add` and `remove` build and change a map,
+`query` searches it, and nothing runs in the background. Lucene doesn't
+run in a browser, but this index runs wherever the model runs, and prints
+as EDN. The `search` namespace only makes the documents of episodes and
+shows, and gives the title more weight than the notes.
+
+Words split at anything that isn't a letter or a digit, as in most
+JavaScript search libraries, so "Simon's" is found by "simon", and a query
+of "2.0" looks for 2 and 0 in a row. Chinese, Japanese, Korean, Thai and
+the other scripts without spaces between words are indexed as overlapping
+pairs of characters, as search engines do without a dictionary. The word
+segmenters of the platforms were left out: the JVM and the browsers split
+the same Chinese text differently, and an index must find the same words
+on every device. There's no stemming and no language model. Instead the
+last word of a query completes as a prefix, and a field given as a vector
+of terms isn't analysed, so an app can bring its own stemmer.
+
+The ranking is BM25F, which adds up a word's occurrences in all the fields
+of a document, each weighed by its field, before they count. Ranking each
+field on its own and adding the scores would let a word that appears once
+in each of three fields outrank one repeated in the title. The query
+language is the one that Lucene, Elasticsearch and SQLite FTS5 share, with
+its words and signs as options, e.g. for queries in another language.
 
 
 ## Download rules

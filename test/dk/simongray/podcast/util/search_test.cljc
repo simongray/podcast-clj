@@ -174,6 +174,19 @@
     (is (= (score 1) (score 6))
         "a prefix counts as one term, so the rarest completion doesn't win")))
 
+(deftest one-text
+  (let [text "A little Clojure for the value for value era"]
+    (is (search/matches? text "clojure value"))
+    (is (search/matches? text "\"value for value\" -rust"))
+    (is (search/matches? text "rust | clojure"))
+    (is (search/matches? text "clo") "the last word as a prefix")
+    (is (not (search/matches? text "clo ")))
+    (is (not (search/matches? text "clojure -little")))
+    (is (not (search/matches? text "\"value for era\"")))
+    (is (not (search/matches? text "-rust")) "a :not alone holds for nothing")
+    (is (search/matches? text {:or [{:term "rust"} {:term "era"}]}))
+    (is (search/matches? "今天天气很好" "天气"))))
+
 (deftest scripts-without-spaces
   (let [idx (search/index [{:id 1 :fields {:title "[HSK 3] 爸爸不在家的中秋节"}}
                            {:id 2 :fields {:title "八百八的月饼礼盒值不值"}}

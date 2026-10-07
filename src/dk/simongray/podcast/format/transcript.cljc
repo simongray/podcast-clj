@@ -25,6 +25,7 @@
   it from the metadata."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.search :as search]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.xml :as xml]))
 
@@ -490,6 +491,73 @@
        (filter (comp number? :start-time))
        (take-while #(<= (:start-time %) seconds))
        last))
+
+(defn- pieces
+  "The segments of `run` in groups in order, each with bodies of at least
+  `length` characters but the last."
+  [run length]
+  (loop [run run piece [] size 0 acc []]
+    (if-let [[segment & more] (seq run)]
+      (let [piece (conj piece segment)
+            size  (+ size 1 (count (:body segment)))]
+        (if (<= length size)
+          (recur more [] 0 (conj acc piece))
+          (recur more piece size acc)))
+      (cond-> acc
+        (seq piece) (conj piece)))))
+
+(def ^:no-doc passage-length
+  "The fewest characters of a passage that matches gives, which a caption
+  file's cues mostly have and a word-level transcript's words make up."
+  60)
+
+(defn- start-of-match
+  "The start time of the segment of `piece`, the segments of a passage,
+  where the first of the `parts` that match starts."
+  [piece parts]
+  (let [offset (reduce (fn [n {:keys [text match?]}]
+                         (if match?
+                           (reduced n)
+                           (+ n (count text))))
+                       0
+                       parts)
+        starts (reductions + 0 (map #(inc (count (:body %))) piece))]
+    (->> (map vector starts piece)
+         (take-while #(<= (first %) offset))
+         last
+         second
+         :start-time)))
+
+(defn matches
+  "The passages of `transcript` that match the query `q`, each with :parts
+  that mark the matches in its :body, with the `opts` below.
+
+  A passage is a run of segments by one speaker of at least the :length
+  in `opts`, merged as turns merges them, with the :start-time of the
+  segment where its first match is, e.g. for a player to list where words
+  are said and seek there. A caption file matches by a cue or two, and a
+  word-level transcript by a phrase. The `opts` are those of
+  util.search/parse, and :length, 60 characters by default."
+  ([transcript q]
+   (matches transcript q {}))
+  ([transcript q {:keys [length] :or {length passage-length} :as opts}]
+   {:pre [(map? opts)]}
+   (let [query  (if (string? q)
+                  (search/parse q opts)
+                  q)
+         marked (fn [piece]
+                  (let [{:keys [body] :as passage} (turn piece)]
+                    (when (search/matches? body query)
+                      (let [parts (search/snippet body
+                                                  query
+                                                  {:width (count body)})]
+                        (assoc passage
+                               :start-time (start-of-match piece parts)
+                               :parts      parts)))))]
+     (->> (:segments transcript)
+          (partition-by :speaker)
+          (mapcat #(pieces % length))
+          (into [] (keep marked))))))
 
 #?(:clj
    (comment

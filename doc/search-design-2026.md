@@ -918,6 +918,28 @@ section 7 that apply, and a report of what changed and what was measured.
 | D5 | `transcript/matches`? | Yes, in batch 3 | Small, and the only way to give a hit its time; an index of all transcripts would be too large for a phone. |
 | D6 | Bigram Thai, Lao, Khmer and Myanmar too? | Yes | Xapian does; without it a Thai sentence is one term, as Chinese is today. Costs a few characters in the regex. |
 
+Decided on 7 October 2026, and built on the branch
+`feature/search-library`:
+
+- D1, D2, D3, D5 and D6 as recommended.
+- D4: a full boolean language in `util.search`: AND (`&`), OR (`|`), NOT
+  (`!` and a leading `-`), parentheses, and `field:word` or `field=word`,
+  besides quotes and a trailing `*`. The spellings are an option, e.g.
+  `OG` for AND in Danish.
+- Words split at punctuation as before, instead of the joins of UAX #29
+  in section 5.2. Its one class of joining characters would have made
+  `comedy,news` one word, and even the exact rules make `Simon's` a word
+  that `simon` doesn't find. A query word with punctuation in it becomes a
+  phrase, as before. F3 is dropped.
+- `transcript/matches` matches passages of at least 60 characters by one
+  speaker rather than turns, since a speaker's turn in a caption file can
+  last minutes, and gives the time of the cue where the first match is.
+
+Two details of section 5.2 were wrong. The pairs of a run cross its
+scripts, so `AIメモリ管理` gives `メモ モリ リ管 管理`. And a query leaves
+out the last character of a run, which only the index has, or a phrase
+across a run and the next word would never match.
+
 
 ## 10. Left out, and why
 

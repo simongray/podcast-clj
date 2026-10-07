@@ -185,7 +185,26 @@
     (is (= 4 (count (:docs (:index lib)))) "the show and its three episodes")
     (is (= [guid "https://example.com/ep0003"] (:id (first (library/search lib "future")))))
     (is (= 0 (count (:docs (:index (library/unsubscribe lib guid))))))
-    (is (nil? (library/search library "future")) "no index, no search")))
+    (is (nil? (library/search library "future")) "no index, no search")
+    (testing "each result with its feed and item"
+      (let [[episode] (library/search lib "future")]
+        (is (= "Episode 3 - The Future" (:rss/title (:item episode))))
+        (is (= guid (:podcast/guid (:feed episode))))))
+    (testing "the criteria of an episode, which leave the show out"
+      (let [id     [guid "https://example.com/ep0003"]
+            played (library/update-profile lib profile/mark-played id)]
+        (is (some #(= guid (:id %)) (library/search lib "podcasting")) "the show matches")
+        (is (every? #(vector? (:id %)) (library/search lib "podcasting" {:where {}})))
+        (is (= [id] (mapv :id (library/search lib "future" {:where {:status :unplayed}}))))
+        (is (= [] (library/search played "future" {:where {:status :unplayed}})))
+        (is (= [id] (mapv :id (library/search played "future" {:where {:status :played} :limit 5}))))
+        (is (= [] (library/search lib "future" {:where {:text "-futu"}})) "a :not alone holds for nothing")
+        (is (= [id] (mapv :id (library/search lib "future" {:where {:not {:text "present"}}}))))))
+    (testing "the episodes whose title and notes match a text, read from the index"
+      (is (= (library/episodes (assoc lib :index nil) {:where {:text "futu"}})
+             (library/episodes lib {:where {:text "futu"}})))
+      (is (= ["Episode 3 - The Future"]
+             (mapv (comp :rss/title second) (library/episodes lib {:where {:text "futu"}})))))))
 
 (deftest following-a-list
   (let [lib (library/follow-list library "https://example.org/picks.opml" picks {:title "Picks" :folder "Picks" :etag "\"p1\""})]
@@ -287,7 +306,14 @@
     (is (= 2 (count (library/episodes lib {:limit 2}))))
     (let [id     [guid "https://example.com/ep0003"]
           played (update lib :profile profile/mark-played id now)]
-      (is (= 3 (count (library/episodes played {:where {:status :unplayed}})))))))
+      (is (= 3 (count (library/episodes played {:where {:status :unplayed}}))))))
+  (testing "a show without a podcast:guid, which the profile knows by its URL"
+    (let [bare-url "https://example.net/bare.xml"
+          bare     (dissoc other :podcast/guid)
+          lib      (-> (library/make "phone" {:config {:search? true}})
+                       (library/subscribe bare-url {:status 200 :url bare-url :feed bare}))]
+      (is (= ["Other one"] (mapv (comp :rss/title second) (library/episodes lib {:where {:status :unplayed}}))))
+      (is (= ["Other one"] (mapv (comp :rss/title :item) (library/search lib "other" {:where {:status :unplayed}})))))))
 
 (deftest the-events-of-the-player
   (let [id      [guid "https://example.com/ep0003"]

@@ -611,21 +611,67 @@
   ([library opts]
    {:pre [(map? opts)]}
    (search/episodes (map :feed (vals (:feeds library)))
-                    (assoc opts
-                           :profile (:profile library)
-                           :url     (urls library)
-                           :at      (time-of library opts)))))
+                    (cond-> (assoc opts
+                                   :profile (:profile library)
+                                   :url     (urls library)
+                                   :at      (time-of library opts))
+                      (:index library) (assoc :index (:index library))))))
+
+(defn- located
+  "A function that gives a result of a search of `library` with its :feed,
+  and for an episode its :item too. It looks the items of a feed up once."
+  [library]
+  (let [by-guid (volatile! {})
+        items   (fn [feed-guid]
+                  (or (get @by-guid feed-guid)
+                      (let [feed  (get-in library [:feeds feed-guid :feed])
+                            items (into {}
+                                        (map (juxt feed/item-guid identity))
+                                        (:rss/items feed))]
+                        (vswap! by-guid assoc feed-guid items)
+                        items)))]
+    (fn [{:keys [id] :as result}]
+      (if (vector? id)
+        (let [[feed-guid item-guid] id]
+          (assoc result
+                 :feed (get-in library [:feeds feed-guid :feed])
+                 :item (get (items feed-guid) item-guid)))
+        (assoc result :feed (get-in library [:feeds id :feed]))))))
 
 (defn search
   "The episodes and shows of `library` that match the query `q`, best
-  first, with the `opts` of util.search/query.
+  first, with the `opts` below, or nil when the library keeps no index.
 
-  The library has an index when its config has :search?, and
-  without one, this returns nil."
+  Each result has its :feed, and an episode its :item. The `opts` are
+  those of util.search/query, whose :filter gets the result with them,
+  and :where, the criteria of search/where that an episode must meet,
+  which leaves the shows out. The criteria read the profile of the
+  library, and the time of its clock unless the `opts` give :at.
+
+      (search library \"value for va\" {:where {:status :unplayed}})
+
+  The library has an index when its config has :search?."
   ([library q]
    (search library q {}))
   ([library q opts]
-   (some-> (:index library) (full-text/query q opts))))
+   {:pre [(map? opts)]}
+   (when-let [index (:index library)]
+     (let [locate (located library)
+           ctx    (assoc (select-keys opts [:scale])
+                         :profile (:profile library)
+                         :url     (urls library)
+                         :at      (time-of library opts)
+                         :index   index)
+           meets? (some-> (:where opts) (search/where ctx))
+           keep?  (:filter opts)
+           kept?  (fn [result]
+                    (let [{:keys [feed item] :as found} (locate result)]
+                      (and (or (nil? keep?) (keep? found))
+                           (or (nil? meets?)
+                               (and item (meets? feed item))))))
+           opts   (cond-> (dissoc opts :where :at :scale)
+                    (or meets? keep?) (assoc :filter kept?))]
+       (mapv locate (full-text/query index q opts))))))
 
 (defn step
   "The `library` after the player `event`, with `opts`, both as

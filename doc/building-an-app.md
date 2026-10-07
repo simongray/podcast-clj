@@ -587,15 +587,49 @@ With `:search? true` in its config, the library keeps a full-text index
 of every feed:
 
 ```clojure
-(library/search @lib "value for va" {:limit 10})
-;; => [{:id [feed-guid item-guid] :score 7.1 :stored {:title "…" …}} …]
+(library/search @lib "podcasting 2" {:limit 10})
+;; => [{:id     [feed-guid "https://example.com/ep0002"]
+;;      :score  0.16
+;;      :stored {:title "Episode 2 - The Present" …}
+;;      :feed   {…}
+;;      :item   {…}}
+;;     …]
 ```
 
-The last word counts as a prefix, so this works for search as you type.
-The index of a show with 200 episodes takes about two megabytes, so on a
-phone with many shows you may want to leave it off.
+The results are the episodes and shows, best first. The last word counts
+as a prefix, so this works for search as you type. A query can also have
+`"a phrase"`, `OR` or `|`, `NOT`, `!` or `-` before a word, parentheses,
+and `title:word` or `notes:word` for one field; `util.search/parse` says
+the rest. The index of a show with 200 episodes takes about two megabytes,
+so on a phone with many shows you may want to leave it off.
 
-Without `app.library`, build the index from the feeds yourself:
+To search only some episodes, give the criteria of `library/episodes` as
+`:where`, which leaves out the shows:
+
+```clojure
+(library/search @lib "podcasting" {:where {:status :unplayed}})
+```
+
+To mark the matches in a result, cut a snippet of its notes:
+
+```clojure
+(full-text/snippet (html/text (resolve/description item))
+                   "\"podcasting 2.0\"")
+;; => [{:text "A look into the future of podcasting and how we get to "}
+;;     {:text "Podcasting 2.0" :match? true}
+;;     {:text "!"}]
+```
+
+To find where words are said in a transcript, use `transcript/matches`.
+Each passage that matches has the time of the cue where it starts:
+
+```clojure
+(transcript/matches (:document (:transcript page)) "trailer")
+;; => [{:start-time 2.76 :speaker "Sarah" :body "…" :parts […]} …]
+```
+
+Without `app.library`, build the index from the feeds yourself, with the
+documents of `search`:
 
 ```clojure
 (defn index-feeds
@@ -605,11 +639,11 @@ Without `app.library`, build the index from the feeds yourself:
                       item (:rss/items feed)]
                   (search/item-document feed item {:url url}))))
 
-(search/snippet (html/text (resolve/description item)) "value for va")
+(full-text/query (index-feeds feeds) "podcasting 2" {:limit 10})
 ```
 
-When a feed changes, update the index with `search/add` and
-`search/remove`. To make transcripts searchable, give them to
+When a feed changes, update the index with `full-text/add` and
+`full-text/remove`. To make transcripts searchable, give them to
 `search/item-document`.
 
 
@@ -1178,6 +1212,7 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.proxy :as proxy]
+            [dk.simongray.podcast.util.search :as full-text]
             [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]

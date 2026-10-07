@@ -158,8 +158,7 @@
 (def calls
   "The calls that every source answers, with their parameters:
 
-  - :search takes :q and :limit, with :country for Apple and :language
-    for the Podcast Index
+  - :search takes :q and :limit, with :country for Apple
   - :lookup takes the :id of the show at the source, which for
     gpodder.net is the feed URL and for Apple can be several ids at once
   - :trending takes :limit, with :country for Apple and :language for
@@ -741,7 +740,6 @@
     :credentials.
   - :limit, the number of shows from each source
   - :country, the store of Apple, e.g. \"dk\"
-  - :language, the filter of the Podcast Index, e.g. \"da\"
   - :credentials, the :key and :secret of the Podcast Index
   - :timeout-seconds, the time to wait for each source
   - :send, the function that sends each request, http/send! by default"
@@ -750,7 +748,7 @@
   ([q opts]
    {:pre [(map? opts)]}
    (let [sources (or (:sources opts) (default-sources opts))
-         params  (assoc (select-keys opts [:limit :country :language]) :q q)]
+         params  (assoc (select-keys opts [:limit :country]) :q q)]
      (async/then (fan-out! sources :search params opts)
                  #(update % :results most-sources-first)))))
 
@@ -758,10 +756,14 @@
   "Fetch the charts of the directories with `opts`, and combine them as
   search! does. The shows are in the order that the sources list them.
 
-  The `opts` are those of search!, and :category, for the charts of one
-  category, as calls tells. A source that has no chart of the
-  category, the :country or the :language is in the :report, with the
-  reason."
+  The `opts` are those of search!, and these:
+
+  - :language, the language of the shows in the charts of fyyd and the
+    Podcast Index, e.g. \"da\"
+  - :category, for the charts of one category, as calls tells
+
+  A source that has no chart of the category, the :country or the
+  :language is in the :report, with the reason."
   ([]
    (fetch-chart! {}))
   ([opts]
