@@ -825,14 +825,9 @@ The API carries nothing else, e.g. no queue or stars. For the GPodder Sync
 app of Nextcloud, give `:api :nextcloud`:
 
 ```clojure
-(defn feeds-by-url
-  "The parsed feeds of `library` by their URLs."
-  [library]
-  (into {} (map (juxt :url :feed)) (vals (:feeds library))))
-
 (gpodder/backend "https://gpodder.net"
                  {:credentials creds
-                  :identities  #(gpodder/identities (feeds-by-url @lib))})
+                  :identities  #(gpodder/identities (vals (:feeds @lib)))})
 ```
 
 To serve a store from your own Clojure server, mount the Ring handler of

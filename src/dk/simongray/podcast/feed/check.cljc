@@ -28,6 +28,7 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.image :as image]
+            [dk.simongray.podcast.format.integrity :as integrity]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.util.async :as async]
@@ -300,8 +301,8 @@
                          #(media/read! target (reading-opts send opts))))
            verify-job (when (and integrity? came? (:integrity declared))
                         (async/attempt
-                         #(media/verify! target (:integrity declared)
-                                         (whole-opts opts))))]
+                         #(integrity/verify! target (:integrity declared)
+                                             (whole-opts opts))))]
        (async/then
         (async/all [read-job verify-job])
         (fn [[read verified]]
@@ -973,7 +974,7 @@
   A server that checks feeds for strangers gives url/public? as :allow?.
 
   For the integrity of a file, a check fetches the whole file, as
-  dk.simongray.podcast.format.media/verify! does. That request has the
+  dk.simongray.podcast.format.integrity/verify! does. That request has the
   :allow?, and it takes the time that the check has left. It goes through
   the :send of `opts`, or without one, the file streams through
   http/digest! on the JVM.

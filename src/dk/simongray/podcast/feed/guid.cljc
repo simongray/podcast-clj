@@ -3,7 +3,8 @@
   one that the UUIDv5 scheme of podcast:guid derives from its URL, and an
   episode by its guid, on both platforms."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.bytes :as bytes]))
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def ^:no-doc podcast-namespace
   "The UUID namespace that every podcast:guid is derived in."
@@ -37,6 +38,12 @@
   "The podcast:guid of a feed at `url` whose author didn't declare one."
   [url]
   (uuid-v5 podcast-namespace (guid-name url)))
+
+(defn ^:no-doc normal-url
+  "The `url` in lower case without credentials, scheme or trailing
+  slashes, so that two forms of one feed or media URL are equal."
+  [url]
+  (-> (str url) url/split-credentials first guid-name str/lower-case))
 
 (def ^:no-doc guid-pattern
   "The pattern of a UUID in its canonical form, with hyphens."

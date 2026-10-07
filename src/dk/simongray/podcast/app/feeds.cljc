@@ -43,18 +43,17 @@
   "How many feeds refresh! fetches at once."
   8)
 
-(defn- later
-  [at seconds]
-  (time/->inst (+ (inst-ms at) (* 1000 seconds))))
-
 (defn- check-at
-  "When to fetch `feed` again, at `at`: as resolve/next-check says with
-  the server's `not-before`, or else after the wait of `cadence`."
+  "When to fetch `feed` again, at `at`: as resolve/next-check says, or else
+  after the wait of `cadence`, and no earlier than the server's
+  `not-before`."
   [feed at not-before cadence]
-  (or (resolve/next-check feed at {:not-before not-before})
-      (later at (if (resolve/complete? feed)
-                  (:complete cadence)
-                  (:silent cadence)))))
+  (let [wait (if (resolve/complete? feed)
+               (:complete cadence)
+               (:silent cadence))]
+    (time/latest (or (resolve/next-check feed at)
+                     (time/later at wait))
+                 not-before)))
 
 (defn- fetched
   "The entry `old` after a fetch from `url` gave the fresh feed of `result`
@@ -97,12 +96,10 @@
   [old {:keys [status not-before] :as result} at cadence]
   (let [failures (inc (:failures old 0))
         waits    (:after-failure cadence)
-        wait     (nth waits (min (dec failures) (dec (count waits))))
-        retry-at (later at wait)
-        waiting? (and not-before (> (inst-ms not-before) (inst-ms retry-at)))]
+        wait     (nth waits (min (dec failures) (dec (count waits))))]
     (assoc old
            :fetched-at at
-           :next-check (if waiting? not-before retry-at)
+           :next-check (time/latest (time/later at wait) not-before)
            :failures failures
            :status status)))
 
@@ -291,10 +288,10 @@
 
      (update-vals feeds #(select-keys % [:url :next-check :etag]))
      (due feeds at)
-     (due feeds (later at 604800))
+     (due feeds (time/later at 604800))
 
      ;; a day later: a 304 or a fresh feed
-     (def r (refresh! feeds {:at (later at 86400)}))
+     (def r (refresh! feeds {:at (time/later at 86400)}))
      (select-keys r [:changed :moved :report])
      (get-in r [:feeds (first (keys feeds)) :status])
      #_.))

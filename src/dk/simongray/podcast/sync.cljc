@@ -234,12 +234,9 @@
 
                     :else
                     idle)
-         due      (if synced-at
-                    (time/->inst (+ (inst-ms synced-at) (* 1000 wait)))
-                    at)]
-     (if (< (inst-ms due) (inst-ms at))
-       at
-       due))))
+         due      (when synced-at
+                    (time/later synced-at wait))]
+     (time/latest due at))))
 
 (defn- failure
   "The diagnostic of the `backend` whose pull or push failed with `error`."

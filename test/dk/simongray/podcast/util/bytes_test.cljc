@@ -34,12 +34,33 @@
 (deftest the-test-cases-of-rfc-4231
   (testing "test case 1"
     (is (= "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
-           (bytes/hex (bytes/hmac-sha256 (bytes/of (repeat 20 0x0b)) (bytes/encode "Hi There"))))))
+           (bytes/hex (bytes/hmac :sha256 (bytes/of (repeat 20 0x0b)) (bytes/encode "Hi There"))))))
   (testing "test case 2"
     (is (= "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
-           (bytes/hex (bytes/hmac-sha256 (bytes/encode "Jefe") (bytes/encode "what do ya want for nothing?"))))))
-  (is (= 32 (bytes/length (bytes/hmac-sha256 (bytes/of (repeat 200 1)) (bytes/of []))))
-      "a key of more bytes than a block of the hash, and an empty message"))
+           (bytes/hex (bytes/hmac :sha256 (bytes/encode "Jefe") (bytes/encode "what do ya want for nothing?"))))))
+  (is (= 32 (bytes/length (bytes/hmac :sha256 (bytes/of (repeat 200 1)) (bytes/of []))))
+      "a key of more bytes than a block of the hash, and an empty message")
+  (testing "test case 1 by the other algorithms, and of RFC 2202 for SHA-1"
+    (let [k (bytes/of (repeat 20 0x0b))
+          m (bytes/encode "Hi There")]
+      (is (= {:sha1   "b617318655057264e28bc0b6fb378c8ef146be00"
+              :sha384 (str "afd03944d84895626b0825f4ab46907f15f9dadbe4101ec6"
+                           "82aa034c7cebc59cfaea9ea9076ede7f4af152e8b2fa9cb6")
+              :sha512 (str "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec278"
+                           "7ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4"
+                           "be9d914eeb61f1702e696c203a126854")}
+             (into {} (for [a [:sha1 :sha384 :sha512]]
+                        [a (bytes/hex (bytes/hmac a k m))])))))))
+
+(deftest digests-by-algorithm
+  (is (= {:sha384 (str "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded163"
+                       "1a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7")
+          :sha512 (str "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea2"
+                       "0a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd"
+                       "454d4423643ce80e2a9ac94fa54ca49f")}
+         (into {} (for [a [:sha384 :sha512]]
+                    [a (bytes/hex (bytes/digest a (bytes/encode "abc")))])))
+      "the examples of FIPS 180-2"))
 
 (deftest base64-of-urls
   (let [text #(bytes/base64url (bytes/encode %))]

@@ -487,6 +487,25 @@
            :channel-changed? (not= (apply dissoc before churn)
                                    (apply dissoc after churn)))))
 
+(defn new-episodes
+  "The ids of the items that the parse `after` of the feed at `url` has and
+  the parse `before` hadn't, oldest first.
+
+  Without `before`, there are none, since a first parse finds the back
+  catalogue, not new episodes."
+  [url before after]
+  (if (nil? before)
+    []
+    (let [feed-guid     (guid/feed-guid after url)
+          date-ms       (fn [item]
+                          (let [d (:rss/pub-date item)]
+                            (when (inst? d) (inst-ms d))))
+          dates         (keep date-ms (:rss/items after))
+          oldest-first? (< (or (first dates) 0) (or (last dates) 0))
+          added         (:added (diff before after))]
+      (mapv #(vector feed-guid (guid/item-guid %))
+            (if oldest-first? added (reverse added))))))
+
 (defn- page-report
   "The diagnostics of `page` for the feed that join-pages makes, by the
   `places` of its items and whether it's the `first?` page.

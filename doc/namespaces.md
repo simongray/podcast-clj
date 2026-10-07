@@ -111,7 +111,8 @@ option replaces the function that sends.
 | `format.opml` | Subscription lists as OPML, with folders, categories, creation times and includes of other lists. |
 | `format.html` | HTML in descriptions as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. |
 | `format.image` | The type, size and colour model of a PNG, JPEG, GIF or WebP image from its header, and the type alone of other images, fetched by `read!` with only the bytes it needs. |
-| `format.media` | The duration, chapters and artwork of a media file, read with byte ranges by `read!`. Also `verify!`, which checks a file against its `podcast:integrity`. |
+| `format.media` | The duration, chapters and artwork of a media file, read with byte ranges by `read!`. |
+| `format.integrity` | The `podcast:integrity` of an alternate enclosure: `sri` reads it, and `verify!` checks a file against it. |
 | `format.media.id3` | ID3v2 tags, versions 2.2 to 2.4, with chapters and pictures. |
 | `format.media.mp3` | The MPEG audio frames of an MP3 file, and its duration. |
 | `format.media.mp4` | The boxes of an MP4 or M4A file: its duration, chapters and artwork. |
@@ -157,7 +158,7 @@ option replaces the function that sends.
 | `util.http` | Requests as maps, and `send!`, which sends them with byte ranges and limits of size and time, with `try-send!` for a failure as data. Also `probe!`, which learns the facts of a file from two bytes. The `fetch!` function fetches a document with a conditional request. For another HTTP client, `revealed` unhides the credentials of a request. |
 | `util.url` | URLs and their hosts: percent-encoding and query strings, `absolute-url` as a browser resolves a link, `split-credentials`, and `public?`, which checks that a host is on the public internet. |
 | `util.proxy` | A proxy on your own server for the requests of a web page: `handler` is its Ring handler, on the JVM, and `sender` gives the page a `:send` that sends each request through it. |
-| `util.bytes` | Bytes on both platforms: hex, base64 and base64url, text, SHA-1, SHA-256, HMAC and random bytes. |
+| `util.bytes` | Bytes on both platforms: hex, base64 and base64url, text, the digests and HMACs of SHA-1 and SHA-2, and random bytes. |
 | `util.bytes.view` | Views of files whose bytes come in parts, and `read!`, which fetches the byte ranges that a reader asks for until it's done. |
 | `util.async` | Futures on the JVM and promises in JavaScript behind one API, `all` and `in-groups` to make calls at the same time, and `iteration` for paged APIs on both platforms. |
 | `util.nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `send!` for one exchange with a relay, which can also publish an event. |

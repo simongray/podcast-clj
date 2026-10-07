@@ -233,22 +233,13 @@
                                   entry (assoc :feed (:feed entry)))]))]
     (into {} (map detailed) (profile/subscriptions profile))))
 
-(defn- list-check
-  "When to fetch an OPML list again after a fetch at `at`: `seconds` later,
-  or at the `not-before` of the server when that's later."
-  [at seconds not-before]
-  (let [later (+ (inst-ms at) (* 1000 seconds))]
-    (time/->inst (if (and not-before (< later (inst-ms not-before)))
-                   (inst-ms not-before)
-                   later))))
-
 (defn- listed
   "The `library` with the parse `list` of the OPML list at `url`, fetched
   at `at`, applied as profile/refresh-list does, and kept with the ETag
   and Last-Modified of `fetched` until it's `seconds` old."
   [library url list at seconds
    {:keys [etag last-modified not-before] :as fetched}]
-  (let [next-check (list-check at seconds not-before)
+  (let [next-check (time/latest (time/later at seconds) not-before)
         entry      (cond-> {:list list :fetched-at at :next-check next-check}
                      etag          (assoc :etag etag)
                      last-modified (assoc :last-modified last-modified))
@@ -318,7 +309,8 @@
                                      (diagnostics/fetch-failure
                                       {:url url :status status})))
                        seconds (:list-seconds opts)
-                       later   (list-check at seconds not-before)
+                       later   (time/latest (time/later at seconds)
+                                            not-before)
                        path    [:library :fetched-lists url]]
                    (cond
                      error
@@ -735,6 +727,12 @@
               refresh (assoc :refresh refresh))
             changed)))
 
+(defn unsynced?
+  "Whether the profile of `library` changed since its last sync, by the
+  clock of the profile."
+  [library]
+  (not= (:clock (:sync library)) (:clock (:profile library))))
+
 (defn next-sync
   "When `library` should sync again, with `opts`, as sync/next-sync says:
   right away before the first step, and sooner when the profile changed
@@ -743,10 +741,11 @@
    (next-sync library {}))
   ([library opts]
    {:pre [(map? opts)]}
-   (let [{:keys [at clock failures]} (:sync library)
-         changed?  (not= clock (:clock (:profile library)))
+   (let [{:keys [at failures]} (:sync library)
          last-step (when at
-                     {:at at :changed? changed? :failures failures})]
+                     {:at       at
+                      :changed? (unsynced? library)
+                      :failures failures})]
      (sync/next-sync last-step (time-of library opts)))))
 
 (defn document

@@ -257,7 +257,7 @@
 
   The index has the items by guid, and their guids by the URL of their
   media."
-  [[url feed]]
+  [{:keys [url feed]}]
   {:url   url
    :guid  (guid/feed-guid feed url)
    :index (delay
@@ -268,11 +268,12 @@
               {:items    (into {} items)
                :by-media (into {} (for [[g item] items
                                         {media :url} (resolve/enclosures item)]
-                                    [(profile/normal-url media) g]))}))})
+                                    [(guid/normal-url media) g]))}))})
 
 (defn identities
-  "The ways to name the shows and episodes of `feeds`, the app's parsed
-  feeds by URL, as backend takes them under :identities:
+  "The ways to name the shows and episodes of the `feeds`, as backend takes
+  them under :identities. The feeds are maps of the :url and the parsed
+  :feed, e.g. the entries of app.feeds, and the ways are these:
 
       {:feed-guid   (fn [url])                         ; the guid of the feed
        :feed-url    (fn [feed-guid])                   ; the URL of the feed
@@ -289,10 +290,10 @@
   keep the result while the app's feeds stay the same."
   [feeds]
   (let [known   (map indexed feeds)
-        url-of  (comp profile/normal-url :url)
+        url-of  (comp guid/normal-url :url)
         by-url  (into {} (map (juxt url-of identity)) known)
         by-guid (into {} (map (juxt :guid identity)) known)
-        at-url  #(by-url (profile/normal-url %))
+        at-url  #(by-url (guid/normal-url %))
         index   #(some-> % :index deref)]
     {:feed-guid   #(:guid (at-url %))
      :feed-url    #(:url (by-guid %))
@@ -300,7 +301,7 @@
                     (when-let [{g :guid :as found} (at-url podcast)]
                       (let [{:keys [items by-media]} (index found)]
                         [g (or (when (contains? items guid) guid)
-                               (by-media (profile/normal-url media))
+                               (by-media (guid/normal-url media))
                                guid
                                media)])))
      :episode-url (fn [[feed-guid item-guid]]
@@ -328,7 +329,7 @@
         {:keys [feed-guid feed-url episode-id episode-url]}
         (merge (when identities (identities)) (select-keys opts ways))
 
-        subscribed (comp (profile/by-url state) profile/normal-url)
+        subscribed (comp (profile/by-url state) guid/normal-url)
         ;; a new feed that declares a guid of its own keeps the guid of its
         ;; URL until profile/rekey moves the subscription, which app.library
         ;; does when it fetches the feed
@@ -782,7 +783,7 @@
   - :type, desktop, laptop, mobile, server, tablet, or other by default
   - :name, for the UI and the cursors, the host by default
   - :identities, a function that makes the ways to name shows and
-    episodes at each step, e.g. #(identities @feeds)
+    episodes at each step, e.g. #(identities (vals @feeds))
   - :feed-guid, :feed-url, :episode-id and :episode-url, each way on its
     own, in place of :identities
   - :page-size, :max-pages, :batch-size and :max-pending, over

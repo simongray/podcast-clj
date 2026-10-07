@@ -5,6 +5,7 @@
   the reducer."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.validate :as validate]
@@ -47,7 +48,7 @@
         (is (contains? (:subscriptions moved) "feed-a") "a tombstone")
         (is (= (profile/settings tagged "feed-a") (profile/settings moved "declared")))
         (is (= #{"tech"} (profile/tags moved "declared")))
-        (is (= "declared" (get (profile/by-url moved) (profile/normal-url "https://a/rss"))) "the live one names the URL")
+        (is (= "declared" (get (profile/by-url moved) (guid/normal-url "https://a/rss"))) "the live one names the URL")
         (is (= ["declared"] (keys (profile/subscriptions (profile/merge other moved)))) "the other device learns the move")
         (is (= s (profile/rekey s "feed-a" "feed-a" t2)) "the same guid changes nothing")
         (is (= s (profile/rekey s "feed-b" "declared" t2)) "no subscription, nothing to move")))
@@ -228,12 +229,12 @@
         before {:podcast/guid "feed-a" :rss/items [(item "a2") (item "a1")]}
         after  {:podcast/guid "feed-a" :rss/items [(item "a4") (item "a3") (item "a2") (item "a1")]}
         s      (-> (profile/make "phone") (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0))]
-    (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (profile/new-episodes "https://a/rss" before after)) "oldest first")
+    (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (feed/new-episodes "https://a/rss" before after)) "oldest first")
     (testing "oldest first by date also for a feed that lists them so, and none on a first parse"
       (let [dated (fn [id day] (assoc (item id) :rss/pub-date (time/->inst (* day 86400000))))
             after {:podcast/guid "feed-a" :rss/items [(dated "a1" 1) (dated "a2" 2) (dated "a3" 3) (dated "a4" 4)]}]
-        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (profile/new-episodes "https://a/rss" before after)))
-        (is (= [] (profile/new-episodes "https://a/rss" nil after)))))
+        (is (= [["feed-a" "a3"] ["feed-a" "a4"]] (feed/new-episodes "https://a/rss" before after)))
+        (is (= [] (feed/new-episodes "https://a/rss" nil after)))))
     (testing "without auto-queue the new episodes are reported, not queued"
       (let [{:keys [profile added]} (profile/refresh s "https://a/rss" before after t1)]
         (is (= 2 (count added)))

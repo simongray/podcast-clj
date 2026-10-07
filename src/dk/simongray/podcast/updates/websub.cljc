@@ -27,15 +27,7 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.url :as url]
-            #?@(:cljs [[goog.crypt.Hmac]
-                       [goog.crypt.Sha1]
-                       [goog.crypt.Sha256]
-                       [goog.crypt.Sha384]
-                       [goog.crypt.Sha512]]))
-  #?(:clj (:import [java.security MessageDigest]
-                   [javax.crypto Mac]
-                   [javax.crypto.spec SecretKeySpec])))
+            [dk.simongray.podcast.util.url :as url]))
 
 (def default-limits
   "The limits of handler that its options don't set.
@@ -200,35 +192,11 @@
                                       :message message}))))))))
 
 (def ^:no-doc algorithms
-  "The name of each signature method in the Mac of the JVM."
-  {"sha1"   "HmacSHA1"
-   "sha256" "HmacSHA256"
-   "sha384" "HmacSHA384"
-   "sha512" "HmacSHA512"})
-
-#?(:cljs
-   (defn- hmac-hasher
-     "The hasher of the Closure Library for the signature `method`, and the
-     block size of its HMAC, as a pair."
-     [method]
-     (case method
-       "sha1"   [(goog.crypt.Sha1.) 64]
-       "sha256" [(goog.crypt.Sha256.) 64]
-       "sha384" [(goog.crypt.Sha384.) 128]
-       "sha512" [(goog.crypt.Sha512.) 128])))
-
-(defn- hmac
-  "The HMAC of the bytes `body` with the key bytes `k`, by the signature
-  `method`."
-  [method k body]
-  #?(:clj  (let [algorithm (algorithms method)
-                 mac       (doto (Mac/getInstance algorithm)
-                             (.init (SecretKeySpec. k algorithm)))]
-             (.doFinal mac ^bytes body))
-     :cljs (let [[hasher block] (hmac-hasher method)
-                 key-array      (js/Array.from k)
-                 mac            (goog.crypt.Hmac. hasher key-array block)]
-             (.getHmac mac (js/Array.from body)))))
+  "The algorithm of util.bytes/hmac for each signature method."
+  {"sha1"   :sha1
+   "sha256" :sha256
+   "sha384" :sha384
+   "sha512" :sha512})
 
 (defn signature
   "The signature of the bytes `body` with the text `secret`, by the hash
@@ -239,18 +207,9 @@
   equals sign, such as sha256=1f3a…. Section 7.1 of WebSub defines it as
   the value of the header X-Hub-Signature."
   [method secret body]
-  (when (contains? algorithms method)
+  (when-let [algorithm (algorithms method)]
     (let [k (bytes/encode (secret/reveal secret))]
-      (str method "=" (bytes/hex (hmac method k body))))))
-
-(defn- same?
-  "Whether the texts `a` and `b` are the same, in a time that doesn't tell
-  where they differ."
-  [a b]
-  #?(:clj  (MessageDigest/isEqual (bytes/encode a) (bytes/encode b))
-     :cljs (let [diff #(bit-xor (.charCodeAt a %) (.charCodeAt b %))]
-             (and (= (count a) (count b))
-                  (zero? (reduce bit-or 0 (map diff (range (count a)))))))))
+      (str method "=" (bytes/hex (bytes/hmac algorithm k body))))))
 
 (defn signed?
   "Whether `header`, the value of X-Hub-Signature, is the signature of the
@@ -268,7 +227,8 @@
                    (contains? methods method)
                    (when-let [expected (signature method secret body)]
                      (let [given (str method "=" (str/lower-case hex))]
-                       (same? expected given))))))))
+                       (bytes/same? (bytes/encode expected)
+                                    (bytes/encode given)))))))))
 
 (defn ^:no-doc answer
   "The Ring response of `status` with the text `body`. The media type and

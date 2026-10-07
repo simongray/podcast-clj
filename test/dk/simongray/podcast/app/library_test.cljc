@@ -226,7 +226,9 @@
     (is (= "\"p1\"" (get-in lib [:fetched-lists "https://example.org/picks.opml" :etag])))
     (is (= (at 86400) (get-in lib [:fetched-lists "https://example.org/picks.opml" :next-check])))
     (is (= 2 (count (library/subscriptions lib))) "the show of the list joined")
-    (is (nil? (:feed (get (library/subscriptions lib) (profile/normal-url other-url)))) "not fetched yet")
+    (let [joined (get (library/subscriptions lib) (feed.guid/feed-guid nil other-url))]
+      (is (= other-url (:url joined)) "under the guid of its URL")
+      (is (nil? (:feed joined)) "not fetched yet"))
     (let [gone (library/unfollow-list lib "https://example.org/picks.opml")]
       (is (= {} (profile/lists (:profile gone))))
       (is (= {} (:fetched-lists gone)))

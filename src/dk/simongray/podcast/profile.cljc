@@ -96,15 +96,10 @@
   [profile]
   (into {} (remove (comp :removed? val)) (:subscriptions profile)))
 
-(defn ^:no-doc normal-url
-  "The `url` in lower case without credentials, scheme or trailing
-  slashes, so that two forms of one feed or media URL are equal."
-  [url]
-  (-> (str url) url/split-credentials first guid/guid-name str/lower-case))
-
 (defn ^:no-doc by-url
-  "A map from the URL of each subscription of `profile`, as normal-url gives
-  it, to its feed guid, removed subscriptions included.
+  "A map from the URL of each subscription of `profile`, as
+  guid/normal-url gives it, to its feed guid, removed subscriptions
+  included.
 
   Where subscriptions share a URL, a live one wins over a removed one, and
   then the one that changed last."
@@ -115,7 +110,7 @@
                   [(if removed? 0 1)
                    (or (some-> updated-at inst-ms) 0)
                    (str g)]))
-       (into {} (map (fn [[g e]] [(normal-url (:url e)) g])))))
+       (into {} (map (fn [[g e]] [(guid/normal-url (:url e)) g])))))
 
 (defn takeover
   "Check whether subscribing `profile` to the feed at `url`, under the guid
@@ -129,7 +124,7 @@
   [profile feed-guid url]
   (when (subscribed? profile feed-guid)
     (let [other (get-in profile [:subscriptions feed-guid :url])]
-      (when (not= (normal-url other) (normal-url url))
+      (when (not= (guid/normal-url other) (guid/normal-url url))
         (diagnostics/describe {:id        :fetch/guid-taken
                                :url       url
                                :feed-guid feed-guid
@@ -1097,25 +1092,6 @@
                       [feed-guid item-guid])
                     at))
 
-(defn new-episodes
-  "The ids of the items that the parse `after` of the feed at `url` has and
-  the parse `before` hadn't, oldest first.
-
-  Without `before`, there are none, since a first parse finds the back
-  catalogue, not new episodes."
-  [url before after]
-  (if (nil? before)
-    []
-    (let [feed-guid     (guid/feed-guid after url)
-          date-ms       (fn [item]
-                          (let [d (:rss/pub-date item)]
-                            (when (inst? d) (inst-ms d))))
-          dates         (keep date-ms (:rss/items after))
-          oldest-first? (< (or (first dates) 0) (or (last dates) 0))
-          added         (:added (feed/diff before after))]
-      (mapv #(vector feed-guid (guid/item-guid %))
-            (if oldest-first? added (reverse added))))))
-
 (defn- joined-at
   "When each of the new episodes `ids` of the parse `feed`, oldest first,
   joins a profile at `at`, by id.
@@ -1148,7 +1124,7 @@
   did with it on another device."
   [profile url before after at]
   (let [feed-guid (guid/feed-guid after url)
-        added     (new-episodes url before after)
+        added     (feed/new-episodes url before after)
         {:keys [auto-queue? inbox?]}
         (when (subscribed? profile feed-guid)
           (settings profile feed-guid))
@@ -1223,7 +1199,7 @@
   outline's own guid, or else the guid of its URL. This keeps a known show
   from coming in again under another guid."
   [names {:keys [xml-url guid] :as outline}]
-  (or (get names (normal-url xml-url))
+  (or (get names (guid/normal-url xml-url))
       (when (string? guid) (not-empty (str/trim guid)))
       (guid/from-url xml-url)))
 
@@ -1239,7 +1215,7 @@
                          (joined g))
                    acc
                    (-> acc
-                       (assoc-in [:names (normal-url xml-url)] g)
+                       (assoc-in [:names (guid/normal-url xml-url)] g)
                        (update :joined conj g)
                        (update :joining conj [g outline])))))]
     (:joining (reduce join
@@ -1333,13 +1309,13 @@
    folder
    at]
   (let [g          (named names outline)
-        known      (when (get names (normal-url xml-url))
+        known      (when (get names (guid/normal-url xml-url))
                      (get-in profile [:subscriptions g :url]))
         details    {:url      (or known xml-url)
                     :title    (or title text)
                     :added-at (when (inst? created) created)}
         categories (when (sequential? category) category)]
-    {:names   (assoc names (normal-url xml-url) g)
+    {:names   (assoc names (guid/normal-url xml-url) g)
      :profile (as-> (subscribe profile g details at) profile
                 (if folder (configure profile g {:folder folder} at) profile)
                 (reduce #(tag %1 g %2 at) profile categories))}))

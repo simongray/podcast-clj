@@ -43,7 +43,7 @@
   "The key that HKDF extracts from the bytes `material` with the bytes
   `salt`, as section 2.2 of RFC 5869 defines it."
   [salt material]
-  (bytes/hmac-sha256 salt material))
+  (bytes/hmac :sha256 salt material))
 
 (defn- expanded
   "The `n` bytes that HKDF expands from the bytes `key` for the bytes
@@ -53,7 +53,7 @@
     (if (<= n (* 32 (count out)))
       (bytes/copy (bytes/join out) 0 n)
       (let [input (bytes/join [last info (bytes/of [i])])
-            part  (bytes/hmac-sha256 key input)]
+            part  (bytes/hmac :sha256 key input)]
         (recur (inc i) part (conj out part))))))
 
 (defn- key?
@@ -166,7 +166,7 @@
   "The check of the bytes `sealed` with the bytes `nonce` before them,
   under the bytes `key`, as the function hmac_aad of NIP-44 computes it."
   [key nonce sealed]
-  (bytes/hmac-sha256 key (bytes/join [nonce sealed])))
+  (bytes/hmac :sha256 key (bytes/join [nonce sealed])))
 
 (defn encrypt
   "The payload of the text `plaintext` under `conversation-key`, with

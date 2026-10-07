@@ -11,6 +11,7 @@
                       [clojure.test.check.properties :as prop]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
+            [dk.simongray.podcast.format.integrity :as integrity]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.media.id3 :as id3]
             [dk.simongray.podcast.format.media.mp3 :as mp3]
@@ -521,9 +522,9 @@
          (with-file-server b {}
            (fn [url]
              (is (= {:valid? true :algorithm "sha384"}
-                    (media/verify! url {:type "sri" :value (str "sha256-nope sha384-" digest)})))
+                    (integrity/verify! url {:type "sri" :value (str "sha256-nope sha384-" digest)})))
              (is (= {:valid? false :algorithm "sha384"}
-                    (media/verify! url {:type "sri" :value "sha384-AAAA"})))))))))
+                    (integrity/verify! url {:type "sri" :value "sha384-AAAA"})))))))))
 
 ;; files built to hurt a reader
 
@@ -678,8 +679,8 @@
          (and (map? r) (or (:format r) (seq (media/report r))))))))
 
 (deftest a-file-that-the-app-does-not-allow
-  (run #(async/then (media/verify! "https://example.org/a.mp3" {:type "sri" :value "sha384-AAAA"}
-                                   {:allow? (constantly false)})
+  (run #(async/then (integrity/verify! "https://example.org/a.mp3" {:type "sri" :value "sha384-AAAA"}
+                                       {:allow? (constantly false)})
                     (fn [{:keys [valid? error]}]
                       (is (nil? valid?))
                       (is (= [:file/unreachable "https://example.org/a.mp3"] ((juxt :id :url) error)))
@@ -705,7 +706,7 @@
                   (fn [file]
                     (is (= [:file/unreachable url nil "The disk is gone"] (told (:error file)))
                         "the fetch of the app")))
-     #(async/then (media/verify! url {:type "sri" :value "sha384-AAAA"} {:send down})
+     #(async/then (integrity/verify! url {:type "sri" :value "sha384-AAAA"} {:send down})
                   (fn [verdict]
                     (is (nil? (:valid? verdict)))
                     (is (= [:file/unreachable url nil "Connection refused"] (told (:error verdict)))))))))
@@ -718,7 +719,7 @@
                  (swap! sent conj request)
                  {:status 200 :url (:url request) :headers {} :body file})
         verify (fn [value opts]
-                 (media/verify! "https://example.org/a.mp3" {:type "sri" :value value} opts))]
+                 (integrity/verify! "https://example.org/a.mp3" {:type "sri" :value value} opts))]
     (run
      #(async/then (verify sha256 {:send send :allow? (constantly true) :headers {"Accept" "audio/*"}})
                   (fn [verdict]
@@ -736,12 +737,12 @@
                     (is (= [:file/unreachable 404] ((juxt :id :status) error))))))))
 
 (deftest subresource-integrity
-  (is (= {:algorithm "sha384" :digests #{"abc="}} (media/sri "sha256-xyz= sha384-abc=")) "the strongest wins")
-  (is (= {:algorithm "sha512" :digests #{"a" "b"}} (media/sri "sha512-a sha512-b?ct=audio sha1-c")))
-  (is (nil? (media/sri "md5-abc sha1-def")) "no hash SRI knows")
+  (is (= {:algorithm "sha384" :digests #{"abc="}} (integrity/sri "sha256-xyz= sha384-abc=")) "the strongest wins")
+  (is (= {:algorithm "sha512" :digests #{"a" "b"}} (integrity/sri "sha512-a sha512-b?ct=audio sha1-c")))
+  (is (nil? (integrity/sri "md5-abc sha1-def")) "no hash SRI knows")
   (let [unverified [nil :file/unverifiable :info "A PGP signature needs the key of the publisher."]
         told       (juxt :valid? (comp :id :error) (comp :level :error) (comp :reason :error))
-        result     (media/verify! "https://example.org/a.mp3" {:type "pgp-signature" :value "…"})]
+        result     (integrity/verify! "https://example.org/a.mp3" {:type "pgp-signature" :value "…"})]
     #?(:clj  (is (= unverified (told result)))
        :cljs (async done
                (-> result

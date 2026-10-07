@@ -72,11 +72,6 @@
                 :problem problem))
     restored))
 
-(defn- changed?
-  "Whether the profile of `library` changed since its last sync."
-  [library]
-  (not= (:clock (:profile library)) (get-in library [:sync :clock])))
-
 (defn step!
   "Sync `lib`, an atom of the server's library, through `backend`, fetch
   the feeds that are due, and sync again when that changed the profile.
@@ -84,7 +79,7 @@
   [lib backend]
   (swap! lib library/merge (library/sync! @lib [backend]))
   (swap! lib library/merge (library/refresh! @lib))
-  (if (changed? @lib)
+  (if (library/unsynced? @lib)
     (swap! lib library/merge (library/sync! @lib [backend]))
     @lib))
 
@@ -132,8 +127,7 @@
   [lib]
   (let [indexed (atom nil)
         index   (fn [feeds]
-                  (let [by-url (into {} (map (juxt :url :feed)) (vals feeds))]
-                    {:feeds feeds :names (gpodder/identities by-url)}))]
+                  {:feeds feeds :names (gpodder/identities (vals feeds))})]
     (fn []
       (let [feeds (:feeds @lib)]
         (:names (swap! indexed #(if (identical? feeds (:feeds %))

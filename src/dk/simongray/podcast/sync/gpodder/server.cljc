@@ -13,6 +13,7 @@
   that an action that a device sends late still reaches the other
   devices."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.util.http :as http]
@@ -115,9 +116,9 @@
           live?   (into #{}
                         (comp (map val)
                               (remove :removed?)
-                              (map (comp profile/normal-url public)))
+                              (map (comp guid/normal-url public)))
                         known)
-          gone    (remove (comp live? profile/normal-url) (urls :removed?))]
+          gone    (remove (comp live? guid/normal-url) (urls :removed?))]
       {:status 200
        :body   {"add"       (vec (urls (complement :removed?)))
                 "remove"    (if (zero? since-ms) [] (vec gone))

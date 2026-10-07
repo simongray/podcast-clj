@@ -250,7 +250,7 @@
 
   It has what else the feed declares, e.g. the :type, :length, :bitrate,
   :title and :default. An alternate also has its :integrity, which
-  dk.simongray.podcast.format.media/verify! checks."
+  dk.simongray.podcast.format.integrity/verify! checks."
   [item]
   (concat
    (when-let [{:keys [url] :as enclosure} (:rss/enclosure item)]

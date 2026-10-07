@@ -68,9 +68,64 @@
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]))
 
+(defn- nostr-opts
+  "The `opts` of a hiccup of a note of the Nostr `thread`, with the names
+  of its authors as :names, unless `opts` have their own."
+  [thread opts]
+  (cond-> opts
+    (not (contains? opts :names))
+    (assoc :names (nostr-comments/names thread))))
+
+(def ^:no-doc readers
+  "The reader of each protocol, as the functions that this namespace calls
+  for a thread of it. A reader keeps the post of a comment under a key of
+  its own, which :parts and :hiccup read."
+  {"activitypub"
+   {:resumed        activitypub/resumed
+    :requests       activitypub/requests
+    :with-exchanges activitypub/with-exchanges
+    :readable?      (fn [interact _] (activitypub/readable? interact))
+    :parts          (fn [_ comment]
+                      (some-> (::activitypub/source comment)
+                              activitypub/parts))
+    :hiccup         (fn [_ comment opts]
+                      (some-> (::activitypub/source comment)
+                              (activitypub/hiccup opts)))}
+
+   "atproto"
+   {:resumed        atproto/resumed
+    :requests       atproto/requests
+    :with-exchanges atproto/with-exchanges
+    :readable?      atproto/readable?
+    :parts          (fn [_ comment]
+                      (some-> (::atproto/record comment) atproto/parts))
+    :hiccup         (fn [_ comment opts]
+                      (some-> (::atproto/record comment)
+                              (atproto/hiccup opts)))}
+
+   "nostr"
+   {:resumed        nostr-comments/resumed
+    :requests       nostr-comments/requests
+    :with-exchanges nostr-comments/with-exchanges
+    :readable?      nostr-comments/readable?
+    :parts          (fn [thread comment]
+                      (some-> (::nostr-comments/event comment)
+                              (nostr-comments/parts
+                               {:names (nostr-comments/names thread)})))
+    :hiccup         (fn [thread comment opts]
+                      (some-> (::nostr-comments/event comment)
+                              (nostr-comments/hiccup
+                               (nostr-opts thread opts))))}})
+
 (def protocols
   "The protocols of podcast:socialInteract whose threads fetch! reads."
-  #{"activitypub" "atproto" "nostr"})
+  (set (keys readers)))
+
+(defn- reader
+  "The function `k` of the reader of the protocol of `thread`, or nil for a
+  protocol that no reader reads."
+  [thread k]
+  (get-in readers [(:protocol thread) k]))
 
 (def default-limits
   "The limits of fetch! that its options don't set.
@@ -147,11 +202,9 @@
   answered 429 or a status from 500. The thread also notes how many
   comments it holds, so that :max-comments counts the comments of this
   reading."
-  [{:keys [protocol] :as thread}]
-  (let [thread (case protocol
-                 "activitypub" (activitypub/resumed thread)
-                 "atproto"     (atproto/resumed thread)
-                 "nostr"       (nostr-comments/resumed thread)
+  [thread]
+  (let [thread (if-let [f (reader thread :resumed)]
+                 (f thread)
                  thread)
         held   (count (filter :read-at (vals (:comments thread))))]
     (if (pos? held)
@@ -162,10 +215,8 @@
   "The requests that `thread` needs next with the limits of `opts`, of those
   whose URLs `ask?` takes."
   [thread opts ask?]
-  (case (:protocol thread)
-    "activitypub" (activitypub/requests thread opts ask?)
-    "atproto"     (atproto/requests thread opts ask?)
-    "nostr"       (nostr-comments/requests thread opts ask?)
+  (if-let [f (reader thread :requests)]
+    (f thread opts ask?)
     []))
 
 (defn- distinct-by
@@ -225,10 +276,8 @@
   a response is also :timeout? when the request took too long, and
   :retry? when a later request can get an answer."
   [thread exchanges at]
-  (case (:protocol thread)
-    "activitypub" (activitypub/with-exchanges thread exchanges at)
-    "atproto"     (atproto/with-exchanges thread exchanges at)
-    "nostr"       (nostr-comments/with-exchanges thread exchanges at)
+  (if-let [f (reader thread :with-exchanges)]
+    (f thread exchanges at)
     thread))
 
 (defn readable?
@@ -242,11 +291,9 @@
   that NIP-73 gives a show or an episode."
   ([interact]
    (readable? interact {}))
-  ([{:keys [protocol] :as interact} opts]
-   (case protocol
-     "activitypub" (activitypub/readable? interact)
-     "atproto"     (atproto/readable? interact opts)
-     "nostr"       (nostr-comments/readable? interact opts)
+  ([interact opts]
+   (if-let [f (reader interact :readable?)]
+     (f interact opts)
      false)))
 
 (defn thread
@@ -405,20 +452,12 @@
   text gives the content as plain text. The reader of each protocol has a
   parts function for what it keeps of a comment, and its docstring tells
   more."
-  [{:keys [protocol] :as thread} {:keys [content] :as comment}]
-  (let [source       (::activitypub/source comment)
-        record       (::atproto/record comment)
-        event        (::nostr-comments/event comment)
-        author-names #(nostr-comments/names thread)]
-    (or (case protocol
-          "activitypub" (some-> source activitypub/parts)
-          "atproto"     (some-> record atproto/parts)
-          "nostr"       (some-> event
-                                (nostr-comments/parts {:names (author-names)}))
-          nil)
-        (if-let [text (common/first-text (some-> content html/text))]
-          [{:type :text :text text}]
-          []))))
+  [thread {:keys [content] :as comment}]
+  (or (when-let [f (reader thread :parts)]
+        (f thread comment))
+      (if-let [text (common/first-text (some-> content html/text))]
+        [{:type :text :text text}]
+        [])))
 
 (defn hiccup
   "The content of `comment`, a comment of `thread`, as Hiccup that a page
@@ -456,20 +495,10 @@
     {:keys [content] :as comment}
     {:keys [link] :as opts}]
    {:pre [(map? opts)]}
-   (let [opts       (cond-> opts
-                      link (assoc :link #(link (assoc % :protocol protocol))))
-         nostr-opts (fn []
-                      (cond-> opts
-                        (not (contains? opts :names))
-                        (assoc :names (nostr-comments/names thread))))
-         source     (::activitypub/source comment)
-         record     (::atproto/record comment)
-         event      (::nostr-comments/event comment)]
-     (or (case protocol
-           "activitypub" (some-> source (activitypub/hiccup opts))
-           "atproto"     (some-> record (atproto/hiccup opts))
-           "nostr"       (some-> event (nostr-comments/hiccup (nostr-opts)))
-           nil)
+   (let [opts (cond-> opts
+                link (assoc :link #(link (assoc % :protocol protocol))))]
+     (or (when-let [f (reader thread :hiccup)]
+           (f thread comment opts))
          (html/hiccup content)))))
 
 (defn text

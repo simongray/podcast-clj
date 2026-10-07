@@ -9,7 +9,9 @@
   (:require [clojure.string :as str]
             #?(:cljs [goog.crypt.Hmac])
             #?(:cljs [goog.crypt.Sha1])
-            #?(:cljs [goog.crypt.Sha256]))
+            #?(:cljs [goog.crypt.Sha256])
+            #?(:cljs [goog.crypt.Sha384])
+            #?(:cljs [goog.crypt.Sha512]))
   #?(:clj (:import [java.io ByteArrayOutputStream]
                    [java.nio.charset StandardCharsets]
                    [java.security MessageDigest SecureRandom]
@@ -75,6 +77,35 @@
                      16))]
       (of (map byte-at (range 0 (count s) 2))))))
 
+(def ^:no-doc digest-names
+  "The name of each algorithm of digest in the MessageDigest of the JVM."
+  {:sha1   "SHA-1"
+   :sha256 "SHA-256"
+   :sha384 "SHA-384"
+   :sha512 "SHA-512"})
+
+#?(:cljs
+   (defn- hasher
+     "A hasher of the Closure Library for `algorithm`, and the block size of
+     its HMAC, as a pair."
+     [algorithm]
+     (case algorithm
+       :sha1   [(goog.crypt.Sha1.) 64]
+       :sha256 [(goog.crypt.Sha256.) 64]
+       :sha384 [(goog.crypt.Sha384.) 128]
+       :sha512 [(goog.crypt.Sha512.) 128])))
+
+;; FIPS 180-4
+(defn digest
+  "The digest of the bytes `b` by `algorithm`, :sha1, :sha256, :sha384 or
+  :sha512, as bytes."
+  [algorithm b]
+  #?(:clj  (.digest (MessageDigest/getInstance (digest-names algorithm))
+                    ^bytes b)
+     :cljs (let [[h] (hasher algorithm)]
+             (.update h b)
+             (js/Uint8Array.from (.digest h)))))
+
 (defn sha1
   "The SHA-1 digest of the bytes `b`, as 20 bytes.
 
@@ -82,18 +113,12 @@
   here only for what asks for it: the UUID of version 5 (RFC 4122, section
   4.3), which the podcast:guid is, and the requests of the Podcast Index."
   [b]
-  #?(:clj  (.digest (MessageDigest/getInstance "SHA-1") ^bytes b)
-     :cljs (let [h (goog.crypt.Sha1.)]
-             (.update h b)
-             (js/Uint8Array.from (.digest h)))))
+  (digest :sha1 b))
 
 (defn sha256
   "The SHA-256 digest of the bytes `b`, as 32 bytes."
   [b]
-  #?(:clj  (.digest (MessageDigest/getInstance "SHA-256") ^bytes b)
-     :cljs (let [h (goog.crypt.Sha256.)]
-             (.update h b)
-             (js/Uint8Array.from (.digest h)))))
+  (digest :sha256 b))
 
 (defn join
   "The bytes of each of `bs`, one after another, as new bytes."
@@ -116,17 +141,19 @@
                                  (range (.-length a)))]
                   (zero? (reduce bit-or 0 diffs))))))
 
-(defn hmac-sha256
-  "The HMAC of the bytes `message` with the bytes `key`, by SHA-256, as 32
-  bytes. RFC 2104 defines the HMAC."
-  [key message]
-  #?(:clj  (.doFinal (doto (Mac/getInstance "HmacSHA256")
-                       (.init (SecretKeySpec. ^bytes key "HmacSHA256")))
-                     ^bytes message)
-     :cljs (let [hmac (goog.crypt.Hmac. (goog.crypt.Sha256.)
-                                        (js/Array.from key)
-                                        64)]
-             (js/Uint8Array.from (.getHmac hmac (js/Array.from message))))))
+;; RFC 2104
+(defn hmac
+  "The HMAC of the bytes `message` with the bytes `key` by `algorithm`, one
+  of those of digest, as bytes."
+  [algorithm key message]
+  #?(:clj  (let [name (str "Hmac" (str/replace (digest-names algorithm)
+                                               "-" ""))]
+             (.doFinal (doto (Mac/getInstance name)
+                         (.init (SecretKeySpec. ^bytes key name)))
+                       ^bytes message))
+     :cljs (let [[h block] (hasher algorithm)
+                 mac       (goog.crypt.Hmac. h (js/Array.from key) block)]
+             (js/Uint8Array.from (.getHmac mac (js/Array.from message))))))
 
 (defn generate!
   "Generate `n` bytes that nobody can guess, from the generator of the

@@ -6,10 +6,10 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.app.feeds :as feeds]
+            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
@@ -56,10 +56,10 @@
   the gpodder API."
   [feed before url at]
   (let [thin        (feeds/slim feed)
-        whole-names (gpodder/identities {url feed})
-        thin-names  (gpodder/identities {url thin})]
+        whole-names (gpodder/identities [{:url url :feed feed}])
+        thin-names  (gpodder/identities [{:url url :feed thin}])]
     (and (= (resolve/next-check feed at) (resolve/next-check thin at))
-         (= (profile/new-episodes url before feed) (profile/new-episodes url (feeds/slim before) feed))
+         (= (feed/new-episodes url before feed) (feed/new-episodes url (feeds/slim before) feed))
          (every? (fn [item]
                    (let [id    (feed.guid/episode-id feed url item)
                          media (:url (resolve/enclosure item))]
@@ -69,7 +69,7 @@
 
 (deftest what-slim-keeps
   (let [before (update show :rss/items #(vec (rest %)))]
-    (is (seq (profile/new-episodes url before show)) "the example has a new episode to find")
+    (is (seq (feed/new-episodes url before show)) "the example has a new episode to find")
     (is (< (count (pr-str (feeds/slim show))) (quot (count (pr-str show)) 2)))
     (doseq [[what f] [["the example" show]
                       ["a ttl" (assoc show :rss/ttl 60)]
@@ -94,7 +94,10 @@
       (is (nil? moved))
       (is (nil? report))
       (is (= ["Newer" "\"v2\"" (at 3600) (at (+ 3600 86400)) 0 200]
-             ((juxt (comp :rss/title :feed) :etag :fetched-at :next-check :failures :status) (get-in r [:feeds guid]))))))
+             ((juxt (comp :rss/title :feed) :etag :fetched-at :next-check :failures :status) (get-in r [:feeds guid])))))
+    (is (= (at (+ 3600 86400))
+           (:next-check (get-in (feeds/refresh feeds guid (assoc fresh :not-before (at 7200)) (at 3600)) [:feeds guid])))
+        "the server's word holds the check back, and never brings it forward"))
   (testing "a 304 keeps the feed, and sets the next check, no earlier than the server allows"
     (let [r (feeds/refresh feeds guid {:status 304 :url url :not-before (at 90000)} (at 3600))]
       (is (nil? (:changed r)))

@@ -80,6 +80,18 @@
   [inst]
   (->inst (inst-ms inst)))
 
+(defn later
+  "The instant `seconds` after the instant `at`."
+  [at seconds]
+  (->inst (+ (inst-ms at) (* 1000 seconds))))
+
+(defn latest
+  "The latest of the `instants`, with nils left out, or nil when none is
+  left, e.g. a due time held back by the not-before of a server."
+  [& instants]
+  (when-let [present (seq (remove nil? instants))]
+    (->inst (reduce max (map inst-ms present)))))
+
 (defn floor-seconds
   "The instant `inst` with its milliseconds dropped, the precision an RFC
   2822 date can carry."

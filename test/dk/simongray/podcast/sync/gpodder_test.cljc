@@ -127,7 +127,7 @@
   (delay (rss/parse (fixture "feeds/namespace-example.xml"))))
 
 (deftest names-over-parsed-feeds
-  (let [{:keys [feed-guid feed-url episode-id episode-url]} (gpodder/identities {"https://example.com/feed.xml" @example})]
+  (let [{:keys [feed-guid feed-url episode-id episode-url]} (gpodder/identities [{:url "https://example.com/feed.xml" :feed @example}])]
     (is (= "y0ur-gu1d-g035-h3r3" (feed-guid "https://example.com/feed.xml")) "the feed's declared guid")
     (is (= "y0ur-gu1d-g035-h3r3" (feed-guid "http://EXAMPLE.com/feed.xml/")) "whatever the scheme, case and slashes")
     (is (nil? (feed-guid "https://elsewhere.example/feed.xml")))

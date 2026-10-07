@@ -830,11 +830,12 @@
   (io/file (or (System/getenv "INSPECTOR_SYNC_DIR") "dev-resources/sync")))
 
 (defn- cached-feeds
-  "The feeds the inspector has fetched and keeps, by URL."
+  "The feeds the inspector has fetched and keeps, as maps of the :url and
+  the :feed."
   []
-  (into {} (for [[[kind url] {:keys [value]}] @cache
-                 :when (and (= :feed kind) (map? value))]
-             [url value])))
+  (for [[[kind url] {:keys [value]}] @cache
+        :when (and (= :feed kind) (map? value))]
+    {:url url :feed value}))
 
 (defn- added-here
   "The ways to name the episodes that the players of the inspector added to
