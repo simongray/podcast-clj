@@ -304,26 +304,35 @@
                   parts
                   w))
 
+(defn- reduce-parts
+  "Reduce the parts of the word `w` with `f`, from `init`, as the pattern
+  parts finds them. The `f` takes the accumulator, the part and where it
+  starts in `w`. A word below U+0E00 is one part, which spares it the
+  pattern."
+  [f init w]
+  (if (< (highest w) 0x0E00)
+    (f init w 0)
+    (reduce-matches f init parts w)))
+
 (defn- word-groups
   "The terms of the word `w` that starts at `start` in its text, as groups
   by position of maps of :term, :start and :end."
   [w start]
   (persistent!
-   (reduce-matches (fn [acc part at]
-                     (let [from (+ start at)]
-                       (if (unspaced? part)
-                         (->> (folded-characters part from)
-                              (paired)
-                              (reduce conj! acc))
-                         (let [term (fold part)]
-                           (cond-> acc
-                             (not= "" term)
-                             (conj! [{:term  term
-                                      :start from
-                                      :end   (+ from (count part))}]))))))
-                   (transient [])
-                   parts
-                   w)))
+   (reduce-parts (fn [acc part at]
+                   (let [from (+ start at)]
+                     (if (unspaced? part)
+                       (->> (folded-characters part from)
+                            (paired)
+                            (reduce conj! acc))
+                       (let [term (fold part)]
+                         (cond-> acc
+                           (not= "" term)
+                           (conj! [{:term  term
+                                    :start from
+                                    :end   (+ from (count part))}]))))))
+                 (transient [])
+                 w)))
 
 (defn words
   "The words of `s` as they are written in it.
@@ -331,12 +340,15 @@
   A word in a script without spaces between words is the whole run, and a
   change to or from such a script splits a word, e.g. \"AIメモリ\" is two."
   [s]
-  (reduce-words (fn [acc w _]
-                  (into acc
-                        (remove #(= "" (fold %)))
-                        (re-seq parts w)))
-                []
-                (str s)))
+  (persistent!
+   (reduce-words (fn [acc w _]
+                   (reduce-parts (fn [acc part _]
+                                   (cond-> acc
+                                     (not= "" (fold part)) (conj! part)))
+                                 acc
+                                 w))
+                 (transient [])
+                 (str s))))
 
 (defn tokens
   "The terms of `s` by position, for an index or a query.
@@ -366,13 +378,24 @@
   same :position, e.g. the last pair of characters in a run of Chinese and
   its last character."
   [s]
-  (let [groups (reduce-words (fn [acc w start]
-                               (into acc (word-groups w start)))
-                             []
-                             (str s))
-        placed (fn [position group]
-                 (map #(assoc % :position position) group))]
-    (into [] (comp (map-indexed placed) cat) groups)))
+  (let [add-group (fn [[acc position] group]
+                    [(reduce #(conj! %1 (assoc %2 :position position))
+                             acc
+                             group)
+                     (inc position)])
+        add-word  (fn [[acc position :as placed] w start]
+                    (if (< (highest w) 0x0E00)
+                      (let [term (fold w)]
+                        (if (= "" term)
+                          placed
+                          [(conj! acc {:term     term
+                                       :start    start
+                                       :end      (+ start (count w))
+                                       :position position})
+                           (inc position)]))
+                      (reduce add-group placed (word-groups w start))))
+        [acc _]   (reduce-words add-word [(transient []) 0] (str s))]
+    (persistent! acc)))
 
 (comment
   (fold "Café Ø Straße ΧΑΟΣ Ｐｏｄｃａｓｔ")

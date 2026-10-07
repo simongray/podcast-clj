@@ -33,7 +33,7 @@
   in the same field. A longer field is indexed up to this length."
   1000000)
 
-(declare add)
+(declare added)
 
 (defn index
   "An index of `docs` with the `opts` below, or an empty one to add to.
@@ -50,7 +50,7 @@
    (index docs {}))
   ([docs opts]
    {:pre [(map? opts)]}
-   (cond-> (reduce add (index) docs)
+   (cond-> (added (index) docs)
      (seq opts) (assoc :defaults opts))))
 
 (defn restore
@@ -59,31 +59,68 @@
   [index]
   (update index :terms #(into (sorted-set) %)))
 
+(defn- uncounted
+  "The `fields` of an index without the fields of the `lengths` of a
+  document, a map of a field to the number of its positions."
+  [fields lengths]
+  (reduce-kv (fn [fields field n]
+               (-> fields
+                   (update-in [field :docs] dec)
+                   (update-in [field :length] - n)))
+             fields
+             lengths))
+
+(defn- unposted
+  "The transient `touched` postings of terms with the document `id` taken
+  out of those of its `terms`. The first time a term is touched, its
+  postings come from `known`."
+  [touched known id terms]
+  (reduce (fn [touched term]
+            (let [postings (or (get touched term)
+                               (transient (get known term {})))]
+              (assoc! touched term (dissoc! postings id))))
+          touched
+          terms))
+
+;; Changes of many documents go through transients, so that the postings
+;; of a term are copied once rather than once for each document
+(defn- removed
+  "The `index` without the documents of `ids`."
+  [index ids]
+  (let [known   (:postings index)
+        entries (keep #(some->> (get-in index [:docs %]) (vector %))
+                      (distinct ids))]
+    (if (empty? entries)
+      index
+      (let [touched  (persistent!
+                      (reduce (fn [touched [id {:keys [terms]}]]
+                                (unposted touched known id terms))
+                              (transient {})
+                              entries))
+            postings (persistent!
+                      (reduce-kv (fn [acc term postings]
+                                   (let [postings (persistent! postings)]
+                                     (if (empty? postings)
+                                       (dissoc! acc term)
+                                       (assoc! acc term postings))))
+                                 (transient known)
+                                 touched))
+            gone     (filter #(not (contains? postings %)) (keys touched))
+            docs     (persistent! (reduce dissoc!
+                                          (transient (:docs index))
+                                          (map first entries)))
+            lengths  (map (comp :lengths second) entries)]
+        (-> index
+            (assoc :docs docs :postings postings)
+            (update :terms #(reduce disj % gone))
+            (update :fields #(reduce uncounted % lengths)))))))
+
 (defn remove
-  "The `index` without the document `id`."
-  [index id]
-  (if-let [{:keys [lengths terms]} (get-in index [:docs id])]
-    (let [known    (:postings index)
-          gone     (filter #(= 1 (count (get known %))) terms)
-          postings (persistent!
-                    (reduce (fn [postings term]
-                              (let [docs (dissoc (get known term) id)]
-                                (if (empty? docs)
-                                  (dissoc! postings term)
-                                  (assoc! postings term docs))))
-                            (transient known) terms))]
-      (-> index
-          (update :docs dissoc id)
-          (assoc :postings postings)
-          (update :terms #(reduce disj % gone))
-          (update :fields
-                  (fn [fields]
-                    (reduce-kv (fn [fields field n]
-                                 (-> fields
-                                     (update-in [field :docs] dec)
-                                     (update-in [field :length] - n)))
-                               fields lengths)))))
-    index))
+  "The `index` without the document `id`, and the `ids` after it."
+  ([index]
+   index)
+  ([index id & ids]
+   (removed index (cons id ids))))
 
 (defn- analyze
   "The terms of the field value `v` by position: a string tokenized, a
@@ -122,54 +159,130 @@
   [numbers analyzed]
   (persistent!
    (reduce-kv (fn [acc field terms]
-                (let [base (long (* span (get numbers field)))]
-                  (loop [i 0 terms (seq terms) acc acc]
-                    (if (and terms (< i span))
-                      (let [term (first terms)
+                (let [base (long (* span (get numbers field)))
+                      n    (min span (count terms))]
+                  (loop [i 0 acc acc]
+                    (if (< i n)
+                      (let [term (nth terms i)
                             at   (+ base i)
                             acc  (if (vector? term)
                                    (reduce #(placed %1 %2 at) acc term)
                                    (placed acc term at))]
-                        (recur (inc i) (next terms) acc))
+                        (recur (inc i) acc))
                       acc))))
               (transient {}) analyzed)))
 
+(defn- analyzed-fields
+  "The terms by position of each of the `fields` of a document that has
+  any, as analyze gives them."
+  [fields]
+  (into {}
+        (keep (fn [[field v]]
+                (let [terms (analyze v)]
+                  (when (seq terms)
+                    [field terms]))))
+        fields))
+
+(defn- counted
+  "The `fields` of an index with the `analyzed` fields of a document
+  counted in."
+  [fields analyzed]
+  (reduce-kv (fn [fields field terms]
+               (-> fields
+                   (update-in [field :docs] inc)
+                   (update-in [field :length] + (count terms))))
+             fields
+             analyzed))
+
+(defn- interned
+  "The one string of `term` that an index keeps, so that its documents
+  share it, from the transient map `seen` of the new terms since the
+  `known` postings, or the postings themselves, or nil for a new term."
+  [known seen term]
+  (or (get seen term)
+      (some-> (find known term) key)))
+
+(defn- posted
+  "The transient `touched` postings of terms with the document `id` at the
+  positions `at` of `term`. The first time a term is touched, its postings
+  come from `known`."
+  [touched known term id at]
+  (let [postings (or (get touched term)
+                     (transient (get known term {})))]
+    (assoc! touched term (assoc! postings id at))))
+
 ;; A field's length counts its positions, so a term that shares one adds
 ;; nothing, as discountOverlaps does in Lucene's BM25Similarity
-(defn add
-  "The `index` with the document `doc`, a map of :id, :fields and :stored,
-  replacing any earlier one with the same id."
-  [index {:keys [id fields stored] :as doc}]
-  (when (nil? id)
-    (throw (ex-info "A document needs an :id" {:document doc})))
-  (let [index    (remove index id)
-        analyzed (into {} (for [[field v] fields
-                                :let [terms (analyze v)]
-                                :when (seq terms)]
-                            [field terms]))
-        fields   (numbered (:fields index) analyzed)
+(defn- with-document
+  "The parts of an index that `built` holds, with the document `doc` in
+  them: the transient :docs, :touched postings and :seen terms, and the
+  :fields. The `known` postings are those of the index."
+  [known {:keys [docs touched seen fields]} {:keys [id stored] :as doc}]
+  (let [analyzed (analyzed-fields (:fields doc))
+        fields   (numbered fields analyzed)
         by-term  (positions (update-vals fields :no) analyzed)
+        [touched seen terms]
+        (reduce-kv (fn [[touched seen terms] term at]
+                     (let [same (interned known seen term)
+                           seen (if same seen (assoc! seen term term))
+                           term (or same term)]
+                       [(posted touched known term id at)
+                        seen
+                        (conj! terms term)]))
+                   [touched seen (transient [])]
+                   by-term)]
+    {:docs    (assoc! docs id {:stored  stored
+                               :lengths (update-vals analyzed count)
+                               :terms   (persistent! terms)})
+     :touched touched
+     :seen    seen
+     :fields  (counted fields analyzed)}))
+
+(defn- latest
+  "The `docs` without those that a later one with the same id replaces,
+  in order."
+  [docs]
+  (let [[_ kept] (reduce (fn [[ids kept] {:keys [id] :as doc}]
+                           (if (contains? ids id)
+                             [ids kept]
+                             [(conj ids id) (conj kept doc)]))
+                         [#{} []]
+                         (reverse docs))]
+    (rseq kept)))
+
+(defn- added
+  "The `index` with the documents `docs`, as add gives it."
+  [index docs]
+  (when-let [doc (some #(when (nil? (:id %)) %) docs)]
+    (throw (ex-info "A document needs an :id" {:document doc})))
+  (let [docs     (latest docs)
+        index    (removed index (map :id docs))
         known    (:postings index)
-        ;; the postings' own string for a term they already hold, so that an
-        ;; index keeps one copy of each term
-        terms    (mapv #(if-let [e (find known %)] (key e) %) (keys by-term))
+        built    (reduce #(with-document known %1 %2)
+                         {:docs    (transient (:docs index))
+                          :touched (transient {})
+                          :seen    (transient {})
+                          :fields  (:fields index)}
+                         docs)
         postings (persistent!
-                  (reduce-kv (fn [postings term at]
-                               (let [docs (assoc (get postings term) id at)]
-                                 (assoc! postings term docs)))
-                             (transient known) by-term))]
+                  (reduce-kv (fn [acc term postings]
+                               (assoc! acc term (persistent! postings)))
+                             (transient known)
+                             (persistent! (:touched built))))]
     (-> index
-        (assoc-in [:docs id] {:stored  stored
-                              :lengths (update-vals analyzed count)
-                              :terms   terms})
-        (assoc :postings postings)
-        (update :terms into (filter #(not (contains? known %))) terms)
-        (assoc :fields
-               (reduce-kv (fn [fields field terms]
-                            (-> fields
-                                (update-in [field :docs] inc)
-                                (update-in [field :length] + (count terms))))
-                          fields analyzed)))))
+        (assoc :docs     (persistent! (:docs built))
+               :postings postings
+               :fields   (:fields built))
+        (update :terms into (keys (persistent! (:seen built)))))))
+
+(defn add
+  "The `index` with the document `doc`, and the `docs` after it, each a map
+  of :id, :fields and :stored. A document replaces any earlier one with
+  the same id."
+  ([index]
+   index)
+  ([index doc & docs]
+   (added index (cons doc docs))))
 
 ;; The operators that Lucene's simple query parser, Elasticsearch's
 ;; simple_query_string and SQLite FTS5 share, with ! for NOT as in many
@@ -581,24 +694,40 @@
 ;; BM25F, Robertson and Zaragoza 2009, section 3.6, equation 3.19: each
 ;; occurrence counts the weight of its field, divided by the field's
 ;; length normalization
+(defn- occurrence
+  "What an occurrence of a term in the field numbered `no` counts in a
+  document whose fields have the `lengths`, with the `weights` of the
+  fields."
+  ^double [weights lengths ^long no]
+  (let [field  (nth weights no)
+        weight (double (:weight field))]
+    (if (zero? weight)
+      0.0
+      (let [length (long (get lengths (:name field)))
+            norm   (+ (double (:a field))
+                      (* (double (:c field)) length))]
+        (/ weight norm)))))
+
 (defn- frequency
-  "BM25F's frequency of a term in the document `id` of `index`, which has
-  it at the positions `at`, one or a vector of them, with the `weights`
-  of the fields."
-  ^double [index weights id at]
-  (let [lengths (:lengths (get (:docs index) id))
-        weigh   (fn [sum position]
-                  (let [field  (nth weights (quot (long position) span))
-                        weight (double (:weight field))]
-                    (if (zero? weight)
-                      sum
-                      (let [length (long (get lengths (:name field)))
-                            norm   (+ (double (:a field))
-                                      (* (double (:c field)) length))]
-                        (+ (double sum) (/ weight norm))))))]
-    (double (if (vector? at)
-              (reduce weigh 0.0 at)
-              (weigh 0.0 at)))))
+  "BM25F's frequency of a term in the document `id` of the `docs` of an
+  index, which has it at the positions `at`, one or a vector of them,
+  with the `weights` of the fields.
+
+  The positions of a field come together, so what an occurrence counts
+  is worked out once for each run of them."
+  ^double [docs weights id at]
+  (let [lengths (:lengths (get docs id))]
+    (if (vector? at)
+      (let [n (count at)]
+        (loop [i 0 sum 0.0 field -1 counts 0.0]
+          (if (= i n)
+            sum
+            (let [no     (quot (long (nth at i)) span)
+                  counts (if (= no field)
+                           counts
+                           (occurrence weights lengths no))]
+              (recur (inc i) (+ sum counts) no counts)))))
+      (occurrence weights lengths (quot (long at) span)))))
 
 (defn- saturated
   "The scores of the documents in `frequencies`, a map of id to BM25F's
@@ -607,11 +736,12 @@
   [frequencies idf k1]
   (let [idf (double idf)
         k1  (double k1)]
+    ;; a transient of the frequencies changes their values in place
     (persistent!
      (reduce-kv (fn [acc id f]
                   (let [f (double f)]
                     (assoc! acc id (* idf (/ f (+ k1 f))))))
-                (transient {})
+                (transient frequencies)
                 frequencies))))
 
 (defn- expansions
@@ -628,11 +758,12 @@
   of `terms` in a field of the `weights`, the frequencies of all the
   terms added up."
   [index weights terms]
-  (let [postings (:postings index)]
+  (let [postings (:postings index)
+        docs     (:docs index)]
     (persistent!
      (reduce (fn [acc term]
                (reduce-kv (fn [acc id at]
-                            (let [f (frequency index weights id at)]
+                            (let [f (frequency docs weights id at)]
                               (if (pos? f)
                                 (assoc! acc id (+ f (double (get acc id 0.0))))
                                 acc)))
@@ -744,6 +875,24 @@
 ;; and each document counts its best match, so that an exact match outranks
 ;; one with typos. The expansions share one inverse document frequency, as
 ;; Lucene blends those of a FuzzyQuery
+(defn- merged-scores
+  "The maps `ms` of id to score as one, where `f` combines the scores of
+  an id that more than one has, e.g. + or max."
+  [f ms]
+  (if (empty? ms)
+    {}
+    (let [[most & others] (sort-by count > ms)]
+      (persistent!
+       (reduce (fn [acc m]
+                 (reduce-kv (fn [acc id score]
+                              (assoc! acc id (if-let [known (get acc id)]
+                                               (f known score)
+                                               score)))
+                            acc
+                            m))
+               (transient most)
+               others)))))
+
 (defn- fuzzy-scores
   "The scores of the documents that hold a term within the edits of the
   fuzzy `leaf`, with the constants of `ctx`."
@@ -756,13 +905,8 @@
                     (term-frequencies index weights [found])])
         matched  (count (into #{} (mapcat (comp keys second)) weighed))
         idf      (idf total matched)]
-    (reduce (fn [acc [weight frequencies]]
-              (merge-with max
-                          acc
-                          (update-vals (saturated frequencies idf k1)
-                                       #(* (double weight) (double %)))))
-            {}
-            weighed)))
+    (merged-scores max (for [[weight frequencies] weighed]
+                         (saturated frequencies (* (double weight) idf) k1)))))
 
 ;; A prefix counts as one term of all the terms it starts, with the number
 ;; of documents that hold any of them. Lucene blends the expansions of a
@@ -781,7 +925,7 @@
                        frequencies (term-frequencies index weights terms)]
                    (saturated frequencies (idf total (count frequencies)) k1)))]
     (cond
-      (and plain fuzzy?) (merge-with max plain (fuzzy-scores ctx leaf))
+      (and plain fuzzy?) (merged-scores max [plain (fuzzy-scores ctx leaf)])
       fuzzy?             (fuzzy-scores ctx leaf)
       :else              plain)))
 
@@ -849,16 +993,18 @@
         [fewest & others] (sort-by count lists)
         candidates  (filter (fn [id] (every? #(contains? % id) others))
                             (keys fewest))
-        frequencies (reduce (fn [acc id]
-                              (let [starts (phrase-starts lists id)
-                                    f      (if (seq starts)
-                                             (frequency index weights id starts)
-                                             0.0)]
-                                (if (pos? f)
-                                  (assoc acc id f)
-                                  acc)))
-                            {}
-                            candidates)
+        docs        (:docs index)
+        frequencies (persistent!
+                     (reduce (fn [acc id]
+                               (let [starts (phrase-starts lists id)
+                                     f      (if (seq starts)
+                                              (frequency docs weights id starts)
+                                              0.0)]
+                                 (if (pos? f)
+                                   (assoc! acc id f)
+                                   acc)))
+                             (transient {})
+                             candidates))
         idf         (reduce + (map #(idf total (count %)) lists))]
     (saturated frequencies idf k1)))
 
@@ -890,7 +1036,7 @@
         joined   (cond
                    (empty? positive) {}
                    (= :and op)       (intersected positive)
-                   :else             (apply merge-with + positive))]
+                   :else             (merged-scores + positive))]
     (if (and (seq negative) (seq joined))
       (let [excluded (mapv #(scores ctx %) negative)
             out?     (fn [id] (some #(contains? % id) excluded))]
@@ -1093,8 +1239,8 @@
   under a :not left out."
   [node]
   (cond
-    (contains? node :and) (mapcat leaves (:and node))
-    (contains? node :or)  (mapcat leaves (:or node))
+    (contains? node :and) (into [] (mapcat leaves) (:and node))
+    (contains? node :or)  (into [] (mapcat leaves) (:or node))
     (contains? node :not) []
     (nil? node)           []
     :else                 [node]))
@@ -1139,23 +1285,27 @@
   `leaves` match, as maps of :start, :end and :leaf, the number of the
   one that matches, in order."
   [spans leaves]
-  (let [by-position (group-by :position spans)]
-    (->> (for [[i {:keys [term phrase prefix?] :as leaf}]
-               (map-indexed vector leaves)
-               span spans
-               :let [end (cond
-                           term
-                           (when (leaf-matches? leaf (:term span))
-                             (:end span))
+  (let [by-position (delay (group-by :position spans))
+        end-of      (fn [span {:keys [term phrase prefix?] :as leaf}]
+                      (cond
+                        term
+                        (when (leaf-matches? leaf (:term span))
+                          (:end span))
 
-                           (term-matches? (first phrase)
-                                          (and prefix? (= 1 (count phrase)))
-                                          (:term span))
-                           (phrase-end by-position span phrase prefix?))]
-               :when end]
-           {:start (:start span) :end end :leaf i})
-         (sort-by :start)
-         vec)))
+                        (term-matches? (first phrase)
+                                       (and prefix? (= 1 (count phrase)))
+                                       (:term span))
+                        (phrase-end @by-position span phrase prefix?)))
+        add-hits    (fn [acc span]
+                      (reduce-kv (fn [acc i leaf]
+                                   (if-let [end (end-of span leaf)]
+                                     (conj! acc {:start (:start span)
+                                                 :end   end
+                                                 :leaf  i})
+                                     acc))
+                                 acc
+                                 leaves))]
+    (persistent! (reduce add-hits (transient []) spans))))
 
 (defn- merged
   "The `hits`, maps of :start and :end in order, with those that overlap
@@ -1192,23 +1342,26 @@
   `spans` that shows the most of the terms and phrases of `hits`, the
   first on a tie, as a pair of where it starts and ends."
   [spans hits width length]
-  (let [starts (mapv :start spans)
-        ends   (mapv :end spans)
-        place  (fn [at end-at-least]
-                 (let [i    (first-at-least starts at)
-                       from (if (< i (count starts)) (nth starts i) at)
-                       to   (min length (max (+ from width) end-at-least))
-                       j    (dec (first-at-least ends (inc to)))
-                       to   (if (and (< to length) (<= 0 j))
-                              (max (nth ends j) from)
-                              to)]
-                   [from to]))
-        shown  (fn [[from to]]
-                 (->> hits
-                      (filter #(and (<= from (:start %)) (<= (:end %) to)))
-                      (map :leaf)
-                      distinct
-                      count))
+  (let [starts     (mapv :start spans)
+        ends       (mapv :end spans)
+        hit-starts (mapv :start hits)
+        place      (fn [at end-at-least]
+                     (let [i    (first-at-least starts at)
+                           from (if (< i (count starts)) (nth starts i) at)
+                           to   (min length (max (+ from width) end-at-least))
+                           j    (dec (first-at-least ends (inc to)))
+                           to   (if (and (< to length) (<= 0 j))
+                                  (max (nth ends j) from)
+                                  to)]
+                       [from to]))
+        ;; the hits are in order, so those in a window are a range of them
+        shown      (fn [[from to]]
+                     (let [i (first-at-least hit-starts from)
+                           j (first-at-least hit-starts (inc (long to)))]
+                       (->> (subvec hits i (max i j))
+                            (into #{} (comp (filter #(<= (:end %) to))
+                                            (map :leaf)))
+                            count)))
         tries  (cons (place 0 0)
                      (for [{:keys [start end]} (take most-windows hits)]
                        (place (max 0 (- start (quot width 3))) end)))]

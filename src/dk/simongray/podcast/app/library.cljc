@@ -131,7 +131,7 @@
   [index feed-guid]
   (let [of-feed? #(or (= feed-guid %)
                       (and (vector? %) (= feed-guid (first %))))]
-    (reduce text.search/remove index (filter of-feed? (keys (:docs index))))))
+    (apply text.search/remove index (filter of-feed? (keys (:docs index))))))
 
 (defn- reindexed
   "The `library` with the feed `feed-guid` indexed again, when it keeps an
@@ -141,7 +141,7 @@
     (let [{:keys [feed url]} (get-in library [:feeds feed-guid])
           cleared (unindexed index feed-guid)
           docs    (when feed (documents feed url))]
-      (assoc library :index (reduce text.search/add cleared docs)))
+      (assoc library :index (apply text.search/add cleared docs)))
     library))
 
 (defn- kept
