@@ -44,6 +44,10 @@
             [dk.simongray.podcast.util.rank :as rank]
             [dk.simongray.podcast.util.time :as time]))
 
+;; TODO: Making this namespace a library of its own takes util.json,
+;; util.rank and util.time along. The stores in sync.* may go with it; see
+;; the TODO in sync.store.
+
 (def ^:no-doc header
   "The keys of a state that hold no entries: its device and its clock."
   #{:device :clock})

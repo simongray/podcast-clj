@@ -42,6 +42,14 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.crdt :as crdt]))
 
+;; TODO: Decide where the stores live when util.crdt becomes a library of
+;; its own. A library for local-first sync could hold util.crdt, the store
+;; contract, the memory, folder, IndexedDB and encrypted stores, and
+;; backend, once backend no longer calls profile and OPML. Those stores
+;; need little of util.async, util.bytes and util.secret, but WebDAV needs
+;; util.http and util.xml, so it would stay here. See the TODO in
+;; util.crdt.
+
 (defn body-as
   "The `body` of a document, text or bytes, as the fetch with `opts` asks
   for it: bytes with :as :bytes, and else text, of UTF-8."
