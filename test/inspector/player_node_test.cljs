@@ -58,10 +58,10 @@
            (is (some? audio))
            (is (= "https://x/a.mp3" (.-src audio)))
            (is (= "/queue" (.-pathname js/location)) "the add parameters are gone from the URL"))
-         (testing "the state is kept in localStorage, with the data of the episode for the other devices"
+         (testing "the state is kept in localStorage, with the episode as a remote item for the other devices"
            (is (str/includes? (str (.getItem js/localStorage shell/storage-key)) "\"a\""))
-           (is (= "https://x/a.mp3"
-                  (get-in @shell/app [:library :profile :inspector/episodes ["feed" "a"] :value :enclosure])))
+           (is (= "https://x/rss"
+                  (:feed-url (get (profile/remote-items (get-in @shell/app [:library :profile])) ["feed" "a"]))))
            (is (nil? (profile/problem (get-in @shell/app [:library :profile])))))
          (testing "the audio element's reports show on the bar"
            (set! (.-currentTime audio) 100)

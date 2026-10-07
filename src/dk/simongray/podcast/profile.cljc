@@ -7,6 +7,7 @@
       {:device         \"8f1c9e2a-…\"   ; this device's id
        :clock          #inst \"…\"      ; the latest stamp written or merged
        :subscriptions  {feed-guid {:url :title :added-at :removed?}}
+       :remote-items   {id {:feed-url :removed?}}  ; episodes of other shows
        :settings       {feed-guid {:skip-intro {:value 20} ...}}
        :tags           {feed-guid {\"Tech\" {:removed? false}}}
        :lists          {url {:title :folder :removed?}}  ; followed OPML lists
@@ -57,6 +58,7 @@
   tombstones, the key of the listening counts, which only grow, and the
   ordered collections of util.crdt.list."
   {:subscriptions  {:depth 1 :compact? true}
+   :remote-items   {:depth 1 :compact? true}
    :settings       {:depth 2}
    :tags           {:depth 2 :compact? true}
    :lists          {:depth 1 :compact? true}
@@ -210,6 +212,32 @@
           retagged   (for [t (tags profile feed-guid)]
                        [[:tags new-guid t] (constantly {:removed? false})])]
       (crdt/write-each profile (concat moved configured retagged) at))))
+
+;; podcast:remoteItem names an episode of another feed by its feedGuid,
+;; itemGuid and feedUrl
+(defn add-remote-item
+  "The `profile` with the episode `id` of a show that it isn't subscribed
+  to, whose feed is at the :feed-url of `details`, at `at`.
+
+  It's an episode that the listener took from a search, a link or another
+  show, e.g. to queue it. Every device can then fetch its feed, which
+  app.library/refresh! does."
+  [profile id {:keys [feed-url] :as details} at]
+  (crdt/write profile [:remote-items id]
+              #(assoc % :feed-url feed-url :removed? false)
+              at))
+
+(defn remove-remote-item
+  "The `profile` without the remote item `id` at `at`, leaving a
+  tombstone."
+  [profile id at]
+  (crdt/write profile [:remote-items id] #(assoc % :removed? true) at))
+
+(defn remote-items
+  "The live remote items of `profile`, by episode id, each with the
+  :feed-url of its show."
+  [profile]
+  (into {} (remove (comp :removed? val)) (:remote-items profile)))
 
 (defn settings
   "The settings of the subscription `feed-guid` in `profile`, over
@@ -1416,12 +1444,20 @@
             (str "the criteria of the filter " (pr-str name) " are not a map")))
         (:filters profile)))
 
+(defn- remote-item-problem
+  [profile]
+  (some (fn [[id {:keys [feed-url removed?]}]]
+          (when-not (or removed? (string? feed-url))
+            (str "the remote item " (pr-str id) " names no feed URL")))
+        (:remote-items profile)))
+
 (def ^:no-doc checks
   "The checks of problem after those of dk.simongray.podcast.util.crdt and
   util.crdt.list, in order. Each takes a profile that is a map and returns
   a description of the first problem of its kind, or nil, and relies on
   the checks before it."
-  [key-problem mark-problem count-problem criteria-problem])
+  [key-problem mark-problem count-problem criteria-problem
+   remote-item-problem])
 
 (defn problem
   "A description of what in `profile` breaks the rules that merge and the
@@ -1438,6 +1474,7 @@
     seconds.
   - A listening count is a number of seconds.
   - The criteria of a saved filter are a map.
+  - A remote item names the URL of its feed.
 
   Saved filters from a later version are fine here, and
   search/problem says whether this version understands them."

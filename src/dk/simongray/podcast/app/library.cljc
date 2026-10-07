@@ -51,7 +51,11 @@
 
   Each change is stamped with the time of the clock, or with the :at of
   the options, an instant. Give :at for an event that you handle later,
-  e.g. in a background task, since it needs the time it happened."
+  e.g. in a background task, since it needs the time it happened.
+
+  An episode of a show that the listener isn't subscribed to joins with
+  add-episode, as a remote item of the profile. The library keeps the
+  feed of the show, and lists that episode of it alone."
   (:refer-clojure :exclude [merge])
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [dk.simongray.podcast :as podcast]
@@ -115,30 +119,84 @@
       :sync          {}
       :config        config})))
 
-(defn urls
-  "A map from each feed of `library` to its URL, which search/episodes and
-  downloads/plan take as :url."
+(defn- remote-guids
+  "The item guids of the remote items of `profile` in the feed
+  `feed-guid`."
+  [profile feed-guid]
+  (into #{}
+        (keep (fn [[[g item-guid] _]]
+                (when (= feed-guid g)
+                  item-guid)))
+        (profile/remote-items profile)))
+
+(defn- listing
+  "How `profile` lists the episodes of the feed `feed-guid`: whether it's
+  subscribed, and the item guids of its remote items, as a pair."
+  [profile feed-guid]
+  [(profile/subscribed? profile feed-guid) (remote-guids profile feed-guid)])
+
+(defn- shown
+  "The feed `feed-guid` of `library` as the library lists its episodes, or
+  nil without the feed: whole for a subscription, and else with the items
+  of the remote items alone."
+  [library feed-guid]
+  (when-let [feed (get-in library [:feeds feed-guid :feed])]
+    (if (profile/subscribed? (:profile library) feed-guid)
+      feed
+      (let [guids (remote-guids (:profile library) feed-guid)]
+        (update feed :rss/items
+                (partial filterv #(contains? guids (guid/item-guid %))))))))
+
+(defn- shown-feeds
+  "The feeds of `library` as shown gives them."
   [library]
-  (into {} (map (fn [[_ {:keys [feed url]}]] [feed url])) (:feeds library)))
+  (keep #(shown library %) (keys (:feeds library))))
+
+(defn urls
+  "A map from each feed of `library`, as episodes gives it, to its URL,
+  which search/episodes and downloads/plan take as :url."
+  [library]
+  (into {} (for [[feed-guid {:keys [url]}] (:feeds library)
+                 :let  [feed (shown library feed-guid)]
+                 :when feed]
+             [feed url])))
+
+(defn- documents
+  "The search documents of the feed `feed-guid` of `library`: of the show
+  and its episodes for a subscription, and else of its remote items
+  alone."
+  [library feed-guid]
+  (when-let [feed (shown library feed-guid)]
+    (cond->> (search/feed-documents feed
+                                    (get-in library [:feeds feed-guid :url]))
+      (not (profile/subscribed? (:profile library) feed-guid))
+      (filter (comp vector? :id)))))
 
 (defn index
   "A search index of the feeds of `library`, e.g. for a library read back
   without its :index, as its config's :search? keeps it."
   [library]
-  (search/index (mapcat (fn [{:keys [feed url]}]
-                          (search/feed-documents feed url))
-                        (vals (:feeds library)))))
+  (search/index (mapcat #(documents library %) (keys (:feeds library)))))
 
 (defn- reindexed
   "The `library` with the feed `feed-guid` indexed again, when it keeps an
   index."
   [library feed-guid]
   (if-let [index (:index library)]
-    (let [{:keys [feed url]} (get-in library [:feeds feed-guid])]
-      (assoc library :index (if feed
-                              (search/with-feed index feed url)
-                              (search/without-feed index feed-guid))))
+    (assoc library :index (apply text.search/add
+                                 (search/without-feed index feed-guid)
+                                 (documents library feed-guid)))
     library))
+
+(defn- tidied
+  "The `library` with the feed `feed-guid` indexed again while a
+  subscription or a remote item needs it, and else without the feed."
+  [library feed-guid]
+  (if (or (profile/subscribed? (:profile library) feed-guid)
+          (seq (remote-guids (:profile library) feed-guid)))
+    (reindexed library feed-guid)
+    (cond-> (update library :feeds dissoc feed-guid)
+      (:index library) (update :index search/without-feed feed-guid))))
 
 (defn- kept
   "The `library` with the feed `feed-guid` cut down to what `keep` gives of it,
@@ -156,6 +214,21 @@
   (if (some #(and (keyword? %) (namespace %)) (keys x))
     {:feed x}
     x))
+
+(defn- feed-of
+  "The parsed feed of the `result` of a fetch of `url`, or else a throw of
+  the diagnostic of the fetch, which says that there's no feed to `use`."
+  [url result use]
+  (let [{:keys [feed status error]} result]
+    (if (map? feed)
+      feed
+      (let [failed (or error
+                       (diagnostics/fetch-failure
+                        {:url     url
+                         :status  status
+                         :message (str "No feed to " use ": " url
+                                       " answered " status)}))]
+        (throw (ex-info (:message failed) failed))))))
 
 (defn subscribe
   "The `library` subscribed to the feed at `url`, with what was `fetched`
@@ -180,7 +253,8 @@
    (let [at        (time-of library opts)
          settings  (dissoc opts :at :now)
          result    (some-> fetched fetch-result)
-         feed      (:feed result)
+         feed      (when result
+                     (feed-of url result "subscribe to"))
          feed-guid (guid/feed-guid feed url)
          details   {:url url :title (resolve/title feed)}
          cadence   (:cadence (:config library) {})
@@ -188,15 +262,6 @@
                         (update :feeds feeds/add url result at cadence)
                         (reindexed feed-guid)
                         (kept feed-guid (:keep (:config library))))]
-     (when (and result (not (map? feed)))
-       (let [status (:status result)
-             failed (or (:error result)
-                        (diagnostics/fetch-failure
-                         {:url     url
-                          :status  status
-                          :message (str "No feed to subscribe to: " url
-                                        " answered " status)}))]
-         (throw (ex-info (:message failed) failed))))
      (when-let [taken (profile/takeover (:profile library) feed-guid url)]
        (throw (ex-info (:message taken) taken)))
      (-> library
@@ -207,18 +272,63 @@
            feed           with-feed)))))
 
 (defn unsubscribe
-  "The `library` unsubscribed from the feed `feed-guid`, with `opts`. The feed
-  and its search documents go, and the profile keeps a record of the
-  subscription."
+  "The `library` unsubscribed from the feed `feed-guid`, with `opts`. The
+  feed and its search documents go, but for the episodes of its remote
+  items, and the profile keeps a record of the subscription."
   ([library feed-guid]
    (unsubscribe library feed-guid {}))
   ([library feed-guid opts]
    {:pre [(map? opts)]}
    (-> library
        (update :profile profile/unsubscribe feed-guid (time-of library opts))
-       (update :feeds dissoc feed-guid)
-       (cond-> (:index library)
-         (update :index search/without-feed feed-guid)))))
+       (tidied feed-guid))))
+
+(defn add-episode
+  "The `library` with the episode `item-guid` of the feed at `url`, with
+  what was `fetched` and the :at of `opts`, though it isn't subscribed to
+  the feed.
+
+  The `fetched` is the result of dk.simongray.podcast/fetch! or a parsed
+  feed, as subscribe takes it. The profile notes the episode as a remote
+  item, so that every device fetches its feed, and the library lists it
+  among its episodes, e.g. to queue it:
+
+      (-> (add-episode lib url (podcast/fetch! url) item-guid)
+          (update-profile profile/enqueue [feed-guid item-guid]))
+
+  It throws when `fetched` has no feed, with the diagnostic of the fetch
+  as the ex-data, and when the feed has no such episode."
+  ([library url fetched item-guid]
+   (add-episode library url fetched item-guid {}))
+  ([library url fetched item-guid opts]
+   {:pre [(map? opts)]}
+   (let [at        (time-of library opts)
+         result    (fetch-result fetched)
+         feed      (feed-of url result "take the episode from")
+         feed-guid (guid/feed-guid feed url)
+         cadence   (:cadence (:config library) {})
+         new?      (not (contains? (:feeds library) feed-guid))]
+     (when-not (some #(= item-guid (guid/item-guid %)) (:rss/items feed))
+       (throw (ex-info (str "No episode " item-guid " in the feed at " url)
+                       {:url url :item-guid item-guid})))
+     (-> library
+         (update :profile profile/add-remote-item [feed-guid item-guid]
+                 {:feed-url url} at)
+         (cond-> new? (update :feeds feeds/add url result at cadence))
+         (reindexed feed-guid)
+         (cond-> new? (kept feed-guid (:keep (:config library))))))))
+
+(defn remove-episode
+  "The `library` without the remote item `id`, with the :at of `opts`. The
+  feed of the episode goes too, when no subscription or other remote item
+  needs it, and the queue and the progress stay as they are."
+  ([library id]
+   (remove-episode library id {}))
+  ([library [feed-guid :as id] opts]
+   {:pre [(map? opts)]}
+   (-> library
+       (update :profile profile/remove-remote-item id (time-of library opts))
+       (tidied feed-guid))))
 
 (defn subscriptions
   "The live subscriptions of `library` by guid, each as
@@ -331,14 +441,20 @@
                   (reduce apply1 {:library library :report []} results)))))
 
 (defn- pending
-  "The live subscriptions of `library` that have no feed yet, as entries
-  of app.feeds to fetch for the first time."
+  "The feeds of the live subscriptions and remote items of `library` that
+  it has no feed of yet, as entries of app.feeds to fetch for the first
+  time. A subscription names the URL before a remote item does."
   [library]
-  (into {}
-        (for [[feed-guid {:keys [url]}] (profile/subscriptions
-                                         (:profile library))
-              :when (and url (not (contains? (:feeds library) feed-guid)))]
-          [feed-guid {:url url}])))
+  (let [{:keys [profile feeds]} library
+        absent? #(not (contains? feeds %))
+        remote  (for [[[feed-guid] {:keys [feed-url]}]
+                      (profile/remote-items profile)
+                      :when (absent? feed-guid)]
+                  [feed-guid {:url feed-url}])
+        subs    (for [[feed-guid {:keys [url]}] (profile/subscriptions profile)
+                      :when (and url (absent? feed-guid))]
+                  [feed-guid {:url url}])]
+    (into {} (concat remote subs))))
 
 (defn- first-fetched
   "The step `acc` of applied with the feed of the new subscription
@@ -376,24 +492,35 @@
   that would take another subscription over.
 
   A feed fetched for the first time is that of a new subscription, so its
-  episodes aren't new ones. A feed that's still not fetched is left out,
-  and fetched next time."
+  episodes aren't new ones, and neither are those of a feed of remote
+  items. A feed that's still not fetched is left out, and fetched next
+  time."
   [library {:keys [feeds changed moved] :as result} at keep]
   (let [before   (:feeds library)
         library  (assoc library :feeds (into {} (filter (comp :feed val))
                                              feeds))
+        noted    (fn [acc feed-guid]
+                   (-> acc
+                       (update :library reindexed feed-guid)
+                       (update :library kept feed-guid keep)))
         fresh    (fn [acc feed-guid]
-                   (if-let [old-feed (get-in before [feed-guid :feed])]
-                     (let [{:keys [feed url]} (get feeds feed-guid)
-                           current (:profile (:library acc))
-                           {:keys [profile added]}
-                           (profile/refresh current url old-feed feed at)]
-                       (-> acc
-                           (assoc-in [:library :profile] profile)
-                           (update :library reindexed feed-guid)
-                           (update :library kept feed-guid keep)
-                           (update :added into added)))
-                     (first-fetched acc feed-guid at keep)))
+                   (let [{:keys [feed url]} (get feeds feed-guid)
+                         old-feed (get-in before [feed-guid :feed])
+                         current  (:profile (:library acc))]
+                     (cond
+                       (not (profile/subscribed? current feed-guid))
+                       (noted acc feed-guid)
+
+                       old-feed
+                       (let [{:keys [profile added]}
+                             (profile/refresh current url old-feed feed at)]
+                         (-> acc
+                             (assoc-in [:library :profile] profile)
+                             (noted feed-guid)
+                             (update :added into added)))
+
+                       :else
+                       (first-fetched acc feed-guid at keep))))
         relocate (fn [acc [feed-guid new-url]]
                    (let [now-guid (get-in acc [:guids feed-guid] feed-guid)
                          parsed   (get-in feeds [feed-guid :feed])
@@ -561,7 +688,7 @@
    (episodes library {}))
   ([library opts]
    {:pre [(map? opts)]}
-   (search/episodes (map :feed (vals (:feeds library)))
+   (search/episodes (shown-feeds library)
                     (cond-> (assoc opts
                                    :profile (:profile library)
                                    :url     (urls library)
@@ -700,20 +827,23 @@
 
   The profiles merge as profile/merge does, so nothing that the listener
   did while those fetched is lost. A feed or a list stays only while the
-  merged profile subscribes to it or follows it, so one that the listener
-  left on another device goes. Of two entries of one feed or list, the
-  later fetch wins. The later :refresh and :sync are kept too, and the
-  rest is that of `library`."
+  merged profile subscribes to it, has a remote item of it, or follows
+  it, so one that the listener left on another device goes. Of two
+  entries of one feed or list, the later fetch wins. The later :refresh
+  and :sync are kept too, and the rest is that of `library`."
   [library result]
   (let [profile (profile/merge (:profile library) (:profile result))
         synced  (newer :at (:sync library) (:sync result))
         refresh (newer :at (:refresh library) (:refresh result))
-        feeds   (merged-entries (:feeds library) (:feeds result)
-                                (profile/subscriptions profile))
+        needed  (into (set (keys (profile/subscriptions profile)))
+                      (map ffirst)
+                      (profile/remote-items profile))
+        feeds   (merged-entries (:feeds library) (:feeds result) needed)
         lists   (merged-entries (:fetched-lists library) (:fetched-lists result)
                                 (profile/lists profile))
-        same?   #(identical? (get-in library [:feeds % :feed])
-                             (get-in feeds [% :feed]))
+        same?   #(and (identical? (get-in library [:feeds % :feed])
+                                  (get-in feeds [% :feed]))
+                      (= (listing (:profile library) %) (listing profile %)))
         guids   (into (set (keys feeds)) (keys (:feeds library)))
         changed (remove same? guids)]
     (reduce reindexed
@@ -917,7 +1047,7 @@
   ([library files opts]
    {:pre [(map? opts)]}
    (downloads/plan (:profile library)
-                   (map :feed (vals (:feeds library)))
+                   (shown-feeds library)
                    files
                    (time-of library opts)
                    (assoc opts :url (urls library)))))

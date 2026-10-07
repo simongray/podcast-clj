@@ -5,10 +5,10 @@
 
   The state is `{:profile … :titles {id episode} :readout \"…\" :error \"…\"}`,
   the profile being dk.simongray.podcast.profile's and an episode what
-  /episode.edn serves. The profile also holds the episodes that the
-  devices of the listener added, under `:inspector/episodes`, so that a
-  sync brings their data too. An event is a vector whose first element
-  names it: `[:play id]`, `[:skip id :back]`, `[:ended id]`, `[:sleep 1]`,
+  /episode.edn serves. An episode that another device added comes through
+  a sync as a remote item, whose data the shell fetches. An event is a
+  vector whose first element names it: `[:play id]`, `[:skip id :back]`,
+  `[:ended id]`, `[:sleep 1]`,
   `[:play-next id]`, `[:dequeue id]`, `[:prefer :skip-back]`, `[:sync]`,
   `[:folder/pick]`, `[:folder/allow]`, `[:folder/forget]`,
   `[:document/save]`, `[:document/load]`, `[:device/retire id]`, and from
@@ -29,11 +29,9 @@
 
 (defn episode-of
   "What the page `state` knows of the episode `id`: the data that
-  /episode.edn served to this browser, or else the data that a device of
-  the listener wrote into the profile. Nil when no device told."
-  [{:keys [profile titles]} id]
-  (or (get titles id)
-      (:value (get-in profile [:inspector/episodes id]))))
+  /episode.edn served to this browser, or nil before it did."
+  [{:keys [titles]} id]
+  (get titles id))
 
 (defn- episode-link
   "The link to the page of the episode `id`, with the title of its show.

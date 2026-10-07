@@ -44,8 +44,8 @@
 (defonce ^{:doc "The whole state of the page: `:library` (the library of the
   listener, with the profile under `:profile` and the sleep timer
   under `:sleep`), `:titles` by episode id, and what the audio element
-  last reported. The profile holds the data of the episodes too,
-  under `:inspector/episodes`, for the other devices."}
+  last reported. The profile names the feed of each episode added here,
+  as a remote item, so that the other devices can fetch its data."}
   app
   (atom nil))
 
@@ -191,6 +191,42 @@
     (.request js/navigator.locks "inspector-sync" (fn [_] (f)))
     (f)))
 
+(defn- episode-query
+  "The path of /episode.edn for the episode `guid` of the feed at `url`."
+  [url guid]
+  (str "/episode.edn?url=" (js/encodeURIComponent url)
+       "&guid=" (js/encodeURIComponent guid)))
+
+(defn- feed-url-of
+  "The URL of the feed of the episode `id` that `profile` names: that of
+  its remote item, or of the subscription to its show, or nil."
+  [profile [feed-guid :as id]]
+  (or (:feed-url (get (profile/remote-items profile) id))
+      (:url (get (profile/subscriptions profile) feed-guid))))
+
+(defonce ^{:doc "The episodes whose data this page asked /episode.edn for."}
+  asked
+  (atom #{}))
+
+(defn- fetch-unknown!
+  "Fetch the data of the queued episodes that this browser has none of from
+  /episode.edn, by the URL of the feed that the profile names, once for
+  each episode."
+  []
+  (let [{:keys [library titles]} @app
+        profile (:profile library)]
+    (doseq [[_ item-guid :as id] (profile/queue profile)
+            :let  [url (feed-url-of profile id)]
+            :when (and url
+                       (not (contains? titles id))
+                       (not (contains? @asked id)))]
+      (swap! asked conj id)
+      (-> (js/fetch (episode-query url item-guid))
+          (.then #(when (.-ok %) (.text %)))
+          (.then #(when %
+                    (swap! app assoc-in [:titles id] (reader/read-string %))))
+          (.catch (fn [_] nil))))))
+
 (defn sync!
   "One step of keeping this browser in step with the other devices through
   `backends`, by default those of the backends function; the result is
@@ -217,7 +253,8 @@
                    (swap! app assoc
                           :syncing? false
                           :synced   {:at (time/now) :report [failed]}))))
-       (.then (fn [_] (check-folder!))))))
+       (.then (fn [_] (check-folder!)))
+       (.then (fn [_] (fetch-unknown!))))))
 
 (defn- playing?
   []
@@ -402,12 +439,12 @@
   says: \"now\" plays it, \"next\" puts it after the current episode, and
   any other mode puts it at the end of the queue.
 
-  The data of the episode goes into the profile too, as an entry of the
-  inspector. So a device that gets the queue through a sync gets what it
+  The episode goes into the profile as a remote item with the URL of its
+  feed. So a device that gets the queue through a sync can fetch what it
   needs to play the episode."
-  [{:keys [id] :as episode} mode]
+  [{:keys [id url] :as episode} mode]
   (swap! app assoc-in [:titles id] episode)
-  (operate! crdt/write [:inspector/episodes id] (constantly {:value episode}))
+  (operate! profile/add-remote-item id {:feed-url url})
   (case mode
     "now"  (play! id)
     "next" (operate! profile/play-next id)
@@ -421,14 +458,12 @@
         mode   (.get params "mode")]
     (when (and url guid)
       (js/history.replaceState nil "" "/queue")
-      (let [query (str "/episode.edn?url=" (js/encodeURIComponent url)
-                       "&guid=" (js/encodeURIComponent guid))
-            text  (fn [response]
-                    (if (.-ok response)
-                      (.text response)
-                      (throw (js/Error. (str "episode.edn answered "
-                                             (.-status response))))))]
-        (-> (js/fetch query)
+      (let [text (fn [response]
+                   (if (.-ok response)
+                     (.text response)
+                     (throw (js/Error. (str "episode.edn answered "
+                                            (.-status response))))))]
+        (-> (js/fetch (episode-query url guid))
             (.then text)
             (.then (fn [edn] (add! (reader/read-string edn) mode)))
             (.catch #(swap! app assoc :error (str %))))))))
@@ -557,16 +592,30 @@
                         (sync!)))
   (js/window.setInterval sync-when-due! 30000))
 
+(defn- migrate-episodes!
+  "Make a remote item of each episode that an older version of the player
+  wrote into the profile under :inspector/episodes, with its data among
+  the titles."
+  []
+  (let [profile (get-in @app [:library :profile])
+        known   (profile/remote-items profile)]
+    (doseq [[id {episode :value}] (:inspector/episodes profile)
+            :when (and (:url episode) (not (contains? known id)))]
+      (swap! app update :titles #(merge {id episode} %))
+      (operate! profile/add-remote-item id {:feed-url (:url episode)}))))
+
 (defn ^:export init
   "Mount the player: load the state, name this browser for the other
-  devices, watch the state, route the view's events to `handle!`, take
-  over navigation and the other tabs' saves, take up the sync folder,
-  handle an episode the URL asks to add, and sync on its own."
+  devices, take in the episodes of an older player, watch the state, route
+  the view's events to `handle!`, take over navigation and the other tabs'
+  saves, take up the sync folder, handle an episode the URL asks to add,
+  and sync on its own."
   []
   (reset! app (assoc (load-state) :can-pick? (exists? js/showDirectoryPicker)))
   (let [{:keys [device profile]} (:library @app)]
     (when (not= (browser-name) (get-in profile [:devices device :name]))
       (operate! crdt/identify {:name (browser-name)})))
+  (migrate-episodes!)
   (save! @app)
   (replicant/set-dispatch! (fn [{:replicant/keys [dom-event]} event]
                              (handle! event dom-event)))

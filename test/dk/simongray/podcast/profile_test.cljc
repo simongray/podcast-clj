@@ -67,6 +67,21 @@
       (is (nil? (profile/takeover s "feed-b" "https://evil/rss")) "a guid without a subscription")
       (is (nil? (profile/takeover (profile/unsubscribe s "feed-a" t2) "feed-a" "https://evil/rss")) "or with a removed one"))))
 
+(deftest remote-items-of-other-shows
+  (let [id    ["feed-x" "x1"]
+        added (profile/add-remote-item (profile/make "phone") id {:feed-url "https://x/rss"} t0)
+        other (profile/make "laptop")]
+    (is (= {id "https://x/rss"} (update-vals (profile/remote-items added) :feed-url)))
+    (is (= {} (profile/subscriptions added)) "no subscription")
+    (is (= {id "https://x/rss"} (update-vals (profile/remote-items (profile/merge other added)) :feed-url))
+        "another device learns of it")
+    (let [removed (profile/remove-remote-item added id t1)]
+      (is (= {} (profile/remote-items removed)))
+      (is (contains? (:remote-items removed) id) "a tombstone")
+      (is (= {} (profile/remote-items (profile/merge added removed))) "the later write wins"))
+    (is (nil? (profile/problem added)))
+    (is (re-find #"remote item" (str (profile/problem (assoc-in added [:remote-items id :feed-url] 5)))))))
+
 (deftest progress-and-played
   (let [s (-> (profile/make "phone")
               (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t0)

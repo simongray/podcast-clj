@@ -64,15 +64,8 @@
       (is (empty? (elements bar :a)))
       (is (some #{[:dequeue a]} (map #(get-in % [1 :on :click]) (elements bar :button)))
           "the listener removes it"))
-    (let [told (-> state
-                   (update :titles dissoc a)
-                   (update :profile crdt/write [:inspector/episodes a] (constantly {:value (titles a)}) t0))
-          bar  (view/bar told)]
-      (is (= "https://x/a.mp3" (:src (second (first (elements bar :audio#player)))))
-          "the data that the other device wrote into the state")
-      (is (str/includes? (text bar) "First"))
-      (is (= (titles a) (view/episode-of told a)))
-      (is (nil? (view/episode-of told ["feed" "z"]))))))
+    (is (= (titles a) (view/episode-of state a)) "the data that /episode.edn served")
+    (is (nil? (view/episode-of state ["feed" "z"])))))
 
 (deftest the-page
   (let [page (view/page state)]

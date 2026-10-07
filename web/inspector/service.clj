@@ -837,44 +837,32 @@
         :when (and (= :feed kind) (map? value))]
     {:url url :feed value}))
 
-(defn- added-here
-  "The ways to name the episodes that the players of the inspector added to
-  `state`, by the data that they wrote under :inspector/episodes: the URL
-  of an episode's media, and the episode of a media URL or a guid of its
-  feed."
+(defn- remote-feeds
+  "The feeds of the remote items of `state` that the inspector can load,
+  as maps of the :url and the :feed."
   [state]
-  (let [episodes (keep :value (vals (:inspector/episodes state)))
-        same?    (fn [podcast media guid {:keys [url enclosure] :as episode}]
-                   (or (= media enclosure)
-                       (and guid (= guid (:guid episode)) (= podcast url))))]
-    {:episode-url (fn [id]
-                    (get-in state [:inspector/episodes id :value :enclosure]))
-     :episode-id  (fn [podcast media guid]
-                    (some (fn [{:keys [id] :as episode}]
-                            (when (same? podcast media guid episode)
-                              id))
-                          episodes))}))
-
-(defn- either
-  "The ways to name shows and episodes of `a`, each of which falls back on
-  that of `b` when it names nothing."
-  [a b]
-  (merge-with (fn [f g] (fn [& args] (or (apply f args) (apply g args)))) a b))
+  (for [url   (distinct (map :feed-url (vals (profile/remote-items state))))
+        :let  [{:keys [feed-url feed]} (try
+                                         (load-feed url)
+                                         (catch Exception _
+                                           nil))]
+        :when feed]
+    {:url feed-url :feed feed}))
 
 (defn gpodder-handler
   "The gpodder API over the listener's state in `sync-store`, for AntennaPod,
   Kasts and gPodder: the server is a device of its own, which reads the
   other devices' documents before it answers and writes its own after a
   change. It names the shows and episodes of the feeds the inspector has
-  fetched lately, and the episodes that the players added, whose data are
-  in the state. It lets in any user name and password, since the inspector
-  listens on localhost alone."
+  fetched lately, and of the feeds of the remote items of the state, which
+  the players added and the inspector fetches. It lets in any user name
+  and password, since the inspector listens on localhost alone."
   [sync-store]
   (let [cursors (atom nil)
         backend (store/backend sync-store)
         state   (atom (profile/make "inspector-gpodder"))
-        names   #(either (gpodder/identities (cached-feeds))
-                         (added-here @state))
+        names   #(gpodder/identities (concat (cached-feeds)
+                                             (remote-feeds @state)))
         sync!   (fn [state]
                   (let [result (sync/sync! state [backend] {:cursors @cursors})]
                     (reset! cursors (:cursors result))

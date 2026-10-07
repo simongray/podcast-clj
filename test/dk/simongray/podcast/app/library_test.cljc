@@ -354,6 +354,69 @@
                      (is (= ["0ther-guid"] (keys (:feeds lib')))
                          "a new subscription is fetched besides the feeds that are asked for")))))))
 
+(def others
+  "The other show, with a second episode."
+  (update other :rss/items conj (assoc (first (:rss/items other))
+                                       :rss/guid {:content "o2"}
+                                       :rss/title "Other two")))
+
+(deftest an-episode-of-another-show
+  (let [fetched {:status 200 :url other-url :feed others}
+        lib     (library/add-episode library other-url fetched "o1")
+        id      ["0ther-guid" "o1"]
+        ids     (fn [lib]
+                  (set (for [[feed item] (library/episodes lib)]
+                         (library/episode-id lib feed item))))]
+    (testing "the profile notes a remote item, and the library lists that episode alone"
+      (is (= {id other-url} (update-vals (profile/remote-items (:profile lib)) :feed-url)))
+      (is (= [guid] (keys (library/subscriptions lib))) "no subscription")
+      (is (= 4 (count (ids lib))) "the three of the show and the one")
+      (is (contains? (ids lib) id))
+      (is (= [id] (mapv :id (library/search lib "other"))) "nor the show or the other episode in the index")
+      (is (= (text.search/query (:index lib) "other")
+             (text.search/query (library/index lib) "other"))
+          "an index built again from the feeds finds the same")
+      (is (= "Other two" (:title (library/episode lib ["0ther-guid" "o2"]))) "the whole feed for its pages"))
+    (testing "it throws without a feed or the episode"
+      (is (thrown? #?(:clj Exception :cljs js/Error) (library/add-episode library other-url {:status 404 :url other-url} "o1")))
+      (is (thrown? #?(:clj Exception :cljs js/Error) (library/add-episode library other-url fetched "nope"))))
+    (testing "removed, its feed goes"
+      (let [gone (library/remove-episode lib id)]
+        (is (= {} (profile/remote-items (:profile gone))))
+        (is (not (contains? (:feeds gone) "0ther-guid")))
+        (is (= [] (library/search gone "other")))))
+    (testing "an unsubscription keeps the feed of a remote item"
+      (let [both (-> (library/subscribe library other-url fetched)
+                     (library/add-episode other-url fetched "o1"))
+            left (library/unsubscribe both "0ther-guid")]
+        (is (= 5 (count (ids both))))
+        (is (= (ids lib) (ids left)))
+        (is (= [id] (mapv :id (library/search left "other"))))))
+    (testing "a merge keeps the feed, and indexes a remote item that came with it"
+      (let [two    (library/update-profile lib profile/add-remote-item ["0ther-guid" "o2"] {:feed-url other-url})
+            merged (library/merge lib {:profile (:profile two)})]
+        (is (contains? (:feeds merged) "0ther-guid"))
+        (is (= #{id ["0ther-guid" "o2"]} (set (map :id (library/search merged "other")))))))))
+
+(deftest an-episode-of-another-show-on-another-device
+  (let [id     ["0ther-guid" "o1"]
+        lib    (library/add-episode library other-url {:status 200 :url other-url :feed others} "o1")
+        synced (library/merge (library/make "tablet") {:profile (:profile lib)})
+        newer  (update others :rss/items conj (assoc (first (:rss/items others)) :rss/guid {:content "o3"}))
+        fetch  (fn [feed] (fn [u _] (if (= u other-url) {:status 200 :url u :feed feed} {:status 304 :url u})))
+        listed #(set (map :id (library/search % "other")))]
+    (is (not (contains? (:feeds synced) "0ther-guid")) "the sync brings the remote item, and no feed")
+    (run (fn []
+           (async/then (library/refresh! synced {:at now :fetch (fetch others)})
+                       (fn [{{:keys [added report]} :refresh :as lib'}]
+                         (is (= [] report))
+                         (is (= [] added) "the episodes of a show it isn't subscribed to aren't new")
+                         (is (= #{id} (listed lib')) "fetched by refresh!, and the one episode indexed")
+                         (async/then (library/refresh! lib' {:at (at 86400) :fetch (fetch newer)})
+                                     (fn [{{:keys [added]} :refresh :as lib''}]
+                                       (is (= [] added))
+                                       (is (= #{id} (listed lib'')) "nor are those that come later")))))))))
+
 (deftest a-feed-that-declares-the-guid-of-another
   (let [evil-url "https://evil.example/feed.xml"
         sent     (atom [])

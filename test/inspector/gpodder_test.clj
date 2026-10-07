@@ -11,7 +11,6 @@
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.test-support :refer [failed with-temp-dir]]
-            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [inspector.service :as service]
@@ -88,13 +87,20 @@
         cookie (first (str/split (get-in login [:headers "Set-Cookie"]) #";"))]
     (with-redefs [http/send! through-the-inspector]
       (let [backend (store/backend (webdav/store "http://inspector/dav/"))
-            added   {:id id :url feed :guid "b1" :enclosure "https://b.example/1.mp3"}
             state   (-> (profile/make "browser")
-                        (profile/subscribe g {:url feed :title "B"} #inst "2026-01-01T01:00:00Z")
-                        (crdt/write [:inspector/episodes id] (constantly {:value added}) #inst "2026-01-01T01:00:00Z")
+                        (profile/add-remote-item id {:feed-url feed} #inst "2026-01-01T01:00:00Z")
                         (profile/progress id 600 3600 #inst "2026-01-01T01:00:01Z"))]
         (is (nil? (failed (sync/sync! state [backend] {:at #inst "2026-01-01T01:00:02Z"}))))))
-    (is (= [["https://b.example/1.mp3" 600]]
-           (map (juxt #(get % "episode") #(get % "position"))
-                (get (second (app cookie :get "/api/2/episodes/simon.json?since=0")) "actions")))
-        "named by the data that the player wrote, though the inspector never fetched the feed")))
+    (let [rss    (str "<rss version=\"2.0\"><channel><title>B</title>"
+                      "<item><title>One</title><guid>b1</guid>"
+                      "<enclosure url=\"https://b.example/1.mp3\" length=\"1\" type=\"audio/mpeg\"/>"
+                      "</item></channel></rss>")
+          served (fn [{:keys [url] :as request}]
+                   (if (= feed url)
+                     {:status 200 :url url :headers {} :body rss}
+                     (through-the-inspector request)))]
+      (with-redefs [http/send! served]
+        (is (= [["https://b.example/1.mp3" 600]]
+               (map (juxt #(get % "episode") #(get % "position"))
+                    (get (second (app cookie :get "/api/2/episodes/simon.json?since=0")) "actions")))
+            "named by the feed of the remote item, which the inspector fetches")))))

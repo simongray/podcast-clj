@@ -507,6 +507,22 @@ the effects it returns:
 ;; => [[:play next-id]]
 ```
 
+To queue an episode of a show that the listener isn't subscribed to, e.g.
+from a search or a link, add it to the library first:
+
+```clojure
+(let [fetched (podcast/fetch! url)
+      id      [(feed.guid/feed-guid (:feed fetched) url) item-guid]]
+  (swap! lib #(-> (library/add-episode % url fetched item-guid)
+                  (library/update-profile profile/enqueue id))))
+```
+
+The profile keeps the episode as a remote item with the URL of its feed,
+as `podcast:remoteItem` names an episode, so `refresh!` fetches that feed
+on every device. The library lists that one episode of the show, and the
+later episodes of the show never count as new. To take it out again, use
+`library/remove-episode`, which leaves the queue as it is.
+
 The effects are `[:seek id position]`, `[:play id]`, `[:stop id]` and
 `[:played id]`. In ClojureScript, a handler can look like this:
 

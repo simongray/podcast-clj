@@ -47,7 +47,7 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `merge`, `episodes`, `show`, `episode`, `step`, `update-profile`, `sync!`, `plan`, and `save!` and `restore!` to keep it between runs. |
+| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `merge`, `episodes`, `show`, `episode`, `step`, `update-profile`, `sync!`, `plan`, and `save!` and `restore!` to keep it between runs. `add-episode` takes in an episode of a show without a subscription. |
 | `app.show` | Everything a show page needs in one map, from `view`, and the shows of the podroll and the publisher from `fetch-linked-shows!`. |
 | `app.episode` | Everything an episode page needs in one map, from `view`, what the chapters file, transcript and media file say from `read-files!`, and the value blocks that its time splits point at from `fetch-remote-values!`. |
 | `app.feeds` | The fetched feeds by guid, with their ETag, Last-Modified and next check. Use `due` for the feeds to fetch now, `refresh!` to fetch them, and `affected` for the feeds that a Podping names. A device that never shows the feeds can keep only what `slim` gives of each. |
@@ -56,7 +56,7 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `profile` | The listener's profile, a CRDT that syncs between their devices: the queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions and their settings, followed lists, saved filters, listening counts and devices. Use `step` for the events of a player, `merge` to combine two profiles, and `compact` to drop old tombstones. |
+| `profile` | The listener's profile, a CRDT that syncs between their devices: the queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions and their settings, remote items of other shows, followed lists, saved filters, listening counts and devices. Use `step` for the events of a player, `merge` to combine two profiles, and `compact` to drop old tombstones. |
 | `search` | Filters and orders of episodes as data, and the search documents of episodes and shows, with `index` for an index of them that weighs the title most. |
 | `downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`. |
 
