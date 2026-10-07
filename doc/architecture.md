@@ -516,6 +516,16 @@ segment, and segments merge as they grow, so a change copies little and
 the index stays a value. Until a merge drops it, a removed document still
 counts in the statistics of the ranking, as it does in Lucene.
 
+An index is kept between runs as documents in a store: a manifest in EDN,
+and a document for each segment in the Common Index File Format, which
+search engines such as Anserini, PISA and Terrier use to exchange their
+indexes. CIFF has no positions, fields or stored values, so they're
+fields of its protobuf messages that a reader of CIFF skips. A segment's
+document is named after a hash of what it holds, so it's written once,
+and the functions stay pure without a counter or random names. The app
+puts and deletes the documents, as for the sync documents, so the
+library takes no stand on where or when.
+
 Words split at anything that isn't a letter or a digit, as in most
 JavaScript search libraries, so "Simon's" is found by "simon", and a query
 of "2.0" looks for 2 and 0 in a row. Chinese, Japanese, Korean, Thai and

@@ -112,6 +112,78 @@
     (is (contains? (ids (search/add changed (doc 6))) 6)
         "a removed document added again")))
 
+(defn- error-type
+  "The :type of what `f` throws, or nil."
+  [f]
+  (try
+    (f)
+    nil
+    (catch #?(:clj Exception :cljs :default) e
+      (:type (ex-data e)))))
+
+(defn- bytes-of
+  [xs]
+  #?(:clj  (byte-array (map unchecked-byte xs))
+     :cljs (js/Uint8Array. (into-array xs))))
+
+(defn- cut
+  "The bytes `body` without their last `n`."
+  [body n]
+  #?(:clj  (java.util.Arrays/copyOf ^bytes body (- (alength ^bytes body) n))
+     :cljs (.slice body 0 (- (.-length body) n))))
+
+(deftest an-index-in-a-store
+  (let [store (atom {})
+        save! (fn [idx]
+                (let [{:keys [put delete]} (search/plan idx (keys @store))]
+                  (doseq [{:keys [name body]} put]
+                    (swap! store assoc name body))
+                  (swap! store #(apply dissoc % delete))
+                  put))
+        read  #(search/read-documents (for [[name body] @store]
+                                        {:name name :body body}))]
+    (is (= ["index.edn"] (mapv :name (take-last 1 (save! idx))))
+        "the manifest last")
+    (is (= idx (read)) "read back as it was")
+    (is (= [1 2] (mapv :id (search/query (read) "cloj"))))
+    (is (= (map :name (:put (search/plan idx)))
+           (->> (search/index docs {:boosts {:title 3}})
+                search/plan
+                :put
+                (map :name)))
+        "a segment is named after what it holds")
+    (let [changed (search/add idx {:id 4 :fields {:title "Clojure again"}})]
+      (is (= 2 (count (save! changed))) "only the new segment and the manifest")
+      (is (= changed (read)))
+      (is (= (search/query changed "clojure")
+             (search/query (read) "clojure"))))
+    (let [removed (search/remove idx 2)]
+      (is (= 1 (count (save! removed))) "a removal changes the manifest only")
+      (is (= [1] (mapv :id (search/query (read) "clojure")))))
+    (let [anew (search/index (take 2 docs))]
+      (save! anew)
+      (is (= 2 (count @store)) "the segments of the old index are deleted")
+      (is (= anew (read))))
+    (testing "documents that don't read"
+      (let [manifest    {:name "index.edn" :body (get @store "index.edn")}
+            [name body] (first (dissoc @store "index.edn"))
+            read-of     #(error-type (fn [] (search/read-documents %)))]
+        (is (= ::search/malformed (read-of [])) "no manifest")
+        (is (= ::search/malformed (read-of [manifest])) "a segment missing")
+        (is (= ::search/malformed
+               (read-of [manifest {:name name :body (cut body 10)}]))
+            "a segment cut short")
+        (is (= ::search/malformed
+               (read-of [manifest
+                         {:name name
+                          :body (bytes-of [255 255 255 255 15 8 1])}]))
+            "a size far beyond the end, which allocates nothing")
+        (is (= ::search/malformed
+               (read-of [manifest {:name name :body "text"}])))
+        (is (= ::search/malformed (read-of [{:name "index.edn" :body "{"}])))
+        (is (= ::search/newer-format
+               (read-of [{:name "index.edn" :body "{:version 99}"}])))))))
+
 (deftest parsing
   (let [fields {"title" :title "notes" :description}
         parse  #(search/parse % {:aliases fields})]

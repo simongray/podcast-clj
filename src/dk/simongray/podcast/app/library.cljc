@@ -126,6 +126,14 @@
         (map #(search/item-document feed % {:url url}))
         (:rss/items feed)))
 
+(defn index
+  "A search index of the feeds of `library`, e.g. for a library read back
+  without its :index, as its config's :search? keeps it."
+  [library]
+  (search/index (mapcat (fn [{:keys [feed url]}]
+                          (documents feed url))
+                        (vals (:feeds library)))))
+
 (defn- unindexed
   "The `index` without the documents of the feed `feed-guid`."
   [index feed-guid]

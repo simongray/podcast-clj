@@ -184,6 +184,9 @@
   (let [lib (-> (library/make "phone" {:config {:search? true}})
                 (library/subscribe url fresh))]
     (is (= 4 (count (:docs (:index lib)))) "the show and its three episodes")
+    (is (= (text.search/query (:index lib) "future")
+           (text.search/query (library/index lib) "future"))
+        "an index built again from the feeds")
     (is (= [guid "https://example.com/ep0003"] (:id (first (library/search lib "future")))))
     (is (= 0 (count (:docs (:index (library/unsubscribe lib guid))))))
     (is (nil? (library/search (library/make "phone" {:config {:search? false}})

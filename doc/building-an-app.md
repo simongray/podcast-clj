@@ -32,11 +32,11 @@ and keep it.
 Each function returns the library along with what it did: `:effects`
 after `step`, `:refresh` after `refresh!` and `:sync` after `sync!`. The
 `:config` given to `make` holds the options that the other library
-functions use, and the docstring of `app.library` lists them. When the
-config holds functions, save the library as EDN without its `:config`,
-and assoc the config back when you read it. Give the index that you read
-back to `text.search/restore`, e.g. `(update lib :index
-text.search/restore)`, or each search has to rebuild it first.
+functions use, and the docstring of `app.library` lists them. Save the
+library as EDN without its `:config`, when that holds functions, and
+without its `:index`, which is saved apart as
+[Search the episodes](#search-the-episodes) shows. Assoc them back when
+you read it.
 
 The parts of the library work with the namespaces they come from, e.g.
 every function of `profile` takes `(:profile @lib)`. The profile is a
@@ -610,9 +610,10 @@ the config.
 A word that no episode holds also matches words with typos: one for a
 word of three to five letters, and two for a longer one, which e.g.
 `{:typo-lengths [4 8]}` changes. To allow typos in every word, give
-`{:fuzzy true}`, or `{:fuzzy false}` for none but those of `word~`. The words that matched with typos are in the
-metadata of the results, and a result that holds such a word only with
-typos has them too, so that the UI can say "Near matches for futrue":
+`{:fuzzy true}`, or `{:fuzzy false}` for none but those of `word~`. The
+words that matched with typos are in the metadata of the results, and a
+result that holds such a word only with typos has them too, so that the
+UI can say "Near matches for futrue":
 
 ```clojure
 (def found (library/search @lib "futrue"))
@@ -644,6 +645,45 @@ Each passage that matches has the time of the cue where it starts:
 ```clojure
 (transcript/matches (:document (:transcript page)) "trailer")
 ;; => [{:start-time 2.76 :speaker "Sarah" :body "…" :parts […]} …]
+```
+
+Building the index takes a few seconds for 50 shows, so keep it between
+runs in a place of its own, e.g. a folder. `text.search/plan` gives the
+documents to put there, in the order to put them, and the names to
+delete. Only the parts of the index that changed since are put, so
+saving after each refresh is cheap:
+
+```clojure
+(defn save-index!
+  "Put the search index of `lib` into the folder `dir`."
+  [lib dir]
+  (let [stored (map #(.getName %) (.listFiles (io/file dir)))
+        {:keys [put delete]} (text.search/plan (:index lib) stored)]
+    (doseq [{:keys [name body]} put]
+      (io/copy body (io/file dir name)))
+    (doseq [name delete]
+      (io/delete-file (io/file dir name)))))
+```
+
+The manifest, `index.edn`, is EDN text, and each segment is bytes in the
+[Common Index File Format](https://github.com/osirrc/ciff). Read them
+back with `text.search/read-documents`. It throws when a document is
+missing or doesn't read, and then `library/index` builds the index
+again:
+
+```clojure
+(defn read-index
+  "The search index in the folder `dir`, or one built from `lib`."
+  [lib dir]
+  (try
+    (text.search/read-documents
+     (for [file (.listFiles (io/file dir))]
+       {:name (.getName file)
+        :body (if (str/ends-with? (.getName file) ".edn")
+                (slurp file)
+                (Files/readAllBytes (.toPath file)))}))
+    (catch Exception _
+      (library/index lib))))
 ```
 
 Without `app.library`, build the index from the feeds yourself, with the
@@ -1193,7 +1233,9 @@ that changed its requirements takes them as `:requirements`, e.g.
 
 ```clojure
 (ns my.app
-  (:require [dk.simongray.podcast :as podcast]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics :as analytics]
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.app.episode :as episode]
@@ -1236,5 +1278,6 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]
             [dk.simongray.podcast.value.nwc :as nwc]
-            [dk.simongray.podcast.value.webln :as webln]))
+            [dk.simongray.podcast.value.webln :as webln])
+  (:import [java.nio.file Files]))
 ```
