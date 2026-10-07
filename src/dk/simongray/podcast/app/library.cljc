@@ -71,6 +71,7 @@
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.text.search :as text.search]
+            [dk.simongray.podcast.util.text.search.ciff :as ciff]
             [dk.simongray.podcast.util.time :as time]))
 
 (def default-config
@@ -873,7 +874,7 @@
                    (pr-str (select-keys library keys)))
          planned (fn [listed]
                    (if-let [index (:index library)]
-                     (text.search/plan index (map :name listed))
+                     (ciff/plan index (map :name listed))
                      {:put [] :delete []}))
          saved   (fn [{:keys [put delete]}]
                    (async/then
@@ -950,7 +951,7 @@
                error         {:error error}
                (empty? value) {:error nil}
                :else         (try
-                               {:index (text.search/read-documents value)}
+                               {:index (ciff/read-documents value)}
                                (catch #?(:clj Exception :cljs :default) e
                                  {:error e})))]
     (cond

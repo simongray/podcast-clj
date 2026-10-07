@@ -4,7 +4,8 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.util.text.search :as search]))
+            [dk.simongray.podcast.util.text.search :as search]
+            [dk.simongray.podcast.util.text.search.ciff :as ciff]))
 
 (def docs
   [{:id     1
@@ -138,17 +139,17 @@
 (deftest an-index-in-a-store
   (let [store (atom {})
         save! (fn [idx]
-                (let [{:keys [put delete]} (search/plan idx (keys @store))]
+                (let [{:keys [put delete]} (ciff/plan idx (keys @store))]
                   (doseq [{:keys [name body]} put]
                     (swap! store assoc name body))
                   (swap! store #(apply dissoc % delete))
                   put))
-        read  #(search/read-documents (for [[name body] @store]
+        read  #(ciff/read-documents (for [[name body] @store]
                                         {:name name :body body}))]
     (is (= ["index.edn"] (mapv :name (take-last 1 (save! idx))))
         "the manifest last")
     (is (= idx (read)) "read back as it was")
-    (is (= idx (search/read-documents
+    (is (= idx (ciff/read-documents
                 (for [[name body] @store]
                   {:name name
                    :body (if (string? body)
@@ -157,9 +158,9 @@
                            body)})))
         "with the manifest as bytes too, as a folder gives it")
     (is (= [1 2] (mapv :id (search/query (read) "cloj"))))
-    (is (= (map :name (:put (search/plan idx)))
+    (is (= (map :name (:put (ciff/plan idx)))
            (->> (search/index docs {:boosts {:title 3}})
-                search/plan
+                ciff/plan
                 :put
                 (map :name)))
         "a segment is named after what it holds")
@@ -178,21 +179,21 @@
     (testing "documents that don't read"
       (let [manifest    {:name "index.edn" :body (get @store "index.edn")}
             [name body] (first (dissoc @store "index.edn"))
-            read-of     #(error-type (fn [] (search/read-documents %)))]
-        (is (= ::search/malformed (read-of [])) "no manifest")
-        (is (= ::search/malformed (read-of [manifest])) "a segment missing")
-        (is (= ::search/malformed
+            read-of     #(error-type (fn [] (ciff/read-documents %)))]
+        (is (= ::ciff/malformed (read-of [])) "no manifest")
+        (is (= ::ciff/malformed (read-of [manifest])) "a segment missing")
+        (is (= ::ciff/malformed
                (read-of [manifest {:name name :body (cut body 10)}]))
             "a segment cut short")
-        (is (= ::search/malformed
+        (is (= ::ciff/malformed
                (read-of [manifest
                          {:name name
                           :body (bytes-of [255 255 255 255 15 8 1])}]))
             "a size far beyond the end, which allocates nothing")
-        (is (= ::search/malformed
+        (is (= ::ciff/malformed
                (read-of [manifest {:name name :body "text"}])))
-        (is (= ::search/malformed (read-of [{:name "index.edn" :body "{"}])))
-        (is (= ::search/newer-format
+        (is (= ::ciff/malformed (read-of [{:name "index.edn" :body "{"}])))
+        (is (= ::ciff/newer-format
                (read-of [{:name "index.edn" :body "{:version 99}"}])))))))
 
 (deftest parsing

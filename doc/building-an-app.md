@@ -704,9 +704,9 @@ documents of `search`:
 
 When a feed changes, update the index with `text.search/add` and
 `text.search/remove`. To make transcripts searchable, give them to
-`search/item-document`. To keep the index, `text.search/plan` gives the
+`search/item-document`. To keep the index, `ciff/plan` gives the
 documents to put into a store and the names to delete there, and
-`text.search/read-documents` reads them back.
+`ciff/read-documents` reads them back.
 
 
 ## Organize the shows and episodes
@@ -1286,6 +1286,7 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.util.proxy :as proxy]
             [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.text.search :as text.search]
+            [dk.simongray.podcast.util.text.search.ciff :as ciff]
             [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
