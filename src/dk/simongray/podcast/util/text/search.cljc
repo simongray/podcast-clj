@@ -2,12 +2,27 @@
   "A full-text index of documents as a plain map, and queries of it ranked
   by BM25F, on both platforms.
 
-  A document is a map of its :id, its :fields, each a string or a vector
-  of terms, and what a result gives back, under :stored. A query is a
-  string in the language that parse reads, or the same query as data:
+  A document is a map of its :id, its :fields, and what a result gives
+  back, under :stored. A field holds text, or anything whose text counts,
+  such as a number or a set of keywords. To search the records of an app,
+  make a document of each:
 
-      (def idx (index [{:id 1 :fields {:title \"Clojure\" :notes \"Data\"}}]))
-      (query idx \"title:cloj* -rust\")
+      (defn document
+        \"The search document of the blog post `post`.\"
+        [post]
+        {:id     (:slug post)
+         :fields (select-keys post [:title :body :tags])
+         :stored (select-keys post [:title])})
+
+      (def idx (index (map document posts) {:boosts {:title 3}}))
+      (query idx \"title:clojure -rust\" {:limit 10})
+      ;; => [{:id \"clojure-data\" :score 0.51 :stored {:title \"…\"}}]
+      (snippet (:body post) \"clojure\" {:index idx})
+
+  The index is a value: add and remove give a changed one, e.g. (add idx
+  (document post)) when a post changes, and it prints as EDN, which
+  restore reads back. A query is a string in the language that parse
+  reads, or the same query as data.
 
   Text is analyzed by util.text. The comments name the source of each
   part, and where it departs from it:
@@ -39,8 +54,9 @@
   "An index of `docs` with the `opts` below, or an empty one to add to.
 
   The `opts` are the defaults of query on this index, e.g. the :boosts of
-  its fields and the :aliases that a query can name them by. They print
-  with the index, so they're data.
+  its fields and the :aliases that a query can name them by, and of
+  parse, snippet and matches? when their options name the :index. They
+  print with the index, so they're data.
 
   The index is a plain map that prints as EDN. Read back, its terms are a
   hash set, which restore sorts again."
@@ -124,13 +140,15 @@
 
 (defn- analyze
   "The terms of the field value `v` by position: a string tokenized, a
-  vector taken as terms already, or each string of any other collection
-  tokenized."
+  vector taken as terms already, the text of each value of any other
+  collection tokenized, or else the text of `v`, e.g. of a number or a
+  keyword."
   [v]
   (cond
     (string? v) (text/tokens v)
     (vector? v) v
-    :else       (into [] (mapcat text/tokens) v)))
+    (coll? v)   (into [] (mapcat #(text/tokens (str %))) v)
+    :else       (text/tokens (str v))))
 
 (defn- numbered
   "The `fields` of an index with a number for each new field of
@@ -622,6 +640,21 @@
         :else
         [(combine :or queries) j]))))
 
+(defn- name-of
+  [field]
+  (if (keyword? field)
+    (name field)
+    (str field)))
+
+(defn- field-names
+  "The fields of `index` by name, and by the names of `aliases`, a map of
+  a name to a field."
+  [index aliases]
+  (into {}
+        (concat (for [field (keys (:fields index))]
+                  [(name-of field) field])
+                aliases)))
+
 (defn parse
   "The query `q`, a string, as data, read with the `opts` below, or nil
   when it asks for nothing.
@@ -643,10 +676,12 @@
 
   The `opts` are:
 
+  - :index, an index whose fields a query can name, and whose defaults
+    count under the `opts`
+  - :aliases, other names that a query can give the fields, as a map of
+    a name to a field
   - :syntax, the spellings of operators over those of syntax, e.g. OG
     for AND in Danish with {:and #{\"OG\" \"&\"}}
-  - :fields, the fields that a query can name, as a map of a name to the
-    field
   - :operator, :and or :or between words without one, :and by default
   - :prefix?, false to take the last word whole
   - :min-prefix, the fewest characters of a last word to complete, 1 by
@@ -657,13 +692,15 @@
   counts for nothing."
   ([q]
    (parse q {}))
-  ([q {:keys [operator prefix? min-prefix]
-       :or   {operator :and prefix? true min-prefix 1}
-       :as   opts}]
+  ([q opts]
    {:pre [(map? opts)]}
-   (let [{:keys [max-terms max-depth]} (merge default-limits opts)
+   (let [{:keys [index aliases operator prefix? min-prefix
+                 max-terms max-depth]
+          :or   {operator :and prefix? true min-prefix 1}
+          :as   opts}
+         (merge default-limits (:defaults (:index opts)) opts)
          spellings (merge syntax (:syntax opts))
-         fields    (update-keys (or (:fields opts) {}) text/fold)
+         fields    (update-keys (field-names index aliases) text/fold)
          q         (spaced (str q))
          ctx       {:lexemes    (lexemes q spellings fields max-terms)
                     :operator   operator
@@ -1117,30 +1154,12 @@
     (contains? node :term)   (term-scores (in-its-field ctx node) node)
     :else                    {}))
 
-(defn- name-of
-  [field]
-  (if (keyword? field)
-    (name field)
-    (str field)))
-
-(defn- field-names
-  "The fields of `index` by name, and by the names of `aliases`, a map of
-  a name to a field."
-  [index aliases]
-  (into {}
-        (concat (for [field (keys (:fields index))]
-                  [(name-of field) field])
-                aliases)))
-
 (defn- as-query
-  "The query `q` of `index` as data: a string parsed with the `opts` and
-  the names of the fields, a vector of terms taken as they are, or the
-  data itself."
-  [index q opts]
+  "The query `q` as data, read with the `opts`: a string parsed, a vector
+  of terms taken as they are, or the data itself."
+  [q opts]
   (cond
-    (string? q) (parse q (assoc opts
-                                :fields
-                                (field-names index (:aliases opts))))
+    (string? q) (parse q opts)
     (vector? q) (combine (:operator opts :and) (mapv #(hash-map :term %) q))
     :else       q))
 
@@ -1209,6 +1228,43 @@
     :else
     (reduce #(kept before n %1 %2) [] results)))
 
+(defn- top
+  "The best `n` of the `found` scores of documents, or all of them for a
+  nil `n`, as the results that `result` makes of a pair of an id and a
+  score, with the :filter and :rank of `opts`."
+  [found result n {:keys [rank] keep? :filter :as opts}]
+  (cond
+    rank
+    (->> found
+         (map result)
+         (filter (or keep? any?))
+         (map (fn [r] [(rank r) r]))
+         (sort-by first)
+         (map second)
+         (#(if n (take n %) %))
+         vec)
+
+    ;; a filter that costs, e.g. criteria of a library, reads the best
+    ;; first, and more of them only when too few are kept
+    (and keep? n)
+    (loop [m (* 2 (max 1 (long n))) read 0 kept []]
+      (let [best-m (best better m found)
+            kept   (into kept
+                         (comp (filter #(keep? (result %)))
+                               (take (- (long n) (count kept))))
+                         (subvec best-m read))]
+        (if (or (= (count kept) n)
+                (>= m (count found)))
+          (mapv result kept)
+          (recur (* 4 m) (count best-m) kept))))
+
+    :else
+    (->> (if keep?
+           (filter #(keep? (result %)) found)
+           found)
+         (best better n)
+         (mapv result))))
+
 (defn query
   "The documents of `index` that match the query `q`, best first, as maps
   of :id, :score and :stored, with the `opts` below.
@@ -1218,6 +1274,7 @@
   these, over the defaults of the index:
 
   - :limit, the most results
+  - :offset, the results to skip first, e.g. for the next page
   - :fuzzy, to find words with typos: true for the edits by the length
     of a word, none below 3 characters and 2 above 5, or a number of
     edits, at most 2. A match with typos weighs less, and a prefix
@@ -1237,9 +1294,10 @@
    (query index q {}))
   ([index q opts]
    {:pre [(map? opts)]}
-   (let [{:keys [limit boosts rank] keep? :filter :as opts}
+   (let [{:keys [limit offset boosts] :or {offset 0} :as opts}
          (merge default-limits (:defaults index) opts)
-         node   (with-fuzzy (as-query index q opts) (:fuzzy opts))
+         node   (-> (as-query q (assoc opts :index index))
+                    (with-fuzzy (:fuzzy opts)))
          ctx    {:index           index
                  :weights         (weights index boosts (:b opts b))
                  :k1              (double (:k1 opts k1))
@@ -1252,38 +1310,12 @@
          result (fn [[id score]]
                   {:id     id
                    :score  score
-                   :stored (get-in index [:docs id :stored])})]
-     (cond
-       rank
-       (->> found
-            (map result)
-            (filter (or keep? any?))
-            (map (fn [r] [(rank r) r]))
-            (sort-by first)
-            (map second)
-            (#(if limit (take limit %) %))
-            vec)
-
-       ;; a filter that costs, e.g. criteria of a library, reads the best
-       ;; first, and more of them only when too few are kept
-       (and keep? limit)
-       (loop [n (* 2 (max 1 (long limit))) read 0 kept []]
-         (let [top  (best better n found)
-               kept (into kept
-                          (comp (filter #(keep? (result %)))
-                                (take (- (long limit) (count kept))))
-                          (subvec top read))]
-           (if (or (= (count kept) limit)
-                   (>= n (count found)))
-             (mapv result kept)
-             (recur (* 4 n) (count top) kept))))
-
-       :else
-       (->> (if keep?
-              (filter #(keep? (result %)) found)
-              found)
-            (best better limit)
-            (mapv result))))))
+                   :stored (get-in index [:docs id :stored])})
+         ranked (top found
+                     result
+                     (some-> limit (+ (long offset)))
+                     opts)]
+     (subvec ranked (min (long offset) (count ranked))))))
 
 (defn- leaves
   "The terms and phrases of the query `node` that a match holds, those
@@ -1436,17 +1468,15 @@
   parse, and these:
 
   - :width, the number of characters shown, 160 by default
-  - :index, an index whose defaults and fields the query is read with
   - :fuzzy, as query takes it"
   ([text q]
    (snippet text q {}))
   ([text q {:keys [width] :or {width 160} :as opts}]
    {:pre [(map? opts)]}
-   (let [index      (:index opts)
-         opts       (merge (:defaults index) opts)
+   (let [opts       (merge (:defaults (:index opts)) opts)
          text       (str text)
          spans      (text/spans text)
-         query      (with-fuzzy (as-query index q opts) (:fuzzy opts))
+         query      (with-fuzzy (as-query q opts) (:fuzzy opts))
          found      (hits spans (leaves query))
          length     (count text)
          [from to]  (:window (window spans found width length))
@@ -1491,7 +1521,8 @@
 
 (defn matches?
   "Whether `text` matches the query `q`, read with the `opts` of parse,
-  as one field of a document would, without an index."
+  and :fuzzy as query takes it, as one field of a document would, without
+  an index."
   ([text q]
    (matches? text q {}))
   ([text q opts]
@@ -1508,7 +1539,7 @@
                         fuzzy)       (boolean (some #(leaf-matches? leaf %)
                                                     @terms))
                     :else            (contains? @terms term)))]
-     (satisfied? found? (with-fuzzy (as-query nil q opts) (:fuzzy opts))))))
+     (satisfied? found? (with-fuzzy (as-query q opts) (:fuzzy opts))))))
 
 (comment
   (parse "title:clojure -rust | \"value for va")

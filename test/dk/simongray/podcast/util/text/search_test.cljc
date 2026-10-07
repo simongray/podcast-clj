@@ -95,7 +95,7 @@
 
 (deftest parsing
   (let [fields {"title" :title "notes" :description}
-        parse  #(search/parse % {:fields fields})]
+        parse  #(search/parse % {:aliases fields})]
     (is (= {:and [{:term "value"} {:term "for"} {:term "va" :prefix? true}]}
            (parse "value for va")))
     (is (= {:and [{:phrase ["value" "for" "value"]} {:not {:term "rerun"}}]}
@@ -156,6 +156,27 @@
       "a field that a query names counts although its boost is 0")
   (let [idx (search/index docs {:aliases {"notes" :description}})]
     (is (= [2] (mapv :id (search/query idx "notes:clojure"))))))
+
+(deftest an-index-in-an-app
+  (let [idx (search/index docs {:aliases {"notes" :description}
+                                :syntax  {:and #{"OG"}}})]
+    (testing "parse, snippet and matches? read a query as the index does"
+      (is (= {:and [{:term "clojure" :field :description} {:term "rust"}]}
+             (search/parse "notes:clojure OG rust " {:index idx})))
+      (is (= [{:text "a "} {:text "Clojure" :match? true}]
+             (search/snippet "a Clojure" "notes:clojure" {:index idx}))))
+    (testing "a field holds any value, whose text counts"
+      (let [idx (search/index [{:id 1 :fields {:year 2024 :tags #{:clojure :data}}}])]
+        (is (= [1] (mapv :id (search/query idx "2024 "))))
+        (is (= [1] (mapv :id (search/query idx "tags:clojure "))))))
+    (testing "the next page"
+      (let [idx  (search/index (for [i (range 25)]
+                                 {:id i :fields {:title "same words"}}))
+            page #(mapv :id (search/query idx "same" {:limit 10 :offset %}))]
+        (is (= (range 10 20) (page 10)))
+        (is (= (range 20 25) (page 20)))
+        (is (= [] (page 30)))
+        (is (= (range 5 25) (mapv :id (search/query idx "same" {:offset 5}))))))))
 
 (deftest bm25f
   (let [idx   (search/index [{:id 1 :fields {:a "x y" :b "x y" :c "x y"}}

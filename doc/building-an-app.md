@@ -596,8 +596,9 @@ of every feed:
 ;;     …]
 ```
 
-The results are the episodes and shows, best first. The last word counts
-as a prefix, so this works for search as you type. A query can also have
+The results are the episodes and shows, best first, and `:offset 10`
+gives the next page. The last word counts as a prefix, so this works for
+search as you type. A query can also have
 `"a phrase"`, `OR` or `|`, `NOT`, `!` or `-` before a word, parentheses,
 `word~` for a word with typos, and `title:word` or `notes:word` for one
 field; `util.text.search/parse` says the rest. To allow typos in every
