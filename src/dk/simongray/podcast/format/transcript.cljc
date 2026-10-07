@@ -25,7 +25,7 @@
   it from the metadata."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.text.search :as text.search]
+            [dk.simongray.podcast.util.text.query :as text.query]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.xml :as xml]))
 
@@ -537,19 +537,19 @@
   segment where its first match is, e.g. for a player to list where words
   are said and seek there. A caption file matches by a cue or two, and a
   word-level transcript by a phrase. The `opts` are those of
-  util.text.search/parse, and :length, 60 characters by default."
+  util.text.query/parse, and :length, 60 characters by default."
   ([transcript q]
    (matches transcript q {}))
   ([transcript q {:keys [length] :or {length passage-length} :as opts}]
    {:pre [(map? opts)]}
    (let [query  (if (string? q)
-                  (text.search/parse q opts)
+                  (text.query/parse q opts)
                   q)
          marked (fn [piece]
                   (let [{:keys [body] :as passage} (turn piece)
                         width {:width (count body)}]
-                    (when (text.search/matches? body query)
-                      (let [parts (text.search/snippet body query width)]
+                    (when (text.query/matches? body query)
+                      (let [parts (text.query/snippet body query width)]
                         (assoc passage
                                :start-time (start-of-match piece parts)
                                :parts      parts)))))]

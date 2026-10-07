@@ -1,9 +1,10 @@
 (ns dk.simongray.podcast.util.text.search-test
-  "The full-text index, the query language, the ranking by BM25F and the
-  snippets of a text."
+  "The full-text index, the ranking of its queries by BM25F, and their
+  options for a text."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.util.text.query :as query]
             [dk.simongray.podcast.util.text.search :as search]
             [dk.simongray.podcast.util.text.search.ciff :as ciff]))
 
@@ -196,55 +197,6 @@
         (is (= ::ciff/newer-format
                (read-of [{:name "index.edn" :body "{:version 99}"}])))))))
 
-(deftest parsing
-  (let [fields {"title" :title "notes" :description}
-        parse  #(search/parse % {:aliases fields})]
-    (is (= {:and [{:term "value"} {:term "for"} {:term "va" :prefix? true}]}
-           (parse "value for va")))
-    (is (= {:and [{:phrase ["value" "for" "value"]} {:not {:term "rerun"}}]}
-           (parse "\"value for value\" -rerun ")))
-    (is (= {:and [{:term "pod" :prefix? true} {:term "network"}]}
-           (parse "pod* network ")))
-    (is (= {:or [{:and [{:term "a"} {:term "b"}]} {:term "c"}]}
-           (parse "a b OR c ")) "AND binds tighter than OR")
-    (is (= {:and [{:term "a"} {:or [{:term "b"} {:term "c"}]}]}
-           (parse "a (b | c) ")))
-    (is (= {:and [{:term "a"} {:not {:or [{:term "b"} {:term "c"}]}}]}
-           (parse "a !(b OR c) ")))
-    (is (= {:and [{:term "clojure" :field :title}
-                  {:phrase ["x" "y"] :field :description}]}
-           (parse "title:clojure notes=\"x y\"")))
-    (is (= {:or [{:term "a" :field :title} {:term "b" :field :title}]}
-           (parse "Title:(a | b)")) "field names are folded")
-    (is (= {:phrase ["re" "invent"]} (parse "re:invent "))
-        "a name that is no field is a word")
-    (is (= {:and [{:term "part"} {:term "1"} {:term "intro"}]}
-           (parse "Part 1 - Intro ")) "a dash on its own is no operator")
-    (is (= {:and [{:term "a"} {:not {:phrase ["b" "c"]}}]}
-           (parse "a -\"b c\"")) "a minus right before a phrase")
-    (is (= {:and [{:term "at"} {:term "t"}]} (parse "AT&T ")))
-    (is (= {:phrase ["天气" "气很" "很好"]} (parse "天气很好 "))
-        "the pairs of a run of Chinese in a row")
-    (is (= {:term "好" :prefix? true} (parse "好 "))
-        "one character of Chinese is a prefix")
-    (testing "nothing is an error"
-      (is (= {:phrase ["value" "for"]} (parse "\"value for")))
-      (is (nil? (parse "-")))
-      (is (nil? (parse "NOT")))
-      (is (= {:term "a"} (parse "a OR ")))
-      (is (= {:term "a"} (parse ") a (")))
-      (is (= {:term "a"} (parse "AND a ")))
-      (is (nil? (parse ""))))
-    (testing "the spellings and the operator between words are options"
-      (is (= {:and [{:term "x"} {:term "y"}]}
-             (search/parse "x OG y " {:syntax {:and #{"OG" "&"}}})))
-      (is (= {:and [{:term "x"} {:term "og"} {:term "y"}]}
-             (search/parse "x OG y ")))
-      (is (= {:and [{:term "x"} {:not {:term "y"}}]}
-             (search/parse "x IKKE y " {:syntax {:not #{"IKKE"}}})))
-      (is (= {:or [{:term "a"} {:and [{:term "b"} {:term "c"}]}]}
-             (search/parse "a b AND c " {:operator :or}))))))
-
 (deftest operators
   (is (= [3 1 2] (ids "clojure | tomatoes")))
   (is (= [1] (ids "clojure -rust")))
@@ -263,11 +215,16 @@
 (deftest an-index-in-an-app
   (let [idx (search/index docs {:aliases {"notes" :description}
                                 :syntax  {:and #{"OG"}}})]
-    (testing "parse, snippet and matches? read a query as the index does"
+    (testing "with query-opts, util.text.query reads a query as the index does"
       (is (= {:and [{:term "clojure" :field :description} {:term "rust"}]}
-             (search/parse "notes:clojure OG rust " {:index idx})))
+             (query/parse "notes:clojure OG rust " (search/query-opts idx))))
+      (is (= {:and [{:term "clojure" :field :title} {:term "rust"}]}
+             (query/parse "title:clojure OG rust " (search/query-opts idx)))
+          "a field by its own name")
       (is (= [{:text "a "} {:text "Clojure" :match? true}]
-             (search/snippet "a Clojure" "notes:clojure" {:index idx}))))
+             (query/snippet "a Clojure"
+                            "notes:clojure"
+                            (search/query-opts idx {:width 20})))))
     (testing "a field holds any value, whose text counts"
       (let [idx (search/index [{:id 1 :fields {:year 2024 :tags #{:clojure :data}}}])]
         (is (= [1] (mapv :id (search/query idx "2024 "))))
@@ -322,9 +279,6 @@
         "the word being typed matches with typos too")
     (is (= [1] (ids "cloj" {:fuzzy true})) "and what it starts")
     (is (= [] (ids "clojre -clojure~1" {:fuzzy 2})) "a :not with typos")
-    (is (= [{:text "Closure" :match? true} {:text " tables and "}
-            {:text "Clojure" :match? true}]
-           (search/snippet "Closure tables and Clojure" "clojure~")))
     (testing "which words matched with typos, and in which results"
       (is (= {:typos {"clojre" ["clojure" "closure"]}}
              (meta (search/query idx "clojre "))))
@@ -334,30 +288,14 @@
         (is (= [nil {"clojure" ["closure"]}] (map :typos found))
             "a result that holds the word itself has none")))
     (is (= [{:text "Closure" :match? true} {:text " tables"}]
-           (search/snippet "Closure tables" "clojre " {:index idx}))
+           (query/snippet "Closure tables" "clojre " (search/query-opts idx)))
         "a snippet knows the words of the index")
-    (is (search/matches? "Closure tables" "clojre~"))
-    (is (search/matches? "Closure tables" "clojre " {:fuzzy true}))
-    (is (search/matches? "Closure tables" "clojre " {:index idx}))
-    (is (not (search/matches? "Closure tables" "clojre ")) "without an index")
-    (is (= {:and [{:term "clojre" :fuzzy :auto} {:term "value" :fuzzy 1}
-                  {:term "rust" :prefix? true}]}
-           (search/parse "clojre~ value~1 rust")))
-    (is (= [nil 1 1 3 2] (map #(search/distance %1 %2 3)
-                             ["abc" "clojure" "clojure" "kitten" ""]
-                             ["xyzwv" "clojre" "cljoure" "sitting" "ab"])))))
+    (is (query/matches? "Closure tables" "clojre " (search/query-opts idx)))
+    (is (not (query/matches? "Closure tables"
+                             "clojre "
+                             (search/query-opts idx {:fuzzy false}))))))
 
 (deftest hostile-queries
-  (testing "deep groups and long runs of NOT don't run out the stack"
-    (is (= {:term "x"} (search/parse (str (apply str (repeat 20000 "(")) "x "))))
-    (is (= {:term "x"} (search/parse (str (apply str (repeat 20000 "NOT ")) "x ")))
-        "two NOT undo each other")
-    (is (= {:not {:term "x"}}
-           (search/parse (str (apply str (repeat 20001 "NOT ")) "x ")))))
-  (testing "only the first words of a long query count"
-    (is (= 32 (count (:and (search/parse (apply str (repeat 1000 "word ")))))))
-    (is (= {:and [{:term "a"} {:term "b"}]}
-           (search/parse "a b c d" {:max-terms 2}))))
   (testing "a prefix stands for its completions that the most documents hold"
     (let [idx (search/index (concat (for [i (range 5)]
                                       {:id i :fields {:title "pxcommon"}})
@@ -367,21 +305,10 @@
       (is (= (range 5) (map :id (search/query idx "px" {:max-completions 1}))))
       (is (= 1 (count (search/query idx "px1~ " {:max-expansions 1}))))))
   (testing "the limits are data"
-    (is (= #{:max-terms :max-depth :max-completions :max-expansions}
-           (set (keys search/default-limits))))))
-
-(deftest one-text
-  (let [text "A little Clojure for the value for value era"]
-    (is (search/matches? text "clojure value"))
-    (is (search/matches? text "\"value for value\" -rust"))
-    (is (search/matches? text "rust | clojure"))
-    (is (search/matches? text "clo") "the last word as a prefix")
-    (is (not (search/matches? text "clo ")))
-    (is (not (search/matches? text "clojure -little")))
-    (is (not (search/matches? text "\"value for era\"")))
-    (is (not (search/matches? text "-rust")) "a :not alone holds for nothing")
-    (is (search/matches? text {:or [{:term "rust"} {:term "era"}]}))
-    (is (search/matches? "今天天气很好" "天气"))))
+    (is (= #{:max-completions :max-expansions}
+           (set (keys search/default-limits))))
+    (is (= [1 2] (ids "clojure tomatoes" {:max-terms 1}))
+        "and those of parse count in a query too")))
 
 (deftest scripts-without-spaces
   (let [idx (search/index [{:id 1 :fields {:title "[HSK 3] 爸爸不在家的中秋节"}}
@@ -409,43 +336,3 @@
                                                :cljs js/Number.MAX_SAFE_INTEGER)}))))
     (is (= (range 150) (mapv :id (search/query idx "same" {:limit 150})))
         "a limit near the count sorts all")))
-
-(deftest snippets
-  (let [text "The quick brown fox jumps over the lazy dog, and the fox is quick."]
-    (is (= [{:text "The quick brown "} {:text "fox" :match? true}
-            {:text " jumps over the lazy dog, and the "} {:text "fox" :match? true}
-            {:text " is quick."}]
-           (search/snippet text "fox")))
-    (is (= [{:text "…"} {:text "over the "} {:text "lazy" :match? true}
-            {:text " dog, and the fox"} {:text "…"}]
-           (search/snippet text "lazy" {:width 30}))
-        "a window around the match, cut at word boundaries")
-    (is (= (search/snippet text "fox") (search/snippet text "fo"))
-        "the last word as a prefix")
-    (is (= [{:text text}] (search/snippet text "cat"))
-        "no match, the start of the text")
-    (is (= [{:text "The quick brown fox jumps over the "} {:text "lazy" :match? true}
-            {:text " dog, and the fox is quick."}]
-           (search/snippet text "lazy -fox"))
-        "a word under a :not is no match"))
-  (is (= [{:text "Café"}] (search/snippet "Café" "tea")))
-  (is (= [] (search/snippet nil "tea")) "no text, no parts")
-  (is (= [{:text "Café" :match? true}] (search/snippet "Café" "cafe"))
-      "folded like the index")
-  (is (= [{:text "…"} {:text "supercalifragilistic" :match? true} {:text "…"}]
-         (search/snippet "see supercalifragilistic word" "super" {:width 8}))
-      "a match wider than the window is shown whole")
-  (is (= [{:text "A little "} {:text "value for value" :match? true}
-          {:text " era, and value"}]
-         (search/snippet "A little value for value era, and value"
-                         "\"value for value\""))
-      "a phrase is one match")
-  (is (= [{:text "…"} {:text "then "} {:text "rust" :match? true}
-          {:text " and "} {:text "clojure" :match? true} {:text "…"}]
-         (search/snippet "clojure alone here, and then rust and clojure together"
-                         "clojure rust"
-                         {:width 25}))
-      "the window that shows the most of the query wins")
-  (is (= [{:text "今天"} {:text "天气很好" :match? true} {:text " good"}]
-         (search/snippet "今天天气很好 good" "天气很好"))
-      "the pairs of characters are one match"))

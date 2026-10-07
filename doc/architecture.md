@@ -503,9 +503,11 @@ through `feed.resolve`, so it means what the accessor means. Because the
 criteria are data, a UI can build them from a form, and saved filters and
 download rules use the same criteria.
 
-Full-text search lives in two namespaces that know nothing about podcasts,
-`util.text` and `util.text.search`, so other projects can use them too. The
-index is a value: `index`, `add` and `remove` build and change a map,
+Full-text search lives in namespaces that know nothing about podcasts,
+`util.text`, `util.text.query` and `util.text.search`, so other projects
+can use them too. The query language has a namespace of its own, since a
+transcript or a filter matches a query against one text without an index.
+The index is a value: `index`, `add` and `remove` build and change a map,
 `query` searches it, and nothing runs in the background. Lucene doesn't
 run in a browser, but this index runs wherever the model runs, and prints
 as EDN. The `search` namespace only makes the documents of episodes and

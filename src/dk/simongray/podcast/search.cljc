@@ -19,6 +19,7 @@
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.text :as text]
+            [dk.simongray.podcast.util.text.query :as text.query]
             [dk.simongray.podcast.util.text.search :as text.search]))
 
 (defn- notes
@@ -250,12 +251,12 @@
 (defn- mentioned
   "The predicate of the criterion :text for `v`, a query or a set of
   queries. It's true when the title and notes of an item match any of
-  them, as util.text.search/matches? reads them."
+  them, as util.text.query/matches? reads them."
   [v]
-  (let [queries (mapv text.search/parse (if (set? v) v [v]))]
+  (let [queries (mapv text.query/parse (if (set? v) v [v]))]
     (fn [_ item]
       (let [text (str (resolve/title item) "\n" (notes item))]
-        (boolean (some #(text.search/matches? text %) queries))))))
+        (boolean (some #(text.query/matches? text %) queries))))))
 
 (defn- indexed
   "The predicate of the criterion :text for `v`, a query or a set of
@@ -357,7 +358,7 @@
     linked, embedded or listed in the notes
   - :person, someone credited
   - :text, a query that the title and notes must match, in the language
-    of util.text.search/parse, e.g. \"coffee -decaf\". A set of queries
+    of util.text.query/parse, e.g. \"coffee -decaf\". A set of queries
     matches when any of them does.
   - :not, criteria that the item doesn't meet, e.g. {:text #{\"rerun\"}}
   - :status, :unplayed, :in-progress or :played, or a set of them
@@ -549,5 +550,5 @@
      (text.search/query idx "futu")
      (text.search/query idx "title:future -present")
      (def first-notes (html/text (resolve/description (first (:rss/items f)))))
-     (text.search/snippet first-notes "future")
+     (text.query/snippet first-notes "future" (text.search/query-opts idx))
      #_.))

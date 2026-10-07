@@ -637,7 +637,7 @@ gives the next page. The last word counts as a prefix, so this works for
 search as you type. A query can also have `"a phrase"`, `OR` or `|`,
 `NOT`, `!` or `-` before a word, parentheses, `word~` for a word with
 typos, and `title:word` or `notes:word` for one field;
-`util.text.search/parse` says the rest. The index takes about two
+`util.text.query/parse` says the rest. The index takes about two
 kilobytes per episode, so 50 shows with 28,000 episodes take about 60
 megabytes. To leave it out, e.g. on a watch, give `:search? false` in
 the config.
@@ -667,8 +667,8 @@ To search only some episodes, give the criteria of `library/episodes` as
 To mark the matches in a result, cut a snippet of its notes:
 
 ```clojure
-(text.search/snippet (html/text (resolve/description item))
-                   "\"podcasting 2.0\"")
+(text.query/snippet (html/text (resolve/description item))
+                    "\"podcasting 2.0\"")
 ;; => [{:text "A look into the future of podcasting and how we get to "}
 ;;     {:text "Podcasting 2.0" :match? true}
 ;;     {:text "!"}]
@@ -1285,6 +1285,7 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.proxy :as proxy]
             [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.text.query :as text.query]
             [dk.simongray.podcast.util.text.search :as text.search]
             [dk.simongray.podcast.util.text.search.ciff :as ciff]
             [dk.simongray.podcast.util.url :as url]

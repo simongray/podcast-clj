@@ -17,6 +17,7 @@
             [dk.simongray.podcast.search :as search]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.nostr :as nostr]
+            [dk.simongray.podcast.util.text.query :as text.query]
             [dk.simongray.podcast.util.text.search :as text.search]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]
@@ -879,7 +880,9 @@
                   (let [notes (html/text (resolve/description item))]
                     [:div.snippet
                      (for [{:keys [text match?]}
-                           (text.search/snippet notes q {:index index})]
+                           (text.query/snippet notes
+                                               q
+                                               (text.search/query-opts index))]
                        (if match? [:mark text] text))]))])])))
 
 (defn find-page
