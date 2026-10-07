@@ -23,7 +23,8 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def calls
   "The calls that a backend makes to a server, whose paths are in apis."
@@ -83,9 +84,9 @@
                                      {:api api :call call})))]
     (str/replace template
                  #"\{user\}|\{device\}"
-                 #(http/percent-encode (case %
-                                         "{user}"   user
-                                         "{device}" device)))))
+                 #(url/percent-encode (case %
+                                        "{user}"   user
+                                        "{device}" device)))))
 
 (defn request
   "The request map for `call`, one of calls, to the server at `root`, with
@@ -215,7 +216,7 @@
                        (fail ", not with a JSON object"))))
         success? (and (integer? status) (<= 200 status) (< status 300))
         urls     (fn [m k]
-                   (filterv http/web-url? (listed (get m k))))]
+                   (filterv url/web-url? (listed (get m k))))]
     (cond
       (= 401 status)
       (fail ": the credentials were refused")
@@ -248,7 +249,7 @@
            :update-urls (vec (for [pair  (listed (get m "update_urls"))
                                    :let  [[sent new] (listed pair)]
                                    :when (string? sent)]
-                               [sent (when (http/web-url? new) new)]))})))))
+                               [sent (when (url/web-url? new) new)]))})))))
 
 (defn- indexed
   "The `feed` at `url` with its guid, and the index of its items as a
@@ -345,7 +346,7 @@
      :episode-url (fn [[_ item :as id]]
                     (if episode-url
                       (episode-url id)
-                      (when (http/web-url? item) item)))}))
+                      (when (url/web-url? item) item)))}))
 
 (defn ^:no-doc device-author
   "The author of the entries in a state for what the `device` of a gpodder
@@ -696,11 +697,11 @@
                                    (not= stamp (get-in pushed [k id]))
                                    (ours? e))]
                     [id e]))
-        public  #(first (http/split-credentials %))
+        public  #(first (url/split-credentials %))
         subs    (changed :subscriptions (:subscriptions state))
         urls    (fn [pred]
                   (distinct (for [[_ e] subs
-                                  :when (and (pred e) (http/web-url? (:url e)))]
+                                  :when (and (pred e) (url/web-url? (:url e)))]
                               (public (:url e)))))
         adds    (vec (urls (complement :removed?)))
         drops   (if pushed (vec (remove (set adds) (urls :removed?))) [])
@@ -708,7 +709,7 @@
         told    (for [[[g _ :as id] e] entries
                       :let [podcast (some-> ((:feed-url names) g) public)
                             media   ((:episode-url names) id)]]
-                  (if (and (http/web-url? podcast) (http/web-url? media))
+                  (if (and (url/web-url? podcast) (url/web-url? media))
                     {:action (entry-action id e podcast media device
                                            {:first? (nil? pushed)})}
                     {:unnamed id}))]
@@ -799,7 +800,7 @@
   another app."
   ([root]
    (backend root {}))
-  ([root {:keys [name device] :or {name (http/host root)} :as opts}]
+  ([root {:keys [name device] :or {name (url/host root)} :as opts}]
    {:pre [(map? opts)]}
    (let [session     (atom nil)
          opts        (merge {:api :gpodder :caption "podcast-clj" :type "other"}

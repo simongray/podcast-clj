@@ -20,9 +20,9 @@
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def mastodon
   "A thread of podcastindex.social, whose root starts a conversation, with
@@ -82,7 +82,7 @@
   that it lacks, noting each post in `log`."
   [answers log]
   (fn [{:keys [url]}]
-    (let [uri (http/percent-decode (second (re-find #"[?&]uri=([^&]+)" url)))]
+    (let [uri (url/percent-decode (second (re-find #"[?&]uri=([^&]+)" url)))]
       (swap! log conj uri)
       (if-let [doc (get answers uri)]
         {:status 200 :url url :body (json/write-str doc)}

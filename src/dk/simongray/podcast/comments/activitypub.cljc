@@ -19,9 +19,9 @@
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (defn ^:no-doc id-of
   "The id of `x`, an object or the IRI that names one."
@@ -61,7 +61,7 @@
   speaks only for itself, so a post or an author links to no page on
   another server."
   [url id]
-  (when (http/same-origin? url id)
+  (when (url/same-origin? url id)
     (common/web-url url)))
 
 (defn ^:no-doc web-page
@@ -88,9 +88,9 @@
   "Whether the ActivityPub object `o`, which came from `url`, speaks for
   its own server: its id and its author are there, as FEP-fe34 asks."
   [o url]
-  (and (http/same-origin? (id-of o) url)
+  (and (url/same-origin? (id-of o) url)
        (let [author (attributed o)]
-         (or (nil? author) (http/same-origin? author url)))))
+         (or (nil? author) (url/same-origin? author url)))))
 
 ;; ActivityPub, section 5.6
 (defn ^:no-doc public?
@@ -258,7 +258,7 @@
   "The web URL that a link with the `href` leads to in a post whose id is
   `base`, or nil."
   [base href]
-  (common/web-url (if (and base href) (http/absolute-url base href) href)))
+  (common/web-url (if (and base href) (url/absolute-url base href) href)))
 
 (defn- link-part
   "What the link with the attributes `attrs` and the text `label` is in the
@@ -280,10 +280,10 @@
         same-tag?     #(= (str/lower-case (:tag %)) (str/lower-case tag))
         same-user?    (fn [{:keys [id name] target :url}]
                         (let [[u d] (account name)
-                              host  (http/host (or id target))]
+                              host  (url/host (or id target))]
                           (and (= u user)
                                (or (nil? url)
-                                   (= host (http/host url))
+                                   (= host (url/host url))
                                    (and d domain (= d domain))))))
         hashtag       (when tag
                         (first (filter same-tag? (of-type :hashtag))))
@@ -523,7 +523,7 @@
   is one that no other server can pass off as its own."
   [actor at]
   (let [user   (common/first-text (get actor "preferredUsername"))
-        host   (http/host (id-of actor))
+        host   (url/host (id-of actor))
         plain? (and user (re-matches #"[A-Za-z0-9_.~-]+" user))]
     (common/present {:id      (id-of actor)
                      :name    (common/first-text (get actor "name") user)
@@ -617,9 +617,9 @@
   names the URL of the page to read it from, which must be on the server
   of `url`."
   [thread path owner c url at opts]
-  (let [id       (when (http/same-origin? (id-of c) url) (id-of c))
+  (let [id       (when (url/same-origin? (id-of c) url) (id-of c))
         listed   (when (map? c) (listing c))
-        next-url (when (http/same-origin? (:next listed) url) (:next listed))
+        next-url (when (url/same-origin? (:next listed) url) (:next listed))
         state    (cond
                    next-url               {:url next-url}
                    (and (nil? listed) id) {:url id}
@@ -671,7 +671,7 @@
         from        (or (:url response) url)]
     (when (and following
                (not (contains? seen following))
-               (http/same-origin? following from))
+               (url/same-origin? following from))
       (assoc request :url following ::comments/seen seen))))
 
 (defn- with-page
@@ -715,7 +715,7 @@
   (let [c (or (get o "comments")
               (when (nil? (get o "inReplyTo"))
                 (get o "context")))]
-    (when (http/same-origin? (id-of c) (id-of o))
+    (when (url/same-origin? (id-of c) (id-of o))
       c)))
 
 (defn- read-root
@@ -787,8 +787,8 @@
         problem (or problem
                     (when-not actor
                       {:id :comments/malformed :url id})
-                    (when-not (and (http/same-origin? actor final)
-                                   (http/same-origin? actor id))
+                    (when-not (and (url/same-origin? actor final)
+                                   (url/same-origin? actor id))
                       {:id :comments/untrusted :url id}))
         author  (if problem
                   {:id id :error problem :read-at at}
@@ -848,7 +848,7 @@
   the page of the account."
   [account origin]
   (let [id (some common/web-url [(get account "uri") (get account "url")])]
-    (when (http/same-origin? id origin) id)))
+    (when (url/same-origin? id origin) id)))
 
 (defn- account-author
   "The `account` of the Mastodon API of the server at `origin` as an author
@@ -861,7 +861,7 @@
     (common/present {:id      (account-id account origin)
                      :name    display
                      :handle  (when plain?
-                                (str "@" acct "@" (http/host origin)))
+                                (str "@" acct "@" (url/host origin)))
                      :url     (own-url (get account "url") origin)
                      :avatar  (common/web-url (get account "avatar"))
                      :read-at at})))
@@ -968,7 +968,7 @@
         listed    (get document "descendants")
         visible   #{nil "public" "unlisted"}
         own?      #(and (common/web-url (get % "uri"))
-                        (http/same-origin? (get % "uri") origin)
+                        (url/same-origin? (get % "uri") origin)
                         (contains? visible (get % "visibility")))
         problem   (or problem
                       (when (and (= :status part) (not (own? document)))

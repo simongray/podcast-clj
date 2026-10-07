@@ -22,7 +22,8 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def base-url
   "The root of the URLs of the API, which the paths of calls are
@@ -182,7 +183,7 @@
   (let [path (or (paths call)
                  (throw (ex-info "Unknown Podcast Index call" {:call call})))
         root (str/replace (:base-url opts base-url) #"(^|[^/])/+$" "$1")
-        qs   (http/query-string params)]
+        qs   (url/query-string params)]
     {:method  :get
      :url     (str root "/" path (when (seq qs) (str "?" qs)))
      :headers (auth-headers credentials auth-date)}))

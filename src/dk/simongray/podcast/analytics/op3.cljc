@@ -26,6 +26,7 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def origin
@@ -142,7 +143,7 @@
   [id]
   (cond
     (guid/guid? id)    {"podcastGuid" (str/lower-case id)}
-    (http/web-url? id) {"feedUrlBase64" (http/base64url id)}
+    (url/web-url? id) {"feedUrlBase64" (http/base64url id)}
     :else              {"showUuid" id}))
 
 (defn- query
@@ -153,8 +154,8 @@
     (str/join "&" (for [[k v] params
                         v     (if (coll? v) v [v])
                         :when (some? v)]
-                    (str (http/percent-encode k) "="
-                         (http/percent-encode (text v)))))))
+                    (str (url/percent-encode k) "="
+                         (url/percent-encode (text v)))))))
 
 (defn- endpoint
   "The path of the call `call` below the API of OP3, and its query
@@ -164,12 +165,12 @@
                 continuation-token]}]
   (case call
     :show
-    (let [id (if (http/web-url? show) (http/base64url show) show)]
-      [(str "shows/" (http/percent-encode id))
+    (let [id (if (url/web-url? show) (http/base64url show) show)]
+      [(str "shows/" (url/percent-encode id))
        {"episodes" (when episodes? "include")}])
 
     :downloads
-    [(str "downloads/show/" (http/percent-encode show))
+    [(str "downloads/show/" (url/percent-encode show))
      {"format"            "json"
       "start"             start
       "end"               end

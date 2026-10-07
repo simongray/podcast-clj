@@ -27,6 +27,7 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.url :as url]
             #?@(:cljs [[goog.crypt.Hmac]
                        [goog.crypt.Sha1]
                        [goog.crypt.Sha256]
@@ -82,7 +83,7 @@
   URL of the response."
   [{:keys [url headers] :as response} feed]
   (let [links       (http/links headers)
-        absolute    #(if url (http/absolute-url url %) %)
+        absolute    #(if url (url/absolute-url url %) %)
         header-hubs (seq (hrefs "hub" links))
         hubs        (or header-hubs (resolve/hubs feed))
         self        (if header-hubs
@@ -100,7 +101,7 @@
    :url     hub
    :headers {"Content-Type" "application/x-www-form-urlencoded"
              "User-Agent"   http/user-agent}
-   :body    (http/query-string fields)})
+   :body    (url/query-string fields)})
 
 (defn request
   "The request map that asks the `hub` for the feed at `topic`, by `mode`
@@ -127,7 +128,7 @@
    (when-not (contains? #{:subscribe :unsubscribe} mode)
      (throw (ex-info "The mode of a request is :subscribe or :unsubscribe"
                      {:mode mode})))
-   (when-not (every? http/web-url? [hub topic callback])
+   (when-not (every? url/web-url? [hub topic callback])
      (throw (ex-info (str "The hub, the topic and the callback are http or "
                           "https URLs")
                      {:hub hub :topic topic :callback callback})))
@@ -164,7 +165,7 @@
    (publish-request hub topic {}))
   ([hub topic {form :publish-form :or {form publish-form} :as opts}]
    {:pre [(map? opts)]}
-   (when-not (every? http/web-url? [hub topic])
+   (when-not (every? url/web-url? [hub topic])
      (throw (ex-info "The hub and the topic are http or https URLs"
                      {:hub hub :topic topic})))
    (hub-request hub (conj (vec (:fields form)) [(:url-field form) topic]))))
@@ -391,7 +392,7 @@
   (let [env (merge default-limits {:signature-methods signature-methods} opts)]
     (fn [{:keys [request-method query-string] :as request}]
       (case request-method
-        :get  (verification env request (http/query-params query-string))
+        :get  (verification env request (url/query-params query-string))
         :post (distribution env request)
         (answer 405 "")))))
 

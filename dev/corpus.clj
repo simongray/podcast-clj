@@ -17,6 +17,7 @@
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def dir
@@ -390,7 +391,7 @@
                          (catch Exception _ nil)))
         host-of      (fn [url]
                        (try
-                         (.getHost (java.net.URI. (http/legal-url url)))
+                         (.getHost (java.net.URI. (url/legal-url url)))
                          (catch Exception _ nil)))
         one-per-host (fn [[hosts acc] {:keys [url] :as e}]
                        (let [host (host-of url)]

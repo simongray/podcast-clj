@@ -19,8 +19,8 @@
             [dk.simongray.podcast.sync.gpodder.server :as gpodder-server]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.crdt :as crdt]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]
             [io.pedestal.log :as log])
   (:import [java.util.concurrent Executors ScheduledExecutorService TimeUnit]))
 
@@ -36,7 +36,7 @@
   ([]
    (make {}))
   ([config]
-   (let [config (merge {:allow?  http/public?
+   (let [config (merge {:allow?  url/public?
                         :keep    feeds/slim
                         :search? false}
                        config)]

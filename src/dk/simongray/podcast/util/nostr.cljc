@@ -21,8 +21,9 @@
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bech32 :as bech32]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.json :as json])
+            #?(:clj [dk.simongray.podcast.util.http :as http])
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.url :as url])
   #?(:clj (:import [java.net URI]
                    [java.net.http HttpClient WebSocket WebSocket$Listener]
                    [java.time Duration]
@@ -386,9 +387,9 @@
 
 (defn public?
   "Whether the host of the relay at `url` is on the public internet, as
-  http/public? tells for a web URL."
+  url/public? tells for a web URL."
   [url]
-  (boolean (some-> (relay-url url) (str/replace #"^ws" "http") http/public?)))
+  (boolean (some-> (relay-url url) (str/replace #"^ws" "http") url/public?)))
 
 (defn request-message
   "The message that asks a relay for the events of `filters`, under the

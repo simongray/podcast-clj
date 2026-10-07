@@ -30,6 +30,7 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]))
 
 (def default-limits
@@ -61,9 +62,9 @@
         found (when (string? s)
                 (re-matches form (str/lower-case (str/trim s))))]
     (when-let [[_ user domain] found]
-      (let [host (http/host (str "https://" domain "/"))]
+      (let [host (url/host (str "https://" domain "/"))]
         (when (and host
-                   (http/public-name? host)
+                   (url/public-name? host)
                    (not (re-matches #"[0-9.]+" host)))
           {:user (if (= "" user) "_" user) :domain domain})))))
 
@@ -111,7 +112,7 @@
   "Whether `s` is an https URL, or an http URL of an onion service, as
   LUD-01 allows."
   [s]
-  (let [[scheme host] (http/origin s)]
+  (let [[scheme host] (url/origin s)]
     (or (= "https" scheme)
         (and (= "http" scheme) (str/ends-with? host ".onion")))))
 
@@ -224,8 +225,8 @@
                       :msat     msat
                       :min-msat (:min-msat terms)
                       :max-msat (:max-msat terms)})))
-   (let [query (http/query-string {"amount"  msat
-                                   "comment" (sent-comment terms comment)})]
+   (let [query (url/query-string {"amount"  msat
+                                  "comment" (sent-comment terms comment)})]
      {:method  :get
       :url     (str callback (if (str/includes? callback "?") "&" "?") query)
       :headers {"Accept" "application/json"}})))
@@ -383,7 +384,7 @@
         "url"
         (let [url (get a "url")]
           (if (and (secure-url? url)
-                   (= (http/host url) (http/host callback)))
+                   (= (url/host url) (url/host callback)))
             (described {:tag "url" :url url})
             ::refused))
 
@@ -539,13 +540,13 @@
   - :send, a function that sends a request map in place of http/send!
 
   The domain of an address in a feed chooses the URLs that this fetches.
-  So each request carries http/public? as its :allow?, and http/send!
+  So each request carries url/public? as its :allow?, and http/send!
   then sends nothing to a private network. To reach your own network,
   give (constantly true) as :allow?."
   ([address msat]
    (request-invoice! address msat {}))
   ([address msat {:keys [comment] :as opts}]
-   (let [defaults {:send http/send! :allow? http/public?}
+   (let [defaults {:send http/send! :allow? url/public?}
          opts     (merge default-limits defaults opts)]
      (async/then (ask! (lnurlp-request address) address terms opts)
                  (fn [offer]
@@ -573,7 +574,7 @@
   ([address]
    (fetch-node! address {}))
   ([address opts]
-   (let [defaults {:send http/send! :allow? http/public?}
+   (let [defaults {:send http/send! :allow? url/public?}
          opts     (merge default-limits defaults opts)]
      (ask! (keysend-request address) address node opts))))
 

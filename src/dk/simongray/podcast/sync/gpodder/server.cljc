@@ -18,7 +18,8 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.time :as time])
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url])
   #?(:clj (:import [java.util.concurrent.locks ReentrantLock])))
 
 (def ^:no-doc session-seconds
@@ -103,8 +104,8 @@
   [{:keys [state book device since-ms seconds] :as ctx}]
   (if-not since-ms
     {:status 400 :body "The parameter since is missing or not a number"}
-    (let [public  #(first (http/split-credentials (:url %)))
-          known   (filter (comp http/web-url? :url val) (:subscriptions state))
+    (let [public  #(first (url/split-credentials (:url %)))
+          known   (filter (comp url/web-url? :url val) (:subscriptions state))
           arrived #(second (get-in book [:index [:subscriptions %]] [0 0]))
           urls    (fn [pred]
                     (distinct (for [[g e] known
@@ -162,7 +163,7 @@
         urls-of (fn [[g _ :as id]]
                   (let [[p m] (get-in book [:urls id])]
                     [(or p (some-> ((:feed-url names) g)
-                                   http/split-credentials
+                                   url/split-credentials
                                    first))
                      (or m ((:episode-url names) id))]))
         actions (for [[id e] (profile/episode-entries state)
@@ -170,8 +171,8 @@
                       :when (and (>= (arrived id) (or since-ms 0))
                                  (or (nil? device) (= device by)))
                       :let  [[p m] (urls-of id)]
-                      :when (and (http/web-url? p)
-                                 (http/web-url? m)
+                      :when (and (url/web-url? p)
+                                 (url/web-url? m)
                                  (or (nil? podcast) (= podcast p)))
                       :let  [a (gpodder/entry-action id e p m by)]
                       :when a]
@@ -196,8 +197,8 @@
     {:status 400 :body "The body is not a list of episode actions"}
     (let [arrived (fn [t] (if (and t (< (inst-ms t) (inst-ms at))) t at))
           timed?  (fn [raw a] (or (:timestamp a) (nil? (get raw "timestamp"))))
-          linked? #(and (http/web-url? (:podcast %))
-                        (http/web-url? (:episode %)))
+          linked? #(and (url/web-url? (:podcast %))
+                        (url/web-url? (:episode %)))
           actions (->> json
                        (keep (fn [raw]
                                (let [a (gpodder/read-action raw)]
@@ -237,7 +238,7 @@
   [path]
   (some (fn [[pattern names methods]]
           (when-let [[_ & parts] (re-matches pattern (str path))]
-            {:parts   (zipmap names (map http/percent-decode parts))
+            {:parts   (zipmap names (map url/percent-decode parts))
              :methods methods}))
         routes))
 
@@ -288,7 +289,7 @@
   It has the state, the book, the names, the time, the parameters and the
   JSON of the body."
   [{:keys [book max-bytes] :as env} request state at]
-  (let [params (http/query-params (:query-string request))]
+  (let [params (url/query-params (:query-string request))]
     {:state    state
      :book     @book
      :names    (gpodder/namer state env)
@@ -430,7 +431,7 @@
 (comment
   (route "/api/2/subscriptions/ann/phone.json")
   (http/credentials "Basic YW5uOnNlY3JldA==")
-  (http/query-params
+  (url/query-params
    "since=1727000000&podcast=https%3A%2F%2Fexample.org%2Ffeed.xml")
 
   ;; a server over a state with one subscription, and a request of an app

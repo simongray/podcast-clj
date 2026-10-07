@@ -216,11 +216,11 @@ own network, with its routers, internal services and cloud metadata.
 
 Each function that sends requests takes an `:allow?` predicate and puts it
 on every request map, so `http/send!` and an app's own `:send` can both
-check it. The functions that fetch untrusted URLs default to `http/public?`,
+check it. The functions that fetch untrusted URLs default to `url/public?`,
 which refuses loopback, private and other special addresses. The functions
 that fetch a feed or the files it links to have no guard by default,
 because the app chose the feed. A server that fetches feeds for other people gives them
-`{:allow? http/public?}`.
+`{:allow? url/public?}`.
 
 On the JVM, `public?` resolves the name and checks every address, and
 `http/send!` checks each redirect too. It follows redirects itself, because

@@ -9,7 +9,8 @@
             [dk.simongray.podcast.updates.websub :as websub]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def hub "https://hub.example.org/")
 (def topic "https://example.org/feed.xml")
@@ -50,12 +51,12 @@
             "hub.topic"         topic
             "hub.lease_seconds" "864000"
             "hub.secret"        secret}
-           (http/query-params (:body (http/revealed r)))))
+           (url/query-params (:body (http/revealed r)))))
     (is (not (str/includes? (pr-str r) secret)) "a request that is printed does not show the secret")
     (is (string? (:body (websub/request :subscribe hub topic callback {:lease-seconds 864000})))
         "a request without a secret has a body of text"))
   (is (= {"hub.callback" callback "hub.mode" "unsubscribe" "hub.topic" topic}
-         (http/query-params (:body (websub/request :unsubscribe hub topic callback))))
+         (url/query-params (:body (websub/request :unsubscribe hub topic callback))))
       "the fields without a value are left out")
   (testing "what is a mistake of the app"
     (doseq [[what f] {"a mode that is none"           #(websub/request :renew hub topic callback)
@@ -68,11 +69,11 @@
                       "a topic that is no URL"        #(websub/publish-request hub "feed.xml")}]
       (is (thrown? #?(:clj Exception :cljs js/Error) (f)) what)))
   (is (= {"hub.mode" "publish" "hub.url" topic}
-         (http/query-params (:body (websub/publish-request hub topic))))
+         (url/query-params (:body (websub/publish-request hub topic))))
       "the request of a publisher")
   (is (= {"mode" "ping" "key" "k" "feed" topic}
-         (http/query-params (:body (websub/publish-request hub topic {:publish-form {:fields    {"mode" "ping" "key" "k"}
-                                                                                   :url-field "feed"}}))))
+         (url/query-params (:body (websub/publish-request hub topic {:publish-form {:fields    {"mode" "ping" "key" "k"}
+                                                                                  :url-field "feed"}}))))
       "in the form of another hub"))
 
 (deftest sending-to-a-hub
@@ -88,7 +89,7 @@
                     (is (= {:status 202 :url hub} answer))
                     (is (= [5 "subscribe"]
                            [(:timeout-seconds (first @sent))
-                            (get (http/query-params (:body (first @sent))) "hub.mode")])
+                            (get (url/query-params (:body (first @sent))) "hub.mode")])
                         "the request, with the limits of the app")))
      #(async/then (async/attempt (fn [] (websub/call! request {:send (answers 422 "The topic is not known.")})))
                   (fn [{:keys [error]}]
@@ -126,8 +127,8 @@
 (defn- query
   "The query string of the call of a hub with `params`."
   [params]
-  (http/query-string (merge {"hub.topic" topic "hub.challenge" "abc-123_DEF.456" "hub.lease_seconds" 864000}
-                            params)))
+  (url/query-string (merge {"hub.topic" topic "hub.challenge" "abc-123_DEF.456" "hub.lease_seconds" 864000}
+                           params)))
 
 (deftest the-callback-of-a-subscriber
   (let [came  (atom [])

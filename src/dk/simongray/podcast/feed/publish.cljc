@@ -5,8 +5,8 @@
   The functions are pure, and rss/emit writes the feeds they give."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.secret :as secret]))
+            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def page-size
   "How many items a document of pages holds, unless its options give
@@ -125,7 +125,7 @@
    (let [size     (:page-size opts page-size)
          url      (or url (resolve/self-url feed))
          param    (case kind :paged "page" :archived "archive")
-         page-url (or page-url #(http/with-query url {param %}))]
+         page-url (or page-url #(url/with-query url {param %}))]
      (when-not (string? url)
        (throw (ex-info (str "The pages of a feed need its URL, as :url or as"
                             " its atom:link rel=self")
@@ -200,9 +200,9 @@
                 :as   opts}]
    {:pre [(map? opts)]}
    (let [token      (secret/reveal token)
-         with-token (or with-token #(http/with-query %1 {param %2}))
+         with-token (or with-token #(url/with-query %1 {param %2}))
          personal   (fn [url]
-                      (if (and (http/web-url? url)
+                      (if (and (url/web-url? url)
                                (own? url))
                         (with-token url token)
                         url))

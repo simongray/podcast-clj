@@ -37,7 +37,8 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def nodes
   "Public Hive API nodes, tried in this order until one answers."
@@ -243,7 +244,7 @@
                :as   opts}]
    {:pre [(map? opts)]}
    (let [service (:gateway opts gateway)
-         query   (http/query-string {:url url :reason reason :medium medium})]
+         query   (url/query-string {:url url :reason reason :medium medium})]
      {:method  :get
       :url     (str service (if (str/includes? service "?") "&" "?") query)
       :headers {"Authorization" (secret/hide token)

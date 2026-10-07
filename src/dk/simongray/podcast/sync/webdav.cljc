@@ -18,6 +18,7 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def calls
@@ -73,7 +74,7 @@
    (let [auth        (http/authorization credentials)
          headers     (cond-> {"User-Agent" http/user-agent}
                        auth (assoc "Authorization" auth))
-         url         (str root (http/percent-encode name))
+         url         (str root (url/percent-encode name))
          version     (:if-version opts)
          listing     (assoc headers
                             "Depth"        "1"
@@ -112,7 +113,7 @@
   (-> (str/replace href #"(^|[^/])/+$" "$1")
       (str/split #"/")
       last
-      http/percent-decode))
+      url/percent-decode))
 
 (defn- entries
   "The entries of the multistatus `body`, as maps of :href, :etag and
@@ -190,11 +191,11 @@
                          (fail)))))
 
 (defn- host
-  "The host of the URL `root`, as http/origin reads it, without
+  "The host of the URL `root`, as url/origin reads it, without
   credentials. It has its port when that isn't the default port of the
   scheme."
   [root]
-  (when-let [[scheme host port] (http/origin root)]
+  (when-let [[scheme host port] (url/origin root)]
     (cond-> host
       (not= port (get {"http" 80 "https" 443} scheme)) (str ":" port))))
 

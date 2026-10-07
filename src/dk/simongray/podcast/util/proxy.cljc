@@ -24,7 +24,8 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def defaults
   "The options of handler, which its own options replace one by one:
@@ -40,7 +41,7 @@
   Each request also has the :timeout-seconds of the options, or else that
   of http/send!. The page's own cookies and credentials never go on,
   unless :forward names them."
-  {:allow?     http/public?
+  {:allow?     url/public?
    :send       http/send!
    :forward    #{"accept" "if-modified-since" "if-none-match" "range"}
    :expose     #{"age" "cache-control" "content-range" "content-type" "etag"
@@ -82,7 +83,7 @@
   "The parameters of the `ring-request` by name: the url to fetch, and as,
   which is bytes for a body of bytes."
   [ring-request]
-  (http/query-params (:query-string ring-request)))
+  (url/query-params (:query-string ring-request)))
 
 (defn- header-names
   "The headers of the `ring-request` by their names in lower case, since
@@ -139,7 +140,7 @@
               (str "The proxy answers the requests of the pages of its own"
                    " site, and isn't a page itself."))
 
-      (not (http/web-url? (get (target ring-request) "url")))
+      (not (url/web-url? (get (target ring-request) "url")))
       (answer 400 "http_request_error"
               "The url parameter names no http or https URL."))))
 
@@ -162,7 +163,7 @@
          forwarded        (select-keys headers (disj forward "range"))
          sent-headers     (cond-> (assoc forwarded "Via" via)
                             user-agent (assoc "User-Agent" user-agent))]
-     (when (http/web-url? url)
+     (when (url/web-url? url)
        (cond-> (assoc (select-keys opts http/limit-keys)
                       :method  request-method
                       :url     url
@@ -242,7 +243,7 @@
   (let [as-param (when (= :bytes as) "bytes")]
     (-> request
         (dissoc :allow?)
-        (assoc :url (http/with-query base {:url url :as as-param})))))
+        (assoc :url (url/with-query base {:url url :as as-param})))))
 
 (defn- failure
   "The exception of http/send! for `request`, which the proxy failed to
@@ -290,7 +291,7 @@
    (sender base {}))
   ([base {:keys [send] :or {send http/send!} :as opts}]
    (fn [request]
-     (if (http/web-url? (:url request))
+     (if (url/web-url? (:url request))
        (async/then (send (proxied base request)) #(unproxied request %))
        (send request)))))
 
@@ -300,7 +301,7 @@
      (def feed-url "https://feeds.podcastindex.org/pc20.xml")
      (def response
        (server {:request-method :get
-                :query-string   (http/query-string {:url feed-url})
+                :query-string   (url/query-string {:url feed-url})
                 :headers        {"accept" "application/rss+xml"}}))
      (select-keys response [:status :headers])
 

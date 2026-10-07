@@ -65,7 +65,8 @@
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.nostr :as nostr]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def protocols
   "The protocols of podcast:socialInteract whose threads fetch! reads."
@@ -103,18 +104,18 @@
           (keep :error (vals authors))))
 
 (defn ^:no-doc origin
-  "The origin of the URL `url` of a server or of a relay, as http/origin
+  "The origin of the URL `url` of a server or of a relay, as url/origin
   reads the origin of a web URL."
   [url]
-  (http/origin (str/replace (str url) #"(?i)^ws" "http")))
+  (url/origin (str/replace (str url) #"(?i)^ws" "http")))
 
 (defn ^:no-doc public?
   "Whether the host of the URL `url` of a server or of a relay is on the
-  public internet, as http/public? and nostr/public? tell."
+  public internet, as url/public? and nostr/public? tell."
   [url]
   (if (nostr/relay-url url)
     (nostr/public? url)
-    (http/public? url)))
+    (url/public? url)))
 
 (defn send!
   "Send the request map `request` as http/send! does, or as nostr/send!
@@ -613,7 +614,7 @@
   comments in all. The report counts the replies that such a limit cut.
 
   The servers of a thread choose the URLs that this fetches. So each
-  request carries a guard as its :allow?, which is http/public? for a
+  request carries a guard as its :allow?, which is url/public? for a
   server and nostr/public? for a relay. With these guards, http/send! and
   nostr/send! send nothing to a private network. To reach your own
   network, give (constantly true) as :allow?. A :send keeps to the

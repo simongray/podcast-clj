@@ -20,9 +20,9 @@
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (defn at-uri
   "The parts of the at URI `s` as a map of :authority, :collection and
@@ -50,7 +50,7 @@
   `uri`: ten levels of replies, and none of the posts above it."
   [appview uri]
   (let [root  (str/replace appview #"/+$" "")
-        query (http/query-string {"uri" uri "depth" 10 "parentHeight" 0})]
+        query (url/query-string {"uri" uri "depth" 10 "parentHeight" 0})]
     {:method        :get
      :url           (str root "/xrpc/app.bsky.feed.getPostThread?" query)
      :headers       {"Accept" "application/json"}

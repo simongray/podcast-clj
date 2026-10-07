@@ -7,7 +7,8 @@
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.secret :as secret])
+            [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.url :as url])
   #?(:clj (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
                    [java.io ByteArrayOutputStream]
                    [java.net InetSocketAddress]
@@ -146,16 +147,16 @@
 
 (deftest credentials-in-a-url
   (is (= ["https://host.example:8443/feed.xml?x=1" {:username "simon@example.org" :password (secret/hide "p p")}]
-         (http/split-credentials "https://simon%40example.org:p%20p@host.example:8443/feed.xml?x=1"))
+         (url/split-credentials "https://simon%40example.org:p%20p@host.example:8443/feed.xml?x=1"))
       "decoded, and the URL without them")
-  (let [[url credentials] (http/split-credentials "https://simon:hunter2@host.example/feed.xml")]
+  (let [[url credentials] (url/split-credentials "https://simon:hunter2@host.example/feed.xml")]
     (is (= "https://host.example/feed.xml" url))
     (is (= "hunter2" (secret/reveal (:password credentials))))
     (is (= "{:username \"simon\", :password #<secret>}" (pr-str credentials)) "the password does not show in print")
     (is (= "Basic c2ltb246aHVudGVyMg==" (secret/reveal (http/authorization credentials)))))
-  (is (= ["https://host.example/" {:username "user" :password (secret/hide "")}] (http/split-credentials "https://user@host.example/")))
-  (is (= ["https://host.example/a@b" nil] (http/split-credentials "https://host.example/a@b")) "an @ in the path is no user")
-  (is (= ["https://host.example/feed.xml" nil] (http/split-credentials "https://host.example/feed.xml"))))
+  (is (= ["https://host.example/" {:username "user" :password (secret/hide "")}] (url/split-credentials "https://user@host.example/")))
+  (is (= ["https://host.example/a@b" nil] (url/split-credentials "https://host.example/a@b")) "an @ in the path is no user")
+  (is (= ["https://host.example/feed.xml" nil] (url/split-credentials "https://host.example/feed.xml"))))
 
 (deftest the-request-for-a-feed
   (let [request (http/feed-request "https://u:p@example.org/feed.xml"
@@ -179,33 +180,6 @@
                         (is (= "\"v1\"" (get-in @sent [:headers "If-None-Match"])) "the request of feed-request")
                         (is (= [304 "\"v1\""] ((juxt :status :etag) response)))
                         (is (inst? (:not-before response))))))))
-
-(deftest urls-made-absolute
-  (let [page "https://a.example/show/feed.xml"]
-    (testing "as a browser resolves them"
-      (is (= "https://a.example/show/feed.xml?page=2" (http/absolute-url page "?page=2")))
-      (is (= "https://a.example/show/page2.xml" (http/absolute-url page "page2.xml")))
-      (is (= "https://a.example/feed.xml" (http/absolute-url page "/feed.xml")))
-      (is (= "https://a.example/other/feed.xml" (http/absolute-url page "../other/feed.xml")))
-      (is (= "https://cdn.example/x.xml" (http/absolute-url page "//cdn.example/x.xml")))
-      (is (= "https://b.example/f.xml" (http/absolute-url page "https://b.example/f.xml"))))
-    (testing "a base without a path, and a fragment alone"
-      (is (= "https://a.example/feed.xml" (http/absolute-url "https://a.example" "feed.xml")))
-      (is (= "https://a.example/show/feed.xml#x" (http/absolute-url (str page "#top") "#x"))))
-    (testing "a path that goes above the root stays at the root"
-      (is (= "https://a.example/x" (http/absolute-url page "../../../x")))
-      (is (= "https://a.example/x" (http/absolute-url page "/../x")))
-      (is (= "https://a.example/" (http/absolute-url page "../..")))
-      (is (= "https://b.example/x" (http/absolute-url page "https://b.example/../x"))))
-    (testing "no reference is the document itself, without its fragment"
-      (is (= "https://a.example/show/feed.xml?page=2" (http/absolute-url (str page "?page=2#top") ""))))
-    (testing "the spaces around a URL, and the line breaks in it"
-      (is (= "https://b.example/f.xml" (http/absolute-url page " https://b.example/f.xml\n")))
-      (is (= "https://a.example/feed.xml" (http/absolute-url (str " " page) "\n/feed.xml")))
-      (is (= "https://a.example/show/x" (http/absolute-url page (str (apply str (repeat 100000 " ")) "x")))))
-    (testing "a base that is no URL, or that holds no path"
-      (is (every? nil? (map #(http/absolute-url % "x") ["not a url" "/only/a/path" "mailto:a@b.example" nil])))
-      (is (nil? (http/absolute-url page nil))))))
 
 (deftest when-to-ask-again
   (let [at #inst "2026-09-27T12:00:00Z"]
@@ -241,26 +215,6 @@
     (is (= #inst "2026-09-27T13:00:00Z" (http/not-before {"retry-after" ["999999"]} at)))
     (is (= #inst "2026-09-27T13:00:00Z" (http/not-before {"cache-control" ["public, max-age=424481"] "age" ["180318"]} at))
         "at most an hour, since a host can publish within the freshness it names")))
-
-#?(:clj
-   (deftest urls-the-wild-hands-out
-     (testing "spaces and non-ASCII letters are percent-encoded as UTF-8"
-       (is (= "https://example.com/Crazy%20Cloud/crazy%20cloud.xml"
-              (http/legal-url "https://example.com/Crazy Cloud/crazy cloud.xml")))
-       (is (= "https://example.com/bl%C3%A5b%C3%A6r.xml"
-              (http/legal-url "https://example.com/blåbær.xml")))
-       (is (= "https://example.com/%F0%9F%8E%99.xml"
-              (http/legal-url "https://example.com/🎙.xml"))))
-     (testing "a legal URL comes back unchanged, escapes and all"
-       (is (= "https://example.com/a%20b.xml?q=1&r[]=2#frag"
-              (http/legal-url "https://example.com/a%20b.xml?q=1&r[]=2#frag"))))
-     (testing "a bracket in the path, and a percent sign that starts no escape, which java.net.URI refuses"
-       (doseq [[url legal] [["https://example.com/show[1]/feed.xml?r[]=2" "https://example.com/show%5B1%5D/feed.xml?r[]=2"]
-                            ["https://example.com/100%.mp3" "https://example.com/100%25.mp3"]
-                            ["https://example.com/a?x=100%" "https://example.com/a?x=100%25"]
-                            ["http://[::1]:8080/a b" "http://[::1]:8080/a%20b"]]]
-         (is (= legal (http/legal-url url)))
-         (is (java.net.URI. (http/legal-url url)))))))
 
 #?(:clj
    (defn- gzip
@@ -565,24 +519,6 @@
     (is (= 5 (:timeout-seconds (http/redirected (assoc post :timeout-seconds 5) 307 there)))
         "the rest of the request stays")))
 
-(deftest urls-of-the-web
-  (is (every? http/web-url? ["https://a.example/feed.xml" "HTTP://a.example" "https://user:pass@a.example/x"]))
-  (is (not-any? http/web-url? ["https://" "ftp://a.example/x" "a.example/x" " https://a.example/" "" nil 5
-                               "javascript:alert(1)"])))
-
-(deftest parameters-of-a-query
-  (is (= "https://a.example/feed.xml?page=2" (http/with-query "https://a.example/feed.xml" {:page 2})))
-  (is (= "https://a.example/feed.xml?x=1&page=2&token=a%20b#top"
-         (http/with-query "https://a.example/feed.xml?x=1#top" [[:page 2] [:token "a b"]]))
-      "after the parameters that the URL has, and before its fragment")
-  (is (= "https://a.example/feed.xml?page=2" (http/with-query "https://a.example/feed.xml?" {:page 2})))
-  (is (= "https://a.example/feed.xml?x=1&page=2" (http/with-query "https://a.example/feed.xml?x=1&" {:page 2})))
-  (is (= "https://a.example/feed.xml" (http/with-query "https://a.example/feed.xml" {:page nil}))
-      "no parameters, no change")
-  (is (= {"since" "1727000000" "podcast" "https://example.org/feed.xml" "q" "a b c" "flag" nil}
-         (http/query-params "since=1727000000&podcast=https%3A%2F%2Fexample.org%2Ffeed.xml&q=a+b%20c&flag&=x"))
-      "the parameters of a query, decoded"))
-
 (deftest base64-of-urls
   (is (= "aHR0cHM6Ly9mZWVkcy5wb2RjYXN0aW5kZXgub3JnL3BjMjAueG1s"
          (http/base64url "https://feeds.podcastindex.org/pc20.xml")))
@@ -619,34 +555,6 @@
   #?(:clj (let [stream #(java.io.ByteArrayInputStream. (.getBytes ^String % "UTF-8"))]
             (is (= "Ærø" (http/body-text (stream "Ærø") 5)) "a stream, read as UTF-8, its limit in bytes")
             (is (nil? (http/body-text (stream "Ærø") 4))))))
-
-(deftest hosts-on-the-public-internet
-  (is (not-any? http/public? ["http://127.0.0.1/" "http://10.1.2.3/" "http://172.16.0.1/" "http://192.168.1.1/"
-                              "http://169.254.169.254/latest/meta-data" "http://100.64.0.1/" "http://0.0.0.0/"
-                              "http://224.0.0.1/" "http://[::1]/" "http://[fd00::1]/" "http://[fe80::1]/"
-                              "http://[::ffff:127.0.0.1]/" "http://[64:ff9b::7f00:1]/" "http://[2002:a00:1::1]/"
-                              "http://localhost:8080/" "not a url"])
-      "loopback, private, link-local, shared, multicast and local addresses, and IPv6 that holds them")
-  (is (not-any? http/public? ["http://192.88.99.2/" "http://[64:ff9b:1:a00:1::]/" "http://[64:ff9b:2::808:808]/"
-                              "http://[100:0:0:1::1]/" "http://[2001:2::1]/" "http://[3fff::1]/"
-                              "http://[3fff:fff::1]/" "http://[5f00::1]/"])
-      "the blocks that the registries of IANA got after 2015")
-  (is (every? http/public? ["http://8.8.8.8/" "https://[2606:4700:4700::1111]/" "http://[64:ff9b::808:808]/"
-                            "http://[3fff:1000::1]/" "http://[2001:4:112::1]/"])))
-
-#?(:cljs
-   (deftest names-in-a-browser
-     (is (not-any? http/public? ["http://localhost/" "https://printer.local/" "https://wiki.internal/"]))
-     (is (not-any? http/public? ["http://localhost./" "https://nas.local./" "https://router.home.arpa/"
-                                 "https://nas/" "https://intranet./" "http://127.0.0.1./"])
-         "a name with a dot at its end, and a name without a dot, which is a name of the local network")
-     (is (every? http/public? ["https://podcastindex.org/" "https://podcastindex.org./"])
-         "a name that JavaScript does not look up")))
-
-(deftest names-of-the-public-internet
-  (is (every? http/public-name? ["podcastindex.org" "PodcastIndex.org." "a.b.example"]))
-  (is (not-any? http/public-name? ["localhost" "localhost." "nas" "nas.local" "NAS.Local." "wiki.internal"
-                                   "router.home.arpa" "x.localhost" "" nil])))
 
 #?(:clj
    (deftest refusing-hosts

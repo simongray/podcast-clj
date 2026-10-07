@@ -29,7 +29,7 @@
 
       {:fetch          f              ; in place of podcast/fetch!
        :send           f              ; in place of http/send!
-       :allow?         http/public?   ; which URLs a request may go to
+       :allow?         url/public?    ; which URLs a request may go to
        :credentials-of f              ; credentials of a private feed by URL
        :index          {…}            ; the credentials of the Podcast Index
        :languages      [\"da\" \"en\"]    ; of the listener, for transcripts

@@ -152,7 +152,8 @@ option replaces the function that sends.
 | `util.json` | JSON to data and back, on both platforms. |
 | `util.time` | Dates, durations and timestamps. |
 | `util.time.rrule` | RFC 5545 recurrence rules. |
-| `util.http` | Requests as maps, and `send!`, which sends them with byte ranges and limits of size and time, with `try-send!` for a failure as data. Also `probe!`, which learns the facts of a file from two bytes, and `public?`, which checks that a host is on the public internet. The `fetch!` function fetches a feed with conditional requests. For another HTTP client, `revealed` unhides the credentials of a request. |
+| `util.http` | Requests as maps, and `send!`, which sends them with byte ranges and limits of size and time, with `try-send!` for a failure as data. Also `probe!`, which learns the facts of a file from two bytes. The `fetch!` function fetches a feed with conditional requests. For another HTTP client, `revealed` unhides the credentials of a request. |
+| `util.url` | URLs and their hosts: percent-encoding and query strings, `absolute-url` as a browser resolves a link, `split-credentials`, and `public?`, which checks that a host is on the public internet. |
 | `util.proxy` | A proxy on your own server for the requests of a web page: `handler` is its Ring handler, on the JVM, and `sender` gives the page a `:send` that sends each request through it. |
 | `util.bytes` | Bytes on both platforms, and `read!`, which fetches the byte ranges that a reader asks for until it's done. Also hex, SHA-1, SHA-256 and HMAC. |
 | `util.async` | Futures on the JVM and promises in JavaScript behind one API, `all` and `in-groups` to make calls at the same time, and `iteration` for paged APIs on both platforms. |

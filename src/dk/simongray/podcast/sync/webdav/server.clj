@@ -17,7 +17,8 @@
   out of its WebDAV store."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.sync.webdav :as webdav]
-            [dk.simongray.podcast.util.http :as http])
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.url :as url])
   (:import [java.io ByteArrayInputStream]))
 
 (defn- quoted
@@ -163,7 +164,7 @@
   The collection comes alone at depth \"0\", and else with its documents,
   which a store without :list can't give."
   [{:keys [list] :as store} base name depth]
-  (let [href #(str base (http/percent-encode %))]
+  (let [href #(str base (url/percent-encode %))]
     (cond
       name
       (if-let [version (version-of store name)]
@@ -276,7 +277,7 @@
            (let [inside? (and (str/starts-with? uri base)
                               (> (count uri) (count base)))
                  name    (when inside?
-                           (http/percent-decode (subs uri (count base))))]
+                           (url/percent-decode (subs uri (count base))))]
              (cond
                (and (not name) (not (#{base collection} uri)))
                (not-found)

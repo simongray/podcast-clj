@@ -16,10 +16,10 @@
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.search :as search]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.nostr :as nostr]
             [dk.simongray.podcast.util.text.search :as text.search]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]))
 
 (def css
@@ -95,8 +95,8 @@
   [route url & [params]]
   (let [query (for [[k v] params
                     :when v]
-                (str "&" (name k) "=" (http/percent-encode v)))]
-    (str route "?url=" (http/percent-encode url) (apply str query))))
+                (str "&" (name k) "=" (url/percent-encode v)))]
+    (str route "?url=" (url/percent-encode url) (apply str query))))
 
 (defn- link
   "The URL `url`, which a feed chose, when a link may lead there: over http
@@ -299,9 +299,9 @@
   [url {:keys [where order]} requirements]
   (let [types       [["" "any type"] ["full" "full"] ["trailer" "trailer"]
                      ["bonus" "bonus"]]
-        search-href (str "/search?url=" (http/percent-encode url)
+        search-href (str "/search?url=" (url/percent-encode url)
                          (when-let [q (:text where)]
-                           (str "&q=" (http/percent-encode q))))]
+                           (str "&q=" (url/percent-encode q))))]
     [:form.selection {:method "get" :action "/feed"}
      [:input {:type "hidden" :name "url" :value url}]
      (when requirements
@@ -747,8 +747,8 @@
   (let [{:keys [title guid numbering published duration explicit? people
                 artwork notes enclosures value]} view
         into-player (fn [mode]
-                      (str "/queue?add=" (http/percent-encode url)
-                           "&guid=" (http/percent-encode guid)
+                      (str "/queue?add=" (url/percent-encode url)
+                           "&guid=" (url/percent-encode guid)
                            "&mode=" mode))]
     (layout (or title "(untitled)")
             [:p [:a {:href (feed-href "/feed" url)}
@@ -900,7 +900,7 @@
                    (when-let [reason (:reason error)]
                      [:span.muted " " reason])]
                   [:p "Try another address, or "
-                   [:a {:href (str "/directory?q=" (http/percent-encode q))}
+                   [:a {:href (str "/directory?q=" (url/percent-encode q))}
                     "search the directories"]
                    "."]))
           (when (seq report)
@@ -914,7 +914,7 @@
   sources that failed."
   [{:keys [q country category results report]}]
   (let [charts?    (str/blank? q)
-        chart      (fn [params] (str "/directory?" (http/query-string params)))
+        chart      (fn [params] (str "/directory?" (url/query-string params)))
         categories ["Technology" "News" "Society & Culture" "True Crime"
                     "Comedy" "Science"]]
     (layout (if charts? "Charts" (str "Find: " q))
@@ -1051,12 +1051,12 @@
   (case protocol
     "nostr"   (if uri
                 (str "https://njump.me/" (subs uri (count "nostr:")))
-                (str "https://njump.me/t/" (http/percent-encode tag)))
+                (str "https://njump.me/t/" (url/percent-encode tag)))
     "atproto" (case type
                 :mention (str "https://bsky.app/profile/"
-                              (http/percent-encode id))
+                              (url/percent-encode id))
                 :hashtag (str "https://bsky.app/hashtag/"
-                              (http/percent-encode tag))
+                              (url/percent-encode tag))
                 nil)
     nil))
 
@@ -1201,7 +1201,7 @@
                 "about an episode.")]
           (cond
             thread
-            (let [toggle (str "/thread?uri=" (http/percent-encode address)
+            (let [toggle (str "/thread?uri=" (url/percent-encode address)
                               (when-not hidden? "&hidden=1"))]
               (thread-view thread hidden? toggle))
 

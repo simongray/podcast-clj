@@ -33,7 +33,8 @@
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def ^:no-doc overlays
   "The top-level domains of overlay networks, whose hosts only their own
@@ -45,8 +46,8 @@
   "Whether a check fetches `url`: an http or https URL of a host that any
   client can reach, not one of an overlay network."
   [url]
-  (and (http/web-url? url)
-       (let [tld (peek (str/split (http/host url) #"\."))]
+  (and (url/web-url? url)
+       (let [tld (peek (str/split (url/host url) #"\."))]
          (not (contains? overlays tld)))))
 
 (defn ^:no-doc present
@@ -822,7 +823,7 @@
            tainted?   false]
       (when a
         (let [tainted? (or tainted?
-                           (not (http/same-origin? url (:url a))))
+                           (not (url/same-origin? url (:url a))))
               cors     (:cors a)]
           (if (or (= "*" cors)
                   (= origin cors)
@@ -969,7 +970,7 @@
   files and images come through http/fetcher.
 
   Each request has the :timeout-seconds, the :max-bytes and the :allow?.
-  A server that checks feeds for strangers gives http/public? as :allow?.
+  A server that checks feeds for strangers gives url/public? as :allow?.
 
   For the integrity of a file, a check fetches the whole file, as
   dk.simongray.podcast.format.media/verify! does. That request has the
@@ -988,7 +989,7 @@
           :as   opts}
          (merge default-limits {:send http/send! :now time/now} opts)
 
-         [url in-url] (http/split-credentials url)
+         [url in-url] (url/split-credentials url)
          auth         (http/authorization (or credentials in-url))
          deadline     (when max-seconds
                         (+ (inst-ms (now)) (* 1000 max-seconds)))

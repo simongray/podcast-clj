@@ -188,7 +188,7 @@ diagnostic of a result without a feed:
 ```
 
 On a server that fetches feeds for its users, give `fetch!` the option
-`{:allow? http/public?}`, so that a URL that someone types can't reach
+`{:allow? url/public?}`, so that a URL that someone types can't reach
 your own network.
 
 If the listener gives a show's website, a domain or a link from another app
@@ -216,7 +216,7 @@ A private feed can need a user name and password, which `fetch!` takes as
 domain. Keep the password in the platform's keychain, not in the stored
 URL, since the subscriptions sync to other devices and go into OPML. To
 split a URL like `https://user:pass@host/feed` into the URL and the
-credentials, use `http/split-credentials`. Wrap the password with
+credentials, use `url/split-credentials`. Wrap the password with
 `secret/hide`, so it prints as `#<secret>`:
 
 ```clojure
@@ -439,8 +439,8 @@ function:
   "The URL in this app of the mention or hashtag `part` of a comment."
   [{:keys [type protocol id tag]}]
   (case type
-    :mention (when id (str "/profiles/" protocol "/" (http/percent-encode id)))
-    :hashtag (str "/tags/" (http/percent-encode tag))
+    :mention (when id (str "/profiles/" protocol "/" (url/percent-encode id)))
+    :hashtag (str "/tags/" (url/percent-encode tag))
     nil))
 
 (def reply (first (:replies (comments/tree thread))))
@@ -1078,7 +1078,7 @@ too, and the requirements of PSP-1 or Apple Podcasts as `:requirements`:
 Without `:read? true`, it only sends a HEAD request and asks for the first
 bytes of each file. The limits on files, time and bytes are in
 `check/default-limits`. If your server checks feeds that other people
-submit, give it `:allow? http/public?`, so it never requests your own
+submit, give it `:allow? url/public?`, so it never requests your own
 network. For a single file, `http/probe!` gives the same facts, e.g. the
 size of an episode before downloading it.
 
@@ -1286,6 +1286,7 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.util.proxy :as proxy]
             [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.text.search :as text.search]
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]

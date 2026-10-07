@@ -40,6 +40,7 @@
             [dk.simongray.podcast.util.nostr :as nostr]
             [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]))
 
@@ -75,7 +76,7 @@
   a value in their order. A name can come more than once."
   [s]
   (for [part  (str/split (str s) #"&")
-        :let  [[k v] (map http/percent-decode (str/split part #"=" 2))]
+        :let  [[k v] (map url/percent-decode (str/split part #"=" 2))]
         :when (and (seq k) (some? v))]
     [k v]))
 
@@ -159,9 +160,9 @@
   The text has the secret of the connection. Keep it where the app keeps
   passwords."
   [{:keys [wallet relays lud16] :as connection}]
-  (let [relay-params (map #(http/query-string {"relay" %}) relays)
-        own-params   (http/query-string {"secret" (secret-key connection)
-                                         "lud16"  lud16})]
+  (let [relay-params (map #(url/query-string {"relay" %}) relays)
+        own-params   (url/query-string {"secret" (secret-key connection)
+                                        "lud16"  lud16})]
     (str "nostr+walletconnect://" wallet "?"
          (str/join "&" (concat relay-params [own-params])))))
 

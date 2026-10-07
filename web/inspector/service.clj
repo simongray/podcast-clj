@@ -30,6 +30,7 @@
             [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.text.search :as text.search]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.nwc :as nwc]
@@ -197,7 +198,7 @@
       (try
         (f (load-feed url))
         (catch Throwable e
-          (let [find-href (str "/find?q=" (http/percent-encode url))]
+          (let [find-href (str "/find?q=" (url/percent-encode url))]
             (failure "Could not inspect the feed" url e
                      [:p "If this is the address of a website or a page, "
                       [:a {:href find-href} "find the feeds that it names"]
@@ -354,12 +355,12 @@
                          {:status 302 :headers {"Location" location}})]
           (cond
             (= :discovery/unreadable (:id error))
-            (redirect (str "/directory?q=" (http/percent-encode q)))
+            (redirect (str "/directory?q=" (url/percent-encode q)))
 
             (or (= :input (:found-by best))
                 (= 1 (count (filter :podcast? feeds))))
             (do (known! (:url best) (:feed best))
-                (redirect (str "/feed?url=" (http/percent-encode (:url best)))))
+                (redirect (str "/feed?url=" (url/percent-encode (:url best)))))
 
             :else
             (html (page/find-page (assoc found :q q)))))

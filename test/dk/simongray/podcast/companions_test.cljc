@@ -8,7 +8,7 @@
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.test-support :refer [fixture]]
-            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]))
 
 (def complex-chapters
@@ -463,9 +463,9 @@
 
 (deftest query-string-encoding
   (testing "the same on both platforms: %20 for a space, the marks kept"
-    (is (= "a*b!c'd(e)f~g%20h" (http/percent-encode "a*b!c'd(e)f~g h")))
-    (is (= "q=a%20b&flag" (http/query-string {:q "a b" :flag true :none nil}))))
+    (is (= "a*b!c'd(e)f~g%20h" (url/percent-encode "a*b!c'd(e)f~g h")))
+    (is (= "q=a%20b&flag" (url/query-string {:q "a b" :flag true :none nil}))))
   (testing "an escape that does not decode is left as it is, on both platforms"
-    (is (= "a b" (http/percent-decode "a%20b")))
-    (is (= "100%.edn" (http/percent-decode "100%.edn")))))
+    (is (= "a b" (url/percent-decode "a%20b")))
+    (is (= "100%.edn" (url/percent-decode "100%.edn")))))
 

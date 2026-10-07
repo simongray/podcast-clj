@@ -14,7 +14,8 @@
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.updates.websub :as websub]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.url :as url]))
 
 (defn- parsed-page
   "The `answer` of fetch-page! to the 200 `response`, with the feed of its
@@ -73,12 +74,12 @@
   (let [next-of  (fn [{:keys [url feed seen]}]
                    (when-let [next (some->> feed
                                             resolve/next-page
-                                            (http/absolute-url url))]
+                                            (url/absolute-url url))]
                      (when-not (seen next)
                        {:url next :seen (conj seen next)})))
         opts-for (fn [url]
                    (cond-> (dissoc opts :etag :last-modified)
-                     (not (http/same-origin? asked url))
+                     (not (url/same-origin? asked url))
                      (dissoc :credentials)))
         fetch    (fn [{:keys [url seen] :as k}]
                    (when k
@@ -139,7 +140,7 @@
    (fetch! url {}))
   ([url opts]
    {:pre [(map? opts)]}
-   (let [[url in-url] (http/split-credentials url)
+   (let [[url in-url] (url/split-credentials url)
          opts         (cond-> opts
                         (and in-url
                              (not (:credentials opts)))

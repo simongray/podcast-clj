@@ -15,8 +15,8 @@
             [dk.simongray.podcast.test-support :refer [fixture invoice run]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]))
@@ -360,7 +360,7 @@
             (async/all [(lnaddress/fetch-node! "fountain@fountain.fm" {:send send})
                         (lnaddress/fetch-node! "fountain@fountain.fm" {:send send :allow? any? :max-bytes 1000})])
             (fn [_]
-              (is (= #{[10 262144 http/public?] [10 1000 any?]}
+              (is (= #{[10 262144 url/public?] [10 1000 any?]}
                      (set (map (juxt :timeout-seconds :max-bytes :allow?) @asked)))
                   "each request carries the limits and the guard, which a :send gets too")))))))
 
@@ -376,7 +376,7 @@
    "remote_feed_guid" "" "remote_item_guid" "" "remote_publisher_guid" ""})
 
 (deftest payment-metadata
-  (let [payment (metadata/parse-header (http/percent-encode (json/write-str example-metadata)))]
+  (let [payment (metadata/parse-header (url/percent-encode (json/write-str example-metadata)))]
     (is (= {:id "DBBhBwUise1bcfoHRCC3" :group "EoL2Qp52RMOSiF1rmGGs" :action :boost :split 0.25
             :message "Great episode!" :app-name "Fountain" :app-version "1.3.10" :sender-id "IIaS9X2JuH75yvrRcFoL"
             :sender-name "oscar@fountain.fm" :recipient-name "merryoscar@primal.net"
@@ -430,7 +430,7 @@
            (fn [found]
              (is (= payment found))
              (is (= [0 1] (:range (first @asked))) "two bytes of the page")
-             (is (= [10 65536 http/public?] ((juxt :timeout-seconds :max-bytes :allow?) (first @asked)))
+             (is (= [10 65536 url/public?] ((juxt :timeout-seconds :max-bytes :allow?) (first @asked)))
                  "with the limits and the guard, which a :send gets too")))
          #(async/then
            (metadata/fetch! url {:send (send nil) :max-bytes 1000 :allow? any?})

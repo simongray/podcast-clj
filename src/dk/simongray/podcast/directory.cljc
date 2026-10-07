@@ -41,7 +41,8 @@
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def apple-genres
   "The ids of the genres of Apple Podcasts by name, as the genre service
@@ -272,10 +273,10 @@
                            :term    q
                            :limit   limit
                            :country (some-> country name)}]
-                (get-request (str search "?" (http/query-string query))))
+                (get-request (str search "?" (url/query-string query))))
     :lookup   (let [ids   (if (coll? id) (str/join "," id) id)
                     query {:id ids :entity "podcast"}]
-                (get-request (str lookup "?" (http/query-string query))))
+                (get-request (str lookup "?" (url/query-string query))))
     :trending (get-request (apple-chart e params))))
 
 (defn- fyyd-request
@@ -284,22 +285,22 @@
     (throw (ex-info "fyyd has no chart by category" {:category category})))
   (let [path (case call
                :search   (str "search/podcast?"
-                              (http/query-string {:term q :count limit}))
-               :lookup   (str "podcast?" (http/query-string {:podcast_id id}))
+                              (url/query-string {:term q :count limit}))
+               :lookup   (str "podcast?" (url/query-string {:podcast_id id}))
                :trending (str "feature/podcast/hot?"
-                              (http/query-string {:count    limit
-                                                  :language language})))]
+                              (url/query-string {:count    limit
+                                                 :language language})))]
     (get-request (below root path))))
 
 (defn- gpodder-request
   [{:keys [root]} call {:keys [q id limit category]}]
   (let [path (case call
-               :search   (str "search.json?" (http/query-string {:q q}))
+               :search   (str "search.json?" (url/query-string {:q q}))
                :lookup   (str "api/2/data/podcast.json?"
-                              (http/query-string {:url id}))
+                              (url/query-string {:url id}))
                :trending (if category
                            (let [tag (str/lower-case (str/trim (str category)))]
-                             (str "api/2/tag/" (http/percent-encode tag)
+                             (str "api/2/tag/" (url/percent-encode tag)
                                   "/" (long (or limit 25)) ".json"))
                            (str "toplist/" (long (or limit 25)) ".json")))]
     (get-request (below root path))))

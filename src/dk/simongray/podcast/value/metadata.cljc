@@ -25,6 +25,7 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]))
 
 (def prefix
@@ -66,7 +67,7 @@
   "The value of the header x-rss-payment for `payment`: its record as
   JSON, URI-encoded as encodeURIComponent does."
   [payment]
-  (http/percent-encode (json/write-str (record payment))))
+  (url/percent-encode (json/write-str (record payment))))
 
 (def ^:no-doc fields
   "The type of each field that the metadata defines: :text, :msat for an
@@ -109,7 +110,7 @@
   [s]
   (let [text    (when (string? s) (str/trim s))
         json?   (and text (str/starts-with? text "{"))
-        decoded (if json? text (some-> text http/percent-decode))
+        decoded (if json? text (some-> text url/percent-decode))
         raw     (value/json-object decoded)]
     (if raw
       (let [read          (value/read-fields raw fields)
@@ -147,7 +148,7 @@
   ([payment url]
    (format-comment payment url ##Inf))
   ([{:keys [action message] :as payment} url max-length]
-   (when (http/origin url)
+   (when (url/origin url)
      (let [head (str prefix (name (or action :boost)) " " url)
            text (some-> message str/trim not-empty)
            full (cond-> head text (str " " text))]
@@ -181,7 +182,7 @@
             said?    (not (contains? #{"" "undefined" "null"} message))]
         (cond-> {}
           action            (assoc :action action)
-          (http/origin url) (assoc :url url)
+          (url/origin url) (assoc :url url)
           said?             (assoc :message message))))))
 
 (def default-limits
@@ -210,18 +211,18 @@
   - :send, a function that sends a request map in place of http/send!
 
   The sender of the payment chooses the URL. So the request carries
-  http/public? as its :allow?, and http/send! then sends nothing to a
+  url/public? as its :allow?, and http/send! then sends nothing to a
   private network. To reach your own network, give (constantly true) as
   :allow?. A browser reads the header only when the server exposes it
   with CORS."
   ([url]
    (fetch! url {}))
   ([url opts]
-   (let [defaults {:send http/send! :allow? http/public?}
+   (let [defaults {:send http/send! :allow? url/public?}
          opts     (merge default-limits defaults opts)
          failure  (fn [d] {:error (diagnostics/describe d)})]
      (async/then
-      (when (http/origin url)
+      (when (url/origin url)
         (http/try-send! (:send opts) (request url) opts))
       (fn [{:keys [value error]}]
         (let [found (when (map? value)

@@ -37,7 +37,8 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (defn threshold
   "The bytes of `file` that a download needs by the rules of the IAB: the
@@ -84,7 +85,7 @@
   Other text, such as a hash of an address, stays as it is. So a host that
   keeps a hash in place of the address hashes this part."
   [ip]
-  (let [b (http/ip-address ip)]
+  (let [b (url/ip-address ip)]
     (case (count b)
       4  (str/join "." b)
       16 (if (= [0 0 0 0 0 0 0 0 0 0 255 255] (subvec b 0 12))
@@ -180,7 +181,7 @@
          referrer         (when (and (= "browser" agent-type)
                                      (not (str/blank? referer)))
                             (or (matching user-agents :referrers referer)
-                                (some->> (http/host referer)
+                                (some->> (url/host referer)
                                          (hash-map :category "domain" :name))))]
      (into {} (remove (comp nil? val))
            {:agent-type    agent-type

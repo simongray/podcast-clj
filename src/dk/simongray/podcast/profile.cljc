@@ -41,8 +41,8 @@
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.crdt.list :as crdt.list]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (defn make
   "A fresh profile for the device `device`, a stable id that tells the
@@ -100,7 +100,7 @@
   "The `url` in lower case without credentials, scheme or trailing
   slashes, so that two forms of one feed or media URL are equal."
   [url]
-  (-> (str url) http/split-credentials first guid/guid-name str/lower-case))
+  (-> (str url) url/split-credentials first guid/guid-name str/lower-case))
 
 (defn ^:no-doc by-url
   "A map from the URL of each subscription of `profile`, as normal-url gives
@@ -1073,7 +1073,7 @@
    (let [subs        (subscriptions profile)
          remote-item (fn [[feed-guid item-guid]]
                        (let [subscribed (get-in subs [feed-guid :url])
-                             [feed-url] (http/split-credentials subscribed)]
+                             [feed-url] (url/split-credentials subscribed)]
                          (cond-> {:feed-guid feed-guid :item-guid item-guid}
                            feed-url (assoc :feed-url feed-url))))]
      (cond-> {:rss/version          "2.0"

@@ -22,7 +22,8 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def apps
   "The forms of the links of each app, by an id of the app. The options of
@@ -345,7 +346,7 @@
       (when (some? v)
         (case encoding
           :plain     (str v)
-          :encoded   (http/percent-encode v)
+          :encoded   (url/percent-encode v)
           :base64url (http/base64url (str v))
           :hex       (bytes/hex (bytes/encode (str v)))
           :bare      (str/replace (str v) #"(?i)^[a-z][a-z0-9+.-]*://" ""))))))
@@ -480,14 +481,14 @@
         encoded-url? (and (= [:plain :feed-url] [encoding k])
                           (not (str/includes? text "://")))
         v            (case encoding
-                       :encoded   (http/percent-decode text)
+                       :encoded   (url/percent-decode text)
                        :base64url (from-base64url text)
                        :hex       (utf8 (bytes/from-hex text))
-                       (if encoded-url? (http/percent-decode text) text))
+                       (if encoded-url? (url/percent-decode text) text))
         with-scheme  (cond->> v (= :bare encoding) (str "https://"))]
     (case k
       :feed-url
-      (when (http/web-url? with-scheme) v)
+      (when (url/web-url? with-scheme) v)
 
       (:podcastindex-id :podcastindex-episode-id)
       (some-> v parse-long)

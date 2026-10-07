@@ -9,8 +9,8 @@
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.json :as json]))
+            [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.url :as url]))
 
 (defn ^:no-doc present
   "The map `m` without the entries that say nothing: nil, false, a blank
@@ -31,7 +31,7 @@
 (defn ^:no-doc web-url
   "The string `s` when it's an http or https URL with a host."
   [s]
-  (when (http/web-url? s)
+  (when (url/web-url? s)
     s))
 
 (defn ^:no-doc dimension
@@ -108,7 +108,7 @@
   children `kids`, in a post whose URL is `base`, as fit-links fits it."
   [attrs kids base]
   (let [target (:href attrs)
-        href   (if (and base target) (http/absolute-url base target) target)]
+        href   (if (and base target) (url/absolute-url base target) target)]
     (into [:a (present {:href  (web-url href)
                         :title (:title attrs)
                         :rel   "nofollow ugc"})]

@@ -28,7 +28,8 @@
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.url :as url]))
 
 (def found-by
   "Where a candidate feed can be found, best first, as ranked orders the
@@ -87,13 +88,13 @@
         url    (str "https://" (str/replace s #"^/+" ""))]
     (cond
       (#{"http" "https"} scheme)
-      (when (http/web-url? s) [s false])
+      (when (url/web-url? s) [s false])
 
       (or scheme (re-find #"\s" s))
       nil
 
       (re-find #"^https://[^/?#]*[.:]" url)
-      (when (http/web-url? url) [url true]))))
+      (when (url/web-url? url) [url true]))))
 
 (defn read-input
   "Read the text `s` that a listener gives for a show, with the :apps of
@@ -154,7 +155,7 @@
   (let [bases (filter (tagged :base) nodes)
         href  (some (comp html/text-of :href second) bases)
         base  (when href
-                (if url (http/absolute-url url href) href))]
+                (if url (url/absolute-url url href) href))]
     (if (#{"http" "https"} (html/scheme base)) base url)))
 
 (defn- feed-link
@@ -164,7 +165,7 @@
   (let [rels    (set (str/split (str/lower-case (str rel)) #"\s+"))
         type    (http/media-type (html/text-of type))
         href    (when-let [h (html/text-of href)]
-                  (if base (http/absolute-url base h) h))
+                  (if base (url/absolute-url base h) h))
         schemes (if base #{"http" "https"} #{nil "http" "https"})]
     (when (and (or (rels "alternate") (rels "feed"))
                (#{"application/rss+xml" "application/atom+xml"} type)
@@ -217,7 +218,7 @@
         urls      (into []
                         (comp (filter (tagged :a))
                               (keep (comp html/text-of :href second))
-                              (keep #(some-> (http/absolute-url base %)
+                              (keep #(some-> (url/absolute-url base %)
                                              (str/split #"#" 2)
                                              first))
                               (filter (comp #{"http" "https"} html/scheme))
@@ -225,7 +226,7 @@
                               (filter #(re-find feed-word %))
                               (distinct))
                         nodes)
-        here?     #(= (http/host %) (http/host base))]
+        here?     #(= (url/host %) (url/host base))]
     (concat (filter here? urls) (remove here? urls))))
 
 (defn guesses
@@ -234,7 +235,7 @@
   ([url]
    (guesses url guessed-paths))
   ([url paths]
-   (keep #(http/absolute-url url %) paths)))
+   (keep #(url/absolute-url url %) paths)))
 
 (defn rule-urls
   "The URLs that the `rules` of the caller give for `url`.
@@ -254,7 +255,7 @@
   "The domain of the web page `url` in lower case and without a leading
   www., and its path without trailing slashes. Nil for no web page."
   [url]
-  (when-let [host (http/host url)]
+  (when-let [host (url/host url)]
     (let [[_ path] (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:/*[^/?#]*([^?#]*)"
                             (str url))
           path     (or path "")]
@@ -578,7 +579,7 @@
                        [source (directory/request source :search
                                                   {:q q :limit max-candidates}
                                                   signed)])
-            domain   (http/absolute-url page "/")
+            domain   (url/absolute-url page "/")
             on-site? #(some->> (resolve/link (:feed %)) (same-website? domain))
             most     (* max-candidates (count search))
             fresh    {:candidates [] :report [] :tried (:tried acc)}]
@@ -711,7 +712,7 @@
   - :guessed-paths and :apps, in place of guessed-paths and
     directory.links/apps
   - :send, the function that sends a request, http/send! by default
-  - :allow?, a predicate of the URLs a request may go to, http/public? by
+  - :allow?, a predicate of the URLs a request may go to, url/public? by
     default
   - :timeout-seconds, :guess-timeout-seconds, :max-bytes and
     :max-candidates, over default-limits
@@ -722,13 +723,13 @@
    {:pre [(map? opts)]}
    (let [opts              (merge default-limits
                                   {:send          http/send!
-                                   :allow?        http/public?
+                                   :allow?        url/public?
                                    :lookup        [:apple :podcastindex]
                                    :guessed-paths guessed-paths
                                    :now           time/now}
                                   opts)
          input             (read-input s opts)
-         [url credentials] (some-> (:url input) http/split-credentials)
+         [url credentials] (some-> (:url input) url/split-credentials)
          page-opts         (cond-> opts
                              credentials (assoc :credentials credentials))
          known             (when url

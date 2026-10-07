@@ -12,6 +12,7 @@
             [dk.simongray.podcast.sync.webdav :as webdav]
             #?(:clj [dk.simongray.podcast.sync.webdav.server :as server])
             #?(:cljs [dk.simongray.podcast.util.http :as http])
+            [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.test-support :refer [t2 t3 a failed phone-state laptop-state fixture #?@(:clj [same?])]]))
 
 (def root
@@ -112,7 +113,7 @@
   preconditions, and a collection that appears on the first put."
   [documents]
   (fn [{:keys [method url headers body]}]
-    (let [name (some-> (re-find #"/dav/(.+)$" url) second http/percent-decode)
+    (let [name (some-> (re-find #"/dav/(.+)$" url) second url/percent-decode)
           doc  (get @documents name)
           entry (fn [href version]
                   (str "<D:response><D:href>" href "</D:href><D:propstat><D:prop>"
@@ -127,7 +128,7 @@
                      :body    (str "<?xml version=\"1.0\"?><D:multistatus xmlns:D=\"DAV:\">"
                                    (entry "/dav/" nil)
                                    (apply str (for [[n {:keys [version]}] (dissoc @documents ::created)]
-                                                (entry (str "/dav/" (http/percent-encode n)) version)))
+                                                (entry (str "/dav/" (url/percent-encode n)) version)))
                                    "</D:multistatus>")}
                     {:status 404 :headers {} :body ""})
         :get      (if doc
