@@ -169,6 +169,9 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:sync/malformed-actions` | warning | Episode actions from a gpodder server name no feed, no media file or no readable time, and were left out. |
 | `:sync/unnamed-episodes` | info | Episodes changed, but the server wasn't told, because the gpodder API names an episode by the URL of its media, and that URL isn't known. |
 | `:sync/rejected-url` | warning | A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it. |
+| `:library/save-failed` | warning | The library or its search index couldn't be written to the store, so what the last save wrote stands. The :reason says why. |
+| `:library/unreadable-document` | warning | The saved library didn't read, so the library is as make gave it. The :reason says why. |
+| `:library/index-rebuilt` | info | The search index was built again from the feeds, since its documents were missing or didn't read. The :reason says why. |
 | `:podping/unavailable` | warning | No node of the Hive chain answered a call of the poll. The result has the pings of the blocks that were read before that call. |
 | `:comments/unsupported` | info | Comments over the protocol of the thread can't be read. |
 | `:comments/no-appview` | warning | An AT Protocol thread wasn't read, because the options named no AppView. |

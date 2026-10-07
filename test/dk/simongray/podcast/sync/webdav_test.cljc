@@ -34,7 +34,7 @@
   (let [sent    (atom nil)
         send    (fn [request] (reset! sent request) {:status 404 :headers {}})
         backend (webdav/backend root {:send send :timeout-seconds 5})]
-    ((:fetch (webdav/store root {:send send :timeout-seconds 5})) "phone.edn")
+    ((:fetch (webdav/store root {:send send :timeout-seconds 5})) "phone.edn" {})
     (is (= [:get (str root "phone.edn") 5] ((juxt :method :url :timeout-seconds) @sent))
         "with the limit of time")
     (reset! sent nil)
@@ -194,6 +194,14 @@
            (is (= 204 (:status (handler (ring :delete "/dav/phone%201.edn")))))
            (is (= 404 (:status (handler (ring :delete "/dav/phone%201.edn")))))
            (is (= 404 (:status (handler (ring :get "/dav/phone%201.edn")))))))
+       (testing "a document of bytes, kept and served as bytes"
+         (let [body (byte-array [0 -1 1])]
+           (is (= 201 (:status (handler (ring :put "/dav/a.ciff"
+                                                :body (java.io.ByteArrayInputStream. body))))))
+           (is (= [0 -1 1] (vec (:body (@documents "a.ciff")))))
+           (is (= [0 -1 1] (vec (.readAllBytes ^java.io.InputStream
+                                                (:body (handler (ring :get "/dav/a.ciff")))))))
+           (handler (ring :delete "/dav/a.ciff"))))
        (testing "what is refused"
          (is (= 400 (:status (handler (ring :put "/dav/sub/x.edn" :body "x")))) "no paths within the collection")
          (is (= 400 (:status (handler (ring :put "/dav/%2e%2e" :body "x")))) "nor . or ..")
@@ -206,7 +214,7 @@
          (is (= 404 (:status (handler (ring :get "/dav/100%.edn")))))))
      (testing "a version that isn't a string, e.g. the version of a row"
        (let [documents (atom {"a.edn" {:body "{}" :version 7}})
-             numbered  {:fetch (fn [name] (get @documents name))
+             numbered  {:fetch (fn [name _] (get @documents name))
                         :put   (fn [name body {:keys [if-version] :as opts}]
                                  (let [current (:version (get @documents name))]
                                    (if (and (contains? opts :if-version) (not= if-version current))

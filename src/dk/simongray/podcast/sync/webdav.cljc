@@ -48,7 +48,14 @@
   (cond
     (str/ends-with? name ".edn")  "application/edn; charset=utf-8"
     (str/ends-with? name ".opml") "text/x-opml; charset=utf-8"
+    (str/ends-with? name ".txt")  "text/plain; charset=utf-8"
     :else                         "application/octet-stream"))
+
+(defn ^:no-doc binary?
+  "Whether the document `name` holds bytes rather than text, by its
+  content-type."
+  [name]
+  (= "application/octet-stream" (content-type name)))
 
 ;; RFC 9110, sections 13.1.1 (If-Match) and 13.1.2 (If-None-Match: *)
 (defn request
@@ -56,10 +63,11 @@
   document `name` when the call takes one, with the `opts` below.
 
   The `call` is one of calls, and the `root` is a URL that ends in a
-  slash. The `opts` give the :credentials, and the :body to put. For a
-  put, they can give :if-version, the version that the document must
-  still have, where nil means that it must not exist yet. Without
-  :if-version, the put has no condition."
+  slash. The `opts` give the :credentials, the :body to put, text or
+  bytes, and :as :bytes for a fetch of bytes. For a put, they can give
+  :if-version, the version that the document must still have, where nil
+  means that it must not exist yet. Without :if-version, the put has no
+  condition."
   ([call root]
    (request call root nil {}))
   ([call root name]
@@ -91,7 +99,8 @@
            (throw (ex-info (str "A call a store does not make: " call)
                            {:call call})))]
      (cond-> {:method method :url url :headers headers}
-       (some? body) (assoc :body body)))))
+       (some? body)          (assoc :body body)
+       (= :bytes (:as opts)) (assoc :as :bytes)))))
 
 (def ^:no-doc uri->alias
   "The library's namespace aliases, with WebDAV's as :d, so that a
@@ -240,7 +249,7 @@
                       :else
                       result))))]
      {:name   (or name (host root) "WebDAV")
-      :fetch  (fn [name] (call! :fetch name {}))
+      :fetch  (fn [name opts] (call! :fetch name (select-keys opts [:as])))
       :put    (fn [name body params] (put! name body params false))
       :list   (fn [] (call! :list nil {}))
       :delete (fn [name] (call! :delete name {}))})))

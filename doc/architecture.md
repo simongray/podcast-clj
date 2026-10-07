@@ -522,9 +522,15 @@ search engines such as Anserini, PISA and Terrier use to exchange their
 indexes. CIFF has no positions, fields or stored values, so they're
 fields of its protobuf messages that a reader of CIFF skips. A segment's
 document is named after a hash of what it holds, so it's written once,
-and the functions stay pure without a counter or random names. The app
-puts and deletes the documents, as for the sync documents, so the
-library takes no stand on where or when.
+and the functions stay pure without a counter or random names.
+
+The index only says which documents to put and delete, and
+`library/save!` puts them into a store along with the rest of the
+library. It's the same contract as for the sync documents, with bodies
+of bytes as well as text, so a folder, IndexedDB and the origin private
+file system can all hold a library, and an app needs no second kind of
+store. Saving is a call that you make, e.g. after each refresh, rather
+than something that runs in the background.
 
 Words split at anything that isn't a letter or a digit, as in most
 JavaScript search libraries, so "Simon's" is found by "simon", and a query

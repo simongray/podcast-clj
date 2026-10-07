@@ -145,6 +145,14 @@
     (is (= ["index.edn"] (mapv :name (take-last 1 (save! idx))))
         "the manifest last")
     (is (= idx (read)) "read back as it was")
+    (is (= idx (search/read-documents
+                (for [[name body] @store]
+                  {:name name
+                   :body (if (string? body)
+                           #?(:clj  (.getBytes ^String body "UTF-8")
+                              :cljs (.encode (js/TextEncoder.) body))
+                           body)})))
+        "with the manifest as bytes too, as a folder gives it")
     (is (= [1 2] (mapv :id (search/query (read) "cloj"))))
     (is (= (map :name (:put (search/plan idx)))
            (->> (search/index docs {:boosts {:title 3}})

@@ -750,10 +750,13 @@
              (.GET ^HttpRequest$Builder builder)
              (.method ^HttpRequest$Builder builder
                       (str/upper-case (name method))
-                      (if (some? body)
-                        (HttpRequest$BodyPublishers/ofString
-                         (str (secret/reveal body)))
-                        (HttpRequest$BodyPublishers/noBody))))
+                      (let [body (secret/reveal body)]
+                        (cond
+                          (nil? body)   (HttpRequest$BodyPublishers/noBody)
+                          (bytes? body) (HttpRequest$BodyPublishers/ofByteArray
+                                         body)
+                          :else         (HttpRequest$BodyPublishers/ofString
+                                         (str body))))))
            (.build)))))
 
 (def ^:no-doc default-ports
@@ -1171,7 +1174,7 @@
     #?@(:clj [range (assoc "Accept-Encoding" "identity")])))
 
 #?(:clj
-   (defn- body-bytes
+   (defn- response-bytes
      "The bytes of the body of `response` to `request`, read until
      `deadline`, as much as prefix-length says."
      ^bytes [^HttpResponse response
@@ -1288,8 +1291,8 @@
   ClojureScript a promise of it.
 
   The request is a map of :method, :url, :headers and :body. It's a GET
-  unless :method names another method, and it goes with the :body string
-  when it has one. A header and a body can be hidden texts of
+  unless :method names another method, and it goes with the :body, a
+  string or bytes, when it has one. A header and a body can be hidden texts of
   util.secret, and they go out as their texts. The body of the response
   is text, with gzip undone. It's absent for a HEAD request and for an
   empty body.
@@ -1340,7 +1343,7 @@
     #?(:clj  (let [deadline         (+ (System/currentTimeMillis)
                                        (* 1000 timeout-seconds))
                    [response chain] (send-following! request deadline allow?)
-                   bytes            (body-bytes response request deadline)]
+                   bytes            (response-bytes response request deadline)]
                (java-answer response bytes chain request))
        :cljs (let [{:keys [url body]} request]
                (if-not (allow? url)
@@ -1708,23 +1711,26 @@
     (when (and b (<= (bytes/length b) max-bytes))
       b)))
 
-(defn ^:no-doc body-text
-  "The text of the `body` of a Ring request, which is a string, a stream
+(defn ^:no-doc body-bytes
+  "The bytes of the `body` of a Ring request, which is a string, a stream
   or nothing. Nil when the body holds more than `max-bytes`, and for a
   stream in ClojureScript."
   [body max-bytes]
-  (cond
-    (nil? body)
-    ""
+  (let [b (cond
+            (nil? body)    (bytes/encode "")
+            (string? body) (bytes/encode body)
+            :else          #?(:clj  (.readNBytes ^InputStream body
+                                                 (int (inc max-bytes)))
+                              :cljs nil))]
+    (when (and b (<= (bytes/length b) max-bytes))
+      b)))
 
-    (string? body)
-    (when (<= (count body) max-bytes) body)
-
-    :else
-    #?(:clj  (let [bytes (.readNBytes ^InputStream body (int (inc max-bytes)))]
-               (when (<= (alength bytes) max-bytes)
-                 (String. bytes StandardCharsets/UTF_8)))
-       :cljs nil)))
+(defn ^:no-doc body-text
+  "The text of the `body` of a Ring request, as body-bytes reads it with
+  `max-bytes`, of UTF-8."
+  [body max-bytes]
+  (when-let [b (body-bytes body max-bytes)]
+    (bytes/decode b 0 (bytes/length b) :utf8)))
 
 (comment
   (query-string {:q "clojure podcasts" :max 10 :pretty true})

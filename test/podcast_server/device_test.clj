@@ -74,7 +74,7 @@
           (is (= "\"v1\"" (get-in library [:feeds (first id) :etag])))
           (is (= (feeds/slim feed) (get-in library [:feeds (first id) :feed])))
           (is (= 600 (:position (profile/episode-entry (:profile library) id))) "the profile, from the sync documents"))
-        (spit (io/file dir device/saved-name) "{:feeds")
+        (spit (io/file dir library/saved-name) "{:feeds")
         (is (= {} (:feeds (device/restore! (device/make) data))) "a file that can't be read is left out")))))
 
 (deftest a-saved-library-reads-back

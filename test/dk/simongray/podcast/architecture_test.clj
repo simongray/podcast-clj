@@ -30,7 +30,7 @@
    "format.media" 3 "format.media.id3" 3 "format.media.mp3" 3 "format.media.mp4" 3
    "value" 3 "value.lnaddress" 3 "value.metadata" 3 "value.nwc" 3 "value.webln" 3
    "profile" 3 "search" 3 "downloads" 3
-   "sync" 3 "sync.store" 3 "sync.file" 3 "sync.webdav" 3 "sync.webdav.server" 3
+   "sync" 3 "sync.store" 3 "sync.file" 3 "sync.indexeddb" 3 "sync.webdav" 3 "sync.webdav.server" 3
    "sync.encrypted" 3 "sync.gpodder" 3 "sync.gpodder.server" 3
    "directory" 3 "directory.podcastindex" 3 "directory.links" 3
    "updates.podping" 3 "updates.websub" 3

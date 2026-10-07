@@ -1530,10 +1530,13 @@
         (segment-from name lists records deleted)))))
 
 (defn- read-manifest
-  "The manifest in the EDN `text`, or throws ::malformed, or ::newer-format
-  for one of a newer version of the format."
-  [text]
-  (let [manifest (when (string? text)
+  "The manifest in the EDN `body`, text or its UTF-8 bytes, or throws
+  ::malformed, or ::newer-format for one of a newer version of the format."
+  [body]
+  (let [text     (if (or (nil? body) (string? body))
+                   body
+                   (utf8-text body 0 (byte-count body)))
+        manifest (when (string? text)
                    (read-edn text :manifest))
         fields   (:fields manifest)
         named?   #(and (map? %)
@@ -1561,7 +1564,8 @@
 
 (defn read-documents
   "The index in the documents `fetched`, maps of :name and :body as plan
-  puts them, the manifest index.edn and the segments that it lists.
+  puts them, the manifest index.edn and the segments that it lists. The
+  manifest can be text or its UTF-8 bytes.
 
   It throws ::malformed when a document is missing or doesn't read, e.g.
   for an app to build the index again, and ::newer-format for documents

@@ -53,7 +53,8 @@
   the options, an instant. Give :at for an event that you handle later,
   e.g. in a background task, since it needs the time it happened."
   (:refer-clojure :exclude [merge])
-  (:require [dk.simongray.podcast :as podcast]
+  (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
+            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.show :as show]
@@ -830,6 +831,176 @@
          at (time-of library opts)]
      {:name (store/document-name device)
       :body (sync/document profile at (select-keys opts [:app]))})))
+
+(def saved-name
+  "The name of the document of the library that save! writes."
+  "library.edn")
+
+(def saved-keys
+  "The parts of a library that save! writes unless told otherwise: the
+  profile, the feeds, the followed lists and the last sync, whose cursors
+  fit the profile. The config can hold functions, so it isn't saved, and
+  the search index has documents of its own."
+  [:profile :feeds :fetched-lists :sync])
+
+(defn- put-in-order!
+  "Put the `documents`, maps of :name and :body, into `store` one after the
+  other, and give their names, in ClojureScript as a promise."
+  [store documents]
+  (reduce (fn [names {:keys [name body]}]
+            (async/then names
+                        (fn [names]
+                          (async/then ((:put store) name body {})
+                                      (fn [_] (conj names name))))))
+          []
+          documents))
+
+(defn save!
+  "Write `library` to `store` with the `opts` below, and give the names of
+  the documents it put and deleted, as a map of :put and :delete, or a
+  map of :error with :library/save-failed, in ClojureScript as a promise.
+
+  It writes library.edn, with the parts of `library` that :keys in `opts`
+  names, saved-keys by default. When the library keeps a search index, it
+  writes its documents too, of which only those that changed since the
+  last save, so a save after each refresh takes little. Give it a store
+  of its own, e.g. over a folder, IndexedDB or the origin private file
+  system, since it deletes the documents of any other index there:
+
+      (save! @lib (sync.indexeddb/store))"
+  ([library store]
+   (save! library store {}))
+  ([library store {:keys [keys] :or {keys saved-keys} :as opts}]
+   {:pre [(map? opts)]}
+   (let [body    (binding [*print-length*         nil
+                           *print-level*          nil
+                           *print-namespace-maps* false]
+                   (pr-str (select-keys library keys)))
+         planned (fn [listed]
+                   (if-let [index (:index library)]
+                     (text.search/plan index (map :name listed))
+                     {:put [] :delete []}))
+         saved   (fn [{:keys [put delete]}]
+                   (async/then
+                    (put-in-order! store (conj put {:name saved-name
+                                                    :body body}))
+                    (fn [names]
+                      (async/then (async/all (mapv (:delete store) delete))
+                                  (fn [_] {:put names :delete delete})))))]
+     (async/then (async/attempt
+                  #(async/then (if-let [list (:list store)] (list) [])
+                               (comp saved planned)))
+                 (fn [{:keys [value error]}]
+                   (if error
+                     {:error (diagnostics/describe
+                              {:id     :library/save-failed
+                               :reason (async/explain error)})}
+                     value))))))
+
+(defn- reconciled
+  "The `library` with the documents of its index of the feeds it doesn't
+  have taken out, and the feeds that its index doesn't have indexed, as
+  after a save that stopped half way."
+  [library]
+  (let [index   (:index library)
+        guid-of #(if (vector? %) (first %) %)
+        indexed (into #{} (map guid-of) (keys (:docs index)))
+        feeds   (set (keys (:feeds library)))]
+    (as-> library library
+      (reduce #(update %1 :index unindexed %2)
+              library
+              (remove feeds indexed))
+      (reduce reindexed library (remove indexed feeds)))))
+
+(defn- fetch-all!
+  "The documents of `store` but those named in `skipped`, fetched with
+  `opts`, as maps of :name and :body, in ClojureScript as a promise. A
+  store without :list has none, and a document deleted since the listing
+  is left out."
+  [store opts skipped]
+  (async/then (if-let [list (:list store)] (list) [])
+              (fn [listed]
+                (async/then
+                 (async/all (for [{:keys [name]} listed
+                                  :when (not (contains? skipped name))]
+                              (async/then ((:fetch store) name opts)
+                                          #(some-> % (assoc :name name)))))
+                 #(filterv some? %)))))
+
+(defn- with-saved
+  "The `library` with the parts that `keys` names of the saved library, the
+  :value of the `attempt` to fetch its document, and the report of what
+  didn't read, as a pair."
+  [library keys {:keys [value error] :as attempt}]
+  (let [unreadable #(diagnostics/describe
+                     {:id :library/unreadable-document :reason %})
+        saved      (when (and value (not error))
+                     (try
+                       (edn/read-string (store/body-as (:body value)))
+                       (catch #?(:clj Throwable :cljs :default) _
+                         nil)))]
+    (cond
+      error        [library [(unreadable (async/explain error))]]
+      (nil? value) [library []]
+      (map? saved) [(clojure.core/merge library (select-keys saved keys)) []]
+      :else        [library [(unreadable "It isn't a map in EDN")]])))
+
+(defn- with-index
+  "The `library` and its `report`, a pair, with the search index read from
+  the :value of the `attempt` to fetch the documents of its store, or built
+  from its feeds, with :library/index-rebuilt when they don't read."
+  [[library report] {:keys [value error] :as attempt}]
+  (let [read (cond
+               error         {:error error}
+               (empty? value) {:error nil}
+               :else         (try
+                               {:index (text.search/read-documents value)}
+                               (catch #?(:clj Exception :cljs :default) e
+                                 {:error e})))]
+    (cond
+      (:index read)
+      [(reconciled (assoc library :index (:index read))) report]
+
+      ;; nothing saved yet
+      (nil? (:error read))
+      [(assoc library :index (index library)) report]
+
+      :else
+      [(assoc library :index (index library))
+       (conj report (diagnostics/describe
+                     {:id     :library/index-rebuilt
+                      :reason (async/explain (:error read))}))])))
+
+(defn restore!
+  "The `library` with what save! wrote to `store`, read with the `opts`
+  below, and with the step under :restore, in ClojureScript as a promise.
+
+  The parts of library.edn that :keys in `opts` names, saved-keys by
+  default, replace those of `library`, so give it a library as make
+  makes it. When the library keeps a search index, it's read back, or
+  built again from the feeds when its documents are missing or don't
+  read. The step is a map of the :report of what didn't read:
+
+      {:report [...]}  ; :library/unreadable-document, :library/index-rebuilt
+
+  A store without the documents gives the library as it is."
+  ([library store]
+   (restore! library store {}))
+  ([library store {:keys [keys] :or {keys saved-keys} :as opts}]
+   {:pre [(map? opts)]}
+   (let [indexed (fn [[library :as step]]
+                   (if (:index library)
+                     (async/then (async/attempt #(fetch-all! store
+                                                             {:as :bytes}
+                                                             #{saved-name}))
+                                 (partial with-index step))
+                     step))
+         done    (fn [[library report]]
+                   (assoc library :restore {:report report}))]
+     (async/then (async/attempt #((:fetch store) saved-name {}))
+                 #(-> (with-saved library keys %)
+                      indexed
+                      (async/then done))))))
 
 (defn plan
   "The episodes to download and the files to delete on this device with

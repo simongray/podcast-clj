@@ -32,11 +32,9 @@ and keep it.
 Each function returns the library along with what it did: `:effects`
 after `step`, `:refresh` after `refresh!` and `:sync` after `sync!`. The
 `:config` given to `make` holds the options that the other library
-functions use, and the docstring of `app.library` lists them. Save the
-library as EDN without its `:config`, when that holds functions, and
-without its `:index`, which is saved apart as
-[Search the episodes](#search-the-episodes) shows. Assoc them back when
-you read it.
+functions use, and the docstring of `app.library` lists them. Keep the
+library between runs with `library/save!` and `library/restore!`, as
+[Keep the library between runs](#keep-the-library-between-runs) shows.
 
 The parts of the library work with the namespaces they come from, e.g.
 every function of `profile` takes `(:profile @lib)`. The profile is a
@@ -62,7 +60,8 @@ functions that send requests return promises.
 
 ## What you build yourself
 
-- Store the library, and the record of the files on the device.
+- Pick a store for the library, and keep the record of the files on the
+  device.
 - Play the media, as the effects of `library/step` say.
 - Download and delete episode files, as `library/plan` says, when the
   network and the battery allow it.
@@ -309,6 +308,41 @@ The `:deliver!` function only gets feeds with the right signature. Return
 from it quickly, and parse the feed afterwards. Renew the subscription
 before the lease runs out, and keep polling on the normal schedule too,
 since a hub can fail.
+
+
+## Keep the library between runs
+
+Save the library into a store of its own, e.g. after each refresh, and
+read it back into a new library when the app starts:
+
+```clojure
+(def data (file/store "data"))
+
+(library/save! @lib data)
+;; => {:put ["segment-f62a6169e37bd339.ciff" "index.edn" "library.edn"]
+;;     :delete []}
+
+(reset! lib (library/restore! (library/make device-id) data))
+```
+
+This writes the profile, the feeds, the followed lists and the last sync
+to `library.edn`. The search index has documents of its own, and only
+those that changed since the last save are written again, so saving
+after each refresh is cheap. The `:config` can hold functions, so it
+isn't saved: give it to `make` again. When the index is missing or
+doesn't read, `restore!` builds it again from the feeds and says so in
+the `:report` under `:restore`. In ClojureScript, both functions return
+promises.
+
+Any store will do, but give the library one of its own, since `save!`
+deletes the documents of any other index there:
+
+- **On the JVM and in Node,** a folder, as above.
+- **In a browser,** IndexedDB, `(indexeddb/store)`, or the origin private
+  file system, `(.then (.getDirectory js/navigator.storage) file/store)`.
+  A browser can clear both when the disk runs low, unless the page asked
+  for `navigator.storage.persist()` and got it. Then `restore!` gives the
+  new library as it is, and the feeds are fetched again.
 
 
 ## Follow lists of shows
@@ -647,44 +681,11 @@ Each passage that matches has the time of the cue where it starts:
 ;; => [{:start-time 2.76 :speaker "Sarah" :body "…" :parts […]} …]
 ```
 
-Building the index takes a few seconds for 50 shows, so keep it between
-runs in a place of its own, e.g. a folder. `text.search/plan` gives the
-documents to put there, in the order to put them, and the names to
-delete. Only the parts of the index that changed since are put, so
-saving after each refresh is cheap:
-
-```clojure
-(defn save-index!
-  "Put the search index of `lib` into the folder `dir`."
-  [lib dir]
-  (let [stored (map #(.getName %) (.listFiles (io/file dir)))
-        {:keys [put delete]} (text.search/plan (:index lib) stored)]
-    (doseq [{:keys [name body]} put]
-      (io/copy body (io/file dir name)))
-    (doseq [name delete]
-      (io/delete-file (io/file dir name)))))
-```
-
-The manifest, `index.edn`, is EDN text, and each segment is bytes in the
-[Common Index File Format](https://github.com/osirrc/ciff). Read them
-back with `text.search/read-documents`. It throws when a document is
-missing or doesn't read, and then `library/index` builds the index
-again:
-
-```clojure
-(defn read-index
-  "The search index in the folder `dir`, or one built from `lib`."
-  [lib dir]
-  (try
-    (text.search/read-documents
-     (for [file (.listFiles (io/file dir))]
-       {:name (.getName file)
-        :body (if (str/ends-with? (.getName file) ".edn")
-                (slurp file)
-                (Files/readAllBytes (.toPath file)))}))
-    (catch Exception _
-      (library/index lib))))
-```
+Building the index takes a few seconds for 50 shows, so `library/save!`
+keeps it, as [Keep the library between runs](#keep-the-library-between-runs)
+shows. Its segments are in the
+[Common Index File Format](https://github.com/osirrc/ciff), which other
+search engines can read.
 
 Without `app.library`, build the index from the feeds yourself, with the
 documents of `search`:
@@ -702,7 +703,9 @@ documents of `search`:
 
 When a feed changes, update the index with `text.search/add` and
 `text.search/remove`. To make transcripts searchable, give them to
-`search/item-document`.
+`search/item-document`. To keep the index, `text.search/plan` gives the
+documents to put into a store and the names to delete there, and
+`text.search/read-documents` reads them back.
 
 
 ## Organize the shows and episodes
@@ -890,8 +893,9 @@ In the page:
 
 - Keep the device id under a key of its own, so that a library that
   fails to save doesn't make a new device.
-- Keep the library in IndexedDB, since a large feed takes more than
-  localStorage holds, and keep one for each account.
+- Save the library to IndexedDB, since a large feed takes more than
+  localStorage holds, and keep a database for each account, e.g.
+  `(indexeddb/store (str "my-app-" account-id))`.
 - Let one tab sync at a time, e.g. with `navigator.locks`, and before each
   step, merge in the library that the last step saved, since the tabs
   share the device id.
@@ -1233,9 +1237,7 @@ that changed its requirements takes them as `:requirements`, e.g.
 
 ```clojure
 (ns my.app
-  (:require [clojure.java.io :as io]
-            [clojure.string :as str]
-            [dk.simongray.podcast :as podcast]
+  (:require [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics :as analytics]
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.app.episode :as episode]
@@ -1264,6 +1266,7 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.sync.encrypted :as encrypted]
             [dk.simongray.podcast.sync.file :as file]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
+            [dk.simongray.podcast.sync.indexeddb :as indexeddb]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.sync.webdav.server :as webdav-server]
@@ -1278,6 +1281,5 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]
             [dk.simongray.podcast.value.nwc :as nwc]
-            [dk.simongray.podcast.value.webln :as webln])
-  (:import [java.nio.file Files]))
+            [dk.simongray.podcast.value.webln :as webln]))
 ```

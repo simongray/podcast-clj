@@ -10,6 +10,7 @@
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.test-support :refer [t2 t3 t4 a failed phone-state laptop-state #?@(:clj [same?])]]
+            [dk.simongray.podcast.util.bytes :as bytes]
             #?(:clj [dk.simongray.podcast.util.crdt :as crdt])
             [dk.simongray.podcast.util.time :as time]))
 
@@ -58,9 +59,16 @@
 
 (deftest the-memory-store
   (let [{:keys [fetch put list delete]} (store/memory)]
-    (is (nil? (fetch "a.edn")))
+    (is (nil? (fetch "a.edn" {})))
     (is (= {:version "1"} (put "a.edn" "one" {})))
-    (is (= {:body "one" :version "1"} (fetch "a.edn")))
+    (is (= {:body "one" :version "1"} (fetch "a.edn" {})))
+    (testing "a body as text or as bytes, whichever was put"
+      (is (bytes/same? (bytes/encode "one")
+                       (:body (fetch "a.edn" {:as :bytes}))))
+      (put "c.ciff" (bytes/of [0 255 1]) {})
+      (is (bytes/same? (bytes/of [0 255 1])
+                       (:body (fetch "c.ciff" {:as :bytes}))))
+      (delete "c.ciff"))
     (is (= {:version "2"} (put "a.edn" "two" {:if-version "1"})))
     (is (= {:conflict? true} (put "a.edn" "three" {:if-version "1"})) "a stale version is refused")
     (is (= {:conflict? true} (put "b.edn" "x" {:if-version "1"})) "so is a version for a document that is not there")
@@ -92,7 +100,7 @@
 (defn- unreachable
   "A store that cannot be listed."
   []
-  {:name "gone" :fetch identity :put identity :delete identity
+  {:name "gone" :fetch (constantly nil) :put identity :delete identity
    :list (fn [] (throw (ex-info "connection refused" {})))})
 
 (defn- forgetful

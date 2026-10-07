@@ -16,7 +16,8 @@
   its WebDAV store."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.sync.webdav :as webdav]
-            [dk.simongray.podcast.util.http :as http]))
+            [dk.simongray.podcast.util.http :as http])
+  (:import [java.io ByteArrayInputStream]))
 
 (defn- quoted
   [version]
@@ -138,7 +139,7 @@
   [{:keys [list fetch] :as store} name]
   (if list
     (some #(when (= name (:name %)) (:version %)) (list))
-    (:version (fetch name))))
+    (:version (fetch name {:as :bytes}))))
 
 (defn- options
   "The answer to OPTIONS, with the methods that the handler answers for the
@@ -178,14 +179,22 @@
 
 (defn- get-document
   "The answer with the document `name` of `store` and its ETag, without the
-  body for a `head?`."
+  body for a `head?`. A document of bytes, by its name, is a stream of
+  them."
   [{:keys [fetch] :as store} name head?]
-  (if-let [{:keys [body version]} (when name (fetch name))]
-    {:status  200
-     :headers {"ETag"         (quoted version)
-               "Content-Type" (webdav/content-type name)}
-     :body    (if head? "" body)}
-    (if name (not-found) (not-allowed store nil))))
+  (let [binary? (and name (webdav/binary? name))]
+    (if-let [{:keys [body version]} (when name
+                                      (fetch name (if binary?
+                                                    {:as :bytes}
+                                                    {})))]
+      {:status  200
+       :headers {"ETag"         (quoted version)
+                 "Content-Type" (webdav/content-type name)}
+       :body    (cond
+                  head?   ""
+                  binary? (ByteArrayInputStream. ^bytes body)
+                  :else   body)}
+      (if name (not-found) (not-allowed store nil)))))
 
 (defn- put-document
   "The answer to a put of the document `name` in `store` from the request
@@ -197,10 +206,12 @@
   (if name
     (let [current (version-of store name)
           asked   (precondition headers current)
-          text    (http/body-text body max-bytes)
-          result  (when (and text (not= :failed asked)) (put name text asked))]
+          read    (if (webdav/binary? name) http/body-bytes http/body-text)
+          given   (read body max-bytes)
+          result  (when (and given (not= :failed asked))
+                    (put name given asked))]
       (cond
-        (nil? text)
+        (nil? given)
         (plain 413 (str "A document holds at most " max-bytes " bytes"))
 
         (or (= :failed asked) (:conflict? result))

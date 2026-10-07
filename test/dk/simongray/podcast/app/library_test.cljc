@@ -421,6 +421,56 @@
                               [:fetched-lists "https://example.org/picks.opml" :next-check]))
         "the defaults stand in for what the config leaves out")))
 
+(deftest a-library-saved-and-restored
+  (let [documents (atom {})
+        s         (store/memory documents)
+        made      #(library/make "phone" {:config {:now (constantly now)}})
+        ids       #(mapv :id (library/search % "future"))
+        breaking  (fn [docs]
+                    (into {} (for [[k v] docs]
+                               [k (cond-> v
+                                    (re-find #"\.ciff$" k) (assoc :body "x"))])))]
+    (run #(async/then (library/save! library s)
+                      (fn [{:keys [put delete]}]
+                        (is (= "library.edn" (peek put)) "the library last")
+                        (is (some #{"index.edn"} put))
+                        (is (= [] delete))))
+         #(async/then (library/restore! (made) s)
+                      (fn [lib]
+                        (is (= [] (:report (:restore lib))))
+                        (is (= (:profile library) (:profile lib)))
+                        (is (= (:feeds library) (:feeds lib)))
+                        (is (= (ids library) (ids lib)) "the index read back")))
+         #(async/then (library/save! library s)
+                      (fn [{:keys [put]}]
+                        (is (= ["index.edn" "library.edn"] put)
+                            "no segment written again")))
+         #(do (swap! documents breaking)
+              (async/then (library/restore! (made) s)
+                          (fn [lib]
+                            (is (= [:library/index-rebuilt]
+                                   (map :id (:report (:restore lib)))))
+                            (is (= (ids library) (ids lib))
+                                "an index built again from the feeds"))))
+         #(do (reset! documents {})
+              (async/then (library/save! library s)
+                          (fn [_] (library/save! (made) s {:keys [:feeds]}))))
+         #(async/then (library/restore! (made) s)
+                      (fn [lib]
+                        (is (= {} (:feeds lib)))
+                        (is (= [] (ids lib))
+                            "an index of feeds that the library doesn't have")))
+         #(do (swap! documents assoc "library.edn" {:body "{:feeds" :version "9"})
+              (async/then (library/restore! (made) s)
+                          (fn [lib]
+                            (is (= [:library/unreadable-document]
+                                   (map :id (:report (:restore lib)))))
+                            (is (= {} (:feeds lib))))))
+         #(async/then (library/save! (library/make "phone" {:config {:search? false}})
+                                     (store/memory))
+                      (fn [{:keys [put]}]
+                        (is (= ["library.edn"] put) "no index, no documents of one"))))))
+
 (deftest a-document-to-save-by-hand
   (let [{:keys [name body]} (library/document library {:app "test"})
         written             (sync/read-document body)]

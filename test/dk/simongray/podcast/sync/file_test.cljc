@@ -10,6 +10,7 @@
             [dk.simongray.podcast.sync.file :as file]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 a run same? #?(:clj with-temp-dir)]]))
 
 (defn- temp-folder!
@@ -64,12 +65,19 @@
         failed? #(async/then (async/attempt %) :error)]
     (run #(async/then (temp-folder!) (fn [d] (reset! dir d)))
          #(async/then (call :list) (fn [docs] (is (= [] docs))))
-         #(async/then (call :fetch "a.edn") (fn [doc] (is (nil? doc))))
+         #(async/then (call :fetch "a.edn" {}) (fn [doc] (is (nil? doc))))
          #(async/then (call :put "a.edn" "one" {})
                       (fn [{v :version}]
                         (is (string? v))
                         (reset! version v)))
-         #(async/then (call :fetch "a.edn") (fn [doc] (is (= {:body "one" :version @version} doc))))
+         #(async/then (call :fetch "a.edn" {}) (fn [doc] (is (= {:body "one" :version @version} doc))))
+         #(async/then (call :fetch "a.edn" {:as :bytes})
+                      (fn [doc] (is (bytes/same? (bytes/encode "one") (:body doc)) "text as bytes")))
+         #(async/then (call :put "c.ciff" (bytes/of [0 255 1]) {})
+                      (fn [_] (call :fetch "c.ciff" {:as :bytes})))
+         #(async/then (call :fetch "c.ciff" {:as :bytes})
+                      (fn [doc] (is (bytes/same? (bytes/of [0 255 1]) (:body doc)) "bytes as they were put")))
+         #(call :delete "c.ciff")
          #(async/then (call :list) (fn [docs] (is (= [{:name "a.edn" :version @version}] docs))))
          #(async/then (call :put "a.edn" "two" {:if-version "stale"})
                       (fn [answer] (is (= {:conflict? true} answer))))
@@ -80,11 +88,11 @@
          #(async/then (async/all [(call :put "a.edn" "four" {:if-version @version})
                                   (call :put "a.edn" "three" {:if-version @version})])
                       (fn [answers] (is (= 1 (count (filter :version answers))) "of two puts on one version, one wins")))
-         #(async/then (call :fetch "a.edn") (fn [doc] (is (= "four" (:body doc)))))
+         #(async/then (call :fetch "a.edn" {}) (fn [doc] (is (= "four" (:body doc)))))
          #(spit! @dir ".hidden" "x")
          #(async/then (call :list) (fn [docs] (is (= ["a.edn"] (map :name docs)) "hidden files aren't documents")))
          #(async/then (names! @dir) (fn [names] (is (= #{".hidden" "a.edn"} names) "no temporary file is left behind")))
-         #(async/then (failed? (fn [] (call :fetch "../a.edn"))) (fn [e] (is e)))
+         #(async/then (failed? (fn [] (call :fetch "../a.edn" {}))) (fn [e] (is e)))
          #(async/then (failed? (fn [] (call :put ".hidden" "x" {}))) (fn [e] (is e)))
          #(async/then (call :delete "a.edn") (fn [_] (call :delete "a.edn")))
          #(async/then (call :list) (fn [docs] (is (= [] docs))))
@@ -138,7 +146,7 @@
            (testing "of two puts on one version from two threads, one wins"
              (is (every? #(= 1 %)
                          (for [_ (range 50)]
-                           (let [version (:version (fetch "podcast.edn"))
+                           (let [version (:version (fetch "podcast.edn" {}))
                                  latch   (java.util.concurrent.CountDownLatch. 1)
                                  race    #(future (.await latch) (put "podcast.edn" % {:if-version version}))
                                  puts    [(race "a") (race "b")]]
@@ -171,7 +179,7 @@
             #(is (nil? (:delete s)))
             #(async/then ((:list s))
                          (fn [docs] (is (= ["laptop.edn" "notes.txt"] (map :name docs)) "only the top of the folder")))
-            #(async/then ((:fetch s) "laptop.edn")
+            #(async/then ((:fetch s) "laptop.edn" {})
                          (fn [{:keys [body version]}]
                            (is (= laptop (:state (sync/read-document body))))
                            (is (= "1000-" (subs version 0 5)))))
@@ -211,7 +219,7 @@
                          (fn [t] (is (= ::file/not-allowed t))))
             #(async/then (type-of (file/store (refusing "NotFoundError")) (fn [s] ((:list s))))
                          (fn [t] (is (= ::file/gone t))))
-            #(async/then (type-of (file/store (handle {})) (fn [s] ((:fetch s) "a.edn")))
+            #(async/then (type-of (file/store (handle {})) (fn [s] ((:fetch s) "a.edn" {})))
                          (fn [t] (is (nil? t) "a document that isn't there is no failure")))
             (fn []
               (when-not (some-> js/globalThis .-FileSystemFileHandle .-prototype .-createWritable)

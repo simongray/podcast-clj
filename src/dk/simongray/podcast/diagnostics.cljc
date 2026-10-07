@@ -19,6 +19,7 @@
     than about reading it
   - check, the checks over the network of what the feed links to
   - sync, a sync step
+  - library, a library saved to a store and read back
   - podping, a poll of the Hive chain
   - comments, reading a thread of comments
   - value, the records of payments
@@ -474,6 +475,17 @@
     {:id :sync/rejected-url :level :warning
      :doc "A gpodder server refused a URL that was sent to it, so it keeps no
            subscription or episode action for it."}
+
+    ;; library: a library saved to a store and read back
+    {:id :library/save-failed :level :warning
+     :doc "The library or its search index couldn't be written to the store,
+           so what the last save wrote stands. The :reason says why."}
+    {:id :library/unreadable-document :level :warning
+     :doc "The saved library didn't read, so the library is as make gave it.
+           The :reason says why."}
+    {:id :library/index-rebuilt :level :info
+     :doc "The search index was built again from the feeds, since its
+           documents were missing or didn't read. The :reason says why."}
 
     ;; podping: a poll of the Hive chain
     {:id :podping/unavailable :level :warning

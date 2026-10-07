@@ -11,8 +11,7 @@
   The library keeps only the slim part of each feed, and saves what it
   knows of the feeds to a file, so that a restart doesn't fetch them all
   again."
-  (:require [clojure.edn :as edn]
-            [dk.simongray.podcast.app.feeds :as feeds]
+  (:require [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
@@ -31,12 +30,16 @@
 
 (defn make
   "The server's library, a device of the listener, with `config` over the
-  defaults. Its feeds are fetched only from the public internet, and only
-  the slim part of each is kept."
+  defaults. Its feeds are fetched only from the public internet, only the
+  slim part of each is kept, and since it doesn't search, it keeps no
+  search index."
   ([]
    (make {}))
   ([config]
-   (let [config (merge {:allow? http/public? :keep feeds/slim} config)]
+   (let [config (merge {:allow?  http/public?
+                        :keep    feeds/slim
+                        :search? false}
+                       config)]
      (library/make "podcast-server" {:name "Podcast server" :config config}))))
 
 (def saved-keys
@@ -46,32 +49,28 @@
   last sync, which only fit the profile they were made for."
   [:feeds :fetched-lists])
 
-(def saved-name
-  "The name of the document that save! writes."
-  "library.edn")
-
 (defn save!
   "Write the saved-keys of `library` to `data-store`, e.g. a folder store,
-  which writes a file whole or not at all."
+  which writes a file whole or not at all, as library/save! does, and log
+  a failure."
   [library data-store]
-  ((:put data-store) saved-name
-   (binding [*print-length* nil *print-level* nil *print-namespace-maps* false]
-     (pr-str (select-keys library saved-keys)))
-   {}))
+  (let [{:keys [error] :as saved} (library/save! library
+                                                 data-store
+                                                 {:keys saved-keys})]
+    (when error
+      (log/warn :msg "The library couldn't be saved" :problem error))
+    saved))
 
 (defn restore!
-  "The `library` with what save! wrote to `data-store`, or the `library` as
-  it is when there's nothing there or it can't be read."
+  "The `library` with what save! wrote to `data-store`, as library/restore!
+  reads it, and what didn't read logged."
   [library data-store]
-  (try
-    (if-let [{:keys [body]} ((:fetch data-store) saved-name)]
-      (merge library (select-keys (edn/read-string body) saved-keys))
-      library)
-    (catch Exception e
+  (let [restored (library/restore! library data-store {:keys saved-keys})]
+    (doseq [problem (get-in restored [:restore :report])]
       (log/warn :msg (str "The saved library couldn't be read, so its "
                           "feeds are fetched again")
-                :exception e)
-      library)))
+                :problem problem))
+    restored))
 
 (defn- changed?
   "Whether the profile of `library` changed since its last sync."

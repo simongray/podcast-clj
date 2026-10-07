@@ -3,15 +3,20 @@
 
   A store is a map of functions over named documents with versions:
 
-      {:fetch  (fn [name])            ; {:body \"…\" :version \"…\"}, or nil
+      {:fetch  (fn [name opts])       ; {:body \"…\" :version \"…\"}, or nil
        :put    (fn [name body opts])  ; {:version \"…\"}, or {:conflict? true}
        :list   (fn [])                ; [{:name \"…\" :version \"…\"}], optional
        :delete (fn [name])            ; optional
        :name   \"Nextcloud\"}           ; for the UI and the report
 
-  A put is a conflict when its opts have an :if-version other than the
-  store's, where nil means that the document must not exist yet. On the
-  JVM, each function returns its value and throws when it fails. In
+  A body is text or bytes, a byte array on the JVM and a Uint8Array in
+  JavaScript. A fetch gives it as text, or as bytes with :as :bytes in its
+  opts, as util.http/send! does, whichever was put, and body-as turns one
+  into the other. A put is a conflict when its opts have an :if-version
+  other than the store's, where nil means that the document must not
+  exist yet.
+
+  On the JVM, each function returns its value and throws when it fails. In
   ClojureScript, each can return a value or a promise. A store closes over
   its credentials, so they're never in the map, and you wrap a store by
   updating a key. The function memory gives a store over an atom, for
@@ -34,7 +39,19 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.crdt :as crdt]))
+
+(defn body-as
+  "The `body` of a document, text or bytes, as the fetch with `opts` asks
+  for it: bytes with :as :bytes, and else text, of UTF-8."
+  ([body]
+   (body-as body {}))
+  ([body opts]
+   (cond
+     (= :bytes (:as opts)) (if (string? body) (bytes/encode body) body)
+     (string? body)        body
+     :else                 (bytes/decode body 0 (bytes/length body) :utf8))))
 
 (defn memory
   "A store over the atom `documents`, or a fresh one, which holds the :body
@@ -52,7 +69,8 @@
                          (assoc docs name {:body    body
                                            :version (str (inc n))})))))]
      {:name   "memory"
-      :fetch  (fn [name] (get @documents name))
+      :fetch  (fn [name opts]
+                (some-> (get @documents name) (update :body body-as opts)))
       :put    (fn [name body opts]
                 ;; the version checked and the document written in one swap,
                 ;; so that of two puts on the same version only one succeeds
@@ -108,7 +126,7 @@
                        (some-> doc (assoc :name name)))
            fetch!    (fn [{:keys [name]}]
                        (async/attempt
-                        #(async/then (fetch name) (partial named name))))]
+                        #(async/then (fetch name {}) (partial named name))))]
        (async/then
         (async/all (map fetch! stale))
         (fn [results]
@@ -180,7 +198,7 @@
   document of a newer format is marked in the cursor, so that the push
   leaves it alone."
   [{:keys [fetch] :as store} name {:keys [version] :as cursor} at]
-  (async/then (fetch name)
+  (async/then (fetch name {})
               (fn [doc]
                 (cond
                   (nil? doc)
@@ -229,7 +247,7 @@
                    (merge-and-retry state cursor attempts))))))
           (merge-and-retry [state cursor attempts]
             (async/then
-             (fetch name)
+             (fetch name {})
              (fn [doc]
                (let [named  (when doc [(assoc doc :name name)])
                      {:keys [states report]} (sync/read-documents named at)
@@ -448,13 +466,13 @@
   [{:keys [fetch put list delete] :as store}]
   (let [stale    {:if-version "\"no-such-version\""}
         taken    {:if-version nil}
-        steps    (cond-> [[:listing (or list #(fetch probe-name))]
+        steps    (cond-> [[:listing (or list #(fetch probe-name {}))]
                           [:put     #(put probe-name "probe" {})]
                           [:stale   #(put probe-name "probe" stale)]
                           [:taken   #(put probe-name "probe" taken)]
-                          [:fetched #(fetch probe-name)]]
+                          [:fetched #(fetch probe-name {})]]
                    delete (conj [:delete #(delete probe-name)]
-                                [:gone   #(fetch probe-name)]))
+                                [:gone   #(fetch probe-name {})]))
         required (cond-> #{:store/reachable :store/authenticated
                            :store/put :store/fetch}
                    (not list) (conj :store/conflicts)

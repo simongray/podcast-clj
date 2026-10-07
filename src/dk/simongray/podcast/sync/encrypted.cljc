@@ -183,13 +183,14 @@
         m))))
 
 (defn- seal-with
-  "The envelope string for `body`, sealed with a fresh IV under the key
-  that `key-for` derives for the `salt` bytes over `iterations`."
+  "The envelope string for `body`, text or bytes, sealed with a fresh IV
+  under the key that `key-for` derives for the `salt` bytes over
+  `iterations`."
   [key-for salt iterations body]
   (let [iv (random-bytes 12)]
     (async/then (key-for salt iterations)
                 (fn [key]
-                  (async/then (seal key iv (utf8 body))
+                  (async/then (seal key iv (if (string? body) (utf8 body) body))
                               (fn [data]
                                 (pr-str {:encrypted  version
                                          :cipher     "AES-256-GCM"
@@ -201,15 +202,15 @@
 
 (defn- open-with
   "The body in the envelope string `s` of the document `name`, opened with
-  the key that `key-for` derives for it. A string that isn't an envelope
-  comes back as it is."
-  [key-for name s]
+  the key that `key-for` derives for it, as text, or as bytes when `as` is
+  :bytes. A string that isn't an envelope comes back as it is."
+  [key-for name s as]
   (if-let [{:keys [iterations salt iv data]} (envelope s)]
     (async/then (key-for (<-base64 salt) iterations)
                 (fn [key]
                   (async/then (open key (<-base64 iv) (<-base64 data) name)
-                              from-utf8)))
-    s))
+                              #(if (= :bytes as) % (from-utf8 %)))))
+    (store/body-as s {:as as})))
 
 (defn encrypt
   "The envelope string for `body` under `passphrase`, with a fresh salt and
@@ -231,7 +232,7 @@
   A passphrase that doesn't open it throws ::locked, or in ClojureScript,
   rejects the promise with it."
   [s passphrase]
-  (open-with #(derive-key passphrase %1 %2) nil s))
+  (open-with #(derive-key passphrase %1 %2) nil s nil))
 
 (defn store
   "The store `inner` with its documents encrypted at rest under
@@ -272,21 +273,21 @@
                          (let [key (derive-key (pass) salt iterations)]
                            (swap! keys assoc k key)
                            key))))
-         open    (fn [name doc]
-                   (async/then (open-with key-for name (:body doc))
+         open    (fn [name doc as]
+                   (async/then (open-with key-for name (:body doc) as)
                                #(assoc doc :body %)))
-         retried (fn [name doc {:keys [value error]}]
+         retried (fn [name doc as {:keys [value error]}]
                    (cond
                      (not error)
                      value
 
                      (fn? passphrase)
                      (do (reset! keys {})
-                         (open name doc))
+                         (open name doc as))
 
                      :else
                      (throw error)))
-         opened  (fn [name doc]
+         opened  (fn [name doc as]
                    (cond
                      (nil? doc)
                      nil
@@ -295,12 +296,16 @@
                      doc
 
                      :else
-                     (async/then (async/attempt #(open name doc))
-                                 #(retried name doc %))))]
+                     (async/then (async/attempt #(open name doc as))
+                                 #(retried name doc as %))))]
      (cond-> {:name  (:name inner)
-              :fetch (fn [name]
-                       (async/then ((:fetch inner) name)
-                                   #(opened name %)))
+              ;; an envelope is text, and a document left in the clear is
+              ;; fetched as asked
+              :fetch (fn [name opts]
+                       (async/then ((:fetch inner) name (if (except name)
+                                                          opts
+                                                          {}))
+                                   #(opened name % (:as opts))))
               :put   (fn [name body params]
                        (if (except name)
                          ((:put inner) name body params)

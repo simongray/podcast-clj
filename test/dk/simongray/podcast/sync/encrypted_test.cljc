@@ -75,28 +75,35 @@
        ((:put s) store/opml-name "<opml/>" {})
        (is (str/starts-with? (:body (@documents "phone.edn")) "{:encrypted") "ciphertext at rest")
        (is (= "<opml/>" (:body (@documents store/opml-name))) "except what is excepted")
-       (is (= {:body plaintext :version "1"} ((:fetch s) "phone.edn")) "plaintext on the way out, the version as it is")
+       (is (= {:body plaintext :version "1"} ((:fetch s) "phone.edn" {})) "plaintext on the way out, the version as it is")
        (is (= [{:name "phone.edn" :version "1"} {:name store/opml-name :version "1"}] ((:list s))))
        (is (= {:conflict? true} ((:put s) "phone.edn" plaintext {:if-version "stale"})) "the preconditions pass through")
-       (is (nil? ((:fetch s) "missing.edn")))
+       (is (nil? ((:fetch s) "missing.edn" {})))
+       (testing "a body of bytes, sealed as bytes"
+         ((:put s) "a.ciff" (byte-array [0 -1 1]) {})
+         (is (str/starts-with? (:body (@documents "a.ciff")) "{:encrypted"))
+         (is (= [0 -1 1] (vec (:body ((:fetch s) "a.ciff" {:as :bytes})))))
+         (is (= plaintext (String. ^bytes (:body ((:fetch s) "phone.edn" {:as :bytes}))
+                                   "UTF-8"))
+             "and text as bytes"))
        (testing "a plain document already there reads as it is"
          ((:put (store/memory documents)) "old.edn" plaintext {})
-         (is (= plaintext (:body ((:fetch s) "old.edn")))))
+         (is (= plaintext (:body ((:fetch s) "old.edn" {})))))
        (testing "the wrong passphrase names the document"
          (let [other (encrypted/store (store/memory documents) "wrong" {:iterations 1000})]
-           (is (thrown-with-msg? Exception #"does not open phone.edn" ((:fetch other) "phone.edn")))))
+           (is (thrown-with-msg? Exception #"does not open phone.edn" ((:fetch other) "phone.edn" {})))))
        (testing "a passphrase may be a function, for one kept in a keychain"
          (let [asked (atom 0)
                s2    (encrypted/store (store/memory documents) (fn [] (swap! asked inc) passphrase) {:iterations 1000})]
-           (is (= plaintext (:body ((:fetch s2) "phone.edn"))))
-           (is (= plaintext (:body ((:fetch s2) "phone.edn"))))
+           (is (= plaintext (:body ((:fetch s2) "phone.edn" {}))))
+           (is (= plaintext (:body ((:fetch s2) "phone.edn" {}))))
            (is (= 1 @asked) "and the key is derived once per salt")))
        (testing "and one corrected later is asked for again when the cached key opens nothing"
          (let [typed (atom "typo")
                s3    (encrypted/store (store/memory documents) #(deref typed) {:iterations 1000})]
-           (is (thrown? Exception ((:fetch s3) "phone.edn")))
+           (is (thrown? Exception ((:fetch s3) "phone.edn" {})))
            (reset! typed passphrase)
-           (is (= plaintext (:body ((:fetch s3) "phone.edn"))))))
+           (is (= plaintext (:body ((:fetch s3) "phone.edn" {}))))))
        (testing "a store without a passphrase isn't made"
          (is (thrown? clojure.lang.ExceptionInfo (encrypted/store (store/memory documents) nil))))
        (is (:ok? (store/check! s)) "the generic check passes through it"))))
@@ -145,7 +152,7 @@
              (.then (fn [_] ((:put s) "phone.edn" plaintext {})))
              (.then (fn [_]
                       (is (str/starts-with? (:body (@documents "phone.edn")) "{:encrypted") "ciphertext at rest")
-                      ((:fetch s) "phone.edn")))
+                      ((:fetch s) "phone.edn" {})))
              (.then (fn [doc]
                       (is (= {:body plaintext :version "1"} doc))
                       (store/check! s)))

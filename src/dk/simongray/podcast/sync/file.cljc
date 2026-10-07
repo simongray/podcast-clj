@@ -8,8 +8,13 @@
 
   - a path, on the JVM and in Node
   - a FileSystemDirectoryHandle in a browser, e.g. a folder that the
-    listener picked with showDirectoryPicker
+    listener picked with showDirectoryPicker, or the site's own folder of
+    the origin private file system, from navigator.storage.getDirectory(),
+    for what an app keeps on the device
   - the files of a file input or a drop in a browser, which are read only
+
+  A body is kept as it was put, text or bytes, and a fetch with
+  {:as :bytes} reads it as bytes.
 
   In a browser that can't pick a folder, the listener can still sync
   through one by hand: save app.library/document into the folder, and load
@@ -33,7 +38,7 @@
             [dk.simongray.podcast.util.async :as async])
   #?(:clj (:import [java.io File FileNotFoundException]
                    [java.nio.file
-                    CopyOption Files LinkOption StandardCopyOption]
+                    CopyOption Files LinkOption OpenOption StandardCopyOption]
                    [java.util.concurrent ConcurrentHashMap]
                    [java.util.concurrent.locks ReentrantLock]
                    [java.util.function Function])))
@@ -82,11 +87,16 @@
      "Write `body` to the file `f` in `dir` through a hidden temporary file
      that's moved into place, so that no reader sees a partial file. The
      temporary file is removed when the write fails."
-     [^File dir ^File f ^String body]
+     [^File dir ^File f body]
      (.mkdirs dir)
      (let [tmp (File/createTempFile ".sync-" ".tmp" dir)]
        (try
-         (spit tmp body :encoding "UTF-8")
+         (if (bytes? body)
+           (Files/write (.toPath tmp)
+                        ^bytes body
+                        ^"[Ljava.nio.file.OpenOption;"
+                        (make-array OpenOption 0))
+           (spit tmp body :encoding "UTF-8"))
          (Files/move (.toPath tmp) (.toPath f)
                      (into-array CopyOption
                                  [StandardCopyOption/ATOMIC_MOVE
@@ -106,14 +116,17 @@
                     (for [^File f (or (.listFiles dir) (make-array File 0))
                           :when (.isFile f)]
                       {:name (.getName f) :version (version f)}))
-        :read     (fn [name]
+        :read     (fn [name opts]
                     (let [^File f (file name)]
                       ;; the version before the body: a file replaced in between
                       ;; then reads as changed next time, not as unchanged
                       (try
                         (when (.isFile f)
                           (let [v (version f)]
-                            {:body (slurp f :encoding "UTF-8") :version v}))
+                            {:body    (if (= :bytes (:as opts))
+                                        (Files/readAllBytes (.toPath f))
+                                        (slurp f :encoding "UTF-8"))
+                             :version v}))
                         (catch FileNotFoundException _
                           nil))))
         :version  (fn [name]
@@ -153,11 +166,17 @@
                                                   :when (.isFile e)]
                                               (listed (.-name e))))))
                         (.catch #(do (absent %) []))))
-        :read     (fn [name]
+        :read     (fn [name opts]
                     (.then (stat name)
                            (fn [s]
                              (when s
-                               (.then (.readFile fs (file name) "utf8")
+                               ;; without an encoding, a Buffer, which is a
+                               ;; Uint8Array
+                               (.then (.readFile fs
+                                                 (file name)
+                                                 (if (= :bytes (:as opts))
+                                                   #js {}
+                                                   "utf8"))
                                       (fn [body]
                                         {:body body :version (version s)}))))))
         :version  (fn [name]
@@ -209,6 +228,15 @@
        (more []))))
 
 #?(:cljs
+   (defn- blob-body
+     "A promise of the body of the File `f`, as text, or as a Uint8Array with
+     :as :bytes in `opts`."
+     [f opts]
+     (if (= :bytes (:as opts))
+       (.then (.arrayBuffer f) #(js/Uint8Array. %))
+       (.text f))))
+
+#?(:cljs
    (defn- write-handle!
      "Write `body` to the file of the handle `h` as a whole, and give a
      promise of the File it holds then.
@@ -247,11 +275,11 @@
                                                   :when (= "file" (.-kind h))]
                                               (listed h)))))
                         (.catch failed)))
-        :read     (fn [name]
+        :read     (fn [name opts]
                     (.then (file name)
                            (fn [f]
                              (when f
-                               (.then (.text f)
+                               (.then (blob-body f opts)
                                       (fn [body]
                                         {:body body :version (version f)}))))))
         :version  (fn [name]
@@ -287,15 +315,18 @@
         stale?  (fn [opts current]
                   (and (contains? opts :if-version)
                        (not= (:if-version opts) current)))
+        bytes?  #?(:clj bytes? :cljs #(instance? js/Uint8Array %))
         put!    (fn [name body opts]
                   (async/then (version name)
                               (fn [current]
                                 (if (stale? opts current)
                                   {:conflict? true}
-                                  (async/then (write name (str body))
+                                  (async/then (write name (cond-> body
+                                                            (not (bytes? body))
+                                                            str))
                                               (fn [v] {:version v}))))))]
     {:name   (:name folder)
-     :fetch  (fn [name] (read (plain name)))
+     :fetch  (fn [name opts] (read (plain name) opts))
      :put    (fn [name body opts]
                (exclusively (lock-key (plain name))
                             #(put! name body opts)))
@@ -331,9 +362,9 @@
                             first
                             not-empty)]
        {:name  (or folder "files")
-        :fetch (fn [name]
+        :fetch (fn [name opts]
                  (when-let [f (get by-name name)]
-                   (.then (.text f)
+                   (.then (blob-body f opts)
                           (fn [body] {:body body :version (version f)}))))
         :put   (fn [_ _ _]
                  (throw (ex-info "The files of an input are read only"
@@ -399,5 +430,5 @@
      (def s (store "/tmp/podcast-sync"))
      ((:put s) "a.edn" "{:version 1 :state {}}" {})
      ((:list s))
-     ((:fetch s) "a.edn")
+     ((:fetch s) "a.edn" {})
      #_.))

@@ -27,7 +27,7 @@ checks.
 
 The tables follow the same order. Names in them are relative to the root,
 and everything runs on the JVM and in ClojureScript unless the table says
-JVM. [Principles](principles.md) has the rules that every namespace
+otherwise. [Principles](principles.md) has the rules that every namespace
 follows.
 
 A namespace that talks to a service has the same three steps. Its
@@ -47,7 +47,7 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `merge`, `episodes`, `show`, `episode`, `step`, `update-profile`, `sync!` and `plan`. |
+| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `merge`, `episodes`, `show`, `episode`, `step`, `update-profile`, `sync!`, `plan`, and `save!` and `restore!` to keep it between runs. |
 | `app.show` | Everything a show page needs in one map, from `view`, and the shows of the podroll and the publisher from `fetch-linked-shows!`. |
 | `app.episode` | Everything an episode page needs in one map, from `view`, what the chapters file, transcript and media file say from `read-files!`, and the value blocks that its time splits point at from `fetch-remote-values!`. |
 | `app.feeds` | The fetched feeds by guid, with their ETag, Last-Modified and next check. Use `due` for the feeds to fetch now, `refresh!` to fetch them, and `affected` for the feeds that a Podping names. A device that never shows the feeds can keep only what `slim` gives of each. |
@@ -65,8 +65,9 @@ option replaces the function that sends.
 | Namespace | Contents |
 |---|---|
 | `sync` | Sync between devices: `sync!` over any backends, `reconcile` and `next-sync`. |
-| `sync.store` | The store contract, `memory`, `backend` for any store, and `check!` to test a store. |
-| `sync.file` | A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. It takes a path on the JVM and in Node, and in a browser a folder that the listener picks or the files they load. |
+| `sync.store` | The store contract, whose documents are text or bytes, with `memory`, `backend` for any store, and `check!` to test a store. |
+| `sync.file` | A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. It takes a path on the JVM and in Node, and in a browser a folder that the listener picks, the origin private file system or the files they load. |
+| `sync.indexeddb` | Browser. An IndexedDB database as a store, e.g. for `library/save!`. |
 | `sync.webdav` | A WebDAV collection as a store. |
 | `sync.webdav.server` | JVM. A Ring handler that serves any store over WebDAV. |
 | `sync.encrypted` | Any store, with its documents encrypted at rest and readable on both platforms. |
