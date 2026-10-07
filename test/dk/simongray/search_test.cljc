@@ -1,8 +1,7 @@
 (ns dk.simongray.search-test
   "The full-text index, the ranking of its queries by BM25F, and their
   options for a text."
-  (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
+  (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.search :as search]
             [dk.simongray.search.ciff :as ciff]

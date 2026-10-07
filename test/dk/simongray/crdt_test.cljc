@@ -2,11 +2,13 @@
   "The CRDT of plain maps on a schema of its own: writes and the clock,
   merge by the later entry and by the higher count, compaction and the
   checks by the schema."
-  (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            [clojure.test :refer [deftest is testing]]
-            [dk.simongray.crdt :as crdt]
-            [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3]]
-            [dk.simongray.podcast.util.time :as time]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [dk.simongray.crdt :as crdt]))
+
+(def t0 #inst "2026-01-01T00:00:00Z")
+(def t1 #inst "2026-01-01T01:00:00Z")
+(def t2 #inst "2026-01-01T02:00:00Z")
+(def t3 #inst "2026-01-01T03:00:00Z")
 
 (def schema
   {:notes {:depth 1 :compact? true}
@@ -48,8 +50,7 @@
         (is (= 1.55 (v (entry 1.5e-4) (entry 1.55)) (v (entry 1.55) (entry 1.5e-4))))))))
 
 (deftest compacting-by-the-schema
-  (let [day    (* 24 60 60 1000)
-        far    (time/->inst (+ (inst-ms t3) (* 31 day)))
+  (let [far    #inst "2026-02-01T03:00:00Z"  ; 31 days after t3
         phone  (-> {:device "phone"}
                    (crdt/identify {:name "Phone"} t0)
                    (crdt/write [:notes "n1"] (constantly {:removed? true}) t1)

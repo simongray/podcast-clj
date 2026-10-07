@@ -1,8 +1,7 @@
 (ns dk.simongray.search.analysis-test
   "Folding, words, and the terms of a text by position, with the scripts
   that have no spaces between words in pairs of characters."
-  (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing]]
             [dk.simongray.search.analysis :as analysis]))
 
 (deftest folding

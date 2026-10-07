@@ -2,11 +2,10 @@
   "Ordered collections in a CRDT state: appends that keep each device's
   batch together, moves that never undo a removal, and the check of the
   ranks by the schema."
-  (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing]]
             [dk.simongray.crdt :as crdt]
-            [dk.simongray.crdt.list :as crdt.list]
-            [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3]]))
+            [dk.simongray.crdt-test :refer [t0 t1 t2 t3]]
+            [dk.simongray.crdt.list :as crdt.list]))
 
 (deftest ordered-collections
   (let [phone  (crdt.list/append {:device "phone"} [:queue] {} ["a" "b" "c"] t0)

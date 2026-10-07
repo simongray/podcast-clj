@@ -2,8 +2,7 @@
   "Ranks: a rank between any two, before the first and after the last,
   always in order, never ending in a zero, and short at the ends however
   long the list grows."
-  (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            #?@(:clj [[clojure.test.check.clojure-test :refer [defspec]]
+  (:require #?@(:clj [[clojure.test.check.clojure-test :refer [defspec]]
                       [clojure.test.check.generators :as gen]
                       [clojure.test.check.properties :as prop]])
             [clojure.string :as str]

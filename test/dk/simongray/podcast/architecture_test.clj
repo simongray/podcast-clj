@@ -144,6 +144,16 @@
           req       reqs]
     (is (= root (library-of req)) (str ns " requires " req ", outside " root))))
 
+(deftest the-libraries-are-tested-alone
+  (doseq [file  (file-seq (io/file "test"))
+          :when (re-find #"\.clj[cs]?$" (.getName ^java.io.File file))
+          :let  [form (read-string {:read-cond :allow :features #{:clj}} (slurp file))
+                 ns   (str/replace (str (second form)) #"-test$" "")
+                 root (library-of ns)]
+          :when root
+          req   (requires file)]
+    (is (= root (library-of req)) (str ns "-test requires " req ", outside " root))))
+
 (deftest a-name-shows-the-high-level
   (doseq [ns (keys @graph)]
     (is (= (str/starts-with? ns "app.") (= 5 (get layers ns)))

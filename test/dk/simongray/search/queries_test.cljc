@@ -1,7 +1,6 @@
 (ns dk.simongray.search.queries-test
   "The query language, and a query matched against one text."
-  (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing]]
             [dk.simongray.search.queries :as queries]))
 
 (deftest parsing
