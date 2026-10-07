@@ -910,8 +910,10 @@
   It writes library.edn, with the parts of `library` that :keys in `opts`
   names, saved-keys by default. When the library keeps a search index, it
   writes its documents too, of which only those that changed since the
-  last save, so a save after each refresh takes little. A store without
-  :delete keeps the documents of older indexes, which restore! ignores.
+  last save, so a save after each refresh takes little. Then it deletes
+  the documents that the index no longer needs, all at once. One that it
+  couldn't delete is left out of :delete for the next save to delete,
+  and a store without :delete keeps them all, which restore! ignores.
   Give it a store of its own, e.g. over a folder, IndexedDB or the origin
   private file system, since it deletes the documents of any other index
   there:
@@ -929,14 +931,22 @@
                    (if-let [index (:index library)]
                      (ciff/plan index (map :name listed))
                      {:put [] :delete []}))
+         delete! (fn [name]
+                   (async/attempt #((:delete store) name)))
+         deleted (fn [names attempts]
+                   (vec (for [[name {:keys [error]}] (map vector names attempts)
+                              :when (nil? error)]
+                          name)))
          saved   (fn [{:keys [put delete]}]
                    (async/then
                     (store/put-all! store (conj put {:name saved-name
                                                      :body body}))
                     (fn [names]
                       (let [delete (if (:delete store) delete [])]
-                        (async/then (async/all (mapv (:delete store) delete))
-                                    (fn [_] {:put names :delete delete}))))))]
+                        (async/then (async/all (map delete! delete))
+                                    (fn [attempts]
+                                      {:put    names
+                                       :delete (deleted delete attempts)}))))))]
      (async/then (async/attempt
                   #(if (:put store)
                      (async/then (if-let [list (:list store)] (list) [])

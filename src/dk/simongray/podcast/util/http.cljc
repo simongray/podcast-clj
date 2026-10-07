@@ -1158,7 +1158,7 @@
                    (async/then (answer! range-request)
                                (fn [got] {:head head :get got})))))))
 
-(defn ^:no-doc request-bytes
+(defn ^:no-doc body-bytes
   "The bytes of the `body` of a Ring request, which is a string, bytes, a
   stream or nothing. Nil when the body holds more than `max-bytes`, and
   for a stream in ClojureScript."
@@ -1175,20 +1175,6 @@
                        body
                        (.readNBytes ^InputStream body (int (inc max-bytes))))
                :cljs (when (instance? js/Uint8Array body) body)))]
-    (when (and b (<= (bytes/length b) max-bytes))
-      b)))
-
-(defn ^:no-doc body-bytes
-  "The bytes of the `body` of a Ring request, which is a string, a stream
-  or nothing. Nil when the body holds more than `max-bytes`, and for a
-  stream in ClojureScript."
-  [body max-bytes]
-  (let [b (cond
-            (nil? body)    (bytes/encode "")
-            (string? body) (bytes/encode body)
-            :else          #?(:clj  (.readNBytes ^InputStream body
-                                                 (int (inc max-bytes)))
-                              :cljs nil))]
     (when (and b (<= (bytes/length b) max-bytes))
       b)))
 

@@ -89,19 +89,20 @@
   :body, in ClojureScript as a promise.
 
   The :except of `opts` names documents to leave out, and the other
-  `opts` go to each fetch. A store without :list has none, and a document
-  deleted since the listing is left out."
+  `opts` go to each fetch. The fetches are under way at once. A store
+  without :list has none, and a document deleted since the listing is
+  left out."
   ([store]
    (fetch-all! store {}))
   ([store {:keys [except] :or {except #{}} :as opts}]
-   (let [fetch-opts (dissoc opts :except)]
+   (let [fetch-opts (dissoc opts :except)
+         fetch!     (fn [name]
+                      (async/then ((:fetch store) name fetch-opts)
+                                  #(some-> % (assoc :name name))))]
      (async/then (if-let [list (:list store)] (list) [])
                  (fn [listed]
                    (async/then
-                    (async/all (for [{:keys [name]} listed
-                                     :when (not (contains? except name))]
-                                 (async/then ((:fetch store) name fetch-opts)
-                                             #(some-> % (assoc :name name)))))
+                    (async/all fetch! (remove except (map :name listed)))
                     #(filterv some? %)))))))
 
 (def probe-name

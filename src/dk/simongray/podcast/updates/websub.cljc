@@ -295,7 +295,7 @@
   nothing about the secret."
   [{:keys [secret deliver! signature-methods max-bytes] :as env}
    {:keys [headers] :as request}]
-  (let [body      (http/request-bytes (:body request) max-bytes)
+  (let [body      (http/body-bytes (:body request) max-bytes)
         secret    (if (fn? secret) (secret request) secret)
         signature (get headers "x-hub-signature")
         links     (http/links headers)]

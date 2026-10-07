@@ -102,6 +102,26 @@
     (delete "b.edn")
     (is (= ["a.edn"] (map :name (list))))))
 
+#?(:clj
+   (deftest fetching-every-document-at-once
+     (let [s        (store/memory)
+           started  (java.util.concurrent.CountDownLatch. 2)
+           together (atom [])
+           waiting  (update s :fetch
+                            (fn [fetch]
+                              (fn [name opts]
+                                (.countDown started)
+                                (swap! together conj
+                                       (.await started 5 java.util.concurrent.TimeUnit/SECONDS))
+                                (fetch name opts))))]
+       ((:put s) "a.edn" "one" {})
+       ((:put s) "b.edn" "two" {})
+       ((:put s) "subscriptions.opml" "<opml/>" {})
+       (is (= [{:name "a.edn" :body "one" :version "1"}
+               {:name "b.edn" :body "two" :version "1"}]
+              (store/fetch-all! waiting {:except #{"subscriptions.opml"}})))
+       (is (= [true true] @together) "each fetch began before either ended"))))
+
 (deftest when-to-sync-next
   (let [at #inst "2026-01-01T00:00:00Z"
         s  (fn [n] (time/->inst (+ (inst-ms at) (* 1000 n))))]

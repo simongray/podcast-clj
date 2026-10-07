@@ -559,6 +559,13 @@
   (let [documents   (atom {})
         s           (store/memory documents)
         undeletable (dissoc (store/memory) :delete)
+        fail?       (atom true)
+        flaky       (update (store/memory) :delete
+                            (fn [delete]
+                              (fn [name]
+                                (if @fail?
+                                  (throw (ex-info "The disk said no" {}))
+                                  (delete name)))))
         made        #(library/make "phone" {:config {:now (constantly now)}})
         ids         #(mapv :id (library/search % "future"))
         breaking    (fn [docs]
@@ -617,7 +624,17 @@
          #(async/then ((:list undeletable))
                       (fn [docs]
                         (is (some (fn [{:keys [name]}] (re-find #"\.ciff$" name)) docs)
-                            "a store that can't delete keeps the old segments"))))))
+                            "a store that can't delete keeps the old segments")))
+         #(async/then (async/then (library/save! library flaky)
+                                  (fn [_] (library/save! (made) flaky)))
+                      (fn [{:keys [delete error]}]
+                        (is (nil? error) "a delete that failed doesn't fail the save")
+                        (is (= [] delete))))
+         #(do (reset! fail? false)
+              (async/then (library/save! (made) flaky)
+                          (fn [{:keys [delete]}]
+                            (is (some (fn [name] (re-find #"\.ciff$" name)) delete)
+                                "the next save deletes it")))))))
 
 (deftest a-document-to-save-by-hand
   (let [{:keys [name body]} (library/document library {:app "test"})

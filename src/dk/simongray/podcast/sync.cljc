@@ -304,8 +304,8 @@
        (put (:name own) (:body own) {}))
      (fn [result]
        (async/then
-        (async/all (when delete
-                     (map delete! retired)))
+        (when delete
+          (async/all delete! retired))
         (fn [_]
           (let [left (reduce dissoc versions (map document-name retired))]
             {:cursor (cond-> (assoc cursor :hash written :versions left)

@@ -534,14 +534,14 @@
   (is (= [] (http/links {"link" (apply str (repeat 20000 "<"))})) "a long header of a stranger"))
 
 (deftest the-bytes-of-a-ring-request
-  (is (= 0 (bytes/length (http/request-bytes nil 10))))
-  (is (= [5 nil] [(bytes/length (http/request-bytes "hello" 5)) (http/request-bytes "hello!" 5)]))
-  (is (= 5 (bytes/length (http/request-bytes "Ærø" 5))) "the limit is in bytes")
-  (is (nil? (http/request-bytes "Ærø" 4)))
-  (is (= 3 (bytes/length (http/request-bytes (bytes/of [1 2 3]) 3))))
+  (is (= 0 (bytes/length (http/body-bytes nil 10))))
+  (is (= [5 nil] [(bytes/length (http/body-bytes "hello" 5)) (http/body-bytes "hello!" 5)]))
+  (is (= 5 (bytes/length (http/body-bytes "Ærø" 5))) "the limit is in bytes")
+  (is (nil? (http/body-bytes "Ærø" 4)))
+  (is (= 3 (bytes/length (http/body-bytes (bytes/of [1 2 3]) 3))))
   #?(:clj (is (= [3 nil]
-                 [(bytes/length (http/request-bytes (java.io.ByteArrayInputStream. (byte-array 3)) 3))
-                  (http/request-bytes (java.io.ByteArrayInputStream. (byte-array 4)) 3)])
+                 [(bytes/length (http/body-bytes (java.io.ByteArrayInputStream. (byte-array 3)) 3))
+                  (http/body-bytes (java.io.ByteArrayInputStream. (byte-array 4)) 3)])
               "a stream, of which one byte more than the limit is read")))
 
 (deftest the-body-of-a-ring-request
