@@ -69,6 +69,7 @@
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
+            [dk.simongray.podcast.util.search :as full-text]
             [dk.simongray.podcast.util.time :as time]))
 
 (def default-config
@@ -130,7 +131,7 @@
   [index feed-guid]
   (let [of-feed? #(or (= feed-guid %)
                       (and (vector? %) (= feed-guid (first %))))]
-    (reduce search/remove index (filter of-feed? (keys (:docs index))))))
+    (reduce full-text/remove index (filter of-feed? (keys (:docs index))))))
 
 (defn- reindexed
   "The `library` with the feed `feed-guid` indexed again, when it keeps an
@@ -140,7 +141,7 @@
     (let [{:keys [feed url]} (get-in library [:feeds feed-guid])
           cleared (unindexed index feed-guid)
           docs    (when feed (documents feed url))]
-      (assoc library :index (reduce search/add cleared docs)))
+      (assoc library :index (reduce full-text/add cleared docs)))
     library))
 
 (defn- kept
@@ -617,14 +618,14 @@
 
 (defn search
   "The episodes and shows of `library` that match the query `q`, best
-  first, with the `opts` of search/query.
+  first, with the `opts` of util.search/query.
 
   The library has an index when its config has :search?, and
   without one, this returns nil."
   ([library q]
    (search library q {}))
   ([library q opts]
-   (some-> (:index library) (search/query q opts))))
+   (some-> (:index library) (full-text/query q opts))))
 
 (defn step
   "The `library` after the player `event`, with `opts`, both as

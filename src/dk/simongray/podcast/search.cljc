@@ -8,16 +8,16 @@
       (episodes feed {:where {:season 2 :type \"full\" :duration [600 nil]}
                       :order :newest})
 
-  The full-text index is a map built with index and add, and searched with
-  query. Text is analyzed by util.text, so \"cafe\" finds \"Café\", and
-  the results are ranked by BM25 per field."
-  (:refer-clojure :exclude [remove])
+  For full-text search, item-document and feed-document make the
+  documents of episodes and shows, and index makes an index of them for
+  util.search, which ranks a match in a title above one in the notes."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.util.search :as full-text]
             [dk.simongray.podcast.util.text :as text]))
 
 (defn- query-terms
@@ -26,26 +26,11 @@
   [s]
   (mapv #(if (vector? %) (first %) %) (text/tokens s)))
 
-(defn- lone-character?
-  "Whether the query text `s` is one character of a script without spaces
-  between words, which a query completes as a prefix."
-  [s]
-  (let [[term :as terms] (text/tokens s)]
-    (and (= 1 (count terms))
-         (string? term)
-         (text/unspaced? term))))
-
-(defn ^:no-doc spaced
-  "The query `q` with every kind of whitespace as a space, since the regex
-  \\s matches only ASCII whitespace on the JVM but all of it in JavaScript."
-  [q]
-  (str/replace q #"[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]" " "))
-
 (defn- words
   "The :terms of the query `q`, with the last one as a :prefix to complete
   unless `q` ends in whitespace."
   [q]
-  (let [q     (spaced q)
+  (let [q     (full-text/spaced q)
         terms (query-terms q)]
     (if (and (seq terms) (not (re-find #"\s$" q)))
       {:terms (pop terms) :prefix (peek terms)}
@@ -133,489 +118,24 @@
       :stored (into {} (filter (comp some? val))
                     {:title title :author author :url url})})))
 
-(def ^{:no-doc true :const true} span
-  "The block of positions that each field of a document gets.
-
-  The positions of a term in a document are in one vector, each offset by
-  its field's number times this. Two positions one apart are then always
-  in the same field. A longer field is indexed up to this length."
-  1000000)
-
-(declare add)
-
-(defn index
-  "An index of `docs`, or an empty one to add to.
-
-  It's a plain map that prints as EDN. Read back from EDN, its :terms is a
-  hash set, so prefix search scans every term until you sort it again:
-
-      (update index :terms #(into (sorted-set) %))"
-  ([]
-   {:docs {} :postings {} :terms (sorted-set) :fields {}})
-  ([docs]
-   (reduce add (index) docs)))
-
-(defn remove
-  "The `index` without the document `id`."
-  [index id]
-  (if-let [{:keys [lengths terms]} (get-in index [:docs id])]
-    (let [known    (:postings index)
-          gone     (filter #(= 1 (count (get known %))) terms)
-          postings (persistent!
-                    (reduce (fn [postings term]
-                              (let [docs (dissoc (get known term) id)]
-                                (if (empty? docs)
-                                  (dissoc! postings term)
-                                  (assoc! postings term docs))))
-                            (transient known) terms))]
-      (-> index
-          (update :docs dissoc id)
-          (assoc :postings postings)
-          (update :terms #(reduce disj % gone))
-          (update :fields
-                  (fn [fields]
-                    (reduce-kv (fn [fields field n]
-                                 (-> fields
-                                     (update-in [field :docs] dec)
-                                     (update-in [field :length] - n)))
-                               fields lengths)))))
-    index))
-
-(defn- analyze
-  "The terms of the field value `v` by position: a string tokenized, a
-  vector taken as terms already, or each string of any other collection
-  tokenized."
-  [v]
-  (cond
-    (string? v) (text/tokens v)
-    (vector? v) v
-    :else       (into [] (mapcat text/tokens) v)))
-
-(defn- numbered
-  "The `fields` of an index with a number for each new field of
-  `analyzed`, in order of appearance."
-  [fields analyzed]
-  (reduce (fn [fields field]
-            (if (contains? fields field)
-              fields
-              (assoc fields field {:no (count fields) :docs 0 :length 0})))
-          fields (keys analyzed)))
-
-(defn- placed
-  "The transient map `acc` of terms to positions with `term` at `at`. A
-  term has one position, or a vector of them."
-  [acc term at]
-  (let [seen (get acc term)]
-    (assoc! acc term (cond
-                       (nil? seen)    at
-                       (vector? seen) (conj seen at)
-                       :else          [seen at]))))
-
-(defn- positions
-  "The positions of each term in the `analyzed` fields, by term, as one
-  position or a vector of them. Each is offset into the block of its field
-  by the field `numbers`, and the terms of a vector share a position."
-  [numbers analyzed]
-  (persistent!
-   (reduce-kv (fn [acc field terms]
-                (let [base (long (* span (get numbers field)))]
-                  (loop [i 0 terms (seq terms) acc acc]
-                    (if (and terms (< i span))
-                      (let [term (first terms)
-                            at   (+ base i)
-                            acc  (if (vector? term)
-                                   (reduce #(placed %1 %2 at) acc term)
-                                   (placed acc term at))]
-                        (recur (inc i) (next terms) acc))
-                      acc))))
-              (transient {}) analyzed)))
-
-(defn add
-  "The `index` with the document `doc`, a map of :id, :fields and :stored,
-  replacing any earlier one with the same id."
-  [index {:keys [id fields stored] :as doc}]
-  (when (nil? id)
-    (throw (ex-info "A document needs an :id" {:document doc})))
-  (let [index    (remove index id)
-        analyzed (into {} (for [[field v] fields
-                                :let [terms (analyze v)]
-                                :when (seq terms)]
-                            [field terms]))
-        fields   (numbered (:fields index) analyzed)
-        by-term  (positions (update-vals fields :no) analyzed)
-        known    (:postings index)
-        ;; the postings' own string for a term they already hold, so that an
-        ;; index keeps one copy of each term
-        terms    (mapv #(if-let [e (find known %)] (key e) %) (keys by-term))
-        postings (persistent!
-                  (reduce-kv (fn [postings term at]
-                               (let [docs (assoc (get postings term) id at)]
-                                 (assoc! postings term docs)))
-                             (transient known) by-term))]
-    (-> index
-        (assoc-in [:docs id] {:stored  stored
-                              :lengths (update-vals analyzed count)
-                              :terms   terms})
-        (assoc :postings postings)
-        (update :terms into (filter #(not (contains? known %))) terms)
-        (assoc :fields
-               (reduce-kv (fn [fields field terms]
-                            (-> fields
-                                (update-in [field :docs] inc)
-                                (update-in [field :length] + (count terms))))
-                          fields analyzed)))))
-
 (def boosts
   "How much a match in each field weighs in a query, e.g. a word in a
   title counts three times a word in the notes."
   {:title 3 :show 2 :author 2 :people 2 :chapters 2 :keywords 2
    :categories 1 :description 1 :transcript 1})
 
-;; k1, b and idf are those of BM25Similarity of Lucene
-(def ^{:no-doc true :const true} k1
-  "BM25's saturation: how soon repeating a term stops counting."
-  1.2)
+(def aliases
+  "Other names that a query can give the fields of the documents, e.g.
+  notes:clojure for a word in the description."
+  {"notes" :description})
 
-(def ^{:no-doc true :const true} b
-  "BM25's length normalization: how much a long field is discounted."
-  0.75)
-
-(defn- idf
-  "The inverse document frequency of a term found in `n` of `total`
-  documents."
-  ^double [^long total ^long n]
-  (Math/log (+ 1 (/ (+ (- total n) 0.5) (+ n 0.5)))))
-
-(defn- at-positions
-  [at]
-  (cond (nil? at) [] (vector? at) at :else [at]))
-
-(defn- field-counts
-  "The count of positions in each field of the posting `at`, by field
-  number."
-  [at]
-  (if (vector? at)
-    (persistent!
-     (reduce (fn [counts p]
-               (let [no (quot (long p) span)]
-                 (assoc! counts no (inc (long (get counts no 0))))))
-             (transient {}) at))
-    {(quot (long at) span) 1}))
-
-(defn- weighing
-  "The constants of each field of `index` for scoring with `boosts` and
-  the BM25 parameters `k1` and `b`, by field number.
-
-  Each has the field's name, its boost, and the constants of BM25's
-  saturation, tf (k1 + 1) / (tf + a + c length). The constants fold in
-  `k1`, `b` and the field's average length."
-  [index boosts k1 b]
-  (let [k1 (double k1) b (double b)]
-    (into {} (for [[name {:keys [no docs length]}] (:fields index)
-                   :let [average (if (pos? (long docs))
-                                   (/ (double length) (long docs))
-                                   1.0)]]
-               [no {:name  name
-                    :boost (double (get boosts name 1))
-                    :k     (+ k1 1)
-                    :a     (* k1 (- 1 b))
-                    :c     (/ (* k1 b) average)}]))))
-
-(defn- weight
-  "The boosted BM25 weight of a term in the document `id` of `index`, with
-  the `counts` by field number, using the constants of `weighing`."
-  ^double [index weighing id counts]
-  (let [lengths (get-in index [:docs id :lengths])
-        weigh   (fn [sum no tf]
-                  (let [{:keys [name boost k a c]} (get weighing no)
-                        boost (double boost)]
-                    (if (zero? boost)
-                      sum
-                      (let [tf      (long tf)
-                            length  (long (get lengths name))
-                            divisor (+ tf (double a) (* (double c) length))]
-                        (+ (double sum)
-                           (* boost (/ (* tf (double k)) divisor)))))))]
-    (double (reduce-kv weigh 0.0 counts))))
-
-(defn- expansions
-  "The terms of `index` that `term` matches: itself, or with `prefix?`,
-  every term that starts with it. An index read back from EDN has no sorted
-  terms, so it takes a scan."
-  [index term prefix?]
-  (let [terms (:terms index)]
-    (cond
-      (not prefix?)   (when (contains? (:postings index) term) [term])
-      (sorted? terms) (subseq terms >= term < (str term "￿"))
-      :else           (filter #(str/starts-with? % term) terms))))
-
-(defn- best-scores
-  "The transient `scores` with the score of each document in `docs`, the
-  postings of a term of the inverse document frequency `idf`, where it's
-  higher than the score that the document has. It uses the constants of
-  `weighing` of `index`."
-  [index weighing idf scores docs]
-  (let [idf (double idf)]
-    (reduce-kv (fn [scores id at]
-                 (let [counts (field-counts at)
-                       score  (* idf (weight index weighing id counts))]
-                   (if (pos? score)
-                     (assoc! scores id (max score (double (get scores id 0.0))))
-                     scores)))
-               scores docs)))
-
-(defn- term-scores
-  "The scores of the documents of `index` that hold `term`, as a map of id
-  to score, using the constants of `weighing`. With `prefix?`, a document
-  scores by its best term that starts with `term`."
-  [index weighing term prefix?]
-  (let [total (count (:docs index))]
-    (persistent!
-     (reduce (fn [scores term]
-               (let [docs (get-in index [:postings term])
-                     idf  (idf total (count docs))]
-                 (best-scores index weighing idf scores docs)))
-             (transient {}) (expansions index term prefix?)))))
-
-(defn- phrase-counts
-  "The number of times the `terms` occur in a row in the document `id`, by
-  field number, from the `postings` of an index."
-  [postings terms id]
-  (let [at-term #(at-positions (get-in postings [% id]))
-        sets    (map (comp set at-term) (rest terms))]
-    (frequencies
-     (for [start (at-term (first terms))
-           :let  [start (long start)
-                  next? (fn [i s] (contains? s (+ start (long i) 1)))]
-           :when (every? identity (map-indexed next? sets))]
-       (quot start span)))))
-
-(defn- phrase-scores
-  "The scores of the documents of `index` where the `terms` occur in a
-  row, as a map of id to score, using the constants of `weighing`."
-  [index weighing terms]
-  (let [postings (:postings index)
-        total    (count (:docs index))
-        idf      (->> terms
-                      (map #(idf total (count (get postings %))))
-                      (reduce +)
-                      double)
-        ids      (reduce (fn [ids term]
-                           (filter #(contains? (get postings term) %) ids))
-                         (keys (get postings (first terms)))
-                         (rest terms))]
-    (into {} (for [id ids
-                   :let [counts (phrase-counts postings terms id)
-                         score  (* idf (weight index weighing id counts))]
-                   :when (pos? score)]
-               [id score]))))
-
-(defn- clauses
-  "The clauses of the query `q`, a string or a vector of terms, with the
-  last word as a prefix if `prefix?` and at least `min-prefix` long.
-
-  A word is a map with its :term, and :prefix? when it's a prefix. Words in
-  quotes or joined by punctuation, e.g. \"2.0\", are one map with them as
-  its :phrase. A query that ends in whitespace or a quote has no prefix."
-  [q prefix? min-prefix]
-  (if (string? q)
-    (let [clause  (fn [s terms]
-                    (cond
-                      (lone-character? s) {:term (first terms) :prefix? true}
-                      (= 1 (count terms)) {:term (first terms)}
-                      :else               {:phrase terms}))
-          clauses (vec (for [[_ quoted word] (re-seq #"\"([^\"]*)\"|(\S+)" q)
-                             :let  [s     (or quoted word)
-                                    terms (query-terms s)]
-                             :when (seq terms)]
-                         (clause s terms)))
-          last    (dec (count clauses))
-          term    (when (<= 0 last) (:term (clauses last)))]
-      (if (and prefix?
-               (<= 0 last)
-               (<= (long min-prefix) (count (str term)))
-               term
-               (not (re-find #"[\s\"]$" q)))
-        (assoc-in clauses [last :prefix?] true)
-        clauses))
-    (mapv #(hash-map :term %) q)))
-
-(defn- clause-scores
-  [index weighing {:keys [term prefix? phrase]}]
-  (if phrase
-    (phrase-scores index weighing phrase)
-    (term-scores index weighing term prefix?)))
-
-(defn- matching
-  "The ids in every one of the `scored` clause maps, or in any of them
-  when `match` is :any."
-  [scored match]
-  (case match
-    :all (let [[smallest & others] (sort-by count scored)
-               in-all?             (fn [id] (every? #(contains? % id) others))]
-           (into [] (filter in-all?) (keys smallest)))
-    :any (into [] (distinct) (mapcat keys scored))))
-
-(defn- compare-ids
-  "The order of the ids `x` and `y` of two results of the same score, as
-  better gives it."
-  [x y]
-  (if (and (number? x) (number? y))
-    (compare x y)
-    (let [hx (long (hash x))
-          hy (long (hash y))]
-      (cond
-        (< hx hy) -1
-        (> hx hy) 1
-        :else     (compare (str x) (str y))))))
-
-(defn- better
-  "A comparator of the results `a` and `b`: the higher score first, then
-  the lower id.
-
-  Ids that aren't both numbers compare by hash and then as strings, so
-  that the order is total and the same on both platforms, which hash
-  numbers differently. BM25 ties are common, so this must stay cheap."
-  [a b]
-  (let [sa (double (:score a))
-        sb (double (:score b))]
-    (cond
-      (> sa sb) -1
-      (< sa sb) 1
-      :else     (compare-ids (:id a) (:id b)))))
-
-(defn- kept
-  "The vector `top` of at most `n` results, sorted by the comparator
-  `before`, with `result` in its place, or as it is when `result` is no
-  better than the worst of `n`."
-  [before n top result]
-  (if (and (= (count top) n)
-           (<= 0 (before result (peek top))))
-    top
-    (let [i   (loop [i 0]
-                (if (and (< i (count top))
-                         (<= (before (top i) result) 0))
-                  (recur (inc i))
-                  i))
-          top (into (conj (subvec top 0 i) result) (subvec top i))]
-      (if (> (count top) n) (pop top) top))))
-
-(defn- best
-  "The `results` sorted by the comparator `before`, at most `n` of them if
-  `n` is given.
-
-  For a small `n`, the best so far are kept in a small sorted vector, so
-  that most candidates cost one comparison with its worst. For an `n`
-  beyond the square root of the number of results, all are sorted."
-  [before n results]
-  (cond
-    (and n (<= n 0))
-    []
-
-    (or (nil? n) (>= n (Math/sqrt (count results))))
-    (let [sorted (sort before results)]
-      (vec (if n (take n sorted) sorted)))
-
-    :else
-    (reduce #(kept before n %1 %2) [] results)))
-
-(defn query
-  "The documents of `index` that match the query `q`, best first, as maps
-  of :id, :score and :stored, with the `opts` below.
-
-  Every word must occur, the last as a prefix unless `q` ends in
-  whitespace, and words in quotes in a row. The `opts` are:
-
-  - :limit, the most results
-  - :match, :any for documents that match any word instead of all
-  - :prefix?, false to take the last word whole
-  - :min-prefix, the fewest characters of a prefix, 1 by default
-  - :boosts, the field weights over boosts, where 0 leaves a field out
-  - :k1 and :b, the saturation and length normalisation of BM25
-  - :where, a predicate of a result to keep it
-  - :rank, a function of a result to order by, ascending, instead of the
-    score
-
-  Without :rank, equal scores are ordered by id, so the order is stable."
-  ([index q]
-   (query index q {}))
-  ([index q {:keys [limit match prefix? min-prefix where rank]
-             :or   {match :all prefix? true min-prefix 1}
-             :as   opts}]
-   {:pre [(map? opts)]}
-   (let [weights  (or (:boosts opts) boosts)
-         weighing (weighing index weights (:k1 opts k1) (:b opts b))
-         q        (if (string? q) (spaced q) q)
-         scored   (mapv #(clause-scores index weighing %)
-                        (clauses q prefix? min-prefix))
-         score    (fn [id]
-                    (reduce (fn [sum m]
-                              (+ (double sum) (double (get m id 0.0))))
-                            0.0
-                            scored))
-         result   (fn [id]
-                    {:id     id
-                     :score  (score id)
-                     :stored (get-in index [:docs id :stored])})
-         before   (if rank (fn [a b] (compare (rank a) (rank b))) better)
-         wanted   (if where (filter where) identity)
-         results  (into [] (comp (map result) wanted) (matching scored match))]
-     (best before limit results))))
-
-(defn- merged
-  "The `hits`, maps of :start and :end in order, with those that overlap
-  or touch, e.g. the pairs of characters of a run of Chinese, made one."
-  [hits]
-  (reduce (fn [acc {:keys [start end] :as hit}]
-            (let [last-hit (peek acc)]
-              (if (and last-hit (<= start (:end last-hit)))
-                (conj (pop acc) (update last-hit :end max end))
-                (conj acc hit))))
-          []
-          hits))
-
-(defn snippet
-  "A window of `text` around the first words that match the query `q`, as
-  parts for a result list to render, with the :width in `opts`.
-
-  It's a vector of maps with :text, and :match? on the matches, with an
-  ellipsis where the window cuts the text. The :width is the number of
-  characters shown, 160 by default."
-  ([text q]
-   (snippet text q {}))
-  ([text q {:keys [width] :or {width 160} :as opts}]
-   {:pre [(map? opts)]}
-   (let [{:keys [terms prefix]} (words (if (string? q) q (str/join " " q)))
-         hit?   (fn [{:keys [term]}]
-                  (boolean (or (some #(= term %) terms)
-                               (and prefix (str/starts-with? term prefix)))))
-         text   (str text)
-         spans  (text/spans text)
-         hits   (merged (filter hit? spans))
-         length (count text)
-         from   (if-let [{:keys [start]} (first hits)]
-                  (max 0 (- start (quot width 3)))
-                  0)
-         from   (or (some #(when (>= (:start %) from) (:start %)) spans) from)
-         to     (min length (max (+ from width) (or (:end (first hits)) 0)))
-         to     (if (< to length)
-                  (or (last (keep #(when (<= (:end %) to) (:end %)) spans)) to)
-                  to)
-         inside (filter #(and (>= (:start %) from) (<= (:end %) to)) hits)
-         piece  (fn [a b] {:text (subs text a b)})
-         parts  (loop [pos  from
-                       hits inside
-                       acc  (if (pos? from) [{:text "…"}] [])]
-                  (if-let [{:keys [start end]} (first hits)]
-                    (let [acc (cond-> acc
-                                (< pos start) (conj (piece pos start)))]
-                      (recur end
-                             (rest hits)
-                             (conj acc (assoc (piece start end) :match? true))))
-                    (cond-> acc
-                      (< pos to) (conj (piece pos to)))))]
-     (cond-> parts
-       (< to length) (conj {:text "…"})))))
+(defn index
+  "An index of the search documents `docs` for util.search, with boosts
+  and aliases as the defaults of its queries, or an empty one to add to."
+  ([]
+   (index []))
+  ([docs]
+   (full-text/index docs {:boosts boosts :aliases aliases})))
 
 (defn- in?
   [expected actual]
@@ -943,6 +463,8 @@
      (def idx
        (let [url "https://example.com/feed.xml"]
          (index (map #(item-document f % {:url url}) (:rss/items f)))))
-     (query idx "futu")
-     (snippet (html/text (resolve/description (first (:rss/items f)))) "future")
+     (full-text/query idx "futu")
+     (full-text/query idx "title:future -present")
+     (full-text/snippet (html/text (resolve/description (first (:rss/items f))))
+                        "future")
      #_.))

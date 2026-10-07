@@ -1,5 +1,6 @@
 (ns dk.simongray.podcast.search-test
-  "Filtering and ordering by criteria as data, and the full-text index."
+  "Filtering and ordering by criteria as data, and the search documents of
+  episodes and shows."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
@@ -7,7 +8,8 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.search :as search]
             [dk.simongray.podcast.test-support :refer [fixture]]
-            [dk.simongray.podcast.util.crdt :as crdt]))
+            [dk.simongray.podcast.util.crdt :as crdt]
+            [dk.simongray.podcast.util.search :as full-text]))
 
 (def example
   (delay (rss/parse (fixture "feeds/namespace-example.xml"))))
@@ -225,89 +227,6 @@
     (is (= ["Other" "Test Show"] (distinct (mapv (comp :rss/title first) (search/episodes [other show]))))
         "in the listening order, each show keeps its episodes together, in the order the feeds come")))
 
-(deftest the-index
-  (let [idx (search/index [{:id 1 :stored {:title "Clojure…"}
-                            :fields {:title "Clojure and the value of simplicity" :description "A talk about data."}}
-                           {:id 2 :fields {:title "Rust"
-                                           :description "Systems programming, and a little Clojure for the value for value era."}}
-                           {:id 3 :fields {:title "Gardening" :description "Tomatoes."}}])
-        ids (fn [q & [opts]] (mapv :id (search/query idx q (or opts {}))))]
-    (testing "every word must occur; a word in the title weighs more"
-      (is (= [1 2] (ids "clojure")))
-      (is (= [1 2] (ids "clojure value")))
-      (is (= [] (ids "clojure tomatoes")))
-      (is (= #{1 2 3} (set (ids "clojure tomatoes" {:match :any}))))
-      (is (= [] (ids "")))
-      (is (= [] (ids "   "))))
-    (testing "the last word as a prefix, unless the query ends in a space"
-      (is (= [1 2] (ids "cloj")))
-      (is (= [] (ids "cloj ")))
-      (is (= [] (ids "cloj" {:prefix? false})))
-      (is (= [2] (ids "systems cloj")) "only the last word"))
-    (testing "words in quotes must occur in a row"
-      (is (= [2] (ids "\"value for value\"")))
-      (is (= [1 2] (ids "value")))
-      (is (= [1] (ids "\"value of\""))))
-    (testing "what is stored comes back; limit and where apply"
-      (is (= {:title "Clojure…"} (:stored (first (search/query idx "clojure")))))
-      (is (nil? (:stored (second (search/query idx "clojure")))))
-      (is (= 1 (count (search/query idx "clojure" {:limit 1}))))
-      (is (= [2] (ids "clojure" {:where #(= 2 (:id %))}))))
-    (testing "the ranking is an option"
-      (is (= [2] (ids "clojure" {:boosts {:title 0 :description 1}})) "a field boosted by zero does not match")
-      (is (= [2 1] (ids "clojure" {:rank (fn [r] (- (:id r)))})) "a rank function orders the results instead")
-      (is (= (ids "clojure") (ids "clojure" {:k1 1.2 :b 0.75})) "the defaults")
-      (is (not= (:score (first (search/query idx "clojure")))
-                (:score (first (search/query idx "clojure" {:k1 2.0 :b 0.5})))))
-      (is (= [] (ids "clo" {:min-prefix 4})) "too short a word to complete")
-      (is (= [1 2] (ids "cloj" {:min-prefix 4})))
-      (is (= (take 1 (ids "clojure")) (ids "clojure" {:limit 1})) "a limit keeps the head of the full order"))
-    (testing "documents replaced and removed"
-      (let [idx (search/add idx {:id 1 :fields {:title "Haskell"}})]
-        (is (= [2] (mapv :id (search/query idx "clojure"))))
-        (is (= [1] (mapv :id (search/query idx "haskell"))))
-        (is (= 3 (count (:docs idx))))
-        (let [idx (search/remove idx 1)]
-          (is (= 2 (count (:docs idx))))
-          (is (= [] (search/query idx "haskell")))
-          (is (= [2] (mapv :id (search/query idx "clojure")))))
-        (is (= idx (search/remove idx :nobody)))))
-    (testing "fields and queries given as terms are taken as is"
-      (let [idx (search/index [{:id :a :fields {:body ["kaffe" "te"]}}])]
-        (is (= [:a] (mapv :id (search/query idx ["kaffe"]))))
-        (is (= [:a] (mapv :id (search/query idx "Kaffe"))))
-        (is (= [] (search/query idx ["Kaffe"])) "no analysis, so no folding")))
-    (testing "but the strings of a set or a list are analyzed each"
-      (is (= [:a] (mapv :id (search/query (search/index [{:id :a :fields {:keywords #{"Café" "Politics"}}}]) "cafe")))))
-    (testing "an index printed as EDN and read back, whose terms come back unsorted"
-      (let [thawed (edn/read-string (pr-str idx))]
-        (is (= [1 2] (mapv :id (search/query thawed "cloj"))))))
-    (testing "every kind of white space is one, on both platforms"
-      (is (= [2] (ids "value\u00A0for\u3000value")) "no-break and ideographic spaces"))
-    (is (thrown? #?(:clj Exception :cljs js/Error) (search/add idx {:fields {:title "no id"}})))))
-
-(deftest scripts-without-spaces
-  (let [idx (search/index [{:id 1 :fields {:title "[HSK 3] 爸爸不在家的中秋节"}}
-                           {:id 2 :fields {:title "八百八的月饼礼盒值不值"}}
-                           {:id 3 :fields {:title "第13回 本番データ消去、AIメモリ管理 ほか"}}
-                           {:id 4 :fields {:title "今天天气很好 good"}}])
-        ids (fn [q] (mapv :id (search/query idx q)))]
-    (is (= [1] (ids "中秋")) "a word inside a sentence")
-    (is (= [2] (ids "月饼")))
-    (is (= [1] (ids "中秋节")) "the pairs of a longer word in a row")
-    (is (= [3] (ids "データ")))
-    (is (= [3] (ids "メモリ 管理")))
-    (is (= [4] (ids "好")) "one character, the end of a run")
-    (is (= [1] (ids "爸")) "one character, completed as a prefix")
-    (is (= [4] (ids "\"天气很好 good\"")) "a phrase across a run and a word")
-    (is (= [] (ids "\"很好天气\"")))))
-
-(deftest limits-and-ties
-  (let [idx (search/index (for [i (range 200)] {:id i :fields {:title "same words"}}))]
-    (is (= (range 10) (mapv :id (search/query idx "same" {:limit 10}))) "equal scores in the order of numeric ids")
-    (is (= 200 (count (search/query idx "same" {:limit #?(:clj Long/MAX_VALUE :cljs js/Number.MAX_SAFE_INTEGER)}))))
-    (is (= (range 150) (mapv :id (search/query idx "same" {:limit 150}))) "a limit near the count sorts all")))
-
 (deftest documents-from-the-model
   (let [feed (deref example)
         item (first (:rss/items feed))
@@ -328,9 +247,9 @@
                                      [:fields :transcript])))
     (let [idx (search/index (map #(search/item-document feed % {:url "https://example.com/feed.xml"}) (:rss/items feed)))]
       (is (= 3 (count (:docs idx))))
-      (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"]] (mapv :id (search/query idx "futu"))))
-      (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0002"]] (mapv :id (search/query idx "\"the present\""))))
-      (is (= "Episode 3 - The Future" (:title (:stored (first (search/query idx "future")))))))
+      (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"]] (mapv :id (full-text/query idx "futu"))))
+      (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0002"]] (mapv :id (full-text/query idx "\"the present\""))))
+      (is (= "Episode 3 - The Future" (:title (:stored (first (full-text/query idx "future")))))))
     (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"needs :url"
                           (search/item-document (dissoc feed :podcast/guid) item))
         "a feed without an identity would give its episodes the ids of other shows")
@@ -339,22 +258,9 @@
       (is (= "Podcasting 2.0 Namespace Example" (get-in doc [:fields :title])))
       (is (= {:title "Podcasting 2.0 Namespace Example" :author "John Doe"} (:stored doc))))))
 
-(deftest snippets
-  (let [text "The quick brown fox jumps over the lazy dog, and the fox is quick."]
-    (is (= [{:text "The quick brown "} {:text "fox" :match? true} {:text " jumps over the lazy dog, and the "}
-            {:text "fox" :match? true} {:text " is quick."}]
-           (search/snippet text "fox")))
-    (is (= [{:text "…"} {:text "over the "} {:text "lazy" :match? true} {:text " dog, and the fox"} {:text "…"}]
-           (search/snippet text "lazy" {:width 30}))
-        "a window around the first match, cut at word boundaries")
-    (is (= [{:text "The quick brown "} {:text "fox" :match? true} {:text " jumps over the lazy dog, and the "}
-            {:text "fox" :match? true} {:text " is quick."}]
-           (search/snippet text "fo")) "the last word as a prefix")
-    (is (= [{:text "The quick brown fox jumps over the lazy dog, and the fox is quick."}]
-           (search/snippet text "cat")) "no match, the start of the text")
-    (is (= [{:text "Café"}] (search/snippet "Café" "tea")))
-    (is (= [] (search/snippet nil "tea")) "no text, no parts")
-    (is (= [{:text "Café" :match? true}] (search/snippet "Café" "cafe")) "folded like the index")
-    (is (= [{:text "…"} {:text "supercalifragilistic" :match? true} {:text "…"}]
-           (search/snippet "see supercalifragilistic word" "super" {:width 8}))
-        "a match wider than the window is shown whole")))
+(deftest the-podcast-index
+  (let [idx (search/index [{:id 1 :fields {:description "Clojure" :title "Other"}}
+                           {:id 2 :fields {:title "Clojure" :description "Other"}}])]
+    (is (= [2 1] (mapv :id (full-text/query idx "clojure"))) "a title weighs more than the notes")
+    (is (= [1] (mapv :id (full-text/query idx "notes:clojure"))) "notes is a name of the description")
+    (is (= idx (full-text/restore (edn/read-string (pr-str idx)))) "the defaults print with the index")))

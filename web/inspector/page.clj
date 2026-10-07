@@ -18,6 +18,7 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.nostr :as nostr]
+            [dk.simongray.podcast.util.search :as full-text]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]))
 
@@ -815,9 +816,9 @@
 (defn search-page
   "The results of the full-text query `q` over the items of the feed at
   `url`, or over the corpus without one: `results` are those of
-  `search/query` with the `:item` each came from, for a snippet of its
-  notes."
-  [{:keys [q url results]}]
+  util.search/query of the `index` with the :item each came from, for a
+  snippet of its notes."
+  [{:keys [q url index results]}]
   (layout (str "Search: " q)
           (when url
             [:p [:a {:href (feed-href "/feed" url)} "← back to the feed"]])
@@ -827,14 +828,17 @@
            [:input {:type        "search"
                     :name        "q"
                     :value       q
-                    :placeholder "words, a prefix, \"a phrase\""
+                    :placeholder "words, a prefix*, \"a phrase\", -not"
                     :required    true}]
            " "
            [:button {:type "submit"} "Search"]]
           [:p.muted (str "Every word must occur; the last matches as a prefix "
                          "unless a space follows it; words in quotes must "
-                         "occur in a row. A word in a title weighs more than "
-                         "one in the notes; the snippet is from the notes.")]
+                         "occur in a row. OR or | for either, NOT, ! or a "
+                         "leading - to leave out, parentheses to group, and "
+                         "title:word or notes:word for one field. A word in a "
+                         "title weighs more than one in the notes; the "
+                         "snippet is from the notes.")]
           (when (= result-limit (count results))
             [:p.muted (str "The " result-limit " best matches.")])
           (if (empty? results)
@@ -856,7 +860,8 @@
                 (when item
                   (let [notes (html/text (resolve/description item))]
                     [:div.snippet
-                     (for [{:keys [text match?]} (search/snippet notes q)]
+                     (for [{:keys [text match?]}
+                           (full-text/snippet notes q {:index index})]
                        (if match? [:mark text] text))]))])])))
 
 (defn find-page
