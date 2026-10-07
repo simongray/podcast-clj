@@ -22,7 +22,6 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.url :as url]))
 
 (def apps
@@ -347,7 +346,7 @@
         (case encoding
           :plain     (str v)
           :encoded   (url/percent-encode v)
-          :base64url (http/base64url (str v))
+          :base64url (bytes/base64url (bytes/encode (str v)))
           :hex       (bytes/hex (bytes/encode (str v)))
           :bare      (str/replace (str v) #"(?i)^[a-z][a-z0-9+.-]*://" ""))))))
 
@@ -463,13 +462,6 @@
   (when b
     (bytes/decode b 0 (bytes/length b) :utf8)))
 
-(defn- from-base64url
-  "The UTF-8 text of the base64url `s`, whose padding may be missing."
-  [s]
-  (let [b64     (str/escape s {\- "+" \_ "/"})
-        padding (subs "===" 0 (mod (- (count b64)) 4))]
-    (utf8 (bytes/from-base64 (str b64 padding)))))
-
 (defn- value-of
   "The value of the key that the part `p` of a form names, read from the
   `text` of the part in a link, or nil when the text doesn't read as one.
@@ -482,7 +474,7 @@
                           (not (str/includes? text "://")))
         v            (case encoding
                        :encoded   (url/percent-decode text)
-                       :base64url (from-base64url text)
+                       :base64url (utf8 (bytes/from-base64url text))
                        :hex       (utf8 (bytes/from-hex text))
                        (if encoded-url? (url/percent-decode text) text))
         with-scheme  (cond->> v (= :bare encoding) (str "https://"))]

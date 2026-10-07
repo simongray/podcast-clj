@@ -22,7 +22,8 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url])
+            [dk.simongray.podcast.util.url :as url]
+            [dk.simongray.podcast.util.xml :as xml])
   #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream
                             InputStream IOException]
                    [java.net URI]
@@ -30,7 +31,6 @@
                                   HttpRequest$Builder HttpRequest$BodyPublishers
                                   HttpResponse HttpResponse$BodyHandlers
                                   HttpTimeoutException]
-                   [java.nio.charset Charset StandardCharsets]
                    [java.security MessageDigest]
                    [java.time Duration]
                    [java.util.concurrent ScheduledFuture
@@ -46,15 +46,6 @@
   "The UTF-8 bytes of `s` in base64."
   [s]
   (bytes/base64 (bytes/encode s)))
-
-(defn ^:no-doc base64url
-  "The UTF-8 bytes of `s` in the base64 of URLs, without padding, as
-  section 5 of RFC 4648 defines it."
-  [s]
-  (-> (base64 s)
-      (str/replace "+" "-")
-      (str/replace "/" "_")
-      (str/replace #"=+$" "")))
 
 ;; RFC 7617, section 2 (Basic); RFC 6750, section 2.1 (Bearer)
 (defn authorization
@@ -385,42 +376,13 @@
      (with-open [in (GZIPInputStream. (ByteArrayInputStream. body))]
        (read-bounded in max-bytes url))))
 
-#?(:clj
-   (defn- bom-charset
-     "The charset that the byte order mark at the start of `body` names, or
-     nil when there's none."
-     [^bytes body]
-     (let [at   (fn [i]
-                  (when (< i (alength body))
-                    (bit-and (aget body i) 0xff)))
-           head (map at (range 3))]
-       (cond
-         (= [0xef 0xbb 0xbf] head)     StandardCharsets/UTF_8
-         (= [0xfe 0xff] (take 2 head)) StandardCharsets/UTF_16BE
-         (= [0xff 0xfe] (take 2 head)) StandardCharsets/UTF_16LE))))
-
-;; RFC 7303, section 3.2
-#?(:clj
-   (defn- declared-charset
-     "The charset that a response declares by its `headers` and `body`, or
-     UTF-8 when none of them names one.
-
-     The byte order mark of the body counts first, then the Content-Type
-     header, and then the XML declaration at the start of the body."
-     [headers ^bytes body]
-     (let [content-type (or (header headers "content-type") "")
-           head         (String. body 0 (min 200 (alength body))
-                                 StandardCharsets/ISO_8859_1)
-           charset      #"(?i)charset=\"?([\w.:-]+)"
-           encoding     #"(?i)<\?xml[^>]*encoding=[\"']([\w.:-]+)"
-           name         (or (second (re-find charset content-type))
-                            (second (re-find encoding head))
-                            "UTF-8")]
-       (or (bom-charset body)
-           (try
-             (Charset/forName name)
-             (catch Exception _
-               StandardCharsets/UTF_8))))))
+(defn- charset
+  "The charset that the Content-Type of the response `headers` names, or
+  nil."
+  [headers]
+  (some->> (header headers "content-type")
+           (re-find #"(?i)charset=\"?([\w.:-]+)")
+           second))
 
 #?(:clj
    (defn ^:no-doc inflated
@@ -436,16 +398,13 @@
      "The `body` bytes of the response with `headers` as a string,
      gunzipped to at most `max-bytes` when the response says so.
 
-     With nil `max-bytes`, there's no limit. The body is decoded by the
-     charset that the response declares, or else by the XML declaration,
-     or else as UTF-8. A byte order mark is left out, as a browser leaves
-     it out."
+     With nil `max-bytes`, there's no limit. The body is decoded as
+     util.xml/decode decodes a document, with the charset that the
+     Content-Type names."
      ([headers body]
       (decode headers body nil))
      ([headers ^bytes body max-bytes]
-      (let [body (inflated headers body max-bytes)
-            s    (String. body ^Charset (declared-charset headers body))]
-        (cond-> s (str/starts-with? s "\uFEFF") (subs 1))))))
+      (xml/decode (inflated headers body max-bytes) (charset headers)))))
 
 ;; RFC 9110, section 14.4
 (defn content-range
@@ -788,7 +747,7 @@
                     (pos? (.-length b))
                     (assoc :body (if (= :bytes as)
                                    b
-                                   (.decode (js/TextDecoder.) b))))))))))
+                                   (xml/decode b (charset headers)))))))))))
 
 (defn send!
   "Send the `request`, and give the response as a map of :status, :url,
@@ -881,22 +840,18 @@
   functions that send take from their options."
   [:timeout-seconds :max-bytes :allow?])
 
-(def ^:no-doc feed-types
-  "The Accept header of a request for a feed."
-  "application/rss+xml, application/xml, text/xml, */*")
-
-(defn feed-request
-  "The request for the feed at `url` that fetch! sends with `opts`, the
-  options of fetch!.
+(defn fetch-request
+  "The request for the document at `url` that fetch! sends with `opts`,
+  the options of fetch!.
 
   A user name and a password in `url` are the credentials when `opts`
   give none, and the request goes to the URL without them, as
   url/split-credentials splits them."
   ([url]
-   (feed-request url {}))
+   (fetch-request url {}))
   ([url {:keys [etag last-modified credentials user-agent accept]
          :or   {user-agent dk.simongray.podcast.util.http/user-agent
-                accept     feed-types}
+                accept     "*/*"}
          :as   opts}]
    (let [[url in-url] (url/split-credentials url)
          auth         (authorization (or credentials in-url))]
@@ -909,10 +864,10 @@
                        auth          (assoc "Authorization" auth))))))
 
 (defn fetch!
-  "GET the feed at `url` with `opts`, and give the response with the body
-  as text, in ClojureScript as a promise.
+  "GET the document at `url` with `opts`, and give the response with the
+  body as text, in ClojureScript as a promise.
 
-  The request is the one that feed-request gives. The response also has
+  The request is the one that fetch-request gives. The response also has
   :etag and :last-modified when the server gives them. It has :not-before
   when the server says how long to wait, as not-before reads it.
 
@@ -921,15 +876,15 @@
   - :etag and :last-modified from an earlier response. They go as
     If-None-Match and If-Modified-Since, and a 304 then comes back with
     no body.
-  - :credentials of a private feed, as authorization takes them
+  - :credentials, as authorization takes them
   - :user-agent, to send in place of user-agent
-  - :accept, the Accept header, which asks for a feed by default
+  - :accept, the Accept header, */* by default
   - :timeout-seconds, :max-bytes and :allow?, as send! takes them
   - :send, the function that sends the request, send! by default"
   ([url]
    (fetch! url {}))
   ([url {:keys [send] :or {send send!} :as opts}]
-   (async/then (send (feed-request url opts))
+   (async/then (send (fetch-request url opts))
                (fn [{:keys [headers] :as response}]
                  (let [wait          (not-before headers (time/now))
                        etag          (header headers "etag")

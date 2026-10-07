@@ -5,13 +5,14 @@
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pprint]
             [clojure.string :as str]
+            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.directory :as directory]
-            [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.check :as check]
             [dk.simongray.podcast.feed.discovery :as discovery]
+            [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.validate :as validate]
@@ -102,7 +103,8 @@
         refetch (fn [old]
                   (let [validators (select-keys old [:etag :last-modified])
                         {:keys [status body] :as response}
-                        (http/fetch! url validators)]
+                        (http/fetch! url (assoc validators
+                                                :accept podcast/feed-types))]
                     (cond
                       (and old (= 304 status))
                       (assoc old :at now)

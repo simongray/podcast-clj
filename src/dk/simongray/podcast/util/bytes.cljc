@@ -16,7 +16,8 @@
   tells so. The reading function turns what a reader throws into data.
   The read! function fetches what a reader needs until the reading is
   done, and report gives the diagnostics of a reading."
-  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
+  (:require [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.time :as time]
             #?(:cljs [goog.crypt.Hmac])
@@ -168,6 +169,24 @@
          :cljs (js/Uint8Array.from (js/atob s) #(.charCodeAt % 0)))
       (catch #?(:clj IllegalArgumentException :cljs :default) _
         nil))))
+
+;; RFC 4648, section 5
+(defn base64url
+  "The bytes `b` in the base64 of URLs, without padding."
+  [b]
+  (-> (base64 b)
+      (str/escape {\+ "-" \/ "_"})
+      (str/replace #"=+$" "")))
+
+;; RFC 4648, section 5
+(defn from-base64url
+  "The bytes that the base64url text `s` names, with its padding or
+  without it, or nil for a text that isn't base64url."
+  [s]
+  (when (and (string? s)
+             (re-matches #"[A-Za-z0-9_-]*={0,2}" s))
+    (let [b64 (str/escape (str/replace s #"=+$" "") {\- "+" \_ "/"})]
+      (from-base64 (str b64 (subs "===" 0 (mod (- (count b64)) 4)))))))
 
 ;; RFC 2397, section 3
 (defn data-url

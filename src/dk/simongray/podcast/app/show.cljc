@@ -13,7 +13,8 @@
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.podcast.util.xml :as xml]))
 
 (def default-limits
   "The limits of fetch-linked-shows! when its options don't set them: how
@@ -119,13 +120,6 @@
       (recur (+ o (bytes/length b)))
       p)))
 
-(defn- feed-text
-  "The text of the bytes `b` of a feed, as fetch! reads a feed: by the
-  charset that it declares on the JVM, and as UTF-8 in JavaScript."
-  [b]
-  #?(:clj  (http/decode {} b)
-     :cljs (bytes/decode b 0 (bytes/length b) :utf8)))
-
 (defn- channel-head
   "A reading of the view `v` of a feed: the text of the feed cut before its
   first item and closed, or the bytes that it needs to find that item."
@@ -136,11 +130,11 @@
           [_ before] (re-find #"(?s)^(.*?)<item[\s/>]" head)]
       (cond
         before
-        {:text (str (feed-text (bytes/slice v 0 (count before)))
+        {:text (str (xml/decode (bytes/slice v 0 (count before)))
                     "</channel></rss>")}
 
         (= n (:total v))
-        {:text (feed-text (bytes/slice v 0 n))}
+        {:text (xml/decode (bytes/slice v 0 n))}
 
         :else
         (bytes/need v n (inc n))))))

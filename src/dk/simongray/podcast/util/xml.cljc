@@ -235,6 +235,55 @@
     (subs s 1)
     s))
 
+(defn- bom-encoding
+  "The encoding that the byte order mark at the start of the bytes `b`
+  names, or nil when there's none."
+  [b]
+  (let [n    #?(:clj (alength ^bytes b) :cljs (.-length b))
+        at   (fn [i]
+               (when (< i n)
+                 #?(:clj  (bit-and (aget ^bytes b i) 0xff)
+                    :cljs (aget b i))))
+        head (map at (range 3))]
+    (cond
+      (= [0xef 0xbb 0xbf] head)     "UTF-8"
+      (= [0xfe 0xff] (take 2 head)) "UTF-16BE"
+      (= [0xff 0xfe] (take 2 head)) "UTF-16LE")))
+
+(defn- declared-encoding
+  "The encoding that the XML declaration at the start of the bytes `b`
+  names, or nil."
+  [b]
+  (let [n    (min 200 #?(:clj (alength ^bytes b) :cljs (.-length b)))
+        head #?(:clj  (String. ^bytes b 0 (int n) "ISO-8859-1")
+                :cljs (.decode (js/TextDecoder. "latin1") (.subarray b 0 n)))]
+    (second (re-find #"(?i)<\?xml[^>]*encoding=[\"']([\w.:-]+)" head))))
+
+;; XML 1.0, appendix F; RFC 7303, section 3.2
+(defn decode
+  "The text of the XML document in the bytes `b`, by the encoding that its
+  byte order mark names, or else by `charset`, e.g. that of the
+  Content-Type of a response, or else by its XML declaration, or else as
+  UTF-8.
+
+  An encoding that the platform doesn't know counts as UTF-8, and a byte
+  order mark is left out, as a browser leaves it out."
+  ([b]
+   (decode b nil))
+  ([b charset]
+   (let [encoding (or (bom-encoding b) charset (declared-encoding b) "UTF-8")]
+     (strip-bom
+      #?(:clj  (String. ^bytes b
+                        (try
+                          (java.nio.charset.Charset/forName encoding)
+                          (catch Exception _
+                            java.nio.charset.StandardCharsets/UTF_8)))
+         :cljs (.decode (try
+                          (js/TextDecoder. encoding)
+                          (catch :default _
+                            (js/TextDecoder. "utf-8")))
+                        b))))))
+
 (defn ^:no-doc malformed
   "The error for XML that the parser rejects with `message`, and `cause`,
   the exception that carried the message, or nil."

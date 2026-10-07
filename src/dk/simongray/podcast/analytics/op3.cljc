@@ -23,6 +23,7 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.publish :as publish]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
@@ -143,7 +144,7 @@
   [id]
   (cond
     (guid/guid? id)    {"podcastGuid" (str/lower-case id)}
-    (url/web-url? id) {"feedUrlBase64" (http/base64url id)}
+    (url/web-url? id)  {"feedUrlBase64" (bytes/base64url (bytes/encode id))}
     :else              {"showUuid" id}))
 
 (defn- query
@@ -165,7 +166,9 @@
                 continuation-token]}]
   (case call
     :show
-    (let [id (if (url/web-url? show) (http/base64url show) show)]
+    (let [id (if (url/web-url? show)
+               (bytes/base64url (bytes/encode show))
+               show)]
       [(str "shows/" (url/percent-encode id))
        {"episodes" (when episodes? "include")}])
 

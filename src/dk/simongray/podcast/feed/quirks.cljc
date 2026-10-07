@@ -15,7 +15,6 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.spec :as spec]
-            #?(:clj [dk.simongray.podcast.util.http :as http])
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.xml :as xml]))
 
@@ -365,7 +364,7 @@
   :repair/lenient-parser. Otherwise, it throws the error of the strict
   parser."
   [xml {:keys [except] :as opts}]
-  (let [text            #?(:clj  (if (bytes? xml) (http/decode {} xml) xml)
+  (let [text            #?(:clj  (if (bytes? xml) (xml/decode xml) xml)
                            :cljs xml)
         repaired        (repair text opts)
         report          (:report repaired)

@@ -1,6 +1,8 @@
 (ns dk.simongray.podcast.util.xml-test
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def sample
@@ -58,6 +60,17 @@
               (xml/report tree)))
        (is (= {:foo nil} (xml/foreign-namespaces tree)) "recorded with no URI")
        (is (not (re-find #"foo" (xml/emit tree))) "so that emit leaves it out"))))
+
+(deftest decoding-a-document
+  (let [doc    "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><t>Blåbær</t>"
+        latin  (bytes/of (map #?(:clj int :cljs #(.charCodeAt % 0)) doc))
+        utf-8  (bytes/encode (str/replace doc "ISO-8859-1" "UTF-8"))]
+    (is (= doc (xml/decode latin)) "by the declaration")
+    (is (= (str/replace doc "ISO-8859-1" "UTF-8") (xml/decode utf-8)))
+    (is (= (str/replace doc "ISO-8859-1" "UTF-8") (xml/decode utf-8 "UTF-8")) "by the charset given")
+    (is (= "<a/>" (xml/decode (bytes/of [0xef 0xbb 0xbf 0x3c 0x61 0x2f 0x3e]) "ISO-8859-1"))
+        "by the byte order mark first, which is left out")
+    (is (= "<a/>" (xml/decode (bytes/encode "<a/>") "nonsense")) "an unknown charset counts as UTF-8")))
 
 (deftest helpers
   (let [el [:a {:x "1"} "t1" [:b {} "inner"] "t2" [:c {}] [:b {} "again"]]]

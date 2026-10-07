@@ -17,6 +17,10 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.url :as url]))
 
+(def ^:no-doc feed-types
+  "The Accept header of a request for a feed."
+  "application/rss+xml, application/xml, text/xml, */*")
+
 (defn- parsed-page
   "The `answer` of fetch-page! to the 200 `response`, with the feed of its
   body parsed with `opts`: the :body, the :feed and its :websub hubs, or
@@ -38,9 +42,11 @@
   for a feed of one page: the answer of the server, with the :feed or the
   :error. Deferred."
   [url opts]
-  (let [http-opts (select-keys opts [:etag :last-modified :credentials
-                                     :timeout-seconds :max-bytes :user-agent
-                                     :allow? :send])]
+  (let [http-opts (-> opts
+                      (select-keys [:etag :last-modified :credentials
+                                    :timeout-seconds :max-bytes :user-agent
+                                    :allow? :send])
+                      (assoc :accept feed-types))]
     (async/then (async/attempt #(http/fetch! url http-opts))
                 (fn [{response :value error :error}]
                   (let [answer (select-keys response [:status :url

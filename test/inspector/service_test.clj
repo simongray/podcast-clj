@@ -217,7 +217,7 @@
   (let [url   "https://example.com/once.xml"
         calls (atom [])]
     (with-redefs [http/fetch! (fn [u & [opts]]
-                                (when (= url u) (swap! calls conj opts))
+                                (when (= url u) (swap! calls conj (dissoc opts :accept)))
                                 (if (:etag opts)
                                   {:status 304 :url u :etag "v1"}
                                   {:status 200 :url u :etag "v1" :body example}))]

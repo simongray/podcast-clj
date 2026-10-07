@@ -41,6 +41,19 @@
   (is (= 32 (bytes/length (bytes/hmac-sha256 (bytes/of (repeat 200 1)) (bytes/of []))))
       "a key of more bytes than a block of the hash, and an empty message"))
 
+(deftest base64-of-urls
+  (let [text #(bytes/base64url (bytes/encode %))]
+    (is (= "aHR0cHM6Ly9mZWVkcy5wb2RjYXN0aW5kZXgub3JnL3BjMjAueG1s"
+           (text "https://feeds.podcastindex.org/pc20.xml")))
+    (is (= "Pz8_Pj4-" (text "???>>>")) "with - and _ in the place of + and /")
+    (is (= ["YQ" "YWI" "YWJj"] (map text ["a" "ab" "abc"])) "and without padding"))
+  (doseq [s ["" "a" "ab" "abc" "???>>>"]]
+    (is (= s (let [b (bytes/from-base64url (bytes/base64url (bytes/encode s)))]
+               (bytes/decode b 0 (bytes/length b) :utf8)))
+        (pr-str s)))
+  (is (= "616263" (bytes/hex (bytes/from-base64url "YWJj="))) "padding is fine too")
+  (is (every? nil? (map bytes/from-base64url ["a+b" "a/b" "Y" "!" nil])) "what isn't base64url"))
+
 (deftest base64-text
   (doseq [hex ["" "00" "00ff" "00ff10" "fffefdfc" "0102030405060708090a"]]
     (is (= hex (bytes/hex (bytes/from-base64 (bytes/base64 (bytes/from-hex hex))))) hex))

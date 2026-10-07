@@ -158,17 +158,19 @@
   (is (= ["https://host.example/a@b" nil] (url/split-credentials "https://host.example/a@b")) "an @ in the path is no user")
   (is (= ["https://host.example/feed.xml" nil] (url/split-credentials "https://host.example/feed.xml"))))
 
-(deftest the-request-for-a-feed
-  (let [request (http/feed-request "https://u:p@example.org/feed.xml"
-                                   {:etag "\"v1\"" :last-modified "Tue, 29 Sep 2026 10:00:00 GMT" :max-bytes 100 :max-pages 3})]
+(deftest the-request-of-a-fetch
+  (let [request (http/fetch-request "https://u:p@example.org/feed.xml"
+                                    {:etag "\"v1\"" :last-modified "Tue, 29 Sep 2026 10:00:00 GMT" :max-bytes 100 :max-pages 3})]
     (is (= "https://example.org/feed.xml" (:url request)) "the URL without the credentials")
     (is (= {"If-None-Match" "\"v1\"" "If-Modified-Since" "Tue, 29 Sep 2026 10:00:00 GMT" "Authorization" "Basic dTpw"}
            (select-keys (:headers (http/revealed request)) ["If-None-Match" "If-Modified-Since" "Authorization"])))
     (is (= [100 false] [(:max-bytes request) (contains? request :max-pages)]) "only the options of send!")
     (is (= {:url     "https://example.org/feed.xml"
-            :headers {"User-Agent" http/user-agent "Accept" "application/rss+xml, application/xml, text/xml, */*"}}
-           (http/feed-request "https://example.org/feed.xml"))
-        "and without options, the plain request")))
+            :headers {"User-Agent" http/user-agent "Accept" "*/*"}}
+           (http/fetch-request "https://example.org/feed.xml"))
+        "and without options, the plain request")
+    (is (= "application/rss+xml" (get-in (http/fetch-request "https://example.org/feed.xml" {:accept "application/rss+xml"})
+                                         [:headers "Accept"])))))
 
 (deftest fetching-a-feed-through-a-send
   (let [sent (atom nil)
@@ -177,7 +179,7 @@
                {:status 304 :url (:url request) :headers {"etag" ["\"v1\""] "retry-after" ["120"]}})]
     (run #(async/then (http/fetch! "https://example.org/feed.xml" {:etag "\"v1\"" :send send})
                       (fn [response]
-                        (is (= "\"v1\"" (get-in @sent [:headers "If-None-Match"])) "the request of feed-request")
+                        (is (= "\"v1\"" (get-in @sent [:headers "If-None-Match"])) "the request of fetch-request")
                         (is (= [304 "\"v1\""] ((juxt :status :etag) response)))
                         (is (inst? (:not-before response))))))))
 
@@ -518,12 +520,6 @@
           "the same origin, written another way"))
     (is (= 5 (:timeout-seconds (http/redirected (assoc post :timeout-seconds 5) 307 there)))
         "the rest of the request stays")))
-
-(deftest base64-of-urls
-  (is (= "aHR0cHM6Ly9mZWVkcy5wb2RjYXN0aW5kZXgub3JnL3BjMjAueG1s"
-         (http/base64url "https://feeds.podcastindex.org/pc20.xml")))
-  (is (= "Pz8_Pj4-" (http/base64url "???>>>")) "with - and _ in the place of + and /")
-  (is (= ["YQ" "YWI" "YWJj"] (map http/base64url ["a" "ab" "abc"])) "and without padding"))
 
 (deftest links-of-a-header
   (is (= [{:href "https://hub.example.com/" :rel "hub"} {:href "http://example.com/feed" :rel "self"}]
