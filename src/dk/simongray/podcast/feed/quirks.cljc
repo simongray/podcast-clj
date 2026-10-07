@@ -41,7 +41,7 @@
 (def uri->alias
   "A function that gives the namespace alias of a URI, leniently: of a
   canonical URI, its spellings, and the known variants in uri-variants."
-  (let [known (into {} (for [[uri alias] xml/uri->alias]
+  (let [known (into {} (for [[uri alias] spec/uri->alias]
                          [(uri-key uri) alias]))
         table (merge uri-variants known)]
     (fn [uri]
@@ -55,12 +55,12 @@
   (when (str/starts-with? k "xmlns:")
     (let [alias (uri->alias uri)]
       (when (and alias
-                 (not= alias (xml/uri->alias uri)))
+                 (not= alias (spec/uri->alias uri)))
         {:id        :quirk/namespace-variant
          :level     :info
          :prefix    (subs k 6)
          :uri       uri
-         :canonical (xml/namespaces alias)}))))
+         :canonical (spec/namespaces alias)}))))
 
 (defn namespace-variants
   "The diagnostics of every namespace declaration in the raw Hiccup `tree`
@@ -269,9 +269,9 @@
 
 (defn declare-known-prefixes
   "The string `s` with every undeclared prefix that names one of the
-  namespaces of xml/namespaces declared on its root element."
+  namespaces of spec/namespaces declared on its root element."
   [s]
-  (let [uri     #(xml/namespaces (keyword %))
+  (let [uri     #(spec/namespaces (keyword %))
         missing (filter uri (undeclared-prefixes s))
         open    (re-find #"<[A-Za-z][\w.-]*" s)
         at      (some->> open (str/index-of s))]

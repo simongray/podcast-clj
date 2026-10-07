@@ -2,10 +2,10 @@
   "Value for value: the arithmetic of podcast:value blocks, and the record
   of a payment.
 
-  The functions here give the block that applies to an item, and who is
-  paid at a moment of playback, with the time splits of valueTimeSplit.
-  They divide an amount into shares and fees, and make no payment, which
-  is up to you.
+  The block that applies to an item is what feed.resolve/value gives. The
+  functions here give who is paid at a moment of playback, with the time
+  splits of valueTimeSplit. They divide an amount into shares and fees,
+  and make no payment, which is up to you.
 
   Value blocks and recipients are the maps that dk.simongray.podcast.feed
   gives, e.g.:
@@ -40,18 +40,6 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]))
-
-(defn effective
-  "The value block that applies to `item` in `feed`: the item's own when it
-  declares one, or else the feed's. With `type`, only blocks of that type
-  count, e.g. \"lightning\"."
-  ([feed item]
-   (or (first (:podcast/values item))
-       (first (:podcast/values feed))))
-  ([feed item type]
-   (let [of-type #(filter (comp #{type} str/lower-case str :type) %)]
-     (or (first (of-type (:podcast/values item)))
-         (first (of-type (:podcast/values feed)))))))
 
 (defn fee?
   "Whether `recipient` takes a fee off the top rather than a share."

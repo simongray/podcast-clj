@@ -3,6 +3,7 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.format.transcript :as transcript]
@@ -408,9 +409,9 @@
   (is (= 15 (value/sats block)))
   (is (= 100 (value/share-total (:recipients block))))
   (testing "which block applies"
-    (is (= block (value/effective {:podcast/values [block]} {})))
-    (is (= {:type "x"} (value/effective {:podcast/values [block]} {:podcast/values [{:type "x"}]})))
-    (is (= block (value/effective {:podcast/values [block]} {:podcast/values [{:type "x"}]} "lightning"))))
+    (is (= block (resolve/value {:podcast/values [block]} {})))
+    (is (= {:type "x"} (resolve/value {:podcast/values [block]} {:podcast/values [{:type "x"}]})))
+    (is (= block (resolve/value {:podcast/values [block]} {:podcast/values [{:type "x"}]} "lightning"))))
   (testing "recipients over time"
     (is (= 4 (count (:recipients (value/recipients-at block 10)))))
     (let [{:keys [recipients remote]} (value/recipients-at block 100)]

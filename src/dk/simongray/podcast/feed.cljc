@@ -419,8 +419,9 @@
     that the feed wasn't parsed with, or for another URI of one that it was
 
   It takes the shorthand of normalize and leaves out nil values. The
-  namespaces of :namespaces, and the foreign namespaces recorded when the
-  feed was parsed, go along as metadata for xml/emit to declare."
+  namespaces of spec/namespaces and of :namespaces, and the foreign
+  namespaces recorded when the feed was parsed, go along as metadata for
+  xml/emit to declare."
   ([feed]
    (emit feed {}))
   ([feed {:keys [registry namespaces] :or {registry spec/default} :as opts}]
@@ -432,7 +433,9 @@
          children (emit-children ctx :channel (dissoc feed :rss/version))]
      (with-meta [:rss {:version version}
                  (into [:channel {}] children)]
-       {:xml/namespaces (merge (:xml/namespaces (meta feed)) namespaces)}))))
+       {:xml/namespaces (merge spec/namespaces
+                               (:xml/namespaces (meta feed))
+                               namespaces)}))))
 
 (defn- identified
   "The `items` that have an identity, and of those that share one, the

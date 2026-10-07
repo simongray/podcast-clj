@@ -86,7 +86,7 @@ option replaces the function that sends.
 | `feed.validate` | Validation against the registry, with the requirements of PSP-1 and Apple Podcasts. |
 | `feed.publish` | What a host does to a feed before serving it: `pages` splits a long feed as RFC 5005 describes, `for-subscriber` makes a private feed, and `update-media-urls` rewrites the URLs of the media files. |
 | `feed.guid` | The identity of feeds, items and episodes: `feed-guid`, `item-guid` and `episode-id`, and the `podcast:guid` that `from-url` derives from a feed URL. |
-| `feed.spec` | The tag registry as data, which `registry` indexes or extends, and the enumerations of the specs. |
+| `feed.spec` | The tag registry as data, which `registry` indexes or extends, the enumerations of the specs, and the URIs of the namespaces. |
 | `feed.quirks` | The repairs for malformed XML, which `parse-raw` runs when the strict parse fails, and the normalisations of the tree. |
 | `feed.coerce` | The value types of the registry, from strings and back. |
 | `feed.schema` | Malli schemas of the model, generated from the registry. Malli isn't a dependency. |
@@ -147,7 +147,7 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `util.xml` | XML to Hiccup and back, with namespaces resolved by URI. |
+| `util.xml` | XML to Hiccup and back, with namespaces resolved by URI through a table that the caller gives. |
 | `util.xml.jsoup` | JVM. A lenient parser for feeds that aren't well-formed XML, with the optional `org.jsoup/jsoup`. |
 | `util.json` | JSON to data and back, on both platforms. |
 | `util.time` | Dates, durations and timestamps. |

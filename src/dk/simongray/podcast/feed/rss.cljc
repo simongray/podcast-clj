@@ -13,6 +13,7 @@
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.quirks :as quirks]
+            [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.xml :as xml]))
 
@@ -30,7 +31,7 @@
   ([xml {:keys [quirks?] :or {quirks? true} :as opts}]
    {:pre [(map? opts)]}
    (if-not quirks?
-     (let [tree (xml/parse xml)]
+     (let [tree (xml/parse xml spec/uri->alias)]
        (vary-meta tree assoc :podcast/report (xml/report tree)))
      (let [raw-opts             (select-keys opts [:except])
            normalize-opts       (select-keys opts [:registry :except])

@@ -9,8 +9,7 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.time.rrule :as rrule]
-            [dk.simongray.podcast.value :as value]))
+            [dk.simongray.podcast.util.time.rrule :as rrule]))
 
 (defn title
   "The title of `x`: the RSS title, or else the iTunes one."
@@ -505,10 +504,16 @@
 
 (defn value
   "The value block of `x`, or the one that applies to an `item` of `feed`,
-  which is the item's own when it declares one. The arithmetic is in
-  dk.simongray.podcast.value."
+  which is the item's own when it declares one.
+
+  With `type`, only blocks of that type count, e.g. \"lightning\". The
+  arithmetic is in dk.simongray.podcast.value."
   ([x] (first (:podcast/values x)))
-  ([feed item] (value/effective feed item)))
+  ([feed item] (first (inherited :podcast/values feed item)))
+  ([feed item type]
+   (let [of-type #(filter (comp #{type} str/lower-case str :type) %)]
+     (or (first (of-type (:podcast/values item)))
+         (first (of-type (:podcast/values feed)))))))
 
 (def ^:no-doc live-status-order
   "Live items in the order that a listener cares about: on air, then

@@ -192,7 +192,7 @@
         ours?      (fn [k]
                      (let [ns (namespace k)]
                        (or (= "rss" ns)
-                           (contains? xml/namespaces (keyword ns)))))]
+                           (contains? spec/namespaces (keyword ns)))))]
     (for [k     (keys m)
           :when (and (not (contains? known k))
                      (or (nil? entry)

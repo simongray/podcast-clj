@@ -3,46 +3,21 @@
 
   The parse-raw function, which differs by platform, reads XML into raw
   Hiccup with the names as written. The resolve-namespaces function
-  rewrites the names into keywords namespaced by the alias of the URI,
-  e.g. :itunes/author, while elements without a prefix stay RSS 2.0. It
-  records what it found under :xml/report, and the unknown namespaces
-  under :xml/namespaces, in the metadata. The parse function does both.
+  rewrites the names into keywords namespaced by the alias that a table
+  gives the URI, e.g. :itunes/author, while elements without a prefix
+  stay RSS 2.0. It records what it found under :xml/report, and the
+  namespaces that the table lacks under :xml/namespaces, in the metadata.
+  The parse function does both. The table of a feed's namespaces is in
+  dk.simongray.podcast.feed.spec.
 
   The emit function writes canonical Hiccup back as XML, with the
   declarations on the root. The Hiccup accessors, kebab-case names and
   the decoding of character and entity references are here too, for the
   rest of podcast-clj."
-  (:require [clojure.set :as set]
-            [clojure.string :as str]
-            [dk.simongray.podcast.diagnostics :as diagnostics])
+  (:require [clojure.string :as str])
   #?(:clj (:import [java.io InputStream Reader StringReader]
                    [javax.xml.stream XMLInputFactory XMLStreamConstants
                                      XMLStreamException XMLStreamReader])))
-
-(def namespaces
-  "The canonical namespace URI of each alias that podcast-clj knows."
-  {:itunes     "http://www.itunes.com/dtds/podcast-1.0.dtd"
-   :podcast    "https://podcastindex.org/namespace/1.0"
-   :atom       "http://www.w3.org/2005/Atom"
-   :content    "http://purl.org/rss/1.0/modules/content/"
-   :dc         "http://purl.org/dc/elements/1.1/"
-   :media      "http://search.yahoo.com/mrss/"
-   :psc        "http://podlove.org/simple-chapters"
-   :googleplay "http://www.google.com/schemas/play-podcasts/1.0"
-   :spotify    "http://www.spotify.com/ns/rss"
-   :sy         "http://purl.org/rss/1.0/modules/syndication/"
-   :fh         "http://purl.org/syndication/history/1.0"
-   :rawvoice   "http://www.rawvoice.com/rawvoiceRssModule/"
-   :xhtml      "http://www.w3.org/1999/xhtml"
-   :opml       "http://opml.org/spec2"})
-
-(def uri->alias
-  "The alias of each namespace URI. The podcast namespace specification
-  requires its old GitHub URI to be treated as identical to the canonical
-  one."
-  (assoc (set/map-invert namespaces)
-    "https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/1.0.md"
-    :podcast))
 
 (defn tag
   "The tag of the Hiccup `element`."
@@ -586,21 +561,26 @@
 
 (defn parse
   "The canonical Hiccup of `xml`, with the namespaces resolved by
-  `uri->alias`, as parse-raw and resolve-namespaces give it."
+  `uri->alias`, none by default, as parse-raw and resolve-namespaces give
+  it."
   ([xml]
-   (parse xml uri->alias))
+   (parse xml {}))
   ([xml uri->alias]
    (resolve-namespaces (parse-raw xml) uri->alias)))
 
 (defn report
-  "The problems recorded while resolving the namespaces of `tree`, each with
-  its message from the diagnostics catalogue."
+  "The problems recorded while resolving the namespaces of `tree`, as
+  diagnostics of an :id, a :level and details, which
+  dk.simongray.podcast.diagnostics/describe gives a message."
   [tree]
-  (mapv diagnostics/describe (:xml/report (meta tree))))
+  (:xml/report (meta tree)))
 
 (defn foreign-namespaces
-  "The URIs of the namespaces in `tree` that podcast-clj doesn't know, by
-  the prefix that the document used. A prefix that no declaration named
+  "The URIs of the namespaces that `tree` carries in its metadata, by alias,
+  for emit to declare.
+
+  For a parse, they're the namespaces that its table didn't know, by the
+  prefix that the document used, and a prefix that no declaration named
   has nil."
   [tree]
   (:xml/namespaces (meta tree)))
@@ -810,14 +790,14 @@
   "The canonical Hiccup `tree` as an XML string, with the namespaces that
   it uses declared on the root element by `alias->uri`.
 
-  The `alias->uri` map gives the URI of each alias. It defaults to
-  namespaces, merged with the foreign namespaces that were recorded when
-  `tree` was parsed or given to dk.simongray.podcast.feed/emit. An alias
+  The `alias->uri` map gives the URI of each alias. It defaults to the
+  foreign namespaces of `tree`, e.g. those that were recorded when it was
+  parsed, or those that dk.simongray.podcast.feed/emit gives it. An alias
   that it maps to nil has no URI to declare, so its elements and
   attributes are left out, as for a prefix that no declaration named in a
   parse. An alias that it doesn't map at all is an error."
   ([tree]
-   (emit tree (merge namespaces (foreign-namespaces tree))))
+   (emit tree (foreign-namespaces tree)))
   ([tree alias->uri]
    (let [undeclared (when (map? alias->uri)
                       (set (keep (fn [[alias uri]] (when (nil? uri) alias))
@@ -826,7 +806,7 @@
                       (or (without undeclared tree) tree)
                       tree)
          uri-of     (fn [alias]
-                      (or (alias->uri alias)
+                      (or (get alias->uri alias)
                           (throw (ex-info "Unknown namespace alias"
                                           {:alias alias}))))
          decls      (into (sorted-map)

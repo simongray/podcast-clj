@@ -107,8 +107,8 @@
                 "format.media" "format.media.id3" "format.media.mp3" "format.media.mp4" "value"]]
       (is (every? #(or (zero? (get layers %)) (str/starts-with? % "format.")) (get @graph ns))
           (str ns " requires " (get @graph ns)))))
-  (testing "the XML layer needs only the diagnostics"
-    (is (= #{"diagnostics"} (get @graph "util.xml")))))
+  (testing "the XML layer needs nothing of podcasts"
+    (is (= #{} (get @graph "util.xml")))))
 
 (deftest a-name-shows-a-primitive
   (doseq [ns    (keys @graph)

@@ -104,7 +104,7 @@
   [{:keys [title namespaces about]}]
   (let [covered? #(contains? namespaces (namespace (:tag %)))
         entries  (filter covered? spec/elements)
-        uri-line #(when % (str "`" % "`: " (get xml/namespaces (keyword %))))
+        uri-line #(when % (str "`" % "`: " (get spec/namespaces (keyword %))))
         uris     (keep uri-line (sort (remove nil? namespaces)))]
     (when (seq entries)
       (concat

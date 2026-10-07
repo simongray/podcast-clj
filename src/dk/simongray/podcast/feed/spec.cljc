@@ -28,7 +28,35 @@
 
   The function registry indexes elements, or elements and an app's own
   entries, into the value that every interpreter takes as the :registry
-  of its options. The registry default is elements indexed.")
+  of its options. The registry default is elements indexed. The
+  namespaces of the tags are in namespaces, by alias."
+  (:require [clojure.set :as set]))
+
+(def namespaces
+  "The canonical namespace URI of each alias that the elements use."
+  {:itunes     "http://www.itunes.com/dtds/podcast-1.0.dtd"
+   :podcast    "https://podcastindex.org/namespace/1.0"
+   :atom       "http://www.w3.org/2005/Atom"
+   :content    "http://purl.org/rss/1.0/modules/content/"
+   :dc         "http://purl.org/dc/elements/1.1/"
+   :media      "http://search.yahoo.com/mrss/"
+   :psc        "http://podlove.org/simple-chapters"
+   :googleplay "http://www.google.com/schemas/play-podcasts/1.0"
+   :spotify    "http://www.spotify.com/ns/rss"
+   :sy         "http://purl.org/rss/1.0/modules/syndication/"
+   :fh         "http://purl.org/syndication/history/1.0"
+   :rawvoice   "http://www.rawvoice.com/rawvoiceRssModule/"
+   :xhtml      "http://www.w3.org/1999/xhtml"
+   :opml       "http://opml.org/spec2"})
+
+(def uri->alias
+  "The alias of each namespace URI that a feed can use, for
+  dk.simongray.podcast.util.xml/parse. The podcast namespace specification
+  requires its old GitHub URI to be treated as identical to the canonical
+  one."
+  (assoc (set/map-invert namespaces)
+    "https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/1.0.md"
+    :podcast))
 
 (def mediums
   "The values of podcast:medium, without the list variants."

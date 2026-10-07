@@ -9,6 +9,10 @@
    <channel><title>T &amp; U</title><itunes:author>A</itunes:author><acme:thing acme:mode=\"on\"/>
    <description><![CDATA[<p>Hi</p>]]> tail</description></channel></rss>")
 
+(def itunes
+  "The namespace of the iTunes tags, which sample uses."
+  "http://www.itunes.com/dtds/podcast-1.0.dtd")
+
 (def undeclared
   "A prefix used without a declaration: fine for the non-namespace-aware JVM
   parser, an error for a browser's DOMParser, so only the JVM sees it."
@@ -30,26 +34,28 @@
     (is (= ["p" {} ["b" {} "Hello"] ["i" {} "world"]] (xml/parse-raw "<p>\n  <b>Hello</b>\n  <i>world</i>\n</p>")))))
 
 (deftest namespace-resolution
-  (let [tree (xml/parse sample)]
+  (let [tree (xml/parse sample {itunes :itunes})]
     (is (= [:rss {:version "2.0"}] (subvec tree 0 2)))
-    (is (= [:itunes/author {} "A"] (-> tree (nth 2) (nth 3))))
+    (is (= [:itunes/author {} "A"] (-> tree (nth 2) (nth 3))) "by the alias of the table")
     (testing "unprefixed elements are RSS whatever the default namespace"
       (is (= [:title {} "T & U"] (-> tree (nth 2) (nth 2)))))
     (testing "unknown URIs keep their prefix as alias"
       (is (= [:acme/thing {:acme/mode "on"}] (-> tree (nth 2) (nth 4)))))
     (is (= #{{:id :xml/default-namespace :level :info :uri "http://www.w3.org/2005/Atom"}
              {:id :xml/unknown-namespace :level :info :prefix "acme" :uri "https://acme.example"}}
-           (set (map #(dissoc % :message) (xml/report tree)))))
-    (testing "the report carries the catalogue's message for each"
-      (is (every? (comp string? :message) (xml/report tree))))
-    (is (= {:acme "https://acme.example"} (xml/foreign-namespaces tree)))))
+           (set (xml/report tree))))
+    (is (= {:acme "https://acme.example"} (xml/foreign-namespaces tree))))
+  (testing "without a table, every prefix keeps its own alias"
+    (let [tree (xml/parse sample)]
+      (is (= [:itunes/author {} "A"] (-> tree (nth 2) (nth 3))))
+      (is (= {:itunes itunes :acme "https://acme.example"} (xml/foreign-namespaces tree))))))
 
 #?(:clj
    (deftest undeclared-prefixes-survive-on-the-jvm
      (let [tree (xml/parse undeclared)]
        (is (= [:foo/bar {:x "1"}] (-> tree (nth 2) (nth 2))))
        (is (= [{:id :xml/undeclared-prefix :level :warning :prefix "foo"}]
-              (map #(dissoc % :message) (xml/report tree))))
+              (xml/report tree)))
        (is (= {:foo nil} (xml/foreign-namespaces tree)) "recorded with no URI")
        (is (not (re-find #"foo" (xml/emit tree))) "so that emit leaves it out"))))
 
@@ -91,7 +97,7 @@
            (xml/inner-xml [:description {} "Use <pre> & " [:b {} "x < y"]]))))
   (testing "an alias mapped to nil has no URI, and its elements and attributes are left out"
     (is (= "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss>\n  <t/>\n</rss>\n"
-           (xml/emit [:rss {} [:t {:fb/x "1"}] [:fb/link {} "x"]] (assoc xml/namespaces :fb nil)))))
+           (xml/emit [:rss {} [:t {:fb/x "1"}] [:fb/link {} "x"]] {:fb nil}))))
   (testing "mixed content is written as it is, so that a round trip keeps it"
     (let [tree (xml/parse "<rss><x>Hello <b>big</b> <i>world</i>!</x></rss>")]
       (is (= tree (xml/parse (xml/emit tree))))

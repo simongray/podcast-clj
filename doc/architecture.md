@@ -46,7 +46,9 @@ write a function with the last part of its namespace as the alias, e.g.
 ```
 
 The attribute map is always there, and the namespace of a tag is the
-canonical alias of its namespace URI, so RSS 2.0 elements have none.
+canonical alias of its namespace URI, so RSS 2.0 elements have none. The
+aliases come from a table that the caller gives, so `util.xml` knows
+nothing of podcasts: the table of a feed's namespaces is in `feed.spec`.
 
 The platform parser (StAX on the JVM, `DOMParser` in JavaScript) doesn't
 resolve namespaces. A pure function does that afterwards, which gives the

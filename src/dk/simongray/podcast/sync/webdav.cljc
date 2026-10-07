@@ -99,9 +99,9 @@
        (= :bytes (:as opts)) (assoc :as :bytes)))))
 
 (def ^:no-doc uri->alias
-  "The library's namespace aliases, with WebDAV's as :d, so that a
-  multistatus reads the same whatever prefix a server wrote."
-  (assoc xml/uri->alias "DAV:" :d))
+  "The alias of WebDAV's namespace, :d, so that a multistatus reads the
+  same whatever prefix a server wrote."
+  {"DAV:" :d})
 
 (defn- document-name
   "The name of the document that `href` addresses: its last path segment,
