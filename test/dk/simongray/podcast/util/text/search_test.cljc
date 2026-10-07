@@ -174,6 +174,35 @@
     (is (= (score 1) (score 6))
         "a prefix counts as one term, so the rarest completion doesn't win")))
 
+(deftest typos
+  (let [idx (search/index [{:id 1 :fields {:title "Clojure and the value of simplicity"}}
+                           {:id 2 :fields {:title "Closure tables"}}
+                           {:id 3 :fields {:title "Rust"}}])
+        ids (fn [q & [opts]] (mapv :id (search/query idx q (or opts {}))))]
+    (is (= [] (ids "clojre ")) "none by default")
+    (is (= #{1 2} (set (ids "clojre " {:fuzzy true}))))
+    (is (= [1 2] (ids "clojure~ ")) "an exact match outranks one with typos")
+    (is (= [1] (ids "clojure~0 ")))
+    (is (= [1] (ids "clojre~1 ")) "one edit reaches clojure, two closure")
+    (is (= [] (ids "ru~ ")) "no typos in a word of two letters")
+    (is (= [3] (ids "rsut~ ")) "a swap of neighbours is one edit")
+    (is (= #{1 2} (set (ids "clojre" {:fuzzy true})))
+        "the word being typed matches with typos too")
+    (is (= [1] (ids "cloj" {:fuzzy true})) "and what it starts")
+    (is (= [] (ids "clojre -clojure~1" {:fuzzy 2})) "a :not with typos")
+    (is (= [{:text "Closure" :match? true} {:text " tables and "}
+            {:text "Clojure" :match? true}]
+           (search/snippet "Closure tables and Clojure" "clojure~")))
+    (is (search/matches? "Closure tables" "clojre~"))
+    (is (search/matches? "Closure tables" "clojre " {:fuzzy true}))
+    (is (not (search/matches? "Closure tables" "clojre ")))
+    (is (= {:and [{:term "clojre" :fuzzy :auto} {:term "value" :fuzzy 1}
+                  {:term "rust" :prefix? true}]}
+           (search/parse "clojre~ value~1 rust")))
+    (is (= [nil 1 1 3 2] (map #(search/distance %1 %2 3)
+                             ["abc" "clojure" "clojure" "kitten" ""]
+                             ["xyzwv" "clojre" "cljoure" "sitting" "ab"])))))
+
 (deftest one-text
   (let [text "A little Clojure for the value for value era"]
     (is (search/matches? text "clojure value"))

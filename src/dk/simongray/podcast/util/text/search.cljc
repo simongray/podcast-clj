@@ -179,13 +179,15 @@
 
   A spelling of letters, e.g. AND, is an operator only as a word of its
   own, and a sign, e.g. &, inside a word too. A sign of :not counts only
-  at the start of a word, one of :field only after the name of a field,
-  and one of :prefix only at the end of a word."
+  at the start of a word, and one of :field only after the name of a
+  field. One of :prefix counts only at the end of a word, and so does one
+  of :fuzzy, which a number of edits can follow, e.g. clojre~1."
   {:and    #{"AND" "&"}
    :or     #{"OR" "|"}
    :not    #{"NOT" "!" "-"}
    :field  #{":" "="}
-   :prefix #{"*"}})
+   :prefix #{"*"}
+   :fuzzy  #{"~"}})
 
 (defn ^:no-doc spaced
   "The query `q` with every kind of whitespace as a space, since the regex
@@ -251,11 +253,26 @@
                 [name sign]))))
         (:field syntax)))
 
+(defn- fuzzy-sign
+  "The place in the word `s` where a sign of :fuzzy in `syntax` ends it,
+  with the edits that follow the sign, as a pair, or nil. The edits are
+  :auto without a number."
+  [s syntax]
+  (some (fn [sign]
+          (when-let [at (str/last-index-of s sign)]
+            (let [digits (subs s (+ at (count sign)))]
+              (when (and (pos? at)
+                         (re-matches #"[0-9]*" digits))
+                [at (if (seq digits)
+                      (parse-long digits)
+                      :auto)]))))
+        (:fuzzy syntax)))
+
 (defn- word-lexemes
   "The lexemes of the word `raw` of a query in `syntax` that can name
   `fields`: a :not for a sign at its start, a :field for a field's name
   and a sign after it, and the :word, with :prefix? when it ends in a
-  sign of one."
+  sign of one, and :fuzzy with the edits after a sign of :fuzzy."
   [{:keys [text start end] :as raw} syntax fields]
   (let [not-sign     (leading-sign (clojure.core/remove word-spelling?
                                                         (:not syntax))
@@ -266,18 +283,22 @@
         after-field  (+ after-not (count name) (count sign))
         word         (subs rest-text (+ (count name) (count sign)))
         prefix-sign  (some #(when (str/ends-with? word %) %) (:prefix syntax))
-        word         (subs word 0 (- (count word) (count prefix-sign)))]
+        word         (subs word 0 (- (count word) (count prefix-sign)))
+        [at edits]   (when-not prefix-sign
+                       (fuzzy-sign word syntax))
+        word         (cond-> word at (subs 0 at))]
     (cond-> []
       not-sign    (conj {:kind :not :start start :end after-not})
       name        (conj {:kind  :field
                          :field (get fields (text/fold name))
                          :start after-not
                          :end   after-field})
-      (seq word)  (conj {:kind    :word
-                         :text    word
-                         :prefix? (some? prefix-sign)
-                         :start   after-field
-                         :end     end}))))
+      (seq word)  (conj (cond-> {:kind    :word
+                                 :text    word
+                                 :prefix? (some? prefix-sign)
+                                 :start   after-field
+                                 :end     end}
+                          edits (assoc :fuzzy edits))))))
 
 (defn- lexemes-of
   "The lexemes of the `raw` lexeme of a query in `syntax` that can name
@@ -347,13 +368,15 @@
 
   A word that ends in a sign of :prefix, or the last word while it's being
   typed, is a prefix, as is one character of Chinese, which a pair can
-  only start."
-  [{:keys [text prefix? typing?] :as lexeme} {:keys [complete? min-prefix]}]
+  only start. A word with :fuzzy is a term with the edits it allows."
+  [{:keys [text prefix? typing? fuzzy] :as lexeme}
+   {:keys [complete? min-prefix]}]
   (let [tokens  (text/tokens text)
         terms   (mapv #(if (vector? %) (first %) %) tokens)
         prefix? (or prefix?
                     (and typing?
                          complete?
+                         (not fuzzy)
                          (<= (long min-prefix) (count (peek terms)))))]
     (case (count terms)
       0 nil
@@ -361,7 +384,9 @@
               lone? (and (string? (first tokens))
                          (text/unspaced? term))]
           (cond-> {:term term}
-            (or prefix? lone?) (assoc :prefix? true)))
+            (or prefix? lone?)        (assoc :prefix? true)
+            (and fuzzy
+                 (not (text/unspaced? term))) (assoc :fuzzy fuzzy)))
       (cond-> {:phrase terms}
         prefix? (assoc :prefix? true)))))
 
@@ -461,7 +486,8 @@
   Words must all occur, and the last is a prefix to complete unless `q`
   ends in a space or a quote. The operators are those of syntax: AND, OR
   and NOT, or & | ! and - before a word, with parentheses, \"a phrase\",
-  a prefix* and field:word or field=word for a word in one field:
+  a prefix*, a word with typos~ and field:word or field=word for a word
+  in one field:
 
       (parse \"title:clojure -rust\")
       ;; => {:and [{:term \"clojure\" :field :title}
@@ -615,19 +641,167 @@
              (transient {})
              terms))))
 
+(defn- codes
+  "The codes of the characters of `s`, as an array."
+  [^String s]
+  (let [n   (count s)
+        arr (int-array n)]
+    (dotimes [i n]
+      (aset arr i #?(:clj (int (.charAt s i)) :cljs (.charCodeAt s i))))
+    arr))
+
+;; The optimal string alignment distance, Damerau-Levenshtein with a swap
+;; of neighbours as one edit, as Lucene's FuzzyQuery counts transpositions
+(defn- fill-row!
+  "Fill `row` with the edits from the first `i` codes of `x` to each start
+  of `y`, from the two rows before it, `one` and `two`, and give the
+  fewest of them."
+  [^ints x ^ints y i ^ints one ^ints two ^ints row]
+  (let [i (long i)
+        m (alength y)
+        c (aget x (dec i))]
+    (aset row 0 (int i))
+    (loop [j 1 lowest i]
+      (if (> j m)
+        lowest
+        (let [d        (aget y (dec j))
+              deleted  (inc (aget one j))
+              inserted (inc (aget row (dec j)))
+              changed  (+ (aget one (dec j)) (if (= c d) 0 1))
+              swapped? (and (> i 1)
+                            (> j 1)
+                            (= c (aget y (- j 2)))
+                            (= (aget x (- i 2)) d))
+              v        (cond-> (-> deleted (min inserted) (min changed))
+                         swapped? (min (inc (aget two (- j 2)))))]
+          (aset row j (int v))
+          (recur (inc j) (min lowest v)))))))
+
+(defn ^:no-doc distance
+  "The edits that turn `a` into `b`, a swap of two neighbours counted as
+  one, or nil when there are more than `most`."
+  [a b most]
+  (let [^ints x (codes (str a))
+        ^ints y (codes (str b))
+        n       (alength x)
+        m       (alength y)
+        most    (long most)
+        start   (let [row (int-array (inc m))]
+                  (dotimes [j (inc m)]
+                    (aset row j (int j)))
+                  row)]
+    (when (<= (Math/abs (- n m)) most)
+      (loop [i 1 ^ints two (int-array (inc m)) ^ints one start]
+        (if (> i n)
+          (let [d (aget one m)]
+            (when (<= d most)
+              d))
+          (let [row    (int-array (inc m))
+                lowest (long (fill-row! x y i one two row))]
+            (when (<= lowest most)
+              (recur (inc i) one row))))))))
+
+(defn- edits
+  "The edits that the fuzzy term `term` allows: those of :fuzzy when it's a
+  number, at most 2, or by its length for :auto, as the AUTO of
+  Elasticsearch has it, none below 3 characters and 2 above 5."
+  [{:keys [term fuzzy]}]
+  (cond
+    (number? fuzzy) (min 2 (long fuzzy))
+    (= :auto fuzzy) (let [n (count term)]
+                      (cond
+                        (< n 3)  0
+                        (<= n 5) 1
+                        :else    2))
+    :else           0))
+
+(def ^:no-doc most-expansions
+  "The most terms that a fuzzy term matches, the closest first, as
+  maxExpansions of Lucene's FuzzyQuery has it."
+  50)
+
+(def ^:no-doc fuzzy-weight
+  "How much a match with typos weighs before its edits count, as the
+  fuzzyWeight of MiniSearch has it."
+  0.45)
+
+(defn- fuzzy-expansions
+  "The terms of `index` within the edits of the fuzzy `leaf`, the closest
+  first, as pairs of a term and its edits. Only terms that start with the
+  same character count, which keeps the search short."
+  [index {:keys [term] :as leaf}]
+  (let [most (long (edits leaf))
+        n    (count term)]
+    (->> (for [found (expansions index (subs term 0 1))
+               :when (<= (Math/abs (- (count found) n)) most)
+               :let  [d (distance term found most)]
+               :when d]
+           [found d])
+         (sort-by (fn [[found d]] [d found]))
+         (take most-expansions))))
+
+;; MiniSearch weighs a match with typos by 0.45 length / (length + edits),
+;; and each document counts its best match, so that an exact match outranks
+;; one with typos. The expansions share one inverse document frequency, as
+;; Lucene blends those of a FuzzyQuery
+(defn- fuzzy-scores
+  "The scores of the documents that hold a term within the edits of the
+  fuzzy `leaf`, with the constants of `ctx`."
+  [{:keys [index weights k1 total]} {:keys [term] :as leaf}]
+  (let [n        (count term)
+        weighed  (for [[found d] (fuzzy-expansions index leaf)]
+                   [(if (zero? (long d))
+                      1.0
+                      (* fuzzy-weight (/ (double n) (+ n (long d)))))
+                    (term-frequencies index weights [found])])
+        matched  (count (into #{} (mapcat (comp keys second)) weighed))
+        idf      (idf total matched)]
+    (reduce (fn [acc [weight frequencies]]
+              (merge-with max
+                          acc
+                          (update-vals (saturated frequencies idf k1)
+                                       #(* (double weight) (double %)))))
+            {}
+            weighed)))
+
 ;; A prefix counts as one term of all the terms it starts, with the number
 ;; of documents that hold any of them. Lucene blends the expansions of a
 ;; prefix to the largest document frequency, so that the rarest one doesn't
 ;; outrank the rest
 (defn- term-scores
   "The scores of the documents that hold the `term`, or with :prefix? a
-  term that starts with it, with the constants of `ctx`."
-  [{:keys [index weights k1 total]} {:keys [term prefix?]}]
-  (let [terms       (if prefix?
-                      (expansions index term)
-                      [term])
-        frequencies (term-frequencies index weights terms)]
-    (saturated frequencies (idf total (count frequencies)) k1)))
+  term that starts with it, or with :fuzzy one within its edits, with the
+  constants of `ctx`."
+  [{:keys [index weights k1 total] :as ctx} {:keys [term prefix?] :as leaf}]
+  (let [fuzzy? (pos? (long (edits leaf)))
+        plain  (when (or prefix? (not fuzzy?))
+                 (let [terms       (if prefix?
+                                     (expansions index term)
+                                     [term])
+                       frequencies (term-frequencies index weights terms)]
+                   (saturated frequencies (idf total (count frequencies)) k1)))]
+    (cond
+      (and plain fuzzy?) (merge-with max plain (fuzzy-scores ctx leaf))
+      fuzzy?             (fuzzy-scores ctx leaf)
+      :else              plain)))
+
+(defn- with-fuzzy
+  "The query `node` with :fuzzy as `fuzzy` on each term that isn't of a
+  script without spaces, unless it has its own, or `node` as it is when
+  `fuzzy` is nil or false."
+  [node fuzzy]
+  (let [fuzzy (if (true? fuzzy) :auto fuzzy)
+        each  #(mapv (fn [n] (with-fuzzy n fuzzy)) %)]
+    (cond
+      (not fuzzy)              node
+      (contains? node :and)    (update node :and each)
+      (contains? node :or)     (update node :or each)
+      (contains? node :not)    (update node :not with-fuzzy fuzzy)
+      (and (:term node)
+           (not (:fuzzy node))
+           (not (text/unspaced? (:term node))))
+      (assoc node :fuzzy fuzzy)
+      :else                    node)))
 
 (defn- prefix-postings
   "The postings of the terms of `index` that start with `prefix`, as a map
@@ -850,6 +1024,10 @@
   these, over the defaults of the index:
 
   - :limit, the most results
+  - :fuzzy, to find words with typos: true for the edits by the length
+    of a word, none below 3 characters and 2 above 5, or a number of
+    edits, at most 2. A match with typos weighs less, and a prefix
+    matches the words that it starts as well.
   - :boosts, the weight of a match in each field, 1 by default, where 0
     leaves a field out unless the query names it
   - :aliases, other names that a query can give the fields, as a map of a
@@ -866,7 +1044,7 @@
    {:pre [(map? opts)]}
    (let [{:keys [limit boosts rank] keep? :filter :as opts}
          (merge (:defaults index) opts)
-         node   (as-query index q opts)
+         node   (with-fuzzy (as-query index q opts) (:fuzzy opts))
          ctx    {:index   index
                  :weights (weights index boosts (:b opts b))
                  :k1      (double (:k1 opts k1))
@@ -927,6 +1105,18 @@
     (str/starts-with? found term)
     (= term found)))
 
+(defn- leaf-matches?
+  "Whether the term `found` is one that the term `leaf` matches: itself,
+  one that starts with it for a prefix, or for a fuzzy term one that has
+  its first character and is within its edits."
+  [{:keys [term prefix?] :as leaf} found]
+  (let [most (long (edits leaf))]
+    (boolean
+     (or (term-matches? term prefix? found)
+         (and (pos? most)
+              (= (first term) (first found))
+              (some? (distance term found most)))))))
+
 (defn- phrase-end
   "Where the `phrase` that starts with the span `first-span` ends, with
   the last term as a prefix if `prefix?`, from the spans `by-position`,
@@ -950,11 +1140,12 @@
   one that matches, in order."
   [spans leaves]
   (let [by-position (group-by :position spans)]
-    (->> (for [[i {:keys [term phrase prefix?]}] (map-indexed vector leaves)
+    (->> (for [[i {:keys [term phrase prefix?] :as leaf}]
+               (map-indexed vector leaves)
                span spans
                :let [end (cond
                            term
-                           (when (term-matches? term prefix? (:term span))
+                           (when (leaf-matches? leaf (:term span))
                              (:end span))
 
                            (term-matches? (first phrase)
@@ -1040,7 +1231,8 @@
   parse, and these:
 
   - :width, the number of characters shown, 160 by default
-  - :index, an index whose defaults and fields the query is read with"
+  - :index, an index whose defaults and fields the query is read with
+  - :fuzzy, as query takes it"
   ([text q]
    (snippet text q {}))
   ([text q {:keys [width] :or {width 160} :as opts}]
@@ -1049,7 +1241,8 @@
          opts       (merge (:defaults index) opts)
          text       (str text)
          spans      (text/spans text)
-         found      (hits spans (leaves (as-query index q opts)))
+         query      (with-fuzzy (as-query index q opts) (:fuzzy opts))
+         found      (hits spans (leaves query))
          length     (count text)
          [from to]  (:window (window spans found width length))
          inside     (filter #(and (<= from (:start %)) (<= (:end %) to))
@@ -1103,12 +1296,14 @@
                              (mapcat #(if (vector? %) % [%]))
                              (text/tokens text)))
          spans  (delay (text/spans text))
-         found? (fn [{:keys [term phrase prefix?] :as leaf}]
+         found? (fn [{:keys [term phrase prefix? fuzzy] :as leaf}]
                   (cond
-                    phrase  (boolean (seq (hits @spans [leaf])))
-                    prefix? (boolean (some #(str/starts-with? % term) @terms))
-                    :else   (contains? @terms term)))]
-     (satisfied? found? (as-query nil q opts)))))
+                    phrase           (boolean (seq (hits @spans [leaf])))
+                    (or prefix?
+                        fuzzy)       (boolean (some #(leaf-matches? leaf %)
+                                                    @terms))
+                    :else            (contains? @terms term)))]
+     (satisfied? found? (with-fuzzy (as-query nil q opts) (:fuzzy opts))))))
 
 (comment
   (parse "title:clojure -rust | \"value for va")
