@@ -527,6 +527,12 @@ on every device. There's no stemming and no language model. Instead the
 last word of a query completes as a prefix, and a field given as a vector
 of terms isn't analysed, so an app can bring its own stemmer.
 
+A word that no document holds matches words with typos, much as Typesense
+does by default. It's decided for each word, rather than by running a
+query again when it finds nothing, so the words spelled right stay
+exact, and a page past the end or a filter that leaves nothing doesn't
+bring in matches with typos.
+
 The ranking is BM25F, which adds up a word's occurrences in all the fields
 of a document, each weighed by its field, before they count. Ranking each
 field on its own and adding the scores would let a word that appears once

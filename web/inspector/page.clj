@@ -813,12 +813,23 @@
   "How many results of a full-text query the search page shows."
   50)
 
+(defn- near-words
+  "The words of a query that matched others with `typos`, a map of each to
+  those words, as a line of text with the first few of each."
+  [typos]
+  (interpose "; "
+             (for [[word near] typos]
+               (list "Near matches for " [:em word] ": "
+                     (str/join ", " (take 3 near))
+                     (when (< 3 (count near)) ", …")))))
+
 (defn search-page
   "The results of the full-text query `q` over the items of the feed at
   `url`, or over the corpus without one: `results` are those of
   util.text.search/query of the `index` with the :item each came from, for a
-  snippet of its notes."
-  [{:keys [q url index results]}]
+  snippet of its notes, and `typos` the words of `q` that matched others
+  with typos, from the metadata of the results."
+  [{:keys [q url index results typos]}]
   (layout (str "Search: " q)
           (when url
             [:p [:a {:href (feed-href "/feed" url)} "← back to the feed"]])
@@ -835,11 +846,14 @@
           [:p.muted (str "Every word must occur; the last matches as a prefix "
                          "unless a space follows it; words in quotes must "
                          "occur in a row. OR or | for either, NOT, ! or a "
-                         "leading - to leave out, parentheses to group, "
-                         "word~ for typos, and title:word or notes:word for "
-                         "one field. A word in a "
+                         "leading - to leave out, parentheses to group, and "
+                         "title:word or notes:word for one field. A word "
+                         "that no episode holds matches words with typos, "
+                         "and word~ asks for that for any word. A word in a "
                          "title weighs more than one in the notes; the "
                          "snippet is from the notes.")]
+          (when (seq typos)
+            [:p (near-words typos)])
           (when (= result-limit (count results))
             [:p.muted (str "The " result-limit " best matches.")])
           (if (empty? results)
@@ -847,7 +861,7 @@
                         "Type something to search for."
                         "Nothing matched.")]
             [:ol.results
-             (for [{:keys [score stored item]} results
+             (for [{:keys [score stored item] :as result} results
                    :let [{:keys [title show published duration url guid]}
                          stored]]
                [:li
@@ -857,7 +871,10 @@
                 [:br]
                 [:span.muted (inst-str published)
                  (when duration (str " · " (time/format-clock duration)))
-                 (str " · score " (/ (Math/round (* 100.0 score)) 100.0))]
+                 (str " · score " (/ (Math/round (* 100.0 score)) 100.0))
+                 (when-let [near (:typos result)]
+                   (str " · near match: "
+                        (str/join ", " (distinct (mapcat val near)))))]
                 (when item
                   (let [notes (html/text (resolve/description item))]
                     [:div.snippet

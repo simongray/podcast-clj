@@ -219,7 +219,12 @@
                            {:id 2 :fields {:title "Closure tables"}}
                            {:id 3 :fields {:title "Rust"}}])
         ids (fn [q & [opts]] (mapv :id (search/query idx q (or opts {}))))]
-    (is (= [] (ids "clojre ")) "none by default")
+    (is (= #{1 2} (set (ids "clojre "))) "a word that no document holds")
+    (is (= [3] (ids "rust ")) "but not one that a document holds")
+    (is (= #{1 2 3} (set (ids "rust | clojre "))) "in any part of a query")
+    (is (= #{1 2} (set (ids "clojrue"))) "or the word being typed")
+    (is (= [] (ids "clojre " {:fuzzy false})))
+    (is (= [1] (ids "clojre~1 " {:fuzzy false})) "but ~ still asks for typos")
     (is (= #{1 2} (set (ids "clojre " {:fuzzy true}))))
     (is (= [1 2] (ids "clojure~ ")) "an exact match outranks one with typos")
     (is (= [1] (ids "clojure~0 ")))
@@ -233,9 +238,21 @@
     (is (= [{:text "Closure" :match? true} {:text " tables and "}
             {:text "Clojure" :match? true}]
            (search/snippet "Closure tables and Clojure" "clojure~")))
+    (testing "which words matched with typos, and in which results"
+      (is (= {:typos {"clojre" ["clojure" "closure"]}}
+             (meta (search/query idx "clojre "))))
+      (is (nil? (meta (search/query idx "rust "))) "none")
+      (let [found (search/query idx "clojure~ ")]
+        (is (= {:typos {"clojure" ["closure"]}} (meta found)))
+        (is (= [nil {"clojure" ["closure"]}] (map :typos found))
+            "a result that holds the word itself has none")))
+    (is (= [{:text "Closure" :match? true} {:text " tables"}]
+           (search/snippet "Closure tables" "clojre " {:index idx}))
+        "a snippet knows the words of the index")
     (is (search/matches? "Closure tables" "clojre~"))
     (is (search/matches? "Closure tables" "clojre " {:fuzzy true}))
-    (is (not (search/matches? "Closure tables" "clojre ")))
+    (is (search/matches? "Closure tables" "clojre " {:index idx}))
+    (is (not (search/matches? "Closure tables" "clojre ")) "without an index")
     (is (= {:and [{:term "clojre" :fuzzy :auto} {:term "value" :fuzzy 1}
                   {:term "rust" :prefix? true}]}
            (search/parse "clojre~ value~1 rust")))

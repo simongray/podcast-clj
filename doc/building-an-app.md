@@ -602,10 +602,23 @@ gives the next page. The last word counts as a prefix, so this works for
 search as you type. A query can also have `"a phrase"`, `OR` or `|`,
 `NOT`, `!` or `-` before a word, parentheses, `word~` for a word with
 typos, and `title:word` or `notes:word` for one field;
-`util.text.search/parse` says the rest. To allow typos in every word,
-give `{:fuzzy true}`. The index takes about two kilobytes per episode,
-so 50 shows with 28,000 episodes take about 60 megabytes. To leave it
-out, e.g. on a watch, give `:search? false` in the config.
+`util.text.search/parse` says the rest. The index takes about two
+kilobytes per episode, so 50 shows with 28,000 episodes take about 60
+megabytes. To leave it out, e.g. on a watch, give `:search? false` in
+the config.
+
+A word that no episode holds also matches words with typos. To allow
+typos in every word, give `{:fuzzy true}`, or `{:fuzzy false}` for none
+but those of `word~`. The words that matched with typos are in the
+metadata of the results, and a result that holds such a word only with
+typos has them too, so that the UI can say "Near matches for futrue":
+
+```clojure
+(def found (library/search @lib "futrue"))
+
+(:typos (meta found))   ; => {"futrue" ["future"]}
+(:typos (first found))  ; => {"futrue" ["future"]}
+```
 
 To search only some episodes, give the criteria of `library/episodes` as
 `:where`, which leaves out the shows:

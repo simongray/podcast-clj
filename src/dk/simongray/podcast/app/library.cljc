@@ -642,10 +642,11 @@
   "The episodes and shows of `library` that match the query `q`, best
   first, with the `opts` below, or nil when the library keeps no index.
 
-  Each result has its :feed, and an episode its :item. The `opts` are
-  those of util.text.search/query, whose :filter gets the result with them,
-  and :where, the criteria of search/where that an episode must meet,
-  which leaves the shows out. The criteria read the profile of the
+  Each result has its :feed, and an episode its :item. The words that
+  matched with typos are in the metadata, as util.text.search/query gives
+  them. The `opts` are those of query, whose :filter gets the result with
+  them, and :where, the criteria of search/where that an episode must
+  meet, which leaves the shows out. The criteria read the profile of the
   library, and the time of its clock unless the `opts` give :at.
 
       (search library \"value for va\" {:where {:status :unplayed}})
@@ -670,8 +671,9 @@
                            (or (nil? meets?)
                                (and item (meets? feed item))))))
            opts   (cond-> (dissoc opts :where :at :scale)
-                    (or meets? keep?) (assoc :filter kept?))]
-       (mapv locate (text.search/query index q opts))))))
+                    (or meets? keep?) (assoc :filter kept?))
+           found  (text.search/query index q opts)]
+       (with-meta (mapv locate found) (meta found))))))
 
 (defn step
   "The `library` after the player `event`, with `opts`, both as

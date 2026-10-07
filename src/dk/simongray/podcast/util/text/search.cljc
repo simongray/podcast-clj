@@ -1586,21 +1586,34 @@
 
 (defn- fuzzy-expansions
   "The terms of the `segments` within the edits of the fuzzy `leaf`, at
-  most `most` of them, the closest first, as pairs of a term and its
-  edits. Only terms that start with the same character count, which keeps
-  the search short."
+  most `most` of them, as pairs of a term and its edits: the closest
+  first, and of those the ones that the most documents hold. Only terms
+  that start with the same character count, which keeps the search short."
   [segments {:keys [term] :as leaf} most]
   (let [edits (long (edits leaf))
         n     (count term)]
-    (->> (mapcat #(prefixed % (subs term 0 1)) segments)
-         (map first)
-         (filter #(<= (Math/abs (- (count %) n)) edits))
-         distinct
-         (keep (fn [found]
+    (->> (term-counts segments (subs term 0 1))
+         (filter #(<= (Math/abs (- (count (key %)) n)) edits))
+         (keep (fn [[found held]]
                  (when-let [d (distance term found edits)]
-                   [found d])))
-         (sort-by (fn [[found d]] [d found]))
-         (take most))))
+                   [found d held])))
+         (sort-by (fn [[found d held]] [d (- (long held)) found]))
+         (take most)
+         (map pop))))
+
+(defn- known?
+  "Whether a document of the `segments` holds the term of `leaf`, or with
+  :prefix? a term that it starts."
+  [segments {:keys [term prefix?]}]
+  (boolean
+   (some (fn [^Segment segment]
+           (let [^objects terms (.-terms segment)
+                 i              (term-bound terms term)]
+             (and (< i (alength terms))
+                  (if prefix?
+                    (str/starts-with? (aget terms i) term)
+                    (= term (aget terms i))))))
+         segments)))
 
 (defn- distinct-docs
   "The documents of `segment` with a posting in the `ranges`."
@@ -1712,22 +1725,48 @@
       :else                    node)))
 
 (defn- with-fuzzy
-  "The query `node` with :fuzzy as `fuzzy` on each term that isn't of a
-  script without spaces, unless it has its own, or `node` as it is when
-  `fuzzy` is nil or false."
-  [node fuzzy]
+  "The query `node` with :fuzzy on each term that isn't of a script without
+  spaces and has none of its own: `fuzzy` when it's true or a number, and
+  :auto on those that `unknown?` picks when it's nil. When `fuzzy` is
+  false, `node` stays as it is."
+  [node fuzzy unknown?]
   (let [fuzzy (if (true? fuzzy) :auto fuzzy)
-        each  #(mapv (fn [n] (with-fuzzy n fuzzy)) %)]
+        each  #(mapv (fn [n] (with-fuzzy n fuzzy unknown?)) %)]
     (cond
-      (not fuzzy)              node
-      (contains? node :and)    (update node :and each)
-      (contains? node :or)     (update node :or each)
-      (contains? node :not)    (update node :not with-fuzzy fuzzy)
-      (and (:term node)
-           (not (:fuzzy node))
-           (not (text/unspaced? (:term node))))
+      (false? fuzzy)
+      node
+
+      (contains? node :and)
+      (update node :and each)
+
+      (contains? node :or)
+      (update node :or each)
+
+      (contains? node :not)
+      (update node :not with-fuzzy fuzzy unknown?)
+
+      (or (not (:term node))
+          (:fuzzy node)
+          (text/unspaced? (:term node)))
+      node
+
+      fuzzy
       (assoc node :fuzzy fuzzy)
-      :else                    node)))
+
+      (unknown? node)
+      (assoc node :fuzzy :auto)
+
+      :else
+      node)))
+
+(defn- unknown-in
+  "A predicate of a term that no document of `index` holds, or with
+  :prefix? one that no term of it starts, which is false for every term
+  without an `index`."
+  [index]
+  (if-let [segments (:segments (restore index))]
+    #(not (known? segments %))
+    (constantly false)))
 
 (declare hits-in)
 
@@ -2056,11 +2095,54 @@
           (range (alength docs)))))
 
 (defn- matched
-  "The documents of the segments of `ctx` that match the query `node`, as
-  vectors of an id, a score and what is stored."
+  "The documents of the segments of `ctx` that match the prepared query
+  `node`, as vectors of an id, a score and what is stored."
   [ctx node]
-  (let [node (prepared ctx node)]
-    (into [] (mapcat #(results ctx % node)) (:segments ctx))))
+  (into [] (mapcat #(results ctx % node)) (:segments ctx)))
+
+(declare leaves)
+
+(defn- typos-of
+  "The terms of the prepared query `node` that match other terms with
+  typos, those under a :not left out, as a map of each to the :exact terms
+  it matches, itself or its completions, and the :near ones."
+  [node]
+  (into {}
+        (keep (fn [{:keys [term summed typos]}]
+                (let [near (filterv #(not= term %) (:terms typos))]
+                  (when (seq near)
+                    [term {:exact (:terms summed) :near near}]))))
+        (leaves node)))
+
+(defn- holds-term?
+  "Whether the document `d` of `segment` holds `term`."
+  [^Segment segment term d]
+  (let [^ints docs (.-docs segment)
+        d          (long d)]
+    (boolean
+     (some (fn [[from to]]
+             (let [to (long to)
+                   k  (seek docs (long from) to d)]
+               (and (< k to) (= d (aget docs k)))))
+           (term-ranges segment [term])))))
+
+(defn- with-typos
+  "The `result` of a query of `index` with :typos, a map of each of the
+  terms of `typos`, as typos-of gives them, that its document holds only
+  with typos, to the near terms that it holds, when there are any."
+  [index typos {:keys [id] :as result}]
+  (let [[i d]   (get (:docs index) id)
+        segment (nth (:segments index) i)
+        holds?  #(holds-term? segment % d)
+        held    (into {}
+                      (keep (fn [[term {:keys [exact near]}]]
+                              (when-not (some holds? exact)
+                                (let [found (filterv holds? near)]
+                                  (when (seq found)
+                                    [term found])))))
+                      typos)]
+    (cond-> result
+      (seq held) (assoc :typos held))))
 
 (defn query
   "The documents of `index` that match the query `q`, best first, as maps
@@ -2072,10 +2154,9 @@
 
   - :limit, the most results
   - :offset, the results to skip first, e.g. for the next page
-  - :fuzzy, to find words with typos: true for the edits by the length
-    of a word, none below 3 characters and 2 above 5, or a number of
-    edits, at most 2. A match with typos weighs less, and a prefix
-    matches the words that it starts as well.
+  - :fuzzy, which words match words with typos too: by default those that
+    no document holds, true for all, a number for all with at most that
+    many edits, and false for none but those marked with ~ in the query
   - :boosts, the weight of a match in each field, 1 by default, where 0
     leaves a field out unless the query names it
   - :aliases, other names that a query can give the fields, as a map of a
@@ -2086,7 +2167,17 @@
     score
   - :max-completions and :max-expansions, the limits of default-limits
 
-  Equal scores come in the order of their ids, so the order is stable."
+  Equal scores come in the order of their ids, so the order is stable.
+
+  A word with typos has as many edits as the number of :fuzzy, at most
+  2, or else by its length, none below 3 characters and 2 above 5. A
+  match with typos weighs less than an exact one. When words matched
+  others with typos, the results have :typos in their metadata, a map of
+  each such word to those it matched, the closest first. A result that
+  holds a word only with typos has :typos too, e.g. for a UI to say so:
+
+      (meta (query idx \"intervew\"))
+      ;; => {:typos {\"intervew\" [\"interview\" \"interviews\"]}}"
   ([index q]
    (query index q {}))
   ([index q opts]
@@ -2094,8 +2185,6 @@
    (let [index    (restore index)
          {:keys [limit offset boosts] :or {offset 0} :as opts}
          (merge default-limits (:defaults index) opts)
-         node     (-> (as-query q (assoc opts :index index))
-                      (with-fuzzy (:fuzzy opts)))
          segments (:segments index)
          numbers  (:fields index)
          ctx      {:segments        segments
@@ -2108,16 +2197,26 @@
                    :total           (reduce + 0 (map size segments))
                    :max-completions (:max-completions opts)
                    :max-expansions  (:max-expansions opts)}
+         parsed   (as-query q (assoc opts :index index))
+         node     (when parsed
+                    (prepared ctx (with-fuzzy parsed
+                                    (:fuzzy opts)
+                                    (unknown-in index))))
          found    (if node
                     (matched ctx node)
                     [])
+         typos    (typos-of node)
          result   (fn [[id score stored]]
                     {:id id :score score :stored stored})
          ranked   (top found
                        result
                        (some-> limit (+ (long offset)))
-                       opts)]
-     (subvec ranked (min (long offset) (count ranked))))))
+                       opts)
+         page     (subvec ranked (min (long offset) (count ranked)))]
+     (if (seq typos)
+       (with-meta (mapv #(with-typos index typos %) page)
+                  {:typos (update-vals typos :near)})
+       page))))
 
 (defn- leaves
   "The terms and phrases of the query `node` that a match holds, those
@@ -2270,7 +2369,8 @@
   parse, and these:
 
   - :width, the number of characters shown, 160 by default
-  - :fuzzy, as query takes it"
+  - :fuzzy, as query takes it, where the words that no document holds
+    are those of the :index, and none without one"
   ([text q]
    (snippet text q {}))
   ([text q {:keys [width] :or {width 160} :as opts}]
@@ -2278,7 +2378,9 @@
    (let [opts       (merge (:defaults (:index opts)) opts)
          text       (str text)
          spans      (text/spans text)
-         query      (with-fuzzy (as-query q opts) (:fuzzy opts))
+         query      (with-fuzzy (as-query q opts)
+                      (:fuzzy opts)
+                      (unknown-in (:index opts)))
          found      (hits spans (leaves query))
          length     (count text)
          [from to]  (:window (window spans found width length))
@@ -2323,8 +2425,7 @@
 
 (defn matches?
   "Whether `text` matches the query `q`, read with the `opts` of parse,
-  and :fuzzy as query takes it, as one field of a document would, without
-  an index."
+  and :fuzzy as snippet takes it, as one field of a document would."
   ([text q]
    (matches? text q {}))
   ([text q opts]
@@ -2341,7 +2442,9 @@
                         fuzzy)       (boolean (some #(leaf-matches? leaf %)
                                                     @terms))
                     :else            (contains? @terms term)))]
-     (satisfied? found? (with-fuzzy (as-query q opts) (:fuzzy opts))))))
+     (satisfied? found? (with-fuzzy (as-query q opts)
+                          (:fuzzy opts)
+                          (unknown-in (:index opts)))))))
 
 (comment
   (parse "title:clojure -rust | \"value for va")

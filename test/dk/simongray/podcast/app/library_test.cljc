@@ -193,6 +193,10 @@
       (let [[episode] (library/search lib "future")]
         (is (= "Episode 3 - The Future" (:rss/title (:item episode))))
         (is (= guid (:podcast/guid (:feed episode))))))
+    (testing "the words that matched with typos"
+      (let [found (library/search lib "futrue ")]
+        (is (= ["future"] (get-in (meta found) [:typos "futrue"])))
+        (is (= {"futrue" ["future"]} (:typos (first found))))))
     (testing "the criteria of an episode, which leave the show out"
       (let [id     [guid "https://example.com/ep0003"]
             played (library/update-profile lib profile/mark-played id)]

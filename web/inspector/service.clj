@@ -699,7 +699,8 @@
                    (html (page/search-page {:q       q
                                             :url     url
                                             :index   index
-                                            :results results}))))]
+                                            :results results
+                                            :typos   (:typos (meta found))}))))]
     (if (str/blank? url)
       (try
         (let [{:keys [index feeds]} (corpus-index)]
