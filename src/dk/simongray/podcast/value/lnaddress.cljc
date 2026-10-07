@@ -26,12 +26,11 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.bech32 :as bech32]
-            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.podcast.value :as value]))
+            [dk.simongray.podcast.value.bolt11 :as bolt11]
+            [dk.simongray.podcast.value.payment :as value.payment]))
 
 (def default-limits
   "The limits of request-invoice! and fetch-node! that their options don't
@@ -207,7 +206,7 @@
   (when (and (string? comment)
              (not (str/blank? comment))
              (pos? (or comment-length 0)))
-    (value/cut comment comment-length)))
+    (value.payment/cut comment comment-length)))
 
 (defn invoice-request
   "The request to the callback of `terms` for an invoice of `msat`
@@ -231,138 +230,6 @@
       :url     (str callback (if (str/includes? callback "?") "&" "?") query)
       :headers {"Accept" "application/json"}})))
 
-(def ^:no-doc max-invoice-length
-  "The most characters of an invoice that podcast-clj reads: the most
-  digits that one QR code holds. BOLT 11 gives no limit, so the limit is a
-  choice."
-  7089)
-
-(def ^:no-doc networks
-  "The network of each prefix of a BOLT 11 invoice (part Human-Readable
-  Part), and sb, which btcd has for its simnet."
-  {"bc"   :bitcoin
-   "tb"   :testnet
-   "tbs"  :signet
-   "bcrt" :regtest
-   "sb"   :simnet})
-
-(def ^:no-doc multipliers
-  "The millisatoshis in one of each unit of an amount in a BOLT 11 invoice,
-  a fraction of a bitcoin."
-  {""  100000000000
-   "m" 100000000
-   "u" 100000
-   "n" 100})
-
-(def ^:no-doc invoice-form
-  "The pattern of a BOLT 11 invoice in lower case: the prefix of its
-  network, its amount and unit, if it has one, and a 1 before six or more
-  characters of Bech32 data."
-  (re-pattern (str "ln(bcrt|bc|tbs|tb|sb)"
-                   "(?:([1-9][0-9]{0,15})([munp]?))?"
-                   "1[02-9ac-hj-np-z]{6,}")))
-
-(defn invoice-amount
-  "The network and the amount of the BOLT 11 `invoice` from the part
-  before its data, as a map of :network and :msat, or nil for text that
-  isn't an invoice. An invoice of any amount has no :msat.
-
-  The amount is in millisatoshis. It starts with no zero, and a pico amount
-  must end in 0, as BOLT 11 requires. After the amount come a 1 and the
-  data, which are six or more characters of Bech32. This reads no
-  signature, since the wallet checks the invoice when it pays."
-  [invoice]
-  (when (and (string? invoice)
-             (<= (count invoice) max-invoice-length)
-             (or (= invoice (str/lower-case invoice))
-                 (= invoice (str/upper-case invoice))))
-    (when-let [[_ prefix digits unit] (->> (str/lower-case invoice)
-                                           (re-matches invoice-form))]
-      (let [network (networks prefix)
-            factor  (multipliers unit)]
-        (cond
-          (nil? digits)
-          {:network network}
-
-          ;; a tenth of the amount, from its digits, since JavaScript holds no
-          ;; whole number of sixteen digits
-          (= "p" unit)
-          (when (str/ends-with? digits "0")
-            {:network network
-             :msat    (parse-long (subs digits 0 (dec (count digits))))})
-
-          :else
-          (let [n (parse-long digits)]
-            (when (and n (<= n (quot 9007199254740991 factor)))
-              {:network network :msat (* n factor)})))))))
-
-(defn- tagged-fields
-  "The tagged fields in the data `words` of an invoice, numbers of five
-  bits, as pairs of a type and data in their order. It's nil for data
-  that aren't those of an invoice.
-
-  The section Data Part of BOLT 11 defines the data: a time of 7 numbers,
-  the tagged fields, and a signature of 104 numbers. A field is a type,
-  a length of two numbers and its data."
-  [words]
-  (let [end (- (count words) 104)]
-    (loop [i 7 out []]
-      (cond
-        (= i end)
-        out
-
-        (< end (+ i 3))
-        nil
-
-        :else
-        (let [n    (long (+ (* 32 (nth words (+ i 1))) (nth words (+ i 2))))
-              next (+ i 3 n)]
-          (when (<= next end)
-            (let [field [(nth words i) (subvec words (+ i 3) next)]]
-              (recur next (conj out field)))))))))
-
-(defn- whole-bytes
-  "The whole bytes in the numbers of five bits `words`, the highest bit
-  first, in hexadecimal."
-  [words]
-  (let [bits    (for [w words, i [4 3 2 1 0]] (bit-and 1 (bit-shift-right w i)))
-        byte-of (fn [eight] (reduce (fn [acc bit] (+ (* 2 acc) bit)) 0 eight))]
-    (bytes/hex (bytes/of (map byte-of (partition 8 bits))))))
-
-(defn payment-hash
-  "The payment hash of the BOLT 11 `invoice`, as hexadecimal text of 32
-  bytes, or nil for a text that isn't an invoice with one payment hash.
-
-  The hash is the tagged field p, with 52 numbers of five bits, as the
-  section Tagged Fields of BOLT 11 defines it. The reader checks the
-  checksum of the invoice. It reads no signature, because the wallet
-  checks the invoice when it pays."
-  [invoice]
-  (when (invoice-amount invoice)
-    (let [limits  {:max-length max-invoice-length}
-          decoded (bech32/decode-words invoice limits)]
-      (when-let [fields (some-> decoded :words tagged-fields)]
-        (let [hashes (filter #(= 1 (first %)) fields)
-              data   (second (first hashes))]
-          (when (and (= 1 (count hashes))
-                     (= 52 (count data)))
-            (whole-bytes data)))))))
-
-(defn proves?
-  "Whether `preimage` is the proof that somebody paid the BOLT 11
-  `invoice`: its SHA-256 is the payment hash of the invoice.
-
-  A wallet gets the preimage from the recipient when the payment arrives,
-  and no one can guess it. The `preimage` is hexadecimal text of 32
-  bytes. It's false for another text, and for an invoice without a
-  payment hash that payment-hash reads."
-  [preimage invoice]
-  (boolean (and (string? preimage)
-                (re-matches #"[0-9a-fA-F]{64}" preimage)
-                (when-let [hash (payment-hash invoice)]
-                  (let [digest (bytes/sha256 (bytes/from-hex preimage))]
-                    (= hash (bytes/hex digest)))))))
-
 (defn- success-action
   "The success action `a` of an answer to a request to `callback`, as
   LUD-09 and LUD-10 define it, or nil for none.
@@ -373,7 +240,7 @@
   [a callback]
   (when (map? a)
     (let [text      #(json/text (get a %))
-          shown     #(some-> (text %) (value/cut 144))
+          shown     #(some-> (text %) (value.payment/cut 144))
           described #(cond-> %
                        (shown "description")
                        (assoc :description (shown "description")))]
@@ -421,7 +288,7 @@
     (or (insecure url)
         (refusal raw url)
         (let [pr     (get raw "pr")
-              amount (invoice-amount pr)
+              amount (bolt11/invoice-amount pr)
               action (success-action (get raw "successAction") callback)
               verify (get raw "verify")]
           ;; LUD-06 has the wallet check the description hash too. It isn't
@@ -600,9 +467,6 @@
                 (str "A comment that is longer than the forty characters"
                      " of the terms"))
   (invoice-request sample-terms 25000 "Thanks!")
-
-  ;; 250,000 millisatoshis, from the part of an invoice before its data
-  (invoice-amount "lnbc2500n1pvjluezsp5zyg3zyg3zyg3zyg3")
 
   (node {:status 200
          :url    "https://example.org/.well-known/keysend/ann"

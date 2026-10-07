@@ -18,8 +18,10 @@
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
+            [dk.simongray.podcast.value.bolt11 :as bolt11]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
-            [dk.simongray.podcast.value.metadata :as metadata]))
+            [dk.simongray.podcast.value.metadata :as metadata]
+            [dk.simongray.podcast.value.payment :as value.payment]))
 
 (def records
   "The records of the examples of bLIP-10, by app and action."
@@ -231,13 +233,13 @@
             {:network :testnet :msat 2000000000}
             {:network :bitcoin :msat 967878534}
             nil nil nil]
-           (map lnaddress/invoice-amount ["lnbc1pvjluezsp5zyg3" "lnbc2500u1pvjluez" "LNTB20M1PVJLUEZ" "lnbc9678785340p1pwmna7l"
-                                          "lnbc2500000001p1pvjluez" "lnBC20m1pvjluez" "an invoice"])))
-    (is (every? nil? (map lnaddress/invoice-amount ["lnbc250n1pvjluez <b>junk</b>" "lnbc250n1pvjluez\n" "lnbc250n1pvjlbez"
-                                                    "lnbc250n1" "lnbc250n1pvjlu" "lnbc0250n1pvjluez" " lnbc250n1pvjluez"]))
+           (map bolt11/invoice-amount ["lnbc1pvjluezsp5zyg3" "lnbc2500u1pvjluez" "LNTB20M1PVJLUEZ" "lnbc9678785340p1pwmna7l"
+                                       "lnbc2500000001p1pvjluez" "lnBC20m1pvjluez" "an invoice"])))
+    (is (every? nil? (map bolt11/invoice-amount ["lnbc250n1pvjluez <b>junk</b>" "lnbc250n1pvjluez\n" "lnbc250n1pvjlbez"
+                                                 "lnbc250n1" "lnbc250n1pvjlu" "lnbc0250n1pvjluez" " lnbc250n1pvjluez"]))
         "the data is six or more characters of Bech32 and nothing else, and no amount starts with a zero")
     (is (= [{:network :bitcoin :msat 999999999999999} nil]
-           (map lnaddress/invoice-amount ["lnbc9999999999999990p1pvjluez" "lnbc9999999999999999n1pvjluez"]))
+           (map bolt11/invoice-amount ["lnbc9999999999999990p1pvjluez" "lnbc9999999999999999n1pvjluez"]))
         "an amount of sixteen digits is an amount, or no invoice, and never an invoice of any amount"))
   (testing "the payment hash of an invoice, from the examples of BOLT 11"
     (let [donation (str "lnbc1pvjluezsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygspp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypq"
@@ -247,26 +249,26 @@
                         "dq5xysxxatsyp3k7enxv4jsxqzpu9qrsgquk0rl77nj30yxdy8j9vdx85fkpmdla2087ne0xh8nhedh8w27kyke0lp53ut353s06fv3qfegext0eh0ymjpf39tuven09"
                         "sam30g4vgpfna3rh")
           hash     "0001020304050607080900010203040506070809000102030405060708090102"]
-      (is (= [hash hash hash] (map lnaddress/payment-hash [donation coffee (str/upper-case coffee)])))
-      (is (nil? (lnaddress/payment-hash (str/replace-first coffee "zyg3" "zyg4"))) "a character that the checksum does not take")
-      (is (nil? (lnaddress/payment-hash (str donation "q"))))
+      (is (= [hash hash hash] (map bolt11/payment-hash [donation coffee (str/upper-case coffee)])))
+      (is (nil? (bolt11/payment-hash (str/replace-first coffee "zyg3" "zyg4"))) "a character that the checksum does not take")
+      (is (nil? (bolt11/payment-hash (str donation "q"))))
       (doseq [x [nil 5 "" "an invoice" "lnbc250n1pvjluez" "lnbc1pvjluezsp5zyg3" invoice-25]]
-        (is (nil? (lnaddress/payment-hash x)) (pr-str x)))))
+        (is (nil? (bolt11/payment-hash x)) (pr-str x)))))
   (testing "the proof of a payment"
     (let [preimage (apply str (repeat 64 "7"))
           paid     (invoice preimage)]
-      (is (= {:network :bitcoin :msat 50000} (lnaddress/invoice-amount paid)))
-      (is (= (bytes/hex (bytes/sha256 (bytes/from-hex preimage))) (lnaddress/payment-hash paid)))
-      (is (true? (lnaddress/proves? preimage paid)))
-      (is (true? (lnaddress/proves? (str/upper-case preimage) (str/upper-case paid))))
+      (is (= {:network :bitcoin :msat 50000} (bolt11/invoice-amount paid)))
+      (is (= (bytes/hex (bytes/sha256 (bytes/from-hex preimage))) (bolt11/payment-hash paid)))
+      (is (true? (bolt11/proves? preimage paid)))
+      (is (true? (bolt11/proves? (str/upper-case preimage) (str/upper-case paid))))
       (doseq [[x reason] {(apply str (repeat 64 "8")) "another preimage"
                           (subs preimage 2)           "a preimage of 31 bytes"
                           ""                          "no preimage"
                           nil                         "no preimage"
                           "0123"                      "a short text"}]
-        (is (false? (lnaddress/proves? x paid)) reason))
-      (is (false? (lnaddress/proves? preimage "lnbc500n1x")) "a text that is no invoice")
-      (is (false? (lnaddress/proves? preimage (invoice (apply str (repeat 64 "8"))))) "another invoice")))
+        (is (false? (bolt11/proves? x paid)) reason))
+      (is (false? (bolt11/proves? preimage "lnbc500n1x")) "a text that is no invoice")
+      (is (false? (bolt11/proves? preimage (invoice (apply str (repeat 64 "8"))))) "another invoice")))
   (let [coinos (terms-of "coinos@coinos.io")]
     (is (= "https://names.coinos.io/lnurlp/coinos/cb?domain=coinos.io&amount=25000&comment=Tak%20%F0%9F%8E%99%EF%B8%8F"
            (:url (lnaddress/invoice-request coinos 25000 "Tak 🎙️")))
@@ -414,7 +416,7 @@
                                           ""
                                           42]))
           "white space of any kind around the comment, which the payer writes")))
-  (is (= "ab" (value/cut "ab🎙️" 3)) "a cut leaves no half of a pair of surrogates"))
+  (is (= "ab" (value.payment/cut "ab🎙️" 3)) "a cut leaves no half of a pair of surrogates"))
 
 (deftest fetching-metadata
   (let [url     "https://boostbox.example/boost/01K5"

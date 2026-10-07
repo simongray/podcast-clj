@@ -28,7 +28,8 @@
    "feed.resolve" 3 "feed.check" 3 "feed.discovery" 3 "feed.publish" 3
    "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.html" 3 "format.image" 3
    "format.media" 3 "format.media.id3" 3 "format.media.mp3" 3 "format.media.mp4" 3
-   "value" 3 "value.lnaddress" 3 "value.metadata" 3 "value.nwc" 3 "value.webln" 3
+   "value" 3 "value.bolt11" 3 "value.lnaddress" 3 "value.metadata" 3 "value.nwc" 3
+   "value.payment" 3 "value.webln" 3
    "profile" 3 "search" 3 "downloads" 3
    "sync" 3 "sync.store" 3 "sync.file" 3 "sync.indexeddb" 3 "sync.webdav" 3 "sync.webdav.server" 3
    "sync.encrypted" 3 "sync.gpodder" 3 "sync.gpodder.server" 3
@@ -104,8 +105,12 @@
     (is (= #{} (get @graph "feed.spec"))))
   (testing "the companion formats stand on the primitives and each other alone"
     (doseq [ns ["format.chapters" "format.transcript" "format.opml" "format.html" "format.image"
-                "format.media" "format.media.id3" "format.media.mp3" "format.media.mp4" "value"]]
-      (is (every? #(or (zero? (get layers %)) (str/starts-with? % "format.")) (get @graph ns))
+                "format.media" "format.media.id3" "format.media.mp3" "format.media.mp4"
+                "value" "value.payment" "value.bolt11"]]
+      (is (every? #(or (zero? (get layers %))
+                       (str/starts-with? % "format.")
+                       (= "value.payment" %))
+                  (get @graph ns))
           (str ns " requires " (get @graph ns)))))
   (testing "the XML layer needs nothing of podcasts"
     (is (= #{} (get @graph "util.xml")))))

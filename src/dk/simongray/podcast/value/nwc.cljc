@@ -42,7 +42,8 @@
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
-            [dk.simongray.podcast.value.lnaddress :as lnaddress]))
+            [dk.simongray.podcast.value.bolt11 :as bolt11]
+            [dk.simongray.podcast.value.payment :as value.payment]))
 
 (def kinds
   "The kinds of the events of NIP-47, in its section Events: the info
@@ -207,7 +208,7 @@
   and value of the recipient. The report of the command says when the
   records leave out the custom key or value. Don't send the command then."
   [payment {:keys [address] :as recipient}]
-  (let [[msat]  (value/amounts payment)
+  (let [[msat]  (value.payment/amounts payment)
         records (value/records payment recipient)
         tlv     (fn [[type text]]
                   {"type" type "value" (bytes/hex (bytes/encode text))})]
@@ -594,7 +595,7 @@
                 :reason "The answer is the answer to another request"})
 
       (= "pay_invoice" method)
-      (let [proof (lnaddress/proves? (:preimage read) (get params "invoice"))]
+      (let [proof (bolt11/proves? (:preimage read) (get params "invoice"))]
         (assoc read :proven? proof))
 
       :else
@@ -642,7 +643,7 @@
       ;; => {:method \"pay_invoice\" :preimage \"0123…\" :proven? true …}
 
   The answer to pay-invoice has :proven?. It's true when the preimage is
-  the proof of the invoice, as lnaddress/proves? tells. When it's false,
+  the proof of the invoice, as bolt11/proves? tells. When it's false,
   the wallet says that it paid, and it gave no proof. Don't pay again
   then, since the wallet can have paid, and tell the listener, who knows
   the wallet. A keysend payment has no such proof, since the wallet of

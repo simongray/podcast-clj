@@ -26,7 +26,7 @@
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.podcast.value :as value]))
+            [dk.simongray.podcast.value.payment :as value.payment]))
 
 (def prefix
   "The start of the comment of a payment that names its metadata."
@@ -57,9 +57,9 @@
 
   Give the :timestamp of the payment, which the metadata holds."
   [{:keys [action] :as payment}]
-  (let [[amount total] (value/amounts payment)
+  (let [[amount total] (value.payment/amounts payment)
         own            #{:action :msat :total-msat :sats :total-sats}
-        base           (value/json-record payment record-keys own)]
+        base           (value.payment/json-record payment record-keys own)]
     (cond-> (assoc base "action" (name (or action :boost)))
       amount (assoc "value_msat" amount "value_msat_total" total))))
 
@@ -111,22 +111,23 @@
   (let [text    (when (string? s) (str/trim s))
         json?   (and text (str/starts-with? text "{"))
         decoded (if json? text (some-> text url/percent-decode))
-        raw     (value/json-object decoded)]
+        raw     (value.payment/json-object decoded)]
     (if raw
-      (let [read          (value/read-fields raw fields)
+      (let [read          (value.payment/read-fields raw fields)
             v             #(first (get read %))
-            other         (value/other-fields raw fields)
-            [action said] (value/read-action (v "action"))
+            other         (value.payment/other-fields raw fields)
+            [action said] (value.payment/read-action (v "action"))
             timestamp     (some-> (v "timestamp") time/parse-date)
             names         (set/map-invert record-keys)
             own           #{"action" "timestamp"}
-            payment       (cond-> (value/payment-of read names own)
+            payment       (cond-> (value.payment/payment-of read names own)
                             action    (assoc :action action)
                             timestamp (assoc :timestamp timestamp))
             unread-time?  (and (v "timestamp") (nil? timestamp))
             podcast?      (some v ["feed_guid" "feed_title" "remote_feed_guid"])
             no-time       {:id :value/unreadable :keys ["timestamp"]}
-            found         (cond-> (value/field-diagnostics read other #{})
+            diagnosed     (value.payment/field-diagnostics read other #{})
+            found         (cond-> diagnosed
                             unread-time?   (conj no-time)
                             said           (conj said)
                             (not podcast?) (conj {:id :value/no-podcast}))]
@@ -164,7 +165,8 @@
          head
 
          :else
-         (str (str/trimr (value/cut full (dec max-length))) "…"))))))
+         (str (str/trimr (value.payment/cut full (dec max-length)))
+              "…"))))))
 
 (defn parse-comment
   "What the comment `s` of a payment tells about its metadata, as a map of
@@ -177,7 +179,7 @@
   (let [form  #"(?s)rss::payment::(\S*)\s*(\S*)\s*(.*)"
         found (when (string? s) (re-matches form (str/trim s)))]
     (when-let [[_ action url message] found]
-      (let [[action] (value/read-action action)
+      (let [[action] (value.payment/read-action action)
             message  (str/trim message)
             said?    (not (contains? #{"" "undefined" "null"} message))]
         (cond-> {}
@@ -257,6 +259,7 @@
   (format-comment sample "https://example.org/p/1" 50)
 
   ;; what the host that receives the payment reads
+  (require '[dk.simongray.podcast.value :as value])
   (parse-comment "rss::payment::boost https://example.org/p/1 Great episode!")
   (parse-header (format-header sample))
   (value/report

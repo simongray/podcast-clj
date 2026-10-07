@@ -10,8 +10,8 @@
   bytes, and the section Segwit address format of BIP-173 tells how eight
   bits go into characters of five bits. For data that aren't whole bytes,
   decode-words and encode-words read and write the data as numbers of
-  five bits.
-  Bech32m, the checksum of BIP-350, isn't here."
+  five bits, and regroup turns those into bytes. Bech32m, the checksum of
+  BIP-350, isn't here."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]))
 
@@ -56,10 +56,15 @@
             [0]
             (map #(bit-and % 31) codes))))
 
-(defn- regrouped
-  "The numbers `xs` of `from` bits each as numbers of `to` bits each. With
-  `pad?`, the bits that are left over make one more number. Without it,
-  they must be fewer than `from` and all zero, or the result is nil."
+(defn regroup
+  "The numbers `xs` of `from` bits each as numbers of `to` bits each, the
+  highest bit first, with the `pad?` below, as the function convertbits
+  of BIP-173 does it.
+
+  With `pad?`, the bits that are left over make one more number. Without
+  it, they must be fewer than `from` and all zero, or the result is nil.
+  So (regroup words 5 8 false) gives the whole bytes in data that BOLT 11
+  pads to numbers of five bits."
   [xs from to pad?]
   (let [mask (dec (bit-shift-left 1 to))]
     (loop [xs xs acc 0 bits 0 out []]
@@ -134,7 +139,7 @@
   ([s opts]
    {:pre [(map? opts)]}
    (when-let [{:keys [prefix words]} (decode-words s opts)]
-     (when-let [octets (regrouped words 5 8 false)]
+     (when-let [octets (regroup words 5 8 false)]
        {:prefix prefix :bytes (bytes/of octets)}))))
 
 (defn encode
@@ -142,7 +147,7 @@
   case."
   [prefix b]
   (let [octets (map #(bytes/at b %) (range (bytes/length b)))]
-    (encode-words prefix (regrouped octets 8 5 true))))
+    (encode-words prefix (regroup octets 8 5 true))))
 
 (comment
   ;; the example of NIP-19: a public key of Nostr

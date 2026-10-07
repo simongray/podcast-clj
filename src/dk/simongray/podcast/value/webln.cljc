@@ -17,7 +17,8 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.value :as value]
-            #?(:cljs [dk.simongray.podcast.value.lnaddress :as lnaddress])))
+            #?(:cljs [dk.simongray.podcast.value.bolt11 :as bolt11])
+            [dk.simongray.podcast.value.payment :as value.payment]))
 
 (defn keysend-args
   "The arguments of webln.keysend for `payment` to `recipient`, as a map
@@ -37,7 +38,7 @@
   leave out the custom key or value of the recipient. Don't send the
   payment then."
   [payment {:keys [address] :as recipient}]
-  (let [[msat] (value/amounts payment)
+  (let [[msat] (value.payment/amounts payment)
         sats   (when msat (quot msat 1000))
         node?  (and (string? address)
                     (re-matches #"(?i)0[23][0-9a-f]{64}" address))]
@@ -125,7 +126,7 @@
      :preimage and :proven?, or of a map with a diagnostic under :error.
 
      The :proven? flag tells whether the preimage is the proof of the
-     invoice, as lnaddress/proves? tells. When it's false, the wallet says
+     invoice, as bolt11/proves? tells. When it's false, the wallet says
      that it paid, and it gave no proof. Don't pay again then, since the
      wallet can have paid. The function value.lnaddress/request-invoice!
      gives the invoice of a Lightning address."
@@ -139,7 +140,7 @@
                       (fn [^js provider] (.sendPayment provider invoice))
                       (fn [{:strs [preimage]}]
                         {:preimage preimage
-                         :proven?  (lnaddress/proves? preimage invoice)})))))
+                         :proven?  (bolt11/proves? preimage invoice)})))))
 
 #?(:cljs
    (defn pay-keysend!
@@ -156,7 +157,7 @@
      ([payment recipient opts]
       {:pre [(map? opts)]}
       (let [args    (keysend-args payment recipient)
-            [msat]  (value/amounts payment)
+            [msat]  (value.payment/amounts payment)
             problem (cond
                       args
                       (first (value/report args))
