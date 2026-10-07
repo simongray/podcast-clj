@@ -24,8 +24,8 @@
             [clojure.string :as str]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.file :as file]
-            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]
@@ -134,7 +134,7 @@
   "The inspector's WebDAV folder on this origin, as a backend."
   []
   (let [dav (webdav/store (str js/location.origin "/dav/") {:name "inspector"})]
-    (store/backend dav {:opml? true :app "inspector"})))
+    (sync/backend dav {:opml? true :app "inspector"})))
 
 (defn- backends
   "The backends of a sync: the inspector's folder, and the sync folder of
@@ -143,9 +143,9 @@
   (let [{:keys [handle permission]} (:folder @app)]
     (cond-> [(backend)]
       (= :granted permission)
-      (conj (store/backend (file/store handle) {:name  "sync folder"
-                                                :opml? true
-                                                :app   "inspector"})))))
+      (conj (sync/backend (file/store handle) {:name  "sync folder"
+                                               :opml? true
+                                               :app   "inspector"})))))
 
 (defn- handles!
   "A promise of the result of `f` on the inspector's store of handles in
@@ -329,7 +329,7 @@
   [input]
   (let [files (js/Array.from (.-files input))]
     (set! (.-value input) "")
-    (sync! [(store/backend (file/store files) {:name "loaded folder"})])))
+    (sync! [(sync/backend (file/store files) {:name "loaded folder"})])))
 
 (defn- perform!
   "Carry out the `effects` `profile/step` returned: seek the audio element

@@ -16,7 +16,7 @@
   the step and never read a clock.
 
   Each step of sync! pulls from every backend, merges, and pushes the
-  result. Build a backend over a document store with
+  result. The function backend makes a backend over a document store of
   dk.simongray.podcast.sync.store. For a backend of your own, document
   writes a device's whole state as a document, read-document reads it
   back, and reconcile merges what the other devices wrote.
@@ -24,7 +24,9 @@
   The state is the profile, unless the :crdt of the options names the
   functions of another CRDT, as default-crdt does for the profile."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
+            [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]
@@ -196,6 +198,268 @@
    (let [{:keys [states report]} (read-documents fetched at opts)]
      {:state  (settle (with-states state states opts) states at opts)
       :report report})))
+
+(defn- describe
+  [diagnostic]
+  (diagnostics/describe (assoc diagnostic :level :warning)))
+
+(defn document-name
+  "The name of the document that the device `device` writes."
+  [device]
+  (str device ".edn"))
+
+(defn device-document
+  "The document that the device of `state` writes at `at`, with the :app of
+  `opts`, as a map of its :name and :body."
+  ([state at]
+   (device-document state at {}))
+  ([state at opts]
+   {:name (document-name (:device state))
+    :body (document state at (select-keys opts [:app]))}))
+
+(def opml-name
+  "The name of the subscription list that a backend with :opml? writes
+  beside the documents, for any podcast app to import."
+  "subscriptions.opml")
+
+(defn- pull-documents
+  "The per-device pull from `store` for `state` at `at`: the documents that
+  changed since `cursor`, fetched at once and read with the :crdt of
+  `opts`.
+
+  The documents are the .edn files of the listing, and one without a
+  version there is always fetched. The report notes when this device's own
+  document changed under it, and when the document is gone from the store,
+  the push writes it again."
+  [{:keys [list fetch] :as store} opts state {:keys [versions] :as cursor} at]
+  (async/then
+   (list)
+   (fn [listing]
+     (let [own       (document-name (:device state))
+           own?      #(= own (:name %))
+           edn?      #(str/ends-with? (:name %) ".edn")
+           seen?     #(and (some? (:version %))
+                           (= (:version %) (get versions (:name %))))
+           documents (filter edn? listing)
+           stale     (remove seen? documents)
+           known?    (contains? versions own)
+           gone?     (and known?
+                          (not-any? own? documents))
+           named     (fn [name doc]
+                       (some-> doc (assoc :name name)))
+           fetch!    (fn [{:keys [name]}]
+                       (async/attempt
+                        #(async/then (fetch name {}) (partial named name))))]
+       (async/then
+        (async/all (map fetch! stale))
+        (fn [results]
+          (when-let [error (some :error results)]
+            (throw error))
+          (let [fetched  (keep :value results)
+                {:keys [states report]} (read-documents fetched at opts)
+                version  (juxt :name :version)
+                listed   (-> (into {} (map version) documents)
+                             (into (map version) fetched))
+                changed? (and known?
+                              (some #(and (own? %) (some? (:version %)))
+                                    stale))
+                shared   {:id     :sync/shared-device
+                          :name   own
+                          :device (:device state)}]
+            {:states states
+             :cursor (cond-> (assoc cursor :versions listed)
+                       gone? (dissoc :hash))
+             :report (cond-> report
+                       changed? (conj (describe shared)))})))))))
+
+(defn- mirror-opml
+  "Put the subscription list of `state` beside the documents of `store`,
+  when `opts` ask for it and the list changed since `cursor`.
+
+  The list is what profile/to-opml gives: the shows with their folders and
+  tags, and the lists that the listener follows. Returns the cursor, which
+  remembers the list last mirrored."
+  [{:keys [put] :as store} {:keys [opml?] :as opts} state cursor]
+  (let [list    (when opml? (profile/to-opml state))
+        written (hash list)]
+    (if (and opml? (not= written (:opml cursor)))
+      (async/then (put opml-name (opml/emit list) {})
+                  (fn [_] (assoc cursor :opml written)))
+      cursor)))
+
+(defn- push-document
+  "The per-device push of `state` to `store` at `at`, with the :app of
+  `opts` and `cursor`.
+
+  It writes this device's document when the state changed since the
+  cursor, and deletes the documents of retired devices."
+  [{:keys [put delete] :as store} opts state {:keys [versions] :as cursor} at]
+  (let [own      (device-document state at opts)
+        written  (hash state)
+        listed?  #(contains? versions (document-name %))
+        retired  (filter listed? (keys (:retired state)))
+        delete!  #(delete (document-name %))]
+    (async/then
+     (when (not= written (:hash cursor))
+       (put (:name own) (:body own) {}))
+     (fn [result]
+       (async/then
+        (async/all (when delete
+                     (map delete! retired)))
+        (fn [_]
+          (let [left (reduce dissoc versions (map document-name retired))]
+            {:cursor (cond-> (assoc cursor :hash written :versions left)
+                       result
+                       (assoc-in [:versions (:name own)]
+                                 (:version result)))})))))))
+
+(defn- pull-shared
+  "The shared pull from `store`: the document `name`, read at `at` with the
+  :crdt of `opts`, when its version isn't the one in `cursor`.
+
+  When the document is gone from the store, the push writes it again. A
+  document of a newer format is marked in the cursor, so that the push
+  leaves it alone."
+  [{:keys [fetch] :as store} name opts {:keys [version] :as cursor} at]
+  (async/then (fetch name {})
+              (fn [doc]
+                (cond
+                  (nil? doc)
+                  {:states []
+                   :cursor (cond-> cursor version (dissoc :version :hash))
+                   :report []}
+
+                  (= version (:version doc))
+                  {:states [] :cursor cursor :report []}
+
+                  :else
+                  (let [named  [(assoc doc :name name)]
+                        {:keys [states report]} (read-documents named at opts)
+                        newer? (some #(= :sync/newer-format (:id %)) report)]
+                    {:states states
+                     :cursor (cond-> (assoc cursor :version (:version doc))
+                               newer?       (assoc :newer? true)
+                               (not newer?) (dissoc :newer?))
+                     :report report})))))
+
+(defn- push-shared
+  "The shared push of `state` to the document `name` in `store` at `at`,
+  with the :app and the :crdt of `opts`, on condition of the version in
+  `cursor`.
+
+  On a conflict, the document is fetched, merged and put again, up to
+  three more times. The merged state comes back for the caller. A
+  document of a newer format is left alone, since writing over it would
+  lose what this library can't read."
+  [{:keys [fetch put] :as store} name opts state cursor at]
+  (letfn [(put-conditionally [state {:keys [version] :as cursor} attempts]
+            (let [written (document state at (select-keys opts [:app]))]
+              (async/then
+               (put name written {:if-version version})
+               (fn [{:keys [conflict?] :as result}]
+                 (cond
+                   (not conflict?)
+                   {:cursor (assoc cursor
+                                   :version (:version result)
+                                   :hash    (hash state))}
+
+                   (zero? attempts)
+                   {:cursor cursor
+                    :report [(describe {:id :sync/conflict :name name})]}
+
+                   :else
+                   (merge-and-retry state cursor attempts))))))
+          (merge-and-retry [state cursor attempts]
+            (async/then
+             (fetch name {})
+             (fn [doc]
+               (let [named  (when doc [(assoc doc :name name)])
+                     {:keys [states report]} (read-documents named at opts)
+                     merged (with-states state states opts)
+                     newer? (some #(= :sync/newer-format (:id %)) report)
+                     cursor (assoc cursor :version (:version doc))]
+                 (if newer?
+                   {:cursor (assoc cursor :newer? true) :report report}
+                   (async/then
+                    (put-conditionally merged cursor (dec attempts))
+                    (fn [retried]
+                      (-> retried
+                          (assoc :state merged)
+                          (update :report #(into (vec report) %))))))))))]
+    (if (or (:newer? cursor) (= (hash state) (:hash cursor)))
+      {:cursor cursor}
+      (put-conditionally state cursor 3))))
+
+(defn backend
+  "A backend for sync! over `store`, a document store of
+  dk.simongray.podcast.sync.store, with the `opts` below:
+
+  - :strategy, :per-device for a document per device, or :shared for one
+    document for all
+  - :direction, :pull to read only, :push to write only, or :both
+  - :opml?, whether to write subscriptions.opml beside the documents
+  - :app, the name of the app in the documents written
+  - :name, the store's name by default, and distinct for each backend of
+    one sync
+  - :document, the name of the shared document, podcast.edn by default
+  - :crdt, the functions of another CRDT than the profile, as
+    default-crdt has them, and then :opml? makes no sense
+
+  The :strategy is :per-device when the store has :list, and else
+  :shared. With a document per device, every device writes its own,
+  named after its device id, and reads those of the others. So no two
+  devices write the same document, and a folder that any sync client
+  mirrors is a complete backend. One shared document is put on condition
+  of the version that was fetched, and merged again on a conflict. The
+  :direction is :both when the store has :put, and else :pull."
+  ([store]
+   (backend store {}))
+  ([store {:keys [strategy direction document]
+           :or   {document "podcast.edn"}
+           :as   opts}]
+   {:pre [(map? opts)]}
+   (let [strategy  (or strategy (if (:list store) :per-device :shared))
+         direction (or direction (if (:put store) :both :pull))
+         pull?     (not= :push direction)
+         push?     (not= :pull direction)]
+     (when (and (= :per-device strategy) (not (:list store)))
+       (throw (ex-info "A store without :list cannot hold a document per device"
+                       {:name (:name store)})))
+     (when (and push? (not (:put store)))
+       (throw (ex-info "A store without :put can only be pulled from"
+                       {:name (:name store)})))
+     {:name (or (:name opts) (:name store))
+      :pull (fn [state cursor at]
+              (if pull?
+                (case strategy
+                  :per-device (pull-documents store opts state cursor at)
+                  :shared     (pull-shared store document opts cursor at))
+                {:states [] :cursor cursor :report []}))
+      :push (fn [state cursor at]
+              (cond
+                (not push?)
+                {:cursor cursor}
+
+                (crdt/retired? state (:device state))
+                {:cursor cursor
+                 :report [(describe {:id     :sync/retired-device
+                                     :device (:device state)})]}
+
+                :else
+                (async/then
+                 (case strategy
+                   :per-device
+                   (push-document store opts state cursor at)
+
+                   :shared
+                   (push-shared store document opts state cursor at))
+                 (fn [{:keys [report] :as pushed}]
+                   (if (some #(= :sync/conflict (:id %)) report)
+                     pushed
+                     (let [latest (:state pushed state)]
+                       (async/then
+                        (mirror-opml store opts latest (:cursor pushed))
+                        #(assoc pushed :cursor %))))))))})))
 
 (def default-cadence
   "How many seconds to wait before syncing again:

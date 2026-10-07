@@ -11,7 +11,6 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.file :as file]
-            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.test-support :refer [failed fixture with-temp-dir]]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
@@ -43,7 +42,7 @@
   (sync/sync! (-> (profile/make "phone")
                   (profile/subscribe (first id) {:url url :title "A"} #inst "2026-01-01T01:00:00Z")
                   (profile/progress id 600 3600 #inst "2026-01-01T01:00:01Z"))
-              [(store/backend store)]
+              [(sync/backend store)]
               {:at #inst "2026-01-01T01:00:02Z"}))
 
 (deftest the-library-follows-the-listener
@@ -51,7 +50,7 @@
     (fn [dir]
       (let [store (service/sync-store {:data-dir dir})]
         (phone-synced! store)
-        (let [library (device/step! (atom (device/make {:fetch fetch})) (store/backend store))]
+        (let [library (device/step! (atom (device/make {:fetch fetch})) (sync/backend store))]
           (is (nil? (failed (:sync library))))
           (is (= (feeds/slim feed) (get-in library [:feeds (first id) :feed])) "the slim feed of the phone's subscription")
           (is (= 600 (:position (profile/episode-entry (:profile library) id))) "the phone's progress")
@@ -61,7 +60,7 @@
   (with-temp-dir
     (fn [dir]
       (let [store   (service/sync-store {:data-dir dir})
-            backend (store/backend store)
+            backend (sync/backend store)
             data    (file/store dir)
             asked   (atom [])
             fetch   (fn [u _] (swap! asked conj u) {:status 200 :url u :feed feed :etag "\"v1\""})]
@@ -101,5 +100,5 @@
                                (get (json/parse (str (answer))) "actions")))]
         (phone-synced! store)
         (is (= [] (actions)) "no URL for the episode while the server has no feed")
-        (device/step! lib (store/backend store))
+        (device/step! lib (sync/backend store))
         (is (= [["https://a.example/1.mp3" 600]] (actions)) "named by the feed that the library fetched")))))

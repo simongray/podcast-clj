@@ -8,7 +8,6 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.test-support :refer [t1 t2 t3 t4 a failed same? with-temp-dir]]
             [dk.simongray.podcast.util.crdt :as crdt]
@@ -89,7 +88,7 @@
 
 (deftest two-devices-through-the-inspector
   (with-redefs [http/send! through-the-inspector]
-    (let [backend (store/backend (webdav/store "http://inspector/dav/") {:opml? true :app "test"})
+    (let [backend (sync/backend (webdav/store "http://inspector/dav/") {:opml? true :app "test"})
           phone   (sync/sync! (-> (profile/make "phone")
                                   (crdt/identify {:name "Phone"} t1)
                                   (profile/subscribe "feed-a" {:url "https://a/rss" :title "A"} t1))

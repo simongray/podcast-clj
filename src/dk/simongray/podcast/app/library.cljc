@@ -889,7 +889,7 @@
    (document library {}))
   ([library opts]
    {:pre [(map? opts)]}
-   (store/device-document (:profile library) (time-of library opts) opts)))
+   (sync/device-document (:profile library) (time-of library opts) opts)))
 
 (def saved-name
   "The name of the document of the library that save! writes."

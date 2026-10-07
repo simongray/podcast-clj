@@ -800,9 +800,9 @@ this is safe.
 ;; => {:ok? true :checks [{:id :store/reachable …} …]}
 
 (def backends
-  [(store/backend cloud {:opml? true :app "my-app"})
-   (store/backend (file/store "/Users/simon/Dropbox/Podcasts")
-                  {:app "my-app"})])
+  [(sync/backend cloud {:opml? true :app "my-app"})
+   (sync/backend (file/store "/Users/simon/Dropbox/Podcasts")
+                 {:app "my-app"})])
 
 (swap! lib library/merge (library/sync! @lib backends))
 (library/next-sync @lib)  ; when to sync again
@@ -810,7 +810,7 @@ this is safe.
 
 A store can be a WebDAV collection or a folder that a sync client such as
 Dropbox mirrors. [Sync reference](sync-reference.md) has the URLs and
-paths of some providers. With `store/backend`, a store becomes the
+paths of some providers. With `sync/backend`, a store becomes the
 backend of a sync: `:app` names your app in the documents, and `:opml?`
 also writes the subscriptions as OPML for other apps.
 
@@ -825,10 +825,10 @@ To keep the documents encrypted on the server, wrap the store with
 `:except` to leave the subscription list readable for other apps:
 
 ```clojure
-(store/backend (encrypted/store cloud
-                                from-keychain
-                                {:except #{store/opml-name}})
-               {:opml? true :app "my-app"})
+(sync/backend (encrypted/store cloud
+                               from-keychain
+                               {:except #{sync/opml-name}})
+              {:opml? true :app "my-app"})
 ```
 
 Each sync removes the tombstones that every device has seen, once they're
@@ -864,7 +864,7 @@ The browser asks the listener for permission, and only during a click:
   "Ask the listener for a sync folder, and give a promise of its backend."
   []
   (.then (js/showDirectoryPicker #js {:mode "readwrite"})
-         #(store/backend (file/store %) {:opml? true :app "my-app"})))
+         #(sync/backend (file/store %) {:opml? true :app "my-app"})))
 ```
 
 Keep the handle in IndexedDB for the next visit, since it can't go in
@@ -883,7 +883,7 @@ load the folder with `<input type="file" webkitdirectory>`:
 ```clojure
 (library/document @lib)  ; => {:name "8f1c….edn" :body "{:version 1 …}"}
 
-(.then (library/sync! @lib [(store/backend (file/store (.-files input)))])
+(.then (library/sync! @lib [(sync/backend (file/store (.-files input)))])
        #(swap! lib library/merge %))
 ```
 
@@ -910,7 +910,7 @@ needs no CORS:
     ((webdav-server/handler store "/dav/") request)))
 
 ;; in the page
-(store/backend (webdav/store (str js/location.origin "/dav/")))
+(sync/backend (webdav/store (str js/location.origin "/dav/")))
 ```
 
 Here `user-id` is your own function that gives the id that your login
@@ -1292,6 +1292,7 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.search :as search]
+            [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.encrypted :as encrypted]
             [dk.simongray.podcast.sync.file :as file]
             [dk.simongray.podcast.sync.gpodder :as gpodder]

@@ -64,8 +64,8 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `sync` | Sync between devices: `sync!` over any backends, `reconcile` and `next-sync`. |
-| `sync.store` | The store contract, whose documents are text or bytes, with `memory`, `backend` for any store, and `check!` to test a store. |
+| `sync` | Sync between devices: `sync!` over any backends, `backend` to sync through any store, `reconcile` and `next-sync`. |
+| `sync.store` | The store contract, whose documents are text or bytes, with `memory`, `check!` to test a store, and `put-all!` and `fetch-all!`. |
 | `sync.file` | A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. It takes a path on the JVM and in Node, and in a browser a folder that the listener picks, the origin private file system or the files they load. |
 | `sync.indexeddb` | Browser. An IndexedDB database as a store, e.g. for `library/save!`. |
 | `sync.webdav` | A WebDAV collection as a store. |

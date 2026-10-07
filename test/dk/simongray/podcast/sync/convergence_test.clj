@@ -119,7 +119,7 @@
   [strategy steps opts]
   (let [documents (atom {})
         store     (cond-> (store/memory documents) (= :shared strategy) (dissoc :list))
-        backend   (store/backend store)
+        backend   (sync/backend store)
         ticks     (atom 100)
         now!      (fn [] (java.util.Date. (* 1000 (long (swap! ticks inc)))))
         world     (atom (mapv (fn [d] {:state (profile/make d) :cursors nil}) devices))

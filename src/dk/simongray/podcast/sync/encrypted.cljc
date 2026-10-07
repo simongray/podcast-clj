@@ -167,7 +167,7 @@
   - :iterations, the PBKDF2 iterations of the key, default-iterations by
     default
   - :except, the names of documents to leave in the clear, e.g.
-    dk.simongray.podcast.sync.store/opml-name for a subscription list
+    dk.simongray.podcast.sync/opml-name for a subscription list
     that other apps should read
 
   A key is derived once for each salt and iteration count, and cached.

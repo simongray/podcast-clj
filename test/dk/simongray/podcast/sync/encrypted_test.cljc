@@ -70,13 +70,13 @@
      (let [documents (atom {})
            s         (encrypted/store (store/memory documents)
                                       passphrase
-                                      {:iterations 1000 :except #{store/opml-name}})]
+                                      {:iterations 1000 :except #{sync/opml-name}})]
        ((:put s) "phone.edn" plaintext {})
-       ((:put s) store/opml-name "<opml/>" {})
+       ((:put s) sync/opml-name "<opml/>" {})
        (is (str/starts-with? (:body (@documents "phone.edn")) "{:encrypted") "ciphertext at rest")
-       (is (= "<opml/>" (:body (@documents store/opml-name))) "except what is excepted")
+       (is (= "<opml/>" (:body (@documents sync/opml-name))) "except what is excepted")
        (is (= {:body plaintext :version "1"} ((:fetch s) "phone.edn" {})) "plaintext on the way out, the version as it is")
-       (is (= [{:name "phone.edn" :version "1"} {:name store/opml-name :version "1"}] ((:list s))))
+       (is (= [{:name "phone.edn" :version "1"} {:name sync/opml-name :version "1"}] ((:list s))))
        (is (= {:conflict? true} ((:put s) "phone.edn" plaintext {:if-version "stale"})) "the preconditions pass through")
        (is (nil? ((:fetch s) "missing.edn" {})))
        (testing "a body of bytes, sealed as bytes"
@@ -112,9 +112,9 @@
    (deftest two-devices-through-an-encrypting-store
      (let [documents (atom {})
            backend   (fn [pass]
-                       (store/backend (encrypted/store (store/memory documents)
+                       (sync/backend (encrypted/store (store/memory documents)
                                                        pass
-                                                       {:iterations 1000 :except #{store/opml-name}})
+                                                       {:iterations 1000 :except #{sync/opml-name}})
                                       {:opml? true}))
            phone     (sync/sync! (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
                                  [(backend passphrase)] {:at t1})
@@ -124,9 +124,9 @@
        (is (nil? (failed laptop)))
        (is (nil? (failed phone2)))
        (is (= 60 (:position (profile/episode-entry (:state phone2) a))))
-       (is (every? #(str/starts-with? (:body %) "{:encrypted") (vals (dissoc @documents store/opml-name)))
+       (is (every? #(str/starts-with? (:body %) "{:encrypted") (vals (dissoc @documents sync/opml-name)))
            "every document at rest is ciphertext")
-       (is (str/includes? (:body (@documents store/opml-name)) "https://a/rss") "the subscription list stays readable, as asked")
+       (is (str/includes? (:body (@documents sync/opml-name)) "https://a/rss") "the subscription list stays readable, as asked")
        (let [step (sync/sync! (profile/make "tablet") [(backend "wrong")] {:at t3})]
          (is (str/includes? (get (failed step) "memory") "does not open"))))))
 

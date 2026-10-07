@@ -56,7 +56,7 @@ and a server in step, or move from one store to another.
 There are two levels. A backend is what the engine calls: `pull` returns
 the states to merge and a cursor, and `push` writes the merged state. A
 store is the common case below a backend, a set of named documents with
-version tokens. Any store becomes a backend through `store/backend`, which
+version tokens. Any store becomes a backend through `sync/backend`, which
 adds the strategy, the retries and the reports, so a new store only needs
 two to four functions.
 

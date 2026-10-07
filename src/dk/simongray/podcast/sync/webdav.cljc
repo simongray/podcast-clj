@@ -253,8 +253,9 @@
 
 #?(:clj
    (comment
-     (require '[dk.simongray.podcast.sync.store :as sync.store])
+     (require '[dk.simongray.podcast.sync :as sync]
+              '[dk.simongray.podcast.sync.store :as sync.store])
      (def s (store "http://localhost:8300/dav/"))
      (sync.store/check! s)
-     (def b (sync.store/backend s {:opml? true}))
+     (def b (sync/backend s {:opml? true}))
      #_.))

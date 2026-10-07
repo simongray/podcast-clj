@@ -65,13 +65,13 @@ A backend is a map of two functions and a name, which `sync!` calls:
 - The backends of one `sync!` need different names, since the cursors are
   kept by name, and `sync!` throws on a duplicate.
 
-Any store becomes a backend through `store/backend`. A service with its
+Any store becomes a backend through `sync/backend`. A service with its
 own model, such as gpodder, is a backend directly.
 
 
 ## The options of a backend
 
-The options of `store/backend`:
+The options of `sync/backend`:
 
 | Option | Meaning | Default |
 |---|---|---|
@@ -161,7 +161,7 @@ profile, and with the `:at`, `:clock` and `:failures` that
   which is `false` to keep every tombstone, or the options of
   `profile/compact`.
 - To sync another CRDT than the profile, give `:crdt` to `sync!` and to
-  `store/backend`, a map of its `:merge`, `:compact` and `:problem`
+  `sync/backend`, a map of its `:merge`, `:compact` and `:problem`
   functions, as `sync/default-crdt` holds those of the profile.
 
 

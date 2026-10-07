@@ -8,7 +8,6 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.test-support :refer [failed with-temp-dir]]
             [dk.simongray.podcast.util.http :as http]
@@ -65,7 +64,7 @@
                              "device" "antennapod"}]))))
     (is (.isFile (io/file *dir* "sync" "inspector-gpodder.edn")) "the server writes its document to the folder")
     (with-redefs [http/send! through-the-inspector]
-      (let [backend (store/backend (webdav/store "http://inspector/dav/"))
+      (let [backend (sync/backend (webdav/store "http://inspector/dav/"))
             browser (sync/sync! (profile/make "browser") [backend] {:at #inst "2026-01-01T02:00:00Z"})
             s       (:state browser)]
         (is (nil? (failed browser)))
@@ -86,7 +85,7 @@
         login  (call :post "/api/2/auth/simon/login.json" :headers {"Authorization" "Basic c2ltb246eA=="})
         cookie (first (str/split (get-in login [:headers "Set-Cookie"]) #";"))]
     (with-redefs [http/send! through-the-inspector]
-      (let [backend (store/backend (webdav/store "http://inspector/dav/"))
+      (let [backend (sync/backend (webdav/store "http://inspector/dav/"))
             state   (-> (profile/make "browser")
                         (profile/add-remote-item id {:feed-url feed} #inst "2026-01-01T01:00:00Z")
                         (profile/progress id 600 3600 #inst "2026-01-01T01:00:01Z"))]

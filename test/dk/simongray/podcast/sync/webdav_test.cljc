@@ -22,7 +22,7 @@
   (fixture "webdav/nextcloud-propfind.xml"))
 
 (deftest a-backend-over-a-collection
-  (let [b (store/backend (webdav/store "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
+  (let [b (sync/backend (webdav/store "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
                                        {:credentials {:username "simon" :password "x"}})
                          {:opml? true :app "test"})]
     (is (= "cloud.example.org" (:name b)) "named after the host")
@@ -30,12 +30,12 @@
         "never after the credentials a URL carries")
     (is (fn? (:pull b)))
     (is (fn? (:push b)))
-    (is (= "Nextcloud" (:name (store/backend (webdav/store "https://cloud.example.org/dav/" {:name "Nextcloud"})))))))
+    (is (= "Nextcloud" (:name (sync/backend (webdav/store "https://cloud.example.org/dav/" {:name "Nextcloud"})))))))
 
 (deftest the-requests-go-through-send
   (let [sent    (atom nil)
         send    (fn [request] (reset! sent request) {:status 404 :headers {}})
-        backend (store/backend (webdav/store root {:send send :timeout-seconds 5}))]
+        backend (sync/backend (webdav/store root {:send send :timeout-seconds 5}))]
     ((:fetch (webdav/store root {:send send :timeout-seconds 5})) "phone.edn" {})
     (is (= [:get (str root "phone.edn") 5] ((juxt :method :url :timeout-seconds) @sent))
         "with the limit of time")
@@ -289,7 +289,7 @@
            client    (dissoc (webdav/store "https://dav.example.org/dav/") :list :delete)]
        (with-redefs [http/send! (through (server/handler (dissoc (store/memory documents) :list :delete) "/dav/"))]
          (let [{:keys [ok? checks]} (store/check! client)
-               backend (store/backend client)
+               backend (sync/backend client)
                phone   (sync/sync! (phone-state) [backend] {:at t2})
                laptop  (sync/sync! (laptop-state) [backend] {:at t3})]
            (is ok? (pr-str checks))
@@ -325,7 +325,7 @@
    (deftest two-devices-through-a-webdav-collection
      (let [documents (atom {})]
        (with-redefs [http/send! (stand-in documents)]
-         (let [backend (store/backend (webdav/store "https://dav.example.org/dav") {:opml? true})
+         (let [backend (sync/backend (webdav/store "https://dav.example.org/dav") {:opml? true})
                phone   (sync/sync! (phone-state) [backend] {:at t2})
                laptop  (sync/sync! (laptop-state) [backend] {:at t3})
                phone2  (sync/sync! (:state phone) [backend] {:at t3 :cursors (:cursors phone)})]
@@ -356,7 +356,7 @@
    (deftest two-devices-through-a-webdav-collection-with-send
      (async done
        (let [documents (atom {})
-             backend   (store/backend (webdav/store "https://dav.example.org/dav/" {:send (stand-in documents)}))]
+             backend   (sync/backend (webdav/store "https://dav.example.org/dav/" {:send (stand-in documents)}))]
          (-> (sync/sync! (phone-state) [backend] {:at t2})
              (.then (fn [phone]
                       (is (nil? (failed phone)))
@@ -380,7 +380,7 @@
        (let [documents (atom {})
              original  (.-fetch js/globalThis)]
          (set! (.-fetch js/globalThis) (fetch-stand-in documents))
-         (-> (sync/sync! (phone-state) [(store/backend (webdav/store "https://dav.example.org/dav/"))] {:at t2})
+         (-> (sync/sync! (phone-state) [(sync/backend (webdav/store "https://dav.example.org/dav/"))] {:at t2})
              (.then (fn [phone]
                       (is (nil? (failed phone)) "a store without :send sends with http/send!, over js/fetch")
                       (is (= #{"phone.edn"} (set (keys (dissoc @documents ::created)))))))

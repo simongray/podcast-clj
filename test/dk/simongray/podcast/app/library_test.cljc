@@ -116,7 +116,7 @@
       (is (= "tablet" (:device (library/make "tablet")))))
     (run
      (fn []
-       (async/then (library/sync! clocked [(store/backend (store/memory (atom {})) {:app "test"})])
+       (async/then (library/sync! clocked [(sync/backend (store/memory (atom {})) {:app "test"})])
                    (fn [lib] (is (= (at 60) (get-in lib [:sync :at])))))))))
 
 (deftest subscribing
@@ -475,7 +475,7 @@
 
 (deftest keeping-two-devices-in-step
   (let [documents (atom {})
-        backend   (store/backend (store/memory documents) {:app "test"})
+        backend   (sync/backend (store/memory documents) {:app "test"})
         laptop    (-> (library/make "laptop" {:name "Laptop" :config {:now (constantly now)}})
                       (library/subscribe other-url {:status 200 :url other-url :feed other}))]
     (run
@@ -494,7 +494,7 @@
                                      (is (nil? (:feed (get (library/subscriptions lib) guid))) "a feed to fetch at the next refresh!"))))))))))
 
 (deftest a-show-left-on-another-device
-  (let [backend (store/backend (store/memory (atom {})) {:app "test"})
+  (let [backend (sync/backend (store/memory (atom {})) {:app "test"})
         laptop  (-> (library/make "laptop" {:name "Laptop" :config {:now (constantly now)}})
                     (library/subscribe url fresh {:auto-queue? true}))
         phone   (library/unsubscribe library guid {:at (at 10)})]
@@ -512,7 +512,7 @@
         fetch   (fn [url _] {:status 200 :url url :feed newer :etag "\"v2\""})
         indexed (-> (library/make "phone" {:config {:search? true :now (constantly now)}})
                     (library/subscribe url fresh {:auto-queue? true}))
-        backend (store/backend (store/memory (atom {})) {:app "test"})]
+        backend (sync/backend (store/memory (atom {})) {:app "test"})]
     (run
      (fn []
        (async/then (library/refresh! indexed {:at (at 86400) :fetch fetch})

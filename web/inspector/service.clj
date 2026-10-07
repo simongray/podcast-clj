@@ -22,7 +22,6 @@
             [dk.simongray.podcast.sync.file :as file]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.sync.gpodder.server :as gpodder-server]
-            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.sync.webdav.server :as webdav-server]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
@@ -859,7 +858,7 @@
   and password, since the inspector listens on localhost alone."
   [sync-store]
   (let [cursors (atom nil)
-        backend (store/backend sync-store)
+        backend (sync/backend sync-store)
         state   (atom (profile/make "inspector-gpodder"))
         names   #(gpodder/identities (concat (cached-feeds)
                                              (remote-feeds @state)))

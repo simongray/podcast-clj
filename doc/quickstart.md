@@ -23,8 +23,8 @@ subscribe to a show:
 (require '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.app.library :as library]
          '[dk.simongray.podcast.profile :as profile]
-         '[dk.simongray.podcast.sync.file :as file]
-         '[dk.simongray.podcast.sync.store :as store])
+         '[dk.simongray.podcast.sync :as sync]
+         '[dk.simongray.podcast.sync.file :as file])
 
 (def url "https://feeds.podcastindex.org/pc20.xml")
 
@@ -138,13 +138,13 @@ waits longer before the next try.
 
 Each device writes its profile to a store as one document, and reads
 the documents of the other devices. A folder that a sync client mirrors is
-a store, and so is a WebDAV collection. With `store/backend`, a store
+a store, and so is a WebDAV collection. With `sync/backend`, a store
 becomes the backend of a sync, here with the app's name in its document:
 
 ```clojure
 (def folder
-  (store/backend (file/store "/Users/simon/Dropbox/Podcasts")
-                 {:app "quickstart"}))
+  (sync/backend (file/store "/Users/simon/Dropbox/Podcasts")
+                {:app "quickstart"}))
 
 (-> (swap! lib library/merge (library/sync! @lib [folder]))
     :sync

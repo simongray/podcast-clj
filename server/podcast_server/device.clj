@@ -17,7 +17,6 @@
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.sync.gpodder.server :as gpodder-server]
-            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]
@@ -98,7 +97,7 @@
   `data-store` when its feeds change. Returns the executor that runs it,
   for stop!."
   [lib sync-store data-store]
-  (let [backend (store/backend sync-store)
+  (let [backend (sync/backend sync-store)
         step    (fn []
                   (try
                     (let [before (select-keys @lib saved-keys)
@@ -140,7 +139,7 @@
   server's library. It lets in the apps that `authorized?`, a function of
   a user name and a password, says yes to."
   [sync-store lib authorized?]
-  (let [backend (store/backend sync-store)
+  (let [backend (sync/backend sync-store)
         cursors (atom nil)
         state   (atom (crdt/identify (profile/make "podcast-server-gpodder")
                                      {:name "Podcast server, for gpodder apps"}
