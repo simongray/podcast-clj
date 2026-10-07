@@ -923,10 +923,12 @@ Decided on 7 October 2026, and built on the branch
 
 - D1, D2, D5 and D6 as recommended, with `util.search` named
   `util.text.search` to show that it's built on `util.text`. The query
-  language, the segments and CIFF later got namespaces of their own.
+  language, the segments and CIFF later got namespaces of their own, and
+  the same day the engine became a library beside podcast-clj,
+  `dk.simongray.search`, with `util.text` as `search.analysis`.
 - D3: fuzzy matching is on by default, but only for a word that no
   document holds, so a word spelled right stays exact.
-- D4: a full boolean language, now in `util.text.query`: AND or `&`, OR
+- D4: a full boolean language, now in `search.queries`: AND or `&`, OR
   or `|`, NOT, `!` or a leading `-`, parentheses, `field:word` or
   `field=word`, and `word~` for typos, besides quotes and a trailing `*`.
   The spellings are an option, e.g. `OG` for AND in Danish.

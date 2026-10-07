@@ -116,7 +116,7 @@ login.
 
 The proxy only sends GET and HEAD, so in a page, the sync over WebDAV or
 the gpodder API reaches only a server on your own origin, e.g. that of
-`sync.webdav.server`, or one that lets your page through CORS. A WebDAV
+`store.webdav.server`, or one that lets your page through CORS. A WebDAV
 server must expose the ETag too. Syncing through a folder needs no
 server, as [Sync through a folder in a browser](#sync-through-a-folder-in-a-browser)
 shows.
@@ -584,7 +584,7 @@ refresh, and when the listener plays or queues an episode.
 The rules live in the profile, so they sync: the listener's rules are
 the preference `:downloads`, and the rule of a show is the setting
 `:downloads` of its subscription. A rule selects episodes with the options
-of `search/episodes`:
+of `criteria/episodes`:
 
 ```clojure
 (def show-rule
@@ -671,10 +671,10 @@ search as you type. A query can also have:
 - `word~` for a word with typos
 - `title:word` or `notes:word` for one field
 
-The docstring of `text.query/parse` has the rest. The index takes about
-two kilobytes per episode, so 50 shows with 28,000 episodes take about 60
-megabytes. To leave it out, e.g. on a watch, give `:search? false` in the
-config.
+The docstring of `search.queries/parse` has the rest. The index takes
+about two kilobytes per episode, so 50 shows with 28,000 episodes take
+about 60 megabytes. To leave it out, e.g. on a watch, give `:search?
+false` in the config.
 
 A word that no episode holds also matches words with typos: one in a
 word of three to five letters, and two in a longer one, which the option
@@ -701,8 +701,8 @@ To search only some episodes, give the criteria of `library/episodes` as
 To mark the matches in a result, cut a snippet of its notes:
 
 ```clojure
-(text.query/snippet (html/text (resolve/description item))
-                    "\"podcasting 2.0\"")
+(search.queries/snippet (html/text (resolve/description item))
+                        "\"podcasting 2.0\"")
 ;; => [{:text "A look into the future of podcasting and how we get to "}
 ;;     {:text "Podcasting 2.0" :match? true}
 ;;     {:text "!"}]
@@ -721,24 +721,24 @@ saves it too, as [Keep the library between
 runs](#keep-the-library-between-runs) shows.
 
 Without `app.library`, build the index from the feeds yourself, with the
-documents of `search`:
+documents of `feed.search`, and search it with `dk.simongray.search`:
 
 ```clojure
 (defn index-feeds
-  "A search index of every item of `feeds`, a map of `{:url :feed}` entries."
+  "A search index of the shows of `feeds`, a map of `{:url :feed}` entries,
+  and of their episodes."
   [feeds]
-  (search/index (for [{:keys [url feed]} (vals feeds)
-                      item (:rss/items feed)]
-                  (search/item-document feed item {:url url}))))
+  (feed.search/index (mapcat #(feed.search/feed-documents (:feed %) (:url %))
+                             (vals feeds))))
 
-(text.search/query (index-feeds feeds) "podcasting 2" {:limit 10})
+(search/query (index-feeds feeds) "podcasting 2" {:limit 10})
 ```
 
-When a feed changes, update the index with `text.search/add` and
-`text.search/remove`. To make transcripts searchable, give them to
-`search/item-document`. To keep the index, `ciff/plan` gives the
-documents to put into a store and the names to delete there, and
-`ciff/read-documents` reads them back.
+When a feed changes, update the index with `feed.search/with-feed`, and
+take a show out with `feed.search/without-feed`. To make transcripts
+searchable, give them to `feed.search/item-document`. To keep the index,
+`ciff/plan` gives the documents to put into a store and the names to
+delete there, and `ciff/read-documents` reads them back.
 
 
 ## Organize the shows and episodes
@@ -780,13 +780,13 @@ Each has a function to read it back, such as `profile/folders`,
   episode plays, or it isn't counted.
 
 A saved filter holds the options of `library/episodes`. Another device may
-have saved it with a newer version, so check it with `search/problem`
+have saved it with a newer version, so check it with `criteria/problem`
 first:
 
 ```clojure
-(let [criteria (get (profile/filters (:profile @lib)) "Starred")]
-  (when-not (search/problem criteria)
-    (library/episodes @lib criteria)))
+(let [saved (get (profile/filters (:profile @lib)) "Starred")]
+  (when-not (criteria/problem saved)
+    (library/episodes @lib saved)))
 ```
 
 
@@ -853,7 +853,7 @@ app of Nextcloud, give `:api :nextcloud`:
 ```
 
 To serve a store from your own Clojure server, mount the Ring handler of
-`sync.webdav.server`, and for the gpodder API that of
+`store.webdav.server`, and for the gpodder API that of
 `sync.gpodder.server`. Each serves one listener, so give each listener a
 handler of their own behind your login, as their docstrings show. To sync
 through a service that has no store yet, write one: [Sync
@@ -1274,7 +1274,8 @@ that changed its requirements takes them as `:requirements`, e.g.
 
 ```clojure
 (ns my.app
-  (:require [dk.simongray.podcast :as podcast]
+  (:require [dk.simongray.crdt :as crdt]
+            [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics :as analytics]
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.app.episode :as episode]
@@ -1283,6 +1284,7 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.app.show :as show]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
+            [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.directory.links :as links]
@@ -1294,32 +1296,31 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.feed.publish :as publish]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
+            [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.search :as search]
+            [dk.simongray.podcast.store :as store]
+            [dk.simongray.podcast.store.encrypted :as encrypted]
+            [dk.simongray.podcast.store.file :as file]
+            [dk.simongray.podcast.store.indexeddb :as indexeddb]
+            [dk.simongray.podcast.store.webdav :as webdav]
+            [dk.simongray.podcast.store.webdav.server :as webdav-server]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.encrypted :as encrypted]
-            [dk.simongray.podcast.sync.file :as file]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
-            [dk.simongray.podcast.sync.indexeddb :as indexeddb]
-            [dk.simongray.podcast.sync.store :as store]
-            [dk.simongray.podcast.sync.webdav :as webdav]
-            [dk.simongray.podcast.sync.webdav.server :as webdav-server]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.updates.websub :as websub]
-            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.proxy :as proxy]
             [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.text.query :as text.query]
-            [dk.simongray.podcast.util.text.search :as text.search]
-            [dk.simongray.podcast.util.text.search.ciff :as ciff]
             [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]
             [dk.simongray.podcast.value.nwc :as nwc]
-            [dk.simongray.podcast.value.webln :as webln]))
+            [dk.simongray.podcast.value.webln :as webln]
+            [dk.simongray.search :as search]
+            [dk.simongray.search.ciff :as ciff]
+            [dk.simongray.search.queries :as search.queries]))
 ```

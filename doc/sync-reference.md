@@ -194,7 +194,7 @@ A sync document is an EDN map:
 
 ## The encrypted envelope
 
-The store of `sync.encrypted` wraps each body in this EDN map:
+The store of `store.encrypted` wraps each body in this EDN map:
 
 ```clojure
 {:encrypted 1 :cipher "AES-256-GCM" :kdf "PBKDF2-HMAC-SHA256"
@@ -211,7 +211,7 @@ The store of `sync.encrypted` wraps each body in this EDN map:
   an envelope, and is reported as a document that doesn't read.
 - A body that isn't an envelope passes through unchanged.
 - If the passphrase doesn't open a document, the call fails with the
-  exception type `:dk.simongray.podcast.sync.encrypted/locked`.
+  exception type `:dk.simongray.podcast.store.encrypted/locked`.
 - If the passphrase is a function, the store asks it again when a cached
   key doesn't open a document, and tries once more, so a corrected
   passphrase is used from the next document on.
@@ -221,11 +221,11 @@ The store of `sync.encrypted` wraps each body in this EDN map:
 
 | Store | Namespace | Platform | Version token |
 |---|---|---|---|
-| A map in an atom | `sync.store/memory` | both | a count of the writes |
-| A folder | `sync.file` | both | the modification time, as exact as the file system keeps it, and the size |
-| A WebDAV collection | `sync.webdav` | both | the ETag |
-| An IndexedDB database | `sync.indexeddb` | browser | a count of the writes |
-| Any store, encrypted | `sync.encrypted` | both | the version of the wrapped store |
+| A map in an atom | `store/memory` | both | a count of the writes |
+| A folder | `store.file` | both | the modification time, as exact as the file system keeps it, and the size |
+| A WebDAV collection | `store.webdav` | both | the ETag |
+| An IndexedDB database | `store.indexeddb` | browser | a count of the writes |
+| Any store, encrypted | `store.encrypted` | both | the version of the wrapped store |
 
 The folder store takes a path on the JVM and in Node. In a browser, it
 takes a `FileSystemDirectoryHandle`, or the files of a file input or a
@@ -248,7 +248,7 @@ drop:
   folder that was moved, deleted or unplugged, and `::file/read-only` for
   a folder that the browser can't write to.
 
-On the JVM, `sync.webdav.server/handler` serves any store over WebDAV:
+On the JVM, `store.webdav.server/handler` serves any store over WebDAV:
 
 - A PROPFIND on the collection at depth 0 gives the collection alone, and
   at depth 1 it also lists the documents.

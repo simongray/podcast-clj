@@ -1,7 +1,7 @@
 # Namespaces
 
-Every namespace is under the root namespace, `dk.simongray.podcast`, and
-they come in three kinds:
+Every namespace of podcast-clj is under the root namespace,
+`dk.simongray.podcast`, and they come in three kinds:
 
 - **Where you start.** The root namespace fetches a feed. The `app`
   namespaces combine the rest into a few calls for an app: one call each to
@@ -16,19 +16,24 @@ they come in three kinds:
   `value.nwc`. Use them when you need one part, or more control than the
   `app` namespaces give, or when you're not building an app, e.g. for a
   host that serves its feeds or a server that syncs profiles.
-- **Not specific to podcasts.** The `util` and `crypto` namespaces hold
-  general tools, e.g. HTTP, XML, JSON, dates, a CRDT and the cryptography
-  that Nostr uses.
+- **Not specific to podcasts.** The `util`, `store` and `crypto`
+  namespaces and `nostr` hold general tools, e.g. HTTP, XML, JSON, dates,
+  stores of documents, and the Nostr protocol and its cryptography.
 
 The `app` namespaces are built from all the others, and nothing outside
 `app` requires them, so you can use any other namespace without them.
 [Architecture](architecture.md#layers) explains the rule, which a test
 checks.
 
+Beside podcast-clj are two libraries with roots of their own, a full-text
+search engine in `dk.simongray.search` and a CRDT in `dk.simongray.crdt`.
+They require nothing of podcast-clj, so they can be used on their own,
+and the last table lists them.
+
 The tables follow the same order. Names in them are relative to the root,
-and everything runs on the JVM and in ClojureScript unless the table says
-otherwise. [Principles](principles.md) has the rules that every namespace
-follows.
+except in the last table, and everything runs on the JVM and in
+ClojureScript unless the table says otherwise. [Principles](principles.md)
+has the rules that every namespace follows.
 
 A namespace that talks to a service has the same three steps. Its
 `request` builds a request map, a function such as `http/send!` sends the
@@ -52,12 +57,12 @@ option replaces the function that sends.
 | `app.episode` | Everything an episode page needs in one map, from `view`, what the chapters file, transcript and media file say from `read-files!`, and the value blocks that its time splits point at from `fetch-remote-values!`. |
 | `app.feeds` | The fetched feeds by guid, with their ETag, Last-Modified and next check. Use `due` for the feeds to fetch now, `refresh!` to fetch them, and `affected` for the feeds that a Podping names. A device that never shows the feeds can keep only what `slim` gives of each. |
 
-## Profile, search and downloads
+## Profile, criteria and downloads
 
 | Namespace | Contents |
 |---|---|
 | `profile` | The listener's profile, a CRDT that syncs between their devices: the queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions and their settings, single episodes of other shows, followed lists, saved filters, listening counts and devices. Use `step` for the events of a player, `merge` to combine two profiles, and `compact` to drop old tombstones. |
-| `search` | Filters and orders of episodes as data, and the full-text documents of episodes and shows, with `index` for an index of them that weighs the title most. |
+| `criteria` | Criteria as data that select and order episodes, with `episodes`, for saved filters and download rules. Use `problem` to check criteria from another device. |
 | `downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`. |
 
 ## Sync
@@ -65,14 +70,19 @@ option replaces the function that sends.
 | Namespace | Contents |
 |---|---|
 | `sync` | Sync between devices: `sync!` over any backends, `backend` to sync through any store, `reconcile` and `next-sync`. |
-| `sync.store` | The store contract, which the sync and a saved library share, with `memory`, `check!` to test a store, and `put-all!` and `fetch-all!` for many documents in one call. |
-| `sync.file` | A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. It takes a path on the JVM and in Node, and in a browser a folder that the listener picks, the origin private file system or the files they load. |
-| `sync.indexeddb` | Browser. An IndexedDB database as a store, e.g. for `library/save!`. |
-| `sync.webdav` | A WebDAV collection as a store. |
-| `sync.webdav.server` | JVM. A Ring handler that serves any store over WebDAV. |
-| `sync.encrypted` | Any store, with its documents encrypted at rest and readable on both platforms. |
 | `sync.gpodder` | The gpodder API as a backend, for gpodder.net, the GPodder Sync app for Nextcloud and other servers, with `identities` to map between URLs and guids. |
 | `sync.gpodder.server` | The gpodder API as a Ring handler over the profile of one listener, for AntennaPod, Kasts and gPodder. |
+
+## Stores
+
+| Namespace | Contents |
+|---|---|
+| `store` | The contract of a store of documents, which the sync and a saved library share, with `memory`, `check!` to test a store, and `put-all!` and `fetch-all!` for many documents in one call. |
+| `store.file` | A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. It takes a path on the JVM and in Node, and in a browser a folder that the listener picks, the origin private file system or the files they load. |
+| `store.indexeddb` | Browser. An IndexedDB database as a store, e.g. for `library/save!`. |
+| `store.webdav` | A WebDAV collection as a store. |
+| `store.webdav.server` | JVM. A Ring handler that serves any store over WebDAV. |
+| `store.encrypted` | Any store, with its documents encrypted at rest and readable on both platforms. |
 
 ## Feeds
 
@@ -85,6 +95,7 @@ option replaces the function that sends.
 | `feed.check` | Checks over the network of the files that a feed links to, by the standards and the requirements of PSP-1 and Apple Podcasts. Only `check-files!` sends requests, and `files`, `verdicts` and `report` are pure. |
 | `feed.validate` | Validation against the registry, with the requirements of PSP-1 and Apple Podcasts. |
 | `feed.publish` | What a host does to a feed before serving it: `pages` splits a long feed as RFC 5005 describes, `for-subscriber` makes a private feed, and `update-media-urls` rewrites the URLs of the media files. |
+| `feed.search` | The shows and episodes of feeds as documents for full-text search, with `index` for an index of them that weighs the title most, `with-feed` and `without-feed` to change it a feed at a time, and `located` to give each result its feed and item. |
 | `feed.guid` | The identity of feeds, items and episodes: `feed-guid`, `item-guid` and `episode-id`, and the `podcast:guid` that `from-url` derives from a feed URL. |
 | `feed.spec` | The tag registry as data, which `registry` indexes or extends, the enumerations of the specs, and the URIs of the namespaces. |
 | `feed.quirks` | The repairs for malformed XML, which `parse-raw` runs when the strict parse fails, and the normalisations of the tree. |
@@ -161,23 +172,28 @@ option replaces the function that sends.
 | `util.bytes` | Bytes on both platforms: hex, base64 and base64url, text, the digests and HMACs of SHA-1 and SHA-2, and random bytes. |
 | `util.bytes.view` | Views of files whose bytes come in parts, and `read!`, which fetches the byte ranges that a reader asks for until it's done. |
 | `util.async` | Futures on the JVM and promises in JavaScript behind one API, `all` and `in-groups` to make calls at the same time, and `iteration` for paged APIs on both platforms. |
-| `util.nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `send!` for one exchange with a relay, which can also publish an event. |
 | `util.secret` | Secrets that print as `#<secret>`: `hide`, `reveal` and `hidden?`. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |
-| `util.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |
-| `util.text` | Text for search on both platforms: `fold`, which drops case and diacritics, and `tokens`, the words of a text, with Chinese, Japanese, Korean and Thai in pairs of characters. |
-| `util.text.query` | The query language of full-text search: `parse` reads AND, OR, NOT, phrases, prefixes, typos and fields, and `snippet` and `matches?` match a query against one text. |
-| `util.text.search` | A full-text index ranked by BM25F: `index`, `add`, `remove` and `query`. Give the `query-opts` of an index to `util.text.query` to read a query as the index does. |
-| `util.text.search.ciff` | An index kept in a store, in the Common Index File Format: `plan` gives the documents to put and delete, and `read-documents` reads them back. |
-| `util.text.search.segment` | The segments of an index, its postings in sorted arrays of ints, which the index builds and combines. Apps don't call it. |
-| `util.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The profile is one. |
-| `util.crdt.list` | Ordered collections in such a state, e.g. the queue: `append`, `ranked`, `rank-at` for a move and `with-moves`, so that a move never brings back what another device removed. |
 
-## Cryptography
+## Nostr and cryptography
 
 | Namespace | Contents |
 |---|---|
+| `nostr` | The Nostr protocol that the comments and the wallets use: events and their signatures, NIP-19 names, the filters and messages of relays, and `send!` for one exchange with a relay, which can also publish an event. |
 | `crypto.secp256k1` | Schnorr signatures over secp256k1, as BIP-340 defines them: `verify`, `sign` and `public-key`, and `shared-x` for the shared secret of two keys. |
 | `crypto.chacha20` | The ChaCha20 stream cipher of RFC 8439. |
 | `crypto.aes-gcm` | AES-256-GCM under a key that PBKDF2 derives from a passphrase, on both platforms. |
 | `crypto.nip44` | The encrypted payloads of NIP-44, version 2. |
+
+## The libraries beside podcast-clj
+
+| Namespace | Contents |
+|---|---|
+| `dk.simongray.search` | A full-text index ranked by BM25F: `index`, `add`, `remove` and `query`. Give the `query-opts` of an index to `search.queries` to read a query as the index does. |
+| `dk.simongray.search.queries` | The query language: `parse` reads AND, OR, NOT, phrases, prefixes, typos and fields, and `snippet` and `matches?` match a query against one text. |
+| `dk.simongray.search.analysis` | Text for search on both platforms: `fold`, which drops case and diacritics, and `tokens`, the words of a text, with Chinese, Japanese, Korean and Thai in pairs of characters. |
+| `dk.simongray.search.ciff` | An index kept in a store, in the Common Index File Format: `plan` gives the documents to put and delete, and `read-documents` reads them back. |
+| `dk.simongray.search.segment` | The segments of an index, its postings in sorted arrays of ints, which the index builds and combines. Apps don't call it. |
+| `dk.simongray.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The profile of podcast-clj is one. |
+| `dk.simongray.crdt.list` | Ordered collections in such a state, e.g. a queue: `append`, `ranked`, `rank-at` for a move and `with-moves`, so that a move never brings back what another device removed. |
+| `dk.simongray.crdt.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |

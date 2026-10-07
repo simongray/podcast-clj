@@ -23,8 +23,8 @@ subscribe to a show:
 (require '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.app.library :as library]
          '[dk.simongray.podcast.profile :as profile]
-         '[dk.simongray.podcast.sync :as sync]
-         '[dk.simongray.podcast.sync.file :as file])
+         '[dk.simongray.podcast.store.file :as file]
+         '[dk.simongray.podcast.sync :as sync])
 
 (def url "https://feeds.podcastindex.org/pc20.xml")
 

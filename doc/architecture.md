@@ -10,10 +10,12 @@ This page explains how each part of podcast-clj is built.
 ```
   5  high level   app.library  app.show  app.episode  app.feeds
   4  root         dk.simongray.podcast
-  3  companions   feed.resolve  feed.check  feed.discovery  feed.publish  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  search  downloads  sync  sync.*
+  3  companions   feed.resolve  feed.check  feed.discovery  feed.publish  feed.search  format.*  value  value.*  directory  directory.*  updates.*  comments  comments.*  analytics  analytics.*  profile  criteria  downloads  sync  sync.*
   2  feed model   feed  feed.rss  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.quirks
-  0  primitives   util.*  crypto.*  feed.guid  diagnostics
+  0  primitives   util.*  crypto.*  store  store.*  nostr  feed.guid  diagnostics
+
+     libraries    dk.simongray.search.*  dk.simongray.crdt.*
 ```
 
 A namespace only requires namespaces in its own layer or below. The
@@ -21,10 +23,15 @@ registry `feed.spec` knows nothing about parsing, `feed` knows nothing about
 HTTP, and the companion formats need only the primitives and each other.
 The `app` namespaces are the only ones that require the root namespace,
 because they call `fetch!`. The names show two of the layers: `app` holds
-the top layer and nothing else, and `util` and `crypto` hold the
-primitives. A test in `architecture_test.clj` reads the `ns` forms, and
+the top layer and nothing else, and `util`, `crypto`, `store` and `nostr`
+are primitives. A test in `architecture_test.clj` reads the `ns` forms, and
 fails on a require that points up a layer, on a cycle, or on a name in the
 wrong layer.
+
+The search engine and the CRDT are libraries with roots of their own,
+`dk.simongray.search` and `dk.simongray.crdt`, below every layer. They
+know nothing about podcasts and require nothing of podcast-clj or of each
+other, which the same test checks, so each can be published on its own.
 
 A view is a map of the results of the functions below it, under the same
 keys, e.g. `(:enclosure (episode/view show item))` is what
@@ -399,8 +406,8 @@ Each protocol has its own idea of who speaks for a post:
 
 ## Nostr
 
-`util.nostr` holds the protocol that both the comments and the wallets
-speak, and it knows nothing about podcasts. An event stays the plain data
+`nostr` holds the protocol that both the comments and the wallets speak,
+and it knows nothing about podcasts. An event stays the plain data
 that a relay sends. Its id is the SHA-256 of a text that NIP-01 defines to
 the character, and a JSON writer escapes more than NIP-01 allows, so
 `event-id` writes that text itself.
@@ -480,8 +487,8 @@ entry by entry, and the later entry wins. The merge is commutative,
 associative and idempotent, which a generative test checks, so any backend
 that can store a document can sync the profile. This is also why the
 profile must only change through the functions of `profile` and
-`util.crdt`, never with `assoc`. The CRDT itself is in `util.crdt`, which
-knows nothing of podcasts: `profile` gives it the schema of its
+`dk.simongray.crdt`, never with `assoc`. The CRDT itself is that library,
+which knows nothing of podcasts: `profile` gives it the schema of its
 collections.
 
 `step` takes the events of a player (`:progress`, `:ended`, `:play`,
@@ -497,20 +504,20 @@ can still be one the listener likes.
 
 ## Search
 
-The `search` namespace keeps criteria as data. `where` turns a map like
+The `criteria` namespace keeps criteria as data. `where` turns a map like
 `{:season 2 :status :unplayed}` into a predicate, and `order` turns a
 keyword like `:newest` into a sort key. Each criterion reads the model
 through `feed.resolve`, so it means what the accessor means. Because the
 criteria are data, a UI can build them from a form, and saved filters and
 download rules use the same criteria.
 
-Full-text search lives in namespaces that know nothing about podcasts,
-`util.text`, `util.text.query` and `util.text.search`, so other projects
-can use them too. The index is a value: `index`, `add` and `remove` build
-and change it, `query` searches it, and nothing runs in the background.
-Lucene doesn't run in a browser, but this index runs wherever the model
-runs. The `search` namespace only makes the documents of episodes and
-shows, and gives the title more weight than the notes.
+Full-text search is a library of its own, `dk.simongray.search`, which
+knows nothing about podcasts, so other projects can use it too. The index
+is a value: `index`, `add` and `remove` build and change it, `query`
+searches it, and nothing runs in the background. Lucene doesn't run in a
+browser, but this index runs wherever the model runs. The `feed.search`
+namespace only makes the documents of episodes and shows, and gives the
+title more weight than the notes.
 
 Words split at anything that isn't a letter or a digit, as in most
 JavaScript search libraries, so "Simon's" is found by "simon", and a query
@@ -538,8 +545,8 @@ The query language takes the words AND, OR and NOT of SQLite FTS5 and
 the signs of Lucene's simple query parser, e.g. `|` and a leading `-`,
 so that what a user knows from either works. The spellings are options,
 e.g. `OG` for AND in Danish. The language has a namespace of its own,
-since a transcript or a filter matches a query against one text without
-an index.
+`search.queries`, since a transcript or a filter matches a query against
+one text without an index.
 
 The index keeps its postings in sorted arrays of ints rather than in
 maps, which takes far less memory and lets a query start from its rarest
@@ -576,8 +583,8 @@ the instant, and returns the episodes to download and the files to delete,
 each with a reason. The app downloads and deletes, and decides when, since
 it knows the network and the battery.
 
-A rule selects episodes with the same options as `search/episodes`, so rules
-need no language of their own. The rules sync in the profile, but the
+A rule selects episodes with the same options as `criteria/episodes`, so
+rules need no language of their own. The rules sync in the profile, but the
 list of files doesn't, since it belongs to one device. A rule from a later
 version of podcast-clj does nothing, because a wrong delete costs more than
 a late download.
@@ -594,7 +601,7 @@ a late download.
 | Instants | `java.util.Date` | `js/Date` |
 | Deferred values (`util.async`) | futures | promises |
 | HTTP | `java.net.http`, in `util.http` | `fetch` |
-| Folders (`sync.file`) | `java.nio.file` | `node:fs` in Node, and the File System standard in a browser |
+| Folders (`store.file`) | `java.nio.file` | `node:fs` in Node, and the File System standard in a browser |
 | Encryption (`crypto.aes-gcm`) | `javax.crypto` | WebCrypto |
 
 Dates, durations and UUIDv5 are written once in `.cljc`, without `java.time`

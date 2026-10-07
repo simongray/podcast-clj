@@ -124,9 +124,10 @@ without a new version.
 
 ## The profile as a CRDT
 
-The CRDT is `util.crdt`, which knows nothing of podcasts. The `profile`
-namespace gives it a schema: how deep the entries of each collection are, which
-entries hold counts that only grow, and which tombstones compact drops.
+The CRDT is the library `dk.simongray.crdt`, which knows nothing of
+podcasts. The `profile` namespace gives it a schema: how deep the entries
+of each collection are, which entries hold counts that only grow, and
+which tombstones compact drops.
 
 ### Merge by shape
 
@@ -185,8 +186,8 @@ device's clock.
 
 ### The queue
 
-The queue is an ordered collection of `util.crdt.list`, with one entry
-per episode, ordered by a rank from `util.rank`, a string with room for
+The queue is an ordered collection of `crdt.list`, with one entry per
+episode, ordered by a rank from `crdt.rank`, a string with room for
 another rank between any two. A removal is a tombstone. Additions on two
 devices both survive, a finished episode stays removed, and only two
 devices that move the same episode at the same time need a winner, the
@@ -373,12 +374,12 @@ OAuth flows are up to you. The engine never sees the credentials, and no
 result, report or store name contains them.
 
 A sync document describes the listening habits of a listener, and the
-provider can read what it stores. The encrypting store, `sync.encrypted`,
-wraps any other store, which is what the map-of-functions design was chosen
-for. It uses AES-256-GCM with a key that PBKDF2 derives from a passphrase,
-through `javax.crypto` on the JVM and WebCrypto in ClojureScript. Each
-document carries the salt, the IV and the iteration count that sealed it,
-so there's no key file to lose. Plain documents pass through, so you can
+provider can read what it stores. The encrypting store, `store.encrypted`,
+wraps any other store, which is what the map-of-functions design was
+chosen for. It uses AES-256-GCM with a key that PBKDF2 derives from a
+passphrase, through `javax.crypto` on the JVM and WebCrypto in
+ClojureScript. Each document carries the salt, the IV and the iteration
+count that sealed it, so there's no key file to lose. Plain documents pass through, so you can
 start encrypting a folder at any time.
 
 
