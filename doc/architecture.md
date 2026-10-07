@@ -508,6 +508,14 @@ run in a browser, but this index runs wherever the model runs, and prints
 as EDN. The `search` namespace only makes the documents of episodes and
 shows, and gives the title more weight than the notes.
 
+The index keeps its postings in sorted arrays of ints rather than in
+maps, which takes far less memory and lets a query start from its rarest
+word. As in Lucene, the arrays are in segments: `add` puts new documents
+in a small segment of their own, `remove` marks a document in its
+segment, and segments merge as they grow, so a change copies little and
+the index stays a value. Until a merge drops it, a removed document still
+counts in the statistics of the ranking, as it does in Lucene.
+
 Words split at anything that isn't a letter or a digit, as in most
 JavaScript search libraries, so "Simon's" is found by "simon", and a query
 of "2.0" looks for 2 and 0 in a row. Chinese, Japanese, Korean, Thai and

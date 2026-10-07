@@ -940,6 +940,11 @@ Decided on 7 October 2026, and built on the branch
   document, since Lucene's 1 - edits / length let a short title with a
   typo outrank a long one with the word. The word being typed matches
   both what it starts and the words within its edits.
+- The postings are in segments of sorted int arrays, as in Lucene and
+  Datalevin, rather than in nested maps: 50 shows took 304 MB of heap as
+  maps and take 61 MB as arrays, with the same results. An `:and` starts
+  from its rarest word. A Roaring bitmap per term was measured too and
+  saved nothing, since most terms occur in a few documents.
 
 Two details of section 5.2 were wrong. The pairs of a run cross its
 scripts, so `AIメモリ管理` gives `メモ モリ リ管 管理`. And a query leaves

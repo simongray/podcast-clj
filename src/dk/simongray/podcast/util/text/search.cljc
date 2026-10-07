@@ -1,6 +1,6 @@
 (ns dk.simongray.podcast.util.text.search
-  "A full-text index of documents as a plain map, and queries of it ranked
-  by BM25F, on both platforms.
+  "A full-text index of documents, and queries of it ranked by BM25F, on
+  both platforms.
 
   A document is a map of its :id, its :fields, and what a result gives
   back, under :stored. A field holds text, or anything whose text counts,
@@ -30,113 +30,233 @@
   - Robertson and Zaragoza, The Probabilistic Relevance Framework: BM25
     and Beyond, Foundations and Trends in Information Retrieval 3(4),
     2009, https://www.staff.city.ac.uk/~sbrp622/papers/foundations_bm25_review.pdf
-  - Lucene's BM25Similarity and BooleanQuery,
-    https://lucene.apache.org/core/9_11_1/core/
+  - Lucene's BM25Similarity and BooleanQuery, and the segments of its
+    index, https://lucene.apache.org/core/9_11_1/core/
   - Elasticsearch's simple_query_string,
     https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-simple-query-string-query
   - SQLite FTS5's query syntax and its snippet function,
     https://www.sqlite.org/fts5.html"
   (:refer-clojure :exclude [remove])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.text :as text]))
+            [dk.simongray.podcast.util.text :as text])
+  #?(:clj (:import [java.io Writer]
+                   [java.util Arrays])))
 
 (def ^{:no-doc true :const true} span
   "The block of positions that each field of a document gets.
 
-  The positions of a term in a document are in one vector, each offset by
-  its field's number times this. Two positions one apart are then always
-  in the same field. A longer field is indexed up to this length."
+  Each position of a term in a document is offset by its field's number
+  times this. Two positions one apart are then always in the same field.
+  A longer field is indexed up to this length."
   1000000)
 
-(declare added)
+(defn- make-ints
+  "A new array of `n` ints, all 0."
+  [n]
+  #?(:clj  (int-array n)
+     :cljs (js/Int32Array. n)))
 
-(defn index
-  "An index of `docs` with the `opts` below, or an empty one to add to.
+(defn- make-doubles
+  "A new array of `n` doubles, all 0."
+  [n]
+  #?(:clj  (double-array n)
+     :cljs (js/Float64Array. n)))
 
-  The `opts` are the defaults of query on this index, e.g. the :boosts of
-  its fields and the :aliases that a query can name them by, and of
-  parse, snippet and matches? when their options name the :index. They
-  print with the index, so they're data.
+(defn- as-ints
+  "The ints `xs`, a vector or an array, as an array."
+  [xs]
+  (if (vector? xs)
+    #?(:clj  (int-array xs)
+       :cljs (js/Int32Array. (into-array xs)))
+    xs))
 
-  The index is a plain map that prints as EDN. Read back, its terms are a
-  hash set, which restore sorts again."
-  ([]
-   {:docs {} :postings {} :terms (sorted-set) :fields {}})
-  ([docs]
-   (index docs {}))
-  ([docs opts]
-   {:pre [(map? opts)]}
-   (cond-> (added (index) docs)
-     (seq opts) (assoc :defaults opts))))
+(defn- as-doubles
+  "The numbers of the vector `xs` as an array of doubles."
+  [xs]
+  #?(:clj  (double-array xs)
+     :cljs (js/Float64Array. (into-array xs))))
 
-(defn restore
-  "The `index` read back from EDN, with its terms sorted again, so that a
-  prefix reads a range of them rather than every one."
-  [index]
-  (update index :terms #(into (sorted-set) %)))
+(defn- as-objects
+  "The values `xs`, a vector or an array, as an array."
+  [xs]
+  (if (vector? xs)
+    (to-array xs)
+    xs))
 
-(defn- uncounted
-  "The `fields` of an index without the fields of the `lengths` of a
-  document, a map of a field to the number of its positions."
-  [fields lengths]
-  (reduce-kv (fn [fields field n]
-               (-> fields
-                   (update-in [field :docs] dec)
-                   (update-in [field :length] - n)))
-             fields
-             lengths))
+(defn- as-vector
+  "The values of the array `arr` as a vector."
+  [arr]
+  #?(:clj  (vec arr)
+     :cljs (vec (js/Array.from arr))))
 
-(defn- unposted
-  "The transient `touched` postings of terms with the document `id` taken
-  out of those of its `terms`. The first time a term is touched, its
-  postings come from `known`."
-  [touched known id terms]
-  (reduce (fn [touched term]
-            (let [postings (or (get touched term)
-                               (transient (get known term {})))]
-              (assoc! touched term (dissoc! postings id))))
-          touched
-          terms))
+(defn- slice
+  "The ints of the array `arr` from `from` to `to`, as an array of their
+  own."
+  [arr from to]
+  #?(:clj  (Arrays/copyOfRange ^ints arr (int from) (int to))
+     :cljs (.slice arr from to)))
 
-;; Changes of many documents go through transients, so that the postings
-;; of a term are copied once rather than once for each document
-(defn- removed
-  "The `index` without the documents of `ids`."
-  [index ids]
-  (let [known   (:postings index)
-        entries (keep #(some->> (get-in index [:docs %]) (vector %))
-                      (distinct ids))]
-    (if (empty? entries)
-      index
-      (let [touched  (persistent!
-                      (reduce (fn [touched [id {:keys [terms]}]]
-                                (unposted touched known id terms))
-                              (transient {})
-                              entries))
-            postings (persistent!
-                      (reduce-kv (fn [acc term postings]
-                                   (let [postings (persistent! postings)]
-                                     (if (empty? postings)
-                                       (dissoc! acc term)
-                                       (assoc! acc term postings))))
-                                 (transient known)
-                                 touched))
-            gone     (filter #(not (contains? postings %)) (keys touched))
-            docs     (persistent! (reduce dissoc!
-                                          (transient (:docs index))
-                                          (map first entries)))
-            lengths  (map (comp :lengths second) entries)]
-        (-> index
-            (assoc :docs docs :postings postings)
-            (update :terms #(reduce disj % gone))
-            (update :fields #(reduce uncounted % lengths)))))))
+(defn- trimmed-doubles
+  "The first `n` doubles of the array `arr`, as an array of their own."
+  [arr n]
+  #?(:clj  (Arrays/copyOf ^doubles arr (int n))
+     :cljs (.slice arr 0 n)))
 
-(defn remove
-  "The `index` without the document `id`, and the `ids` after it."
-  ([index]
-   index)
-  ([index id & ids]
-   (removed index (cons id ids))))
+(defn- copy-ints!
+  "Copy `n` ints of the array `src` from `from` into the array `dst` at
+  `to`."
+  [src from dst to n]
+  #?(:clj  (System/arraycopy src (int from) dst (int to) (int n))
+     :cljs (.set dst (.subarray src from (+ from n)) to)))
+
+(defn- lower-bound
+  "The first index from `from` to `to` of the sorted ints `arr` that holds
+  at least `x`, or `to`."
+  ^long [^ints arr ^long from ^long to ^long x]
+  (loop [lo from hi to]
+    (if (< lo hi)
+      (let [mid (quot (+ lo hi) 2)]
+        (if (< (aget arr mid) x)
+          (recur (inc mid) hi)
+          (recur lo mid)))
+      lo)))
+
+;; Exponential search, Bentley and Yao 1976, so that a short list of
+;; documents walks through a long one in few steps
+(defn- seek
+  "The first index from `from` to `to` of the sorted ints `arr` that holds
+  at least `x`, or `to`, found in steps that double from `from`."
+  ^long [^ints arr ^long from ^long to ^long x]
+  (loop [lo from step 1]
+    (let [hi (+ lo step)]
+      (if (and (< hi to)
+               (< (aget arr hi) x))
+        (recur hi (* 2 step))
+        (lower-bound arr lo (min hi to) x)))))
+
+(defn- term-bound
+  "The first index of the sorted array `terms` whose term is at least
+  `term`, or the count of `terms`."
+  ^long [terms term]
+  (let [^objects terms terms]
+    (loop [lo 0 hi (alength terms)]
+      (if (< lo hi)
+        (let [mid (quot (+ lo hi) 2)]
+          (if (neg? (compare (aget terms mid) term))
+            (recur (inc mid) hi)
+            (recur lo mid)))
+        lo))))
+
+(defn- term-number
+  "The index of `term` in the sorted array `terms`, or -1."
+  ^long [terms term]
+  (let [^objects terms terms
+        i              (term-bound terms term)]
+    (if (and (< i (alength terms))
+             (= term (aget terms i)))
+      i
+      -1)))
+
+;; A segment holds the postings of some of the documents of an index in
+;; sorted arrays of ints, as a segment of Lucene's index does, which take
+;; far less memory than maps:
+;;
+;; - ids and stored, those of each document by its number
+;; - terms, in order, and doc-start, where the postings of each start in
+;;   docs, with the end of the last
+;; - docs, the document of each posting, in order for each term, and
+;;   pos-start, where its positions start in positions, with the end of
+;;   the last
+;; - positions, those of each posting in order, offset as span says
+;; - lengths, the positions of each field of each document, width of them
+;;   to a document, and field-stats, the documents with each field and
+;;   their positions in all, by field number
+;; - deleted, the numbers of the documents that are removed
+(declare segment-data)
+
+(deftype Segment [ids stored terms doc-start docs pos-start positions lengths
+                  ^long width field-stats deleted]
+  #?@(:clj
+      [Object
+       (equals [this other]
+         (and (instance? Segment other)
+              (= (segment-data this) (segment-data other))))
+       (hashCode [_]
+         (hash [ids deleted]))]
+
+      :cljs
+      [IEquiv
+       (-equiv [this other]
+         (and (instance? Segment other)
+              (= (segment-data this) (segment-data other))))
+
+       IHash
+       (-hash [_]
+         (hash [ids deleted]))
+
+       IPrintWithWriter
+       (-pr-writer [this writer opts]
+         (-pr-writer (segment-data this) writer opts))]))
+
+#?(:clj
+   (defmethod print-method Segment
+     [segment ^Writer writer]
+     (print-method (segment-data segment) writer)))
+
+(defn- parts
+  "The fields of `segment` as a map."
+  [^Segment segment]
+  {:ids         (.-ids segment)
+   :stored      (.-stored segment)
+   :terms       (.-terms segment)
+   :doc-start   (.-doc-start segment)
+   :docs        (.-docs segment)
+   :pos-start   (.-pos-start segment)
+   :positions   (.-positions segment)
+   :lengths     (.-lengths segment)
+   :field-stats (.-field-stats segment)
+   :deleted     (.-deleted segment)})
+
+(defn- segment-data
+  "The `segment` as plain data, a map of its fields with its arrays as
+  vectors, as it prints."
+  [segment]
+  (reduce #(update %1 %2 as-vector)
+          (parts segment)
+          [:terms :doc-start :docs :pos-start :positions :lengths]))
+
+(defn- segment-of
+  "The segment of `m`, a map of its fields, whose arrays can be vectors, as
+  segment-data gives them."
+  [{:keys [ids stored terms doc-start docs pos-start positions lengths
+           field-stats deleted]
+    :as   m}]
+  (->Segment (vec ids)
+             (vec stored)
+             (as-objects terms)
+             (as-ints doc-start)
+             (as-ints docs)
+             (as-ints pos-start)
+             (as-ints positions)
+             (as-ints lengths)
+             (count field-stats)
+             (vec field-stats)
+             (set deleted)))
+
+(defn- size
+  "The number of documents in `segment`, those removed too."
+  [^Segment segment]
+  (count (.-ids segment)))
+
+(defn- live
+  "The number of documents in `segment` that aren't removed."
+  [^Segment segment]
+  (- (size segment) (count (.-deleted segment))))
+
+(defn- with-removed
+  "The `segment` with the documents numbered `nos` removed."
+  [segment nos]
+  (segment-of (update (parts segment) :deleted into nos)))
 
 (defn- analyze
   "The terms of the field value `v` by position: a string tokenized, a
@@ -151,14 +271,24 @@
     :else       (text/tokens (str v))))
 
 (defn- numbered
-  "The `fields` of an index with a number for each new field of
-  `analyzed`, in order of appearance."
-  [fields analyzed]
-  (reduce (fn [fields field]
-            (if (contains? fields field)
-              fields
-              (assoc fields field {:no (count fields) :docs 0 :length 0})))
-          fields (keys analyzed)))
+  "The `numbers` of the fields of an index, a map of field to number, with
+  a number for each new field of `analyzed`, in order of appearance."
+  [numbers analyzed]
+  (reduce (fn [numbers field]
+            (cond
+              (contains? numbers field)
+              numbers
+
+              ;; the positions of a field start at its number times span,
+              ;; in an int
+              (< (count numbers) (quot 2147483647 span))
+              (assoc numbers field (count numbers))
+
+              :else
+              (throw (ex-info "An index holds no more fields"
+                              {:field field}))))
+          numbers
+          (keys analyzed)))
 
 (defn- placed
   "The transient map `acc` of terms to positions with `term` at `at`. A
@@ -172,23 +302,26 @@
 
 (defn- positions
   "The positions of each term in the `analyzed` fields, by term, as one
-  position or a vector of them. Each is offset into the block of its field
-  by the field `numbers`, and the terms of a vector share a position."
+  position or a vector of them in order. Each is offset into the block of
+  its field by the field `numbers`, and the terms of a vector share a
+  position."
   [numbers analyzed]
   (persistent!
-   (reduce-kv (fn [acc field terms]
-                (let [base (long (* span (get numbers field)))
-                      n    (min span (count terms))]
-                  (loop [i 0 acc acc]
-                    (if (< i n)
-                      (let [term (nth terms i)
-                            at   (+ base i)
-                            acc  (if (vector? term)
-                                   (reduce #(placed %1 %2 at) acc term)
-                                   (placed acc term at))]
-                        (recur (inc i) acc))
-                      acc))))
-              (transient {}) analyzed)))
+   (reduce (fn [acc field]
+             (let [terms (get analyzed field)
+                   base  (long (* span (get numbers field)))
+                   n     (min span (count terms))]
+               (loop [i 0 acc acc]
+                 (if (< i n)
+                   (let [term (nth terms i)
+                         at   (+ base i)
+                         acc  (if (vector? term)
+                                (reduce #(placed %1 %2 at) acc term)
+                                (placed acc term at))]
+                     (recur (inc i) acc))
+                   acc))))
+           (transient {})
+           (sort-by numbers (keys analyzed)))))
 
 (defn- analyzed-fields
   "The terms by position of each of the `fields` of a document that has
@@ -201,60 +334,345 @@
                     [field terms]))))
         fields))
 
-(defn- counted
-  "The `fields` of an index with the `analyzed` fields of a document
-  counted in."
-  [fields analyzed]
-  (reduce-kv (fn [fields field terms]
-               (-> fields
-                   (update-in [field :docs] inc)
-                   (update-in [field :length] + (count terms))))
-             fields
-             analyzed))
-
-(defn- interned
-  "The one string of `term` that an index keeps, so that its documents
-  share it, from the transient map `seen` of the new terms since the
-  `known` postings, or the postings themselves, or nil for a new term."
-  [known seen term]
-  (or (get seen term)
-      (some-> (find known term) key)))
-
 (defn- posted
-  "The transient `touched` postings of terms with the document `id` at the
-  positions `at` of `term`. The first time a term is touched, its postings
-  come from `known`."
-  [touched known term id at]
-  (let [postings (or (get touched term)
-                     (transient (get known term {})))]
-    (assoc! touched term (assoc! postings id at))))
+  "The transient map `acc` of each term to a transient vector of its
+  postings, with the document numbered `no` at the positions `at` of
+  `term`."
+  [acc no term at]
+  (let [postings (or (get acc term) (transient []))]
+    (assoc! acc term (-> postings (conj! no) (conj! at)))))
+
+(defn- postings-of
+  "The postings of the analyzed documents `entries`, numbered in order,
+  whose fields have the `numbers` of an index: a map of each term to a
+  vector of the numbers of its documents, each followed by its positions
+  there, as positions gives them."
+  [numbers entries]
+  (let [postings (reduce-kv (fn [acc no {:keys [fields]}]
+                              (reduce-kv #(posted %1 no %2 %3)
+                                         acc
+                                         (positions numbers fields)))
+                            (transient {})
+                            entries)]
+    (update-vals (persistent! postings) persistent!)))
+
+(defn- fill!
+  "Fill the arrays `doc-start`, `docs`, `pos-start` and `positions` of a
+  segment with the postings `lists` of its terms in order, each a vector
+  of the numbers of documents, each followed by its positions there."
+  [^ints doc-start ^ints docs ^ints pos-start ^ints positions lists]
+  (loop [t 0 i 0 k 0 p 0]
+    (cond
+      (= t (count lists))
+      (aset pos-start k (int p))
+
+      (= i (count (nth lists t)))
+      (do (aset doc-start (inc t) (int k))
+          (recur (inc t) 0 k p))
+
+      :else
+      (let [postings (nth lists t)
+            at       (nth postings (inc i))
+            ats      (if (vector? at) at [at])]
+        (aset docs k (int (nth postings i)))
+        (aset pos-start k (int p))
+        (dotimes [j (count ats)]
+          (aset positions (+ p j) (int (nth ats j))))
+        (recur t (+ i 2) (inc k) (+ p (count ats)))))))
+
+(defn- field-stats
+  "The number of documents with each field and their positions in all, as
+  pairs by field number, from the `lengths` of `n` documents of `width`
+  fields each."
+  [^ints lengths n width]
+  (let [n     (long n)
+        width (long width)]
+    (mapv (fn [no]
+            (loop [d 0 docs 0 length 0]
+              (if (< d n)
+                (let [l (aget lengths (+ (* d width) (long no)))]
+                  (recur (inc d)
+                         (if (pos? l) (inc docs) docs)
+                         (+ length l)))
+                [docs length])))
+          (range width))))
 
 ;; A field's length counts its positions, so a term that shares one adds
 ;; nothing, as discountOverlaps does in Lucene's BM25Similarity
-(defn- with-document
-  "The parts of an index that `built` holds, with the document `doc` in
-  them: the transient :docs, :touched postings and :seen terms, and the
-  :fields. The `known` postings are those of the index."
-  [known {:keys [docs touched seen fields]} {:keys [id stored] :as doc}]
-  (let [analyzed (analyzed-fields (:fields doc))
-        fields   (numbered fields analyzed)
-        by-term  (positions (update-vals fields :no) analyzed)
-        [touched seen terms]
-        (reduce-kv (fn [[touched seen terms] term at]
-                     (let [same (interned known seen term)
-                           seen (if same seen (assoc! seen term term))
-                           term (or same term)]
-                       [(posted touched known term id at)
-                        seen
-                        (conj! terms term)]))
-                   [touched seen (transient [])]
-                   by-term)]
-    {:docs    (assoc! docs id {:stored  stored
-                               :lengths (update-vals analyzed count)
-                               :terms   (persistent! terms)})
-     :touched touched
-     :seen    seen
-     :fields  (counted fields analyzed)}))
+(defn- built
+  "A segment of the analyzed documents `entries`, maps of :id, :stored and
+  :fields as analyzed-fields gives them, whose fields have the `numbers`
+  of an index."
+  [numbers entries]
+  (let [postings      (postings-of numbers entries)
+        terms         (to-array (sort (keys postings)))
+        lists         (mapv #(get postings %) terms)
+        n             (count entries)
+        width         (count numbers)
+        positions-of  (fn [postings]
+                        (transduce (comp (drop 1)
+                                         (take-nth 2)
+                                         (map #(if (vector? %) (count %) 1)))
+                                   +
+                                   postings))
+        n-postings    (reduce + 0 (map #(quot (count %) 2) lists))
+        ^ints lengths (make-ints (* n width))
+        doc-start     (make-ints (inc (count lists)))
+        docs          (make-ints n-postings)
+        pos-start     (make-ints (inc n-postings))
+        positions     (make-ints (reduce + 0 (map positions-of lists)))]
+    (fill! doc-start docs pos-start positions lists)
+    (doseq [[no {:keys [fields]}] (map-indexed vector entries)
+            [field terms]         fields]
+      (aset lengths (+ (* no width) (get numbers field)) (int (count terms))))
+    (segment-of {:ids         (mapv :id entries)
+                 :stored      (mapv :stored entries)
+                 :terms       terms
+                 :doc-start   doc-start
+                 :docs        docs
+                 :pos-start   pos-start
+                 :positions   positions
+                 :lengths     lengths
+                 :field-stats (field-stats lengths n width)
+                 :deleted     #{}})))
+
+(defn- renumbered
+  "For each of the `segments`, an array of the number of each of its
+  documents in one segment of them all in order, without those removed,
+  which get -1."
+  [segments]
+  (first
+   (reduce (fn [[arrays base] ^Segment segment]
+             (let [n             (long (size segment))
+                   deleted       (.-deleted segment)
+                   ^ints numbers (make-ints n)
+                   next-base     (loop [d 0 j (long base)]
+                                   (cond
+                                     (= d n)
+                                     j
+
+                                     (contains? deleted d)
+                                     (do (aset numbers d -1)
+                                         (recur (inc d) j))
+
+                                     :else
+                                     (do (aset numbers d (int j))
+                                         (recur (inc d) (inc j)))))]
+               [(conj arrays numbers) next-base]))
+           [[] 0]
+           segments)))
+
+(defn- without-removed
+  "The values `vs` of the documents of a segment by number, without those
+  of the numbers in `deleted`."
+  [vs deleted]
+  (if (empty? deleted)
+    vs
+    (into []
+          (comp (map-indexed vector)
+                (clojure.core/remove #(contains? deleted (first %)))
+                (map second))
+          vs)))
+
+(defn- copy-postings!
+  "Copy the postings of `segment` from `from` to `to` of the documents that
+  `numbers` keep into the arrays `docs`, `pos-start` and `positions` of a
+  merged segment, from the posting `k` and the position `p` on, and give
+  where the copies end, as a pair."
+  [^Segment segment ^ints numbers from to
+   ^ints docs ^ints pos-start ^ints positions k p]
+  (let [^ints old-docs      (.-docs segment)
+        ^ints old-pos-start (.-pos-start segment)
+        old-positions       (.-positions segment)
+        to                  (long to)]
+    (loop [i (long from) k (long k) p (long p)]
+      (if (< i to)
+        (let [d (aget numbers (aget old-docs i))]
+          (if (neg? d)
+            (recur (inc i) k p)
+            (let [start (aget old-pos-start i)
+                  n     (- (aget old-pos-start (inc i)) start)]
+              (aset docs k d)
+              (aset pos-start k (int p))
+              (copy-ints! old-positions start positions p n)
+              (recur (inc i) (inc k) (+ p n)))))
+        [k p]))))
+
+(defn- least-term
+  "The least of the terms of the `segments` at their `cursors`, an array of
+  the index of the next term of each, or nil when none is left."
+  [segments ^ints cursors]
+  (reduce (fn [least i]
+            (let [^objects terms (.-terms ^Segment (nth segments i))
+                  c              (aget cursors i)]
+              (if (< c (alength terms))
+                (let [term (aget terms c)]
+                  (if (or (nil? least)
+                          (neg? (compare term least)))
+                    term
+                    least))
+                least)))
+          nil
+          (range (count segments))))
+
+(defn- combined
+  "One segment of the `segments` in order, without their documents that
+  are removed."
+  [segments]
+  (let [segments       (vec segments)
+        numbers        (renumbered segments)
+        width          (reduce max 0 (map #(.-width ^Segment %) segments))
+        values         (fn [f]
+                         (into []
+                               (mapcat #(without-removed
+                                         (f %)
+                                         (.-deleted ^Segment %)))
+                               segments))
+        ids            (values #(.-ids ^Segment %))
+        ^ints lengths  (make-ints (* (count ids) width))
+        total          (fn [f]
+                         (reduce + 0 (map #(alength ^ints (f %)) segments)))
+        ^ints docs     (make-ints (total #(.-docs ^Segment %)))
+        ^ints starts   (make-ints (inc (alength docs)))
+        positions      (make-ints (total #(.-positions ^Segment %)))
+        ^ints cursors  (make-ints (count segments))
+        copy-term!     (fn [term [k p] i]
+                         (let [^Segment segment (nth segments i)
+                               ^objects terms   (.-terms segment)
+                               ^ints doc-start  (.-doc-start segment)
+                               c                (aget cursors i)]
+                           (if (and (< c (alength terms))
+                                    (= term (aget terms c)))
+                             (do (aset cursors i (inc c))
+                                 (copy-postings! segment (nth numbers i)
+                                                 (aget doc-start c)
+                                                 (aget doc-start (inc c))
+                                                 docs starts positions k p))
+                             [k p])))]
+    (doseq [[^Segment segment ^ints nos] (map vector segments numbers)
+            :let  [w (.-width segment)]
+            d     (range (size segment))
+            :let  [j (aget nos d)]
+            :when (<= 0 j)]
+      (copy-ints! (.-lengths segment) (* d w) lengths (* j width) w))
+    (loop [k 0 p 0 terms (transient []) doc-start (transient [0])]
+      (if-let [term (least-term segments cursors)]
+        (let [[next-k next-p] (reduce #(copy-term! term %1 %2)
+                                      [k p]
+                                      (range (count segments)))]
+          ;; a term whose documents are all removed goes
+          (if (= next-k k)
+            (recur k p terms doc-start)
+            (recur (long next-k)
+                   (long next-p)
+                   (conj! terms term)
+                   (conj! doc-start next-k))))
+        (do (aset starts k (int p))
+            (segment-of {:ids         ids
+                         :stored      (values #(.-stored ^Segment %))
+                         :terms       (persistent! terms)
+                         :doc-start   (persistent! doc-start)
+                         :docs        (slice docs 0 k)
+                         :pos-start   (slice starts 0 (inc k))
+                         :positions   (slice positions 0 p)
+                         :lengths     lengths
+                         :field-stats (field-stats lengths (count ids) width)
+                         :deleted     #{}}))))))
+
+(defn- located
+  "The `docs` of an index, a map of each id to the index of its segment and
+  its number there, with those of the `segments` from the one at `i` on."
+  [docs segments i]
+  (persistent!
+   (reduce (fn [docs i]
+             (let [^Segment segment (nth segments i)
+                   deleted          (.-deleted segment)]
+               (reduce-kv (fn [docs no id]
+                            (if (contains? deleted no)
+                              docs
+                              (assoc! docs id [i no])))
+                          docs
+                          (.-ids segment))))
+           (transient docs)
+           (range i (count segments)))))
+
+(defn- with-segments
+  "The `index` with the `segments`, and its documents in them found again
+  from the segment at `i` on."
+  [index segments i]
+  (assoc index
+         :segments segments
+         :docs     (located (:docs index) segments i)))
+
+(defn- merged-from
+  "The `index` with its segments from the one at `i` on merged into one."
+  [index i]
+  (let [segments (:segments index)]
+    (with-segments index
+                   (conj (subvec segments 0 i) (combined (subvec segments i)))
+                   i)))
+
+;; Each document is copied about once for each doubling of the documents
+;; after it, and an index keeps a few segments, each larger than those
+;; after it
+(defn- balanced
+  "The `index` with its last two segments merged while the last holds at
+  least half the documents of the one before it."
+  [index]
+  (let [segments (:segments index)
+        n        (count segments)]
+    (if (and (<= 2 n)
+             (<= (live (nth segments (- n 2)))
+                 (* 2 (live (peek segments)))))
+      (recur (merged-from index (- n 2)))
+      index)))
+
+(defn- compacted
+  "The `index` with all its segments merged into one."
+  [index]
+  (if (< 1 (count (:segments index)))
+    (merged-from index 0)
+    index))
+
+(defn- pruned
+  "The `index` with each segment that holds more removed documents than
+  others written again without them, or left out when it holds no others."
+  [index]
+  (let [segments (:segments index)
+        sparse?  #(< (live %) (count (.-deleted ^Segment %)))
+        i        (first (keep-indexed #(when (sparse? %2) %1) segments))]
+    (if (nil? i)
+      index
+      (with-segments index
+                     (into (subvec segments 0 i)
+                           (keep #(cond
+                                    (not (sparse? %)) %
+                                    (pos? (live %))   (combined [%])
+                                    :else             nil))
+                           (subvec segments i))
+                     i))))
+
+;; A removed document stays in its segment, marked, until a merge leaves
+;; it out, as in Lucene
+(defn- removed
+  "The `index` without the documents of `ids`."
+  [index ids]
+  (let [found (keep #(find (:docs index) %) (distinct ids))]
+    (if (empty? found)
+      index
+      (let [by-segment (group-by #(first (val %)) found)
+            segments   (reduce-kv (fn [segments i found]
+                                    (update segments i with-removed
+                                            (map #(second (val %)) found)))
+                                  (:segments index)
+                                  by-segment)
+            docs       (persistent! (reduce dissoc!
+                                            (transient (:docs index))
+                                            (map key found)))]
+        (-> index
+            (assoc :segments segments :docs docs)
+            pruned
+            balanced)))))
 
 (defn- latest
   "The `docs` without those that a later one with the same id replaces,
@@ -268,30 +686,60 @@
                          (reverse docs))]
     (rseq kept)))
 
+;; A segment is built of at most 4096 documents at once, so that building
+;; it takes little memory, and merges join the segments
 (defn- added
   "The `index` with the documents `docs`, as add gives it."
   [index docs]
   (when-let [doc (some #(when (nil? (:id %)) %) docs)]
     (throw (ex-info "A document needs an :id" {:document doc})))
-  (let [docs     (latest docs)
-        index    (removed index (map :id docs))
-        known    (:postings index)
-        built    (reduce #(with-document known %1 %2)
-                         {:docs    (transient (:docs index))
-                          :touched (transient {})
-                          :seen    (transient {})
-                          :fields  (:fields index)}
-                         docs)
-        postings (persistent!
-                  (reduce-kv (fn [acc term postings]
-                               (assoc! acc term (persistent! postings)))
-                             (transient known)
-                             (persistent! (:touched built))))]
-    (-> index
-        (assoc :docs     (persistent! (:docs built))
-               :postings postings
-               :fields   (:fields built))
-        (update :terms into (keys (persistent! (:seen built)))))))
+  (let [docs (latest docs)]
+    (reduce (fn [index chunk]
+              (let [entries  (mapv #(update % :fields analyzed-fields) chunk)
+                    numbers  (reduce numbered
+                                     (:fields index)
+                                     (map :fields entries))
+                    segments (:segments index)]
+                (-> (assoc index :fields numbers)
+                    (with-segments (conj segments (built numbers entries))
+                                   (count segments))
+                    balanced)))
+            (removed index (map :id docs))
+            (partition-all 4096 docs))))
+
+(defn index
+  "An index of `docs` with the `opts` below, or an empty one to add to.
+
+  The `opts` are the defaults of query on this index, e.g. the :boosts of
+  its fields and the :aliases that a query can name them by, and of
+  parse, snippet and matches? when their options name the :index. They
+  print with the index, so they're data.
+
+  The index prints as EDN, its arrays as vectors, and restore reads it
+  back."
+  ([]
+   {:segments [] :docs {} :fields {}})
+  ([docs]
+   (index docs {}))
+  ([docs opts]
+   {:pre [(map? opts)]}
+   (cond-> (compacted (added (index) docs))
+     (seq opts) (assoc :defaults opts))))
+
+(defn restore
+  "The `index` read back from EDN with its arrays made again, which a query
+  of it otherwise does each time."
+  [index]
+  (update index :segments (partial mapv #(if (instance? Segment %)
+                                           %
+                                           (segment-of %)))))
+
+(defn remove
+  "The `index` without the document `id`, and the `ids` after it."
+  ([index]
+   index)
+  ([index id & ids]
+   (removed (restore index) (cons id ids))))
 
 (defn add
   "The `index` with the document `doc`, and the `docs` after it, each a map
@@ -300,7 +748,7 @@
   ([index]
    index)
   ([index doc & docs]
-   (added index (cons doc docs))))
+   (added (restore index) (cons doc docs))))
 
 ;; The operators that Lucene's simple query parser, Elasticsearch's
 ;; simple_query_string and SQLite FTS5 share, with ! for NOT as in many
@@ -732,116 +1180,282 @@
   ^double [^long total ^long n]
   (Math/log (+ 1 (/ (+ (- total n) 0.5) (+ n 0.5)))))
 
+;; The constants of BM25F of the fields of an index, as arrays by field
+;; number: the weight of each, and a and c of its length normalization
+;; a + c length
+(deftype Weights [weight a c])
+
+;; Until a merge leaves them out, removed documents still count in the
+;; statistics of BM25, as in Lucene
 (defn- weights
-  "The constants of BM25F for each field of `index`, by field number: its
-  name, its weight from `boosts`, 1 by default, and a and c of its length
-  normalization a + c length, which fold in `b` and the field's average
-  length."
-  [index boosts b]
-  (let [b (double b)]
-    (->> (for [[name {:keys [no docs length]}] (:fields index)
-               :let [average (if (pos? (long docs))
-                               (/ (double length) (long docs))
-                               1.0)]]
-           [no {:name   name
-                :weight (double (get boosts name 1))
-                :a      (- 1.0 b)
-                :c      (/ b average)}])
-         (into (sorted-map))
-         vals
-         vec)))
+  "The constants of BM25F of the fields of an index with the field
+  `numbers` and the `segments`: each field's weight from `boosts`, 1 by
+  default, and a and c of its length normalization, which fold in `b` and
+  the field's average length."
+  [numbers segments boosts b]
+  (let [n               (count numbers)
+        b               (double b)
+        ^doubles weight (make-doubles n)
+        ^doubles a      (make-doubles n)
+        ^doubles c      (make-doubles n)]
+    (doseq [[field no] numbers]
+      (let [stats   (keep #(get (.-field-stats ^Segment %) no) segments)
+            docs    (reduce + 0 (map first stats))
+            length  (reduce + 0 (map second stats))
+            average (if (pos? docs)
+                      (/ (double length) docs)
+                      1.0)]
+        (aset weight no (double (get boosts field 1)))
+        (aset a no (- 1.0 b))
+        (aset c no (/ b average))))
+    (->Weights weight a c)))
 
 (defn- restricted
-  "The `weights` of the fields with all but `field` left out, and `field`
-  at its weight, or 1 when that is 0, since a query names it."
-  [weights field]
-  (mapv (fn [w]
-          (cond
-            (not= field (:name w))  (assoc w :weight 0.0)
-            (zero? (:weight w))     (assoc w :weight 1.0)
-            :else                   w))
-        weights))
+  "The `weights` with every field but the one numbered `no` left out, and
+  that one at its weight, or 1 when that is 0, since a query names it.
+  Without a `no`, every field is left out."
+  [^Weights weights no]
+  (let [^doubles weight (.-weight weights)
+        ^doubles only   (make-doubles (alength weight))]
+    (when no
+      (let [w (aget weight (int no))]
+        (aset only (int no) (if (zero? w) 1.0 w))))
+    (->Weights only (.-a weights) (.-c weights))))
+
+(defn- every-field?
+  "Whether the `weights` count every field."
+  [^Weights weights]
+  (let [^doubles weight (.-weight weights)]
+    (every? #(pos? (aget weight (int %))) (range (alength weight)))))
 
 ;; BM25F, Robertson and Zaragoza 2009, section 3.6, equation 3.19: each
 ;; occurrence counts the weight of its field, divided by the field's
 ;; length normalization
 (defn- occurrence
-  "What an occurrence of a term in the field numbered `no` counts in a
-  document whose fields have the `lengths`, with the `weights` of the
-  fields."
-  ^double [weights lengths ^long no]
-  (let [field  (nth weights no)
-        weight (double (:weight field))]
-    (if (zero? weight)
+  "What an occurrence of a term in the field numbered `no` of the document
+  `d` of `segment` counts, with the `weights` of the fields."
+  ^double [^Segment segment ^Weights weights ^long d ^long no]
+  (let [^doubles weight (.-weight weights)
+        w               (aget weight no)]
+    (if (zero? w)
       0.0
-      (let [length (long (get lengths (:name field)))
-            norm   (+ (double (:a field))
-                      (* (double (:c field)) length))]
-        (/ weight norm)))))
+      (let [^doubles a     (.-a weights)
+            ^doubles c     (.-c weights)
+            ^ints lengths  (.-lengths segment)
+            length         (aget lengths (+ (* d (.-width segment)) no))]
+        (/ w (+ (aget a no) (* (aget c no) length)))))))
 
 (defn- frequency
-  "BM25F's frequency of a term in the document `id` of the `docs` of an
-  index, which has it at the positions `at`, one or a vector of them,
-  with the `weights` of the fields.
+  "BM25F's frequency of a term in the document `d` of `segment`, whose
+  posting of it is the `k`th, with the `weights` of the fields.
 
   The positions of a field come together, so what an occurrence counts
   is worked out once for each run of them."
-  ^double [docs weights id at]
-  (let [lengths (:lengths (get docs id))]
-    (if (vector? at)
-      (let [n (count at)]
-        (loop [i 0 sum 0.0 field -1 counts 0.0]
-          (if (= i n)
-            sum
-            (let [no     (quot (long (nth at i)) span)
-                  counts (if (= no field)
-                           counts
-                           (occurrence weights lengths no))]
-              (recur (inc i) (+ sum counts) no counts)))))
-      (occurrence weights lengths (quot (long at) span)))))
+  ^double [^Segment segment weights ^long d ^long k]
+  (let [^ints pos-start (.-pos-start segment)
+        ^ints positions (.-positions segment)
+        to              (aget pos-start (inc k))]
+    (loop [i (long (aget pos-start k)) sum 0.0 field -1 counts 0.0]
+      (if (< i to)
+        (let [no     (quot (aget positions i) span)
+              counts (if (= no field)
+                       counts
+                       (occurrence segment weights d no))]
+          (recur (inc i) (+ sum counts) no counts))
+        sum))))
+
+;; The hits of a query in a segment are a map of :docs, the numbers of
+;; the documents that match, in order, and :scores, the score of each, both
+;; arrays
+
+(defn- no-hits
+  []
+  {:docs (make-ints 0) :scores (make-doubles 0)})
+
+(defn- hit-count
+  [hits]
+  (alength ^ints (:docs hits)))
+
+(defn- collected
+  "The hits of the positive values of `acc`, an array of a value for each
+  of the `candidates`, or for each document when nil."
+  [^doubles acc ^ints candidates]
+  (let [n               (alength acc)
+        m               (areduce acc i m 0 (if (pos? (aget acc i)) (inc m) m))
+        ^ints docs      (make-ints m)
+        ^doubles scores (make-doubles m)]
+    (loop [j 0 i 0]
+      (when (< j n)
+        (if (pos? (aget acc j))
+          (do (aset docs i (if candidates (aget candidates j) (int j)))
+              (aset scores i (aget acc j))
+              (recur (inc j) (inc i)))
+          (recur (inc j) i))))
+    {:docs docs :scores scores}))
+
+;; The postings of a term and the candidates are both in order, so they
+;; meet in one walk, each side skipping ahead with seek
+(defn- add-frequencies!
+  "Add to `acc`, an array of a value for each of the `candidates`, the
+  BM25F frequency of each posting of `segment` from `from` to `to` whose
+  document is one of them, with the `weights`."
+  [^Segment segment weights ^doubles acc ^ints candidates from to]
+  (let [^ints docs (.-docs segment)
+        n          (alength candidates)
+        to         (long to)]
+    (loop [j 0 k (long from)]
+      (when (and (< j n) (< k to))
+        (let [d (aget candidates j)
+              e (aget docs k)]
+          (cond
+            (< d e) (recur (seek candidates j n e) k)
+            (> d e) (recur j (seek docs k to d))
+            :else   (do (aset acc j (+ (aget acc j)
+                                       (frequency segment weights d k)))
+                        (recur (inc j) (inc k)))))))))
+
+(defn- add-each-frequency!
+  "Add to `acc`, an array of a value for each document of `segment`, the
+  BM25F frequency of each posting from `from` to `to`, with the
+  `weights`."
+  [^Segment segment weights ^doubles acc from to]
+  (let [^ints docs (.-docs segment)
+        to         (long to)]
+    (loop [k (long from)]
+      (when (< k to)
+        (let [d (aget docs k)]
+          (aset acc d (+ (aget acc d) (frequency segment weights d k)))
+          (recur (inc k)))))))
+
+(defn- term-ranges
+  "The postings in `segment` of those of `terms` that it holds, as pairs of
+  where they start and end."
+  [^Segment segment terms]
+  (let [held         (.-terms segment)
+        ^ints starts (.-doc-start segment)]
+    (into []
+          (keep (fn [term]
+                  (let [t (term-number held term)]
+                    (when (<= 0 t)
+                      [(aget starts t) (aget starts (inc t))]))))
+          terms)))
+
+(defn- postings-count
+  [ranges]
+  (reduce + 0 (map (fn [[from to]] (- (long to) (long from))) ranges)))
+
+(defn- range-frequencies
+  "The hits of the documents of `segment` among the `candidates`, or of
+  all of them when nil, that have postings in the `ranges` in a field
+  that the `weights` count, scored by their BM25F frequencies added up."
+  [^Segment segment weights ranges candidates]
+  (cond
+    (empty? ranges)
+    (no-hits)
+
+    candidates
+    (let [acc (make-doubles (alength ^ints candidates))]
+      (doseq [[from to] ranges]
+        (add-frequencies! segment weights acc candidates from to))
+      (collected acc candidates))
+
+    ;; a term holds each document once, so its documents are candidates
+    (= 1 (count ranges))
+    (let [[from to] (first ranges)]
+      (recur segment weights ranges (slice (.-docs segment) from to)))
+
+    :else
+    (let [acc (make-doubles (size segment))]
+      (doseq [[from to] ranges]
+        (add-each-frequency! segment weights acc from to))
+      (collected acc nil))))
 
 (defn- saturated
-  "The scores of the documents in `frequencies`, a map of id to BM25F's
-  frequency, for a term of the inverse document frequency `idf`, with the
-  saturation `k1`."
-  [frequencies idf k1]
-  (let [idf (double idf)
-        k1  (double k1)]
-    ;; a transient of the frequencies changes their values in place
-    (persistent!
-     (reduce-kv (fn [acc id f]
-                  (let [f (double f)]
-                    (assoc! acc id (* idf (/ f (+ k1 f))))))
-                (transient frequencies)
-                frequencies))))
+  "The `hits` of BM25F frequencies as the scores of a term of the inverse
+  document frequency `idf`, with the saturation `k1`."
+  [{:keys [docs ^doubles scores] :as hits} idf k1]
+  (let [idf          (double idf)
+        k1           (double k1)
+        n            (alength scores)
+        ^doubles out (make-doubles n)]
+    (dotimes [i n]
+      (let [f (aget scores i)]
+        (aset out i (* idf (/ f (+ k1 f))))))
+    {:docs docs :scores out}))
 
-(defn- expansions
-  "The terms of `index` that start with `prefix`: a range of them when
-  they're sorted, and a scan when the index was read back from EDN."
-  [index prefix]
-  (let [terms (:terms index)]
-    (if (sorted? terms)
-      (subseq terms >= prefix < (str prefix "\uFFFF"))
-      (filter #(str/starts-with? % prefix) terms))))
+(defn- joined
+  "The hits `x` and `y` as one, where `op`, :+ or :max, combines the scores
+  of a document in both."
+  [op x y]
+  (let [{^ints xd :docs ^doubles xs :scores} x
+        {^ints yd :docs ^doubles ys :scores} y
+        nx               (alength xd)
+        ny               (alength yd)
+        ^ints docs       (make-ints (+ nx ny))
+        ^doubles scores  (make-doubles (+ nx ny))
+        n                (loop [i 0 j 0 n 0]
+                           (cond
+                             (and (= i nx) (= j ny))
+                             n
 
-(defn- term-frequencies
-  "A map of id to BM25F's frequency for each document of `index` with one
-  of `terms` in a field of the `weights`, the frequencies of all the
-  terms added up."
-  [index weights terms]
-  (let [postings (:postings index)
-        docs     (:docs index)]
-    (persistent!
-     (reduce (fn [acc term]
-               (reduce-kv (fn [acc id at]
-                            (let [f (frequency docs weights id at)]
-                              (if (pos? f)
-                                (assoc! acc id (+ f (double (get acc id 0.0))))
-                                acc)))
-                          acc
-                          (get postings term)))
-             (transient {})
-             terms))))
+                             (or (= j ny)
+                                 (and (< i nx)
+                                      (< (aget xd i) (aget yd j))))
+                             (do (aset docs n (aget xd i))
+                                 (aset scores n (aget xs i))
+                                 (recur (inc i) j (inc n)))
+
+                             (or (= i nx)
+                                 (> (aget xd i) (aget yd j)))
+                             (do (aset docs n (aget yd j))
+                                 (aset scores n (aget ys j))
+                                 (recur i (inc j) (inc n)))
+
+                             :else
+                             (let [sx (aget xs i)
+                                   sy (aget ys j)]
+                               (aset docs n (aget xd i))
+                               (aset scores n (if (= :max op)
+                                                (max sx sy)
+                                                (+ sx sy)))
+                               (recur (inc i) (inc j) (inc n)))))]
+    {:docs (slice docs 0 n) :scores (trimmed-doubles scores n)}))
+
+(defn- added-up
+  "The hits `more`, whose documents are all among those of `hits`, with
+  the scores of `hits` added to theirs."
+  [hits more]
+  (let [{^ints hd :docs ^doubles hs :scores} hits
+        {^ints md :docs ^doubles ms :scores} more
+        n                (alength md)
+        ^doubles scores  (make-doubles n)]
+    (loop [i 0 j 0]
+      (when (< i n)
+        (let [j (seek hd j (alength hd) (aget md i))]
+          (aset scores i (+ (aget hs j) (aget ms i)))
+          (recur (inc i) (inc j)))))
+    {:docs md :scores scores}))
+
+(defn- without
+  "The `hits` without the documents of the hits `other`."
+  [hits other]
+  (let [{^ints hd :docs ^doubles hs :scores} hits
+        ^ints od         (:docs other)
+        n                (alength hd)
+        m                (alength od)
+        ^ints docs       (make-ints n)
+        ^doubles scores  (make-doubles n)
+        kept             (loop [i 0 j 0 kept 0]
+                           (if (< i n)
+                             (let [d (aget hd i)
+                                   j (seek od j m d)]
+                               (if (and (< j m) (= d (aget od j)))
+                                 (recur (inc i) j kept)
+                                 (do (aset docs kept d)
+                                     (aset scores kept (aget hs i))
+                                     (recur (inc i) j (inc kept)))))
+                             kept))]
+    {:docs (slice docs 0 kept) :scores (trimmed-doubles scores kept)}))
 
 (defn- codes
   "The codes of the characters of `s`, as an array."
@@ -922,94 +1536,179 @@
   fuzzyWeight of MiniSearch has it."
   0.45)
 
+(defn- prefixed
+  "The terms of `segment` that start with `prefix`, in order, as pairs of a
+  term and the number of documents that hold it."
+  [^Segment segment prefix]
+  (let [^objects terms (.-terms segment)
+        ^ints starts   (.-doc-start segment)
+        n              (alength terms)]
+    (loop [i   (term-bound terms prefix)
+           acc (transient [])]
+      (if (and (< i n)
+               (str/starts-with? (aget terms i) prefix))
+        (recur (inc i)
+               (conj! acc [(aget terms i)
+                           (- (aget starts (inc i)) (aget starts i))]))
+        (persistent! acc)))))
+
+(defn- term-counts
+  "The terms of the `segments` that start with `prefix`, as a map of each
+  to the number of documents that hold it."
+  [segments prefix]
+  (persistent!
+   (reduce (fn [acc [term n]]
+             (assoc! acc term (+ (long n) (long (get acc term 0)))))
+           (transient {})
+           (mapcat #(prefixed % prefix) segments))))
+
+(defn- more-held
+  "A comparator of the map entries `x` and `y` of a term and the number of
+  documents that hold it: the most documents first, then the terms in
+  order."
+  [x y]
+  (let [c (compare (val y) (val x))]
+    (if (zero? c)
+      (compare (key x) (key y))
+      c)))
+
+(declare best)
+
 (defn- completions
-  "The terms of `index` that start with `prefix`, at most `most` of them,
-  those that the most documents hold."
-  [index prefix most]
-  (let [terms (vec (expansions index prefix))]
-    (if (<= (count terms) (long most))
-      terms
-      (let [postings (:postings index)
-            held     #(- (count (get postings %)))]
-        (->> (map (juxt held identity) terms)
-             (sort-by first)
-             (take most)
-             (map second))))))
+  "The terms of the `segments` that start with `prefix`, at most `most` of
+  them, those that the most documents hold."
+  [segments prefix most]
+  (let [counts (term-counts segments prefix)]
+    (if (<= (count counts) (long most))
+      (vec (sort (keys counts)))
+      (mapv key (best more-held most counts)))))
 
 (defn- fuzzy-expansions
-  "The terms of `index` within the edits of the fuzzy `leaf`, at most
-  `most` of them, the closest first, as pairs of a term and its edits.
-  Only terms that start with the same character count, which keeps the
-  search short."
-  [index {:keys [term] :as leaf} most]
+  "The terms of the `segments` within the edits of the fuzzy `leaf`, at
+  most `most` of them, the closest first, as pairs of a term and its
+  edits. Only terms that start with the same character count, which keeps
+  the search short."
+  [segments {:keys [term] :as leaf} most]
   (let [edits (long (edits leaf))
         n     (count term)]
-    (->> (for [found (expansions index (subs term 0 1))
-               :when (<= (Math/abs (- (count found) n)) edits)
-               :let  [d (distance term found edits)]
-               :when d]
-           [found d])
+    (->> (mapcat #(prefixed % (subs term 0 1)) segments)
+         (map first)
+         (filter #(<= (Math/abs (- (count %) n)) edits))
+         distinct
+         (keep (fn [found]
+                 (when-let [d (distance term found edits)]
+                   [found d])))
          (sort-by (fn [[found d]] [d found]))
          (take most))))
 
-;; MiniSearch weighs a match with typos by 0.45 length / (length + edits),
-;; and each document counts its best match, so that an exact match outranks
-;; one with typos. The expansions share one inverse document frequency, as
-;; Lucene blends those of a FuzzyQuery
-(defn- merged-scores
-  "The maps `ms` of id to score as one, where `f` combines the scores of
-  an id that more than one has, e.g. + or max."
-  [f ms]
-  (if (empty? ms)
-    {}
-    (let [[most & others] (sort-by count > ms)]
-      (persistent!
-       (reduce (fn [acc m]
-                 (reduce-kv (fn [acc id score]
-                              (assoc! acc id (if-let [known (get acc id)]
-                                               (f known score)
-                                               score)))
-                            acc
-                            m))
-               (transient most)
-               others)))))
+(defn- distinct-docs
+  "The documents of `segment` with a posting in the `ranges`."
+  [^Segment segment ranges]
+  (let [^ints docs (.-docs segment)
+        ^ints seen (make-ints (size segment))]
+    (doseq [[from to] ranges]
+      (loop [k (long from)]
+        (when (< k (long to))
+          (aset seen (aget docs k) 1)
+          (recur (inc k)))))
+    (areduce seen i n 0 (+ n (aget seen i)))))
 
-(defn- fuzzy-scores
-  "The scores of the documents that hold a term within the edits of the
-  fuzzy `leaf`, with the constants of `ctx`."
-  [{:keys [index weights k1 total max-expansions]} {:keys [term] :as leaf}]
-  (let [n        (count term)
-        weighed  (for [[found d] (fuzzy-expansions index leaf max-expansions)]
-                   [(if (zero? (long d))
-                      1.0
-                      (* fuzzy-weight (/ (double n) (+ n (long d)))))
-                    (term-frequencies index weights [found])])
-        matched  (count (into #{} (mapcat (comp keys second)) weighed))
-        idf      (idf total matched)]
-    (merged-scores max (for [[weight frequencies] weighed]
-                         (saturated frequencies (* (double weight) idf) k1)))))
+(defn- segment-doc-count
+  "The documents of `segment` with one of `terms` in a field that the
+  `weights` count, or in any field when `weights` is nil."
+  [segment weights terms]
+  (let [ranges (term-ranges segment terms)]
+    (cond
+      (and weights (not (every-field? weights)))
+      (hit-count (range-frequencies segment weights ranges nil))
+
+      (< 1 (count ranges))
+      (distinct-docs segment ranges)
+
+      :else
+      (postings-count ranges))))
+
+(defn- doc-count
+  "The documents of the `segments` with one of `terms` in a field that the
+  `weights` count, or in any field when `weights` is nil."
+  [segments weights terms]
+  (reduce + 0 (map #(segment-doc-count % weights terms) segments)))
+
+(defn- leaf-weights
+  "The weights of the fields for the term or phrase `leaf`, those of `ctx`
+  with all but its :field left out when it names one."
+  [{:keys [weights numbers]} {:keys [field]}]
+  (if field
+    (restricted weights (get numbers field))
+    weights))
 
 ;; A prefix counts as one term of all the terms it starts, with the number
 ;; of documents that hold any of them. Lucene blends the expansions of a
 ;; prefix to the largest document frequency, so that the rarest one doesn't
-;; outrank the rest
-(defn- term-scores
-  "The scores of the documents that hold the `term`, or with :prefix? a
-  term that starts with it, or with :fuzzy one within its edits, with the
-  constants of `ctx`."
-  [{:keys [index weights k1 total max-completions] :as ctx}
+;; outrank the rest.
+;;
+;; MiniSearch weighs a match with typos by 0.45 length / (length + edits),
+;; and each document counts its best match, so that an exact match outranks
+;; one with typos. The expansions share one inverse document frequency, as
+;; Lucene blends those of a FuzzyQuery
+(defn- prepared-term
+  "The term `leaf` with what scoring it in each segment of `ctx` takes:
+  its :weights, the :summed terms that it or its completions are, whose
+  frequencies add up, and the :typos terms within its edits, each with a
+  boost, both with their inverse document frequency."
+  [{:keys [segments total max-completions max-expansions] :as ctx}
    {:keys [term prefix?] :as leaf}]
-  (let [fuzzy? (pos? (long (edits leaf)))
-        plain  (when (or prefix? (not fuzzy?))
-                 (let [terms       (if prefix?
-                                     (completions index term max-completions)
-                                     [term])
-                       frequencies (term-frequencies index weights terms)]
-                   (saturated frequencies (idf total (count frequencies)) k1)))]
+  (let [weights (leaf-weights ctx leaf)
+        idf-of  #(idf total (doc-count segments weights %))
+        fuzzy?  (pos? (long (edits leaf)))
+        terms   (cond
+                  prefix? (completions segments term max-completions)
+                  fuzzy?  nil
+                  :else   [term])
+        close   (when fuzzy?
+                  (fuzzy-expansions segments leaf max-expansions))
+        n       (count term)
+        boost   (fn [[_ d]]
+                  (if (zero? (long d))
+                    1.0
+                    (* fuzzy-weight (/ (double n) (+ n (long d))))))]
+    (cond-> (assoc leaf :weights weights)
+      terms (assoc :summed {:terms terms
+                            :idf   (idf-of terms)})
+      close (assoc :typos {:terms  (mapv first close)
+                           :boosts (mapv boost close)
+                           :idf    (idf-of (map first close))}))))
+
+;; Lucene's PhraseQuery: the inverse document frequency of a phrase is the
+;; sum of those of its terms
+(defn- prepared-phrase
+  "The phrase `leaf` with what scoring it in each segment of `ctx` takes:
+  its :weights, the :places, the terms that each place of it holds, its
+  last term's completions when it's a prefix, and its :idf."
+  [{:keys [segments total max-completions] :as ctx}
+   {:keys [phrase prefix?] :as leaf}]
+  (let [places (conj (mapv vector (pop phrase))
+                     (if prefix?
+                       (completions segments (peek phrase) max-completions)
+                       [(peek phrase)]))]
+    (assoc leaf
+           :weights (leaf-weights ctx leaf)
+           :places  places
+           :idf     (reduce + (map #(idf total (doc-count segments nil %))
+                                   places)))))
+
+(defn- prepared
+  "The query `node` with what scoring its terms and phrases takes, worked
+  out once for all the segments of `ctx`."
+  [ctx node]
+  (let [each #(mapv (fn [n] (prepared ctx n)) %)]
     (cond
-      (and plain fuzzy?) (merged-scores max [plain (fuzzy-scores ctx leaf)])
-      fuzzy?             (fuzzy-scores ctx leaf)
-      :else              plain)))
+      (contains? node :and)    (update node :and each)
+      (contains? node :or)     (update node :or each)
+      (contains? node :not)    (update node :not #(prepared ctx %))
+      (contains? node :phrase) (prepared-phrase ctx node)
+      (contains? node :term)   (prepared-term ctx node)
+      :else                    node)))
 
 (defn- with-fuzzy
   "The query `node` with :fuzzy as `fuzzy` on each term that isn't of a
@@ -1029,130 +1728,202 @@
       (assoc node :fuzzy fuzzy)
       :else                    node)))
 
-(defn- prefix-postings
-  "The postings of the terms of `index` that start with `prefix`, at most
-  `most` of them as completions gives them, as a map of id to a vector of
-  positions."
-  [index prefix most]
-  (let [postings (:postings index)]
-    (persistent!
-     (reduce (fn [acc term]
-               (reduce-kv (fn [acc id at]
-                            (assoc! acc id (if (vector? at)
-                                             (into (get acc id []) at)
-                                             (conj (get acc id []) at))))
-                          acc
-                          (get postings term)))
-             (transient {})
-             (completions index prefix most)))))
+(declare hits-in)
 
-(defn- positions-in
-  [postings id]
-  (let [at (get postings id)]
-    (if (vector? at) at [at])))
+(defn- excluded
+  "The `found` hits in `segment` without those of the `negative` queries,
+  with the constants of `ctx`."
+  [ctx segment negative found]
+  (reduce (fn [found q]
+            (if (zero? (hit-count found))
+              (reduced found)
+              (without found (hits-in ctx segment q (:docs found)))))
+          found
+          negative))
 
-(defn- phrase-starts
-  "The positions in the document `id` where the terms of `lists`, the
-  postings of each, start in a row."
-  [lists id]
-  (let [later (mapv #(set (positions-in % id)) (rest lists))]
-    (filterv (fn [start]
-               (every? (fn [i]
-                         (contains? (nth later i) (+ (long start) i 1)))
-                       (range (count later))))
-             (positions-in (first lists) id))))
+(defn- cost
+  "The postings in `segment` of the terms of the prepared query `node`, for
+  an :and or a phrase those of its rarest part, so that an :and can start
+  from its rarest part."
+  [segment node]
+  (let [positive #(clojure.core/remove :not %)]
+    (cond
+      (contains? node :and)
+      (reduce min ##Inf (map #(cost segment %) (positive (:and node))))
 
-;; Lucene's PhraseQuery: the inverse document frequency of a phrase is the
-;; sum of those of its terms
-(defn- phrase-scores
-  "The scores of the documents that hold the terms of `phrase` in a row,
-  the last as a prefix with :prefix?, with the constants of `ctx`."
-  [{:keys [index weights k1 total max-completions]} {:keys [phrase prefix?]}]
-  (let [postings    (:postings index)
-        lists       (conj (mapv #(get postings %) (pop phrase))
-                          (if prefix?
-                            (prefix-postings index
-                                             (peek phrase)
-                                             max-completions)
-                            (get postings (peek phrase))))
-        [fewest & others] (sort-by count lists)
-        candidates  (filter (fn [id] (every? #(contains? % id) others))
-                            (keys fewest))
-        docs        (:docs index)
-        frequencies (persistent!
-                     (reduce (fn [acc id]
-                               (let [starts (phrase-starts lists id)
-                                     f      (if (seq starts)
-                                              (frequency docs weights id starts)
-                                              0.0)]
-                                 (if (pos? f)
-                                   (assoc! acc id f)
-                                   acc)))
-                             (transient {})
-                             candidates))
-        idf         (reduce + (map #(idf total (count %)) lists))]
-    (saturated frequencies idf k1)))
+      (contains? node :or)
+      (reduce + 0 (map #(cost segment %) (positive (:or node))))
 
-(declare scores)
+      (contains? node :phrase)
+      (reduce min ##Inf (map #(postings-count (term-ranges segment %))
+                             (:places node)))
 
-(defn- intersected
-  "The ids in all the maps `ms` of id to score, with their scores added."
-  [ms]
-  (let [[fewest & others] (sort-by count ms)]
-    (persistent!
-     (reduce-kv (fn [acc id score]
-                  (if (every? #(contains? % id) others)
-                    (assoc! acc id (reduce #(+ (double %1) (double (get %2 id)))
-                                           score
-                                           others))
-                    acc))
-                (transient {})
-                fewest))))
+      (contains? node :term)
+      (postings-count (term-ranges segment (concat (:terms (:summed node))
+                                                   (:terms (:typos node)))))
+
+      :else
+      0)))
 
 ;; Lucene's BooleanQuery: the scores of the clauses that match add up, and
-;; a clause of :not, MUST_NOT, only leaves documents out
-(defn- combined
-  "The scores of the documents that match all `queries` when `op` is :and,
-  or any of them when it's :or, and none of those under a :not, with the
+;; a clause of :not, MUST_NOT, only leaves documents out. An :and starts
+;; from its rarest clause, and each next one looks only at the documents
+;; that are left
+(defn- all-of
+  "The hits in `segment` among the `candidates` of the documents that
+  match all the prepared `queries` but those under a :not, with the
   constants of `ctx`."
-  [ctx op queries]
-  (let [positive (mapv #(scores ctx %) (clojure.core/remove :not queries))
-        negative (keep :not queries)
-        joined   (cond
-                   (empty? positive) {}
-                   (= :and op)       (intersected positive)
-                   :else             (merged-scores + positive))]
-    (if (and (seq negative) (seq joined))
-      (let [excluded (mapv #(scores ctx %) negative)
-            out?     (fn [id] (some #(contains? % id) excluded))]
-        (persistent!
-         (reduce (fn [acc id]
-                   (if (out? id)
-                     (dissoc! acc id)
-                     acc))
-                 (transient joined)
-                 (keys joined))))
-      joined)))
+  [ctx segment queries candidates]
+  (let [[rarest & others] (sort-by #(cost segment %)
+                                   (clojure.core/remove :not queries))]
+    (if (nil? rarest)
+      (no-hits)
+      (->> others
+           (reduce (fn [found q]
+                     (if (zero? (hit-count found))
+                       (reduced found)
+                       (added-up found (hits-in ctx segment q (:docs found)))))
+                   (hits-in ctx segment rarest candidates))
+           (excluded ctx segment (keep :not queries))))))
 
-(defn- in-its-field
-  "The `ctx` of a term or phrase `node`, with all fields but its own left
-  out when it names one."
-  [ctx node]
-  (if-let [field (:field node)]
-    (update ctx :weights restricted field)
-    ctx))
+(defn- any-of
+  "The hits in `segment` among the `candidates` of the documents that
+  match any of the prepared `queries` but those under a :not, with the
+  constants of `ctx`."
+  [ctx segment queries candidates]
+  (let [positive (clojure.core/remove :not queries)]
+    (if (empty? positive)
+      (no-hits)
+      (->> positive
+           (map #(hits-in ctx segment % candidates))
+           (reduce #(joined :+ %1 %2))
+           (excluded ctx segment (keep :not queries))))))
 
-(defn- scores
-  "The scores of the documents that match the query `node`, as a map of
-  id to score, with the constants of `ctx`. A query of :not alone matches
+(defn- term-hits
+  "The hits in `segment` among the `candidates` of the prepared term
+  `leaf`, with the saturation of `ctx`: those of its :summed terms, the
+  best of its :typos terms, or the best of both."
+  [{:keys [k1]} segment {:keys [weights summed typos]} candidates]
+  (let [scored (fn [terms idf]
+                 (-> (range-frequencies segment
+                                        weights
+                                        (term-ranges segment terms)
+                                        candidates)
+                     (saturated idf k1)))
+        exact  (when summed
+                 (scored (:terms summed) (:idf summed)))
+        close  (when typos
+                 (reduce #(joined :max %1 %2)
+                         (no-hits)
+                         (map (fn [term boost]
+                                (scored [term] (* (double boost) (:idf typos))))
+                              (:terms typos)
+                              (:boosts typos))))]
+    (if (and exact close)
+      (joined :max exact close)
+      (or exact close (no-hits)))))
+
+;; One walk through each term's postings for all the candidates, as in
+;; add-frequencies!, rather than a search for each candidate
+(defn- place-slices
+  "For each of the `candidates`, a sorted array of numbers of documents of
+  `segment`, the ranges of its positions for a place of a phrase, from the
+  `ranges` of the postings of the terms that the place can hold, as an
+  array of vectors of pairs, or nil for a document without one."
+  [^Segment segment ^ints candidates ranges]
+  (let [^ints docs      (.-docs segment)
+        ^ints pos-start (.-pos-start segment)
+        n               (alength candidates)
+        ^objects slices (object-array n)]
+    (doseq [[from to] ranges]
+      (loop [j 0 k (long from)]
+        (when (and (< j n) (< k (long to)))
+          (let [d (aget candidates j)
+                e (aget docs k)]
+            (cond
+              (< d e) (recur (seek candidates j n e) k)
+              (> d e) (recur j (seek docs k to d))
+              :else   (let [slice [(aget pos-start k) (aget pos-start (inc k))]]
+                        (aset slices j (conj (or (aget slices j) []) slice))
+                        (recur (inc j) (inc k))))))))
+    slices))
+
+(defn- holds?
+  "Whether one of the `slices`, ranges of sorted positions in `segment`,
+  holds the position `x`."
+  [^Segment segment slices x]
+  (let [^ints positions (.-positions segment)
+        x               (long x)]
+    (boolean
+     (some (fn [[from to]]
+             (let [to (long to)
+                   i  (lower-bound positions (long from) to x)]
+               (and (< i to) (= x (aget positions i)))))
+           slices))))
+
+(defn- phrase-starts
+  "The positions in `segment` where the places of a phrase start in a row,
+  from the `slices` of each place in one document."
+  [^Segment segment slices]
+  (let [^ints positions (.-positions segment)]
+    (for [[from to] (first slices)
+          i         (range from to)
+          :let      [start (aget positions i)]
+          :when     (every? #(holds? segment (nth slices %) (+ start %))
+                            (range 1 (count slices)))]
+      start)))
+
+(defn- phrase-frequency
+  "BM25F's frequency of a phrase in the document `d` of `segment`, from the
+  `slices` of each place of it there, with the `weights` of the fields."
+  [segment weights d slices]
+  (->> (phrase-starts segment slices)
+       (map #(occurrence segment weights d (quot % span)))
+       (reduce + 0.0)))
+
+(defn- phrase-hits
+  "The hits in `segment` among the `candidates` of the prepared phrase
+  `leaf`, with the saturation of `ctx`. The documents of its rarest place
+  are those to look in."
+  [{:keys [k1]} segment {:keys [weights places idf]} candidates]
+  (let [ranges (mapv #(term-ranges segment %) places)]
+    (if (some empty? ranges)
+      (no-hits)
+      (let [rarest     (apply min-key postings-count ranges)
+            ^ints docs (:docs (range-frequencies segment
+                                                 weights
+                                                 rarest
+                                                 candidates))
+            by-place   (mapv #(place-slices segment docs %) ranges)
+            slices-of  (fn [j]
+                         (mapv (fn [^objects slices] (aget slices j))
+                               by-place))
+            found      (into []
+                             (keep #(let [d (aget docs %)
+                                          f (phrase-frequency segment
+                                                              weights
+                                                              d
+                                                              (slices-of %))]
+                                      (when (pos? f)
+                                        [d f])))
+                             (range (alength docs)))]
+        (saturated {:docs   (as-ints (mapv first found))
+                    :scores (as-doubles (mapv second found))}
+                   idf
+                   k1)))))
+
+(defn- hits-in
+  "The hits in `segment` among the `candidates`, a sorted array of the
+  numbers of documents, or all of them when nil, of the prepared query
+  `node`, with the constants of `ctx`. A query of :not alone matches
   nothing."
-  [ctx node]
+  [ctx segment node candidates]
   (cond
-    (contains? node :and)    (combined ctx :and (:and node))
-    (contains? node :or)     (combined ctx :or (:or node))
-    (contains? node :phrase) (phrase-scores (in-its-field ctx node) node)
-    (contains? node :term)   (term-scores (in-its-field ctx node) node)
-    :else                    {}))
+    (contains? node :and)    (all-of ctx segment (:and node) candidates)
+    (contains? node :or)     (any-of ctx segment (:or node) candidates)
+    (contains? node :phrase) (phrase-hits ctx segment node candidates)
+    (contains? node :term)   (term-hits ctx segment node candidates)
+    :else                    (no-hits)))
 
 (defn- as-query
   "The query `q` as data, read with the `opts`: a string parsed, a vector
@@ -1177,19 +1948,19 @@
         :else     (compare (str x) (str y))))))
 
 (defn- better
-  "A comparator of the pairs of id and score `a` and `b`: the higher score
-  first, then the lower id.
+  "A comparator of the found documents `a` and `b`, vectors of an id and a
+  score, and what is stored: the higher score first, then the lower id.
 
   Ids that aren't both numbers compare by hash and then as strings, so
   that the order is total and the same on both platforms, which hash
   numbers differently. BM25 ties are common, so this must stay cheap."
   [a b]
-  (let [sa (double (val a))
-        sb (double (val b))]
+  (let [sa (double (nth a 1))
+        sb (double (nth b 1))]
     (cond
       (> sa sb) -1
       (< sa sb) 1
-      :else     (compare-ids (key a) (key b)))))
+      :else     (compare-ids (nth a 0) (nth b 0)))))
 
 (defn- kept
   "The vector `top` of at most `n` results, sorted by the comparator
@@ -1229,9 +2000,9 @@
     (reduce #(kept before n %1 %2) [] results)))
 
 (defn- top
-  "The best `n` of the `found` scores of documents, or all of them for a
-  nil `n`, as the results that `result` makes of a pair of an id and a
-  score, with the :filter and :rank of `opts`."
+  "The best `n` of the `found` documents, or all of them for a nil `n`, as
+  the results that `result` makes of each, with the :filter and :rank of
+  `opts`."
   [found result n {:keys [rank] keep? :filter :as opts}]
   (cond
     rank
@@ -1265,6 +2036,31 @@
          (best better n)
          (mapv result))))
 
+(defn- results
+  "The documents of `segment` that match the prepared query `node`, as
+  vectors of an id, a score and what is stored, without those removed,
+  with the constants of `ctx`."
+  [ctx ^Segment segment node]
+  (let [found           (hits-in ctx segment node nil)
+        ^ints docs      (:docs found)
+        ^doubles scores (:scores found)
+        deleted         (.-deleted segment)
+        ids             (.-ids segment)
+        stored          (.-stored segment)]
+    (into []
+          (keep (fn [i]
+                  (let [d (long (aget docs i))]
+                    (when-not (contains? deleted d)
+                      [(nth ids d) (aget scores i) (nth stored d)]))))
+          (range (alength docs)))))
+
+(defn- matched
+  "The documents of the segments of `ctx` that match the query `node`, as
+  vectors of an id, a score and what is stored."
+  [ctx node]
+  (let [node (prepared ctx node)]
+    (into [] (mapcat #(results ctx % node)) (:segments ctx))))
+
 (defn query
   "The documents of `index` that match the query `q`, best first, as maps
   of :id, :score and :stored, with the `opts` below.
@@ -1294,27 +2090,32 @@
    (query index q {}))
   ([index q opts]
    {:pre [(map? opts)]}
-   (let [{:keys [limit offset boosts] :or {offset 0} :as opts}
+   (let [index    (restore index)
+         {:keys [limit offset boosts] :or {offset 0} :as opts}
          (merge default-limits (:defaults index) opts)
-         node   (-> (as-query q (assoc opts :index index))
-                    (with-fuzzy (:fuzzy opts)))
-         ctx    {:index           index
-                 :weights         (weights index boosts (:b opts b))
-                 :k1              (double (:k1 opts k1))
-                 :total           (count (:docs index))
-                 :max-completions (:max-completions opts)
-                 :max-expansions  (:max-expansions opts)}
-         found  (if node
-                  (scores ctx node)
-                  {})
-         result (fn [[id score]]
-                  {:id     id
-                   :score  score
-                   :stored (get-in index [:docs id :stored])})
-         ranked (top found
-                     result
-                     (some-> limit (+ (long offset)))
-                     opts)]
+         node     (-> (as-query q (assoc opts :index index))
+                      (with-fuzzy (:fuzzy opts)))
+         segments (:segments index)
+         numbers  (:fields index)
+         ctx      {:segments        segments
+                   :numbers         numbers
+                   :weights         (weights numbers
+                                             segments
+                                             boosts
+                                             (:b opts b))
+                   :k1              (double (:k1 opts k1))
+                   :total           (reduce + 0 (map size segments))
+                   :max-completions (:max-completions opts)
+                   :max-expansions  (:max-expansions opts)}
+         found    (if node
+                    (matched ctx node)
+                    [])
+         result   (fn [[id score stored]]
+                    {:id id :score score :stored stored})
+         ranked   (top found
+                       result
+                       (some-> limit (+ (long offset)))
+                       opts)]
      (subvec ranked (min (long offset) (count ranked))))))
 
 (defn- leaves

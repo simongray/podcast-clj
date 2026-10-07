@@ -84,14 +84,33 @@
   (testing "an index printed as EDN and read back"
     (let [thawed (edn/read-string (pr-str idx))]
       (is (= [1 2] (mapv :id (search/query thawed "cloj")))
-          "its terms come back unsorted, and a prefix scans them")
-      (is (sorted? (:terms (search/restore thawed))))
+          "its arrays come back as vectors, which a query makes arrays")
+      (is (= idx (search/restore thawed)))
       (is (= [1 2] (mapv :id (search/query (search/restore thawed) "cloj"))))))
   (testing "every kind of white space is one, on both platforms"
     (is (= [2] (ids "value\u00A0for\u3000value"))
         "no-break and ideographic spaces"))
   (is (thrown? #?(:clj Exception :cljs js/Error)
                (search/add idx {:fields {:title "no id"}}))))
+
+(deftest an-index-that-changes
+  (let [doc     (fn [i]
+                  {:id     i
+                   :fields {:title (str "episode " i (if (even? i)
+                                                       " clojure"
+                                                       " rust"))}})
+        kept    (remove #(zero? (mod % 3)) (range 300))
+        changed (as-> (search/index) idx
+                  (reduce #(search/add %1 (doc %2)) idx (range 300))
+                  (reduce search/remove idx (range 0 300 3)))
+        ids     #(set (map :id (search/query % "clojure ")))]
+    (is (= (ids (search/index (map doc kept))) (ids changed))
+        "one document at a time, as a new index of the same documents")
+    (is (= (count kept) (count (:docs changed))))
+    (is (= changed (search/restore (edn/read-string (pr-str changed))))
+        "printed and read back with its removed documents")
+    (is (contains? (ids (search/add changed (doc 6))) 6)
+        "a removed document added again")))
 
 (deftest parsing
   (let [fields {"title" :title "notes" :description}
