@@ -728,11 +728,12 @@
 
 (defn restore
   "The `index` read back from EDN with its arrays made again, which a query
-  of it otherwise does each time."
+  of it otherwise does each time, or nil for a nil `index`."
   [index]
-  (update index :segments (partial mapv #(if (instance? Segment %)
-                                           %
-                                           (segment-of %)))))
+  (some-> index
+          (update :segments (partial mapv #(if (instance? Segment %)
+                                             %
+                                             (segment-of %))))))
 
 (defn remove
   "The `index` without the document `id`, and the `ids` after it."

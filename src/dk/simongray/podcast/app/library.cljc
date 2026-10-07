@@ -33,7 +33,7 @@
        :credentials-of f              ; credentials of a private feed by URL
        :index          {…}            ; the credentials of the Podcast Index
        :languages      [\"da\" \"en\"]    ; of the listener, for transcripts
-       :search?        false          ; whether to keep the search index
+       :search?        true           ; whether to keep the search index
        :cadence        {…}            ; as app.feeds takes it
        :concurrency    8              ; how many feeds are fetched at once
        :keep           app.feeds/slim ; what to keep of a feed, all by default
@@ -75,7 +75,7 @@
 (def default-config
   "The config that a library has when make isn't given one. The
   :list-seconds is how long a fetched OPML list stays current."
-  {:search?      false
+  {:search?      true
    :list-seconds 86400})
 
 (defn- options
@@ -650,7 +650,7 @@
 
       (search library \"value for va\" {:where {:status :unplayed}})
 
-  The library has an index when its config has :search?."
+  The library keeps an index unless its config has :search? false."
   ([library q]
    (search library q {}))
   ([library q opts]

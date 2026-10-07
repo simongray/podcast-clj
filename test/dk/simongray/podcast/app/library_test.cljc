@@ -17,6 +17,7 @@
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]
+            [dk.simongray.podcast.util.text.search :as text.search]
             [dk.simongray.podcast.util.time :as time]))
 
 (def now #inst "2026-09-30T12:00:00Z")
@@ -90,10 +91,10 @@
     (is (= "phone" (:device lib)))
     (is (= {:name "Phone" :platform "ios"} (dissoc (get (crdt/devices (:profile lib)) "phone") :updated-at :device)))
     (is (= now (:clock (:profile lib))))
-    (is (nil? (:index lib)) "no index unless the config says so")
+    (is (some? (:index lib)) "an index unless the config says :search? false")
     (is (= {} (:feeds lib)))
     (is (= library/default-config (:config lib)))
-    (is (some? (:index (library/make "phone" {:config {:search? true}}))))
+    (is (nil? (:index (library/make "phone" {:config {:search? false}}))))
     (is (= now (library/next-sync lib {:at now})) "due at once before the first sync")))
 
 (deftest the-clock
@@ -185,7 +186,9 @@
     (is (= 4 (count (:docs (:index lib)))) "the show and its three episodes")
     (is (= [guid "https://example.com/ep0003"] (:id (first (library/search lib "future")))))
     (is (= 0 (count (:docs (:index (library/unsubscribe lib guid))))))
-    (is (nil? (library/search library "future")) "no index, no search")
+    (is (nil? (library/search (library/make "phone" {:config {:search? false}})
+                              "future"))
+        "no index, no search")
     (testing "each result with its feed and item"
       (let [[episode] (library/search lib "future")]
         (is (= "Episode 3 - The Future" (:rss/title (:item episode))))
@@ -404,7 +407,9 @@
 (deftest a-library-read-back-without-its-config
   (let [saved (dissoc library :config)
         lib   (assoc saved :config {:now (constantly now)})]
-    (is (= saved (edn/read-string (pr-str saved))) "EDN without the clock of the config")
+    (is (= saved (-> (edn/read-string (pr-str saved))
+                     (update :index text.search/restore)))
+        "EDN without the clock of the config, with its index restored")
     (is (= (at 86400) (get-in (library/follow-list lib "https://example.org/picks.opml" picks)
                               [:fetched-lists "https://example.org/picks.opml" :next-check]))
         "the defaults stand in for what the config leaves out")))

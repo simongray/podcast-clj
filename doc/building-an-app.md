@@ -34,7 +34,9 @@ after `step`, `:refresh` after `refresh!` and `:sync` after `sync!`. The
 `:config` given to `make` holds the options that the other library
 functions use, and the docstring of `app.library` lists them. When the
 config holds functions, save the library as EDN without its `:config`,
-and assoc the config back when you read it.
+and assoc the config back when you read it. Give the index that you read
+back to `text.search/restore`, e.g. `(update lib :index
+text.search/restore)`, or each search has to rebuild it first.
 
 The parts of the library work with the namespaces they come from, e.g.
 every function of `profile` takes `(:profile @lib)`. The profile is a
@@ -583,8 +585,7 @@ media fragment on the URL of the media file:
 
 ## Search the episodes
 
-With `:search? true` in its config, the library keeps a full-text index
-of every feed:
+The library keeps a full-text index of every feed:
 
 ```clojure
 (library/search @lib "podcasting 2" {:limit 10})
@@ -603,7 +604,8 @@ search as you type. A query can also have `"a phrase"`, `OR` or `|`,
 typos, and `title:word` or `notes:word` for one field;
 `util.text.search/parse` says the rest. To allow typos in every word,
 give `{:fuzzy true}`. The index takes about two kilobytes per episode,
-so 50 shows with 28,000 episodes take about 60 megabytes.
+so 50 shows with 28,000 episodes take about 60 megabytes. To leave it
+out, e.g. on a watch, give `:search? false` in the config.
 
 To search only some episodes, give the criteria of `library/episodes` as
 `:where`, which leaves out the shows:
