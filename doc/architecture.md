@@ -589,7 +589,7 @@ a late download.
 | Deferred values (`util.async`) | futures | promises |
 | HTTP | `java.net.http`, in `util.http` | `fetch` |
 | Folders (`sync.file`) | `java.nio.file` | `node:fs` in Node, and the File System standard in a browser |
-| Encryption (`sync.encrypted`) | `javax.crypto` | WebCrypto |
+| Encryption (`crypto.aes-gcm`) | `javax.crypto` | WebCrypto |
 
 Dates, durations and UUIDv5 are written once in `.cljc`, without `java.time`
 or js-joda, so they give the same result everywhere. The JavaScript XML

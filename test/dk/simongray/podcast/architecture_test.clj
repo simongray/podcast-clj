@@ -22,7 +22,7 @@
    "util.nostr" 0 "util.proxy" 0 "util.secret" 0 "util.text" 0 "util.text.query" 0 "util.text.search" 0 "util.text.search.ciff" 0 "util.time" 0
    "util.time.rrule" 0
    "util.xml" 0 "util.xml.jsoup" 0
-   "crypto.chacha20" 0 "crypto.nip44" 0 "crypto.secp256k1" 0
+   "crypto.aes-gcm" 0 "crypto.chacha20" 0 "crypto.nip44" 0 "crypto.secp256k1" 0
    "feed.spec" 1 "feed.quirks" 1
    "feed" 2 "feed.rss" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
    "feed.resolve" 3 "feed.check" 3 "feed.discovery" 3 "feed.publish" 3

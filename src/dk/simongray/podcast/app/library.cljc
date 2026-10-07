@@ -67,6 +67,7 @@
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.text.search :as text.search]
@@ -759,10 +760,7 @@
    (document library {}))
   ([library opts]
    {:pre [(map? opts)]}
-   (let [{:keys [device] :as profile} (:profile library)
-         at (time-of library opts)]
-     {:name (store/document-name device)
-      :body (sync/document profile at (select-keys opts [:app]))})))
+   (store/device-document (:profile library) (time-of library opts) opts)))
 
 (def saved-name
   "The name of the document of the library that save! writes."
@@ -774,18 +772,6 @@
   fit the profile. The config can hold functions, so it isn't saved, and
   the search index has documents of its own."
   [:profile :feeds :fetched-lists :sync])
-
-(defn- put-in-order!
-  "Put the `documents`, maps of :name and :body, into `store` one after the
-  other, and give their names, in ClojureScript as a promise."
-  [store documents]
-  (reduce (fn [names {:keys [name body]}]
-            (async/then names
-                        (fn [names]
-                          (async/then ((:put store) name body {})
-                                      (fn [_] (conj names name))))))
-          []
-          documents))
 
 (defn save!
   "Write `library` to `store` with the `opts` below, and give the names of
@@ -816,8 +802,8 @@
                      {:put [] :delete []}))
          saved   (fn [{:keys [put delete]}]
                    (async/then
-                    (put-in-order! store (conj put {:name saved-name
-                                                    :body body}))
+                    (store/put-all! store (conj put {:name saved-name
+                                                     :body body}))
                     (fn [names]
                       (let [delete (if (:delete store) delete [])]
                         (async/then (async/all (mapv (:delete store) delete))
@@ -847,21 +833,6 @@
               (remove feeds indexed))
       (reduce reindexed library (remove indexed feeds)))))
 
-(defn- fetch-all!
-  "The documents of `store` but those named in `skipped`, fetched with
-  `opts`, as maps of :name and :body, in ClojureScript as a promise. A
-  store without :list has none, and a document deleted since the listing
-  is left out."
-  [store opts skipped]
-  (async/then (if-let [list (:list store)] (list) [])
-              (fn [listed]
-                (async/then
-                 (async/all (for [{:keys [name]} listed
-                                  :when (not (contains? skipped name))]
-                              (async/then ((:fetch store) name opts)
-                                          #(some-> % (assoc :name name)))))
-                 #(filterv some? %)))))
-
 (defn- with-saved
   "The `library` with the parts that `keys` names of the saved library, the
   :value of the `attempt` to fetch its document, and the report of what
@@ -871,7 +842,7 @@
                      {:id :library/unreadable-document :reason %})
         saved      (when (and value (not error))
                      (try
-                       (edn/read-string (store/body-as (:body value)))
+                       (edn/read-string (bytes/as (:body value) :text))
                        (catch #?(:clj Throwable :cljs :default) _
                          nil)))]
     (cond
@@ -925,9 +896,10 @@
    {:pre [(map? opts)]}
    (let [indexed (fn [[library :as step]]
                    (if (:index library)
-                     (async/then (async/attempt #(fetch-all! store
-                                                             {:as :bytes}
-                                                             #{saved-name}))
+                     (async/then (async/attempt
+                                  #(store/fetch-all! store
+                                                     {:as     :bytes
+                                                      :except #{saved-name}}))
                                  (partial with-index step))
                      step))
          done    (fn [[library report]]

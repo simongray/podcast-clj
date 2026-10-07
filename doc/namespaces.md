@@ -175,4 +175,5 @@ option replaces the function that sends.
 |---|---|
 | `crypto.secp256k1` | Schnorr signatures over secp256k1, as BIP-340 defines them: `verify`, `sign` and `public-key`, and `shared-x` for the shared secret of two keys. |
 | `crypto.chacha20` | The ChaCha20 stream cipher of RFC 8439. |
+| `crypto.aes-gcm` | AES-256-GCM under a key that PBKDF2 derives from a passphrase, on both platforms. |
 | `crypto.nip44` | The encrypted payloads of NIP-44, version 2. |

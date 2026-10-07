@@ -6,9 +6,9 @@
   through, and bodies are sealed on the way in and opened on the way out.
 
   A body is sealed with AES-256-GCM under a key derived from the passphrase
-  by PBKDF2 with HMAC-SHA256. Each document is a small EDN envelope with
-  the salt, IV and iteration count that open it, so there's no key file to
-  lose:
+  by PBKDF2 with HMAC-SHA256, as dk.simongray.podcast.crypto.aes-gcm does
+  it. Each document is a small EDN envelope with the salt, IV and
+  iteration count that open it, so there's no key file to lose:
 
       {:encrypted 1 :cipher \"AES-256-GCM\" :kdf \"PBKDF2-HMAC-SHA256\"
        :iterations 600000 :salt \"…\" :iv \"…\" :data \"…\"}
@@ -18,21 +18,15 @@
   passphrase that doesn't open a document makes that call of the store
   fail with ::locked.
 
-  The JVM uses javax.crypto, and ClojureScript uses WebCrypto. Since
-  WebCrypto is asynchronous, encrypt, decrypt and the functions of the
-  store return promises in ClojureScript. Each platform opens the
+  Since WebCrypto is asynchronous, encrypt, decrypt and the functions of
+  the store return promises in ClojureScript. Each platform opens the
   envelopes of the other."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
-            [dk.simongray.podcast.sync.store :as store]
+            [dk.simongray.podcast.crypto.aes-gcm :as aes-gcm]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.secret :as secret])
-  #?(:clj (:import [java.nio.charset StandardCharsets]
-                   [java.security SecureRandom]
-                   [java.util Base64]
-                   [javax.crypto Cipher SecretKeyFactory]
-                   [javax.crypto.spec
-                    GCMParameterSpec PBEKeySpec SecretKeySpec])))
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.secret :as secret]))
 
 (def version
   "The version of the envelope."
@@ -52,81 +46,12 @@
   deriving its key would hold up a device for minutes."
   (* 10 default-iterations))
 
-(defn- ->base64
-  [bytes]
-  #?(:clj  (.encodeToString (Base64/getEncoder) ^bytes bytes)
-     :cljs (let [n          (.-length bytes)
-                 parts      (js/Array.)
-                 chunk-size 0x8000]
-             (loop [i 0]
-               (when (< i n)
-                 (let [part (.subarray bytes i (min n (+ i chunk-size)))]
-                   (.push parts (.apply js/String.fromCharCode nil part)))
-                 (recur (+ i chunk-size))))
-             (js/btoa (.join parts "")))))
-
-(defn- <-base64
-  [s]
-  #?(:clj  (.decode (Base64/getDecoder) ^String s)
-     :cljs (let [binary (js/atob s)
-                 out    (js/Uint8Array. (.-length binary))]
-             (dotimes [i (.-length binary)]
-               (aset out i (.charCodeAt binary i)))
-             out)))
-
-(defn- random-bytes
-  [n]
-  #?(:clj  (let [b (byte-array n)] (.nextBytes (SecureRandom.) b) b)
-     :cljs (.getRandomValues js/crypto (js/Uint8Array. n))))
-
-(defn- utf8
-  [s]
-  #?(:clj  (.getBytes ^String s StandardCharsets/UTF_8)
-     :cljs (.encode (js/TextEncoder.) s)))
-
-(defn- from-utf8
-  [bytes]
-  #?(:clj  (String. ^bytes bytes StandardCharsets/UTF_8)
-     :cljs (.decode (js/TextDecoder.) bytes)))
-
-;; RFC 8018, section 5.2
 (defn- derive-key
-  "The AES key for `passphrase` with `salt` over `iterations` of PBKDF2 with
-  HMAC-SHA256, in ClojureScript as a promise. The passphrase is a string,
-  or a hidden text of dk.simongray.podcast.util.secret."
+  "The AES key for `passphrase` with `salt` over `iterations`, as
+  aes-gcm/derive-key gives it. The passphrase is a string, or a hidden
+  text of dk.simongray.podcast.util.secret."
   [passphrase salt iterations]
-  #?(:clj  (let [factory (SecretKeyFactory/getInstance "PBKDF2WithHmacSHA256")
-                 text    (secret/reveal passphrase)
-                 chars   (.toCharArray ^String text)
-                 spec    (PBEKeySpec. chars ^bytes salt (int iterations) 256)
-                 derived (.getEncoded (.generateSecret factory spec))]
-             (SecretKeySpec. derived "AES"))
-     :cljs (let [subtle (.-subtle js/crypto)
-                 raw    (utf8 (secret/reveal passphrase))]
-             (-> (.importKey subtle "raw" raw #js {:name "PBKDF2"}
-                             false #js ["deriveKey"])
-                 (.then (fn [base]
-                          (.deriveKey subtle
-                                      #js {:name       "PBKDF2"
-                                           :salt       salt
-                                           :iterations iterations
-                                           :hash       "SHA-256"}
-                                      base
-                                      #js {:name "AES-GCM" :length 256}
-                                      false
-                                      #js ["encrypt" "decrypt"])))))))
-
-(defn- seal
-  "The `plaintext` bytes sealed with `key` under `iv`: the ciphertext with
-  its tag, in ClojureScript as a promise."
-  [key iv plaintext]
-  #?(:clj  (let [cipher (Cipher/getInstance "AES/GCM/NoPadding")
-                 spec   (GCMParameterSpec. 128 ^bytes iv)]
-             (.init cipher Cipher/ENCRYPT_MODE ^SecretKeySpec key spec)
-             (.doFinal cipher ^bytes plaintext))
-     :cljs (let [params #js {:name "AES-GCM" :iv iv}]
-             (-> (.encrypt (.-subtle js/crypto) params key plaintext)
-                 (.then #(js/Uint8Array. %))))))
+  (aes-gcm/derive-key (secret/reveal passphrase) salt iterations))
 
 (defn- locked
   [name cause]
@@ -140,16 +65,11 @@
   the document `name`."
   [key iv ciphertext name]
   #?(:clj  (try
-             (let [cipher (Cipher/getInstance "AES/GCM/NoPadding")
-                   spec   (GCMParameterSpec. 128 ^bytes iv)]
-               (.init cipher Cipher/DECRYPT_MODE ^SecretKeySpec key spec)
-               (.doFinal cipher ^bytes ciphertext))
+             (aes-gcm/open key iv ciphertext)
              (catch Exception e
                (throw (locked name e))))
-     :cljs (let [params #js {:name "AES-GCM" :iv iv}]
-             (-> (.decrypt (.-subtle js/crypto) params key ciphertext)
-                 (.then #(js/Uint8Array. %))
-                 (.catch (fn [e] (throw (locked name e))))))))
+     :cljs (.catch (aes-gcm/open key iv ciphertext)
+                   (fn [e] (throw (locked name e))))))
 
 (def ^:no-doc base64-form
   "Text in base64 with its padding."
@@ -186,18 +106,18 @@
   under the key that `key-for` derives for the `salt` bytes over
   `iterations`."
   [key-for salt iterations body]
-  (let [iv (random-bytes 12)]
+  (let [iv (bytes/generate! 12)]
     (async/then (key-for salt iterations)
                 (fn [key]
-                  (async/then (seal key iv (if (string? body) (utf8 body) body))
+                  (async/then (aes-gcm/seal key iv (bytes/as body :bytes))
                               (fn [data]
                                 (pr-str {:encrypted  version
                                          :cipher     "AES-256-GCM"
                                          :kdf        "PBKDF2-HMAC-SHA256"
                                          :iterations iterations
-                                         :salt       (->base64 salt)
-                                         :iv         (->base64 iv)
-                                         :data       (->base64 data)})))))))
+                                         :salt       (bytes/base64 salt)
+                                         :iv         (bytes/base64 iv)
+                                         :data       (bytes/base64 data)})))))))
 
 (defn- open-with
   "The body in the envelope string `s` of the document `name`, opened with
@@ -205,11 +125,14 @@
   :bytes. A string that isn't an envelope comes back as it is."
   [key-for name s as]
   (if-let [{:keys [iterations salt iv data]} (envelope s)]
-    (async/then (key-for (<-base64 salt) iterations)
+    (async/then (key-for (bytes/from-base64 salt) iterations)
                 (fn [key]
-                  (async/then (open key (<-base64 iv) (<-base64 data) name)
-                              #(if (= :bytes as) % (from-utf8 %)))))
-    (store/body-as s {:as as})))
+                  (async/then (open key
+                                    (bytes/from-base64 iv)
+                                    (bytes/from-base64 data)
+                                    name)
+                              #(bytes/as % as))))
+    (bytes/as s as)))
 
 (defn encrypt
   "The envelope string for `body` under `passphrase`, with a fresh salt and
@@ -221,7 +144,7 @@
                      :or   {iterations default-iterations}
                      :as   opts}]
    {:pre [(map? opts)]}
-   (let [salt (random-bytes 16)]
+   (let [salt (bytes/generate! 16)]
      (seal-with #(derive-key passphrase %1 %2) salt iterations body))))
 
 (defn decrypt
@@ -263,11 +186,11 @@
    {:pre [(map? opts)]}
    (when (nil? passphrase)
      (throw (ex-info "An encrypting store needs a passphrase" {})))
-   (let [salt    (random-bytes 16)
+   (let [salt    (bytes/generate! 16)
          keys    (atom {})
          pass    (fn [] (if (fn? passphrase) (passphrase) passphrase))
          key-for (fn [salt iterations]
-                   (let [k [(->base64 salt) iterations]]
+                   (let [k [(bytes/base64 salt) iterations]]
                      (or (get @keys k)
                          (let [key (derive-key (pass) salt iterations)]
                            (swap! keys assoc k key)
@@ -322,5 +245,7 @@
        (encrypt "{:version 1 :state {}}" "correct horse battery staple"
                 {:iterations 1000}))
      (decrypt sealed "correct horse battery staple")
-     (store/check! (store (store/memory) "hunter2" {:iterations 1000}))
+     (require '[dk.simongray.podcast.sync.store :as sync.store])
+     (sync.store/check! (store (sync.store/memory) "hunter2"
+                               {:iterations 1000}))
      #_.))

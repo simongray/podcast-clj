@@ -19,7 +19,10 @@
   result. Build a backend over a document store with
   dk.simongray.podcast.sync.store. For a backend of your own, document
   writes a device's whole state as a document, read-document reads it
-  back, and reconcile merges what the other devices wrote."
+  back, and reconcile merges what the other devices wrote.
+
+  The state is the profile, unless the :crdt of the options names the
+  functions of another CRDT, as default-crdt does for the profile."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.profile :as profile]
@@ -32,6 +35,24 @@
   of a key changes, since a reader merges the keys it doesn't know by their
   shape."
   1)
+
+(def default-crdt
+  "The functions of the CRDT that a sync merges when its options give no
+  :crdt, those of the profile:
+
+  - :merge, of two states
+  - :compact, of a state at an instant with options, which drops the
+    tombstones that every device has seen
+  - :problem, of a state, which describes what breaks the rules that a
+    merge relies on, or gives nil"
+  {:merge   profile/merge
+   :compact profile/compact
+   :problem profile/problem})
+
+(defn- crdt-of
+  "The functions of the CRDT of `opts`, over default-crdt."
+  [opts]
+  (merge default-crdt (:crdt opts)))
 
 (defn document
   "The document of `state` written at `at` with `opts`, as an EDN string.
@@ -53,31 +74,34 @@
 
 (defn read-document
   "The envelope in the EDN string `s`, a map of :version, :device,
-  :written-at, :app and :state.
+  :written-at, :app and :state, read with the :crdt of `opts`.
 
   It throws ::malformed when `s` isn't an envelope, or when it's of this
-  format version and profile/problem finds a problem in its state."
-  [s]
-  (let [envelope (try
-                   (when (string? s)
-                     (edn/read-string s))
-                   ;; Throwable on the JVM for the StackOverflowError that
-                   ;; deeply nested EDN brings about
-                   (catch #?(:clj Throwable :cljs :default) e
-                     (throw (ex-info "The document is not EDN"
-                                     {:type ::malformed}
-                                     e))))]
-    (when-not (and (map? envelope)
-                   (integer? (:version envelope))
-                   (map? (:state envelope)))
-      (throw (ex-info "The document is not a sync document"
-                      {:type ::malformed})))
-    (when-let [problem (and (<= (:version envelope) version)
-                            (profile/problem (:state envelope)))]
-      (throw (ex-info (str "The document holds a profile that can't be "
-                           "merged: " problem)
-                      {:type ::malformed})))
-    envelope))
+  format version and the :problem of the CRDT finds a problem in its
+  state."
+  ([s]
+   (read-document s {}))
+  ([s opts]
+   (let [envelope (try
+                    (when (string? s)
+                      (edn/read-string s))
+                    ;; Throwable on the JVM for the StackOverflowError that
+                    ;; deeply nested EDN brings about
+                    (catch #?(:clj Throwable :cljs :default) e
+                      (throw (ex-info "The document is not EDN"
+                                      {:type ::malformed}
+                                      e))))]
+     (when-not (and (map? envelope)
+                    (integer? (:version envelope))
+                    (map? (:state envelope)))
+       (throw (ex-info "The document is not a sync document"
+                       {:type ::malformed})))
+     (when-let [problem (and (<= (:version envelope) version)
+                             ((:problem (crdt-of opts)) (:state envelope)))]
+       (throw (ex-info (str "The document holds a state that can't be "
+                            "merged: " problem)
+                       {:type ::malformed})))
+     envelope)))
 
 (def skew-tolerance
   "How far ahead of now a document can be written before the report says
@@ -85,11 +109,11 @@
   60000)
 
 (defn- read-one
-  "The `acc` of read-documents with the document `doc` read at `at`: its
-  state added, or a diagnostic of what kept it out."
-  [acc {:keys [name body] :as doc} at]
+  "The `acc` of read-documents with the document `doc` read at `at` with
+  `opts`: its state added, or a diagnostic of what kept it out."
+  [acc {:keys [name body] :as doc} at opts]
   (let [envelope (try
-                   (read-document body)
+                   (read-document body opts)
                    (catch #?(:clj Exception :cljs :default) e
                      {:error (or (ex-message e) (str e))}))
         written  (:written-at envelope)
@@ -122,8 +146,8 @@
                  :seconds (quot ahead 1000)})))))
 
 (defn read-documents
-  "The states in the documents `fetched`, read at `at`, as a map of :states
-  and a :report.
+  "The states in the documents `fetched`, read at `at` with the :crdt of
+  `opts`, as a map of :states and a :report.
 
   Each document is a map of :name and :body. The report has a diagnostic
   for each of these:
@@ -132,17 +156,26 @@
   - :sync/newer-format, a document from a newer version of the library,
     which is left out
   - :sync/clock-skew, a device whose clock is ahead of this one"
-  [fetched at]
-  (reduce #(read-one %1 %2 at) {:states [] :report []} fetched))
+  ([fetched at]
+   (read-documents fetched at {}))
+  ([fetched at opts]
+   (reduce #(read-one %1 %2 at opts) {:states [] :report []} fetched)))
+
+(defn- with-states
+  "The `state` with the `states` merged in by the :merge of the :crdt of
+  `opts`."
+  [state states opts]
+  (reduce (:merge (crdt-of opts)) state states))
 
 (defn- settle
   "The `state` with the whole `states` acknowledged at `at`, and compacted
-  with the options `compact` of profile/compact unless `compact` is false."
-  [state states at compact]
+  by the CRDT of `opts` with their :compact as options, unless that's
+  false."
+  [state states at {:keys [compact] :as opts}]
   (let [acknowledged (crdt/acknowledge state states at)]
     (if (false? compact)
       acknowledged
-      (profile/compact acknowledged at (or compact {})))))
+      ((:compact (crdt-of opts)) acknowledged at (or compact {})))))
 
 (defn reconcile
   "The `state` with the documents `fetched` merged in at `at` with `opts`,
@@ -150,14 +183,18 @@
 
   The documents are as read-documents takes them. What they tell is
   acknowledged in the device registry, and the tombstones that every
-  device has seen are compacted away. The :compact of `opts` is false to
-  keep the tombstones, or else the options of profile/compact."
+  device has seen are compacted away. The `opts` are:
+
+  - :compact, false to keep the tombstones, or else the options of the
+    compact function of the CRDT
+  - :crdt, the functions of another CRDT than the profile, as
+    default-crdt has them"
   ([state fetched at]
    (reconcile state fetched at {}))
-  ([state fetched at {:keys [compact] :as opts}]
+  ([state fetched at opts]
    {:pre [(map? opts)]}
-   (let [{:keys [states report]} (read-documents fetched at)]
-     {:state  (settle (reduce profile/merge state states) states at compact)
+   (let [{:keys [states report]} (read-documents fetched at opts)]
+     {:state  (settle (with-states state states opts) states at opts)
       :report report})))
 
 (def default-cadence
@@ -213,7 +250,7 @@
 
 (defn- pulled
   "What the pull `results` of the `backends` add up to, merged into `state`
-  at `at` and compacted with `compact`.
+  at `at` and compacted, by the CRDT of `opts`.
 
   The results are one per backend, in order, each with a :value or an
   :error. The sum is a map of these:
@@ -226,7 +263,7 @@
 
   A backend whose states are partial, the changes of a service since a
   cursor, says so with :partial?, and none of them are acknowledged."
-  [state backends results at compact]
+  [state backends results at opts]
   (let [answers (map vector backends results)
         ok      (for [[backend {:keys [value error]}] answers
                       :when (not error)]
@@ -239,7 +276,7 @@
                           (when-not (:partial? result)
                             (:states result)))
                         ok)]
-    {:state  (settle (reduce profile/merge state states) whole at compact)
+    {:state  (settle (with-states state states opts) whole at opts)
      :ok     (vec ok)
      :report (-> []
                  (into (mapcat (comp :report second)) ok)
@@ -247,13 +284,13 @@
 
 (defn- finished
   "The result of a step from the pulls `so-far`, the push `results` and the
-  last `cursors`, settled at `at` with `compact`.
+  last `cursors`, settled at `at` by the CRDT of `opts`.
 
   There is one push result per backend that didn't fail. The state has
   what a push learned merged in, acknowledged and compacted, and the new
   cursors are by backend name. The report is that of both the pulls and
   the pushes, with a diagnostic for each backend whose push failed."
-  [{:keys [state ok report] :as so-far} cursors results at compact]
+  [{:keys [state ok report] :as so-far} cursors results at opts]
   (let [pushes  (map (fn [[backend pull] {:keys [value error]}]
                        [backend pull value error])
                      ok
@@ -265,7 +302,7 @@
                       :when error]
                   (failure backend error))]
     {:state   (if (seq learned)
-                (settle (reduce profile/merge state learned) learned at compact)
+                (settle (with-states state learned opts) learned at opts)
                 state)
      :cursors (reduce cursor (or cursors {}) pushes)
      :report  (-> report
@@ -288,20 +325,22 @@
   - :at, the instant of the step, the time of the clock by default
   - :cursors, those of the last step
   - :compact, false to keep the tombstones that every device has seen, or
-    else the options of profile/compact
+    else the options of the compact function of the CRDT
+  - :crdt, the functions of another CRDT than the profile, as
+    default-crdt has them
 
   A backend whose pull fails isn't pushed to and keeps its cursor, and one
   whose push fails keeps the cursor of its pull. The report has a
   :sync/backend-failed diagnostic for each, with its :backend and the
   :reason. The state is only ever merged into, so a failed step loses
-  nothing. A state in which profile/problem finds a problem isn't pushed,
-  since the other devices would leave it out, and the report has
+  nothing. A state in which the :problem of the CRDT finds a problem isn't
+  pushed, since the other devices would leave it out, and the report has
   :sync/malformed-state.
 
   Run one step at a time, since a step that overlaps another can write an
   older state after a newer one. What the listener did during a step
   isn't in its :state, so don't put the result in place of the state.
-  Merge it into the state as it is by then, with profile/merge. Then
+  Merge it into the state as it is by then, e.g. with profile/merge. Then
   compact as the step did, since the merge brings back the tombstones
   that the step dropped.
 
@@ -309,7 +348,7 @@
   and the same name twice throws."
   ([state backends]
    (sync! state backends {}))
-  ([state backends {:keys [at cursors compact] :as opts}]
+  ([state backends {:keys [at cursors] :as opts}]
    {:pre [(map? opts)]}
    (when-let [twice (seq (for [[name n] (frequencies (map :name backends))
                                :when (< 1 n)]
@@ -323,9 +362,9 @@
      (async/then
       (async/all (map pull! backends))
       (fn [results]
-        (let [so-far    (pulled state backends results at compact)
+        (let [so-far    (pulled state backends results at opts)
               merged    (:state so-far)
-              problem   (profile/problem merged)
+              problem   ((:problem (crdt-of opts)) merged)
               push!     (fn [[{:keys [push]} pull]]
                           (if problem
                             {:cursor (:cursor pull)}
@@ -334,7 +373,7 @@
                           (async/attempt #(push! ok)))
               malformed {:id :sync/malformed-state :error problem}
               finish    (fn [pushes]
-                          (cond-> (finished so-far cursors pushes at compact)
+                          (cond-> (finished so-far cursors pushes at opts)
                             problem
                             (update :report conj
                                     (diagnostics/describe malformed))))]

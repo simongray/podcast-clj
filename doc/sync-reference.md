@@ -27,7 +27,8 @@ token:
   across the tabs of a site.
 - A refused write returns `{:conflict? true}` rather than throwing.
 - A body is text or bytes. A fetch gives it as text, or as bytes with
-  `{:as :bytes}` in its opts, whichever was put.
+  `{:as :bytes}` in its opts, whichever was put, and `util.bytes/as`
+  turns one into the other.
 - On the JVM, each function returns its value and throws on failure. In
   ClojureScript, it can return a value or a promise.
 - The credentials stay in the closure of the constructor, never in the
@@ -159,6 +160,9 @@ profile, and with the `:at`, `:clock` and `:failures` that
 - Its options are `:cursors`, those of the last step, and `:compact`,
   which is `false` to keep every tombstone, or the options of
   `profile/compact`.
+- To sync another CRDT than the profile, give `:crdt` to `sync!` and to
+  `store/backend`, a map of its `:merge`, `:compact` and `:problem`
+  functions, as `sync/default-crdt` holds those of the profile.
 
 
 ## The sync document

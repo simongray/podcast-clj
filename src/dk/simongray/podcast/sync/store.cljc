@@ -11,11 +11,11 @@
 
   A body is text or bytes, a byte array on the JVM and a Uint8Array in
   JavaScript. A fetch gives it as text, or as bytes with :as :bytes in its
-  opts, as util.http/send! does, whichever was put, and body-as turns one
-  into the other. A put is a conflict when its opts have an :if-version
-  other than the store's, where nil means that the document must not
-  exist yet. A store that can't be written, e.g. over the files of an
-  input, has no :put.
+  opts, as util.http/send! does, whichever was put, and util.bytes/as
+  turns one into the other. A put is a conflict when its opts have an
+  :if-version other than the store's, where nil means that the document
+  must not exist yet. A store that can't be written, e.g. over the files
+  of an input, has no :put.
 
   On the JVM, each function returns its value and throws when it fails. In
   ClojureScript, each can return a value or a promise. A store closes over
@@ -50,17 +50,6 @@
 ;; util.http and util.xml, so it would stay here. See the TODO in
 ;; util.crdt.
 
-(defn body-as
-  "The `body` of a document, text or bytes, as the fetch with `opts` asks
-  for it: bytes with :as :bytes, and else text, of UTF-8."
-  ([body]
-   (body-as body {}))
-  ([body opts]
-   (cond
-     (= :bytes (:as opts)) (if (string? body) (bytes/encode body) body)
-     (string? body)        body
-     :else                 (bytes/decode body 0 (bytes/length body) :utf8))))
-
 (defn memory
   "A store over the atom `documents`, or a fresh one, which holds the :body
   and :version of each document by name, the version counting its writes."
@@ -78,7 +67,8 @@
                                            :version (str (inc n))})))))]
      {:name   "memory"
       :fetch  (fn [name opts]
-                (some-> (get @documents name) (update :body body-as opts)))
+                (some-> (get @documents name)
+                        (update :body bytes/as (:as opts))))
       :put    (fn [name body opts]
                 ;; the version checked and the document written in one swap,
                 ;; so that of two puts on the same version only one succeeds
@@ -103,6 +93,47 @@
   [device]
   (str device ".edn"))
 
+(defn device-document
+  "The document that the device of `state` writes at `at`, with the :app of
+  `opts`, as a map of its :name and :body."
+  ([state at]
+   (device-document state at {}))
+  ([state at opts]
+   {:name (document-name (:device state))
+    :body (sync/document state at (select-keys opts [:app]))}))
+
+(defn put-all!
+  "Put the `documents`, maps of :name and :body, into `store` one after the
+  other, in order, and give their names, in ClojureScript as a promise."
+  [store documents]
+  (reduce (fn [names {:keys [name body]}]
+            (async/then names
+                        (fn [names]
+                          (async/then ((:put store) name body {})
+                                      (fn [_] (conj names name))))))
+          []
+          documents))
+
+(defn fetch-all!
+  "The documents of `store`, fetched with `opts`, as maps of :name and
+  :body, in ClojureScript as a promise.
+
+  The :except of `opts` names documents to leave out, and the other
+  `opts` go to each fetch. A store without :list has none, and a document
+  deleted since the listing is left out."
+  ([store]
+   (fetch-all! store {}))
+  ([store {:keys [except] :or {except #{}} :as opts}]
+   (let [fetch-opts (dissoc opts :except)]
+     (async/then (if-let [list (:list store)] (list) [])
+                 (fn [listed]
+                   (async/then
+                    (async/all (for [{:keys [name]} listed
+                                     :when (not (contains? except name))]
+                                 (async/then ((:fetch store) name fetch-opts)
+                                             #(some-> % (assoc :name name)))))
+                    #(filterv some? %)))))))
+
 (def opml-name
   "The name of the subscription list that a backend with :opml? writes
   beside the documents, for any podcast app to import."
@@ -110,13 +141,14 @@
 
 (defn- pull-documents
   "The per-device pull from `store` for `state` at `at`: the documents that
-  changed since `cursor`, fetched at once and read.
+  changed since `cursor`, fetched at once and read with the :crdt of
+  `opts`.
 
   The documents are the .edn files of the listing, and one without a
   version there is always fetched. The report notes when this device's own
   document changed under it, and when the document is gone from the store,
   the push writes it again."
-  [{:keys [list fetch] :as store} state {:keys [versions] :as cursor} at]
+  [{:keys [list fetch] :as store} opts state {:keys [versions] :as cursor} at]
   (async/then
    (list)
    (fn [listing]
@@ -141,7 +173,7 @@
           (when-let [error (some :error results)]
             (throw error))
           (let [fetched  (keep :value results)
-                {:keys [states report]} (sync/read-documents fetched at)
+                {:keys [states report]} (sync/read-documents fetched at opts)
                 version  (juxt :name :version)
                 listed   (-> (into {} (map version) documents)
                              (into (map version) fetched))
@@ -179,15 +211,14 @@
   It writes this device's document when the state changed since the
   cursor, and deletes the documents of retired devices."
   [{:keys [put delete] :as store} opts state {:keys [versions] :as cursor} at]
-  (let [own      (document-name (:device state))
+  (let [own      (device-document state at opts)
         written  (hash state)
         listed?  #(contains? versions (document-name %))
         retired  (filter listed? (keys (:retired state)))
-        delete!  #(delete (document-name %))
-        app      (select-keys opts [:app])]
+        delete!  #(delete (document-name %))]
     (async/then
      (when (not= written (:hash cursor))
-       (put own (sync/document state at app) {}))
+       (put (:name own) (:body own) {}))
      (fn [result]
        (async/then
         (async/all (when delete
@@ -196,16 +227,17 @@
           (let [left (reduce dissoc versions (map document-name retired))]
             {:cursor (cond-> (assoc cursor :hash written :versions left)
                        result
-                       (assoc-in [:versions own] (:version result)))})))))))
+                       (assoc-in [:versions (:name own)]
+                                 (:version result)))})))))))
 
 (defn- pull-shared
-  "The shared pull from `store`: the document `name`, read at `at`, when
-  its version isn't the one in `cursor`.
+  "The shared pull from `store`: the document `name`, read at `at` with the
+  :crdt of `opts`, when its version isn't the one in `cursor`.
 
   When the document is gone from the store, the push writes it again. A
   document of a newer format is marked in the cursor, so that the push
   leaves it alone."
-  [{:keys [fetch] :as store} name {:keys [version] :as cursor} at]
+  [{:keys [fetch] :as store} name opts {:keys [version] :as cursor} at]
   (async/then (fetch name {})
               (fn [doc]
                 (cond
@@ -219,7 +251,9 @@
 
                   :else
                   (let [named  [(assoc doc :name name)]
-                        {:keys [states report]} (sync/read-documents named at)
+                        {:keys [states report]}
+                        (sync/read-documents named at opts)
+
                         newer? (some #(= :sync/newer-format (:id %)) report)]
                     {:states states
                      :cursor (cond-> (assoc cursor :version (:version doc))
@@ -229,7 +263,8 @@
 
 (defn- push-shared
   "The shared push of `state` to the document `name` in `store` at `at`,
-  with the :app of `opts`, on condition of the version in `cursor`.
+  with the :app and the :crdt of `opts`, on condition of the version in
+  `cursor`.
 
   On a conflict, the document is fetched, merged and put again, up to
   three more times. The merged state comes back for the caller. A
@@ -258,8 +293,11 @@
              (fetch name {})
              (fn [doc]
                (let [named  (when doc [(assoc doc :name name)])
-                     {:keys [states report]} (sync/read-documents named at)
-                     merged (reduce profile/merge state states)
+                     {:keys [states report]}
+                     (sync/read-documents named at opts)
+
+                     crdt   (merge sync/default-crdt (:crdt opts))
+                     merged (reduce (:merge crdt) state states)
                      newer? (some #(= :sync/newer-format (:id %)) report)
                      cursor (assoc cursor :version (:version doc))]
                  (if newer?
@@ -514,6 +552,8 @@
   - :name, the store's name by default, and distinct for each backend of
     one sync
   - :document, the name of the shared document, podcast.edn by default
+  - :crdt, the functions of another CRDT than the profile, as
+    sync/default-crdt has them, and then :opml? makes no sense
 
   The :strategy is :per-device when the store has :list, and else
   :shared. The :direction is :both when the store has :put, and else
@@ -539,8 +579,8 @@
       :pull (fn [state cursor at]
               (if pull?
                 (case strategy
-                  :per-device (pull-documents store state cursor at)
-                  :shared     (pull-shared store document cursor at))
+                  :per-device (pull-documents store opts state cursor at)
+                  :shared     (pull-shared store document opts cursor at))
                 {:states [] :cursor cursor :report []}))
       :push (fn [state cursor at]
               (cond

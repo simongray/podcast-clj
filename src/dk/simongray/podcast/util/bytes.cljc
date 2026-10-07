@@ -209,6 +209,15 @@
   #?(:clj  (.getBytes ^String s StandardCharsets/UTF_8)
      :cljs (.encode (js/TextEncoder.) s)))
 
+(defn as
+  "The text or bytes `x` as `kind` asks for it: bytes for :bytes, and else
+  text, with bytes decoded as UTF-8, e.g. for the :as of a request."
+  [x kind]
+  (cond
+    (= :bytes kind) (if (string? x) (encode x) x)
+    (string? x)     x
+    :else           (decode x 0 (length x) :utf8)))
+
 ;; RFC 3629, section 3
 (defn utf8?
   "Whether the bytes `b` from `start` to `end` are UTF-8 with one or more

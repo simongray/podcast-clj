@@ -57,6 +57,30 @@
         (is (= #{"feed-a" "feed-b"} (set (keys (profile/subscriptions state)))))
         (is (= "tablet" (:device state)))))))
 
+(def counter
+  "A CRDT of one count, which merges by the higher, for a sync of a state
+  that isn't a profile."
+  {:merge   (fn [a b] (update a :n max (:n b 0)))
+   :compact (fn [state _ _] state)
+   :problem (fn [state] (when-not (number? (:n state)) "no count"))})
+
+(deftest another-crdt-than-the-profile
+  (let [doc     #(sync/document {:device %1 :n %2} t2)
+        fetched [{:name "a.edn" :body (doc "a" 3)}
+                 {:name "b.edn" :body (doc "b" 5)}
+                 {:name "c.edn" :body (pr-str {:version 1 :device "c" :written-at t2 :state {:device "c"}})}]
+        {:keys [state report]} (sync/reconcile {:device "me" :n 1} fetched t2 {:crdt counter})]
+    (is (= 5 (:n state)) "merged by the :merge of the CRDT")
+    (is (= [[:sync/unreadable-document "c.edn"]] (map (juxt :id :name) report))
+        "and read with its :problem")
+    #?(:clj
+       (let [shared   (store/memory)
+             backend  #(store/backend shared {:crdt counter})
+             _        (sync/sync! {:device "a" :n 7} [(backend)] {:at t2 :crdt counter})
+             {:keys [state report]} (sync/sync! {:device "b" :n 2} [(backend)] {:at t2 :crdt counter})]
+         (is (= [] report))
+         (is (= 7 (:n state)) "through the documents of a store")))))
+
 (deftest the-memory-store
   (let [{:keys [fetch put list delete]} (store/memory)]
     (is (nil? (fetch "a.edn" {})))

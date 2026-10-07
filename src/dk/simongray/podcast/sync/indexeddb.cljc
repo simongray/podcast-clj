@@ -15,7 +15,7 @@
 
   The store follows the Indexed Database API 3.0 of the W3C,
   https://www.w3.org/TR/IndexedDB/"
-  #?(:cljs (:require [dk.simongray.podcast.sync.store :as store])))
+  #?(:cljs (:require [dk.simongray.podcast.util.bytes :as bytes])))
 
 #?(:cljs
    (def ^:no-doc default-name
@@ -105,7 +105,7 @@
                      (when version
                        (on-success (.get bodies name)
                                    (fn [body]
-                                     (done {:body    (store/body-as body opts)
+                                     (done {:body    (bytes/as body (:as opts))
                                             :version version})))))))))
 
 #?(:cljs
