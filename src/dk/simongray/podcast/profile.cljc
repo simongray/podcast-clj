@@ -40,8 +40,8 @@
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.util.crdt :as crdt]
+            [dk.simongray.podcast.util.crdt.list :as crdt.list]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.rank :as rank]
             [dk.simongray.podcast.util.time :as time]))
 
 (defn make
@@ -54,17 +54,18 @@
 (def ^:no-doc collections
   "The schema of a profile for dk.simongray.podcast.util.crdt: the
   :depth of the entries of each collection, whether compact drops its
-  tombstones, and the key of the listening counts, which only grow."
+  tombstones, the key of the listening counts, which only grow, and the
+  ordered collections of util.crdt.list."
   {:subscriptions  {:depth 1 :compact? true}
    :settings       {:depth 2}
    :tags           {:depth 2 :compact? true}
    :lists          {:depth 1 :compact? true}
    :episodes       {:depth 1}
    :played         {:depth 1}
-   :queue          {:depth 1 :compact? true}
-   :queue-moves    {:depth 1 :compact? true}
-   :playlists      {:depth 2 :compact? true}
-   :playlist-moves {:depth 2 :compact? true}
+   :queue          {:depth 1 :compact? true :ranked? true}
+   :queue-moves    {:depth 1 :compact? true :ranked? true}
+   :playlists      {:depth 2 :compact? true :ranked? true}
+   :playlist-moves {:depth 2 :compact? true :ranked? true}
    :inbox          {:depth 1 :compact? true}
    :stars          {:depth 1 :compact? true}
    :bookmarks      {:depth 2 :compact? true}
@@ -855,15 +856,15 @@
 
 (defn ^:no-doc queue-entries
   "The entries of the queue of `profile`, each at the place of its latest
-  move, as dk.simongray.podcast.util.crdt/with-moves gives them."
+  move, as dk.simongray.podcast.util.crdt.list/with-moves gives them."
   [profile]
-  (crdt/with-moves (:queue profile) (:queue-moves profile)))
+  (crdt.list/with-moves (:queue profile) (:queue-moves profile)))
 
 (defn ^:no-doc playlist-entries
   "The entries of the playlist `name` of `profile`, each at the place of its
   latest move."
   [profile name]
-  (crdt/with-moves (get-in profile [:playlists name])
+  (crdt.list/with-moves (get-in profile [:playlists name])
                    (get-in profile [:playlist-moves name])))
 
 (defn ^:no-doc removed-from
@@ -877,7 +878,7 @@
 (defn queue
   "The episode ids queued in `profile`, the current one first."
   [profile]
-  (mapv key (crdt/ranked (queue-entries profile))))
+  (mapv key (crdt.list/ranked (queue-entries profile))))
 
 (defn current
   "The episode id at the front of the queue of `profile`, or nil when it's
@@ -924,7 +925,7 @@
   [profile id at]
   (if (queued? profile id)
     profile
-    (let [rank (rank/between (crdt/last-rank (queue-entries profile)) nil)]
+    (let [rank (crdt.list/rank-at-end (queue-entries profile))]
       (place profile id rank at))))
 
 (defn play-next
@@ -934,7 +935,9 @@
   (if (= id (current profile))
     profile
     (let [[first-id second-id] (remove #{id} (queue profile))
-          rank (crdt/rank-between (queue-entries profile) first-id second-id)]
+          rank (crdt.list/rank-between (queue-entries profile)
+                                       first-id
+                                       second-id)]
       (if (queued? profile id)
         (crdt/write profile [:queue-moves id]
                     (constantly {:rank rank :removed? false})
@@ -960,7 +963,7 @@
   [profile id index at]
   (if-not (queued? profile id)
     profile
-    (let [rank (crdt/rank-at (queue-entries profile) id index)]
+    (let [rank (crdt.list/rank-at (queue-entries profile) id index)]
       (crdt/write profile
                   [:queue-moves id]
                   (constantly {:rank rank :removed? false})
@@ -978,7 +981,7 @@
   "The episode ids in the playlist `name` of `profile`, in order. A playlist
   is kept beside the queue, so to play it, queue its episodes."
   [profile name]
-  (mapv key (crdt/ranked (playlist-entries profile name))))
+  (mapv key (crdt.list/ranked (playlist-entries profile name))))
 
 (defn playlists
   "The episode ids of each playlist of `profile`, by name, leaving out the
@@ -993,11 +996,11 @@
   "Put the episode `id` at the end of the playlist `name` of `profile` at
   `at`, unless the playlist holds it."
   [profile name id at]
-  (crdt/append profile
-               [:playlists name]
-               (playlist-entries profile name)
-               [id]
-               at))
+  (crdt.list/append profile
+                    [:playlists name]
+                    (playlist-entries profile name)
+                    [id]
+                    at))
 
 (defn remove-from-playlist
   "Take the episode `id` out of the playlist `name` of `profile` at `at`,
@@ -1017,7 +1020,7 @@
   [profile name id index at]
   (let [entries (playlist-entries profile name)]
     (if (crdt/live? (get entries id))
-      (let [rank (crdt/rank-at entries id index)]
+      (let [rank (crdt.list/rank-at entries id index)]
         (crdt/write profile
                     [:playlist-moves name id]
                     (constantly {:rank rank :removed? false})
@@ -1039,10 +1042,10 @@
                                             [:playlist-moves from %])
                              ids)
             appended (when to
-                       (crdt/appended profile
-                                      [:playlists to]
-                                      (playlist-entries profile to)
-                                      ids))]
+                       (crdt.list/appended profile
+                                           [:playlists to]
+                                           (playlist-entries profile to)
+                                           ids))]
         (crdt/write-each profile (concat removed appended) at)))))
 
 (defn to-list-feed
@@ -1085,13 +1088,14 @@
   "Add the episodes of the list feed `feed` to the end of the playlist
   `name` of `profile` at `at`, in the order of the feed."
   [profile name feed at]
-  (crdt/append profile
-               [:playlists name]
-               (playlist-entries profile name)
-               (for [{:keys [feed-guid item-guid]} (:podcast/remote-items feed)
-                     :when (and feed-guid item-guid)]
-                 [feed-guid item-guid])
-               at))
+  (crdt.list/append profile
+                    [:playlists name]
+                    (playlist-entries profile name)
+                    (for [{:keys [feed-guid item-guid]}
+                          (:podcast/remote-items feed)
+                          :when (and feed-guid item-guid)]
+                      [feed-guid item-guid])
+                    at))
 
 (defn new-episodes
   "The ids of the items that the parse `after` of the feed at `url` has and
@@ -1155,8 +1159,10 @@
         unknown   (remove known? added)
         writes    (cond
                     auto-queue?
-                    (crdt/appended profile [:queue] (queue-entries profile)
-                                   unknown)
+                    (crdt.list/appended profile
+                                        [:queue]
+                                        (queue-entries profile)
+                                        unknown)
 
                     inbox?
                     (for [id unknown]
@@ -1377,25 +1383,6 @@
   [a b]
   (crdt/merge collections a b))
 
-(defn- rank-problem
-  "A description of the first rank in the queue or a playlist of `profile`
-  that isn't a rank, which would make ranked throw."
-  [profile]
-  (let [bad    (fn [where [id {:keys [rank]}]]
-                 (when (and (some? rank) (not (rank/rank? rank)))
-                   (str "the rank of " (pr-str id) " in " where " is "
-                        (pr-str rank) ", not a rank")))
-        ranked (concat [["the queue" (:queue profile)]
-                        ["the moves of the queue" (:queue-moves profile)]]
-                       (for [[name entries] (:playlists profile)]
-                         [(str "the playlist " (pr-str name)) entries])
-                       (for [[name entries] (:playlist-moves profile)]
-                         [(str "the moves of the playlist " (pr-str name))
-                          entries]))]
-    (some (fn [[where entries]]
-            (some #(bad where %) entries))
-          ranked)))
-
 (defn- key-problem
   "A description of the first key of `profile` of the wrong type for its
   collection. Lists and tags have strings as keys, and bookmarks and clips
@@ -1454,10 +1441,11 @@
         (:filters profile)))
 
 (def ^:no-doc checks
-  "The checks of problem after those of dk.simongray.podcast.util.crdt, in
-  order. Each takes a profile that is a map and returns a description of the
-  first problem of its kind, or nil, and relies on the checks before it."
-  [rank-problem key-problem mark-problem count-problem criteria-problem])
+  "The checks of problem after those of dk.simongray.podcast.util.crdt and
+  util.crdt.list, in order. Each takes a profile that is a map and returns
+  a description of the first problem of its kind, or nil, and relies on
+  the checks before it."
+  [key-problem mark-problem count-problem criteria-problem])
 
 (defn problem
   "A description of what in `profile` breaks the rules that merge and the
@@ -1479,6 +1467,7 @@
   search/problem says whether this version understands them."
   [profile]
   (or (crdt/problem collections profile)
+      (crdt.list/problem collections profile)
       (some #(% profile) checks)))
 
 (defn ^:no-doc stepped
@@ -1603,7 +1592,7 @@
      :play
      (let [others  (remove #{id} (queue profile))
            entries (queue-entries profile)
-           rank    (crdt/rank-between entries nil (first others))]
+           rank    (crdt.list/rank-between entries nil (first others))]
        (stepped (place profile id rank at) [] sleep))
 
      (stepped profile [] sleep))))

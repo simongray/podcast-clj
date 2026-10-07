@@ -184,7 +184,8 @@ device's clock.
 ### The queue
 
 The queue has one entry per episode, ordered by a rank from `util.rank`, a
-string with room for another rank between any two. A removal is a
+string with room for another rank between any two, as `util.crdt.list`
+keeps it. A removal is a
 tombstone. Additions on two devices both survive, a finished episode stays
 removed, and only two devices that move the same episode at the same time
 need a winner, the later one. A move writes the episode's new place as an

@@ -11,11 +11,12 @@
   its entries, :compact? when compact drops its tombstones, and :count for
   entries that hold a count under that key, which only grows.
 
-      {:queue    {:depth 1 :compact? true}
+      {:notes    {:depth 1 :compact? true}
        :listened {:depth 3 :count :seconds}}
 
   The registry of devices, under :devices and :retired, belongs to this
-  namespace and needs no schema.
+  namespace and needs no schema. Ordered collections, such as a queue, are
+  in dk.simongray.podcast.util.crdt.list.
 
   The comments name the source of each part, and where it departs from it:
 
@@ -30,23 +31,19 @@
     OPODIS 2014, https://doi.org/10.1007/978-3-319-14472-6_2
   - Almeida, Shoker and Baquero, Delta State Replicated Data Types,
     Journal of Parallel and Distributed Computing 111, 2018,
-    https://arxiv.org/abs/1603.01529
-  - Wallace, Realtime Editing of Ordered Sequences, Figma, 2017,
-    https://www.figma.com/blog/realtime-editing-of-ordered-sequences/
-  - Kleppmann, Gomes, Mulligan and Beresford, Interleaving anomalies in
-    collaborative text editors, PaPoC 2019,
-    https://doi.org/10.1145/3301419.3323972
-  - Kleppmann, Moving Elements in List CRDTs, PaPoC 2020,
-    https://doi.org/10.1145/3380787.3393677"
+    https://arxiv.org/abs/1603.01529"
   (:refer-clojure :exclude [merge])
-  (:require [clojure.walk :as walk]
-            [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.rank :as rank]
-            [dk.simongray.podcast.util.time :as time]))
+  (:require [clojure.walk :as walk]))
 
-;; TODO: Making this namespace a library of its own takes util.json,
-;; util.rank and util.time along. The stores in sync.* may go with it; see
-;; the TODO in sync.store.
+;; TODO: Making this namespace a library of its own takes util.crdt.list and
+;; util.rank along. The stores in sync.* may go with it; see the TODO in
+;; sync.store.
+
+(defn- ->inst
+  "The instant `ms` milliseconds after the epoch."
+  [ms]
+  #?(:clj  (java.util.Date. (long ms))
+     :cljs (js/Date. ms)))
 
 (def ^:no-doc header
   "The keys of a state that hold no entries: its device and its clock."
@@ -67,14 +64,14 @@
   (and (map? x)
        (contains? x :updated-at)))
 
-(defn ^:no-doc later-inst
+(defn later-inst
   "The later of the instants `a` and `b`, either of which can be nil."
   [a b]
   (if (and a b)
     (max-key inst-ms b a)
     (or a b)))
 
-(defn ^:no-doc stamp-ms
+(defn stamp-ms
   "The stamp of the entry `e` in milliseconds, 0 for an entry without one."
   [e]
   (or (some-> (:updated-at e) inst-ms) 0))
@@ -87,7 +84,7 @@
   [e]
   (and (some? e) (not (:removed? e))))
 
-(defn ^:no-doc live-by-stamp
+(defn live-by-stamp
   "The keys of the live entries of the map `entries`, the latest written
   first."
   [entries]
@@ -104,20 +101,23 @@
   millisecond after the clock of the state when that's later. This keeps
   each write after what the device has merged."
   [state at]
-  (time/->inst (cond-> (inst-ms at)
-                 (:clock state) (max (inc (inst-ms (:clock state)))))))
+  (->inst (cond-> (inst-ms at)
+            (:clock state) (max (inc (inst-ms (:clock state)))))))
 
 (declare later)
 
-(defn ^:no-doc write-each
+(defn write-each
   "The `state` with each path and function of `writes` applied at `at` as
   write applies one, all with the same stamp, which becomes the state's
-  clock. Within at-once, the stamp is that of at-once. Within as-device,
-  it's `at` itself, and an entry that's later than the write stays."
+  clock.
+
+  The `writes` are pairs of a path and a function. Within at-once, the
+  stamp is that of at-once. Within as-device, it's `at` itself, and an
+  entry that's later than the write stays."
   [state writes at]
   (let [foreign?  (contains? state ::author)
         at        (if foreign?
-                    (time/date at)
+                    (->inst (inst-ms at))
                     (or (::at state) (after state at)))
         put       (if foreign? later (fn [_ new] new))
         write-one (fn [s [path f]]
@@ -334,6 +334,14 @@
              (.setFloat64 v 0 x)
              (str (hex (.getUint32 v 0)) (hex (.getUint32 v 4))))))
 
+(defn- whole
+  "The float `x` as an integer when it has no fraction and JavaScript holds
+  it exactly, or else nil."
+  [x]
+  (when (and (== x (Math/floor x))
+             (< (Math/abs (double x)) 9e15))
+    (long x)))
+
 (defn- in-order
   "The value `x` in the form that printed prints, with maps and sets sorted
   by key-order, a float with no fraction as a whole number, and any other
@@ -342,7 +350,7 @@
   (cond
     (map? x)   (into (sorted-map-by key-order) x)
     (set? x)   (into (sorted-set-by key-order) x)
-    (float? x) (or (json/whole x) (tagged-literal 'float (float-bits x)))
+    (float? x) (or (whole x) (tagged-literal 'float (float-bits x)))
     :else      x))
 
 (defn- printed
@@ -360,8 +368,8 @@
 ;; The merge of an LWW-Register (Shapiro et al. 2011, section 3.2.1), with
 ;; ties broken by device as in RFC 677. Deviation: two entries of one device
 ;; at one instant, e.g. from as-device, fall back to the printed entry.
-(defn- later
-  "The later of the stamped entries `a` and `b`.
+(defn later
+  "The later of the stamped entries `a` and `b`, the one that merge keeps.
 
   On the same instant, the greater device id wins, and then the greater
   printed entry, so that every device picks the same one on either
@@ -429,96 +437,6 @@
     (into {:device (:device a)}
           (map (fn [k] [k (join (pick k) (get a k) (get b k))]))
           ks)))
-
-;; Fractional indexing (Wallace 2017). Deviation: with no server to make the
-;; ranks unique, equal ranks stay, and the stamp orders them.
-(defn ^:no-doc ranked
-  "The live `entries` of a ranked map such as a queue, as [id entry] pairs
-  by rank, and by stamp and device when two ranks are equal."
-  [entries]
-  (sort-by (comp (juxt :rank stamp-ms (comp str :device)) val)
-           (remove (comp :removed? val) entries)))
-
-;; The list of Kleppmann 2020, section 3: an entry's place is an LWW-Register
-;; of its own, so a move never undoes a removal on another device. Deviation:
-;; the entries form an LWW-element-Set rather than an add-wins one, so of an
-;; addition and a removal, the later wins.
-(defn ^:no-doc with-moves
-  "The ranked `entries`, each at the place of its live entry in `moves`
-  when that's the later of the two."
-  [entries moves]
-  (reduce-kv (fn [m id mv]
-               (let [e (get entries id)]
-                 (if (and e
-                          (live? mv)
-                          (identical? mv (later e mv)))
-                   (let [place (select-keys mv [:rank :updated-at :device])]
-                     (assoc m id (into e place)))
-                   m)))
-             entries
-             moves))
-
-(defn ^:no-doc rank-between
-  "A rank between the entries `before` and `after` of the ranked
-  `entries`, either nil at an end, and after any entries that share the
-  rank of `before`."
-  [entries before after]
-  (let [a (some->> before (get entries) :rank)
-        b (when after
-            (->> (drop-while #(not= after (key %)) (ranked entries))
-                 (map (comp :rank val))
-                 (filter #(or (nil? a) (pos? (compare % a))))
-                 first))]
-    (rank/between a b)))
-
-(defn ^:no-doc last-rank
-  "The greatest rank among the live `entries`, or nil, found in one pass
-  so that appending many entries doesn't sort them each time."
-  [entries]
-  (reduce-kv (fn [r _ {:keys [rank removed?]}]
-               (if (and (not removed?)
-                        (pos? (compare rank r)))
-                 rank
-                 r))
-             nil
-             entries))
-
-(defn ^:no-doc rank-at
-  "The rank that moves the entry `id` to `index` among the ranked
-  `entries`. An index that isn't whole is rounded down, and NaN counts
-  as 0."
-  [entries id index]
-  (let [others (vec (remove #{id} (map key (ranked entries))))
-        index  (if (== index index) index 0)
-        index  (long (max 0 (min index (count others))))]
-    (rank-between entries (get others (dec index)) (get others index))))
-
-;; The device blocks keep appends clear of the interleaving anomaly
-;; (Kleppmann et al. 2019, section 2), but single inserts at one place on two
-;; devices still tie.
-(defn ^:no-doc appended
-  "The writes that put the `ids`, in order, at the end of the ranked
-  `entries` at `path` in `state`, e.g. a queue, as with-moves gives them.
-
-  An id that's already there stays where it is. The ranks come from
-  rank/after, which keeps them short for many ids. They're in a block of
-  the state's device, so that ids that another device appends at the same
-  time don't mix with them."
-  [state path entries ids]
-  (let [fresh (remove #(live? (get entries %)) (distinct ids))
-        ranks (rank/after (last-rank entries) (count fresh) (:device state))]
-    (map (fn [id rank]
-           [(conj path id) (constantly {:rank rank :removed? false})])
-         fresh
-         ranks)))
-
-(defn ^:no-doc append
-  "The `state` with the `ids` at the end of the ranked `entries` at `path`,
-  written at `at` as appended gives them."
-  [state path entries ids at]
-  (if-let [writes (seq (appended state path entries ids))]
-    (write-each state writes at)
-    state))
 
 (defn- clock-problem
   [state]
@@ -656,12 +574,10 @@
                #inst "2026-01-01")))
 
   (def laptop
-    (-> {:device "laptop"}
-        (write [:notes "n1"] (constantly {:removed? true}) #inst "2026-01-02")
-        (append [:queue] {} ["a" "b"] #inst "2026-01-02")))
+    (write {:device "laptop"} [:notes "n1"] (constantly {:removed? true})
+           #inst "2026-01-02"))
 
-  ;; the later write wins, and the device's appends keep their order
+  ;; the later write wins
   (merge schema phone laptop)
-  (mapv key (ranked (:queue (merge schema phone laptop))))
   (problem schema (assoc phone :theme "dark"))
   #_.)

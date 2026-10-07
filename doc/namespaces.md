@@ -163,6 +163,7 @@ option replaces the function that sends.
 | `util.text` | Text for search on both platforms: `fold`, which drops case and diacritics, and `tokens`, the words of a text, with Chinese, Japanese, Korean and Thai in pairs of characters. |
 | `util.text.search` | A full-text index ranked by BM25F: `index`, `add`, `remove` and `query`, with `parse` for its query language of AND, OR, NOT, phrases, prefixes, typos and fields. `plan` and `read-documents` keep it in a store, in the Common Index File Format. Also `snippet` and `matches?` for one text. |
 | `util.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The profile is one. |
+| `util.crdt.list` | Ordered collections in such a state, e.g. the queue: `append`, `ranked`, `rank-at` for a move and `with-moves`, so that a move never brings back what another device removed. |
 
 ## Cryptography
 

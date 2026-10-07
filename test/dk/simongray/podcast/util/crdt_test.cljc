@@ -1,7 +1,7 @@
 (ns dk.simongray.podcast.util.crdt-test
   "The CRDT of plain maps on a schema of its own: writes and the clock,
   merge by the later entry and by the higher count, compaction and the
-  checks by the schema, and ranked lists."
+  checks by the schema."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3]]
@@ -79,19 +79,3 @@
     (is (re-find found (str (crdt/problem schema state))) (pr-str state)))
   (is (= "the state is not a map" (crdt/problem schema [1 2]))))
 
-(deftest ranked-lists
-  (let [phone  (crdt/append {:device "phone"} [:queue] {} ["a" "b" "c"] t0)
-        laptop (crdt/append {:device "laptop"} [:queue] {} ["d" "e"] t1)
-        both   (crdt/merge {} phone laptop)
-        view   #(crdt/with-moves (:queue %) (:moves %))
-        order  #(mapv key (crdt/ranked (view %)))
-        moved  (crdt/write both [:moves "e"] (constantly {:rank (crdt/rank-at (view both) "e" 2)}) t2)]
-    (is (= ["d" "e" "a" "b" "c"] (order both)) "each device's batch stays together")
-    (is (= ["d" "a" "e" "b" "c"] (order moved)) "a move puts the entry at its new place")
-    (is (= both (crdt/append both [:queue] (view both) ["a"] t2)) "an id that's there stays where it is")
-    (testing "a move never brings back what another device removed"
-      (let [removed (crdt/write both [:queue "e"] #(assoc % :removed? true) t2)]
-        (is (= ["d" "a" "b" "c"] (order (crdt/merge {} removed (assoc moved :device "laptop")))))))
-    (testing "an addition after a move puts the entry where the addition says"
-      (let [again (crdt/write moved [:queue "e"] (constantly {:rank "z"}) t3)]
-        (is (= ["d" "a" "b" "c" "e"] (order again)))))))

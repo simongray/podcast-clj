@@ -12,6 +12,7 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 t4 a]]
             [dk.simongray.podcast.util.crdt :as crdt]
+            [dk.simongray.podcast.util.crdt.list :as crdt.list]
             [dk.simongray.podcast.util.time :as time]))
 
 (def b ["feed-a" "a2"])
@@ -183,8 +184,8 @@
     (testing "two devices that append several episodes at once keep each batch together"
       (let [d       ["feed-d" "d1"]
             e       ["feed-d" "d2"]
-            phone3  (crdt/append (profile/make "phone") [:queue] {} [a b c] t0)
-            laptop3 (crdt/append (profile/make "laptop") [:queue] {} [d e] t1)]
+            phone3  (crdt.list/append (profile/make "phone") [:queue] {} [a b c] t0)
+            laptop3 (crdt.list/append (profile/make "laptop") [:queue] {} [d e] t1)]
         (is (= [d e a b c] (profile/queue (profile/merge phone3 laptop3)) (profile/queue (profile/merge laptop3 phone3))))))
     (testing "a move never brings back an episode that another device took out"
       (let [three   (-> (profile/make "phone") (profile/enqueue a t0) (profile/enqueue b t0) (profile/enqueue c t0))
@@ -807,7 +808,7 @@
                              [{:subscriptions [1 2 3]} #":subscriptions is not a map"]
                              [{:episodes {a "x"}} #"not a map"]
                              [{:queue {a {:rank "V!" :updated-at t0 :device "x"}}} #"not a rank"]
-                             [{:playlists {"P" {a {:rank "V!" :updated-at t0 :device "x"}}}} #"the playlist \"P\""]
+                             [{:playlists {"P" {a {:rank "V!" :updated-at t0 :device "x"}}}} #"\[:playlists \"P\""]
                              [{:devices {"x" {:seen {"y" 5} :updated-at t0 :device "x"}}} #"seen"]
                              [{:lists {"https://l/1.opml" {:updated-at t0 :device "x"} 5 {:updated-at t0 :device "x"}}}
                               #"the list at 5 is not at a URL"]
