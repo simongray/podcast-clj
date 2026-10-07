@@ -169,6 +169,7 @@ option replaces the function that sends.
 | `util.text.query` | The query language of full-text search: `parse` reads AND, OR, NOT, phrases, prefixes, typos and fields, and `snippet` and `matches?` match a query against one text. |
 | `util.text.search` | A full-text index ranked by BM25F: `index`, `add`, `remove` and `query`, and `query-opts`, which `util.text.query` takes to read a query as the index does. |
 | `util.text.search.ciff` | An index kept in a store, in the Common Index File Format: `plan` gives the documents to put and delete, and `read-documents` reads them back. |
+| `util.text.search.segment` | The segments of an index, its postings in sorted arrays of ints, which the index builds and combines. Apps don't call it. |
 | `util.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The profile is one. |
 | `util.crdt.list` | Ordered collections in such a state, e.g. the queue: `append`, `ranked`, `rank-at` for a move and `with-moves`, so that a move never brings back what another device removed. |
 

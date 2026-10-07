@@ -13,9 +13,10 @@
   its own, which a reader of CIFF skips, as the encoding of protobuf has
   it, https://protobuf.dev/programming-guides/encoding/"
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
-            [dk.simongray.podcast.util.text.search :as search
+            [dk.simongray.podcast.util.text.search :as search]
+            [dk.simongray.podcast.util.text.search.segment :as segment
              #?@(:cljs [:refer [Segment]])])
-  #?(:clj (:import [dk.simongray.podcast.util.text.search Segment]
+  #?(:clj (:import [dk.simongray.podcast.util.text.search.segment Segment]
                    [java.nio.charset StandardCharsets])))
 
 (def ^:no-doc version
@@ -163,7 +164,7 @@
 (defn- header-fields
   [^Segment segment]
   (let [n-terms (alength ^objects (.-terms segment))
-        n-docs  (search/size segment)
+        n-docs  (segment/size segment)
         total   (areduce ^ints (.-lengths segment) i n 0
                          (+ n (aget ^ints (.-lengths segment) i)))]
     [[1 :varint 1]
@@ -283,7 +284,7 @@
           sizes      (mapv #(list-sizes segment (terms %) %)
                            (range (count terms)))
           records    (mapv #(doc-fields segment %)
-                           (range (search/size segment)))
+                           (range (segment/size segment)))
           header     (header-fields segment)
           total      (+ (delimited-size header)
                         (reduce + 0 (map (fn [[body]]
@@ -308,7 +309,7 @@
     (pr-str (cond-> {:version  version
                      :fields   (:fields index)
                      :segments (mapv (fn [^Segment segment]
-                                       {:name    (search/segment-name segment)
+                                       {:name    (segment/segment-name segment)
                                         :deleted (.-deleted segment)})
                                      (:segments index))}
               (:defaults index) (assoc :defaults (:defaults index))))))
@@ -342,7 +343,7 @@
   ([index stored]
    (let [index    (search/restore index)
          held     (set stored)
-         by-name  (into {} (map (juxt search/segment-name identity))
+         by-name  (into {} (map (juxt segment/segment-name identity))
                         (rseq (:segments index)))
          put      (for [[name segment] by-name
                         :when (not (contains? held name))]
@@ -446,12 +447,12 @@
   [bs ^ints cursor ^long end]
   (let [to         (read-len! bs cursor end)
         ;; each varint takes a byte at least
-        ^ints xs   (search/make-ints (- to (aget cursor 0)))]
+        ^ints xs   (segment/make-ints (- to (aget cursor 0)))]
     (loop [n 0]
       (if (< (aget cursor 0) to)
         (do (aset xs n (int (read-int! bs cursor to)))
             (recur (inc n)))
-        (search/slice xs 0 n)))))
+        (segment/slice xs 0 n)))))
 
 (defn- read-edn
   "The value of the EDN `text` of the field `field`."
@@ -492,7 +493,7 @@
   don't go up."
   [^ints packed ^ints tfs]
   (let [n               (alength packed)
-        ^ints positions (search/make-ints n)]
+        ^ints positions (segment/make-ints n)]
     (loop [k 0 i 0 start 0]
       (cond
         (= i n)
@@ -517,9 +518,9 @@
   [bs ^ints cursor ^long end]
   (let [;; a Posting takes four bytes at least
         cap           (quot (- end (aget cursor 0)) 4)
-        ^ints docs    (search/make-ints cap)
-        ^ints tfs     (search/make-ints cap)
-        ^ints posting (search/make-ints 2)
+        ^ints docs    (segment/make-ints cap)
+        ^ints tfs     (segment/make-ints cap)
+        ^ints posting (segment/make-ints 2)
         term-tag      (tag 1 :len)
         posting-tag   (tag 4 :len)
         positions-tag (tag 15 :len)
@@ -549,13 +550,13 @@
             :else
             (do (skip! bs cursor end (rem t 8))
                 (recur term n doc packed))))
-        (let [tfs       (search/slice tfs 0 n)
+        (let [tfs       (segment/slice tfs 0 n)
               positions (some-> packed (absolute-positions tfs))]
           (when-not (and term positions)
             (throw (malformed "A postings list has no term or no positions"
                               {:term term})))
           {:term      term
-           :docs      (search/slice docs 0 n)
+           :docs      (segment/slice docs 0 n)
            :tfs       tfs
            :positions positions})))))
 
@@ -608,10 +609,10 @@
 (defn- joined-ints
   "The int `arrays` one after the other, as one array."
   [arrays]
-  (let [^ints out (search/make-ints
+  (let [^ints out (segment/make-ints
                    (reduce + 0 (map #(alength ^ints %) arrays)))]
     (reduce (fn [at ^ints arr]
-              (search/copy-ints! arr 0 out at (alength arr))
+              (segment/copy-ints! arr 0 out at (alength arr))
               (+ (long at) (alength arr)))
             0
             arrays)
@@ -622,7 +623,7 @@
   ends, as an array."
   [^ints counts]
   (let [n         (alength counts)
-        ^ints out (search/make-ints (inc n))]
+        ^ints out (segment/make-ints (inc n))]
     (loop [i 0 at 0]
       (when (< i n)
         (let [at (+ at (aget counts i))]
@@ -645,7 +646,7 @@
                               lists)
         ^ints positions (joined-ints (map :positions lists))
         highest         (areduce positions i m 0 (max m (aget positions i)))
-        ^ints lengths   (search/make-ints (* n width))
+        ^ints lengths   (segment/make-ints (* n width))
         bad             #(throw (malformed % {:name name}))]
     (cond
       (not= (range n) (map :docid records))
@@ -662,7 +663,7 @@
       (bad "A posting names a document that the segment doesn't have")
 
       (and (pos? (alength positions))
-           (<= width (quot highest search/span)))
+           (<= width (quot highest segment/span)))
       (bad "A position is in a field that the segment doesn't have")
 
       (not= n (count (into #{} (map :id) records)))
@@ -671,18 +672,18 @@
       (not (every? #(and (integer? %) (< -1 % n)) deleted))
       (bad "A removed document is not of the segment"))
     (doseq [[d {own :lengths}] (map-indexed vector records)]
-      (search/copy-ints! own 0 lengths (* d width) width))
-    (search/segment-of
+      (segment/copy-ints! own 0 lengths (* d width) width))
+    (segment/segment-of
      {:ids         (mapv :id records)
       :stored      (mapv :stored records)
       :terms       terms
-      :doc-start   (starts (search/as-ints (mapv #(alength ^ints (:docs %))
-                                                 lists)))
+      :doc-start   (starts (segment/as-ints (mapv #(alength ^ints (:docs %))
+                                                  lists)))
       :docs        (joined-ints (map :docs lists))
       :pos-start   (starts (joined-ints (map :tfs lists)))
       :positions   positions
       :lengths     lengths
-      :field-stats (search/field-stats lengths n width)
+      :field-stats (segment/field-stats lengths n width)
       :deleted     (set deleted)
       :name        name})))
 
@@ -694,7 +695,7 @@
                   :cljs (if (instance? js/ArrayBuffer body)
                           (js/Uint8Array. body)
                           body))
-        ^ints cursor (search/make-ints 1)
+        ^ints cursor (segment/make-ints 1)
         header (when #?(:clj  (bytes? bs)
                         :cljs (instance? js/Uint8Array bs))
                  (first (read-messages! read-header! bs cursor 1)))]
@@ -772,7 +773,7 @@
                     (assoc :defaults (:defaults manifest)))
                   segments
                   0)]
-    (when-not (= (count (:docs index)) (reduce + 0 (map search/live segments)))
+    (when-not (= (count (:docs index)) (reduce + 0 (map segment/live segments)))
       (throw (malformed "Two documents of the index have the same id"
                         {:name manifest-name})))
     (when-not (every? #(<= (.-width ^Segment %) (count (:fields index)))
