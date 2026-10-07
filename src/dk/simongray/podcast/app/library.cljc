@@ -120,37 +120,23 @@
   [library]
   (into {} (map (fn [[_ {:keys [feed url]}]] [feed url])) (:feeds library)))
 
-(defn- documents
-  "The search documents of the show and each item of `feed` at `url`."
-  [feed url]
-  (into [(search/feed-document feed {:url url})]
-        (map #(search/item-document feed % {:url url}))
-        (:rss/items feed)))
-
 (defn index
   "A search index of the feeds of `library`, e.g. for a library read back
   without its :index, as its config's :search? keeps it."
   [library]
   (search/index (mapcat (fn [{:keys [feed url]}]
-                          (documents feed url))
+                          (search/feed-documents feed url))
                         (vals (:feeds library)))))
-
-(defn- unindexed
-  "The `index` without the documents of the feed `feed-guid`."
-  [index feed-guid]
-  (let [of-feed? #(or (= feed-guid %)
-                      (and (vector? %) (= feed-guid (first %))))]
-    (apply text.search/remove index (filter of-feed? (keys (:docs index))))))
 
 (defn- reindexed
   "The `library` with the feed `feed-guid` indexed again, when it keeps an
   index."
   [library feed-guid]
   (if-let [index (:index library)]
-    (let [{:keys [feed url]} (get-in library [:feeds feed-guid])
-          cleared (unindexed index feed-guid)
-          docs    (when feed (documents feed url))]
-      (assoc library :index (apply text.search/add cleared docs)))
+    (let [{:keys [feed url]} (get-in library [:feeds feed-guid])]
+      (assoc library :index (if feed
+                              (search/with-feed index feed url)
+                              (search/without-feed index feed-guid))))
     library))
 
 (defn- kept
@@ -227,7 +213,8 @@
    (-> library
        (update :profile profile/unsubscribe feed-guid (time-of library opts))
        (update :feeds dissoc feed-guid)
-       (cond-> (:index library) (update :index unindexed feed-guid)))))
+       (cond-> (:index library)
+         (update :index search/without-feed feed-guid)))))
 
 (defn subscriptions
   "The live subscriptions of `library` by guid, each as
@@ -649,23 +636,6 @@
                                    :at      (time-of library opts))
                       (:index library) (assoc :index (:index library))))))
 
-(defn- located
-  "A function that gives a result of a search of `library` with its :feed,
-  and for an episode its :item too. It looks the items of a feed up once."
-  [library]
-  (let [items (memoize
-               (fn [feed-guid]
-                 (into {}
-                       (map (juxt guid/item-guid identity))
-                       (get-in library [:feeds feed-guid :feed :rss/items]))))]
-    (fn [{:keys [id] :as result}]
-      (if (vector? id)
-        (let [[feed-guid item-guid] id]
-          (assoc result
-                 :feed (get-in library [:feeds feed-guid :feed])
-                 :item (get (items feed-guid) item-guid)))
-        (assoc result :feed (get-in library [:feeds id :feed]))))))
-
 (defn search
   "The episodes and shows of `library` that match the query `q`, best
   first, with the `opts` below, or nil when the library keeps no index.
@@ -685,7 +655,7 @@
   ([library q opts]
    {:pre [(map? opts)]}
    (when-let [index (:index library)]
-     (let [locate (located library)
+     (let [locate (search/located (update-vals (:feeds library) :feed))
            ctx    (assoc (select-keys opts [:scale])
                          :profile (:profile library)
                          :url     (urls library)
@@ -930,12 +900,10 @@
   have taken out, and the feeds that its index doesn't have indexed, as
   after a save that stopped half way."
   [library]
-  (let [index   (:index library)
-        guid-of #(if (vector? %) (first %) %)
-        indexed (into #{} (map guid-of) (keys (:docs index)))
+  (let [indexed (search/feed-guids (:index library))
         feeds   (set (keys (:feeds library)))]
     (as-> library library
-      (reduce #(update %1 :index unindexed %2)
+      (reduce #(update %1 :index search/without-feed %2)
               library
               (remove feeds indexed))
       (reduce reindexed library (remove indexed feeds)))))

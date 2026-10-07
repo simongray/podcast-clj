@@ -678,15 +678,11 @@
                 {:feeds feeds
                  :index (search/index docs)}))))
 
-(defn- with-items
-  "The search `results` with the feed and item each came from, looked up in
-  `feeds` by url, so that the page can show a snippet of the notes."
-  [results feeds]
-  (for [{:keys [stored] :as result} results
-        :let [feed (get feeds (:url stored))
-              item (some #(when (= (:guid stored) (feed.guid/item-guid %)) %)
-                         (:rss/items feed))]]
-    (assoc result :feed feed :item item)))
+(defn- by-guid
+  "The `feeds`, a map of URL to feed, by feed guid, as search/located takes
+  them."
+  [feeds]
+  (into {} (map (fn [[url feed]] [(feed.guid/feed-guid feed url) feed])) feeds))
 
 (defn search-page
   "The items matching the `q` parameter: those of the feed named by `url`,
@@ -698,7 +694,7 @@
                  (let [found   (text.search/query index
                                                 q
                                                 {:limit page/result-limit})
-                       results (with-items found feeds)]
+                       results (map (search/located (by-guid feeds)) found)]
                    (html (page/search-page {:q       q
                                             :url     url
                                             :index   index

@@ -828,6 +828,11 @@
   ([index doc & docs]
    (added (restore index) (cons doc docs))))
 
+(defn ids
+  "The ids of the documents in `index`."
+  [index]
+  (keys (:docs index)))
+
 ;; An index in a store is a manifest in EDN, and a document for each
 ;; segment in the Common Index File Format, CIFF, of
 ;; https://github.com/osirrc/ciff, its README and its
@@ -3009,6 +3014,8 @@
     by default, as the AUTO:3,6 of Elasticsearch
   - :boosts, the weight of a match in each field, 1 by default, where 0
     leaves a field out unless the query names it
+  - :fields, the set of fields to search, all by default, which gives the
+    other fields the weight 0
   - :aliases, other names that a query can give the fields, as a map of a
     name to a field
   - :k1 and :b, the saturation and length normalization of BM25F
@@ -3037,6 +3044,12 @@
          (merge default-limits (:defaults index) opts)
          segments (:segments index)
          numbers  (:fields index)
+         boosts   (if-let [only (:fields opts)]
+                    (into {} (for [field (keys numbers)]
+                               [field (if (contains? only field)
+                                        (get boosts field 1)
+                                        0)]))
+                    boosts)
          ctx      {:segments        segments
                    :numbers         numbers
                    :weights         (weights numbers

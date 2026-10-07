@@ -48,6 +48,7 @@
     (is (= [1] (ids "\"value of\"")))
     (is (= [2] (ids "value-for-value")) "a word with punctuation in it")
     (is (= [2] (ids "value-for-va")) "the last of its words as a prefix"))
+  (is (= #{1 2 3} (set (search/ids idx))) "the ids of its documents")
   (testing "what is stored comes back; limit and filter apply"
     (is (= {:title "Clojure…"} (:stored (first (search/query idx "clojure")))))
     (is (nil? (:stored (second (search/query idx "clojure")))))
@@ -56,6 +57,8 @@
   (testing "the ranking is an option"
     (is (= [2] (ids "clojure" {:boosts {:title 0 :description 1}}))
         "a field boosted by zero does not match")
+    (is (= [2] (ids "clojure" {:fields #{:description}})) "only the fields named")
+    (is (= [1 2] (ids "clojure" {:fields #{:title :description}})))
     (is (= [2 1] (ids "clojure" {:rank (fn [r] (- (:id r)))}))
         "a rank function orders the results instead")
     (is (= (ids "clojure") (ids "clojure" {:k1 1.2 :b 0.75})) "the defaults")

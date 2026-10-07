@@ -267,3 +267,29 @@
     (is (= [2 1] (mapv :id (text.search/query idx "clojure"))) "a title weighs more than the notes")
     (is (= [1] (mapv :id (text.search/query idx "notes:clojure"))) "notes is a name of the description")
     (is (= idx (text.search/restore (edn/read-string (pr-str idx)))) "the defaults print with the index")))
+
+(deftest the-shows-of-an-index
+  (let [url   "https://example.com/show.xml"
+        other (assoc show :podcast/guid "other-guid" :rss/title "Other Show")
+        idx   (-> (search/index)
+                  (search/with-feed show url)
+                  (search/with-feed other "https://example.com/other.xml"))
+        ids   #(set (map :id (text.search/query % "coffee")))]
+    (is (= (inc (count (:rss/items show))) (count (search/feed-documents show url)))
+        "the show and each of its episodes")
+    (is (= #{"feed-guid" "other-guid"} (search/feed-guids idx)))
+    (is (= #{["feed-guid" "s1e1"] ["feed-guid" "s1e2"] ["other-guid" "s1e1"] ["other-guid" "s1e2"]}
+           (ids idx)))
+    (testing "a show indexed again replaces its documents"
+      (let [renamed (assoc-in show [:rss/items 1 :rss/description] "<p>Notes about tea.</p>")]
+        (is (= #{["feed-guid" "s1e2"] ["other-guid" "s1e1"] ["other-guid" "s1e2"]}
+               (ids (search/with-feed idx renamed url))))))
+    (testing "a show taken out"
+      (is (= #{"other-guid"} (search/feed-guids (search/without-feed idx "feed-guid")))))
+    (testing "the results with their shows and episodes"
+      (let [locate (search/located {"feed-guid" show "other-guid" other})
+            found  (map locate (text.search/query idx "coffee"))]
+        (is (every? :feed found))
+        (is (= #{"Season one, episode one: Café" "Season one, episode two"}
+               (set (map (comp :rss/title :item) found))))
+        (is (= "Other Show" (:rss/title (:feed (locate {:id "other-guid"})))) "a show's own result")))))

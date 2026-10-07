@@ -122,6 +122,62 @@
   ([docs]
    (text.search/index docs {:boosts boosts :aliases aliases})))
 
+(defn feed-documents
+  "The search documents of the show `feed`, fetched from `url`, and of each
+  of its episodes."
+  [feed url]
+  (into [(feed-document feed {:url url})]
+        (map #(item-document feed % {:url url}))
+        (:rss/items feed)))
+
+(defn- feed-guid-of
+  "The guid of the show of the document `id`: the id of a show's document,
+  or the first of the pair that names an episode."
+  [id]
+  (if (vector? id) (first id) id))
+
+(defn without-feed
+  "The `index` without the documents of the show `feed-guid` and of its
+  episodes."
+  [index feed-guid]
+  (->> (text.search/ids index)
+       (filter #(= feed-guid (feed-guid-of %)))
+       (apply text.search/remove index)))
+
+(defn with-feed
+  "The `index` with the documents of the show `feed`, fetched from `url`,
+  and of its episodes, in place of those it held of the show before."
+  [index feed url]
+  (apply text.search/add
+         (without-feed index (guid/feed-guid feed url))
+         (feed-documents feed url)))
+
+(defn feed-guids
+  "The guids of the shows whose documents `index` holds, of the show itself
+  or of an episode."
+  [index]
+  (into #{} (map feed-guid-of) (text.search/ids index)))
+
+(defn located
+  "A function that gives a result of a query of an index of `feeds`, a map
+  of feed guid to feed, with its :feed, and for an episode its :item too.
+
+  It looks the episodes of a feed up once, so give it once for all the
+  results of a query."
+  [feeds]
+  (let [items (memoize
+               (fn [feed-guid]
+                 (into {}
+                       (map (juxt guid/item-guid identity))
+                       (:rss/items (get feeds feed-guid)))))]
+    (fn [{:keys [id] :as result}]
+      (if (vector? id)
+        (let [[feed-guid item-guid] id]
+          (assoc result
+                 :feed (get feeds feed-guid)
+                 :item (get (items feed-guid) item-guid)))
+        (assoc result :feed (get feeds id))))))
+
 (defn- in?
   [expected actual]
   (if (set? expected) (contains? expected actual) (= expected actual)))
@@ -167,8 +223,8 @@
 (defn ^:no-doc episode-id
   "The episode id of `item` in `feed`, with the feed URL from `ctx`."
   [ctx feed item]
-  (if-let [guid (::feed-guid ctx)]
-    [(guid feed) (guid/item-guid item)]
+  (if-let [guid-of (::feed-guid ctx)]
+    [(guid-of feed) (guid/item-guid item)]
     (guid/episode-id feed (url-of ctx feed) item)))
 
 (defn ^:no-doc entry
@@ -207,9 +263,8 @@
   `ctx`. It's true when an item's title and notes match any of them."
   [v ctx]
   (let [index  (:index ctx)
-        only   (-> (zipmap (keys (:fields index)) (repeat 0))
-                   (assoc :title 1 :description 1))
-        query  #(text.search/query index % {:boosts only})
+        query  #(text.search/query index % {:fields #{:title :description}
+                                            :boosts {:title 1 :description 1}})
         found  (into #{}
                      (comp (mapcat query) (map :id))
                      (if (set? v) v [v]))]
