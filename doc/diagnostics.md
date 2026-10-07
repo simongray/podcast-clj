@@ -34,7 +34,7 @@ A function that sends requests also returns its failures as diagnostics, under t
 | Id | Level | Meaning |
 |---|---|---|
 | `:fetch/unreachable` | warning | The feed couldn't be fetched: the connection failed, the request took too long, the answer was too large, or the URL wasn't allowed. |
-| `:fetch/malformed` | warning | The document isn't an RSS feed: it isn't XML, or its root element isn't rss. |
+| `:fetch/malformed` | warning | The document isn't an RSS feed, or an OPML list where a list was fetched: it isn't XML, or its root element isn't rss or opml. |
 | `:fetch/page-failed` | warning | A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it. |
 | `:fetch/status` | warning | The server answered with a status that isn't a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row. |
 | `:fetch/guid-taken` | warning | The feed declares the podcast:guid of another subscription, at another URL, and would take that subscription over, so it isn't added. To replace the other subscription, unsubscribe from it first. |

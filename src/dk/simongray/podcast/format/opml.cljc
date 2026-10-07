@@ -29,6 +29,8 @@
   with the :path of its folders. It has the type include, or the type link
   to a URL that ends in .opml."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.xml :as xml]))
 
@@ -115,9 +117,13 @@
           (xml/elements element :outline)))
 
 (defn parse
-  "The subscription list of the OPML document `s`."
+  "The subscription list of the OPML document `s`. It throws when `s` isn't
+  XML, or its root element isn't opml."
   [s]
   (let [tree     (xml/parse s)
+        _        (when-not (= :opml (xml/tag tree))
+                   (throw (ex-info "Not an OPML document"
+                                   {:type ::unsupported :root (xml/tag tree)})))
         head     (xml/element tree :head)
         body     (xml/element tree :body)
         text     #(some-> head (xml/element %) xml/text str/trim not-empty)
@@ -137,6 +143,28 @@
                 :let  [v (text tag)]
                 :when v]
             [k (value k v)]))))
+
+(defn try-parse
+  "Parse the OPML string `s` as parse does, with the `opts` below, and give
+  a map of the :list, or of the :error where parse throws.
+
+  The error is the diagnostic :fetch/malformed with the :reason, for a list
+  that came from somewhere else, such as a server. The `opts` give the
+  :url of the list for the diagnostic. A platform without an XML parser
+  isn't the fault of the list, so that error is still thrown."
+  ([s]
+   (try-parse s {}))
+  ([s {:keys [url] :as opts}]
+   {:pre [(map? opts)]}
+   (try
+     {:list (parse s)}
+     (catch #?(:clj Exception :cljs :default) e
+       (when (= ::xml/no-parser (:type (ex-data e)))
+         (throw e))
+       (let [malformed (cond-> {:id     :fetch/malformed
+                                :reason (async/explain e)}
+                         url (assoc :url url))]
+         {:error (diagnostics/describe malformed)})))))
 
 (defn ^:no-doc text-of
   "The OPML text of the value `v`:

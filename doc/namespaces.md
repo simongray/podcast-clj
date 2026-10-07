@@ -41,7 +41,7 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `dk.simongray.podcast` | Fetching a feed in one call with `fetch!`, which sends a conditional request, parses the answer and joins the pages of a paged feed. |
+| `dk.simongray.podcast` | Fetching a feed in one call with `fetch!`, which sends a conditional request, parses the answer and joins the pages of a paged feed. `fetch-list!` does the same for an OPML list. |
 
 ## Apps
 
@@ -90,7 +90,7 @@ option replaces the function that sends.
 | `feed.quirks` | The repairs for malformed XML, which `parse-raw` runs when the strict parse fails, and the normalisations of the tree. |
 | `feed.coerce` | The value types of the registry, from strings and back. |
 | `feed.schema` | Malli schemas of the model, generated from the registry. Malli isn't a dependency. |
-| `diagnostics` | Every diagnostic id, with its level and meaning, and `summarize`, which groups a report by kind. |
+| `diagnostics` | Every diagnostic id, with its level and meaning, `summarize`, which groups a report by kind, and `fetch-failure` for a fetch that gave no document. |
 
 ## Directories and updates
 

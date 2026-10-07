@@ -431,14 +431,10 @@
   [url {:keys [value error] :as attempt}]
   (cond
     error
-    (diagnostics/describe {:id     :fetch/unreachable
-                           :url    url
-                           :reason (async/explain error)})
+    (diagnostics/fetch-failure {:url url :reason (async/explain error)})
 
     (not (<= 200 (long (:status value)) 299))
-    (diagnostics/describe {:id     :fetch/status
-                           :url    url
-                           :status (:status value)})))
+    (diagnostics/fetch-failure {:url url :status (:status value)})))
 
 (defn- read-feed
   "The candidate in the `attempt` at the feed at `url`, found where

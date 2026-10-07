@@ -1,10 +1,11 @@
 (ns dk.simongray.podcast
-  "Fetching a podcast feed as data, in one call.
+  "Fetching a podcast feed or an OPML list as data, in one call.
 
   The fetch! function sends a conditional request for the feed at a URL,
   parses the answer with feed.rss, and joins the later pages of a paged
-  feed. It sends its requests with the :send of its options, and in
-  ClojureScript it gives a promise.
+  feed. The fetch-list! function does the same for a list, with
+  format.opml. They send their requests with the :send of their options,
+  and in ClojureScript they give a promise.
 
   Parsing and writing a feed without fetching it is in feed.rss, and
   feed.discovery finds the feeds of a show from what a listener types."
@@ -12,6 +13,7 @@
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
+            [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.updates.websub :as websub]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
@@ -21,17 +23,58 @@
   "The Accept header of a request for a feed."
   "application/rss+xml, application/xml, text/xml, */*")
 
+(def ^:no-doc list-types
+  "The Accept header of a request for an OPML list."
+  "text/x-opml, application/xml;q=0.9, */*;q=0.1")
+
+(defn- with-credentials
+  "The `url` without the credentials in it, and the `opts` with those as
+  their :credentials unless they have their own, as a pair."
+  [url opts]
+  (let [[url in-url] (url/split-credentials url)]
+    [url (cond-> opts
+           (and in-url (not (:credentials opts)))
+           (assoc :credentials in-url))]))
+
+(defn- fetch-document!
+  "Fetch the document at `url` with `opts`, asking for the `accept` types,
+  and give the answer of the server. A 200 answer has what `parsed` gives
+  of the response merged in, and a failed request has the :error.
+  Deferred."
+  [url accept parsed opts]
+  (let [http-opts (-> opts
+                      (select-keys [:etag :last-modified :credentials
+                                    :timeout-seconds :max-bytes :user-agent
+                                    :allow? :send])
+                      (assoc :accept accept))]
+    (async/then (async/attempt #(http/fetch! url http-opts))
+                (fn [{response :value error :error}]
+                  (let [answer (select-keys response [:status :url
+                                                      :permanent-url
+                                                      :etag :last-modified
+                                                      :not-before])]
+                    (cond
+                      error
+                      {:url   url
+                       :error (diagnostics/fetch-failure
+                               {:url url :reason (async/explain error)})}
+
+                      (not= 200 (:status response))
+                      answer
+
+                      :else
+                      (merge answer (parsed response))))))))
+
 (defn- parsed-page
-  "The `answer` of fetch-page! to the 200 `response`, with the feed of its
-  body parsed with `opts`: the :body, the :feed and its :websub hubs, or
-  the :error."
-  [answer response opts]
+  "The feed of the 200 `response` to a request for a page, parsed with
+  `opts`: the :body, the :feed and its :websub hubs, or the :error."
+  [response opts]
   (let [body                 (:body response)
         parse-opts           (assoc opts :url (:url response))
         {:keys [feed error]} (rss/try-parse (str body) parse-opts)
         hubs                 (when feed
                                (websub/discover response feed))]
-    (cond-> answer
+    (cond-> {}
       body  (assoc :body body)
       feed  (assoc :feed feed)
       hubs  (assoc :websub hubs)
@@ -42,30 +85,7 @@
   for a feed of one page: the answer of the server, with the :feed or the
   :error. Deferred."
   [url opts]
-  (let [http-opts (-> opts
-                      (select-keys [:etag :last-modified :credentials
-                                    :timeout-seconds :max-bytes :user-agent
-                                    :allow? :send])
-                      (assoc :accept feed-types))]
-    (async/then (async/attempt #(http/fetch! url http-opts))
-                (fn [{response :value error :error}]
-                  (let [answer (select-keys response [:status :url
-                                                      :permanent-url
-                                                      :etag :last-modified
-                                                      :not-before])]
-                    (cond
-                      error
-                      {:url   url
-                       :error (diagnostics/describe
-                               {:id     :fetch/unreachable
-                                :url    url
-                                :reason (async/explain error)})}
-
-                      (not= 200 (:status response))
-                      answer
-
-                      :else
-                      (parsed-page answer response opts)))))))
+  (fetch-document! url feed-types #(parsed-page % opts) opts))
 
 (defn- fetch-later-pages!
   "The pages after `page` of a paged feed, the answer of fetch-page! to
@@ -146,17 +166,36 @@
    (fetch! url {}))
   ([url opts]
    {:pre [(map? opts)]}
-   (let [[url in-url] (url/split-credentials url)
-         opts         (cond-> opts
-                        (and in-url
-                             (not (:credentials opts)))
-                        (assoc :credentials in-url))]
+   (let [[url opts] (with-credentials url opts)]
      (async/then (fetch-page! url opts)
                  (fn [{:keys [feed] :as page}]
                    (if feed
                      (async/then (fetch-later-pages! url page opts)
                                  #(joined page %))
                      page))))))
+
+(defn fetch-list!
+  "Fetch the OPML list at `url` and parse it with the `opts` below, as
+  fetch! does a feed. In ClojureScript, it gives a promise:
+
+      {:status 200 :url \"…\"             ; the final URL, after redirects
+       :permanent-url \"…\"               ; when redirects moved it for good
+       :etag \"…\" :last-modified \"…\"    ; to send next time
+       :not-before #inst \"…\"            ; when the server asks you to wait
+       :list {…}                         ; on a 200, as opml/parse gives it
+       :error {…}}                       ; when there's no answer or no list
+
+  The `opts` are :etag, :last-modified, :credentials and :send, as fetch!
+  takes them, and the options of http/fetch!. Nothing is thrown for what
+  the network, the server or the body does, and any status besides 200
+  comes back as :status."
+  ([url]
+   (fetch-list! url {}))
+  ([url opts]
+   {:pre [(map? opts)]}
+   (let [[url opts] (with-credentials url opts)
+         parsed     #(opml/try-parse (str (:body %)) {:url (:url %)})]
+     (fetch-document! url list-types parsed opts))))
 
 #?(:clj
    (comment

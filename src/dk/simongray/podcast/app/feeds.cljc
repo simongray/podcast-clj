@@ -14,6 +14,9 @@
                      :failures     0
                      :status       200}}
 
+  An entry with only its :url is a feed to fetch for the first time, e.g.
+  of a new subscription. It's due at once, and refresh! fills it in.
+
   The new episodes of a changed feed are found by
   dk.simongray.podcast.profile/refresh. A device that never shows the
   feeds can keep only what slim gives of each, which is enough for that."
@@ -208,17 +211,15 @@
            (not= url (:url entry)) (assoc :moved {feed-guid (:url entry)})))
 
        :else
-       (failure (diagnostics/describe {:id     :fetch/status
-                                       :url    url
-                                       :status (:status result)}))))))
+       (failure (diagnostics/fetch-failure {:url    url
+                                            :status (:status result)}))))))
 
 (defn- unreachable
   "The result of a fetch of `url` that threw `error`."
   [url error]
   {:url   url
-   :error (diagnostics/describe {:id     :fetch/unreachable
-                                 :url    url
-                                 :reason (async/explain error)})})
+   :error (diagnostics/fetch-failure {:url    url
+                                      :reason (async/explain error)})})
 
 (defn- merged
   "The changes of the refreshes so far in `acc`, with those of the `result`
@@ -262,10 +263,12 @@
          fetch1 (fn [feed-guid]
                   (let [{:keys [url etag last-modified]} (get feeds feed-guid)
                         credentials (when credentials-of (credentials-of url))
-                        cached      {:etag etag :last-modified last-modified}
-                        fetch-opts  (cond-> (merge common cached)
-                                      credentials
-                                      (assoc :credentials credentials))]
+                        fetch-opts  (cond-> common
+                                      etag          (assoc :etag etag)
+                                      last-modified (assoc :last-modified
+                                                           last-modified)
+                                      credentials   (assoc :credentials
+                                                           credentials))]
                     (async/then (async/attempt #(fetch url fetch-opts))
                                 (fn [{:keys [value error]}]
                                   [feed-guid (if error

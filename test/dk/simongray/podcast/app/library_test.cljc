@@ -320,6 +320,38 @@
                         (is (= [] report))
                         (is (= [guid] (keys (:feeds lib'))) "fetch! by default, through the :send, without a :fetch"))))))
 
+(deftest subscribing-without-a-fetch
+  (let [lib   (library/subscribe (library/make "phone") other-url)
+        of    (feed.guid/feed-guid nil other-url)
+        there "https://example.org/moved.xml"]
+    (is (= [of] (keys (library/subscriptions lib))) "the guid of the URL")
+    (is (= {} (:feeds lib)) "nothing fetched yet")
+    (run
+     (fn []
+       (async/then (library/refresh! lib {:at now :fetch (fn [u _] {:status 503 :url u})})
+                   (fn [{{:keys [report]} :refresh :as lib'}]
+                     (is (= [[:fetch/status 503 of]] (map (juxt :id :status :feed-guid) report)))
+                     (is (= {} (:feeds lib')) "a feed still not fetched is left out, to fetch next time"))))
+     (fn []
+       (async/then (library/refresh! lib {:at    now
+                                          :fetch (fn [u _] {:status 200 :url u :feed other :permanent-url there})})
+                   (fn [{{:keys [added moved report]} :refresh :as lib'}]
+                     (let [sub (get (library/subscriptions lib') "0ther-guid")]
+                       (is (= [] report))
+                       (is (= [] added) "the episodes of a new subscription aren't new ones")
+                       (is (= ["0ther-guid"] (keys (library/subscriptions lib'))) "under the guid that the feed declares")
+                       (is (= ["0ther-guid"] (keys (:feeds lib'))))
+                       (is (= "Other" (:title sub)) "with the title of the feed")
+                       (is (= {"0ther-guid" there} moved))
+                       (is (= there (:url sub)) "and its move")))))
+     (fn []
+       (async/then (library/refresh! lib {:at         now
+                                          :feed-guids []
+                                          :fetch      (fn [u _] {:status 200 :url u :feed other})})
+                   (fn [lib']
+                     (is (= ["0ther-guid"] (keys (:feeds lib')))
+                         "a new subscription is fetched besides the feeds that are asked for")))))))
+
 (deftest a-feed-that-declares-the-guid-of-another
   (let [evil-url "https://evil.example/feed.xml"
         sent     (atom [])

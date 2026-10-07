@@ -187,6 +187,11 @@ diagnostic of a result without a feed:
 (:error result)  ; => nil, or e.g. {:id :fetch/unreachable :reason "…" …}
 ```
 
+To subscribe without a fetch, e.g. while offline, leave the result out:
+`(swap! lib library/subscribe url)`. Then `refresh!` fetches the feed,
+and a feed that would take over another subscription goes in its report
+instead of throwing.
+
 On a server that fetches feeds for its users, give `fetch!` the option
 `{:allow? url/public?}`, so that a URL that someone types can't reach
 your own network.
@@ -349,14 +354,19 @@ deletes the documents of any other index there:
 ## Follow lists of shows
 
 A network or a critic can publish a list of shows as OPML. When a listener
-follows it, the shows that join the list become subscriptions:
+follows it, the shows that join the list become subscriptions. Fetch the
+list with `podcast/fetch-list!`, which gives it as `:list`, or an `:error`
+as `fetch!` does:
 
 ```clojure
-(swap! lib library/follow-list list-url (opml/parse body)
-       {:title "Picks" :folder "Picks"})
+(def fetched (podcast/fetch-list! list-url))
+
+(swap! lib library/follow-list list-url (:list fetched)
+       {:title "Picks" :folder "Picks" :etag (:etag fetched)})
 ```
 
-After that, `refresh!` fetches the list again once a day. A show that
+The `:etag` makes the next fetch of the list conditional. After that,
+`refresh!` fetches the list again once a day. A show that
 leaves the list stays a subscription, since the listener may still like
 it. A show that the listener unsubscribed from doesn't come back, and a
 show is recognised by its feed URL, so it isn't added twice. In the OPML
@@ -1268,7 +1278,6 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.search :as search]

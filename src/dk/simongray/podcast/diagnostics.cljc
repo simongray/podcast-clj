@@ -41,8 +41,8 @@
      :doc "The feed couldn't be fetched: the connection failed, the request took
            too long, the answer was too large, or the URL wasn't allowed."}
     {:id :fetch/malformed :level :warning
-     :doc "The document isn't an RSS feed: it isn't XML, or its root element
-           isn't rss."}
+     :doc "The document isn't an RSS feed, or an OPML list where a list was
+           fetched: it isn't XML, or its root element isn't rss or opml."}
     {:id :fetch/page-failed :level :warning
      :doc "A page of a paged feed couldn't be fetched or read, so the feed lacks
            the items of that page and the pages after it."}
@@ -686,6 +686,16 @@
     (cond-> diagnostic
       (and doc (not (:message diagnostic)))  (assoc :message doc)
       (and level (not (:level diagnostic))) (assoc :level level))))
+
+(defn fetch-failure
+  "The diagnostic of the fetch `m` that gave no document, described.
+
+  The `m` is a map of the :url, and the :status of an answer that isn't a
+  success, or else the :reason that the request failed. It's :fetch/status
+  with a status and :fetch/unreachable without, with the other keys of `m`,
+  e.g. a :feed-guid."
+  [m]
+  (describe (assoc m :id (if (:status m) :fetch/status :fetch/unreachable))))
 
 (defn summarize
   "Group `diagnostics` by id and message, most frequent first: one row per

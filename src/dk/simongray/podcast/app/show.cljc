@@ -3,7 +3,8 @@
 
   Use view for what the feed says about the show, and merge in
   fetch-linked-shows! for the shows that it links to."
-  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
+  (:require [dk.simongray.podcast :as podcast]
+            [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory.links :as links]
             [dk.simongray.podcast.directory.podcastindex :as podcastindex]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -68,15 +69,6 @@
        (wanted? :links)
        (assoc :links (links/links (links/ids feed nil {:url url})))))))
 
-(defn- unreachable
-  "The diagnostic for the feed at `url` that couldn't be fetched: that the
-  answer had the `status` of a failure, or else the `reason` that the
-  request failed."
-  [url status reason]
-  (diagnostics/describe (if status
-                          {:id :fetch/status :url url :status status}
-                          {:id :fetch/unreachable :url url :reason reason})))
-
 (defn- look-up-show!
   "Ask the Podcast Index with `opts` for the :show of the remote `item`,
   and give the item with it, in a future or a promise. Without an answer,
@@ -96,22 +88,19 @@
                     (cond-> item found (assoc :show found)))))))
 
 (defn- fetch-feed!
-  "Fetch and parse the feed at `url` with `opts`, and give a map of the
-  :feed, or of an :error when it couldn't, in a future or a promise."
-  [url {:keys [send] :as opts}]
-  (let [accept  "application/rss+xml, application/xml;q=0.9, */*;q=0.1"
-        request {:url url :headers {"Accept" accept}}]
-    (async/then (http/try-send! send request opts)
-                (fn [{:keys [value error]}]
+  "Fetch the feed at `url` with `opts`, as dk.simongray.podcast/fetch!
+  does, and give a map of the :feed, or of an :error when it couldn't, in
+  a future or a promise."
+  [url opts]
+  (let [fetch-opts (select-keys opts [:send :allow? :timeout-seconds
+                                      :max-bytes :user-agent])]
+    (async/then (podcast/fetch! url fetch-opts)
+                (fn [{:keys [feed error status]}]
                   (cond
-                    error
-                    {:error (unreachable url nil (async/explain error))}
-
-                    (not (<= 200 (long (:status value)) 299))
-                    {:error (unreachable url (:status value) nil)}
-
-                    :else
-                    (rss/try-parse (str (:body value)) {:url url}))))))
+                    feed  {:feed feed}
+                    error {:error error}
+                    :else {:error (diagnostics/fetch-failure
+                                   {:url url :status status})})))))
 
 (defn- held
   "How many bytes the view `v` holds from the start of the file on."
@@ -163,7 +152,9 @@
                   (rss/try-parse text {:url url})
 
                   error
-                  {:error (unreachable url (:status error) (:reason error))}
+                  {:error (diagnostics/fetch-failure
+                           (assoc (select-keys error [:status :reason])
+                                  :url url))}
 
                   :else
                   {:error (diagnostics/describe
@@ -252,7 +243,6 @@
                      publisher     (assoc :publisher publisher)))))))
 
 (comment
-  (require '[dk.simongray.podcast :as podcast])
   (def show
     (:feed (podcast/fetch! "https://feeds.podcastindex.org/pc20.xml")))
 

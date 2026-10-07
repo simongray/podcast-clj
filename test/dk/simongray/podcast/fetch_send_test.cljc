@@ -1,7 +1,8 @@
 (ns dk.simongray.podcast.fetch-send-test
-  "The fetch! of the root namespace through a :send of the app, on both
-  platforms: the feed and its validators, the pages of a paged feed, the
-  credentials of a private one, and a send that fails."
+  "The fetch! and fetch-list! of the root namespace through a :send of the
+  app, on both platforms: the feed and its validators, the pages of a
+  paged feed, the credentials of a private one, a list, and a send that
+  fails."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is]]
             [dk.simongray.podcast :as podcast]
@@ -23,7 +24,11 @@
    "https://a.example/feed.xml?page=2" {:status 200 :body (page-xml "https://b.example/page3.xml" [2])}
    "https://b.example/page3.xml"       {:status 200 :body (page-xml nil [1])}
    "https://a.example/half.xml"        {:status 200 :body (page-xml "/page.html" [4])}
-   "https://a.example/page.html"       {:status 200 :body "<html><body><p>Not a feed</p></body></html>"}})
+   "https://a.example/page.html"       {:status 200 :body "<html><body><p>Not a feed</p></body></html>"}
+   "https://a.example/list.opml"       {:status 200 :headers {"etag" ["\"l1\""]}
+                                        :body (str "<opml version=\"2.0\"><head><title>Picks</title></head><body>"
+                                                   "<outline type=\"rss\" text=\"Paged\" xmlUrl=\"https://a.example/feed.xml\"/>"
+                                                   "</body></opml>")}})
 
 (defn- answering
   "A send that answers from answers, and notes the URL and the
@@ -57,6 +62,28 @@
                       (fn [result]
                         (is (= [:url :error] (keys result)) "a send that fails gives the error, and throws nothing")
                         (is (= :fetch/unreachable (:id (:error result)))))))))
+
+(deftest fetching-a-list-through-a-send
+  (let [sent (atom [])
+        send (answering sent)]
+    (run #(async/then (podcast/fetch-list! "https://u:p@a.example/list.opml" {:send send})
+                      (fn [{:keys [status etag list]}]
+                        (is (= [200 "\"l1\""] [status etag]))
+                        (is (= ["https://a.example/feed.xml"] (map :xml-url (:subscriptions list))))
+                        (is (= [["https://a.example/list.opml" "Basic dTpw"]] @sent)
+                            "with the credentials in the URL")))
+         #(async/then (podcast/fetch-list! "https://a.example/page.html" {:send send})
+                      (fn [{:keys [status list error]}]
+                        (is (= [200 :fetch/malformed] [status (:id error)])
+                            "a page of HTML is no empty list")
+                        (is (nil? list))))
+         #(async/then (podcast/fetch-list! "https://a.example/gone.opml" {:send send})
+                      (fn [{:keys [status error]}]
+                        (is (= [404 nil] [status error]) "a status is an answer")))
+         #(async/then (podcast/fetch-list! "https://a.example/list.opml"
+                                           {:send (fn [_] (throw (ex-info "offline" {})))})
+                      (fn [{:keys [error]}]
+                        (is (= :fetch/unreachable (:id error))))))))
 
 #?(:cljs
    (deftest fetching-without-a-dom-parser

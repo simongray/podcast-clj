@@ -374,7 +374,13 @@
           "a link to a page is neither")
       (is (= ["A" "B"] (map :text (:subscriptions list))))
       (is (= list (opml/parse (opml/emit list))))
-      (is (= 1 (count (re-seq #"text=\"News\"" (opml/emit list)))) "a folder once, its inclusion after its subscriptions"))))
+      (is (= 1 (count (re-seq #"text=\"News\"" (opml/emit list)))) "a folder once, its inclusion after its subscriptions")))
+  (testing "a list from somewhere else, read as data"
+    (is (= {:list {:subscriptions []}} (opml/try-parse "<opml version=\"2.0\"><body/></opml>")))
+    (is (= [:fetch/malformed "https://x.example/l.opml"]
+           ((juxt :id :url) (:error (opml/try-parse "<html><body/></html>" {:url "https://x.example/l.opml"}))))
+        "a document whose root isn't opml")
+    (is (= :fetch/malformed (:id (:error (opml/try-parse "<opml")))))))
 
 (def block
   {:type "lightning" :method "keysend" :suggested 1.5E-7
