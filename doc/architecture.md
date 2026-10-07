@@ -110,11 +110,12 @@ A producer can write shorthand, e.g. `{:rss/guid "x"}`, or a single value
 where the model has a vector. `feed/normalize` expands it, and `emit` and
 `validate` call it first, so the rest of podcast-clj only knows one shape.
 
-Identity is a function, not a field. `feed/feed-guid` gives the
-`podcast:guid`, or the UUIDv5 of the feed URL, and `feed/item-guid` gives
-the `<guid>`, or the enclosure URL. The id of an episode is the pair of
-the two, from `feed/episode-id`, and `feed/diff` compares two parses of a
-feed by this identity.
+Identity is a function, not a field, and has a namespace of its own,
+`feed.guid`, so that comparing feeds needs no parser. Its `feed-guid`
+gives the `podcast:guid`, or the UUIDv5 of the feed URL, and `item-guid`
+gives the `<guid>`, or the enclosure URL. The id of an episode is the
+pair of the two, from `episode-id`, and `feed/diff` compares two parses
+of a feed by this identity.
 
 
 ## Resolving the vocabularies

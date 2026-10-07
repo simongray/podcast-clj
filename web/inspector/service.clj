@@ -9,7 +9,7 @@
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.directory :as directory]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.check :as check]
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.resolve :as resolve]
@@ -177,7 +177,7 @@
   `guid`, which would name an item without a guid or an enclosure."
   [feed guid]
   (when-not (str/blank? guid)
-    (some #(when (= guid (feed/item-guid %)) %) (:rss/items feed))))
+    (some #(when (= guid (feed.guid/item-guid %)) %) (:rss/items feed))))
 
 (defn- no-item
   "The page with the status 404 for the item `guid` that the feed at `url`
@@ -372,7 +372,7 @@
   `cache-seconds`, since the files are fetched to make it."
   [feed url item]
   (let [now (System/currentTimeMillis)]
-    (:value (cached [:episode url (feed/item-guid item)]
+    (:value (cached [:episode url (feed.guid/item-guid item)]
                     #(< (- now (:at %)) (* 1000 cache-seconds))
                     (fn [_]
                       (let [view  (episode/view feed item {:url url})
@@ -556,9 +556,9 @@
                     :message    (not-empty message)
                     :app-name   app-name
                     :feed-url   feed-url
-                    :feed-guid  (feed/feed-guid feed feed-url)
+                    :feed-guid  (feed.guid/feed-guid feed feed-url)
                     :feed-title (resolve/title feed)
-                    :item-guid  (feed/item-guid item)
+                    :item-guid  (feed.guid/item-guid item)
                     :item-title (resolve/title item)}
         recipients (:recipients (resolve/value feed item))]
     (vec (for [{:keys [recipient amount]} (value/payments recipients sats)]
@@ -681,7 +681,7 @@
   [results feeds]
   (for [{:keys [stored] :as result} results
         :let [feed (get feeds (:url stored))
-              item (some #(when (= (:guid stored) (feed/item-guid %)) %)
+              item (some #(when (= (:guid stored) (feed.guid/item-guid %)) %)
                          (:rss/items feed))]]
     (assoc result :feed feed :item item)))
 
@@ -777,7 +777,7 @@
             item (item-in feed guid)]
         (if item
           (text "application/edn; charset=utf-8"
-                (pr-str {:id         (feed/episode-id feed feed-url item)
+                (pr-str {:id         (feed.guid/episode-id feed feed-url item)
                          :title      (resolve/title item)
                          :feed-title (resolve/title feed)
                          :enclosure  (:url (resolve/enclosure item))

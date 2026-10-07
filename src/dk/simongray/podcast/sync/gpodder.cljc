@@ -14,7 +14,6 @@
   recorded answers."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.profile :as profile]
@@ -259,10 +258,10 @@
   media."
   [[url feed]]
   {:url   url
-   :guid  (feed/feed-guid feed url)
+   :guid  (guid/feed-guid feed url)
    :index (delay
             (let [with-guid (fn [item]
-                              (when-let [g (feed/item-guid item)]
+                              (when-let [g (guid/item-guid item)]
                                 [g item]))
                   items     (keep with-guid (:rss/items feed))]
               {:items    (into {} items)

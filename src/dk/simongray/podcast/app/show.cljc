@@ -6,7 +6,7 @@
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory.links :as links]
             [dk.simongray.podcast.directory.podcastindex :as podcastindex]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.html :as html]
@@ -25,7 +25,7 @@
   "The show of `feed` as a page shows it, with the `opts` below: the feed
   with the properties of resolve/properties merged in, and these keys:
 
-  - :guid, the id of the feed as feed/feed-guid gives it, when the feed
+  - :guid, the id of the feed as guid/feed-guid gives it, when the feed
     has one or `opts` give the :url of the feed
   - :notes, the description as Hiccup, and :text, as plain text
   - :episodes, the items in listening order, as resolve/episodes gives
@@ -43,7 +43,7 @@
    {:pre [(map? opts)]}
    (let [wanted? (complement except)
          url     (or url (resolve/self-url feed))
-         guid    (feed/feed-guid feed url)
+         guid    (guid/feed-guid feed url)
          notes   (when (or (wanted? :notes) (wanted? :text))
                    (some-> (resolve/description feed) html/hiccup))]
      (cond-> (merge feed (resolve/properties feed))

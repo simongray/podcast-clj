@@ -9,7 +9,7 @@
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory :as directory]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
@@ -239,7 +239,7 @@
         alternatives             (count (resolve/enclosures item))
         people                   (resolve/people feed item)
         own-people?              (seq (:podcast/people item))
-        guid                     (feed/item-guid item)
+        guid                     (feed.guid/item-guid item)
         title                    (or (resolve/title item) "(untitled)")
         href                     (when guid
                                    (feed-href "/item" feed-url {:guid guid}))
@@ -359,7 +359,7 @@
         required   (some-> requirements name)
         op3?       (some #(op3/prefixed? (get-in % [:rss/enclosure :url]))
                          (:rss/items feed))
-        guid       (feed/feed-guid feed feed-url)
+        guid       (feed.guid/feed-guid feed feed-url)
         op3-href   (str op3/origin "/show/" guid)
         selected   {:q      (get-in selection [:where :text])
                     :season (some-> (get-in selection [:where :season]) str)
@@ -1147,7 +1147,7 @@
   root post hid."
   [{:keys [url item interacts thread hidden?]}]
   (let [title (or (resolve/title item) "(untitled)")
-        guid  (feed/item-guid item)]
+        guid  (feed.guid/item-guid item)]
     (layout (str "Comments: " title)
             [:p [:a {:href (feed-href "/item" url {:guid guid})} "← " title]]
             [:h1 "Comments"]
@@ -1310,7 +1310,7 @@
   [{:keys [episode problem connection boost token] :as answers}]
   (let [{:keys [url feed item]} episode
         block (when episode (resolve/value feed item))
-        guid  (when episode (feed/item-guid item))]
+        guid  (when episode (feed.guid/item-guid item))]
     (layout "Wallet"
             [:h1 "The wallet of the listener"]
             [:p (str "Give the connection URI of Nostr Wallet Connect that "

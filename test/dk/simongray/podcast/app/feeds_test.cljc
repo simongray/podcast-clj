@@ -6,7 +6,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.app.feeds :as feeds]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.profile :as profile]
@@ -61,7 +61,7 @@
     (and (= (resolve/next-check feed at) (resolve/next-check thin at))
          (= (profile/new-episodes url before feed) (profile/new-episodes url (feeds/slim before) feed))
          (every? (fn [item]
-                   (let [id    (feed/episode-id feed url item)
+                   (let [id    (feed.guid/episode-id feed url item)
                          media (:url (resolve/enclosure item))]
                      (and (= ((:episode-url whole-names) id) ((:episode-url thin-names) id))
                           (= ((:episode-id whole-names) url media nil) ((:episode-id thin-names) url media nil)))))

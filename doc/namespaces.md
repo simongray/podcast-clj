@@ -79,13 +79,13 @@ option replaces the function that sends.
 | Namespace | Contents |
 |---|---|
 | `feed.rss` | Parsing and writing feeds: `parse` reads an RSS document into a feed map, `emit` writes one back, `report` gives the diagnostics, and `parse-tree` stops at the Hiccup. For a document that may not be a feed, `try-parse` gives a diagnostic where `parse` throws. |
-| `feed` | Hiccup to feed maps and back, the identity of feeds, items and episodes, and `diff` between two parses. |
+| `feed` | Hiccup to feed maps and back, and `diff` between two parses. |
 | `feed.resolve` | One answer for each property where the vocabularies overlap, with `properties` for all of them and `sources` for where each came from. Also the listening order, `blocked?` and `next-check`. |
 | `feed.discovery` | Finding the feeds of a show from what a listener types, such as a domain, a web page or a link of an app, in one call with `find-feeds!`. For more control, `read-input` reads the text, `feed-links`, `header-links` and `feed-anchors` read a page, and `ranked` orders the candidates. |
 | `feed.check` | Checks over the network of the files that a feed links to, by the standards and the requirements of PSP-1 and Apple Podcasts. Only `check-files!` sends requests, and `files`, `verdicts` and `report` are pure. |
 | `feed.validate` | Validation against the registry, with the requirements of PSP-1 and Apple Podcasts. |
 | `feed.publish` | What a host does to a feed before serving it: `pages` splits a long feed as RFC 5005 describes, `for-subscriber` makes a private feed, and `update-media-urls` rewrites the URLs of the media files. |
-| `feed.guid` | The `podcast:guid`: `from-url` derives it from a feed URL, and `guid?` checks one. |
+| `feed.guid` | The identity of feeds, items and episodes: `feed-guid`, `item-guid` and `episode-id`, and the `podcast:guid` that `from-url` derives from a feed URL. |
 | `feed.spec` | The tag registry as data, which `registry` indexes or extends, and the enumerations of the specs. |
 | `feed.quirks` | The repairs for malformed XML, which `parse-raw` runs when the strict parse fails, and the normalisations of the tree. |
 | `feed.coerce` | The value types of the registry, from strings and back. |

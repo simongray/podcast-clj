@@ -18,8 +18,8 @@
   The at-time function follows the one standard here: the media fragment
   of the W3C, which starts a media file at a time."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.coerce :as coerce]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]))
@@ -298,7 +298,7 @@
   from the Podcast Index. A feed names its URL in its atom:link rel=self.
 
   The podcast:guid is that of the feed, or else the guid that the podcast
-  namespace derives from the URL, as feed/feed-guid gives it. The Podcast
+  namespace derives from the URL, as guid/feed-guid gives it. The Podcast
   Index derives the same guid for a feed that declares none. A show from a
   directory has only the guid that the directory knows the feed declares,
   since the feed may declare another than its URL gives."
@@ -315,7 +315,7 @@
                             (:directory/id show))))
          guid       (if (:directory/source show)
                       (:podcast/guid show)
-                      (feed/feed-guid show url))
+                      (guid/feed-guid show url))
          apple-id   (or (source :apple) (:index/itunes-id show))
          index-id   (or (source :podcastindex) (:index/id show))
          item-guid  (not-empty (get-in item [:rss/guid :content]))

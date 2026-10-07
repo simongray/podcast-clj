@@ -1,5 +1,7 @@
 (ns dk.simongray.podcast.feed.guid
-  "Feed identity by the UUIDv5 scheme of podcast:guid, on both platforms."
+  "The identity of feeds and episodes: a feed by its podcast:guid, or the
+  one that the UUIDv5 scheme of podcast:guid derives from its URL, and an
+  episode by its guid, on both platforms."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]))
 
@@ -45,6 +47,25 @@
   [s]
   (boolean (and (string? s)
                 (re-matches guid-pattern s))))
+
+(defn item-guid
+  "The identity of `item`: its guid, or else its enclosure URL, as Apple's
+  A Podcaster's Guide to RSS has it."
+  [item]
+  (or (not-empty (:content (:rss/guid item)))
+      (:url (:rss/enclosure item))))
+
+(defn feed-guid
+  "The identity of `feed`: its podcast:guid, or else the one that the
+  podcast namespace derives from `url`."
+  [feed url]
+  (or (not-empty (:podcast/guid feed))
+      (when url (from-url url))))
+
+(defn episode-id
+  "The id of `item` in the `feed` at `url`: [feed-guid item-guid]."
+  [feed url item]
+  [(feed-guid feed url) (item-guid item)])
 
 (comment
   (from-url "https://mp3s.nashownotes.com/pc20rss.xml")

@@ -2,6 +2,7 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.feed.validate :as validate]
@@ -152,7 +153,7 @@
     (testing "a no-break space is white space, on the JVM as in JavaScript"
       (is (= "Show" (:rss/title f)))
       (is (= 5 (:itunes/episode a)))
-      (is (= "https://a/1.mp3" (feed/item-guid a)) "a guid of white space alone is none"))
+      (is (= "https://a/1.mp3" (guid/item-guid a)) "a guid of white space alone is none"))
     (testing "a number too large for both platforms stays a string, and the report says so"
       (is (= "99999999999999999999" (:itunes/episode b)))
       (is (some #(= [:rss/items 1 :itunes/episode] (:path %)) (rss/report f))))))
@@ -171,10 +172,10 @@
 
 (deftest identities
   (is (= "https://example.com/ep0003"
-         (feed/item-guid (first (:rss/items (rss/parse @example))))))
-  (is (= "https://a/1.mp3" (feed/item-guid {:rss/enclosure {:url "https://a/1.mp3"}})))
-  (is (= "y0ur-gu1d-g035-h3r3" (feed/feed-guid (rss/parse @example) "https://x")))
-  (is (= "9b024349-ccf0-5f69-a609-6b82873eab3c" (feed/feed-guid {} "https://podnews.net/rss"))))
+         (guid/item-guid (first (:rss/items (rss/parse @example))))))
+  (is (= "https://a/1.mp3" (guid/item-guid {:rss/enclosure {:url "https://a/1.mp3"}})))
+  (is (= "y0ur-gu1d-g035-h3r3" (guid/feed-guid (rss/parse @example) "https://x")))
+  (is (= "9b024349-ccf0-5f69-a609-6b82873eab3c" (guid/feed-guid {} "https://podnews.net/rss"))))
 
 (deftest diffing
   (let [item   (fn [id title] {:rss/guid {:content id} :rss/title title})

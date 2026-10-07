@@ -186,8 +186,8 @@
               (str "with only text, such as `{:rss/guid \"x\"}`, and a single "
                    "value for a vector, which")
               (str "`feed/normalize` expands. The identity of a feed and of an "
-                   "item comes from `feed/feed-guid`")
-              "and `feed/item-guid`."
+                   "item comes from `feed.guid/feed-guid`")
+              "and `feed.guid/item-guid`."
               ""
               "## Value types"
               ""

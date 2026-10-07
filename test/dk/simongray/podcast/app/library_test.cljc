@@ -9,7 +9,7 @@
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
@@ -326,7 +326,7 @@
         fetch    (fn [u opts]
                    (swap! sent conj [u (:credentials opts)])
                    {:status 200 :url u :feed show})
-        listed   (library/update-profile library profile/subscribe (feed/feed-guid {} evil-url) {:url evil-url})]
+        listed   (library/update-profile library profile/subscribe (feed.guid/feed-guid {} evil-url) {:url evil-url})]
     (testing "subscribing to it throws, and names the subscription it would take over"
       (let [e (try (library/subscribe library evil-url show)
                    nil

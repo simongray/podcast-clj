@@ -10,7 +10,7 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory.links :as links]
             [dk.simongray.podcast.directory.podcastindex :as podcastindex]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.html :as html]
@@ -86,7 +86,7 @@
    {:pre [(map? opts)]}
    (let [wanted?   (complement except)
          url       (or url (resolve/self-url feed))
-         feed-guid (feed/feed-guid feed url)
+         feed-guid (guid/feed-guid feed url)
          read?     (or (wanted? :notes) (wanted? :text) (wanted? :chapters))
          notes     (when read?
                      (some-> (resolve/description item) html/hiccup))
@@ -96,9 +96,9 @@
      (cond-> (merge item
                     (resolve/properties feed item)
                     (chosen feed item opts)
-                    {:guid (feed/item-guid item)})
+                    {:guid (guid/item-guid item)})
        feed-guid
-       (assoc :id (feed/episode-id feed url item))
+       (assoc :id (guid/episode-id feed url item))
 
        (and notes (wanted? :notes))
        (assoc :notes notes)
@@ -325,7 +325,7 @@
   or of an :error."
   [{:keys [feed-url item-guid] :as remote} {fetched :value thrown :error}]
   (let [{:keys [feed status error]} fetched
-        item (some #(when (= item-guid (feed/item-guid %)) %)
+        item (some #(when (= item-guid (guid/item-guid %)) %)
                    (:rss/items feed))]
     (cond
       item  {:value (resolve/value feed item)}

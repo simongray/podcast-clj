@@ -5,7 +5,7 @@
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.downloads :as downloads]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.crdt :as crdt]))
 
@@ -305,7 +305,7 @@
 (deftest a-feed-without-a-guid
   (let [bare  (dissoc show :podcast/guid)
         url   "https://example.org/a.xml"
-        guid  (first (feed/episode-id bare url (first (:rss/items bare))))
+        guid  (first (guid/episode-id bare url (first (:rss/items bare))))
         rules {:shows {guid {:download? true :episodes {:limit 1}}}}]
     (is (= [[guid "a4"]] (ids (:download (downloads/plan subscribed [bare] {} now {:rules rules :url url})))))
     (is (= [[guid "a4"]]

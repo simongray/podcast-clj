@@ -32,7 +32,7 @@
   dk.simongray.podcast.util.crdt, so merge joins the profiles of a
   listener's devices, and compact drops the tombstones that every device
   has seen. A feed is identified by its podcast:guid, and an episode by
-  its id, [feed-guid item-guid], as feed/episode-id gives it."
+  its id, [feed-guid item-guid], as guid/episode-id gives it."
   (:refer-clojure :exclude [merge])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -1106,14 +1106,14 @@
   [url before after]
   (if (nil? before)
     []
-    (let [feed-guid     (feed/feed-guid after url)
+    (let [feed-guid     (guid/feed-guid after url)
           date-ms       (fn [item]
                           (let [d (:rss/pub-date item)]
                             (when (inst? d) (inst-ms d))))
           dates         (keep date-ms (:rss/items after))
           oldest-first? (< (or (first dates) 0) (or (last dates) 0))
           added         (:added (feed/diff before after))]
-      (mapv #(vector feed-guid (feed/item-guid %))
+      (mapv #(vector feed-guid (guid/item-guid %))
             (if oldest-first? added (reverse added))))))
 
 (defn- joined-at
@@ -1127,7 +1127,7 @@
   (let [dates (into {} (for [item (:rss/items feed)
                              :let [date (:rss/pub-date item)]
                              :when (inst? date)]
-                         [(feed/item-guid item) date]))]
+                         [(guid/item-guid item) date]))]
     (into {} (map-indexed (fn [i [_ item-guid :as id]]
                             (let [latest (time/->inst (- (inst-ms at) i))
                                   date   (get dates item-guid latest)]
@@ -1147,7 +1147,7 @@
   device that finds an episode late then never undoes what the listener
   did with it on another device."
   [profile url before after at]
-  (let [feed-guid (feed/feed-guid after url)
+  (let [feed-guid (guid/feed-guid after url)
         added     (new-episodes url before after)
         {:keys [auto-queue? inbox?]}
         (when (subscribed? profile feed-guid)

@@ -8,7 +8,7 @@
             [clojure.string :as str]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.directory.podcastindex :as index]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.check :as check]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.validate :as validate]
@@ -133,7 +133,7 @@
                         [(assoc c :kind :chapters)]))]
     {:kind (:kind ref)
      :feed name
-     :guid (feed/item-guid item)
+     :guid (feed.guid/item-guid item)
      :type (:type ref)
      :url  (:url ref)}))
 

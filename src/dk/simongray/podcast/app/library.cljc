@@ -60,7 +60,7 @@
             [dk.simongray.podcast.app.show :as show]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.downloads :as downloads]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
@@ -193,7 +193,7 @@
          settings  (dissoc opts :at :now)
          result    (fetch-result fetched)
          feed      (:feed result)
-         feed-guid (feed/feed-guid feed url)]
+         feed-guid (guid/feed-guid feed url)]
      (when-not (map? feed)
        (let [status (:status result)
              failed (or (:error result)
@@ -409,7 +409,7 @@
   The subscription moves to the guid that the feed declares, as
   profile/rekey does."
   [library feed-guid url result at {:keys [cadence keep] :as opts}]
-  (let [declared (feed/feed-guid (:feed result) url)]
+  (let [declared (guid/feed-guid (:feed result) url)]
     (-> library
         (update :profile profile/rekey feed-guid declared at)
         (update :feeds feeds/add url result at (or cadence {}))
@@ -442,7 +442,7 @@
                                                   value)]))))
         add1   (fn [acc [feed-guid url {:keys [feed] :as result}]]
                  (let [current  (get-in acc [:library :profile])
-                       declared (when feed (feed/feed-guid feed url))
+                       declared (when feed (guid/feed-guid feed url))
                        taken    (when feed
                                   (profile/takeover current declared url))]
                    (cond
@@ -548,16 +548,16 @@
 
 (defn episode-id
   "The id of the episode `item` of `feed` in `library`, [feed-guid
-  item-guid], as feed/episode-id gives it with the URL of the feed."
+  item-guid], as guid/episode-id gives it with the URL of the feed."
   [library feed item]
-  (feed/episode-id feed (get (urls library) feed) item))
+  (guid/episode-id feed (get (urls library) feed) item))
 
 (defn- item-of
   "The entry of the feed `feed-guid` in `library` and its item
   `item-guid`, as a pair, or nil."
   [library [feed-guid item-guid]]
   (when-let [{:keys [feed] :as entry} (get-in library [:feeds feed-guid])]
-    (when-let [item (some #(when (= item-guid (feed/item-guid %)) %)
+    (when-let [item (some #(when (= item-guid (guid/item-guid %)) %)
                           (:rss/items feed))]
       [entry item])))
 
@@ -656,7 +656,7 @@
   (let [items (memoize
                (fn [feed-guid]
                  (into {}
-                       (map (juxt feed/item-guid identity))
+                       (map (juxt guid/item-guid identity))
                        (get-in library [:feeds feed-guid :feed :rss/items]))))]
     (fn [{:keys [id] :as result}]
       (if (vector? id)

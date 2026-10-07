@@ -434,32 +434,13 @@
                  (into [:channel {}] children)]
        {:xml/namespaces (merge (:xml/namespaces (meta feed)) namespaces)}))))
 
-(defn item-guid
-  "The identity of `item`: its guid, or else its enclosure URL, as Apple's
-  A Podcaster's Guide to RSS has it."
-  [item]
-  (or (not-empty (:content (:rss/guid item)))
-      (:url (:rss/enclosure item))))
-
-(defn feed-guid
-  "The identity of `feed`: its podcast:guid, or else the one that the
-  podcast namespace derives from `url`."
-  [feed url]
-  (or (not-empty (:podcast/guid feed))
-      (when url (guid/from-url url))))
-
-(defn episode-id
-  "The id of `item` in the `feed` at `url`: [feed-guid item-guid]."
-  [feed url item]
-  [(feed-guid feed url) (item-guid item)])
-
 (defn- identified
   "The `items` that have an identity, and of those that share one, the
   first."
   [items]
   (let [seen (volatile! #{})]
     (filterv (fn [item]
-               (let [id (item-guid item)]
+               (let [id (guid/item-guid item)]
                  (when (and id (not (contains? @seen id)))
                    (vswap! seen conj id))))
              items)))
@@ -470,15 +451,15 @@
   [before after]
   (let [before (identified before)
         after  (identified after)
-        old    (into {} (map (juxt item-guid identity)) before)
-        new    (into {} (map (juxt item-guid identity)) after)]
-    {:added     (filterv #(not (contains? old (item-guid %))) after)
-     :removed   (filterv #(not (contains? new (item-guid %))) before)
+        old    (into {} (map (juxt guid/item-guid identity)) before)
+        new    (into {} (map (juxt guid/item-guid identity)) after)]
+    {:added     (filterv #(not (contains? old (guid/item-guid %))) after)
+     :removed   (filterv #(not (contains? new (guid/item-guid %))) before)
      :changed   (vec (for [item after
-                           :let [previous (get old (item-guid item))]
+                           :let [previous (get old (guid/item-guid item))]
                            :when (and previous (not= previous item))]
                        {:before previous :after item}))
-     :unchanged (count (filter #(= % (get old (item-guid %))) after))}))
+     :unchanged (count (filter #(= % (get old (guid/item-guid %))) after))}))
 
 (defn diff
   "What changed from the feed `before` to the feed `after`, by item identity:
@@ -533,14 +514,14 @@
   whether the next page is the :first?."
   [{:keys [items seen report first?] :as acc} page]
   (let [fresh  (keep-indexed (fn [i item]
-                               (when-not (contains? seen (item-guid item))
+                               (when-not (contains? seen (guid/item-guid item))
                                  [i item]))
                              (:rss/items page))
         places (into {}
                      (map-indexed (fn [n [i _]] [i (+ (count items) n)]))
                      fresh)]
     {:items  (into items (map second) fresh)
-     :seen   (into seen (keep (comp item-guid second)) fresh)
+     :seen   (into seen (keep (comp guid/item-guid second)) fresh)
      :report (into report (page-report page places first?))
      :first? false}))
 
@@ -550,7 +531,7 @@
 
   The feed is the channel of the first page, with the items of all the
   pages. A feed can gain items while its pages are read, so an item of a
-  later page is left out when an earlier page has it, by item-guid.
+  later page is left out when an earlier page has it, by feed.guid/item-guid.
 
   The report has the diagnostics of the first page. From a later page, it
   has the diagnostics of the items that the feed takes from the page, and

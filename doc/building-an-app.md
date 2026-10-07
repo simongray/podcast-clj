@@ -53,7 +53,8 @@ options, call the function of `profile` with that time instead, e.g.
 
 The examples call each namespace by the last part of its name, e.g.
 `library` is `dk.simongray.podcast.app.library`, except `nostr-comments`
-for `comments.nostr`, and [the last section](#the-namespaces-of-the-examples)
+for `comments.nostr` and `feed.guid` for itself, since `guid` names a value
+in them. [The last section](#the-namespaces-of-the-examples)
 requires them all. The examples run on the JVM, and in ClojureScript the
 functions that send requests return promises.
 
@@ -228,7 +229,7 @@ In a browser, give `fetch!` the `:send` of the proxy.
 
 Without `app.library`, `feeds/add` keeps the feed along with its ETag and
 Last-Modified, and `profile/subscribe` adds the subscription. Every id in
-the profile uses the guid that `feed/feed-guid` gives a feed. A feed can
+the profile uses the guid that `feed.guid/feed-guid` gives a feed. A feed can
 declare the guid of another subscription and take it over, so check a new
 feed with `profile/takeover` first.
 
@@ -951,7 +952,7 @@ split, `(:remote paid)` names the remote item, so add its `:feed-guid` and
    :position  754
    :message   "Great episode"
    :feed-guid guid
-   :item-guid (feed/item-guid item)
+   :item-guid (feed.guid/item-guid item)
    :app-name  "My app"})
 ```
 
@@ -1259,9 +1260,9 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.directory.links :as links]
             [dk.simongray.podcast.directory.podcastindex :as podcastindex]
             [dk.simongray.podcast.downloads :as downloads]
-            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.check :as check]
             [dk.simongray.podcast.feed.discovery :as discovery]
+            [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.publish :as publish]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]

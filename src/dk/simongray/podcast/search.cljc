@@ -13,7 +13,7 @@
   util.text.search, which ranks a match in a title above one in the
   notes."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.transcript :as transcript]
@@ -60,7 +60,7 @@
          titles   (keep :title (:chapters chapters))
          title    (resolve/title item)
          show     (resolve/title feed)
-         id       (feed/episode-id feed url item)]
+         id       (guid/episode-id feed url item)]
      (when (nil? (first id))
        (throw (ex-info (str "A feed without a podcast:guid needs :url, or its "
                             "episodes share ids with those of other shows")
@@ -76,7 +76,7 @@
       :stored (into {} (filter (comp some? val))
                     {:title     title
                      :show      show
-                     :guid      (feed/item-guid item)
+                     :guid      (guid/item-guid item)
                      :url       url
                      :published (resolve/published item)
                      :duration  (resolve/duration item)})})))
@@ -94,7 +94,7 @@
    (let [title      (resolve/title feed)
          author     (resolve/author feed)
          categories (map #(str/join " " %) (resolve/categories feed))]
-     {:id     (feed/feed-guid feed url)
+     {:id     (guid/feed-guid feed url)
       :fields (present {:title       title
                         :description (notes feed)
                         :author      author
@@ -162,14 +162,14 @@
   [ctx]
   (cond-> ctx
     (not (::feed-guid ctx))
-    (assoc ::feed-guid (memoized #(feed/feed-guid % (url-of ctx %))))))
+    (assoc ::feed-guid (memoized #(guid/feed-guid % (url-of ctx %))))))
 
 (defn ^:no-doc episode-id
   "The episode id of `item` in `feed`, with the feed URL from `ctx`."
   [ctx feed item]
   (if-let [guid (::feed-guid ctx)]
-    [(guid feed) (feed/item-guid item)]
-    (feed/episode-id feed (url-of ctx feed) item)))
+    [(guid feed) (guid/item-guid item)]
+    (guid/episode-id feed (url-of ctx feed) item)))
 
 (defn ^:no-doc entry
   "The entry of `item` in `feed`, from the profile in `ctx`."

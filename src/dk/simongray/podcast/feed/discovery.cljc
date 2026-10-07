@@ -22,7 +22,6 @@
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.directory.links :as links]
-            [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
@@ -681,7 +680,7 @@
   :error is there when no feed is, and otherwise it goes in the report."
   [{:keys [known candidates report error] :as acc} url guid]
   (let [feeds     (ranked (concat known candidates))
-        same      (filterv #(= guid (feed/feed-guid (:feed %) (:url %))) feeds)
+        same      (filterv #(= guid (guid/feed-guid (:feed %) (:url %))) feeds)
         feeds     (if (and guid (seq same)) same feeds)
         report    (cond-> (vec report)
                     (and error (seq feeds)) (conj error))

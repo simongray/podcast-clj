@@ -15,7 +15,7 @@
   The rules sync in the profile, and a device with rules of its own
   gives them to plan as :rules."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.search :as search]))
@@ -219,7 +219,7 @@
 
 (defn- guid-of
   [{:keys [url]} feed]
-  (feed/feed-guid feed (if (ifn? url) (url feed) url)))
+  (guid/feed-guid feed (if (ifn? url) (url feed) url)))
 
 (defn- selections
   "The ids of the episodes that the rule in `ctx` of each show of `feeds`
@@ -238,7 +238,7 @@
                            (not (contains? problems feed-guid)))
                 :let  [options (merge ctx (criteria (:episodes own)))
                        found   (search/episodes feed options)]]
-            [feed-guid (mapv #(vector feed-guid (feed/item-guid %)) found)]))))
+            [feed-guid (mapv #(vector feed-guid (guid/item-guid %)) found)]))))
 
 (defn- catalogue
   "The items of `feeds` with the episode `ids`, by id, with the :url of
@@ -251,7 +251,7 @@
                       item-guids (get wanted feed-guid)]
                 :when (and feed-guid item-guids)
                 item (:rss/items feed)
-                :let [item-guid (feed/item-guid item)]
+                :let [item-guid (guid/item-guid item)]
                 :when (and item-guid (contains? item-guids item-guid))]
             [[feed-guid item-guid] item]))))
 

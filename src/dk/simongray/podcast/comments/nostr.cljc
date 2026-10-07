@@ -27,7 +27,7 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.nostr :as nostr]
@@ -89,7 +89,7 @@
   ([feed item]
    (about feed item {}))
   ([feed item {:keys [url] :as opts}]
-   (let [guid   (if item (feed/item-guid item) (feed/feed-guid feed url))
+   (let [guid   (if item (guid/item-guid item) (guid/feed-guid feed url))
          prefix (if item "podcast:item:guid:" "podcast:guid:")]
      (when guid
        {:protocol "nostr" :uri (str prefix guid)}))))

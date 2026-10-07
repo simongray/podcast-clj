@@ -19,7 +19,7 @@
   feeds can keep only what slim gives of each, which is enough for that."
   (:require [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
-            [dk.simongray.podcast.feed :as feed]
+            [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.async :as async]
@@ -118,7 +118,7 @@
      (throw (ex-info "A result without a :feed can't be added"
                      {:url url :status (:status result)})))
    (let [cadence   (merge default-cadence cadence)
-         feed-guid (feed/feed-guid (:feed result) url)
+         feed-guid (guid/feed-guid (:feed result) url)
          old       (get feeds feed-guid {})]
      (assoc feeds feed-guid (fetched old url result at cadence)))))
 
