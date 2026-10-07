@@ -134,6 +134,19 @@
                 (or (nil? lo) (<= lo x))
                 (or (nil? hi) (<= x hi)))))
 
+;; memoize takes any arguments, so each call makes a seq of them and
+;; hashes it, which costs a criterion of every episode a twentieth
+(defn- memoized
+  "The function `f` of one argument, which works each answer out once."
+  [f]
+  (let [known (volatile! {})]
+    (fn [x]
+      (if-let [[_ answer] (find @known x)]
+        answer
+        (let [answer (f x)]
+          (vswap! known assoc x answer)
+          answer)))))
+
 (defn- url-of
   "The URL of `feed` by the :url of the context, a string, or a function
   of the feed such as a map of feeds to URLs."
@@ -147,15 +160,9 @@
   works each one out once, since that of a feed without a podcast:guid is
   a hash of its URL."
   [ctx]
-  (if (::feed-guid ctx)
-    ctx
-    (let [known (volatile! {})
-          guid  (fn [feed]
-                  (or (get @known feed)
-                      (let [guid (feed/feed-guid feed (url-of ctx feed))]
-                        (vswap! known assoc feed guid)
-                        guid)))]
-      (assoc ctx ::feed-guid guid))))
+  (cond-> ctx
+    (not (::feed-guid ctx))
+    (assoc ::feed-guid (memoized #(feed/feed-guid % (url-of ctx %))))))
 
 (defn ^:no-doc episode-id
   "The episode id of `item` in `feed`, with the feed URL from `ctx`."

@@ -621,15 +621,11 @@
   "A function that gives a result of a search of `library` with its :feed,
   and for an episode its :item too. It looks the items of a feed up once."
   [library]
-  (let [by-guid (volatile! {})
-        items   (fn [feed-guid]
-                  (or (get @by-guid feed-guid)
-                      (let [feed  (get-in library [:feeds feed-guid :feed])
-                            items (into {}
-                                        (map (juxt feed/item-guid identity))
-                                        (:rss/items feed))]
-                        (vswap! by-guid assoc feed-guid items)
-                        items)))]
+  (let [items (memoize
+               (fn [feed-guid]
+                 (into {}
+                       (map (juxt feed/item-guid identity))
+                       (get-in library [:feeds feed-guid :feed :rss/items]))))]
     (fn [{:keys [id] :as result}]
       (if (vector? id)
         (let [[feed-guid item-guid] id]
@@ -664,14 +660,13 @@
                          :at      (time-of library opts)
                          :index   index)
            meets? (some-> (:where opts) (search/where ctx))
-           keep?  (:filter opts)
-           kept?  (fn [result]
-                    (let [{:keys [feed item] :as found} (locate result)]
-                      (and (or (nil? keep?) (keep? found))
-                           (or (nil? meets?)
-                               (and item (meets? feed item))))))
+           tests  (cond-> []
+                    (:filter opts) (conj (:filter opts))
+                    meets?         (conj (fn [{:keys [feed item]}]
+                                           (and item (meets? feed item)))))
            opts   (cond-> (dissoc opts :where :at :scale)
-                    (or meets? keep?) (assoc :filter kept?))
+                    (seq tests) (assoc :filter (comp (apply every-pred tests)
+                                                     locate)))
            found  (text.search/query index q opts)]
        (with-meta (mapv locate found) (meta found))))))
 

@@ -553,10 +553,11 @@
                         (assoc passage
                                :start-time (start-of-match piece parts)
                                :parts      parts)))))]
-     (->> (:segments transcript)
-          (partition-by :speaker)
-          (mapcat #(pieces % length))
-          (into [] (keep marked))))))
+     (into []
+           (comp (partition-by :speaker)
+                 (mapcat #(pieces % length))
+                 (keep marked))
+           (:segments transcript)))))
 
 #?(:clj
    (comment

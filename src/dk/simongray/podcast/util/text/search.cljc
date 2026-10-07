@@ -436,31 +436,29 @@
                  :field-stats (field-stats lengths n width)
                  :deleted     #{}})))
 
+(defn- numbers-from
+  "An array of the number of each document of `segment` in a merged
+  segment, counting from `base` and skipping those removed, which get
+  -1."
+  [^Segment segment base]
+  (let [n             (long (size segment))
+        deleted       (.-deleted segment)
+        ^ints numbers (make-ints n)]
+    (loop [d 0 j (long base)]
+      (when (< d n)
+        (if (contains? deleted d)
+          (do (aset numbers d -1)
+              (recur (inc d) j))
+          (do (aset numbers d (int j))
+              (recur (inc d) (inc j))))))
+    numbers))
+
 (defn- renumbered
   "For each of the `segments`, an array of the number of each of its
-  documents in one segment of them all in order, without those removed,
-  which get -1."
+  documents in one segment of them all in order, as numbers-from gives
+  them."
   [segments]
-  (first
-   (reduce (fn [[arrays base] ^Segment segment]
-             (let [n             (long (size segment))
-                   deleted       (.-deleted segment)
-                   ^ints numbers (make-ints n)
-                   next-base     (loop [d 0 j (long base)]
-                                   (cond
-                                     (= d n)
-                                     j
-
-                                     (contains? deleted d)
-                                     (do (aset numbers d -1)
-                                         (recur (inc d) j))
-
-                                     :else
-                                     (do (aset numbers d (int j))
-                                         (recur (inc d) (inc j)))))]
-               [(conj arrays numbers) next-base]))
-           [[] 0]
-           segments)))
+  (mapv numbers-from segments (reductions + 0 (map live segments))))
 
 (defn- without-removed
   "The values `vs` of the documents of a segment by number, without those
@@ -515,46 +513,45 @@
           nil
           (range (count segments))))
 
-(defn- combined
-  "One segment of the `segments` in order, without their documents that
-  are removed."
-  [segments]
-  (let [segments       (vec segments)
-        numbers        (renumbered segments)
-        width          (reduce max 0 (map #(.-width ^Segment %) segments))
-        values         (fn [f]
-                         (into []
-                               (mapcat #(without-removed
-                                         (f %)
-                                         (.-deleted ^Segment %)))
-                               segments))
-        ids            (values #(.-ids ^Segment %))
-        ^ints lengths  (make-ints (* (count ids) width))
-        total          (fn [f]
-                         (reduce + 0 (map #(alength ^ints (f %)) segments)))
-        ^ints docs     (make-ints (total #(.-docs ^Segment %)))
-        ^ints starts   (make-ints (inc (alength docs)))
-        positions      (make-ints (total #(.-positions ^Segment %)))
-        ^ints cursors  (make-ints (count segments))
-        copy-term!     (fn [term [k p] i]
-                         (let [^Segment segment (nth segments i)
-                               ^objects terms   (.-terms segment)
-                               ^ints doc-start  (.-doc-start segment)
-                               c                (aget cursors i)]
-                           (if (and (< c (alength terms))
-                                    (= term (aget terms c)))
-                             (do (aset cursors i (inc c))
-                                 (copy-postings! segment (nth numbers i)
-                                                 (aget doc-start c)
-                                                 (aget doc-start (inc c))
-                                                 docs starts positions k p))
-                             [k p])))]
+(defn- merged-lengths
+  "The lengths of the fields of the `n` documents of the `segments` that
+  their `numbers` keep, `width` of them to a document, as an array."
+  [segments numbers n width]
+  (let [^ints lengths (make-ints (* (long n) (long width)))]
     (doseq [[^Segment segment ^ints nos] (map vector segments numbers)
             :let  [w (.-width segment)]
             d     (range (size segment))
             :let  [j (aget nos d)]
             :when (<= 0 j)]
-      (copy-ints! (.-lengths segment) (* d w) lengths (* j width) w))
+      (copy-ints! (.-lengths segment) (* d w) lengths (* j (long width)) w))
+    lengths))
+
+;; A merge of sorted lists: each segment has a cursor at its next term,
+;; and the least of those terms comes next
+(defn- merged-postings
+  "The terms of the `segments` and their postings of the documents that
+  their `numbers` keep, as the parts of one segment."
+  [segments numbers]
+  (let [total           (fn [f]
+                          (reduce + 0 (map #(alength ^ints (f %)) segments)))
+        ^ints docs      (make-ints (total #(.-docs ^Segment %)))
+        ^ints pos-start (make-ints (inc (alength docs)))
+        positions       (make-ints (total #(.-positions ^Segment %)))
+        ^ints cursors   (make-ints (count segments))
+        copy-term!      (fn [term [k p] i]
+                          (let [^Segment segment (nth segments i)
+                                ^objects terms   (.-terms segment)
+                                ^ints starts     (.-doc-start segment)
+                                c                (aget cursors i)]
+                            (if (and (< c (alength terms))
+                                     (= term (aget terms c)))
+                              (do (aset cursors i (inc c))
+                                  (copy-postings! segment (nth numbers i)
+                                                  (aget starts c)
+                                                  (aget starts (inc c))
+                                                  docs pos-start positions
+                                                  k p))
+                              [k p])))]
     (loop [k 0 p 0 terms (transient []) doc-start (transient [0])]
       (if-let [term (least-term segments cursors)]
         (let [[next-k next-p] (reduce #(copy-term! term %1 %2)
@@ -567,17 +564,33 @@
                    (long next-p)
                    (conj! terms term)
                    (conj! doc-start next-k))))
-        (do (aset starts k (int p))
-            (segment-of {:ids         ids
-                         :stored      (values #(.-stored ^Segment %))
-                         :terms       (persistent! terms)
-                         :doc-start   (persistent! doc-start)
-                         :docs        (slice docs 0 k)
-                         :pos-start   (slice starts 0 (inc k))
-                         :positions   (slice positions 0 p)
-                         :lengths     lengths
-                         :field-stats (field-stats lengths (count ids) width)
-                         :deleted     #{}}))))))
+        (do (aset pos-start k (int p))
+            {:terms     (persistent! terms)
+             :doc-start (persistent! doc-start)
+             :docs      (slice docs 0 k)
+             :pos-start (slice pos-start 0 (inc k))
+             :positions (slice positions 0 p)})))))
+
+(defn- combined
+  "One segment of the `segments` in order, without their documents that
+  are removed."
+  [segments]
+  (let [segments (vec segments)
+        numbers  (renumbered segments)
+        width    (reduce max 0 (map #(.-width ^Segment %) segments))
+        kept     (fn [k]
+                   (into []
+                         (mapcat #(without-removed (k (parts %))
+                                                   (.-deleted ^Segment %)))
+                         segments))
+        ids      (kept :ids)
+        lengths  (merged-lengths segments numbers (count ids) width)]
+    (segment-of (assoc (merged-postings segments numbers)
+                       :ids         ids
+                       :stored      (kept :stored)
+                       :lengths     lengths
+                       :field-stats (field-stats lengths (count ids) width)
+                       :deleted     #{}))))
 
 (defn- located
   "The `docs` of an index, a map of each id to the index of its segment and
@@ -657,20 +670,22 @@
 (defn- removed
   "The `index` without the documents of `ids`."
   [index ids]
-  (let [found (keep #(find (:docs index) %) (distinct ids))]
+  (let [found (select-keys (:docs index) ids)]
     (if (empty? found)
       index
-      (let [by-segment (group-by #(first (val %)) found)
-            segments   (reduce-kv (fn [segments i found]
-                                    (update segments i with-removed
-                                            (map #(second (val %)) found)))
-                                  (:segments index)
-                                  by-segment)
-            docs       (persistent! (reduce dissoc!
-                                            (transient (:docs index))
-                                            (map key found)))]
+      (let [by-segment (reduce (fn [acc [_ [i no]]]
+                                 (update acc i (fnil conj []) no))
+                               {}
+                               found)]
         (-> index
-            (assoc :segments segments :docs docs)
+            (update :segments #(reduce-kv (fn [segments i nos]
+                                            (update segments i
+                                                    with-removed nos))
+                                          %
+                                          by-segment))
+            (update :docs #(persistent! (reduce dissoc!
+                                                (transient %)
+                                                (keys found))))
             pruned
             balanced)))))
 
@@ -678,13 +693,8 @@
   "The `docs` without those that a later one with the same id replaces,
   in order."
   [docs]
-  (let [[_ kept] (reduce (fn [[ids kept] {:keys [id] :as doc}]
-                           (if (contains? ids id)
-                             [ids kept]
-                             [(conj ids id) (conj kept doc)]))
-                         [#{} []]
-                         (reverse docs))]
-    (rseq kept)))
+  (let [last-at (zipmap (map :id docs) (range))]
+    (keep-indexed #(when (= %1 (last-at (:id %2))) %2) docs)))
 
 ;; A segment is built of at most 4096 documents at once, so that building
 ;; it takes little memory, and merges join the segments
@@ -1009,6 +1019,14 @@
       (:term :phrase) (f node)
       node)))
 
+;; Lucene's BooleanClause: a clause of an :and or :or that a match holds,
+;; and a MUST_NOT clause, a :not, that leaves matches out
+(defn- clauses
+  "The `queries` of an :and or :or as a pair of those that a match holds
+  and those that a :not leaves out."
+  [queries]
+  [(clojure.core/remove :not queries) (keep :not queries)])
+
 (defn- in-field
   "The query `node` with `field` on each of its terms and phrases that
   names no field of its own."
@@ -1067,37 +1085,32 @@
 
 ;; NOT binds tighter than AND, and AND than OR, as in SQLite FTS5. Words
 ;; without an operator between them take the default one at its level
-(defn- parse-and
-  [ctx i]
-  (loop [[node j] (parse-unary ctx i) queries []]
+(defn- parse-joined
+  "The queries at `i` in the lexemes of `ctx` that `parse-operand` reads,
+  joined by `op`, :and or :or, as a pair of the query, or nil, and where
+  the lexemes go on."
+  [op parse-operand ctx i]
+  (loop [[node j] (parse-operand ctx i) queries []]
     (let [queries (cond-> queries node (conj node))
           lexeme  (get-in ctx [:lexemes j])]
       (cond
-        (= :and (:kind lexeme))
-        (recur (parse-unary ctx (inc j)) queries)
+        (= op (:kind lexeme))
+        (recur (parse-operand ctx (inc j)) queries)
 
-        (and (= :and (:operator ctx))
+        (and (= op (:operator ctx))
              (operand-start? lexeme))
-        (recur (parse-unary ctx j) queries)
+        (recur (parse-operand ctx j) queries)
 
         :else
-        [(combine :and queries) j]))))
+        [(combine op queries) j]))))
+
+(defn- parse-and
+  [ctx i]
+  (parse-joined :and parse-unary ctx i))
 
 (defn- parse-or
   [ctx i]
-  (loop [[node j] (parse-and ctx i) queries []]
-    (let [queries (cond-> queries node (conj node))
-          lexeme  (get-in ctx [:lexemes j])]
-      (cond
-        (= :or (:kind lexeme))
-        (recur (parse-and ctx (inc j)) queries)
-
-        (and (= :or (:operator ctx))
-             (operand-start? lexeme))
-        (recur (parse-and ctx j) queries)
-
-        :else
-        [(combine :or queries) j]))))
+  (parse-joined :or parse-and ctx i))
 
 (defn- name-of
   [field]
@@ -1210,12 +1223,12 @@
         ^doubles a      (make-doubles n)
         ^doubles c      (make-doubles n)]
     (doseq [[field no] numbers]
-      (let [stats   (keep #(get (.-field-stats ^Segment %) no) segments)
-            docs    (reduce + 0 (map first stats))
-            length  (reduce + 0 (map second stats))
-            average (if (pos? docs)
-                      (/ (double length) docs)
-                      1.0)]
+      (let [[docs length] (->> segments
+                               (keep #(get (.-field-stats ^Segment %) no))
+                               (apply map + [0 0]))
+            average       (if (pos? docs)
+                            (/ (double length) docs)
+                            1.0)]
         (aset weight no (double (get boosts field 1)))
         (aset a no (- 1.0 b))
         (aset c no (/ b average))))
@@ -1790,23 +1803,13 @@
   an :and or a phrase those of its rarest part, so that an :and can start
   from its rarest part."
   [segment node]
-  (let [positive #(clojure.core/remove :not %)]
-    (cond
-      (contains? node :and)
-      (reduce min ##Inf (map #(cost segment %) (positive (:and node))))
-
-      (contains? node :or)
-      (reduce + 0 (map #(cost segment %) (positive (:or node))))
-
-      (contains? node :phrase)
-      (reduce min ##Inf (map #(postings-count (term-ranges segment %))
-                             (:places node)))
-
-      (contains? node :term)
-      (postings-count (term-ranges segment (concat (:terms (:summed node))
-                                                   (:terms (:typos node)))))
-
-      :else
+  (let [costs   #(map (partial cost segment) (first (clauses %)))
+        held-by #(postings-count (term-ranges segment %))]
+    (case (kind node)
+      :and    (reduce min ##Inf (costs (:and node)))
+      :or     (reduce + 0 (costs (:or node)))
+      :phrase (reduce min ##Inf (map held-by (:places node)))
+      :term   (held-by (concat (:terms (:summed node)) (:terms (:typos node))))
       0)))
 
 ;; Lucene's BooleanQuery: the scores of the clauses that match add up, and
@@ -1818,35 +1821,35 @@
   match all the prepared `queries` but those under a :not, with the
   constants of `ctx`."
   [ctx segment queries candidates]
-  (let [[rarest & others] (sort-by #(cost segment %)
-                                   (clojure.core/remove :not queries))]
-    (if (nil? rarest)
-      (no-hits)
-      (->> others
-           (reduce (fn [found q]
-                     (if (zero? (hit-count found))
-                       (reduced found)
-                       (added-up found (hits-in ctx segment q (:docs found)))))
-                   (hits-in ctx segment rarest candidates))
-           (excluded ctx segment (keep :not queries))))))
+  (let [[positive negative] (clauses queries)
+        [rarest & others]   (sort-by #(cost segment %) positive)
+        narrowed            (fn [found q]
+                              (if (zero? (hit-count found))
+                                (reduced found)
+                                (->> (hits-in ctx segment q (:docs found))
+                                     (added-up found))))]
+    (if rarest
+      (->> (reduce narrowed (hits-in ctx segment rarest candidates) others)
+           (excluded ctx segment negative))
+      (no-hits))))
 
 (defn- any-of
   "The hits in `segment` among the `candidates` of the documents that
   match any of the prepared `queries` but those under a :not, with the
   constants of `ctx`."
   [ctx segment queries candidates]
-  (let [positive (clojure.core/remove :not queries)]
-    (if (empty? positive)
-      (no-hits)
+  (let [[positive negative] (clauses queries)]
+    (if (seq positive)
       (->> positive
            (map #(hits-in ctx segment % candidates))
-           (reduce #(joined :+ %1 %2))
-           (excluded ctx segment (keep :not queries))))))
+           (reduce (partial joined :+))
+           (excluded ctx segment negative))
+      (no-hits))))
 
 (defn- term-hits
   "The hits in `segment` among the `candidates` of the prepared term
-  `leaf`, with the saturation of `ctx`: those of its :summed terms, the
-  best of its :typos terms, or the best of both."
+  `leaf`, with the saturation of `ctx`: the best of those of its :summed
+  terms and of each of its :typos terms at its boost."
   [{:keys [k1]} segment {:keys [weights summed typos]} candidates]
   (let [scored (fn [terms idf]
                  (-> (range-frequencies segment
@@ -1855,17 +1858,14 @@
                                         candidates)
                      (saturated idf k1)))
         exact  (when summed
-                 (scored (:terms summed) (:idf summed)))
-        close  (when typos
-                 (reduce #(joined :max %1 %2)
-                         (no-hits)
-                         (map (fn [term boost]
-                                (scored [term] (* (double boost) (:idf typos))))
-                              (:terms typos)
-                              (:boosts typos))))]
-    (if (and exact close)
-      (joined :max exact close)
-      (or exact close (no-hits)))))
+                 [(scored (:terms summed) (:idf summed))])
+        close  (map (fn [term boost]
+                      (scored [term] (* (double boost) (:idf typos))))
+                    (:terms typos)
+                    (:boosts typos))]
+    (if-let [parts (seq (concat exact close))]
+      (reduce (partial joined :max) parts)
+      (no-hits))))
 
 ;; One walk through each term's postings for all the candidates, as in
 ;; add-frequencies!, rather than a search for each candidate
@@ -1962,12 +1962,12 @@
   `node`, with the constants of `ctx`. A query of :not alone matches
   nothing."
   [ctx segment node candidates]
-  (cond
-    (contains? node :and)    (all-of ctx segment (:and node) candidates)
-    (contains? node :or)     (any-of ctx segment (:or node) candidates)
-    (contains? node :phrase) (phrase-hits ctx segment node candidates)
-    (contains? node :term)   (term-hits ctx segment node candidates)
-    :else                    (no-hits)))
+  (case (kind node)
+    :and    (all-of ctx segment (:and node) candidates)
+    :or     (any-of ctx segment (:or node) candidates)
+    :phrase (phrase-hits ctx segment node candidates)
+    :term   (term-hits ctx segment node candidates)
+    (no-hits)))
 
 (defn- as-query
   "The query `q` as data, read with the `opts`: a string parsed, a vector
@@ -2235,12 +2235,11 @@
   "The terms and phrases of the query `node` that a match holds, those
   under a :not left out."
   [node]
-  (cond
-    (contains? node :and) (into [] (mapcat leaves) (:and node))
-    (contains? node :or)  (into [] (mapcat leaves) (:or node))
-    (contains? node :not) []
-    (nil? node)           []
-    :else                 [node]))
+  (let [k (kind node)]
+    (case k
+      (:and :or)      (into [] (mapcat leaves) (get node k))
+      (:term :phrase) [node]
+      [])))
 
 (defn- term-matches?
   [term prefix? found]
@@ -2418,21 +2417,16 @@
   and phrases a text has, as query matches a document: all of :and, any
   of :or, but none of those under a :not, and nothing for a :not alone."
   [found? node]
-  (let [holds? (fn [op queries]
-                 (let [positive (clojure.core/remove :not queries)
-                       negative (keep :not queries)
-                       ok?      #(satisfied? found? %)]
-                   (boolean (and (seq positive)
-                                 (if (= :and op)
-                                   (every? ok? positive)
-                                   (some ok? positive))
-                                 (not-any? ok? negative)))))]
-    (cond
-      (contains? node :and) (holds? :and (:and node))
-      (contains? node :or)  (holds? :or (:or node))
-      (contains? node :not) false
-      (nil? node)           false
-      :else                 (found? node))))
+  (let [k (kind node)]
+    (case k
+      (:and :or)      (let [[positive negative] (clauses (get node k))
+                            holds?              #(satisfied? found? %)
+                            all-or-any          ({:and every? :or some} k)]
+                        (boolean (and (seq positive)
+                                      (all-or-any holds? positive)
+                                      (not-any? holds? negative))))
+      (:term :phrase) (found? node)
+      false)))
 
 (defn matches?
   "Whether `text` matches the query `q`, read with the `opts` of parse,

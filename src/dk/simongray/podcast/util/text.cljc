@@ -269,28 +269,21 @@
 ;; find a run that ends in it; it shares the position of the last pair, as
 ;; the unigrams of CJKBigramFilter's outputUnigrams do
 (defn- paired
-  "The `characters` of a run in a script without spaces, maps of :term,
-  :start and :end, as groups by position: a group for each pair of
-  neighbours, the last with the last character in it too."
-  [characters]
+  "The `characters` of a run in a script without spaces by position, with
+  `pair` making one of two neighbours: a pair at each position, the last
+  with the last character too in a vector, or the one character."
+  [pair characters]
   (if (next characters)
-    (let [pair  (fn [a b]
-                  {:term  (str (:term a) (:term b))
-                   :start (:start a)
-                   :end   (:end b)})
-          pairs (mapv pair characters (rest characters))]
-      (conj (mapv vector (pop pairs))
-            [(peek pairs) (peek characters)]))
-    (mapv vector characters)))
-
-(defn- paired-terms
-  "The folded `characters` of a run in a script without spaces as terms by
-  position, as paired gives them."
-  [characters]
-  (if (next characters)
-    (let [pairs (mapv str characters (rest characters))]
+    (let [pairs (mapv pair characters (rest characters))]
       (conj (pop pairs) [(peek pairs) (peek characters)]))
     characters))
+
+(defn- paired-span
+  "The span of the pair of the character spans `a` and `b`."
+  [a b]
+  {:term  (str (:term a) (:term b))
+   :start (:start a)
+   :end   (:end b)})
 
 (defn- conj-part-terms
   "The transient `acc` of terms by position, with those of the word `w`,
@@ -298,7 +291,7 @@
   [acc w]
   (reduce-matches (fn [acc part _]
                     (if (unspaced? part)
-                      (reduce conj! acc (paired-terms (character-terms part)))
+                      (reduce conj! acc (paired str (character-terms part)))
                       (conj-term acc (fold part))))
                   acc
                   parts
@@ -323,7 +316,8 @@
                    (let [from (+ start at)]
                      (if (unspaced? part)
                        (->> (folded-characters part from)
-                            (paired)
+                            (paired paired-span)
+                            (map #(if (vector? %) % [%]))
                             (reduce conj! acc))
                        (let [term (fold part)]
                          (cond-> acc
