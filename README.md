@@ -38,9 +38,9 @@ Current status
   supported too. You can also find the feed of a show from its website or a link
   from another app.
 - **Apps.** Everything needed to create a podcast app, including a queue,
-  playlists, full-text search, download rules, and sync between devices
-  through a folder, [WebDAV](https://www.rfc-editor.org/rfc/rfc4918), or
-  [a server of your own](server/README.md). Through the [gpodder API](https://gpoddernet.readthedocs.io/en/latest/api/),
+  playlists, full-text search that forgives typos, download rules, a library
+  saved in a folder or IndexedDB, and sync between devices through a folder,
+  [WebDAV](https://www.rfc-editor.org/rfc/rfc4918), or [a server of your own](server/README.md). Through the [gpodder API](https://gpoddernet.readthedocs.io/en/latest/api/),
   the subscriptions and play progress also sync with apps such as
   [AntennaPod](https://antennapod.org).
 - **Hosts.** Validation against
@@ -77,7 +77,7 @@ are mostly named after the part of podcasting they cover, e.g. `directory`,
 `comments`, `value` for payments and `analytics` for download counts. What a
 listener does, e.g. subscribing, queueing and playing, goes into their profile,
 which syncs between their devices. Each device has its own library: the
-profile, plus the feeds that the device has fetched.
+profile, plus the feeds that the device has fetched and their search index.
 
 Feeds as data
 -------------
@@ -139,9 +139,9 @@ An app in a few lines
 ---------------------
 
 You can create a full-featured podcast app with the `app.*` namespaces, and
-sync the listener's devices through the backends of `sync.*`, e.g. a folder,
-WebDAV or the gpodder API. Subscribing, playing, refreshing, and syncing are
-each one function call.
+sync the listener's devices through `sync.*`, e.g. a folder, WebDAV or the
+gpodder API. Subscribing, playing, refreshing, searching, saving, and syncing
+are each one function call.
 A call that changes the library returns a new version, and playing, refreshing
 and syncing also record what they did in it:
 
@@ -163,6 +163,10 @@ and syncing also record what they did in it:
 ;; what an episode page shows, e.g. the show notes, chapters and transcript
 (merge (library/episode @lib id) (library/read-files! @lib id))
 
+;; search the episodes and shows; a word with a typo still finds them
+(map (comp :title :stored) (library/search @lib "podcastng"))
+;; => ("Podcasting 2.0" "Episode 73: Spinning Gold out of Yarn" …)
+
 ;; tell the library that the player is 754 seconds into the 3600-second
 ;; episode, and get back what to do with the media element: nothing, here
 (:effects (swap! lib library/step [:progress id 754 3600]))
@@ -180,6 +184,10 @@ and syncing also record what they did in it:
 (def dropbox (sync/backend (file/store "/Users/simon/Dropbox/Podcasts")))
 (-> (swap! lib library/merge (library/sync! @lib [dropbox])) :sync :report)
 ;; => []
+
+;; keep the library until the next start, and read it back with restore!
+(library/save! @lib (file/store "data"))
+;; => {:put ["segment-37b1….ciff" "index.edn" "library.edn"] :delete []}
 
 ;; the listener's profile: the subscriptions, queue, progress, stars and more
 (:profile @lib)
