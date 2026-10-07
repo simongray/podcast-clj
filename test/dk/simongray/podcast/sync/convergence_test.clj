@@ -5,10 +5,10 @@
   (:require [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
+            [dk.simongray.crdt :as crdt]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.store :as store]
-            [dk.simongray.podcast.util.crdt :as crdt]))
+            [dk.simongray.podcast.store :as store]
+            [dk.simongray.podcast.sync :as sync]))
 
 (def devices
   ["phone" "laptop" "car"])

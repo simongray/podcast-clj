@@ -17,8 +17,8 @@
   The shell in inspector.player performs them."
   (:require [cljs.pprint :as pprint]
             [clojure.string :as str]
+            [dk.simongray.crdt :as crdt]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]))
 
 (defn item-href

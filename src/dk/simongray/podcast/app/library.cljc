@@ -58,25 +58,26 @@
   feed of the show, and lists that episode of it alone."
   (:refer-clojure :exclude [merge])
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
+            [dk.simongray.crdt :as crdt]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.show :as show]
+            [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.downloads :as downloads]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
+            [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.search :as search]
+            [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.text.search :as text.search]
-            [dk.simongray.podcast.util.text.search.ciff :as ciff]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.search :as search]
+            [dk.simongray.search.ciff :as ciff]))
 
 (def default-config
   "The config that a library has when make isn't given one. The
@@ -115,7 +116,7 @@
                        (seq description) described)
       :feeds         {}
       :fetched-lists {}
-      :index         (when (:search? config) (search/index))
+      :index         (when (:search? config) (feed.search/index))
       :sync          {}
       :config        config})))
 
@@ -154,7 +155,7 @@
 
 (defn urls
   "A map from each feed of `library`, as episodes gives it, to its URL,
-  which search/episodes and downloads/plan take as :url."
+  which criteria/episodes and downloads/plan take as :url."
   [library]
   (into {} (for [[feed-guid {:keys [url]}] (:feeds library)
                  :let  [feed (shown library feed-guid)]
@@ -167,24 +168,26 @@
   alone."
   [library feed-guid]
   (when-let [feed (shown library feed-guid)]
-    (cond->> (search/feed-documents feed
-                                    (get-in library [:feeds feed-guid :url]))
-      (not (profile/subscribed? (:profile library) feed-guid))
-      (filter (comp vector? :id)))))
+    (let [url (get-in library [:feeds feed-guid :url])]
+      (cond->> (feed.search/feed-documents feed url)
+        (not (profile/subscribed? (:profile library) feed-guid))
+        (filter (comp vector? :id))))))
 
 (defn index
   "A search index of the feeds of `library`, e.g. for a library read back
   without its :index, as its config's :search? keeps it."
   [library]
-  (search/index (mapcat #(documents library %) (keys (:feeds library)))))
+  (->> (keys (:feeds library))
+       (mapcat #(documents library %))
+       (feed.search/index)))
 
 (defn- reindexed
   "The `library` with the feed `feed-guid` indexed again, when it keeps an
   index."
   [library feed-guid]
   (if-let [index (:index library)]
-    (assoc library :index (apply text.search/add
-                                 (search/without-feed index feed-guid)
+    (assoc library :index (apply search/add
+                                 (feed.search/without-feed index feed-guid)
                                  (documents library feed-guid)))
     library))
 
@@ -196,7 +199,7 @@
           (seq (remote-guids (:profile library) feed-guid)))
     (reindexed library feed-guid)
     (cond-> (update library :feeds dissoc feed-guid)
-      (:index library) (update :index search/without-feed feed-guid))))
+      (:index library) (update :index feed.search/without-feed feed-guid))))
 
 (defn- kept
   "The `library` with the feed `feed-guid` cut down to what `keep` gives of it,
@@ -679,7 +682,7 @@
   "The episodes of the shows of `library` that `opts` select, as [feed
   item] pairs.
 
-  The selection and the order are those of search/episodes across all
+  The selection and the order are those of criteria/episodes across all
   the feeds. The criteria read the profile of the library, and the
   time of its clock unless the `opts` give :at.
 
@@ -688,21 +691,21 @@
    (episodes library {}))
   ([library opts]
    {:pre [(map? opts)]}
-   (search/episodes (shown-feeds library)
-                    (cond-> (assoc opts
-                                   :profile (:profile library)
-                                   :url     (urls library)
-                                   :at      (time-of library opts))
-                      (:index library) (assoc :index (:index library))))))
+   (criteria/episodes (shown-feeds library)
+                      (cond-> (assoc opts
+                                     :profile (:profile library)
+                                     :url     (urls library)
+                                     :at      (time-of library opts))
+                        (:index library) (assoc :index (:index library))))))
 
 (defn search
   "The episodes and shows of `library` that match the query `q`, best
   first, with the `opts` below, or nil when the library keeps no index.
 
   Each result has its :feed, and an episode its :item. The words that
-  matched with typos are in the metadata, as util.text.search/query gives
+  matched with typos are in the metadata, as dk.simongray.search/query gives
   them. The `opts` are those of query, whose :filter gets the result with
-  them, and :where, the criteria of search/where that an episode must
+  them, and :where, the criteria of criteria/where that an episode must
   meet, which leaves the shows out. The criteria read the profile of the
   library, and the time of its clock unless the `opts` give :at.
 
@@ -714,13 +717,13 @@
   ([library q opts]
    {:pre [(map? opts)]}
    (when-let [index (:index library)]
-     (let [locate (search/located (update-vals (:feeds library) :feed))
+     (let [locate (feed.search/located (update-vals (:feeds library) :feed))
            ctx    (assoc (select-keys opts [:scale])
                          :profile (:profile library)
                          :url     (urls library)
                          :at      (time-of library opts)
                          :index   index)
-           meets? (some-> (:where opts) (search/where ctx))
+           meets? (some-> (:where opts) (criteria/where ctx))
            tests  (cond-> []
                     (:filter opts) (conj (:filter opts))
                     meets?         (conj (fn [{:keys [feed item]}]
@@ -728,7 +731,7 @@
            opts   (cond-> (dissoc opts :where :at :scale)
                     (seq tests) (assoc :filter (comp (apply every-pred tests)
                                                      locate)))
-           found  (text.search/query index q opts)]
+           found  (search/query index q opts)]
        (with-meta (mapv locate found) (meta found))))))
 
 (defn step
@@ -918,7 +921,7 @@
   private file system, since it deletes the documents of any other index
   there:
 
-      (save! @lib (sync.indexeddb/store))"
+      (save! @lib (store.indexeddb/store))"
   ([library store]
    (save! library store {}))
   ([library store {:keys [keys] :or {keys saved-keys} :as opts}]
@@ -964,10 +967,10 @@
   have taken out, and the feeds that its index doesn't have indexed, as
   after a save that stopped half way."
   [library]
-  (let [indexed (search/feed-guids (:index library))
+  (let [indexed (feed.search/feed-guids (:index library))
         feeds   (set (keys (:feeds library)))]
     (as-> library library
-      (reduce #(update %1 :index search/without-feed %2)
+      (reduce #(update %1 :index feed.search/without-feed %2)
               library
               (remove feeds indexed))
       (reduce reindexed library (remove indexed feeds)))))

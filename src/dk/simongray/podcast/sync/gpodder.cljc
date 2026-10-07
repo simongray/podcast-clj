@@ -13,13 +13,13 @@
   request map, and response reads the answer, so that the tests run on
   recorded answers."
   (:require [clojure.string :as str]
+            [dk.simongray.crdt :as crdt]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.secret :as secret]

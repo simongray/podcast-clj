@@ -29,8 +29,8 @@
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.format.html :as html]
+            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.nostr :as nostr]
             [dk.simongray.podcast.util.time :as time]))
 
 (def relays

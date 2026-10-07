@@ -6,6 +6,7 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.crdt :as crdt]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -13,13 +14,12 @@
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.crdt :as crdt]
-            [dk.simongray.podcast.util.text.search :as text.search]
-            [dk.simongray.podcast.util.time :as time]))
+            [dk.simongray.podcast.util.time :as time]
+            [dk.simongray.search :as search]))
 
 (def now #inst "2026-09-30T12:00:00Z")
 
@@ -188,8 +188,8 @@
   (let [lib (-> (library/make "phone" {:config {:search? true}})
                 (library/subscribe url fresh))]
     (is (= 4 (count (:docs (:index lib)))) "the show and its three episodes")
-    (is (= (text.search/query (:index lib) "future")
-           (text.search/query (library/index lib) "future"))
+    (is (= (search/query (:index lib) "future")
+           (search/query (library/index lib) "future"))
         "an index built again from the feeds")
     (is (= [guid "https://example.com/ep0003"] (:id (first (library/search lib "future")))))
     (is (= 0 (count (:docs (:index (library/unsubscribe lib guid))))))
@@ -373,8 +373,8 @@
       (is (= 4 (count (ids lib))) "the three of the show and the one")
       (is (contains? (ids lib) id))
       (is (= [id] (mapv :id (library/search lib "other"))) "nor the show or the other episode in the index")
-      (is (= (text.search/query (:index lib) "other")
-             (text.search/query (library/index lib) "other"))
+      (is (= (search/query (:index lib) "other")
+             (search/query (library/index lib) "other"))
           "an index built again from the feeds finds the same")
       (is (= "Other two" (:title (library/episode lib ["0ther-guid" "o2"]))) "the whole feed for its pages"))
     (testing "it throws without a feed or the episode"
@@ -549,7 +549,7 @@
   (let [saved (dissoc library :config)
         lib   (assoc saved :config {:now (constantly now)})]
     (is (= saved (-> (edn/read-string (pr-str saved))
-                     (update :index text.search/restore)))
+                     (update :index search/restore)))
         "EDN without the clock of the config, with its index restored")
     (is (= (at 86400) (get-in (library/follow-list lib "https://example.org/picks.opml" picks)
                               [:fetched-lists "https://example.org/picks.opml" :next-check]))

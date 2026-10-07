@@ -11,13 +11,13 @@
   The library keeps only the slim part of each feed, and saves what it
   knows of the feeds to a file, so that a restart doesn't fetch them all
   again."
-  (:require [dk.simongray.podcast.app.feeds :as feeds]
+  (:require [dk.simongray.crdt :as crdt]
+            [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.sync.gpodder.server :as gpodder-server]
-            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]
             [io.pedestal.log :as log])

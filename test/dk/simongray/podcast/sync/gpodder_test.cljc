@@ -7,6 +7,7 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.crdt :as crdt]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.profile :as profile]
@@ -15,7 +16,6 @@
             [dk.simongray.podcast.sync.gpodder.server :as server]
             [dk.simongray.podcast.test-support :refer [failed fixture run]]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.secret :as secret]

@@ -7,16 +7,16 @@
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.directory.podcastindex :as index]
             [dk.simongray.podcast.feed.publish :as publish]
-            [dk.simongray.podcast.sync.encrypted :as encrypted]
+            [dk.simongray.podcast.nostr :as nostr]
+            [dk.simongray.podcast.store.encrypted :as encrypted]
+            [dk.simongray.podcast.store.webdav :as webdav]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
-            [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.test-support :refer [run secret-key]]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.updates.websub :as websub]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.nostr :as nostr]
             [dk.simongray.podcast.util.secret :as secret]))
 
 (def password "hunter2-and-more")

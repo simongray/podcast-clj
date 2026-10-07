@@ -5,6 +5,8 @@
   the reducer."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.crdt :as crdt]
+            [dk.simongray.crdt.list :as crdt.list]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]
@@ -12,8 +14,6 @@
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.test-support :refer [t0 t1 t2 t3 t4 a]]
-            [dk.simongray.podcast.util.crdt :as crdt]
-            [dk.simongray.podcast.util.crdt.list :as crdt.list]
             [dk.simongray.podcast.util.time :as time]))
 
 (def b ["feed-a" "a2"])

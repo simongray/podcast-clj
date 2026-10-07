@@ -4,7 +4,7 @@
 
   Since plan is a pure function, downloading, deleting and choosing when
   are up to you. The rules are the kinds that podcast apps have, and a
-  rule selects its episodes with the options of search/episodes, as a
+  rule selects its episodes with the options of criteria/episodes, as a
   saved filter does:
 
       {:download? true
@@ -15,10 +15,10 @@
   The rules sync in the profile, and a device with rules of its own
   gives them to plan as :rules."
   (:require [clojure.string :as str]
+            [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.search :as search]))
+            [dk.simongray.podcast.profile :as profile]))
 
 (def keeps
   "What the :keep of a rule can name, whose files stay on the device:
@@ -33,7 +33,7 @@
   "The rule of a show until the listener gives another:
 
   - :download?, whether plan downloads the episodes of the show
-  - :episodes, the :where, :order, :limit and :scale of search/episodes
+  - :episodes, the :where, :order, :limit and :scale of criteria/episodes
     that select them
   - :played, the seconds that the file of a played episode stays, where 0
     deletes it at once and nil keeps it
@@ -117,8 +117,8 @@
       (not (or (nil? episodes) (map? episodes)))
       (str "the value of :episodes is " (pr-str episodes) ", not a map")
 
-      (search/problem (or episodes {}))
-      (search/problem (or episodes {}))
+      (criteria/problem (or episodes {}))
+      (criteria/problem (or episodes {}))
 
       (not (or (nil? played) (amount? played)))
       (str "the value of :played is " (pr-str played)
@@ -203,7 +203,7 @@
   "The map that plan passes to its helpers, from `profile`, the
   device's `files`, the instant `at` and the `opts` of plan.
 
-  It has what search/where needs: the profile as :profile, the
+  It has what criteria/where needs: the profile as :profile, the
   instant :at and the :url of a feed. It also has the :files, the :rules
   with their :problems, and the :held episodes."
   [profile files at opts]
@@ -237,7 +237,7 @@
                            (or (:download? own) (:trim? own))
                            (not (contains? problems feed-guid)))
                 :let  [options (merge ctx (criteria (:episodes own)))
-                       found   (search/episodes feed options)]]
+                       found   (criteria/episodes feed options)]]
             [feed-guid (mapv #(vector feed-guid (guid/item-guid %)) found)]))))
 
 (defn- catalogue
@@ -310,7 +310,7 @@
   feed guid."
   [{:keys [files] :as ctx} selected]
   (let [selected (update-vals selected set)]
-    (for [[id file] (search/sorted-by (comp pr-str key) files)
+    (for [[id file] (criteria/sorted-by (comp pr-str key) files)
           :when (free? ctx id file)
           :let [reason (expired ctx (get selected (first id)) id file)]
           :when reason]
@@ -329,7 +329,7 @@
                      [(or (played-ms e) 0) (pr-str id)]))]
     (->> files
          (filter spare?)
-         (search/sorted-by earliest)
+         (criteria/sorted-by earliest)
          (mapv (fn [[id file]] (gone id file :room))))))
 
 (defn- dismissed?
@@ -398,7 +398,7 @@
                      (when (wanted? ctx id)
                        (download ctx id (get items id) reason)))]
     (concat (keep #(entry :queue %) queued)
-            (keep #(entry :rule %) (search/sorted-by newest chosen)))))
+            (keep #(entry :rule %) (criteria/sorted-by newest chosen)))))
 
 (defn- over
   "How far `total` and one more file of `bytes` go over the limits of

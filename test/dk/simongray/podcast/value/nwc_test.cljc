@@ -8,11 +8,11 @@
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.crypto.nip44 :as nip44]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
+            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.test-support :refer [invoice run secret-key #?(:clj with-relay)]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.nostr :as nostr]
             [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.nwc :as nwc]))

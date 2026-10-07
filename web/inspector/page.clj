@@ -7,6 +7,7 @@
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
+            [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.feed.guid :as feed.guid]
@@ -14,14 +15,13 @@
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.html :as html]
-            [dk.simongray.podcast.search :as search]
+            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.util.bytes :as bytes]
-            [dk.simongray.podcast.util.nostr :as nostr]
-            [dk.simongray.podcast.util.text.query :as text.query]
-            [dk.simongray.podcast.util.text.search :as text.search]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.podcast.value :as value]))
+            [dk.simongray.podcast.value :as value]
+            [dk.simongray.search :as search]
+            [dk.simongray.search.queries :as search.queries]))
 
 (def css
   "The inspector's stylesheet, inlined into every page."
@@ -288,7 +288,7 @@
              [:span.badge.muted (str tag)]))]]))
 
 (def orders
-  "The orders the feed page offers: those of `search/orders` that need no
+  "The orders the feed page offers: those of `criteria/orders` that need no
   profile, which the server does not have."
   [:listening :newest :oldest :shortest :longest :title])
 
@@ -337,9 +337,9 @@
 (defn feed-page
   "The inspector page for `feed`, fetched from `url`, with its parse
   `report`, validated against `requirements`, its items filtered and
-  ordered by `selection`, the options of `search/episodes`."
+  ordered by `selection`, the options of `criteria/episodes`."
   [{:keys [url feed-url feed report requirements status selection]}]
-  (let [items      (search/episodes feed (or selection {}))
+  (let [items      (criteria/episodes feed (or selection {}))
         total      (count (:rss/items feed))
         validation (validate/validate feed {:requirements requirements})
         feed-url   (or feed-url url)
@@ -827,7 +827,7 @@
 (defn search-page
   "The results of the full-text query `q` over the items of the feed at
   `url`, or over the corpus without one: `results` are those of
-  util.text.search/query of the `index` with the :item each came from, for a
+  dk.simongray.search/query of the `index` with the :item each came from, for a
   snippet of its notes, and `typos` the words of `q` that matched others
   with typos, from the metadata of the results."
   [{:keys [q url index results typos]}]
@@ -880,9 +880,9 @@
                   (let [notes (html/text (resolve/description item))]
                     [:div.snippet
                      (for [{:keys [text match?]}
-                           (text.query/snippet notes
-                                               q
-                                               (text.search/query-opts index))]
+                           (search.queries/snippet notes
+                                                   q
+                                                   (search/query-opts index))]
                        (if match? [:mark text] text))]))])])))
 
 (defn find-page

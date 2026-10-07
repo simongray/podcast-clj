@@ -10,10 +10,10 @@
             [dk.simongray.podcast.feed.check :as check]
             [dk.simongray.podcast.feed.discovery :as discovery]
             [dk.simongray.podcast.feed.guid :as guid]
+            [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.test-support :refer [secret-key with-relay]]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.nostr :as nostr]
             [dk.simongray.podcast.value.nwc :as nwc]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))

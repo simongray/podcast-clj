@@ -6,11 +6,11 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [dk.simongray.crdt :as crdt]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.store.webdav :as webdav]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.test-support :refer [t1 t2 t3 t4 a failed same? with-temp-dir]]
-            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [inspector.service :as service]
             [io.pedestal.connector.test :refer [response-for]]))

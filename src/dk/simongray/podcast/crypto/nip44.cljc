@@ -15,7 +15,7 @@
 
   NIP-44 asks that a payload is in a signed event, and that a reader
   checks the signature before it reads the payload, as
-  dk.simongray.podcast.util.nostr/verified? does."
+  dk.simongray.podcast.nostr/verified? does."
   (:require [dk.simongray.podcast.crypto.chacha20 :as chacha20]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bytes :as bytes]

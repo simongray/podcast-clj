@@ -26,8 +26,8 @@
   from the REPL with `(start!)`."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [dk.simongray.podcast.sync.file :as file]
-            [dk.simongray.podcast.sync.webdav.server :as webdav-server]
+            [dk.simongray.podcast.store.file :as file]
+            [dk.simongray.podcast.store.webdav.server :as webdav-server]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.proxy :as proxy]

@@ -3,8 +3,8 @@
   show for a state, and the events their controls raise."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.crdt :as crdt]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.util.crdt :as crdt]
             [inspector.player.view :as view]))
 
 (def t0 #inst "2026-01-01T00:00:00Z")

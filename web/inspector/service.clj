@@ -15,25 +15,25 @@
             [dk.simongray.podcast.feed.guid :as feed.guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
+            [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.feed.validate :as validate]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.search :as search]
+            [dk.simongray.podcast.store.file :as file]
+            [dk.simongray.podcast.store.webdav.server :as webdav-server]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.file :as file]
             [dk.simongray.podcast.sync.gpodder :as gpodder]
             [dk.simongray.podcast.sync.gpodder.server :as gpodder-server]
-            [dk.simongray.podcast.sync.webdav.server :as webdav-server]
             [dk.simongray.podcast.updates.podping :as podping]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.proxy :as proxy]
             [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.text.search :as text.search]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.nwc :as nwc]
+            [dk.simongray.search :as search]
             [inspector.dav :as dav]
             [inspector.page :as page]
             [io.pedestal.connector :as conn]
@@ -212,7 +212,7 @@
 
 (defn- selection
   "What the feed page's filter form asks for, from the query `params`: the
-  criteria and the order of `search/episodes`, an order the page does not
+  criteria and the order of `criteria/episodes`, an order the page does not
   offer left out."
   [{:keys [q season type order]}]
   (let [season (some-> season parse-long)
@@ -673,12 +673,12 @@
                                       [url (parsed name)]))
                     docs   (for [[url feed] feeds
                                  item       (:rss/items feed)]
-                             (search/item-document feed item {:url url}))]
+                             (feed.search/item-document feed item {:url url}))]
                 {:feeds feeds
-                 :index (search/index docs)}))))
+                 :index (feed.search/index docs)}))))
 
 (defn- by-guid
-  "The `feeds`, a map of URL to feed, by feed guid, as search/located takes
+  "The `feeds`, a map of URL to feed, by feed guid, as feed.search/located takes
   them."
   [feeds]
   (into {} (map (fn [[url feed]] [(feed.guid/feed-guid feed url) feed])) feeds))
@@ -690,10 +690,9 @@
   (let [q      (str (get-in request [:query-params :q]))
         url    (get-in request [:query-params :url])
         render (fn [index feeds url]
-                 (let [found   (text.search/query index
-                                                q
-                                                {:limit page/result-limit})
-                       results (map (search/located (by-guid feeds)) found)]
+                 (let [found   (search/query index q {:limit page/result-limit})
+                       locate  (feed.search/located (by-guid feeds))
+                       results (map locate found)]
                    (html (page/search-page {:q       q
                                             :url     url
                                             :index   index
@@ -709,10 +708,10 @@
         (fn [{:keys [feed url]}]
           ;; the index of a big feed takes a second to make, so it is kept
           ;; for as long as the feed it was made of
-          (let [document #(search/item-document feed % {:url url})
+          (let [document #(feed.search/item-document feed % {:url url})
                 indexed  (fn [_]
                            (let [docs (map document (:rss/items feed))]
-                             {:feed feed :value (search/index docs)}))
+                             {:feed feed :value (feed.search/index docs)}))
                 index    (:value (cached [:index url]
                                          #(identical? feed (:feed %))
                                          indexed))]

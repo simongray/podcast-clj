@@ -6,12 +6,12 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
+            #?(:clj [dk.simongray.crdt :as crdt])
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.test-support :refer [t2 t3 t4 a failed phone-state laptop-state #?@(:clj [same?])]]
             [dk.simongray.podcast.util.bytes :as bytes]
-            #?(:clj [dk.simongray.podcast.util.crdt :as crdt])
             [dk.simongray.podcast.util.time :as time]))
 
 (deftest documents

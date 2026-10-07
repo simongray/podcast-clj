@@ -30,18 +30,18 @@
 
   Each write takes the time it happens at, and stamps what it changed with
   that time and the :device of the profile. A profile is a CRDT of
-  dk.simongray.podcast.util.crdt, so merge joins the profiles of a
-  listener's devices, and compact drops the tombstones that every device
-  has seen. A feed is identified by its podcast:guid, and an episode by
-  its id, [feed-guid item-guid], as guid/episode-id gives it."
+  dk.simongray.crdt, so merge joins the profiles of a listener's devices,
+  and compact drops the tombstones that every device has seen. A feed is
+  identified by its podcast:guid, and an episode by its id, [feed-guid
+  item-guid], as guid/episode-id gives it."
   (:refer-clojure :exclude [merge])
   (:require [clojure.string :as str]
+            [dk.simongray.crdt :as crdt]
+            [dk.simongray.crdt.list :as crdt.list]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.format.chapters :as chapters]
-            [dk.simongray.podcast.util.crdt :as crdt]
-            [dk.simongray.podcast.util.crdt.list :as crdt.list]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]))
 
@@ -53,10 +53,10 @@
   {:device device :subscriptions {} :episodes {} :queue {}})
 
 (def ^:no-doc collections
-  "The schema of a profile for dk.simongray.podcast.util.crdt: the
-  :depth of the entries of each collection, whether compact drops its
-  tombstones, the key of the listening counts, which only grow, and the
-  ordered collections of util.crdt.list."
+  "The schema of a profile for dk.simongray.crdt: the :depth of the
+  entries of each collection, whether compact drops its tombstones, the
+  key of the listening counts, which only grow, and the ordered
+  collections of dk.simongray.crdt.list."
   {:subscriptions  {:depth 1 :compact? true}
    :remote-items   {:depth 1 :compact? true}
    :settings       {:depth 2}
@@ -359,7 +359,7 @@
 
 (defn filters
   "The saved filters of `profile` by name, as criteria for
-  dk.simongray.podcast.search/episodes."
+  dk.simongray.podcast.criteria/episodes."
   [profile]
   (into {}
         (keep (fn [[name e]]
@@ -368,7 +368,7 @@
         (:filters profile)))
 
 (defn save-filter
-  "Save the `criteria` of search/episodes in `profile` as the filter
+  "Save the `criteria` of criteria/episodes in `profile` as the filter
   `name` at `at`, so that the other devices have it too.
 
   The criteria replace a filter of the same name, without :profile and
@@ -394,7 +394,7 @@
 (defn compact
   "Drop from `profile` at `at` the tombstones that every live device has
   merged, once they're older than the :keep-for of `opts`, as
-  dk.simongray.podcast.util.crdt/compact does.
+  dk.simongray.crdt/compact does.
 
   Played marks and listening counts are never dropped, and the tombstones
   of unsubscriptions stay while the listener follows a list, since a list
@@ -879,7 +879,7 @@
 
 (defn ^:no-doc queue-entries
   "The entries of the queue of `profile`, each at the place of its latest
-  move, as dk.simongray.podcast.util.crdt.list/with-moves gives them."
+  move, as dk.simongray.crdt.list/with-moves gives them."
   [profile]
   (crdt.list/with-moves (:queue profile) (:queue-moves profile)))
 
@@ -1382,7 +1382,7 @@
 
 (defn merge
   "Reconcile the profiles `a` and `b` of a listener's devices, as
-  dk.simongray.podcast.util.crdt/merge does: by the later entry, and of
+  dk.simongray.crdt/merge does: by the later entry, and of
   two listening counts of one device, by the higher."
   [a b]
   (crdt/merge collections a b))
@@ -1452,10 +1452,10 @@
         (:remote-items profile)))
 
 (def ^:no-doc checks
-  "The checks of problem after those of dk.simongray.podcast.util.crdt and
-  util.crdt.list, in order. Each takes a profile that is a map and returns
-  a description of the first problem of its kind, or nil, and relies on
-  the checks before it."
+  "The checks of problem after those of dk.simongray.crdt and
+  dk.simongray.crdt.list, in order. Each takes a profile that is a map
+  and returns a description of the first problem of its kind, or nil, and
+  relies on the checks before it."
   [key-problem mark-problem count-problem criteria-problem
    remote-item-problem])
 
@@ -1465,7 +1465,7 @@
 
   A merge spreads the values of another device to every device, where a
   bad value makes a function throw, or two devices disagree. The rules are
-  those of dk.simongray.podcast.util.crdt/problem, and:
+  those of dk.simongray.crdt/problem, and:
 
   - Each rank in the queue and in a playlist is a rank.
   - A list is at a URL, a tag is a string, and a bookmark and a clip are
@@ -1477,7 +1477,7 @@
   - A remote item names the URL of its feed.
 
   Saved filters from a later version are fine here, and
-  search/problem says whether this version understands them."
+  criteria/problem says whether this version understands them."
   [profile]
   (or (crdt/problem collections profile)
       (crdt.list/problem collections profile)

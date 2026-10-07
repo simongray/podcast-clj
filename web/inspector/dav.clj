@@ -1,6 +1,6 @@
 (ns inspector.dav
   "What Pedestal needs so that the library's WebDAV handler,
-  dk.simongray.podcast.sync.webdav.server/handler, can serve the
+  dk.simongray.podcast.store.webdav.server/handler, can serve the
   inspector's folder at /dav/: an interceptor ahead of Pedestal's own,
   since the router does not match a collection's trailing slash and the
   body-params interceptor would read a put's body before the handler sees

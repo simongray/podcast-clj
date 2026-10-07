@@ -22,12 +22,12 @@
   Built by `clojure -M:cljs compile player` and served at /js/player.js."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
+            [dk.simongray.crdt :as crdt]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
+            [dk.simongray.podcast.store.file :as file]
+            [dk.simongray.podcast.store.webdav :as webdav]
             [dk.simongray.podcast.sync :as sync]
-            [dk.simongray.podcast.sync.file :as file]
-            [dk.simongray.podcast.sync.webdav :as webdav]
-            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]
             [inspector.player.view :as view]
             [replicant.dom :as replicant]))

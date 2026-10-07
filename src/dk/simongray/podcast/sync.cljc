@@ -17,7 +17,7 @@
 
   Each step of sync! pulls from every backend, merges, and pushes the
   result. The function backend makes a backend over a document store of
-  dk.simongray.podcast.sync.store. For a backend of your own, document
+  dk.simongray.podcast.store. For a backend of your own, document
   writes a device's whole state as a document, read-document reads it
   back, and reconcile merges what the other devices wrote.
 
@@ -25,11 +25,11 @@
   functions of another CRDT, as default-crdt does for the profile."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
+            [dk.simongray.crdt :as crdt]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.time :as time]))
 
 (def version
@@ -392,7 +392,7 @@
 
 (defn backend
   "A backend for sync! over `store`, a document store of
-  dk.simongray.podcast.sync.store, with the `opts` below:
+  dk.simongray.podcast.store, with the `opts` below:
 
   - :strategy, :per-device for a document per device, or :shared for one
     document for all
