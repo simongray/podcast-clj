@@ -935,6 +935,11 @@ Decided on 7 October 2026, and built on the branch
 - `transcript/matches` matches passages of at least 60 characters by one
   speaker rather than turns, since a speaker's turn in a caption file can
   last minutes, and gives the time of the cue where the first match is.
+- Fuzzy matching weighs a match with typos as MiniSearch does, 0.45
+  length / (length + edits), after saturation and by the best match of a
+  document, since Lucene's 1 - edits / length let a short title with a
+  typo outrank a long one with the word. The word being typed matches
+  both what it starts and the words within its edits.
 
 Two details of section 5.2 were wrong. The pairs of a run cross its
 scripts, so `AIメモリ管理` gives `メモ モリ リ管 管理`. And a query leaves

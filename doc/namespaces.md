@@ -160,7 +160,7 @@ option replaces the function that sends.
 | `util.bech32` | Bech32, the encoding of BIP-173. |
 | `util.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |
 | `util.text` | Text for search on both platforms: `fold`, which drops case and diacritics, and `tokens`, the words of a text, with Chinese, Japanese, Korean and Thai in pairs of characters. |
-| `util.text.search` | A full-text index as a plain map, ranked by BM25F: `index`, `add`, `remove` and `query`, with `parse` for its query language of AND, OR, NOT, phrases, prefixes and fields. Also `snippet` and `matches?` for one text. |
+| `util.text.search` | A full-text index as a plain map, ranked by BM25F: `index`, `add`, `remove` and `query`, with `parse` for its query language of AND, OR, NOT, phrases, prefixes, typos and fields. Also `snippet` and `matches?` for one text. |
 | `util.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The profile is one. |
 
 ## Cryptography

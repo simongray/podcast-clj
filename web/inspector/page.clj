@@ -835,8 +835,9 @@
           [:p.muted (str "Every word must occur; the last matches as a prefix "
                          "unless a space follows it; words in quotes must "
                          "occur in a row. OR or | for either, NOT, ! or a "
-                         "leading - to leave out, parentheses to group, and "
-                         "title:word or notes:word for one field. A word in a "
+                         "leading - to leave out, parentheses to group, "
+                         "word~ for typos, and title:word or notes:word for "
+                         "one field. A word in a "
                          "title weighs more than one in the notes; the "
                          "snippet is from the notes.")]
           (when (= result-limit (count results))

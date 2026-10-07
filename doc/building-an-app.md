@@ -599,8 +599,9 @@ of every feed:
 The results are the episodes and shows, best first. The last word counts
 as a prefix, so this works for search as you type. A query can also have
 `"a phrase"`, `OR` or `|`, `NOT`, `!` or `-` before a word, parentheses,
-and `title:word` or `notes:word` for one field; `util.text.search/parse` says
-the rest. The index of a show with 200 episodes takes about two megabytes,
+`word~` for a word with typos, and `title:word` or `notes:word` for one
+field; `util.text.search/parse` says the rest. To allow typos in every
+word, give `{:fuzzy true}`. The index of a show with 200 episodes takes about two megabytes,
 so on a phone with many shows you may want to leave it off.
 
 To search only some episodes, give the criteria of `library/episodes` as
