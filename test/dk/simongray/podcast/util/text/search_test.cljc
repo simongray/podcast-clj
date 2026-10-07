@@ -1,10 +1,10 @@
-(ns dk.simongray.podcast.util.search-test
+(ns dk.simongray.podcast.util.text.search-test
   "The full-text index, the query language, the ranking by BM25F and the
   snippets of a text."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.util.search :as search]))
+            [dk.simongray.podcast.util.text.search :as search]))
 
 (def docs
   [{:id     1

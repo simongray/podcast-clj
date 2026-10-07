@@ -18,7 +18,7 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.nostr :as nostr]
-            [dk.simongray.podcast.util.search :as full-text]
+            [dk.simongray.podcast.util.text.search :as full-text]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]))
 
@@ -816,7 +816,7 @@
 (defn search-page
   "The results of the full-text query `q` over the items of the feed at
   `url`, or over the corpus without one: `results` are those of
-  util.search/query of the `index` with the :item each came from, for a
+  util.text.search/query of the `index` with the :item each came from, for a
   snippet of its notes."
   [{:keys [q url index results]}]
   (layout (str "Search: " q)

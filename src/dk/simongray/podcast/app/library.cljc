@@ -69,7 +69,7 @@
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.search :as full-text]
+            [dk.simongray.podcast.util.text.search :as full-text]
             [dk.simongray.podcast.util.time :as time]))
 
 (def default-config
@@ -643,7 +643,7 @@
   first, with the `opts` below, or nil when the library keeps no index.
 
   Each result has its :feed, and an episode its :item. The `opts` are
-  those of util.search/query, whose :filter gets the result with them,
+  those of util.text.search/query, whose :filter gets the result with them,
   and :where, the criteria of search/where that an episode must meet,
   which leaves the shows out. The criteria read the profile of the
   library, and the time of its clock unless the `opts` give :at.

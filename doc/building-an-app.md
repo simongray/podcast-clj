@@ -599,7 +599,7 @@ of every feed:
 The results are the episodes and shows, best first. The last word counts
 as a prefix, so this works for search as you type. A query can also have
 `"a phrase"`, `OR` or `|`, `NOT`, `!` or `-` before a word, parentheses,
-and `title:word` or `notes:word` for one field; `util.search/parse` says
+and `title:word` or `notes:word` for one field; `util.text.search/parse` says
 the rest. The index of a show with 200 episodes takes about two megabytes,
 so on a phone with many shows you may want to leave it off.
 
@@ -1212,8 +1212,8 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.proxy :as proxy]
-            [dk.simongray.podcast.util.search :as full-text]
             [dk.simongray.podcast.util.secret :as secret]
+            [dk.simongray.podcast.util.text.search :as full-text]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]

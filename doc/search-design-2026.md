@@ -921,7 +921,8 @@ section 7 that apply, and a report of what changed and what was measured.
 Decided on 7 October 2026, and built on the branch
 `feature/search-library`:
 
-- D1, D2, D3, D5 and D6 as recommended.
+- D1, D2, D3, D5 and D6 as recommended, with `util.search` named
+  `util.text.search` to show that it's built on `util.text`.
 - D4: a full boolean language in `util.search`: AND (`&`), OR (`|`), NOT
   (`!` and a leading `-`), parentheses, and `field:word` or `field=word`,
   besides quotes and a trailing `*`. The spellings are an option, e.g.

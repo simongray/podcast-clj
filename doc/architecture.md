@@ -501,7 +501,7 @@ criteria are data, a UI can build them from a form, and saved filters and
 download rules use the same criteria.
 
 Full-text search lives in two namespaces that know nothing about podcasts,
-`util.text` and `util.search`, so other projects can use them too. The
+`util.text` and `util.text.search`, so other projects can use them too. The
 index is a value: `index`, `add` and `remove` build and change a map,
 `query` searches it, and nothing runs in the background. Lucene doesn't
 run in a browser, but this index runs wherever the model runs, and prints

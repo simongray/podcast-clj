@@ -10,15 +10,16 @@
 
   For full-text search, item-document and feed-document make the
   documents of episodes and shows, and index makes an index of them for
-  util.search, which ranks a match in a title above one in the notes."
+  util.text.search, which ranks a match in a title above one in the
+  notes."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.podcast.util.search :as full-text]
-            [dk.simongray.podcast.util.text :as text]))
+            [dk.simongray.podcast.util.text :as text]
+            [dk.simongray.podcast.util.text.search :as full-text]))
 
 (defn- notes
   [x]
@@ -114,7 +115,7 @@
   {"notes" :description})
 
 (defn index
-  "An index of the search documents `docs` for util.search, with boosts
+  "An index of the search documents `docs` for util.text.search, with boosts
   and aliases as the defaults of its queries, or an empty one to add to."
   ([]
    (index []))
@@ -186,7 +187,7 @@
 (defn- mentioned
   "The predicate of the criterion :text for `v`, a query or a set of
   queries. It's true when the title and notes of an item match any of
-  them, as util.search/matches? reads them."
+  them, as util.text.search/matches? reads them."
   [v]
   (let [queries (mapv full-text/parse (if (set? v) v [v]))]
     (fn [_ item]
@@ -294,7 +295,7 @@
     linked, embedded or listed in the notes
   - :person, someone credited
   - :text, a query that the title and notes must match, in the language
-    of util.search/parse, e.g. \"coffee -decaf\". A set of queries
+    of util.text.search/parse, e.g. \"coffee -decaf\". A set of queries
     matches when any of them does.
   - :not, criteria that the item doesn't meet, e.g. {:text #{\"rerun\"}}
   - :status, :unplayed, :in-progress or :played, or a set of them

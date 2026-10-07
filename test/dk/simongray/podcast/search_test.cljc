@@ -9,7 +9,7 @@
             [dk.simongray.podcast.search :as search]
             [dk.simongray.podcast.test-support :refer [fixture]]
             [dk.simongray.podcast.util.crdt :as crdt]
-            [dk.simongray.podcast.util.search :as full-text]))
+            [dk.simongray.podcast.util.text.search :as full-text]))
 
 (def example
   (delay (rss/parse (fixture "feeds/namespace-example.xml"))))

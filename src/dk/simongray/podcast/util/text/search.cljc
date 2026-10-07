@@ -1,4 +1,4 @@
-(ns dk.simongray.podcast.util.search
+(ns dk.simongray.podcast.util.text.search
   "A full-text index of documents as a plain map, and queries of it ranked
   by BM25F, on both platforms.
 
