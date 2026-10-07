@@ -203,6 +203,29 @@
                              ["abc" "clojure" "clojure" "kitten" ""]
                              ["xyzwv" "clojre" "cljoure" "sitting" "ab"])))))
 
+(deftest hostile-queries
+  (testing "deep groups and long runs of NOT don't run out the stack"
+    (is (= {:term "x"} (search/parse (str (apply str (repeat 20000 "(")) "x "))))
+    (is (= {:term "x"} (search/parse (str (apply str (repeat 20000 "NOT ")) "x ")))
+        "two NOT undo each other")
+    (is (= {:not {:term "x"}}
+           (search/parse (str (apply str (repeat 20001 "NOT ")) "x ")))))
+  (testing "only the first words of a long query count"
+    (is (= 32 (count (:and (search/parse (apply str (repeat 1000 "word ")))))))
+    (is (= {:and [{:term "a"} {:term "b"}]}
+           (search/parse "a b c d" {:max-terms 2}))))
+  (testing "a prefix stands for its completions that the most documents hold"
+    (let [idx (search/index (concat (for [i (range 5)]
+                                      {:id i :fields {:title "pxcommon"}})
+                                    (for [i (range 5 50)]
+                                      {:id i :fields {:title (str "px" i)}})))]
+      (is (= 50 (count (search/query idx "px"))))
+      (is (= (range 5) (map :id (search/query idx "px" {:max-completions 1}))))
+      (is (= 1 (count (search/query idx "px1~ " {:max-expansions 1}))))))
+  (testing "the limits are data"
+    (is (= #{:max-terms :max-depth :max-completions :max-expansions}
+           (set (keys search/default-limits))))))
+
 (deftest one-text
   (let [text "A little Clojure for the value for value era"]
     (is (search/matches? text "clojure value"))

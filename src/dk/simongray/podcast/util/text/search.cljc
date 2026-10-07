@@ -302,6 +302,22 @@
    :prefix #{"*"}
    :fuzzy  #{"~"}})
 
+(def default-limits
+  "The limits of parse and query that their options don't set, which keep
+  the cost of a query that anyone can type within bounds:
+
+  - :max-terms, the words and phrases of a query that count, the first
+  - :max-depth, the groups in groups of a query, where a deeper one is
+    read without its parentheses
+  - :max-completions, the terms that a prefix stands for, those of the
+    most documents, as Xapian takes the 100 most frequent
+  - :max-expansions, the terms that a word with typos stands for, the
+    closest, as Lucene's FuzzyQuery takes 50"
+  {:max-terms       32
+   :max-depth       32
+   :max-completions 100
+   :max-expansions  50})
+
 (defn ^:no-doc spaced
   "The query `q` with every kind of whitespace as a space, since the regex
   \\s matches only ASCII whitespace on the JVM but all of it in JavaScript."
@@ -336,15 +352,17 @@
                      word))))
 
 (defn- raw-lexemes
-  "The lexemes of the query `q` that `pattern` finds, as maps of :text,
-  :start and :end."
+  "The lexemes of the query `q` that `pattern` finds, as a lazy sequence of
+  maps of :text, :start and :end, so that a reader can stop early."
   [pattern q]
-  (loop [found (re-seq pattern q) from 0 acc []]
-    (if-let [[s & more] (seq found)]
-      (let [start (long (str/index-of q s from))
-            end   (+ start (count s))]
-        (recur more end (conj acc {:text s :start start :end end})))
-      acc)))
+  (letfn [(step [found from]
+            (lazy-seq
+             (when-let [[s & more] (seq found)]
+               (let [start (long (str/index-of q s from))
+                     end   (+ start (count s))]
+                 (cons {:text s :start start :end end}
+                       (step more end))))))]
+    (step (re-seq pattern q) 0)))
 
 (defn- leading-sign
   "The one of `signs` that `s` starts with and is longer than, or nil."
@@ -448,11 +466,16 @@
 
   The kinds are :open and :close, :and, :or and :not, a :field with the
   field, and a :phrase or :word with its :text. The last word has
-  :typing? when nothing follows it."
-  [q syntax fields]
-  (let [found (into []
-                    (mapcat #(lexemes-of % syntax fields))
-                    (raw-lexemes (lexeme-pattern syntax) q))
+  :typing? when nothing follows it. Reading stops after `max-terms`
+  words and phrases."
+  [q syntax fields max-terms]
+  (let [term? #(contains? #{:word :phrase} (:kind %))
+        read  (fn [[found n] raw]
+                (if (<= (long max-terms) (long n))
+                  (reduced [found n])
+                  (let [more (lexemes-of raw syntax fields)]
+                    [(into found more) (+ n (count (filter term? more)))])))
+        [found] (reduce read [[] 0] (raw-lexemes (lexeme-pattern syntax) q))
         ;; a sign of :not on its own is a :not right before a phrase or a
         ;; group, e.g. -"a b", and else a dash, e.g. in "Part 1 - Intro"
         bound (fn [i {:keys [kind end] :as lexeme}]
@@ -544,19 +567,26 @@
                 (let [[node j] (parse-atom ctx (inc i))]
                   [(some-> node (in-field (:field lexeme))) j])
                 [nil (inc i)])
-      :open   (let [[node j] (parse-or ctx (inc i))
-                    closing  (get-in ctx [:lexemes j])]
-                [node (if (= :close (:kind closing)) (inc j) j)])
+      ;; a group deeper than :max-depth is read without its parentheses,
+      ;; so that no query can run the stack out
+      :open   (if (< (long (:depth ctx)) (long (:max-depth ctx)))
+                (let [[node j] (parse-or (update ctx :depth inc) (inc i))
+                      closing  (get-in ctx [:lexemes j])]
+                  [node (if (= :close (:kind closing)) (inc j) j)])
+                [nil (inc i)])
       :phrase [(word-query lexeme ctx) (inc i)]
       :word   [(word-query lexeme ctx) (inc i)]
       [nil i])))
 
 (defn- parse-unary
+  "The query at `i` in the lexemes of `ctx` with the :not before it, as a
+  pair of the query, or nil, and where the lexemes go on. Two :not undo
+  each other."
   [ctx i]
-  (if (= :not (get-in ctx [:lexemes i :kind]))
-    (let [[node j] (parse-unary ctx (inc i))]
-      [(when node {:not node}) j])
-    (parse-atom ctx i)))
+  (let [nots     (count (take-while #(= :not (:kind %))
+                                    (subvec (:lexemes ctx) i)))
+        [node j] (parse-atom ctx (+ i nots))]
+    [(if (and node (odd? nots)) {:not node} node) j]))
 
 ;; NOT binds tighter than AND, and AND than OR, as in SQLite FTS5. Words
 ;; without an operator between them take the default one at its level
@@ -621,6 +651,7 @@
   - :prefix?, false to take the last word whole
   - :min-prefix, the fewest characters of a last word to complete, 1 by
     default
+  - :max-terms and :max-depth, the limits of default-limits
 
   Nothing is an error, and a sign or a parenthesis that makes no sense
   counts for nothing."
@@ -630,13 +661,16 @@
        :or   {operator :and prefix? true min-prefix 1}
        :as   opts}]
    {:pre [(map? opts)]}
-   (let [spellings (merge syntax (:syntax opts))
+   (let [{:keys [max-terms max-depth]} (merge default-limits opts)
+         spellings (merge syntax (:syntax opts))
          fields    (update-keys (or (:fields opts) {}) text/fold)
          q         (spaced (str q))
-         ctx       {:lexemes    (lexemes q spellings fields)
+         ctx       {:lexemes    (lexemes q spellings fields max-terms)
                     :operator   operator
                     :complete?  prefix?
-                    :min-prefix min-prefix}
+                    :min-prefix min-prefix
+                    :depth      0
+                    :max-depth  max-depth}
          n         (count (:lexemes ctx))]
      (loop [i 0 queries []]
        (if (< i n)
@@ -846,30 +880,40 @@
                         :else    2))
     :else           0))
 
-(def ^:no-doc most-expansions
-  "The most terms that a fuzzy term matches, the closest first, as
-  maxExpansions of Lucene's FuzzyQuery has it."
-  50)
-
 (def ^:no-doc fuzzy-weight
   "How much a match with typos weighs before its edits count, as the
   fuzzyWeight of MiniSearch has it."
   0.45)
 
+(defn- completions
+  "The terms of `index` that start with `prefix`, at most `most` of them,
+  those that the most documents hold."
+  [index prefix most]
+  (let [terms (vec (expansions index prefix))]
+    (if (<= (count terms) (long most))
+      terms
+      (let [postings (:postings index)
+            held     #(- (count (get postings %)))]
+        (->> (map (juxt held identity) terms)
+             (sort-by first)
+             (take most)
+             (map second))))))
+
 (defn- fuzzy-expansions
-  "The terms of `index` within the edits of the fuzzy `leaf`, the closest
-  first, as pairs of a term and its edits. Only terms that start with the
-  same character count, which keeps the search short."
-  [index {:keys [term] :as leaf}]
-  (let [most (long (edits leaf))
-        n    (count term)]
+  "The terms of `index` within the edits of the fuzzy `leaf`, at most
+  `most` of them, the closest first, as pairs of a term and its edits.
+  Only terms that start with the same character count, which keeps the
+  search short."
+  [index {:keys [term] :as leaf} most]
+  (let [edits (long (edits leaf))
+        n     (count term)]
     (->> (for [found (expansions index (subs term 0 1))
-               :when (<= (Math/abs (- (count found) n)) most)
-               :let  [d (distance term found most)]
+               :when (<= (Math/abs (- (count found) n)) edits)
+               :let  [d (distance term found edits)]
                :when d]
            [found d])
          (sort-by (fn [[found d]] [d found]))
-         (take most-expansions))))
+         (take most))))
 
 ;; MiniSearch weighs a match with typos by 0.45 length / (length + edits),
 ;; and each document counts its best match, so that an exact match outranks
@@ -896,9 +940,9 @@
 (defn- fuzzy-scores
   "The scores of the documents that hold a term within the edits of the
   fuzzy `leaf`, with the constants of `ctx`."
-  [{:keys [index weights k1 total]} {:keys [term] :as leaf}]
+  [{:keys [index weights k1 total max-expansions]} {:keys [term] :as leaf}]
   (let [n        (count term)
-        weighed  (for [[found d] (fuzzy-expansions index leaf)]
+        weighed  (for [[found d] (fuzzy-expansions index leaf max-expansions)]
                    [(if (zero? (long d))
                       1.0
                       (* fuzzy-weight (/ (double n) (+ n (long d)))))
@@ -916,11 +960,12 @@
   "The scores of the documents that hold the `term`, or with :prefix? a
   term that starts with it, or with :fuzzy one within its edits, with the
   constants of `ctx`."
-  [{:keys [index weights k1 total] :as ctx} {:keys [term prefix?] :as leaf}]
+  [{:keys [index weights k1 total max-completions] :as ctx}
+   {:keys [term prefix?] :as leaf}]
   (let [fuzzy? (pos? (long (edits leaf)))
         plain  (when (or prefix? (not fuzzy?))
                  (let [terms       (if prefix?
-                                     (expansions index term)
+                                     (completions index term max-completions)
                                      [term])
                        frequencies (term-frequencies index weights terms)]
                    (saturated frequencies (idf total (count frequencies)) k1)))]
@@ -948,9 +993,10 @@
       :else                    node)))
 
 (defn- prefix-postings
-  "The postings of the terms of `index` that start with `prefix`, as a map
-  of id to a vector of positions."
-  [index prefix]
+  "The postings of the terms of `index` that start with `prefix`, at most
+  `most` of them as completions gives them, as a map of id to a vector of
+  positions."
+  [index prefix most]
   (let [postings (:postings index)]
     (persistent!
      (reduce (fn [acc term]
@@ -961,7 +1007,7 @@
                           acc
                           (get postings term)))
              (transient {})
-             (expansions index prefix)))))
+             (completions index prefix most)))))
 
 (defn- positions-in
   [postings id]
@@ -984,11 +1030,13 @@
 (defn- phrase-scores
   "The scores of the documents that hold the terms of `phrase` in a row,
   the last as a prefix with :prefix?, with the constants of `ctx`."
-  [{:keys [index weights k1 total]} {:keys [phrase prefix?]}]
+  [{:keys [index weights k1 total max-completions]} {:keys [phrase prefix?]}]
   (let [postings    (:postings index)
         lists       (conj (mapv #(get postings %) (pop phrase))
                           (if prefix?
-                            (prefix-postings index (peek phrase))
+                            (prefix-postings index
+                                             (peek phrase)
+                                             max-completions)
                             (get postings (peek phrase))))
         [fewest & others] (sort-by count lists)
         candidates  (filter (fn [id] (every? #(contains? % id) others))
@@ -1182,6 +1230,7 @@
   - :filter, a predicate of a result to keep it
   - :rank, a function of a result to order by, ascending, instead of the
     score
+  - :max-completions and :max-expansions, the limits of default-limits
 
   Equal scores come in the order of their ids, so the order is stable."
   ([index q]
@@ -1189,12 +1238,14 @@
   ([index q opts]
    {:pre [(map? opts)]}
    (let [{:keys [limit boosts rank] keep? :filter :as opts}
-         (merge (:defaults index) opts)
+         (merge default-limits (:defaults index) opts)
          node   (with-fuzzy (as-query index q opts) (:fuzzy opts))
-         ctx    {:index   index
-                 :weights (weights index boosts (:b opts b))
-                 :k1      (double (:k1 opts k1))
-                 :total   (count (:docs index))}
+         ctx    {:index           index
+                 :weights         (weights index boosts (:b opts b))
+                 :k1              (double (:k1 opts k1))
+                 :total           (count (:docs index))
+                 :max-completions (:max-completions opts)
+                 :max-expansions  (:max-expansions opts)}
          found  (if node
                   (scores ctx node)
                   {})
@@ -1378,7 +1429,8 @@
   for a result list to render, with the `opts` below.
 
   It's a vector of maps of :text, with :match? on the matches, and an
-  ellipsis where the window cuts the text. Of the windows at the start
+  ellipsis where the window cuts the text. The text is plain, so escape
+  it to put it into HTML. Of the windows at the start
   and at each match, the one with the most of the query's words and
   phrases wins, the first of them on a tie. The `opts` are those of
   parse, and these:
