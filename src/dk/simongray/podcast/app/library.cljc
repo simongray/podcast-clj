@@ -69,7 +69,7 @@
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.crdt :as crdt]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.text.search :as full-text]
+            [dk.simongray.podcast.util.text.search :as text.search]
             [dk.simongray.podcast.util.time :as time]))
 
 (def default-config
@@ -131,7 +131,7 @@
   [index feed-guid]
   (let [of-feed? #(or (= feed-guid %)
                       (and (vector? %) (= feed-guid (first %))))]
-    (reduce full-text/remove index (filter of-feed? (keys (:docs index))))))
+    (reduce text.search/remove index (filter of-feed? (keys (:docs index))))))
 
 (defn- reindexed
   "The `library` with the feed `feed-guid` indexed again, when it keeps an
@@ -141,7 +141,7 @@
     (let [{:keys [feed url]} (get-in library [:feeds feed-guid])
           cleared (unindexed index feed-guid)
           docs    (when feed (documents feed url))]
-      (assoc library :index (reduce full-text/add cleared docs)))
+      (assoc library :index (reduce text.search/add cleared docs)))
     library))
 
 (defn- kept
@@ -671,7 +671,7 @@
                                (and item (meets? feed item))))))
            opts   (cond-> (dissoc opts :where :at :scale)
                     (or meets? keep?) (assoc :filter kept?))]
-       (mapv locate (full-text/query index q opts))))))
+       (mapv locate (text.search/query index q opts))))))
 
 (defn step
   "The `library` after the player `event`, with `opts`, both as

@@ -28,7 +28,7 @@
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.proxy :as proxy]
             [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.text.search :as full-text]
+            [dk.simongray.podcast.util.text.search :as text.search]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
@@ -692,7 +692,7 @@
   (let [q      (str (get-in request [:query-params :q]))
         url    (get-in request [:query-params :url])
         render (fn [index feeds url]
-                 (let [found   (full-text/query index
+                 (let [found   (text.search/query index
                                                 q
                                                 {:limit page/result-limit})
                        results (with-items found feeds)]

@@ -9,7 +9,7 @@
             [dk.simongray.podcast.search :as search]
             [dk.simongray.podcast.test-support :refer [fixture]]
             [dk.simongray.podcast.util.crdt :as crdt]
-            [dk.simongray.podcast.util.text.search :as full-text]))
+            [dk.simongray.podcast.util.text.search :as text.search]))
 
 (def example
   (delay (rss/parse (fixture "feeds/namespace-example.xml"))))
@@ -250,9 +250,9 @@
                                      [:fields :transcript])))
     (let [idx (search/index (map #(search/item-document feed % {:url "https://example.com/feed.xml"}) (:rss/items feed)))]
       (is (= 3 (count (:docs idx))))
-      (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"]] (mapv :id (full-text/query idx "futu"))))
-      (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0002"]] (mapv :id (full-text/query idx "\"the present\""))))
-      (is (= "Episode 3 - The Future" (:title (:stored (first (full-text/query idx "future")))))))
+      (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0003"]] (mapv :id (text.search/query idx "futu"))))
+      (is (= [["y0ur-gu1d-g035-h3r3" "https://example.com/ep0002"]] (mapv :id (text.search/query idx "\"the present\""))))
+      (is (= "Episode 3 - The Future" (:title (:stored (first (text.search/query idx "future")))))))
     (is (thrown-with-msg? #?(:clj Exception :cljs js/Error) #"needs :url"
                           (search/item-document (dissoc feed :podcast/guid) item))
         "a feed without an identity would give its episodes the ids of other shows")
@@ -264,6 +264,6 @@
 (deftest the-podcast-index
   (let [idx (search/index [{:id 1 :fields {:description "Clojure" :title "Other"}}
                            {:id 2 :fields {:title "Clojure" :description "Other"}}])]
-    (is (= [2 1] (mapv :id (full-text/query idx "clojure"))) "a title weighs more than the notes")
-    (is (= [1] (mapv :id (full-text/query idx "notes:clojure"))) "notes is a name of the description")
-    (is (= idx (full-text/restore (edn/read-string (pr-str idx)))) "the defaults print with the index")))
+    (is (= [2 1] (mapv :id (text.search/query idx "clojure"))) "a title weighs more than the notes")
+    (is (= [1] (mapv :id (text.search/query idx "notes:clojure"))) "notes is a name of the description")
+    (is (= idx (text.search/restore (edn/read-string (pr-str idx)))) "the defaults print with the index")))

@@ -25,7 +25,7 @@
   it from the metadata."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.text.search :as search]
+            [dk.simongray.podcast.util.text.search :as text.search]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.xml :as xml]))
 
@@ -543,14 +543,13 @@
   ([transcript q {:keys [length] :or {length passage-length} :as opts}]
    {:pre [(map? opts)]}
    (let [query  (if (string? q)
-                  (search/parse q opts)
+                  (text.search/parse q opts)
                   q)
          marked (fn [piece]
-                  (let [{:keys [body] :as passage} (turn piece)]
-                    (when (search/matches? body query)
-                      (let [parts (search/snippet body
-                                                  query
-                                                  {:width (count body)})]
+                  (let [{:keys [body] :as passage} (turn piece)
+                        width {:width (count body)}]
+                    (when (text.search/matches? body query)
+                      (let [parts (text.search/snippet body query width)]
                         (assoc passage
                                :start-time (start-of-match piece parts)
                                :parts      parts)))))]

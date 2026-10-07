@@ -19,7 +19,7 @@
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.text :as text]
-            [dk.simongray.podcast.util.text.search :as full-text]))
+            [dk.simongray.podcast.util.text.search :as text.search]))
 
 (defn- notes
   [x]
@@ -120,7 +120,7 @@
   ([]
    (index []))
   ([docs]
-   (full-text/index docs {:boosts boosts :aliases aliases})))
+   (text.search/index docs {:boosts boosts :aliases aliases})))
 
 (defn- in?
   [expected actual]
@@ -189,10 +189,10 @@
   queries. It's true when the title and notes of an item match any of
   them, as util.text.search/matches? reads them."
   [v]
-  (let [queries (mapv full-text/parse (if (set? v) v [v]))]
+  (let [queries (mapv text.search/parse (if (set? v) v [v]))]
     (fn [_ item]
       (let [text (str (resolve/title item) "\n" (notes item))]
-        (boolean (some #(full-text/matches? text %) queries))))))
+        (boolean (some #(text.search/matches? text %) queries))))))
 
 (defn- indexed
   "The predicate of the criterion :text for `v`, a query or a set of
@@ -202,7 +202,7 @@
   (let [index  (:index ctx)
         only   (-> (zipmap (keys (:fields index)) (repeat 0))
                    (assoc :title 1 :description 1))
-        query  #(full-text/query index % {:boosts only})
+        query  #(text.search/query index % {:boosts only})
         found  (into #{}
                      (comp (mapcat query) (map :id))
                      (if (set? v) v [v]))]
@@ -484,8 +484,8 @@
      (def idx
        (let [url "https://example.com/feed.xml"]
          (index (map #(item-document f % {:url url}) (:rss/items f)))))
-     (full-text/query idx "futu")
-     (full-text/query idx "title:future -present")
-     (full-text/snippet (html/text (resolve/description (first (:rss/items f))))
-                        "future")
+     (text.search/query idx "futu")
+     (text.search/query idx "title:future -present")
+     (def first-notes (html/text (resolve/description (first (:rss/items f)))))
+     (text.search/snippet first-notes "future")
      #_.))

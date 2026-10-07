@@ -613,7 +613,7 @@ To search only some episodes, give the criteria of `library/episodes` as
 To mark the matches in a result, cut a snippet of its notes:
 
 ```clojure
-(full-text/snippet (html/text (resolve/description item))
+(text.search/snippet (html/text (resolve/description item))
                    "\"podcasting 2.0\"")
 ;; => [{:text "A look into the future of podcasting and how we get to "}
 ;;     {:text "Podcasting 2.0" :match? true}
@@ -639,11 +639,11 @@ documents of `search`:
                       item (:rss/items feed)]
                   (search/item-document feed item {:url url}))))
 
-(full-text/query (index-feeds feeds) "podcasting 2" {:limit 10})
+(text.search/query (index-feeds feeds) "podcasting 2" {:limit 10})
 ```
 
-When a feed changes, update the index with `full-text/add` and
-`full-text/remove`. To make transcripts searchable, give them to
+When a feed changes, update the index with `text.search/add` and
+`text.search/remove`. To make transcripts searchable, give them to
 `search/item-document`.
 
 
@@ -1213,7 +1213,7 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.proxy :as proxy]
             [dk.simongray.podcast.util.secret :as secret]
-            [dk.simongray.podcast.util.text.search :as full-text]
+            [dk.simongray.podcast.util.text.search :as text.search]
             [dk.simongray.podcast.value :as value]
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]
