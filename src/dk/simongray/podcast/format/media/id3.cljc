@@ -4,7 +4,7 @@
   The versions are 2.2, 2.3 and 2.4, as id3.org specifies them, with the
   chapters of the ID3v2 Chapter Frame Addendum. The read function gives
   the frames of the tag at an offset of a byte view, as in
-  dk.simongray.podcast.util.bytes. The read-all function gives the frames
+  dk.simongray.podcast.util.bytes.view. The read-all function gives the frames
   of the tags that follow each other there. The chapters, artwork and
   duration functions read those from the frames, and report gives the
   diagnostics of a reading.

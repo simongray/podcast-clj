@@ -58,7 +58,7 @@ the states to merge and a cursor, and `push` writes the merged state. A
 store is the common case below a backend, a set of named documents with
 version tokens. Any store becomes a backend through `sync/backend`, which
 adds the strategy, the retries and the reports, so a new store only needs
-two to four functions.
+one to four functions.
 
 A refused write is a value, not an exception, since it's a normal outcome
 of the shared strategy. Errors of the network or a service are exceptions,
@@ -92,13 +92,15 @@ left out too, because this version can't understand all of it.
 The engine schedules nothing. Call `sync!` when the app starts, when it
 goes to the background, after a series of changes, and when a file watcher
 or the service says that something changed. For when to sync next, ask
-`sync/next-sync`, or `library/next-sync` for a library. Only run one step at a
-time, since a step that overlaps another can write an older state after a
-newer one. A file watcher also sees the writes of the step itself, so let
-such a call wait until the step ends.
+`sync/next-sync`, or `library/next-sync` for a library. Only run one step
+at a time, since a step that overlaps another can write an older state
+after a newer one. A file watcher also sees the writes of the step
+itself, so let such a call wait until the step ends.
 
 For control over the I/O, e.g. in an iOS background task with a time
-budget, do the steps yourself: list, fetch, `reconcile` and put.
+budget, do the steps yourself: fetch the documents whose names end in
+`.edn`, merge them with `reconcile`, and put the document that
+`sync/device-document` gives.
 
 
 ## The documents
@@ -183,17 +185,17 @@ device's clock.
 
 ### The queue
 
-The queue has one entry per episode, ordered by a rank from `util.rank`, a
-string with room for another rank between any two, as `util.crdt.list`
-keeps it. A removal is a
-tombstone. Additions on two devices both survive, a finished episode stays
-removed, and only two devices that move the same episode at the same time
-need a winner, the later one. A move writes the episode's new place as an
-entry of its own, so it never brings back an episode that another device
-removed meanwhile. Ranks stay short at the ends of the list,
-where most episodes are added. Episodes that one device appends at once
-share a block of ranks named after the device, so batches that two devices
-append at the same time don't mix. Playlists work the same way.
+The queue is an ordered collection of `util.crdt.list`, with one entry
+per episode, ordered by a rank from `util.rank`, a string with room for
+another rank between any two. A removal is a tombstone. Additions on two
+devices both survive, a finished episode stays removed, and only two
+devices that move the same episode at the same time need a winner, the
+later one. A move writes the episode's new place as an entry of its own,
+so it never brings back an episode that another device removed
+meanwhile. Ranks stay short at the ends of the list, where most episodes
+are added. Episodes that one device appends at once share a block of
+ranks named after the device, so batches that two devices append at the
+same time don't mix. Playlists work the same way.
 
 ### Listening counts
 
@@ -251,12 +253,12 @@ too, since its document holds the entry or the entry that replaced it.
 This relies on A's entries reaching each device in the order of their
 stamps, which holds for the devices in the registry. The entries that a
 service such as gpodder brings in can arrive in any order, so their
-tombstones stay.
-Such tombstones are dropped once they're 30 days old, which leaves room for
-a device that joins with a state of its own. Played marks and listening
-counts are never dropped, since the listener still sees them. After a
-sync, the result is merged into the current state, which brings back the
-dropped tombstones, so `library/merge` compacts again afterwards.
+tombstones stay. The others are dropped once they're also 30 days old,
+which leaves room for a device that joins with a state of its own.
+Played marks and listening counts are never dropped, since the listener
+still sees them. After a sync, the result is merged into the current
+state, which brings back the dropped tombstones, so `library/merge`
+compacts again afterwards.
 
 While the listener follows a list, the tombstones of unsubscriptions stay.
 A feed never gives a new device old episodes, but a list subscribes to
@@ -281,10 +283,11 @@ keep it outside the profile.
 ## The stores
 
 [Sync reference](sync-reference.md#the-stores-of-podcast-clj) lists the
-stores that come with podcast-clj: in memory, a folder, a WebDAV collection,
-and any of them encrypted. Any place that can hold one document per device,
-or one document with a version, can be a store without a change to
-podcast-clj.
+stores that come with podcast-clj: in memory, a folder, a WebDAV
+collection, IndexedDB, and any of them encrypted. Any place that can hold
+one document per device, or one document with a version, can be a store
+without a change to podcast-clj. A saved library goes into a store too,
+so an app needs only one kind.
 
 
 ## The gpodder API
@@ -373,7 +376,7 @@ A sync document describes the listening habits of a listener, and the
 provider can read what it stores. The encrypting store, `sync.encrypted`,
 wraps any other store, which is what the map-of-functions design was chosen
 for. It uses AES-256-GCM with a key that PBKDF2 derives from a passphrase,
-through `javax.crypto` on the JVM and WebCrypto in a browser. Each
+through `javax.crypto` on the JVM and WebCrypto in ClojureScript. Each
 document carries the salt, the IV and the iteration count that sealed it,
 so there's no key file to lose. Plain documents pass through, so you can
 start encrypting a folder at any time.

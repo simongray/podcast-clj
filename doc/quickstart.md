@@ -44,15 +44,15 @@ subscription's setting `:auto-queue?` puts the show's new episodes in the
 listener's queue. Each `swap!` returns the whole library, with the feed in it,
 so the examples look only at the part that a step changed.
 
-The library is plain EDN, so you can save `@lib` like any other value and
-read it back at the next start. If its `:config` holds functions, such as
-the `:send` of a web page, save the library without its `:config`, and
-assoc the config back when you read it. Change it with `swap!` and the
-functions of `app.library` and `profile`, but never `assoc` into
-`:profile`. The profile is a CRDT, so that the listener's devices can
-merge their changes in any order: each write stamps what it changed with
-the time and the device, the later of two changes wins, and a removal is
-a tombstone. [Syncing](sync.md) explains how.
+Change the library with `swap!` and the functions of `app.library` and
+`profile`, but never `assoc` into `:profile`. The profile is a CRDT, so
+that the listener's devices can merge their changes in any order: each
+write stamps what it changed with the time and the device, the later of
+two changes wins, and a removal is a tombstone. [Syncing](sync.md)
+explains how. To keep the library until the next start, save it into a
+store with `library/save!`, and read it back with `library/restore!`, as
+[How to build a podcast app](building-an-app.md#keep-the-library-between-runs)
+shows.
 
 ## The episodes
 

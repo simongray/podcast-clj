@@ -22,9 +22,9 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.text :as text]))
 
-;; The operators that Lucene's simple query parser, Elasticsearch's
-;; simple_query_string and SQLite FTS5 share, with ! for NOT as in many
-;; programming languages
+;; The words of SQLite FTS5 and the signs of Lucene's simple query parser,
+;; which Elasticsearch's simple_query_string shares, with & and ! for AND
+;; and NOT as in many programming languages
 (def syntax
   "The spellings of the operators of the query language that parse reads.
 

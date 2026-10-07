@@ -11,7 +11,7 @@ parsed feed, transcript or chapters document, `validate` for those of a feed, an
 
 The namespace of an id says which part of podcast-clj found the problem:
 
-- `fetch`: the fetch of a feed
+- `fetch`: the fetch of a feed or a list
 - `discovery`: finding the feeds of a show from an address
 - `repair`: the repairs of malformed XML
 - `xml`: namespace resolution
@@ -22,6 +22,7 @@ The namespace of an id says which part of podcast-clj found the problem:
 - `validate`: the validator
 - `check`: the checks over the network
 - `sync`: the sync between devices
+- `library`: a saved library
 - `podping`: a poll of the Hive chain
 - `comments`: the threads of comments
 - `value`: the records of payments, the remote items of time splits, the Lightning
@@ -33,8 +34,8 @@ A function that sends requests also returns its failures as diagnostics, under t
 
 | Id | Level | Meaning |
 |---|---|---|
-| `:fetch/unreachable` | warning | The feed couldn't be fetched: the connection failed, the request took too long, the answer was too large, or the URL wasn't allowed. |
-| `:fetch/malformed` | warning | The document isn't an RSS feed, or an OPML list where a list was fetched: it isn't XML, or its root element isn't rss or opml. |
+| `:fetch/unreachable` | warning | The feed or list couldn't be fetched: the connection failed, the request took too long, the answer was too large, or the URL wasn't allowed. |
+| `:fetch/malformed` | warning | The document isn't an RSS feed, or for a list, an OPML document: it isn't XML, or its root element isn't rss or opml. |
 | `:fetch/page-failed` | warning | A page of a paged feed couldn't be fetched or read, so the feed lacks the items of that page and the pages after it. |
 | `:fetch/status` | warning | The server answered with a status that isn't a success, such as 404. The feed stays as it was, and the next fetch waits longer after each failure in a row. |
 | `:fetch/guid-taken` | warning | The feed declares the podcast:guid of another subscription, at another URL, and would take that subscription over, so it isn't added. To replace the other subscription, unsubscribe from it first. |
@@ -169,9 +170,9 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:sync/malformed-actions` | warning | Episode actions from a gpodder server name no feed, no media file or no readable time, and were left out. |
 | `:sync/unnamed-episodes` | info | Episodes changed, but the server wasn't told, because the gpodder API names an episode by the URL of its media, and that URL isn't known. |
 | `:sync/rejected-url` | warning | A gpodder server refused a URL that was sent to it, so it keeps no subscription or episode action for it. |
-| `:library/save-failed` | warning | The library or its search index couldn't be written to the store, so what the last save wrote stands. The :reason says why. |
-| `:library/unreadable-document` | warning | The saved library didn't read, so the library is as make gave it. The :reason says why. |
-| `:library/index-rebuilt` | info | The search index was built again from the feeds, since its documents were missing or didn't read. The :reason says why. |
+| `:library/save-failed` | warning | The library or its search index couldn't be written to the store in full. The :reason says why. |
+| `:library/unreadable-document` | warning | The saved library didn't read, so none of its parts were restored. The :reason says why. |
+| `:library/index-rebuilt` | info | The search index was built again from the feeds, since some of its documents were missing or didn't read. The :reason says why. |
 | `:podping/unavailable` | warning | No node of the Hive chain answered a call of the poll. The result has the pings of the blocks that were read before that call. |
 | `:comments/unsupported` | info | Comments over the protocol of the thread can't be read. |
 | `:comments/no-appview` | warning | An AT Protocol thread wasn't read, because the options named no AppView. |

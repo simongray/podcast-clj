@@ -47,7 +47,7 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `merge`, `episodes`, `show`, `episode`, `step`, `update-profile`, `sync!`, `plan`, and `save!` and `restore!` to keep it between runs. `add-episode` takes in an episode of a show without a subscription. |
+| `app.library` | The subscriptions, feeds, queue and play progress of an app in one map, with the config that every call uses. Most apps need only `make`, `subscribe`, `refresh!`, `merge`, `episodes`, `show`, `episode`, `step`, `update-profile`, `search`, `sync!`, `plan`, `save!` and `restore!`. For an episode of a show without a subscription, there's `add-episode`. |
 | `app.show` | Everything a show page needs in one map, from `view`, and the shows of the podroll and the publisher from `fetch-linked-shows!`. |
 | `app.episode` | Everything an episode page needs in one map, from `view`, what the chapters file, transcript and media file say from `read-files!`, and the value blocks that its time splits point at from `fetch-remote-values!`. |
 | `app.feeds` | The fetched feeds by guid, with their ETag, Last-Modified and next check. Use `due` for the feeds to fetch now, `refresh!` to fetch them, and `affected` for the feeds that a Podping names. A device that never shows the feeds can keep only what `slim` gives of each. |
@@ -56,8 +56,8 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `profile` | The listener's profile, a CRDT that syncs between their devices: the queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions and their settings, remote items of other shows, followed lists, saved filters, listening counts and devices. Use `step` for the events of a player, `merge` to combine two profiles, and `compact` to drop old tombstones. |
-| `search` | Filters and orders of episodes as data, and the search documents of episodes and shows, with `index` for an index of them that weighs the title most. |
+| `profile` | The listener's profile, a CRDT that syncs between their devices: the queue, playlists, inbox, progress, stars, ratings, bookmarks, clips, subscriptions and their settings, single episodes of other shows, followed lists, saved filters, listening counts and devices. Use `step` for the events of a player, `merge` to combine two profiles, and `compact` to drop old tombstones. |
+| `search` | Filters and orders of episodes as data, and the full-text documents of episodes and shows, with `index` for an index of them that weighs the title most. |
 | `downloads` | Which episodes to download and which files to delete, from the listener's rules, with `plan`. |
 
 ## Sync
@@ -65,7 +65,7 @@ option replaces the function that sends.
 | Namespace | Contents |
 |---|---|
 | `sync` | Sync between devices: `sync!` over any backends, `backend` to sync through any store, `reconcile` and `next-sync`. |
-| `sync.store` | The store contract, whose documents are text or bytes, with `memory`, `check!` to test a store, and `put-all!` and `fetch-all!`. |
+| `sync.store` | The store contract, which the sync and a saved library share, with `memory`, `check!` to test a store, and `put-all!` and `fetch-all!` for many documents in one call. |
 | `sync.file` | A folder as a store, e.g. one that a sync client mirrors, or a Git working tree. It takes a path on the JVM and in Node, and in a browser a folder that the listener picks, the origin private file system or the files they load. |
 | `sync.indexeddb` | Browser. An IndexedDB database as a store, e.g. for `library/save!`. |
 | `sync.webdav` | A WebDAV collection as a store. |
@@ -90,7 +90,7 @@ option replaces the function that sends.
 | `feed.quirks` | The repairs for malformed XML, which `parse-raw` runs when the strict parse fails, and the normalisations of the tree. |
 | `feed.coerce` | The value types of the registry, from strings and back. |
 | `feed.schema` | Malli schemas of the model, generated from the registry. Malli isn't a dependency. |
-| `diagnostics` | Every diagnostic id, with its level and meaning, `summarize`, which groups a report by kind, and `fetch-failure` for a fetch that gave no document. |
+| `diagnostics` | Every diagnostic id with its level and meaning. Also `summarize`, which groups a report by kind, and `fetch-failure` for a fetch that gave no document. |
 
 ## Directories and updates
 
@@ -125,7 +125,7 @@ option replaces the function that sends.
 | `comments.activitypub` | ActivityPub threads, with each post fetched from its own server, and the Mastodon API when a server won't give the root post. |
 | `comments.atproto` | AT Protocol threads from an AppView, with the labels of the protocol, and `at-uri` to split an at URI. |
 | `comments.nostr` | Nostr threads from relays, with verified events only. The thread about a show or an episode comes from `about`, by its NIP-73 id. |
-| `comments.common` | What the readers share: values from JSON answers, problems with an answer, and safe HTML for a post. |
+| `comments.common` | What the readers share: values from JSON answers, problems with an answer, and safe HTML for a post. Apps don't call it. |
 
 ## Value for value
 
@@ -134,7 +134,7 @@ option replaces the function that sends.
 | `value` | Splits, fees and time splits, and one shape for a payment, with `boostagram` and `parse-boostagram` for the bLIP-10 record, `records` for the custom records of a keysend payment, and `as-received` to check a record against what the node received. |
 | `value.lnaddress` | Lightning addresses: `request-invoice!` gets an invoice with LNURL-pay and checks its amount, and `fetch-node!` gets the node for keysend. |
 | `value.bolt11` | The invoices of BOLT 11: `invoice-amount`, `payment-hash`, and `proves?`, which checks a preimage against an invoice. |
-| `value.payment` | The JSON fields of the payment map, which the bLIP-10 record and the RSS Payment Metadata share. |
+| `value.payment` | The JSON fields of the payment map, which the bLIP-10 record and the RSS Payment Metadata share. Apps don't call it. |
 | `value.metadata` | The RSS Payment Metadata: the comment of a payment to a Lightning address, and the `x-rss-payment` header that `fetch!` reads. |
 | `value.nwc` | Nostr Wallet Connect (NIP-47), for paying from the listener's wallet. Read a connection URI with `parse`, make a command such as `pay-invoice` or `get-balance`, and send it with `ask!`, which returns the answer. |
 | `value.webln` | WebLN, the wallet interface of a web page. In ClojureScript, `pay-invoice!` and `pay-keysend!` call the provider. |
@@ -167,7 +167,7 @@ option replaces the function that sends.
 | `util.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |
 | `util.text` | Text for search on both platforms: `fold`, which drops case and diacritics, and `tokens`, the words of a text, with Chinese, Japanese, Korean and Thai in pairs of characters. |
 | `util.text.query` | The query language of full-text search: `parse` reads AND, OR, NOT, phrases, prefixes, typos and fields, and `snippet` and `matches?` match a query against one text. |
-| `util.text.search` | A full-text index ranked by BM25F: `index`, `add`, `remove` and `query`, and `query-opts`, which `util.text.query` takes to read a query as the index does. |
+| `util.text.search` | A full-text index ranked by BM25F: `index`, `add`, `remove` and `query`. Give the `query-opts` of an index to `util.text.query` to read a query as the index does. |
 | `util.text.search.ciff` | An index kept in a store, in the Common Index File Format: `plan` gives the documents to put and delete, and `read-documents` reads them back. |
 | `util.text.search.segment` | The segments of an index, its postings in sorted arrays of ints, which the index builds and combines. Apps don't call it. |
 | `util.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The profile is one. |

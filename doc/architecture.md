@@ -173,10 +173,11 @@ keeps the list and the source in sync.
   app gives Hiccup straight to its renderer.
 - **Media files and images** are read without I/O. A reader works on the
   parts of a file that have arrived, and when it needs more, it throws the
-  byte ranges it needs. `util.bytes.view/read!` fetches them and reads
-  again. So the readers are pure, and one loop does the fetching, with
-  futures on the JVM and promises in JavaScript. A host that inserts ads can send a different
-  file to each request, so a duration is that of the file that came.
+  byte ranges it needs. `view/read!` fetches them and reads again. So the
+  readers are pure, and one loop does the fetching, with futures on the
+  JVM and promises in JavaScript. A host that inserts ads can send a
+  different file to each request, so a duration is that of the file that
+  came.
 
 
 ## The network
@@ -505,37 +506,11 @@ download rules use the same criteria.
 
 Full-text search lives in namespaces that know nothing about podcasts,
 `util.text`, `util.text.query` and `util.text.search`, so other projects
-can use them too. The query language has a namespace of its own, since a
-transcript or a filter matches a query against one text without an index.
-The index is a value: `index`, `add` and `remove` build and change a map,
-`query` searches it, and nothing runs in the background. Lucene doesn't
-run in a browser, but this index runs wherever the model runs, and prints
-as EDN. The `search` namespace only makes the documents of episodes and
+can use them too. The index is a value: `index`, `add` and `remove` build
+and change it, `query` searches it, and nothing runs in the background.
+Lucene doesn't run in a browser, but this index runs wherever the model
+runs. The `search` namespace only makes the documents of episodes and
 shows, and gives the title more weight than the notes.
-
-The index keeps its postings in sorted arrays of ints rather than in
-maps, which takes far less memory and lets a query start from its rarest
-word. As in Lucene, the arrays are in segments: `add` puts new documents
-in a small segment of their own, `remove` marks a document in its
-segment, and segments merge as they grow, so a change copies little and
-the index stays a value. Until a merge drops it, a removed document still
-counts in the statistics of the ranking, as it does in Lucene.
-
-An index is kept between runs as documents in a store: a manifest in EDN,
-and a document for each segment in the Common Index File Format, which
-search engines such as Anserini, PISA and Terrier use to exchange their
-indexes. CIFF has no positions, fields or stored values, so they're
-fields of its protobuf messages that a reader of CIFF skips. A segment's
-document is named after a hash of what it holds, so it's written once,
-and the functions stay pure without a counter or random names.
-
-The index only says which documents to put and delete, and
-`library/save!` puts them into a store along with the rest of the
-library. It's the same contract as for the sync documents, with bodies
-of bytes as well as text, so a folder, IndexedDB and the origin private
-file system can all hold a library, and an app needs no second kind of
-store. Saving is a call that you make, e.g. after each refresh, rather
-than something that runs in the background.
 
 Words split at anything that isn't a letter or a digit, as in most
 JavaScript search libraries, so "Simon's" is found by "simon", and a query
@@ -548,18 +523,49 @@ on every device. There's no stemming and no language model. Instead the
 last word of a query completes as a prefix, and a field given as a vector
 of terms isn't analysed, so an app can bring its own stemmer.
 
-A word that no document holds matches words with typos, much as Typesense
-does by default. It's decided for each word, rather than by running a
-query again when it finds nothing, so the words spelled right stay
-exact, and a page past the end or a filter that leaves nothing doesn't
-bring in matches with typos.
+A word that no document holds matches words with typos. It's decided for
+each word, rather than by running the query again with typos when it
+finds too little, as Typesense does by default. So the words spelled
+right stay exact, and a page past the end or a filter that leaves
+nothing doesn't bring in matches with typos.
 
 The ranking is BM25F, which adds up a word's occurrences in all the fields
 of a document, each weighed by its field, before they count. Ranking each
 field on its own and adding the scores would let a word that appears once
-in each of three fields outrank one repeated in the title. The query
-language is the one that Lucene, Elasticsearch and SQLite FTS5 share, with
-its words and signs as options, e.g. for queries in another language.
+in each of three fields outrank one repeated in the title.
+
+The query language takes the words AND, OR and NOT of SQLite FTS5 and
+the signs of Lucene's simple query parser, e.g. `|` and a leading `-`,
+so that what a user knows from either works. The spellings are options,
+e.g. `OG` for AND in Danish. The language has a namespace of its own,
+since a transcript or a filter matches a query against one text without
+an index.
+
+The index keeps its postings in sorted arrays of ints rather than in
+maps, which takes far less memory and lets a query start from its rarest
+word. As in Lucene, the arrays are in segments that merge as they grow,
+so a change copies little and the index stays a value. Until a merge
+drops it, a removed document still counts in the statistics of the
+ranking, as it does in Lucene.
+
+An index is kept as documents in a store: a manifest in EDN, and a
+document for each segment in the Common Index File Format, which search
+engines such as Anserini, PISA and Terrier use to exchange their indexes.
+CIFF has no positions, fields or stored values, so they go in fields of
+its protobuf messages that other readers of CIFF skip. A segment's
+document is named after a hash of what it holds, so it's written once,
+and the functions stay pure without a counter or random names.
+
+
+## Saving a library
+
+A library is saved into a store, as the sync documents are, and the
+contract allows bodies of bytes as well as text for the index. So a
+folder, IndexedDB and the origin private file system can all hold a
+library, and an app needs no second kind of store. The index only says
+which of its documents to put and delete, and `library/save!` writes
+them. Saving is a call that you make, e.g. after each refresh, rather
+than something that runs in the background.
 
 
 ## Download rules

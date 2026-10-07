@@ -9,7 +9,7 @@ and [Syncing](sync.md) explains the design.
 ## The store contract
 
 A store is a map of functions over named documents, each with a version
-token:
+token, e.g. the sync documents or a library that `library/save!` wrote:
 
 ```clojure
 {:fetch  (fn [name opts])       ; {:body "…" :version "…"}, or nil
@@ -27,8 +27,8 @@ token:
   across the tabs of a site.
 - A refused write returns `{:conflict? true}` rather than throwing.
 - A body is text or bytes. A fetch gives it as text, or as bytes with
-  `{:as :bytes}` in its opts, whichever was put, and `util.bytes/as`
-  turns one into the other.
+  `{:as :bytes}` in its opts, whichever of the two was put, so a store
+  converts it when needed, e.g. with `bytes/as`.
 - On the JVM, each function returns its value and throws on failure. In
   ClojureScript, it can return a value or a promise.
 - The credentials stay in the closure of the constructor, never in the
@@ -81,6 +81,7 @@ The options of `sync/backend`:
 | `:app` | The name of the app, written into each document | none |
 | `:name` | The name of the backend | the name of the store |
 | `:document` | The name of the shared document | `"podcast.edn"` |
+| `:crdt` | The functions of another CRDT than the profile, as [below](#the-result-of-sync) | those of the profile |
 
 With either strategy, a retired device writes nothing, and the report has
 `:sync/retired-device`.
@@ -107,8 +108,8 @@ Each device writes only its own document, `<device-id>.edn`. A step of
 
 If the document of this device changed since the last step, another
 installation, or another tab of the same page, is using the same device
-id, and the report has `:sync/shared-device`. If the document is gone from the store, the next
-push writes it again.
+id, and the report has `:sync/shared-device`. If the document is gone from
+the store, the next push writes it again.
 
 
 ## The shared strategy
@@ -157,12 +158,14 @@ profile, and with the `:at`, `:clock` and `:failures` that
   step removed. For a library, `library/merge` does both.
 - On the JVM, `sync!` returns the map, and in ClojureScript a promise of
   it.
-- Its options are `:cursors`, those of the last step, and `:compact`,
-  which is `false` to keep every tombstone, or the options of
+- Its options are `:at`, the instant of the step, which is the time of
+  the clock by default, `:cursors`, those of the last step, and
+  `:compact`, which is `false` to keep every tombstone, or the options of
   `profile/compact`.
 - To sync another CRDT than the profile, give `:crdt` to `sync!` and to
   `sync/backend`, a map of its `:merge`, `:compact` and `:problem`
-  functions, as `sync/default-crdt` holds those of the profile.
+  functions, as `sync/default-crdt` holds those of the profile. Then
+  `:opml?` makes no sense.
 
 
 ## The sync document
@@ -221,6 +224,7 @@ The store of `sync.encrypted` wraps each body in this EDN map:
 | A map in an atom | `sync.store/memory` | both | a count of the writes |
 | A folder | `sync.file` | both | the modification time, as exact as the file system keeps it, and the size |
 | A WebDAV collection | `sync.webdav` | both | the ETag |
+| An IndexedDB database | `sync.indexeddb` | browser | a count of the writes |
 | Any store, encrypted | `sync.encrypted` | both | the version of the wrapped store |
 
 The folder store takes a path on the JVM and in Node. In a browser, it
@@ -231,9 +235,9 @@ drop:
   file system. A write goes through `createWritable`, whose changes reach
   the file only when the stream closes (File System, section 2.3.2).
 - The files of an input are read only. Their store has no `:put` or
-  `:delete`, so a backend over it only pulls. Of a folder
-  loaded with `<input webkitdirectory>`, only the files at its top count,
-  and the folder's name is the store's name.
+  `:delete`, so a backend over it only pulls. Of a folder loaded with
+  `<input webkitdirectory>`, only the files at its top count, and the
+  folder's name is the store's name.
 - In ClojureScript, `file/query-permission!` and `file/request-permission!`
   give `:granted`, `:prompt` or `:denied`. A path, a folder of the origin
   private file system and the files of an input give `:granted`, since
@@ -249,8 +253,9 @@ On the JVM, `sync.webdav.server/handler` serves any store over WebDAV:
 - A PROPFIND on the collection at depth 0 gives the collection alone, and
   at depth 1 it also lists the documents.
 - If the store has no `:list`, a PROPFIND that lists the collection gets
-  403. If it has no `:delete`, a DELETE gets 405, and OPTIONS doesn't offer
-  DELETE. A 405 names the allowed methods in `Allow`.
+  403. If it has no `:put` or no `:delete`, a PUT or a DELETE gets 405,
+  and OPTIONS doesn't offer it. A 405 names the allowed methods in
+  `Allow`.
 - MKCOL gets 405, since the collection already exists.
 - A client of such a server removes the same keys from its WebDAV store,
   e.g. `(dissoc (webdav/store url) :list)`, and the backend then uses one

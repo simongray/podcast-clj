@@ -186,8 +186,8 @@
               (str "with only text, such as `{:rss/guid \"x\"}`, and a single "
                    "value for a vector, which")
               (str "`feed/normalize` expands. The identity of a feed and of an "
-                   "item comes from `feed.guid/feed-guid`")
-              "and `feed.guid/item-guid`."
+                   "item comes from `guid/feed-guid`")
+              "and `guid/item-guid`."
               ""
               "## Value types"
               ""
@@ -221,7 +221,7 @@
               (str "The namespace of an id says which part of podcast-clj "
                    "found the problem:")
               ""
-              "- `fetch`: the fetch of a feed"
+              "- `fetch`: the fetch of a feed or a list"
               "- `discovery`: finding the feeds of a show from an address"
               "- `repair`: the repairs of malformed XML"
               "- `xml`: namespace resolution"
@@ -232,6 +232,7 @@
               "- `validate`: the validator"
               "- `check`: the checks over the network"
               "- `sync`: the sync between devices"
+              "- `library`: a saved library"
               "- `podping`: a poll of the Hive chain"
               "- `comments`: the threads of comments"
               (str "- `value`: the records of payments, the remote items of "

@@ -30,7 +30,8 @@ fetched. In ClojureScript they return a promise:
 and keep it.
 
 Each function returns the library along with what it did: `:effects`
-after `step`, `:refresh` after `refresh!` and `:sync` after `sync!`. The
+after `step`, `:refresh` after `refresh!`, `:sync` after `sync!` and
+`:restore` after `restore!`. The
 `:config` given to `make` holds the options that the other library
 functions use, and the docstring of `app.library` lists them. Keep the
 library between runs with `library/save!` and `library/restore!`, as
@@ -52,11 +53,11 @@ options, call the function of `profile` with that time instead, e.g.
 `(swap! lib update :profile profile/enqueue id at)`.
 
 The examples call each namespace by the last part of its name, e.g.
-`library` is `dk.simongray.podcast.app.library`, except `nostr-comments`
-for `comments.nostr` and `feed.guid` for itself, since `guid` names a value
-in them. [The last section](#the-namespaces-of-the-examples)
-requires them all. The examples run on the JVM, and in ClojureScript the
-functions that send requests return promises.
+`library` for `dk.simongray.podcast.app.library`, or by a longer name
+where that part would be unclear, e.g. `feed.guid` or `nostr-comments`.
+[The last section](#the-namespaces-of-the-examples) requires them all.
+The examples run on the JVM, except those for a browser, and in
+ClojureScript the functions that send requests return promises.
 
 
 ## What you build yourself
@@ -89,7 +90,8 @@ functions that send requests return promises.
   browser.
 
 In ClojureScript, add podcast-clj to `deps.edn` and let shadow-cljs read
-it with `:deps true`. There are no npm packages to install.
+it with `:deps true`. A browser needs no npm packages, and Node only the
+`DOMParser` above.
 
 
 ## Send requests from a web page
@@ -234,9 +236,9 @@ In a browser, give `fetch!` the `:send` of the proxy.
 
 Without `app.library`, `feeds/add` keeps the feed along with its ETag and
 Last-Modified, and `profile/subscribe` adds the subscription. Every id in
-the profile uses the guid that `feed.guid/feed-guid` gives a feed. A feed can
-declare the guid of another subscription and take it over, so check a new
-feed with `profile/takeover` first.
+the profile uses the guid that `feed.guid/feed-guid` gives a feed. A feed
+can declare the guid of another subscription and take it over, so check a
+new feed with `profile/takeover` first.
 
 
 ## Keep the feeds current
@@ -316,6 +318,28 @@ before the lease runs out, and keep polling on the normal schedule too,
 since a hub can fail.
 
 
+## Follow lists of shows
+
+A network or a critic can publish a list of shows as OPML. When a listener
+follows it, the shows that join the list become subscriptions. Fetch the
+list with `podcast/fetch-list!`, which gives it as `:list`, or an `:error`
+as `fetch!` does:
+
+```clojure
+(def fetched (podcast/fetch-list! list-url))
+
+(swap! lib library/follow-list list-url (:list fetched)
+       {:title "Picks" :folder "Picks" :etag (:etag fetched)})
+```
+
+The `:etag` makes the next fetch of the list conditional. After that,
+`refresh!` fetches the list again once a day. A show that leaves the list
+stays a subscription, since the listener may still like it. A show that
+the listener unsubscribed from doesn't come back, and a show is
+recognised by its feed URL, so it isn't added twice. In the OPML from
+`profile/to-opml`, the followed lists are includes.
+
+
 ## Keep the library between runs
 
 Save the library into a store of its own, e.g. after each refresh, and
@@ -336,9 +360,9 @@ to `library.edn`. The search index has documents of its own, and only
 those that changed since the last save are written again, so saving
 after each refresh is cheap. The `:config` can hold functions, so it
 isn't saved: give it to `make` again. When the index is missing or
-doesn't read, `restore!` builds it again from the feeds and says so in
-the `:report` under `:restore`. In ClojureScript, both functions return
-promises.
+doesn't read, `restore!` builds it again from the feeds, and a document
+that didn't read is in the `:report` under `:restore`. In ClojureScript,
+both functions return promises.
 
 Any store will do, but give the library one of its own, since `save!`
 deletes the documents of any other index there:
@@ -347,30 +371,9 @@ deletes the documents of any other index there:
 - **In a browser,** IndexedDB, `(indexeddb/store)`, or the origin private
   file system, `(.then (.getDirectory js/navigator.storage) file/store)`.
   A browser can clear both when the disk runs low, unless the page asked
-  for `navigator.storage.persist()` and got it. Then `restore!` gives the
-  new library as it is, and the feeds are fetched again.
-
-
-## Follow lists of shows
-
-A network or a critic can publish a list of shows as OPML. When a listener
-follows it, the shows that join the list become subscriptions. Fetch the
-list with `podcast/fetch-list!`, which gives it as `:list`, or an `:error`
-as `fetch!` does:
-
-```clojure
-(def fetched (podcast/fetch-list! list-url))
-
-(swap! lib library/follow-list list-url (:list fetched)
-       {:title "Picks" :folder "Picks" :etag (:etag fetched)})
-```
-
-The `:etag` makes the next fetch of the list conditional. After that,
-`refresh!` fetches the list again once a day. A show that
-leaves the list stays a subscription, since the listener may still like
-it. A show that the listener unsubscribed from doesn't come back, and a
-show is recognised by its feed URL, so it isn't added twice. In the OPML
-from `profile/to-opml`, the followed lists are includes.
+  for `navigator.storage.persist()` and got it. If it does, `restore!`
+  gives the library as `make` made it, and the next sync brings the
+  profile back from the other devices.
 
 
 ## Build the show and episode pages
@@ -507,22 +510,6 @@ the effects it returns:
 ;; => [[:play next-id]]
 ```
 
-To queue an episode of a show that the listener isn't subscribed to, e.g.
-from a search or a link, add it to the library first:
-
-```clojure
-(let [fetched (podcast/fetch! url)
-      id      [(feed.guid/feed-guid (:feed fetched) url) item-guid]]
-  (swap! lib #(-> (library/add-episode % url fetched item-guid)
-                  (library/update-profile profile/enqueue id))))
-```
-
-The profile keeps the episode as a remote item with the URL of its feed,
-as `podcast:remoteItem` names an episode, so `refresh!` fetches that feed
-on every device. The library lists that one episode of the show, and the
-later episodes of the show never count as new. To take it out again, use
-`library/remove-episode`, which leaves the queue as it is.
-
 The effects are `[:seek id position]`, `[:play id]`, `[:stop id]` and
 `[:played id]`. In ClojureScript, a handler can look like this:
 
@@ -542,6 +529,22 @@ To start an episode where the listener stopped, or after its intro, ask
 `profile/resume-position`. To pick the file to play, use
 `resolve/enclosure`, e.g. with `{:types ["audio/opus" "audio/mpeg"]
 :max-bitrate 64000}`.
+
+To queue an episode of a show that the listener isn't subscribed to, e.g.
+from a search or a link, add it to the library first:
+
+```clojure
+(let [fetched (podcast/fetch! url)
+      id      [(feed.guid/feed-guid (:feed fetched) url) item-guid]]
+  (swap! lib #(-> (library/add-episode % url fetched item-guid)
+                  (library/update-profile profile/enqueue id))))
+```
+
+The profile keeps the episode as a remote item with the URL of its feed,
+as `podcast:remoteItem` names an episode, so `refresh!` fetches that feed
+on every device. The library lists only that episode of the show, and
+the show's later episodes never count as new. To take it out again, use
+`library/remove-episode`, which leaves the queue as it is.
 
 Some settings and events change what `step` does:
 
@@ -600,7 +603,8 @@ of `search/episodes`:
 
 Here a played file goes after a day, the first three episodes of the queue
 are downloaded, and the show gets its three newest episodes of ten minutes
-or more. Every key is in `downloads/default-rules`.
+or more. Every key is in `downloads/default-rules`, and those of a show's
+rule in `downloads/default-rule`.
 
 To follow the plan:
 
@@ -660,21 +664,25 @@ The library keeps a full-text index of every feed:
 
 The results are the episodes and shows, best first, and `:offset 10`
 gives the next page. The last word counts as a prefix, so this works for
-search as you type. A query can also have `"a phrase"`, `OR` or `|`,
-`NOT`, `!` or `-` before a word, parentheses, `word~` for a word with
-typos, and `title:word` or `notes:word` for one field;
-`util.text.query/parse` says the rest. The index takes about two
-kilobytes per episode, so 50 shows with 28,000 episodes take about 60
-megabytes. To leave it out, e.g. on a watch, give `:search? false` in
-the config.
+search as you type. A query can also have:
 
-A word that no episode holds also matches words with typos: one for a
-word of three to five letters, and two for a longer one, which e.g.
-`{:typo-lengths [4 8]}` changes. To allow typos in every word, give
-`{:fuzzy true}`, or `{:fuzzy false}` for none but those of `word~`. The
-words that matched with typos are in the metadata of the results, and a
-result that holds such a word only with typos has them too, so that the
-UI can say "Near matches for futrue":
+- `"a phrase"`
+- `OR` or `|` between words, `NOT`, `!` or `-` before one, and parentheses
+- `word~` for a word with typos
+- `title:word` or `notes:word` for one field
+
+The docstring of `text.query/parse` has the rest. The index takes about
+two kilobytes per episode, so 50 shows with 28,000 episodes take about 60
+megabytes. To leave it out, e.g. on a watch, give `:search? false` in the
+config.
+
+A word that no episode holds also matches words with typos: one in a
+word of three to five letters, and two in a longer one, which the option
+`:typo-lengths` changes. With `:fuzzy true`, every word can have typos,
+and with `:fuzzy false`, only a `word~` can. The words that matched with
+typos are under `:typos` in the metadata of the results, and in each
+result that holds a word only with typos, so that the UI can say "Near
+matches for futrue":
 
 ```clojure
 (def found (library/search @lib "futrue"))
@@ -709,10 +717,8 @@ Each passage that matches has the time of the cue where it starts:
 ```
 
 Building the index takes a few seconds for 50 shows, so `library/save!`
-keeps it, as [Keep the library between runs](#keep-the-library-between-runs)
-shows. Its segments are in the
-[Common Index File Format](https://github.com/osirrc/ciff), which other
-search engines can read.
+saves it too, as [Keep the library between
+runs](#keep-the-library-between-runs) shows.
 
 Without `app.library`, build the index from the feeds yourself, with the
 documents of `search`:
@@ -851,7 +857,7 @@ To serve a store from your own Clojure server, mount the Ring handler of
 `sync.gpodder.server`. Each serves one listener, so give each listener a
 handler of their own behind your login, as their docstrings show. To sync
 through a service that has no store yet, write one: [Sync
-reference](sync-reference.md) gives the contract, a map of two to four
+reference](sync-reference.md) gives the contract, a map of one to four
 functions.
 
 ### Sync through a folder in a browser
@@ -963,8 +969,9 @@ from `episode/view`. To fetch a block yourself, e.g. with
 `podcastindex/fetch-remote-value!`, fold it in with `value/with-remote`.
 
 What goes with a payment is one map, however it's sent. Inside a remote
-split, `(:remote paid)` names the remote item, so add its `:feed-guid` and
-`:item-guid` as `:remote-feed-guid` and `:remote-item-guid`:
+split, `(:remote-item (:remote paid))` is the remote item, so add its
+`:feed-guid` and `:item-guid` as `:remote-feed-guid` and
+`:remote-item-guid`:
 
 ```clojure
 (def payment
@@ -1017,7 +1024,7 @@ you would a password:
 ```clojure
 (def connection (nwc/parse uri))  ; the secret prints as #<secret>
 (def info (nwc/fetch-info! connection))
-;; => {:methods ["pay_invoice" "pay_keysend" …] :encryption ["nip44_v2"]}
+;; => {:methods ["pay_invoice" "pay_keysend" …] :encryption ["nip44_v2"] …}
 
 (nwc/ask! connection (nwc/pay-keysend (assoc payment :sats 50) recipient)
           {:info info})

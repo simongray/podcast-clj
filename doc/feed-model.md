@@ -24,8 +24,8 @@ items under `:podcast/live-items`. The model follows a few rules:
 Every element on this page is read into the model by `parse`, written back by `emit` and
 checked by `validate`. The last two also accept a shorthand, a bare value for an element
 with only text, such as `{:rss/guid "x"}`, and a single value for a vector, which
-`feed/normalize` expands. The identity of a feed and of an item comes from `feed.guid/feed-guid`
-and `feed.guid/item-guid`.
+`feed/normalize` expands. The identity of a feed and of an item comes from `guid/feed-guid`
+and `guid/item-guid`.
 
 ## Value types
 

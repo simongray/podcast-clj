@@ -11,7 +11,7 @@
   - WebP, by RFC 9649, with the VP8 frame header of RFC 6386, section 9.1
 
   The read function takes a view of the parts of the file at hand, as in
-  dk.simongray.podcast.util.bytes. It gives the header, or the ranges that
+  dk.simongray.podcast.util.bytes.view. It gives the header, or the ranges that
   it still needs, as dk.simongray.podcast.format.media/read does for media
   files. The read! function fetches the ranges, and report gives the
   diagnostics of a reading."

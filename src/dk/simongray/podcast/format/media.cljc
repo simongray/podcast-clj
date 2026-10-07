@@ -7,7 +7,7 @@
   podcast:integrity of an alternate enclosure, use format.integrity.
 
   The read function takes a view of the parts of the file at hand, as in
-  dk.simongray.podcast.util.bytes. It gives what they say, or the ranges
+  dk.simongray.podcast.util.bytes.view. It gives what they say, or the ranges
   that it still needs. The read! function fetches those ranges until the
   reading is done, most often in one or two requests and a few hundred
   kilobytes. It fetches with the HTTP client of podcast-clj on the JVM,

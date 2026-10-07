@@ -921,12 +921,15 @@ section 7 that apply, and a report of what changed and what was measured.
 Decided on 7 October 2026, and built on the branch
 `feature/search-library`:
 
-- D1, D2, D3, D5 and D6 as recommended, with `util.search` named
-  `util.text.search` to show that it's built on `util.text`.
-- D4: a full boolean language in `util.search`: AND (`&`), OR (`|`), NOT
-  (`!` and a leading `-`), parentheses, and `field:word` or `field=word`,
-  besides quotes and a trailing `*`. The spellings are an option, e.g.
-  `OG` for AND in Danish.
+- D1, D2, D5 and D6 as recommended, with `util.search` named
+  `util.text.search` to show that it's built on `util.text`. The query
+  language, the segments and CIFF later got namespaces of their own.
+- D3: fuzzy matching is on by default, but only for a word that no
+  document holds, so a word spelled right stays exact.
+- D4: a full boolean language, now in `util.text.query`: AND or `&`, OR
+  or `|`, NOT, `!` or a leading `-`, parentheses, `field:word` or
+  `field=word`, and `word~` for typos, besides quotes and a trailing `*`.
+  The spellings are an option, e.g. `OG` for AND in Danish.
 - Words split at punctuation as before, instead of the joins of UAX #29
   in section 5.2. Its one class of joining characters would have made
   `comedy,news` one word, and even the exact rules make `Simon's` a word
@@ -939,7 +942,8 @@ Decided on 7 October 2026, and built on the branch
   length / (length + edits), after saturation and by the best match of a
   document, since Lucene's 1 - edits / length let a short title with a
   typo outrank a long one with the word. The word being typed matches
-  both what it starts and the words within its edits.
+  what it starts, or the words within its edits when it starts none, and
+  both with `:fuzzy true`.
 - The postings are in segments of sorted int arrays, as in Lucene and
   Datalevin, rather than in nested maps: 50 shows took 304 MB of heap as
   maps and take 61 MB as arrays, with the same results. An `:and` starts

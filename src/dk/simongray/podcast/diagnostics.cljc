@@ -38,11 +38,12 @@
    #(update % :doc unwrap)
    [;; fetching
     {:id :fetch/unreachable :level :warning
-     :doc "The feed couldn't be fetched: the connection failed, the request took
-           too long, the answer was too large, or the URL wasn't allowed."}
+     :doc "The feed or list couldn't be fetched: the connection failed, the
+           request took too long, the answer was too large, or the URL wasn't
+           allowed."}
     {:id :fetch/malformed :level :warning
-     :doc "The document isn't an RSS feed, or an OPML list where a list was
-           fetched: it isn't XML, or its root element isn't rss or opml."}
+     :doc "The document isn't an RSS feed, or for a list, an OPML document:
+           it isn't XML, or its root element isn't rss or opml."}
     {:id :fetch/page-failed :level :warning
      :doc "A page of a paged feed couldn't be fetched or read, so the feed lacks
            the items of that page and the pages after it."}
@@ -478,13 +479,13 @@
 
     ;; library: a library saved to a store and read back
     {:id :library/save-failed :level :warning
-     :doc "The library or its search index couldn't be written to the store,
-           so what the last save wrote stands. The :reason says why."}
+     :doc "The library or its search index couldn't be written to the store
+           in full. The :reason says why."}
     {:id :library/unreadable-document :level :warning
-     :doc "The saved library didn't read, so the library is as make gave it.
-           The :reason says why."}
+     :doc "The saved library didn't read, so none of its parts were
+           restored. The :reason says why."}
     {:id :library/index-rebuilt :level :info
-     :doc "The search index was built again from the feeds, since its
+     :doc "The search index was built again from the feeds, since some of its
            documents were missing or didn't read. The :reason says why."}
 
     ;; podping: a poll of the Hive chain
