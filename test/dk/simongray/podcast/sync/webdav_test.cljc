@@ -20,20 +20,21 @@
 (def nextcloud-propfind
   (fixture "webdav/nextcloud-propfind.xml"))
 
-(deftest a-backend-in-one-call
-  (let [b (webdav/backend "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
-                          {:credentials {:username "simon" :password "x"} :opml? true :app "test"})]
+(deftest a-backend-over-a-collection
+  (let [b (store/backend (webdav/store "https://cloud.example.org/remote.php/dav/files/simon/podcasts/"
+                                       {:credentials {:username "simon" :password "x"}})
+                         {:opml? true :app "test"})]
     (is (= "cloud.example.org" (:name b)) "named after the host")
     (is (= "cloud.example.org" (:name (webdav/store "https://simon:secret@cloud.example.org/podcasts/")))
         "never after the credentials a URL carries")
     (is (fn? (:pull b)))
     (is (fn? (:push b)))
-    (is (= "Nextcloud" (:name (webdav/backend "https://cloud.example.org/dav/" {:name "Nextcloud"}))))))
+    (is (= "Nextcloud" (:name (store/backend (webdav/store "https://cloud.example.org/dav/" {:name "Nextcloud"})))))))
 
 (deftest the-requests-go-through-send
   (let [sent    (atom nil)
         send    (fn [request] (reset! sent request) {:status 404 :headers {}})
-        backend (webdav/backend root {:send send :timeout-seconds 5})]
+        backend (store/backend (webdav/store root {:send send :timeout-seconds 5}))]
     ((:fetch (webdav/store root {:send send :timeout-seconds 5})) "phone.edn" {})
     (is (= [:get (str root "phone.edn") 5] ((juxt :method :url :timeout-seconds) @sent))
         "with the limit of time")
@@ -262,6 +263,15 @@
          (is (= "OPTIONS, GET, HEAD, PUT, PROPFIND" (get-in (handler (ring :delete "/dav/podcast.edn")) [:headers "Allow"])))
          (is (= ["podcast.edn"] (keys @documents)))
          (is (not (str/includes? (get-in (handler (ring :options "/dav/")) [:headers "Allow"]) "DELETE")))))))
+
+#?(:clj
+   (deftest serving-a-store-that-cannot-write
+     (let [documents (atom {"a.edn" {:body "{}" :version "1"}})
+           handler   (server/handler (dissoc (store/memory documents) :put) "/dav/")]
+       (is (= "{}" (:body (handler (ring :get "/dav/a.edn")))))
+       (is (= 405 (:status (handler (ring :put "/dav/a.edn" :body "{:x 1}")))))
+       (is (= "OPTIONS, GET, HEAD, DELETE, PROPFIND" (get-in (handler (ring :put "/dav/a.edn" :body "x")) [:headers "Allow"])))
+       (is (= {"a.edn" {:body "{}" :version "1"}} @documents)))))
 
 #?(:clj
    (defn- through

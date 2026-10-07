@@ -4,7 +4,6 @@
   A server or a synced folder then holds only ciphertext, and nothing else
   changes. The function store wraps a store: names and versions pass
   through, and bodies are sealed on the way in and opened on the way out.
-  The function backend does both in one call.
 
   A body is sealed with AES-256-GCM under a key derived from the passphrase
   by PBKDF2 with HMAC-SHA256. Each document is a small EDN envelope with
@@ -250,7 +249,7 @@
 
   A key is derived once for each salt and iteration count, and cached.
   Each store seals with a salt of its own, and opens any salt that a
-  document has. Listing and deleting are those of `inner`.
+  document has. It writes, lists and deletes only when `inner` does.
 
   When the passphrase is a function, a document that the cached keys
   don't open empties the cache. The document is then tried once more with
@@ -305,28 +304,17 @@
                        (async/then ((:fetch inner) name (if (except name)
                                                           opts
                                                           {}))
-                                   #(opened name % (:as opts))))
-              :put   (fn [name body params]
-                       (if (except name)
-                         ((:put inner) name body params)
-                         (async/then (seal-with key-for salt iterations body)
-                                     (fn [sealed]
-                                       ((:put inner) name sealed params)))))}
+                                   #(opened name % (:as opts))))}
+       (:put inner)
+       (assoc :put (fn [name body params]
+                     (if (except name)
+                       ((:put inner) name body params)
+                       (async/then (seal-with key-for salt iterations body)
+                                   (fn [sealed]
+                                     ((:put inner) name sealed params))))))
+
        (:list inner)   (assoc :list (:list inner))
        (:delete inner) (assoc :delete (:delete inner))))))
-
-(defn backend
-  "A backend for dk.simongray.podcast.sync/sync! over `inner` with its
-  documents encrypted under `passphrase`, with the `opts` of store and of
-  dk.simongray.podcast.sync.store/backend."
-  ([inner passphrase]
-   (backend inner passphrase {}))
-  ([inner passphrase opts]
-   {:pre [(map? opts)]}
-   (store/backend (store inner passphrase
-                         (select-keys opts [:iterations :except]))
-                  (select-keys opts [:opml? :app :direction :strategy
-                                     :document :name]))))
 
 #?(:clj
    (comment

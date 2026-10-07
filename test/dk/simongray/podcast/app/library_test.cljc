@@ -422,14 +422,15 @@
         "the defaults stand in for what the config leaves out")))
 
 (deftest a-library-saved-and-restored
-  (let [documents (atom {})
-        s         (store/memory documents)
-        made      #(library/make "phone" {:config {:now (constantly now)}})
-        ids       #(mapv :id (library/search % "future"))
-        breaking  (fn [docs]
-                    (into {} (for [[k v] docs]
-                               [k (cond-> v
-                                    (re-find #"\.ciff$" k) (assoc :body "x"))])))]
+  (let [documents   (atom {})
+        s           (store/memory documents)
+        undeletable (dissoc (store/memory) :delete)
+        made        #(library/make "phone" {:config {:now (constantly now)}})
+        ids         #(mapv :id (library/search % "future"))
+        breaking    (fn [docs]
+                      (into {} (for [[k v] docs]
+                                 [k (cond-> v
+                                      (re-find #"\.ciff$" k) (assoc :body "x"))])))]
     (run #(async/then (library/save! library s)
                       (fn [{:keys [put delete]}]
                         (is (= "library.edn" (peek put)) "the library last")
@@ -469,7 +470,20 @@
          #(async/then (library/save! (library/make "phone" {:config {:search? false}})
                                      (store/memory))
                       (fn [{:keys [put]}]
-                        (is (= ["library.edn"] put) "no index, no documents of one"))))))
+                        (is (= ["library.edn"] put) "no index, no documents of one")))
+         #(async/then (library/save! library (dissoc (store/memory) :put))
+                      (fn [{:keys [error]}]
+                        (is (= :library/save-failed (:id error)))
+                        (is (= "The store is read only" (:reason error)))))
+         #(async/then (async/then (library/save! library undeletable)
+                                  (fn [_] (library/save! (made) undeletable)))
+                      (fn [{:keys [delete error]}]
+                        (is (nil? error))
+                        (is (= [] delete))))
+         #(async/then ((:list undeletable))
+                      (fn [docs]
+                        (is (some (fn [{:keys [name]}] (re-find #"\.ciff$" name)) docs)
+                            "a store that can't delete keeps the old segments"))))))
 
 (deftest a-document-to-save-by-hand
   (let [{:keys [name body]} (library/document library {:app "test"})

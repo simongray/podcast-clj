@@ -863,9 +863,11 @@
   It writes library.edn, with the parts of `library` that :keys in `opts`
   names, saved-keys by default. When the library keeps a search index, it
   writes its documents too, of which only those that changed since the
-  last save, so a save after each refresh takes little. Give it a store
-  of its own, e.g. over a folder, IndexedDB or the origin private file
-  system, since it deletes the documents of any other index there:
+  last save, so a save after each refresh takes little. A store without
+  :delete keeps the documents of older indexes, which restore! ignores.
+  Give it a store of its own, e.g. over a folder, IndexedDB or the origin
+  private file system, since it deletes the documents of any other index
+  there:
 
       (save! @lib (sync.indexeddb/store))"
   ([library store]
@@ -885,11 +887,14 @@
                     (put-in-order! store (conj put {:name saved-name
                                                     :body body}))
                     (fn [names]
-                      (async/then (async/all (mapv (:delete store) delete))
-                                  (fn [_] {:put names :delete delete})))))]
+                      (let [delete (if (:delete store) delete [])]
+                        (async/then (async/all (mapv (:delete store) delete))
+                                    (fn [_] {:put names :delete delete}))))))]
      (async/then (async/attempt
-                  #(async/then (if-let [list (:list store)] (list) [])
-                               (comp saved planned)))
+                  #(if (:put store)
+                     (async/then (if-let [list (:list store)] (list) [])
+                                 (comp saved planned))
+                     (throw (ex-info "The store is read only" {}))))
                  (fn [{:keys [value error]}]
                    (if error
                      {:error (diagnostics/describe

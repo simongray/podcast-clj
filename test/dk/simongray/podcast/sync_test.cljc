@@ -325,6 +325,24 @@
          (is (= ["laptop.edn" "phone.edn"] (sort (keys @documents))) "but written to")))))
 
 #?(:clj
+   (deftest a-store-that-cannot-write
+     (let [documents (atom {})
+           store     (store/memory documents)
+           read-only (dissoc store :put)]
+       (sync/sync! (laptop-state) [(store/backend store)] {:at t3})
+       (let [reader (sync/sync! (profile/make "tablet") [(store/backend read-only)] {:at t4})]
+         (is (nil? (failed reader)))
+         (is (= 900 (:position (profile/episode-entry (:state reader) a))) "a backend over it only pulls")
+         (is (= ["laptop.edn"] (keys @documents))))
+       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"only be pulled"
+                             (store/backend read-only {:direction :both})))
+       (let [{:keys [ok? checks]} (store/check! read-only)]
+         (is ok? "a store that can be read")
+         (is (= [:store/reachable :store/authenticated :store/listing :store/put] (map :id checks)))
+         (is (false? (:ok? (last checks))))
+         (is (= ["laptop.edn"] (keys @documents)) "and nothing written")))))
+
+#?(:clj
    (deftest one-shared-document
      (let [documents (atom {})
            shared    (dissoc (store/memory documents) :list)

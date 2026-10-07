@@ -767,12 +767,15 @@ this is safe.
 (def creds {:username "simon" :password (secret/hide "app-password")})
 (def root "https://cloud.example.org/remote.php/dav/files/simon/podcasts/")
 
-(store/check! (webdav/store root {:credentials creds}))
+(def cloud (webdav/store root {:credentials creds}))
+
+(store/check! cloud)
 ;; => {:ok? true :checks [{:id :store/reachable …} …]}
 
 (def backends
-  [(webdav/backend root {:credentials creds :opml? true :app "my-app"})
-   (file/backend "/Users/simon/Dropbox/Podcasts" {:app "my-app"})])
+  [(store/backend cloud {:opml? true :app "my-app"})
+   (store/backend (file/store "/Users/simon/Dropbox/Podcasts")
+                  {:app "my-app"})])
 
 (swap! lib library/merge (library/sync! @lib backends))
 (library/next-sync @lib)  ; when to sync again
@@ -780,21 +783,25 @@ this is safe.
 
 A store can be a WebDAV collection or a folder that a sync client such as
 Dropbox mirrors. [Sync reference](sync-reference.md) has the URLs and
-paths of some providers. Sync when the app starts, when it goes to the
-background, and after a series of changes. After any change, the
-position of a playing episode included, `library/next-sync` asks for a
-sync within seconds, so while an episode plays, sync when it pauses
-instead. A button in the settings screen can test a store with
-`store/check!`.
+paths of some providers. With `store/backend`, a store becomes the
+backend of a sync: `:app` names your app in the documents, and `:opml?`
+also writes the subscriptions as OPML for other apps.
+
+Sync when the app starts, when it goes to the background, and after a
+series of changes. After any change, the position of a playing episode
+included, `library/next-sync` asks for a sync within seconds, so while an
+episode plays, sync when it pauses instead. A button in the settings
+screen can test a store with `store/check!`.
 
 To keep the documents encrypted on the server, wrap the store with
-`encrypted/backend` and a passphrase, or a function that returns one. Use
+`encrypted/store` and a passphrase, or a function that returns one. Use
 `:except` to leave the subscription list readable for other apps:
 
 ```clojure
-(encrypted/backend (webdav/store root {:credentials creds})
-                   from-keychain
-                   {:opml? true :except #{store/opml-name}})
+(store/backend (encrypted/store cloud
+                                from-keychain
+                                {:except #{store/opml-name}})
+               {:opml? true :app "my-app"})
 ```
 
 Each sync removes the tombstones that every device has seen, once they're
@@ -827,7 +834,7 @@ functions.
 
 ### Sync through a folder in a browser
 
-In a browser that can pick a folder, give its handle to `file/backend`.
+In a browser that can pick a folder, give its handle to `file/store`.
 The browser asks the listener for permission, and only during a click:
 
 ```clojure
@@ -835,7 +842,7 @@ The browser asks the listener for permission, and only during a click:
   "Ask the listener for a sync folder, and give a promise of its backend."
   []
   (.then (js/showDirectoryPicker #js {:mode "readwrite"})
-         #(file/backend % {:opml? true :app "my-app"})))
+         #(store/backend (file/store %) {:opml? true :app "my-app"})))
 ```
 
 Keep the handle in IndexedDB for the next visit, since it can't go in
@@ -854,13 +861,14 @@ load the folder with `<input type="file" webkitdirectory>`:
 ```clojure
 (library/document @lib)  ; => {:name "8f1c….edn" :body "{:version 1 …}"}
 
-(.then (library/sync! @lib [(file/backend (.-files input))])
+(.then (library/sync! @lib [(store/backend (file/store (.-files input)))])
        #(swap! lib library/merge %))
 ```
 
-A backend over the files of an input only reads them. Check for the
-picker itself rather than for a browser, so that the app uses it
-wherever it arrives. [Sync reference](sync-reference.md#folders-in-a-browser-as-of-october-2026)
+The store of the files of an input has no `:put`, so its backend only
+reads them. Check for the picker itself rather than for a browser, so
+that the app uses it wherever it arrives.
+[Sync reference](sync-reference.md#folders-in-a-browser-as-of-october-2026)
 has what each browser can do, and the inspector's player in
 `web/inspector/player.cljs` does all of the above.
 

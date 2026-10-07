@@ -5,15 +5,16 @@
   The function handler is a Ring handler that answers these methods, with
   ETags and preconditions:
 
-  - GET, HEAD and PUT, for a document
+  - GET and HEAD, for a document
+  - PUT, for a document, when the store has :put
   - DELETE, for a document, when the store has :delete
   - PROPFIND at depth zero or one, with a listing of the collection when
     the store has :list
   - OPTIONS, so that a client can ask which methods there are
   - MKCOL, with a 405, since the collection is already there
 
-  A client of a store without :list or :delete leaves the same keys out of
-  its WebDAV store."
+  A client of a store without :put, :list or :delete leaves the same keys
+  out of its WebDAV store."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.sync.webdav :as webdav]
             [dk.simongray.podcast.util.http :as http])
@@ -76,11 +77,14 @@
 
 (defn- allow
   "The Allow header of the methods that `store` answers for a document, or
-  for the collection when `document?` is false. DELETE is there only when
-  the store can delete."
-  [{:keys [delete] :as store} document?]
+  for the collection when `document?` is false. PUT and DELETE are there
+  only when the store can write and delete."
+  [{:keys [put delete] :as store} document?]
   (if document?
-    (str "OPTIONS, GET, HEAD, PUT, " (when delete "DELETE, ") "PROPFIND")
+    (str "OPTIONS, GET, HEAD, "
+         (when put "PUT, ")
+         (when delete "DELETE, ")
+         "PROPFIND")
     "OPTIONS, PROPFIND"))
 
 ;; RFC 9110, section 15.5.6
@@ -201,9 +205,10 @@
   `body` of at most `max-bytes`, under the precondition of the `headers`.
 
   The status is 201 for a new document, 204 for a replaced one, 412 when
-  the precondition failed, and 413 when the body is too large."
+  the precondition failed, 413 when the body is too large, and 405 when
+  the store can't write."
   [{:keys [put] :as store} name headers body max-bytes]
-  (if name
+  (if (and name put)
     (let [current (version-of store name)
           asked   (precondition headers current)
           read    (if (webdav/binary? name) http/body-bytes http/body-text)
@@ -221,7 +226,7 @@
         {:status  (if current 204 201)
          :headers {"ETag" (quoted (:version result))}
          :body    ""}))
-    (not-allowed store nil)))
+    (not-allowed store name)))
 
 (defn- delete-document
   "The answer that deletes the document `name` from `store`: 204, or 404

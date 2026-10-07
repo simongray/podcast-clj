@@ -143,9 +143,9 @@
   (let [{:keys [handle permission]} (:folder @app)]
     (cond-> [(backend)]
       (= :granted permission)
-      (conj (file/backend handle {:name  "sync folder"
-                                  :opml? true
-                                  :app   "inspector"})))))
+      (conj (store/backend (file/store handle) {:name  "sync folder"
+                                                :opml? true
+                                                :app   "inspector"})))))
 
 (defn- handles!
   "A promise of the result of `f` on the inspector's store of handles in
@@ -292,7 +292,7 @@
   [input]
   (let [files (js/Array.from (.-files input))]
     (set! (.-value input) "")
-    (sync! [(file/backend files {:name "loaded folder"})])))
+    (sync! [(store/backend (file/store files) {:name "loaded folder"})])))
 
 (defn- perform!
   "Carry out the `effects` `profile/step` returned: seek the audio element

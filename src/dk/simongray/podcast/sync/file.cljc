@@ -34,7 +34,6 @@
   - ::read-only, a folder that the browser can't write to"
   (:require #?(:clj [clojure.java.io :as io])
             [clojure.string :as str]
-            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.async :as async])
   #?(:clj (:import [java.io File FileNotFoundException]
                    [java.nio.file
@@ -366,9 +365,6 @@
                  (when-let [f (get by-name name)]
                    (.then (blob-body f opts)
                           (fn [body] {:body body :version (version f)}))))
-        :put   (fn [_ _ _]
-                 (throw (ex-info "The files of an input are read only"
-                                 {:type ::read-only})))
         :list  (fn []
                  (vec (sort-by :name (for [[name f] by-name]
                                        {:name name :version (version f)}))))})))
@@ -379,28 +375,13 @@
 
   A directory at a path is made on the first write, and hidden files
   aren't documents. The files of an input are read only, so their store
-  has no delete, and its put fails with ::read-only."
+  has no put or delete."
   [dir]
   #?(:clj  (folder-store (jvm-folder dir))
      :cljs (cond
              (string? dir) (folder-store (node-folder dir))
              (loaded? dir) (loaded-store dir)
              :else         (folder-store (handle-folder dir)))))
-
-(defn backend
-  "A backend for dk.simongray.podcast.sync/sync! over the folder `dir`,
-  with the `opts` of dk.simongray.podcast.sync.store/backend.
-
-  Over the files of an input, which it can't write, the backend only
-  pulls."
-  ([dir]
-   (backend dir {}))
-  ([dir opts]
-   {:pre [(map? opts)]}
-   (store/backend (store dir)
-                  #?(:clj  opts
-                     :cljs (cond->> opts
-                             (loaded? dir) (merge {:direction :pull}))))))
 
 #?(:cljs
    (defn query-permission!

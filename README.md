@@ -148,7 +148,8 @@ and syncing also record what they did in it:
 ```clojure
 (require '[dk.simongray.podcast :as podcast]
          '[dk.simongray.podcast.app.library :as library]
-         '[dk.simongray.podcast.sync.file :as file])
+         '[dk.simongray.podcast.sync.file :as file]
+         '[dk.simongray.podcast.sync.store :as store])
 
 ;; make a library for this device, and subscribe to a show
 (def url "https://feeds.podcastindex.org/pc20.xml")
@@ -176,7 +177,7 @@ and syncing also record what they did in it:
 
 ;; sync the profile with the listener's other devices through a Dropbox folder,
 ;; and see what failed and what the step reported
-(def dropbox (file/backend "/Users/simon/Dropbox/Podcasts"))
+(def dropbox (store/backend (file/store "/Users/simon/Dropbox/Podcasts")))
 (-> (swap! lib library/merge (library/sync! @lib [dropbox])) :sync :report)
 ;; => []
 

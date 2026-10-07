@@ -112,9 +112,10 @@
    (deftest two-devices-through-an-encrypting-store
      (let [documents (atom {})
            backend   (fn [pass]
-                       (encrypted/backend (store/memory documents)
-                                          pass
-                                          {:iterations 1000 :opml? true :except #{store/opml-name}}))
+                       (store/backend (encrypted/store (store/memory documents)
+                                                       pass
+                                                       {:iterations 1000 :except #{store/opml-name}})
+                                      {:opml? true}))
            phone     (sync/sync! (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
                                  [(backend passphrase)] {:at t1})
            laptop    (sync/sync! (profile/progress (profile/make "laptop") a 60 3600 t1) [(backend passphrase)] {:at t2})

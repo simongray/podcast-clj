@@ -14,7 +14,8 @@
   opts, as util.http/send! does, whichever was put, and body-as turns one
   into the other. A put is a conflict when its opts have an :if-version
   other than the store's, where nil means that the document must not
-  exist yet.
+  exist yet. A store that can't be written, e.g. over the files of an
+  input, has no :put.
 
   On the JVM, each function returns its value and throws when it fails. In
   ClojureScript, each can return a value or a promise. A store closes over
@@ -28,11 +29,10 @@
   So no two devices write the same document, and a folder that any sync
   client mirrors is a complete backend. A store without :list holds one
   shared document instead, which is put on condition of the version that
-  was fetched, and merged again on a conflict.
+  was fetched, and merged again on a conflict. A backend over a store
+  without :put only pulls.
 
-  Test a store with check!, e.g. from a button in the settings. Each store
-  namespace has a store function for the store over a place, and a backend
-  function for the backend in one call with the options of both."
+  Test a store with check!, e.g. from a button in the settings."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.opml :as opml]
@@ -413,12 +413,16 @@
 
 (defn- assess
   "The checks from the `answers` of the probe, by step, for a store that
-  `lists?` and `deletes?`, or not."
+  `lists?`, `writes?` and `deletes?`, or not."
   [{:keys [listing put stale taken fetched delete] :as answers}
-   lists? deletes?]
+   lists? writes? deletes?]
   (let [kept (str "The store cannot delete documents; remove " probe-name
                   " by hand.")]
     (cond-> (reachability listing lists?)
+      (not writes?)
+      (conj (check :store/put false
+                   "The store is read only, so a backend only pulls from it."))
+
       put
       (conj (writing put))
 
@@ -468,26 +472,33 @@
   can't be reached. A store without :list is reached with a fetch, and
   tried for the one shared document that backend gives it, which needs a
   put refused both with a stale version and with an :if-version of nil
-  while the document is there. A store without :delete keeps the probe. The
+  while the document is there. A store without :delete keeps the probe. A
+  store without :put is only reached, and is ok when it can be read. The
   store's errors tell refused credentials apart from other failures when
   they have a :status, as those of the WebDAV store do."
   [{:keys [fetch put list delete] :as store}]
   (let [stale    {:if-version "\"no-such-version\""}
         taken    {:if-version nil}
-        steps    (cond-> [[:listing (or list #(fetch probe-name {}))]
-                          [:put     #(put probe-name "probe" {})]
-                          [:stale   #(put probe-name "probe" stale)]
-                          [:taken   #(put probe-name "probe" taken)]
-                          [:fetched #(fetch probe-name {})]]
-                   delete (conj [:delete #(delete probe-name)]
-                                [:gone   #(fetch probe-name {})]))
-        required (cond-> #{:store/reachable :store/authenticated
-                           :store/put :store/fetch}
-                   (not list) (conj :store/conflicts)
-                   delete     (conj :store/delete))]
+        steps    (cond-> [[:listing (or list #(fetch probe-name {}))]]
+                   put
+                   (conj [:put     #(put probe-name "probe" {})]
+                         [:stale   #(put probe-name "probe" stale)]
+                         [:taken   #(put probe-name "probe" taken)]
+                         [:fetched #(fetch probe-name {})])
+
+                   (and put delete)
+                   (conj [:delete #(delete probe-name)]
+                         [:gone   #(fetch probe-name {})]))
+        required (cond-> #{:store/reachable :store/authenticated}
+                   put                  (conj :store/put :store/fetch)
+                   (and put (not list)) (conj :store/conflicts)
+                   (and put delete)     (conj :store/delete))]
     (async/then (probe steps)
                 (fn [answers]
-                  (let [checks (assess answers (some? list) (some? delete))]
+                  (let [checks (assess answers
+                                       (some? list)
+                                       (some? put)
+                                       (some? delete))]
                     {:ok?    (every? :ok? (filter (comp required :id) checks))
                      :checks checks})))))
 
@@ -497,8 +508,7 @@
 
   - :strategy, :per-device for a document per device, or :shared for one
     document for all
-  - :direction, :both by default, :pull to read only, or :push to write
-    only
+  - :direction, :pull to read only, :push to write only, or :both
   - :opml?, whether to write subscriptions.opml beside the documents
   - :app, the name of the app in the documents written
   - :name, the store's name by default, and distinct for each backend of
@@ -506,19 +516,24 @@
   - :document, the name of the shared document, podcast.edn by default
 
   The :strategy is :per-device when the store has :list, and else
-  :shared. Documents per device are merged on read, and a shared document
+  :shared. The :direction is :both when the store has :put, and else
+  :pull. Documents per device are merged on read, and a shared document
   is put on condition of its version."
   ([store]
    (backend store {}))
   ([store {:keys [strategy direction document]
-           :or   {direction :both document "podcast.edn"}
+           :or   {document "podcast.edn"}
            :as   opts}]
    {:pre [(map? opts)]}
-   (let [strategy (or strategy (if (:list store) :per-device :shared))
-         pull?    (not= :push direction)
-         push?    (not= :pull direction)]
+   (let [strategy  (or strategy (if (:list store) :per-device :shared))
+         direction (or direction (if (:put store) :both :pull))
+         pull?     (not= :push direction)
+         push?     (not= :pull direction)]
      (when (and (= :per-device strategy) (not (:list store)))
        (throw (ex-info "A store without :list cannot hold a document per device"
+                       {:name (:name store)})))
+     (when (and push? (not (:put store)))
+       (throw (ex-info "A store without :put can only be pulled from"
                        {:name (:name store)})))
      {:name (or (:name opts) (:name store))
       :pull (fn [state cursor at]

@@ -8,18 +8,14 @@
   server answers a put without one, and MKCOL makes the collection when it
   isn't there.
 
-  An app calls backend with the URL of the collection and the
-  credentials, and tests the store with
-  dk.simongray.podcast.sync.store/check!, e.g. from the settings.
-  Below that, request builds each call as a request map, and response
-  reads the answer. That way, the requests can go through any :send, and
-  the tests run on recorded answers. In a browser, the server must let the
-  page through CORS and expose the ETag. The function store gives the
-  store over a collection, with the credentials closed over. The other
-  side is dk.simongray.podcast.sync.webdav.server, which serves any store
-  over WebDAV."
+  The function store gives the store over a collection, with the
+  credentials closed over. Below that, request builds each call as a
+  request map, and response reads the answer. That way, the requests can
+  go through any :send, and the tests run on recorded answers. In a
+  browser, the server must let the page through CORS and expose the ETag.
+  The other side is dk.simongray.podcast.sync.webdav.server, which serves
+  any store over WebDAV."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.sync.store :as store]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.xml :as xml]))
@@ -254,25 +250,10 @@
       :list   (fn [] (call! :list nil {}))
       :delete (fn [name] (call! :delete name {}))})))
 
-(defn backend
-  "A backend for dk.simongray.podcast.sync/sync! over the collection at
-  `root`, with the `opts` of store and of
-  dk.simongray.podcast.sync.store/backend:
-
-      (backend \"https://dav.example.org/podcasts/\"
-               {:credentials {:username \"simon\" :password \"app-password\"}
-                :opml?       true})"
-  ([root]
-   (backend root {}))
-  ([root opts]
-   {:pre [(map? opts)]}
-   (store/backend (store root (select-keys opts [:credentials :name :send
-                                                 :timeout-seconds]))
-                  (select-keys opts [:opml? :app :direction :strategy
-                                     :document :name]))))
-
 #?(:clj
    (comment
-     (store/check! (store "http://localhost:8300/dav/"))
-     (def b (backend "http://localhost:8300/dav/" {:opml? true}))
+     (require '[dk.simongray.podcast.sync.store :as sync.store])
+     (def s (store "http://localhost:8300/dav/"))
+     (sync.store/check! s)
+     (def b (sync.store/backend s {:opml? true}))
      #_.))

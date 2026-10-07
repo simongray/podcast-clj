@@ -12,8 +12,8 @@ A store is a map of functions over named documents, each with a version
 token:
 
 ```clojure
-{:fetch  (fn [name])            ; {:body "…" :version "…"}, or nil
- :put    (fn [name body opts])  ; {:version "…"}, or {:conflict? true}
+{:fetch  (fn [name opts])       ; {:body "…" :version "…"}, or nil
+ :put    (fn [name body opts])  ; {:version "…"}, or {:conflict? true}, optional
  :list   (fn [])                ; [{:name "…" :version "…"} …], optional
  :delete (fn [name])            ; optional
  :name   "Nextcloud"}           ; for the UI and the report
@@ -26,22 +26,21 @@ token:
   folder store guarantees this within one process, and in a browser
   across the tabs of a site.
 - A refused write returns `{:conflict? true}` rather than throwing.
+- A body is text or bytes. A fetch gives it as text, or as bytes with
+  `{:as :bytes}` in its opts, whichever was put.
 - On the JVM, each function returns its value and throws on failure. In
   ClojureScript, it can return a value or a promise.
 - The credentials stay in the closure of the constructor, never in the
   map, and `:name` mustn't contain them.
 - A store without `:list` can't hold one document per device, so it holds
   one shared document.
+- A store without `:put` is read only, and a backend over it only pulls.
 
 To test a store against this contract, use `store/check!`. It writes a
 probe document, and for a store without `:list`, it checks that a put
 with a stale version and a put with an `:if-version` of nil are both
 refused, as one shared document needs. A store without `:delete` keeps
 the probe document.
-
-Each store namespace has two constructors: `store` makes the store over a
-place, and `backend` makes the store and the backend in one call, with the
-options of both.
 
 
 ## The backend contract
@@ -71,13 +70,12 @@ own model, such as gpodder, is a backend directly.
 
 ## The options of a backend
 
-The options of `store/backend`, and of the `backend` function of each store
-namespace:
+The options of `store/backend`:
 
 | Option | Meaning | Default |
 |---|---|---|
 | `:strategy` | `:per-device` or `:shared` | `:per-device` if the store has `:list`, else `:shared` |
-| `:direction` | `:both`, `:pull` (read only) or `:push` (write only) | `:both` |
+| `:direction` | `:both`, `:pull` (read only) or `:push` (write only) | `:both` if the store has `:put`, else `:pull` |
 | `:opml?` | Write `subscriptions.opml` next to the documents | `false` |
 | `:app` | The name of the app, written into each document | none |
 | `:name` | The name of the backend | the name of the store |
@@ -228,8 +226,8 @@ drop:
 - A handle can come from `showDirectoryPicker` or from the origin private
   file system. A write goes through `createWritable`, whose changes reach
   the file only when the stream closes (File System, section 2.3.2).
-- The files of an input are read only. Their store has no `:delete`, its
-  `:put` fails, and `file/backend` only pulls from them. Of a folder
+- The files of an input are read only. Their store has no `:put` or
+  `:delete`, so a backend over it only pulls. Of a folder
   loaded with `<input webkitdirectory>`, only the files at its top count,
   and the folder's name is the store's name.
 - In ClojureScript, `file/query-permission!` and `file/request-permission!`

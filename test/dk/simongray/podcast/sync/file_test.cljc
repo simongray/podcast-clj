@@ -112,7 +112,7 @@
   (let [dir     (atom nil)
         phone   (atom nil)
         laptop  (atom nil)
-        backend #(file/backend @dir {:opml? true})]
+        backend #(store/backend (file/store @dir) {:opml? true})]
     (run #(async/then (temp-folder!) (fn [d] (reset! dir d)))
          #(async/then (sync/sync! (profile/subscribe (profile/make "phone") "feed-a" {:url "https://a/rss" :title "A"} t0)
                                   [(backend)] {:at t1})
@@ -176,6 +176,7 @@
                    (picked "Podcasts/old/phone.edn" "in a folder of the folder")]
            s      (file/store files)]
        (run #(is (= "Podcasts" (:name s)) "the picked folder names the store")
+            #(is (nil? (:put s)) "read only")
             #(is (nil? (:delete s)))
             #(async/then ((:list s))
                          (fn [docs] (is (= ["laptop.edn" "notes.txt"] (map :name docs)) "only the top of the folder")))
@@ -183,9 +184,7 @@
                          (fn [{:keys [body version]}]
                            (is (= laptop (:state (sync/read-document body))))
                            (is (= "1000-" (subs version 0 5)))))
-            #(async/then (async/attempt (fn [] ((:put s) "phone.edn" "x" {})))
-                         (fn [{:keys [error]}] (is (= ::file/read-only (:type (ex-data error))))))
-            #(async/then (sync/sync! (profile/make "phone") [(file/backend files)] {:at t3})
+            #(async/then (sync/sync! (profile/make "phone") [(store/backend s)] {:at t3})
                          (fn [{:keys [report state]}]
                            (is (not-any? (comp #{:sync/backend-failed} :id) report) "the backend only pulls")
                            (is (= 60 (:position (profile/episode-entry state a))))))))))
