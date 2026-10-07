@@ -16,18 +16,21 @@
   files. The read! function fetches the ranges, and report gives the
   diagnostics of a reading."
   (:refer-clojure :exclude [read])
-  (:require [dk.simongray.podcast.util.bytes :as bytes]
+  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.http :as http]))
 
 (defn ^:no-doc u16le
   "The little-endian 16-bit number at `p` in `view`."
   [view p]
-  (+ (bytes/u8 view p) (* 256 (bytes/u8 view (inc p)))))
+  (+ (view/u8 view p) (* 256 (view/u8 view (inc p)))))
 
 (defn- u24le
   "The little-endian 24-bit number at `p` in `view`."
   [view p]
-  (+ (u16le view p) (* 65536 (bytes/u8 view (+ p 2)))))
+  (+ (u16le view p) (* 65536 (view/u8 view (+ p 2)))))
 
 (defn ^:no-doc u32le
   "The little-endian 32-bit number at `p` in `view`."
@@ -42,8 +45,8 @@
   (try
     (f)
     (catch #?(:clj Exception :cljs :default) e
-      (when (or (bytes/missing e)
-                (bytes/truncated? e))
+      (when (or (view/missing e)
+                (view/truncated? e))
         (throw e))
       nil)))
 
@@ -54,7 +57,7 @@
   (let [letter? (fn [c]
                   (or (and (<= 65 c) (<= c 90))
                       (and (<= 97 c) (<= c 122))))]
-    (every? #(letter? (bytes/u8 view %))
+    (every? #(letter? (view/u8 view %))
             (range p (+ p 4)))))
 
 (defn- transparent?
@@ -72,10 +75,10 @@
   (unless-broken
    (fn []
      (loop [p 33]
-       (bytes/need view p (+ p 8))
-       (let [n    (long (bytes/u32 view p))
+       (view/need view p (+ p 8))
+       (let [n    (long (view/u32 view p))
              type (when (chunk-type? view (+ p 4))
-                    (bytes/code view (+ p 4) 4))]
+                    (view/code view (+ p 4) 4))]
          (cond
            (or (nil? type) (> n 0x7FFFFFFF))
            nil
@@ -83,8 +86,8 @@
            (= "tRNS" type)
            (if (= 3 kind)
              (let [end (+ p 8 (min n 256))]
-               (bytes/need view (+ p 8) end)
-               (boolean (some #(< (bytes/u8 view %) 255)
+               (view/need view (+ p 8) end)
+               (boolean (some #(< (view/u8 view %) 255)
                               (range (+ p 8) end))))
              true)
 
@@ -104,18 +107,18 @@
   first. Its :alpha? is nil when the chunks after it don't read, and the
   report says so when the file ends before them."
   [view]
-  (bytes/need view 8 33)
-  (when (= "IHDR" (bytes/code view 12 4))
-    (let [kind  (bytes/u8 view 25)
+  (view/need view 8 33)
+  (when (= "IHDR" (view/code view 12 4))
+    (let [kind  (view/u8 view 25)
           alpha (if (contains? #{4 6} kind)
                   {:value true}
-                  (bytes/part :transparency #(transparent? view kind)))]
-      (bytes/reported {:type   "image/png"
-                       :width  (bytes/u32 view 16)
-                       :height (bytes/u32 view 20)
-                       :color  (get png-colors kind)
-                       :alpha? (:value alpha)}
-                      (:report alpha)))))
+                  (view/part :transparency #(transparent? view kind)))]
+      (view/reported {:type   "image/png"
+                      :width  (view/u32 view 16)
+                      :height (view/u32 view 20)
+                      :color  (get png-colors kind)
+                      :alpha? (:value alpha)}
+                     (:report alpha)))))
 
 (def ^:no-doc frame-markers
   "The coding process of each JPEG marker that starts a frame, which gives
@@ -147,12 +150,12 @@
   (let [end (+ p 2 length)
         t   (+ p 10)]
     (unless-broken
-     #(do (bytes/need view p end)
+     #(do (view/need view p end)
           (when (and (<= (+ t 8) end)
-                     (= "Exif" (bytes/code view (+ p 4) 4)))
-            (let [le?      (= "II" (bytes/code view t 2))
-                  u16*     (fn [q] (if le? (u16le view q) (bytes/u16 view q)))
-                  u32*     (fn [q] (if le? (u32le view q) (bytes/u32 view q)))
+                     (= "Exif" (view/code view (+ p 4) 4)))
+            (let [le?      (= "II" (view/code view t 2))
+                  u16*     (fn [q] (if le? (u16le view q) (view/u16 view q)))
+                  u32*     (fn [q] (if le? (u32le view q) (view/u32 view q)))
                   ifd      (+ t (u32* (+ t 4)))
                   n        (when (<= (+ ifd 2) end)
                              (min (u16* ifd) (quot (- end ifd 2) 12)))
@@ -177,16 +180,16 @@
   A height of 0 means that it comes later, in a DNL segment after the
   image data, so it's left out."
   [view p marker turned]
-  (bytes/need view p (+ p 10))
-  (let [height      (bytes/u16 view (+ p 5))
+  (view/need view p (+ p 10))
+  (let [height      (view/u16 view (+ p 5))
         process     (frame-markers marker)
         progressive #{:progressive :progressive-arithmetic}]
     (cond-> {:type         "image/jpeg"
-             :width        (bytes/u16 view (+ p 7))
-             :color        (get jpeg-colors (bytes/u8 view (+ p 9)))
+             :width        (view/u16 view (+ p 7))
+             :color        (get jpeg-colors (view/u8 view (+ p 9)))
              :alpha?       false
              :process      process
-             :bits         (bytes/u8 view (+ p 4))
+             :bits         (view/u8 view (+ p 4))
              :progressive? (contains? progressive process)}
       (pos? height) (assoc :height height)
       turned        (assoc :orientation turned))))
@@ -200,10 +203,10 @@
   bits and the EXIF orientation."
   [view]
   (loop [p 2 turned nil]
-    (bytes/need view p (+ p 4))
-    (let [marker (bytes/u8 view (inc p))]
+    (view/need view p (+ p 4))
+    (let [marker (view/u8 view (inc p))]
       (cond
-        (not= 0xFF (bytes/u8 view p))
+        (not= 0xFF (view/u8 view p))
         nil
 
         (= 0xFF marker)
@@ -221,7 +224,7 @@
         (recur (+ p 2) turned)
 
         :else
-        (let [length (long (bytes/u16 view (+ p 2)))
+        (let [length (long (view/u16 view (+ p 2)))
               app1?  (= 0xE1 marker)]
           (recur (+ p 2 length)
                  (or turned
@@ -232,8 +235,8 @@
   "The header of the GIF image in `view`, from the logical screen
   descriptor of a GIF87a or GIF89a image, or nil for any other version."
   [view]
-  (bytes/need view 0 10)
-  (when (contains? #{"87a" "89a"} (bytes/code view 3 3))
+  (view/need view 0 10)
+  (when (contains? #{"87a" "89a"} (view/code view 3 3))
     {:type   "image/gif"
      :width  (u16le view 6)
      :height (u16le view 8)
@@ -246,23 +249,23 @@
   - VP8L, a lossless image, after its signature
   - VP8, a lossy image, after its start code"
   [view]
-  (bytes/need view 12 30)
-  (case (bytes/code view 12 4)
+  (view/need view 12 30)
+  (case (view/code view 12 4)
     "VP8X" {:type   "image/webp"
             :width  (inc (u24le view 24))
             :height (inc (u24le view 27))
             :color  :rgb
-            :alpha? (bit-test (bytes/u8 view 20) 4)}
-    "VP8L" (when (= 0x2F (bytes/u8 view 20))
+            :alpha? (bit-test (view/u8 view 20) 4)}
+    "VP8L" (when (= 0x2F (view/u8 view 20))
              (let [bits (u32le view 21)]
                {:type   "image/webp"
                 :width  (inc (bit-and bits 0x3FFF))
                 :height (inc (bit-and (bit-shift-right bits 14) 0x3FFF))
                 :color  :rgb
                 :alpha? (bit-test bits 28)}))
-    "VP8 " (when (and (= 0x9D (bytes/u8 view 23))
-                      (= 0x01 (bytes/u8 view 24))
-                      (= 0x2A (bytes/u8 view 25)))
+    "VP8 " (when (and (= 0x9D (view/u8 view 23))
+                      (= 0x01 (view/u8 view 24))
+                      (= 0x2A (view/u8 view 25)))
              {:type   "image/webp"
               :width  (bit-and (u16le view 26) 0x3FFF)
               :height (bit-and (u16le view 28) 0x3FFF)
@@ -276,10 +279,10 @@
   BMP, TIFF, ICO, AVIF, HEIC, HEIF and SVG."
   [view]
   (let [n  (min 256 (or (:total view) 256))
-        b  #(bytes/u8 view %)
+        b  #(view/u8 view %)
         is (fn [& xs]
              (every? (fn [[i x]] (= x (b i))) (map-indexed vector xs)))]
-    (bytes/need view 0 n)
+    (view/need view 0 n)
     (cond
       (and (>= n 2) (is 0x42 0x4D))
       "image/bmp"
@@ -292,8 +295,8 @@
       (and (>= n 4) (is 0 0 1 0))
       "image/vnd.microsoft.icon"
 
-      (and (>= n 12) (= "ftyp" (bytes/code view 4 4)))
-      (let [brand (bytes/code view 8 4)]
+      (and (>= n 12) (= "ftyp" (view/code view 4 4)))
+      (let [brand (view/code view 8 4)]
         (cond
           (contains? #{"avif" "avis"} brand)
           "image/avif"
@@ -304,15 +307,15 @@
           (contains? #{"mif1" "msf1"} brand)
           "image/heif"))
 
-      (re-find #"<svg[\s>]" (bytes/code view 0 n))
+      (re-find #"<svg[\s>]" (view/code view 0 n))
       "image/svg+xml")))
 
 (defn- read-header
   "What read gives for the image in `view` when the view holds the bytes
   that the reading needs."
   [view]
-  (bytes/need view 0 12)
-  (let [start   (bytes/slice view 0 (min 12 (or (:total view) 12)))
+  (view/need view 0 12)
+  (let [start   (view/slice view 0 (min 12 (or (:total view) 12)))
         type    (bytes/image-type start)
         header  (case type
                   "image/png"  (png view)
@@ -325,13 +328,13 @@
     (or header
         (when-not type
           (some->> (other-type view) (hash-map :type)))
-        (bytes/reported (if type {:type type} {}) [failure]))))
+        (view/reported (if type {:type type} {}) [failure]))))
 
 (defn report
   "The diagnostics of `image`, which read or read! gave. Each diagnostic
   has its message."
   [image]
-  (bytes/report image))
+  (mapv diagnostics/describe (view/report image)))
 
 (defn read
   "The header of the image whose parts `view` holds, as a map of :type,
@@ -359,20 +362,20 @@
   read, report tells why, and the result has the :type when the first
   bytes tell it."
   [view]
-  (bytes/reading #(read-header view)))
+  (view/reading #(read-header view)))
 
 (defn read!
   "Read the header of the image at `url` as read does, fetched with `opts`.
   On the JVM it gives the result, and in ClojureScript a promise of it.
 
-  The function dk.simongray.podcast.util.bytes/read! fetches the ranges
-  that the reading needs, most often the first 64 KB alone. The `opts` are
-  these:
+  The function dk.simongray.podcast.util.bytes.view/read! fetches the
+  ranges that the reading needs, most often the first 64 KB alone. The
+  `opts` are these:
 
   - :fetch, a function as http/fetcher makes
   - :headers, :timeout-seconds and :send, as http/fetcher takes them
   - :allow?, as http/send! takes it
-  - the limits of bytes/read!, with bytes/default-limits for those that
+  - the limits of view/read!, with view/default-limits for those that
     they don't set
 
   Nothing that the network or the server does throws. When a request
@@ -380,7 +383,8 @@
   ([url]
    (read! url {}))
   ([url opts]
-   (http/read-by-ranges! url read opts)))
+   (async/then (http/read-by-ranges! url read opts)
+               #(cond-> % (:error %) (update :error diagnostics/describe)))))
 
 (comment
   ;; the start of a PNG image of 1400 by 1400 pixels in RGB: the
@@ -393,17 +397,17 @@
                       [0 0 0 0 0x49 0x44 0x41 0x54])))
 
   (def sample
-    (bytes/add (bytes/view) 0 sample-bytes nil))
+    (view/add (view/view) 0 sample-bytes nil))
 
   (read sample)
   (report (read sample))
 
   ;; the first 20 bytes alone: the reading tells the range that it needs
-  (read (bytes/add (bytes/view) 0 (bytes/copy sample-bytes 0 20) nil))
+  (read (view/add (view/view) 0 (bytes/copy sample-bytes 0 20) nil))
 
   ;; a file that is no image
-  (report (read (bytes/add (bytes/view) 0
-                           (bytes/encode "<html>not an image</html>") 25)))
+  (report (read (view/add (view/view) 0
+                          (bytes/encode "<html>not an image</html>") 25)))
 
   (read! "https://example.org/artwork.png")
   #_.)

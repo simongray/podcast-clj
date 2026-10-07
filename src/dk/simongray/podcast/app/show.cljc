@@ -12,6 +12,7 @@
             [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.xml :as xml]))
@@ -116,7 +117,7 @@
   "How many bytes the view `v` holds from the start of the file on."
   [v]
   (loop [p 0]
-    (if-let [[o b] (bytes/part-at v p)]
+    (if-let [[o b] (view/part-at v p)]
       (recur (+ o (bytes/length b)))
       p)))
 
@@ -124,20 +125,20 @@
   "A reading of the view `v` of a feed: the text of the feed cut before its
   first item and closed, or the bytes that it needs to find that item."
   [v]
-  (bytes/reading
+  (view/reading
    #(let [n          (held v)
-          head       (bytes/text v 0 n :latin1)
+          head       (view/text v 0 n :latin1)
           [_ before] (re-find #"(?s)^(.*?)<item[\s/>]" head)]
       (cond
         before
-        {:text (str (xml/decode (bytes/slice v 0 (count before)))
+        {:text (str (xml/decode (view/slice v 0 (count before)))
                     "</channel></rss>")}
 
         (= n (:total v))
-        {:text (xml/decode (bytes/slice v 0 n))}
+        {:text (xml/decode (view/slice v 0 n))}
 
         :else
-        (bytes/need v n (inc n))))))
+        (view/need v n (inc n))))))
 
 ;; TODO: Reconsider the design of these fetches. The podroll reads only the
 ;; start of each feed, tens of KB instead of the MB of a whole feed.
@@ -165,7 +166,8 @@
                   {:error (unreachable url (:status error) (:reason error))}
 
                   :else
-                  {:error (assoc (first (bytes/report result)) :url url)}))))
+                  {:error (diagnostics/describe
+                           (assoc (first (view/report result)) :url url))}))))
 
 (defn- find-podroll-show!
   "Give the remote `item` of a podroll with its :show, in a future or a

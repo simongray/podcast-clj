@@ -173,9 +173,9 @@ keeps the list and the source in sync.
   app gives Hiccup straight to its renderer.
 - **Media files and images** are read without I/O. A reader works on the
   parts of a file that have arrived, and when it needs more, it throws the
-  byte ranges it needs. `bytes/read!` fetches them and reads again. So the
-  readers are pure, and one loop does the fetching, with futures on the JVM
-  and promises in JavaScript. A host that inserts ads can send a different
+  byte ranges it needs. `util.bytes.view/read!` fetches them and reads
+  again. So the readers are pure, and one loop does the fetching, with
+  futures on the JVM and promises in JavaScript. A host that inserts ads can send a different
   file to each request, so a duration is that of the file that came.
 
 

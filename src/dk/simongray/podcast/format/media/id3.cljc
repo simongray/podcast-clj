@@ -33,7 +33,9 @@
       :id3/second-tag    a second tag right after the first"
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.util.bytes :as bytes]))
+            [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]))
 
 (defn ^:no-doc diagnostic
   "The diagnostic `id` at `level`, with the `details`."
@@ -58,13 +60,13 @@
 (defn ^:no-doc view-of
   "A view that holds all of the bytes `b`."
   [b]
-  (bytes/add (bytes/view (bytes/length b)) 0 b (bytes/length b)))
+  (view/add (view/view (bytes/length b)) 0 b (bytes/length b)))
 
 (defn ^:no-doc syncsafe
   "The 28-bit number of the four syncsafe bytes at `p` in `view`, or nil
   when a byte has its top bit set, as a syncsafe byte never has."
   [view p]
-  (let [bs (map #(bytes/u8 view (+ p %)) (range 4))]
+  (let [bs (map #(view/u8 view (+ p %)) (range 4))]
     (when (every? #(< % 0x80) bs)
       (reduce #(+ (* 128 %1) %2) 0 bs))))
 
@@ -73,13 +75,13 @@
   there. It's a map of :version, :flags, :start and :end. The :end comes
   after the footer, when the tag has one."
   [view p]
-  (bytes/need view p (+ p 10))
-  (let [version  (bytes/u8 view (+ p 3))
-        revision (bytes/u8 view (+ p 4))
-        flags    (bytes/u8 view (+ p 5))
+  (view/need view p (+ p 10))
+  (let [version  (view/u8 view (+ p 3))
+        revision (view/u8 view (+ p 4))
+        flags    (view/u8 view (+ p 5))
         size     (syncsafe view (+ p 6))
         footer?  (and (= 4 version) (bit-test flags 4))]
-    (when (and (= "ID3" (bytes/code view p 3))
+    (when (and (= "ID3" (view/code view p 3))
                (#{2 3 4} version)
                (< revision 0xFF)
                size)
@@ -122,7 +124,7 @@
   ISO-8859-1. Without the quirk, the reading throws."
   [ctx view]
   (when (pos? (:total view))
-    (let [b (bytes/u8 view 0)]
+    (let [b (view/u8 view 0)]
       (cond
         (contains? encodings b)
         (encodings b)
@@ -145,7 +147,7 @@
       (> (+ p width) end)
       end
 
-      (every? #(zero? (bytes/u8 view (+ p %))) (range width))
+      (every? #(zero? (view/u8 view (+ p %))) (range width))
       p
 
       :else
@@ -160,10 +162,10 @@
   it's the order in which the zero bytes of plain letters fall instead."
   [ctx view start end]
   (let [room? (< (inc start) end)
-        a     (when room? (bytes/u8 view start))
-        b     (when room? (bytes/u8 view (inc start)))
+        a     (when room? (view/u8 view start))
+        b     (when room? (view/u8 view (inc start)))
         zeros (fn [k]
-                (count (filter #(zero? (bytes/u8 view %))
+                (count (filter #(zero? (view/u8 view %))
                                (range (+ start k) end 2))))]
     (cond
       (and (= 0xFF a) (= 0xFE b))
@@ -186,13 +188,13 @@
   [ctx view start end encoding]
   (case encoding
     :latin1 (if (and (quirk? ctx :id3/utf8-latin1)
-                     (bytes/utf8? (bytes/slice view start end) 0 (- end start)))
+                     (bytes/utf8? (view/slice view start end) 0 (- end start)))
               (do (note! ctx (diagnostic :id3/utf8-latin1 :info))
-                  (bytes/text view start end :utf8))
-              (bytes/text view start end :latin1))
+                  (view/text view start end :utf8))
+              (view/text view start end :latin1))
     :utf16  (let [[order start] (utf16-order ctx view start end)]
-              (bytes/text view start end order))
-    (bytes/text view start end encoding)))
+              (view/text view start end order))
+    (view/text view start end encoding)))
 
 (defn ^:no-doc text-at
   "The text in `view` from `start` up to its terminator or `end`, read in
@@ -260,7 +262,7 @@
         [encoding width]   (text-encoding ctx view)
         [description next] (text-at ctx view 4 end encoding width)]
     {:id          id
-     :language    (bytes/code view 1 3)
+     :language    (view/code view 1 3)
      :description description
      :text        (first (text-at ctx view next end encoding width))}))
 
@@ -277,20 +279,20 @@
   (let [end              (:total view)
         [encoding width] (text-encoding ctx view)
         [declared next]  (if (= "PIC" id)
-                           (let [image-format (bytes/code view 1 3)
+                           (let [image-format (view/code view 1 3)
                                  mime-type    (get picture-formats
                                                    (str/upper-case image-format)
                                                    image-format)]
                              [mime-type 4])
                            (text-at ctx view 1 end :latin1 1))
-        picture-type     (bytes/u8 view next)
+        picture-type     (view/u8 view next)
         [description p]  (text-at ctx view (inc next) end encoding width)]
     (if (= "-->" declared)
       {:id           id
        :picture-type picture-type
        :description  description
-       :url          (bytes/text view p end :latin1)}
-      (let [data (bytes/slice view p end)]
+       :url          (view/text view p end :latin1)}
+      (let [data (view/slice view p end)]
         {:id           id
          :type         (image-type ctx declared data)
          :picture-type picture-type
@@ -307,9 +309,9 @@
         p     (inc stop)
         inner (assoc ctx :embedded? true)]
     {:id         id
-     :element-id (bytes/text view 0 stop :latin1)
-     :start-ms   (bytes/u32 view p)
-     :end-ms     (bytes/u32 view (+ p 4))
+     :element-id (view/text view 0 stop :latin1)
+     :start-ms   (view/u32 view p)
+     :end-ms     (view/u32 view (+ p 4))
      :frames     (frames inner view version (+ p 16) end)}))
 
 (defn- child-ids
@@ -325,7 +327,7 @@
           (throw (ex-info (str "A table of contents with fewer children "
                                "than it counts")
                           {})))
-        (recur (inc s) (conj acc (bytes/text view p s :latin1)))))))
+        (recur (inc s) (conj acc (view/text view p s :latin1)))))))
 
 (defn- contents
   "The CTOC frame `id` of `version` in `view`, read in the context `ctx`.
@@ -334,12 +336,12 @@
   [ctx view version id]
   (let [end          (:total view)
         stop         (terminator view 0 end 1)
-        flags        (bytes/u8 view (inc stop))
-        n            (bytes/u8 view (+ stop 2))
+        flags        (view/u8 view (inc stop))
+        n            (view/u8 view (+ stop 2))
         [children p] (child-ids view (+ stop 3) end n)
         inner        (assoc ctx :embedded? true)]
     {:id         id
-     :element-id (bytes/text view 0 stop :latin1)
+     :element-id (view/text view 0 stop :latin1)
      :top-level? (bit-test flags 1)
      :ordered?   (bit-test flags 0)
      :children   children
@@ -407,9 +409,9 @@
   [view version p end]
   (or (= p end)
       (and (<= (+ p 10) end)
-           (frame-id? version (bytes/code view p 4)))
+           (frame-id? version (view/code view p 4)))
       (and (< p end)
-           (every? #(zero? (bytes/u8 view %))
+           (every? #(zero? (view/u8 view %))
                    (range p (min end (+ p 1024)))))))
 
 (defn- frame-size
@@ -420,7 +422,7 @@
   other form. By the quirk, the other form is taken when only it leads to
   a place where a frame can end."
   [ctx view version p end]
-  (let [plain       (bytes/u32 view (+ p 4))
+  (let [plain       (view/u32 view (+ p 4))
         safe        (syncsafe view (+ p 4))
         [own other] (if (= 4 version) [safe plain] [plain safe])
         fits?       #(and % (plausible-end? view version (+ p 10 %) end))]
@@ -440,7 +442,7 @@
   `view` say, read in the context `ctx`. It's a map of :compressed?,
   :encrypted?, :grouped?, :unsync? and :length?."
   [ctx view version p]
-  (let [flags (if (= 2 version) 0 (bytes/u8 view (+ p 9)))]
+  (let [flags (if (= 2 version) 0 (view/u8 view (+ p 9)))]
     (case version
       4 {:compressed? (bit-test flags 3)
          :encrypted?  (bit-test flags 2)
@@ -480,10 +482,10 @@
   [ctx view version p end]
   (let [v2?    (= 2 version)
         header (if v2? 6 10)
-        id     (bytes/code view p (if v2? 3 4))
+        id     (view/code view p (if v2? 3 4))
         size   (when (frame-id? version id)
                  (if v2?
-                   (bytes/u24 view (+ p 3))
+                   (view/u24 view (+ p 3))
                    (frame-size ctx view version p end)))]
     (when (and size (<= (+ p header size) end))
       (let [flags (frame-flags ctx view version p)]
@@ -500,7 +502,7 @@
   (let [header (if (= 2 version) 6 10)]
     (loop [p p acc []]
       (if (or (>= p end)
-              (zero? (bytes/u8 view p))
+              (zero? (view/u8 view p))
               (> (+ p header) end))
         (do (when (and (< p end)
                        (not (plausible-end? view version p end)))
@@ -512,7 +514,7 @@
             (if (or compressed? encrypted? (> start stop))
               (do (note! ctx (diagnostic :id3/skipped-frame :info :frame id))
                   (recur stop acc))
-              (let [data  (cond-> (bytes/slice view start stop)
+              (let [data  (cond-> (view/slice view start stop)
                             unsync? resync)
                     frame (frame-body ctx data version id p)]
                 (recur stop (cond-> acc frame (conj frame))))))
@@ -524,18 +526,18 @@
   whose extended header doesn't read has no frames, and the report says
   so."
   [ctx view {:keys [version flags start end] :as h}]
-  (bytes/need view start end)
+  (view/need view start end)
   (let [footer?   (and (= 4 version) (bit-test flags 4))
         unsync?   (bit-test flags 7)
         body-end  (- end (if footer? 10 0))
-        body      (cond-> (bytes/slice view (+ start 10) body-end)
+        body      (cond-> (view/slice view (+ start 10) body-end)
                     (and (#{2 3} version) unsync?) resync)
         body      (view-of body)
         extended  (fn []
                     (cond
                       (not (bit-test flags 6)) 0
                       (= 4 version)            (or (syncsafe body 0) 0)
-                      (= 3 version)            (+ 4 (bytes/u32 body 0))
+                      (= 3 version)            (+ 4 (view/u32 body 0))
                       :else                    0))
         ctx       (assoc ctx :unsync-all? (and (= 4 version) unsync?))
         malformed (diagnostic :id3/malformed :warning :offset start)]
@@ -550,7 +552,7 @@
   "The diagnostics of `x`, which read or chapters gave. Each diagnostic has
   its message."
   [x]
-  (bytes/report x))
+  (mapv diagnostics/describe (view/report x)))
 
 (defn read
   "The ID3v2 tag at `p` in `view`, read with `opts`, or nil when no tag
@@ -559,7 +561,7 @@
   The report function gives the diagnostics of the reading. The :except
   of `opts` is the ids of the quirks to leave out. The view must hold the
   whole tag. When it lacks bytes, the reading throws, and
-  dk.simongray.podcast.util.bytes/missing gives their ranges."
+  dk.simongray.podcast.util.bytes.view/missing gives their ranges."
   ([view p]
    (read view p {}))
   ([view p opts]
@@ -567,7 +569,7 @@
    (when-let [h (header view p)]
      (let [ctx    (context opts)
            result (tag ctx view h)]
-       (bytes/reported result @(:report ctx))))))
+       (view/reported result @(:report ctx))))))
 
 (defn read-all
   "The ID3v2 tags in `view` from `p` on, each as read gives it with
@@ -586,7 +588,7 @@
                           more?
                           (try (read view p opts)
                                (catch #?(:clj Exception :cljs :default) e
-                                 (when (bytes/missing e) (throw e))
+                                 (when (view/missing e) (throw e))
                                  nil)))]
          (let [quirk (diagnostic :id3/second-tag :info :offset p)
                noted (vary-meta more update :podcast/report conj quirk)]
@@ -700,7 +702,7 @@
          result (->> (filter #(= "CHAP" (:id %)) frames)
                      (sort-by order)
                      (mapv #(chapter-of ctx % places)))]
-     (bytes/reported result @(:report ctx)))))
+     (view/reported result @(:report ctx)))))
 
 (comment
   ;; a tag of ID3v2.4 with a title, TIT2, and a length in milliseconds, TLEN

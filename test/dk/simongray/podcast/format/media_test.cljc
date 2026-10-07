@@ -19,6 +19,7 @@
                                                        #?(:clj with-file-server)]]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]
             #?(:clj [dk.simongray.podcast.util.http :as http])
             [dk.simongray.podcast.util.time :as time]))
 
@@ -82,21 +83,21 @@
   (frame version "APIC" (concat [0] (ascii mime) [0 picture-type] (ascii "Cover") [0] data)))
 
 (deftest bytes-on-both-platforms
-  (let [v (bytes/add (bytes/view 100) 10 (bytes/of [1 2 3 4 5 6 7 8]) 100)]
-    (is (= 0x01020304 (bytes/u32 v 10)))
-    (is (= 0x0102030405060708 (bytes/u64 v 10)))
-    (is (= [[18 30]] (bytes/missing (try (bytes/need v 12 30) (catch #?(:clj Exception :cljs :default) e e)))))
-    (is (= [[0 10] [18 20]] (bytes/missing (try (bytes/need-all v [[0 12] [15 20]]) (catch #?(:clj Exception :cljs :default) e e))))
+  (let [v (view/add (view/view 100) 10 (bytes/of [1 2 3 4 5 6 7 8]) 100)]
+    (is (= 0x01020304 (view/u32 v 10)))
+    (is (= 0x0102030405060708 (view/u64 v 10)))
+    (is (= [[18 30]] (view/missing (try (view/need v 12 30) (catch #?(:clj Exception :cljs :default) e e)))))
+    (is (= [[0 10] [18 20]] (view/missing (try (view/need-all v [[0 12] [15 20]]) (catch #?(:clj Exception :cljs :default) e e))))
         "every range it lacks, at once")
-    (is (bytes/truncated? (try (bytes/need v 100 104) (catch #?(:clj Exception :cljs :default) e e))))
-    (is (nil? (bytes/need (bytes/add v 90 (bytes/of (range 10)) 100) 95 104)) "the end cut at the end of the file")
-    (is (= [[0 20]] (map (fn [[o b]] [o (bytes/length b)]) (:parts (bytes/add v 0 (bytes/of (range 20)) 100))))
+    (is (view/truncated? (try (view/need v 100 104) (catch #?(:clj Exception :cljs :default) e e))))
+    (is (nil? (view/need (view/add v 90 (bytes/of (range 10)) 100) 95 104)) "the end cut at the end of the file")
+    (is (= [[0 20]] (map (fn [[o b]] [o (bytes/length b)]) (:parts (view/add v 0 (bytes/of (range 20)) 100))))
         "a part in place of those it covers, as a server that ignores ranges sends the start again"))
   (testing "a slice across the parts of a view"
-    (let [v       (-> (bytes/view 16) (bytes/add 0 (bytes/of (range 8)) 16) (bytes/add 8 (bytes/of (range 8 16)) 16))
+    (let [v       (-> (view/view 16) (view/add 0 (bytes/of (range 8)) 16) (view/add 8 (bytes/of (range 8 16)) 16))
           numbers (fn [b] (map #(bytes/at b %) (range (bytes/length b))))]
-      (is (= (range 5 11) (numbers (bytes/slice v 5 11))))
-      (is (bytes/truncated? (try (bytes/slice v 10 20) (catch #?(:clj Exception :cljs :default) e e)))
+      (is (= (range 5 11) (numbers (view/slice v 5 11))))
+      (is (view/truncated? (try (view/slice v 10 20) (catch #?(:clj Exception :cljs :default) e e)))
           "past the end of the file")))
   (is (= "Ærø" (bytes/decode (bytes/of [0xC6 0x72 0xF8]) 0 3 :latin1)))
   (is (= "Ærø" (bytes/decode (bytes/of (utf8 "Ærø")) 0 5 :utf8)))
@@ -109,7 +110,7 @@
   (is (nil? (bytes/image-type (bytes/of [1 2 3 4])))))
 
 (defn- zeros
-  "A fetch of a file of `total` zero bytes, as `bytes/read!` takes it,
+  "A fetch of a file of `total` zero bytes, as `view/read!` takes it,
   noting each range in `log`."
   [total log]
   (fn [start end]
@@ -118,21 +119,21 @@
       {:bytes (bytes/of (repeat (- end start) 0)) :start start :total total})))
 
 (deftest reading-by-rounds
-  (let [spread (fn [v] (bytes/reading #(do (bytes/need-all v (for [i (range 40)] [(* i 100000) (+ (* i 100000) 10)]))
-                                            {:read :spread})))
-        near   (fn [v] (bytes/reading #(do (bytes/need-all v (for [i (range 100)] [(* i 1000) (+ (* i 1000) 10)]))
-                                            {:read :near})))
-        walk   (fn [v] (bytes/reading #(loop [p 0 k 0]
-                                         (if (= k 10)
-                                           {:read :walk}
-                                           (do (bytes/need v p (+ p 4))
-                                               (recur (+ p 65537) (inc k)))))))
+  (let [spread (fn [v] (view/reading #(do (view/need-all v (for [i (range 40)] [(* i 100000) (+ (* i 100000) 10)]))
+                                           {:read :spread})))
+        near   (fn [v] (view/reading #(do (view/need-all v (for [i (range 100)] [(* i 1000) (+ (* i 1000) 10)]))
+                                           {:read :near})))
+        walk   (fn [v] (view/reading #(loop [p 0 k 0]
+                                        (if (= k 10)
+                                          {:read :walk}
+                                          (do (view/need v p (+ p 4))
+                                              (recur (+ p 65537) (inc k)))))))
         cases  [[spread 40 "40 ranges far apart, 16 requests a round"]
                 [near 1 "100 ranges near each other, in one request"]
                 [walk 4 "a walk through segments of 64 KB, which reads more ahead each round"]]
         run    (fn [[reader n message]]
                  (let [log (atom [])]
-                   (async/then (bytes/read! (zeros 4000000 log) reader)
+                   (async/then (view/read! (zeros 4000000 log) reader)
                                (fn [r]
                                  (is (:read r) message)
                                  (is (= n (count @log)) message)))))]
@@ -147,14 +148,14 @@
   another."
   [ps]
   (fn [v]
-    (bytes/reading #(do (doseq [p ps] (bytes/need v p (+ p 4)))
-                        {:read ps}))))
+    (view/reading #(do (doseq [p ps] (view/need v p (+ p 4)))
+                       {:read ps}))))
 
 (deftest the-limits-of-a-reading
   (let [reading (fn [fetch-of reader opts]
                   (let [log (atom [])]
-                    (async/then (bytes/read! (fetch-of 4000000 log) reader opts)
-                                (fn [r] [(or (:read r) (map :id (bytes/report r))) @log]))))
+                    (async/then (view/read! (fetch-of 4000000 log) reader opts)
+                                (fn [r] [(or (:read r) (map :id (view/report r))) @log]))))
         whole   (fn [total log]
                   (fn [start end]
                     (swap! log conj [start end])
@@ -458,7 +459,7 @@
   (is (= [:file/unknown-format] (map :id (media/report (media/read (view (ascii "<html><body>not audio</body></html>")))))))
   (testing "a view that lacks bytes gives the ranges it needs"
     (let [b    (bytes/of (chapter-file ["Intro" "Talk"] [60000 90500] true))
-          head (bytes/add (bytes/view (bytes/length b)) 0 (bytes/copy b 0 40) (bytes/length b))]
+          head (view/add (view/view (bytes/length b)) 0 (bytes/copy b 0 40) (bytes/length b))]
       (is (= [[45 61]] (:need (media/read head))) "the header of the box after the media data, which ends at 45")))
   (testing "the chapters of an MP3 file as a chapters document"
     (let [r (media/read (view (concat (tag 3 (ctoc 3 "t" ["a"]) (chap 3 "a" 0 5000 (text 3 "TIT2" "A")))
@@ -615,7 +616,7 @@
 
 (defn- hollow
   "A fetch of a file of `total` bytes that holds the bytes `b` at its start
-  and nothing that a reader can use after them, as `bytes/read!` takes it,
+  and nothing that a reader can use after them, as `view/read!` takes it,
   noting each range in `log`."
   [b total log]
   (let [n (bytes/length b)]

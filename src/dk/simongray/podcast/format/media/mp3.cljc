@@ -21,8 +21,10 @@
   that the size of a tag leaves out. The :except option leaves out the
   quirks that it names, those of the tags too."
   (:refer-clojure :exclude [read])
-  (:require [dk.simongray.podcast.format.media.id3 :as id3]
-            [dk.simongray.podcast.util.bytes :as bytes]))
+  (:require [dk.simongray.podcast.diagnostics :as diagnostics]
+            [dk.simongray.podcast.format.media.id3 :as id3]
+            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]))
 
 (def ^:no-doc bitrates
   "The bitrates in kbit/s by MPEG version and layer, by bitrate index."
@@ -47,17 +49,17 @@
   :samples, :length, :mono? and :crc?. The bitrate is in bit/s, and the
   length of the frame is in bytes."
   [view p]
-  (bytes/need view p (+ p 4))
-  (let [b1 (bytes/u8 view (inc p))
-        b2 (bytes/u8 view (+ p 2))
-        b3 (bytes/u8 view (+ p 3))
+  (view/need view p (+ p 4))
+  (let [b1 (view/u8 view (inc p))
+        b2 (view/u8 view (+ p 2))
+        b3 (view/u8 view (+ p 3))
         version (case (bit-and (bit-shift-right b1 3) 3) 0 2.5 2 2 3 1 nil)
         layer   (case (bit-and (bit-shift-right b1 1) 3) 1 3 2 2 3 1 nil)
         rate-i  (bit-and (bit-shift-right b2 2) 3)
         table   [(if (= 1 version) 1 2) layer]
         kbps    (when (and version layer)
                   (get (bitrates table) (bit-shift-right b2 4)))]
-    (when (and (= 0xFF (bytes/u8 view p))
+    (when (and (= 0xFF (view/u8 view p))
                (= 0xE0 (bit-and b1 0xE0))
                kbps
                (< rate-i 3))
@@ -97,15 +99,15 @@
   `view`, read in the context `ctx`, or nil when there's none. The frame
   is at `start` itself, or further on by the quirk."
   [ctx view start]
-  (bytes/need view start (+ start 4096))
+  (view/need view start (+ start 4096))
   (if-let [h (frame-at? view start)]
     [start h]
     (when-not (contains? (:except ctx) :mp3/junk-before-audio)
       (let [end (min (+ start search-limit) (or (:total view) ##Inf))]
-        (bytes/need view start (+ end 4096))
+        (view/need view start (+ end 4096))
         (loop [p (inc start)]
           (when (< (+ p 4) end)
-            (if-let [h (and (= 0xFF (bytes/u8 view p))
+            (if-let [h (and (= 0xFF (view/u8 view p))
                             (frame-at? view p))]
               (let [junk {:id      :mp3/junk-before-audio
                           :level   :info
@@ -127,14 +129,14 @@
   [view p h]
   (let [x (+ p 4 (side-info h))
         v (+ p 36)]
-    (bytes/need view p (+ v 18))
+    (view/need view p (+ v 18))
     (cond
-      (and (#{"Xing" "Info"} (bytes/code view x 4))
-           (bit-test (bytes/u32 view (+ x 4)) 0))
-      (bytes/u32 view (+ x 8))
+      (and (#{"Xing" "Info"} (view/code view x 4))
+           (bit-test (view/u32 view (+ x 4)) 0))
+      (view/u32 view (+ x 8))
 
-      (= "VBRI" (bytes/code view v 4))
-      (bytes/u32 view (+ v 14)))))
+      (= "VBRI" (view/code view v 4))
+      (view/u32 view (+ v 14)))))
 
 (def ^:no-doc estimate-window
   "How many bytes of frames from the first the estimate of the bitrate of a
@@ -147,7 +149,7 @@
   constant bitrate, and closer than the first frame for a variable one."
   [view p h]
   (let [end (min (+ p estimate-window) (or (:total view) ##Inf))]
-    (bytes/need view p end)
+    (view/need view p end)
     (loop [q p h h size 0 samples 0]
       (let [size    (+ size (:length h))
             samples (+ samples (:samples h))
@@ -182,7 +184,7 @@
   "The diagnostics of `file`, which read gave, with those of its tags.
   Each diagnostic has its message."
   [file]
-  (bytes/report file))
+  (mapv diagnostics/describe (view/report file)))
 
 (defn read
   "The MP3 file in `view`, read with `opts`, as a map of :tags,
@@ -195,7 +197,7 @@
 
   The report function gives the diagnostics of the reading. The :except
   of `opts` is the ids of the quirks to leave out. When the view lacks
-  bytes, the reading throws, and dk.simongray.podcast.util.bytes/missing
+  bytes, the reading throws, and dk.simongray.podcast.util.bytes.view/missing
   gives their ranges."
   ([view]
    (read view {}))
@@ -209,9 +211,9 @@
                       :audio-start p
                       :duration    (duration ctx view p h)}
          diagnostics (into (vec (mapcat id3/report tags)) @(:report ctx))]
-     (bytes/reported result
-                     (cond-> diagnostics
-                       (nil? h) (conj {:id :mp3/no-audio :level :warning}))))))
+     (view/reported result
+                    (cond-> diagnostics
+                      (nil? h) (conj {:id :mp3/no-audio :level :warning}))))))
 
 (comment
   ;; one MPEG-1 Layer III frame of 128 kbit/s at 44.1 kHz: 417 bytes

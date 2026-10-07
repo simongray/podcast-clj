@@ -28,6 +28,7 @@
             [dk.simongray.podcast.format.media.mp4 :as mp4]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.http :as http])
   #?(:clj (:import [java.security MessageDigest])))
 
@@ -35,11 +36,11 @@
   "The format of the file whose start `view` holds, or nil: :mp3 for an ID3
   tag or an MPEG audio frame, and :mp4 for an ftyp box."
   [view]
-  (bytes/need view 0 12)
+  (view/need view 0 12)
   (cond
-    (= "ID3" (bytes/code view 0 3))  :mp3
-    (= "ftyp" (bytes/code view 4 4)) :mp4
-    (mp3/frame-header view 0)        :mp3))
+    (= "ID3" (view/code view 0 3))  :mp3
+    (= "ftyp" (view/code view 4 4)) :mp4
+    (mp3/frame-header view 0)       :mp3))
 
 (defn- mp3-result
   "What read gives for the MP3 file in `view`, read with `opts`."
@@ -49,7 +50,7 @@
         duration (or (:duration file) (id3/duration frames))
         chs      (id3/chapters frames opts)
         artwork  (id3/artwork frames)]
-    (bytes/reported
+    (view/reported
      (cond-> {:format :mp3}
        duration  (assoc :duration duration)
        (seq chs) (assoc :chapters {:version chapters/version :chapters chs})
@@ -68,7 +69,7 @@
   "The diagnostics of `file`, which read or read! gave. Each diagnostic has
   its message."
   [file]
-  (bytes/report file))
+  (mapv diagnostics/describe (view/report file)))
 
 (defn read
   "What the media file whose parts `view` holds says about itself, read
@@ -91,24 +92,24 @@
   ([view opts]
    {:pre [(map? opts)]}
    (let [unknown {:id :file/unknown-format :level :warning}]
-     (bytes/reading #(case (sniff view)
-                       :mp3 (mp3-result view opts)
-                       :mp4 (mp4-result view opts)
-                       (bytes/reported {} [unknown]))))))
+     (view/reading #(case (sniff view)
+                      :mp3 (mp3-result view opts)
+                      :mp4 (mp4-result view opts)
+                      (view/reported {} [unknown]))))))
 
 (defn read!
   "Read what the media file at `url` says about itself as read does,
   fetched with `opts`. On the JVM it gives the result, and in
   ClojureScript a promise of it.
 
-  The function dk.simongray.podcast.util.bytes/read! fetches the ranges
-  that the reading needs. The `opts` are these:
+  The function dk.simongray.podcast.util.bytes.view/read! fetches the
+  ranges that the reading needs. The `opts` are these:
 
   - :fetch, a function as http/fetcher makes, to fetch your own way
   - :headers, :timeout-seconds and :send, as http/fetcher takes them
   - :allow?, as http/send! takes it
   - :except, as read takes it
-  - the limits of bytes/read!, with bytes/default-limits for those that
+  - the limits of view/read!, with view/default-limits for those that
     they don't set
 
   When the ranges don't come, or the file asks for more than the limits
@@ -122,7 +123,8 @@
    (read! url {}))
   ([url opts]
    (let [read-opts (select-keys opts [:except])]
-     (http/read-by-ranges! url #(read % read-opts) opts))))
+     (async/then (http/read-by-ranges! url #(read % read-opts) opts)
+                 #(cond-> % (:error %) (update :error diagnostics/describe))))))
 
 (def ^:no-doc sri-algorithms
   "The hash algorithms of Subresource Integrity, weakest first, with their
@@ -163,7 +165,7 @@
   "The verdict on the file at `url` that didn't come, since the request for
   it failed with `e`."
   [url e]
-  (unverified (assoc (bytes/unreachable e) :url url)))
+  (unverified (assoc (view/unreachable e) :url url)))
 
 (defn- digest
   "The base64 digest of the bytes `b` by `algorithm`, as MessageDigest and
@@ -260,14 +262,14 @@
   (def sample
     (let [frame (concat [0xFF 0xFB 0x90 0x00] (repeat 413 0))
           b     (bytes/of (apply concat (repeat 20 frame)))]
-      (bytes/add (bytes/view) 0 b (bytes/length b))))
+      (view/add (view/view) 0 b (bytes/length b))))
 
   (read sample)
   (map :id (report (read sample)))
 
   ;; a file that is no media file
-  (report (read (bytes/add (bytes/view) 0
-                           (bytes/encode "<html>not audio</html>") 22)))
+  (report (read (view/add (view/view) 0
+                          (bytes/encode "<html>not audio</html>") 22)))
 
   (read! "https://example.org/episode.mp3")
   (sri "sha256-abc= sha384-def=")

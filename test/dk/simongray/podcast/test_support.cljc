@@ -12,6 +12,7 @@
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.util.bech32 :as bech32]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.crdt :as crdt]
             #?(:clj [dk.simongray.podcast.util.json :as json])
             [dk.simongray.podcast.util.nostr :as nostr])
@@ -150,10 +151,10 @@
   "A view of all of the bytes `xs`."
   [xs]
   (let [b (bytes/of xs)]
-    (bytes/add (bytes/view (bytes/length b)) 0 b (bytes/length b))))
+    (view/add (view/view (bytes/length b)) 0 b (bytes/length b))))
 
 (defn fetch-from
-  "A fetch over the bytes `b`, as `dk.simongray.podcast.util.bytes/read!` takes
+  "A fetch over the bytes `b`, as `dk.simongray.podcast.util.bytes.view/read!` takes
   it, noting each range in `log`."
   [b log]
   (fn [start end]

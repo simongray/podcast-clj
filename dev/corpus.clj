@@ -15,7 +15,7 @@
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.url :as url]
             [dk.simongray.podcast.util.xml :as xml]))
@@ -448,12 +448,12 @@
         add-part (fn [v {:keys [file start total]}]
                    (let [path (.toPath (io/file media-dir file))
                          data (java.nio.file.Files/readAllBytes path)]
-                     (bytes/add v start data total)))]
+                     (view/add v start data total)))]
     (print-table
      [:n :feed :format :duration :declared :chapters :artwork :report]
      (for [{:keys [n feed declared parts error]} manifest
            :when (and (not error) (seq parts))
-           :let [view (reduce add-part (bytes/view) parts)
+           :let [view (reduce add-part (view/view) parts)
                  r    (media/read view)]]
        {:n        n
         :feed     feed

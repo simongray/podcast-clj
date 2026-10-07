@@ -17,7 +17,7 @@
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]))
 
@@ -117,7 +117,7 @@
   the request failed with `e` or the answer had the `status` of a failure."
   [url e status]
   (if e
-    (assoc (bytes/unreachable e) :url url)
+    (diagnostics/describe (assoc (view/unreachable e) :url url))
     (diagnostics/describe {:id :file/unreachable :url url :status status})))
 
 (defn- fetch-text!

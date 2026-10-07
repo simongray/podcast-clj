@@ -20,6 +20,7 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]
@@ -976,7 +977,7 @@
 
 (defn fetcher
   "A function that fetches the bytes of the file at `url` by range, with
-  `opts`, as util.bytes/read! takes it.
+  `opts`, as util.bytes.view/read! takes it.
 
   The function takes a start and an end, with the end excluded. It gives
   a map of :bytes, :start and :total, or in ClojureScript a promise of
@@ -1027,15 +1028,15 @@
 
 (defn ^:no-doc read-by-ranges!
   "Read the file at `url` with the reader `read` and `opts`, and give what
-  util.bytes/read! gives, or in ClojureScript a promise of it.
+  util.bytes.view/read! gives, or in ClojureScript a promise of it.
 
   The bytes come by the :fetch of the opts, or by a fetcher of the opts.
-  The opts also give the limits of the reading, with bytes/default-limits
+  The opts also give the limits of the reading, with view/default-limits
   for those that they don't set. The :error of a file that didn't come
   names the `url`."
   [url read {:keys [fetch] :as opts}]
-  (let [opts (merge bytes/default-limits opts)]
-    (async/then (bytes/read! (or fetch (fetcher url opts)) read opts)
+  (let [opts (merge view/default-limits opts)]
+    (async/then (view/read! (or fetch (fetcher url opts)) read opts)
                 #(cond-> % (:error %) (assoc-in [:error :url] url)))))
 
 (defn media-type
@@ -1116,7 +1117,7 @@
   diagnostic under :error for a request that failed."
   [{:keys [value error] :as attempt}]
   (if error
-    {:error (bytes/unreachable error)}
+    {:error (view/unreachable error)}
     (facts value)))
 
 (defn probe!
@@ -1127,7 +1128,8 @@
   The result is a map of :head and :get, the facts of the answers to a
   HEAD request and to a request for the first two bytes. The facts of a
   request that failed are a map with the diagnostic :file/unreachable
-  under :error.
+  under :error, which dk.simongray.podcast.diagnostics/describe gives its
+  message.
 
   Most servers answer the second request with 206, and with the size of
   the whole file in Content-Range. A server that ignores ranges answers

@@ -31,7 +31,7 @@
             [dk.simongray.podcast.format.media :as media]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.bytes :as bytes]
+            [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]))
@@ -212,7 +212,7 @@
   the :error for an attempt that failed."
   [{:keys [value error] :as attempt}]
   (if error
-    {:error (bytes/unreachable error)}
+    {:error (view/unreachable error)}
     value))
 
 (defn ^:no-doc why
@@ -341,7 +341,7 @@
       (let [doc (chapters/parse-json body)]
         {:count (count (:chapters doc)) :report (chapters/report doc)}))
     (catch #?(:clj Exception :cljs :default) e
-      {:error (diagnostics/describe (bytes/failure e))})))
+      {:error (diagnostics/describe (view/failure e))})))
 
 (defn- probe-text!
   "Probe the transcript or chapters `file` through `send` with `opts`, and
