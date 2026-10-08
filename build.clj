@@ -39,7 +39,7 @@
   (b/delete {:path "target"}))
 
 (defn jar
-  "Write the pom and build the jar from `src` and `resources`."
+  "Write the pom and build the jar from the sources in src."
   [_]
   (b/write-pom {:class-dir class-dir
                 :lib       lib
@@ -56,7 +56,7 @@
                              [:license
                               [:name "MIT License"]
                               [:url "https://opensource.org/license/mit"]]]]})
-  (b/copy-dir {:src-dirs   ["src" "resources"]
+  (b/copy-dir {:src-dirs   ["src"]
                :target-dir class-dir})
   (b/jar {:class-dir class-dir
           :jar-file  jar-file}))

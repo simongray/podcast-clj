@@ -1,4 +1,4 @@
-{:paths ["src" "resources"]
+{:paths ["src"]
 
  ;; The library proper depends on Clojure alone, plus data.json for the JVM
  ;; side of the JSON adapter (chapters, transcripts, Podcast Index) and
