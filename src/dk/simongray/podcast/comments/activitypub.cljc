@@ -175,7 +175,7 @@
                        (when mapped?
                          (first (filter (comp string? val) by-language))))
         as-is?       (or (contains? #{nil "text/html"} (get o "mediaType"))
-                         (not (re-find html/markup (str s))))]
+                         (not (html/markup? s)))]
     [language (if as-is? s (str/replace s #"\r?\n" "<br>"))]))
 
 (defn- tag-part
@@ -304,14 +304,13 @@
                        :url  url}))))
 
 (defn- sanitized
-  "The content of `source` as sanitized Hiccup, with the class and the rel
-  of each link, which tell what the link is."
-  [{markup :html :as source}]
-  (let [s       (str markup)
-        allowed (update html/allowed-attributes :a conj :class)]
-    (if (re-find html/markup s)
-      (html/sanitize (html/parse s) {:allowed-attributes allowed})
-      (html/hiccup s))))
+  "The content of `source` as sanitized Hiccup, with its URLs made absolute
+  against the post, and the class and the rel of each link, which tell
+  what the link is."
+  [{markup :html base :base :as source}]
+  (let [allowed (update html/allowed-attributes :a conj :class)]
+    (html/hiccup markup {:allowed-attributes allowed
+                         :url                (common/resolver base)})))
 
 (defn- with-emoji
   "The text `s` as pieces, cut at the shortcodes of the custom `emojis`, a

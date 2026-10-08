@@ -103,6 +103,15 @@
       (cond-> {:id :comments/unreachable :url url :status status}
         transient? (assoc :retry? true)))))
 
+(defn ^:no-doc resolver
+  "A function that makes a URL in a post absolute against `base`, the URL
+  of the post, as html/hiccup takes it for :url. Without a base, a URL
+  stays as it is."
+  [base]
+  (if base
+    #(url/absolute-url base %)
+    identity))
+
 (defn- fit-link
   "The Hiccup of the link with the attributes `attrs` and the fitted
   children `kids`, in a post whose URL is `base`, as fit-links fits it."
@@ -132,8 +141,8 @@
    (letfn [(nodes-of [x]
              (if-not (vector? x)
                (text x)
-               (let [[tag attrs children] (html/parts x)
-                     kids                 (mapcat nodes-of children)]
+               (let [[tag attrs & children] x
+                     kids                   (mapcat nodes-of children)]
                  (case tag
                    :img (text (str (:alt attrs)))
                    :a   [(or (a attrs kids) (fit-link attrs kids base))]
@@ -142,11 +151,11 @@
 
 (defn ^:no-doc safe-html
   "The HTML `s` of a post whose URL is `base`, safe for the page of an app
-  to show, or nil when it's blank. It's sanitized by html/hiccup, and its
-  links are fit by fit-links."
+  to show, or nil when it's blank. It's sanitized by html/hiccup, with its
+  URLs made absolute against `base`, and its links are fit by fit-links."
   [s base]
   (when (and (string? s) (not (str/blank? s)))
-    (html/emit (fit-links (html/hiccup s) base))))
+    (html/emit (fit-links (html/hiccup s {:url (resolver base)}) base))))
 
 (defn ^:no-doc joined
   "The parts `ps` of a content as a vector. The texts that follow each

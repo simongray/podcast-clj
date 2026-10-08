@@ -751,8 +751,13 @@
       (is (= [["<p>root</p>" nil] ["<p>one</p>" nil] ["<a rel=\"nofollow ugc\">two</a>" nil] ["<p>boom</p>" nil]]
              (shown (read)))))
     (testing "the posts around it are read, and the report names it"
-      (let [t (with-redefs [html/hiccup (fn [s] (if (= "boom" s) (throw (ex-info "It does not read" {})) (hiccup s)))]
-                (read))]
+      (let [boom #(when (= "boom" %) (throw (ex-info "It does not read" {})))
+            ;; both arities, since ClojureScript calls a function of several
+            ;; arities by the one that it needs
+            t    (with-redefs [html/hiccup (fn
+                                             ([s] (boom s) (hiccup s))
+                                             ([s opts] (boom s) (hiccup s opts)))]
+                   (read))]
         (is (= [["<p>root</p>" nil] ["<p>one</p>" nil] ["<a rel=\"nofollow ugc\">two</a>" nil] [nil :comments/malformed]]
                (shown t)))
         (is (= [[:comments/malformed "https://a.example/3" "It does not read"]]
