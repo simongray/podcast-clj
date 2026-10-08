@@ -9,7 +9,8 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.format.chapters :as chapters]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.time.rrule :as rrule]))
+            [dk.simongray.podcast.util.time.rrule :as rrule]
+            [dk.simongray.podcast.util.url :as url]))
 
 (defn title
   "The title of `x`: the RSS title, or else the iTunes one."
@@ -65,6 +66,44 @@
         (when (and (not (false? is-perma-link))
                    (re-find #"^https?://" (str content)))
           content))))
+
+(def ^:no-doc domain-pattern
+  "A domain with an optional port: labels of letters, digits and hyphens
+  between dots, and a top-level domain of letters."
+  (let [label "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"]
+    (re-pattern (str "(?i)(?:" label "\\.)+[a-z]{2,24}(?::[0-9]{1,5})?"))))
+
+(def ^:no-doc file-extension
+  "The extension of a file at the end of a name, which a top-level domain
+  of letters could be mistaken for."
+  (re-pattern (str "(?i)\\.(?:html?|php|aspx?|jsp|cgi|xml|json|rss|txt"
+                   "|pdf|mp3|m4a|mp4|jpe?g|png|gif)(?::|$)")))
+
+(defn- domain-first?
+  "Whether the URL `s`, which has no scheme, starts with a domain, as in
+  example.com/page, rather than a path: its first part is a domain and
+  doesn't end in the extension of a file."
+  [s]
+  (let [head (first (str/split s #"[/?#]" 2))]
+    (boolean (and (re-matches domain-pattern head)
+                  (not (re-find file-extension head))))))
+
+;; Feeds often write a link as a domain without https://, which a browser
+;; would read as a path on the page that shows it
+(defn notes-url
+  "The URL `s` of a link or an image in show notes, as a listener can
+  follow it from `base`, the web page of the show or the episode, or nil.
+
+  An absolute URL stays as it is. A URL that starts with a domain, such as
+  example.com/page, or with //, gets https in front, and any other is made
+  absolute against `base`."
+  [base s]
+  (let [t (str/trim (str s))]
+    (cond
+      (url/scheme t)              s
+      (str/starts-with? t "//")   (str "https:" t)
+      (domain-first? t)           (str "https://" t)
+      base                        (url/absolute-url base t))))
 
 (defn published
   "When `x` was published, as an instant, or nil when it gave no readable

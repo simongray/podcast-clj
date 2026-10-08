@@ -50,7 +50,12 @@
       (is (= "podcast" (:medium v))))
     (testing "the description as Hiccup and as text"
       (is (= '([:p {} "This is a fake show that exists only as an example of the \"podcast\" namespace tag usage."]) (:notes v)))
-      (is (str/starts-with? (:text v) "This is a fake show")))
+      (is (str/starts-with? (:text v) "This is a fake show"))
+      (is (= '([:a {:href "https://show.example/about"} "about"])
+             (:notes (show/view (assoc feed
+                                       :rss/link "https://show.example/"
+                                       :rss/description "<a href=\"/about\">about</a>"))))
+          "with its links made absolute against the web page of the show"))
     (testing "the episodes in listening order, and the seasons"
       (is (= ["Episode 3 - The Future" "Episode 2 - The Present" "Episode 1 - The Past"]
              (map :rss/title (:episodes v))))

@@ -79,17 +79,24 @@
   - :languages, :timed? and :transcript-types, to select the :transcript
     as resolve/transcript does
   - :url, the URL of the feed, for a feed that doesn't name its own
+  - :notes-url, a function of the web page of the episode and a URL in
+    its show notes, which gives the URL to keep or nil, resolve/notes-url
+    by default
   - :except, a set of the keys above to leave out"
   ([feed item]
    (view feed item {}))
-  ([feed item {:keys [url except] :or {except #{}} :as opts}]
+  ([feed item {:keys [url notes-url except]
+               :or   {notes-url resolve/notes-url except #{}}
+               :as   opts}]
    {:pre [(map? opts)]}
    (let [wanted?   (complement except)
          url       (or url (resolve/self-url feed))
          feed-guid (guid/feed-guid feed url)
          read?     (or (wanted? :notes) (wanted? :text) (wanted? :chapters))
+         page      (or (resolve/link item) (resolve/link feed))
          notes     (when read?
-                     (some-> (resolve/description item) html/hiccup))
+                     (some-> (resolve/description item)
+                             (html/hiccup {:url #(notes-url page %)})))
          text      (when (and notes (or (wanted? :text) (wanted? :chapters)))
                      (html/text notes))
          own       (when (wanted? :chapters) (own-chapters item text))]

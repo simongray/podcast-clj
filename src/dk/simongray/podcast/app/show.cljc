@@ -39,16 +39,23 @@
   The `opts` are:
 
   - :url, the URL of the feed, for a feed that doesn't name its own
+  - :notes-url, a function of the web page of the show and a URL in its
+    description, which gives the URL to keep or nil, resolve/notes-url by
+    default
   - :except, a set of the keys above to leave out without computing them"
   ([feed]
    (view feed {}))
-  ([feed {:keys [url except] :or {except #{}} :as opts}]
+  ([feed {:keys [url notes-url except]
+          :or   {notes-url resolve/notes-url except #{}}
+          :as   opts}]
    {:pre [(map? opts)]}
    (let [wanted? (complement except)
          url     (or url (resolve/self-url feed))
          guid    (guid/feed-guid feed url)
+         page    (resolve/link feed)
          notes   (when (or (wanted? :notes) (wanted? :text))
-                   (some-> (resolve/description feed) html/hiccup))]
+                   (some-> (resolve/description feed)
+                           (html/hiccup {:url #(notes-url page %)})))]
      (cond-> (merge feed (resolve/properties feed))
        guid
        (assoc :guid guid)

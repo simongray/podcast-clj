@@ -29,6 +29,22 @@
     (is (= "https://x/1" (resolve/link {:rss/guid {:content "https://x/1"}})))
     (is (nil? (resolve/link {:rss/guid {:content "https://x/1" :is-perma-link false}})))
     (is (nil? (resolve/link {:rss/guid {:content "abc"}}))))
+  (testing "the URLs in show notes, as a listener can follow them"
+    (is (= ["https://a.example/x" "javascript:alert(1)"
+            "https://nytimes.com/audioapp" "https://www.goalhanger.com"
+            "https://cdn.example/i.png"
+            "https://show.example/ep/5" "https://show.example/notes"
+            "https://show.example/ep/page.html"]
+           (map #(resolve/notes-url "https://show.example/ep/" %)
+                ["https://a.example/x" "javascript:alert(1)"
+                 "nytimes.com/audioapp" " www.goalhanger.com"
+                 "//cdn.example/i.png"
+                 "5" "/notes"
+                 "page.html"]))
+        "an absolute URL as it is, html-pieces checks it")
+    (is (= ["https://example.com" nil]
+           (map #(resolve/notes-url nil %) ["example.com" "page.html"]))
+        "a path with no page to resolve it against"))
   (is (= #inst "2020-10-09T04:30:38Z" (resolve/published @example)))
   (is (nil? (resolve/published {:rss/pub-date "soon"}))))
 

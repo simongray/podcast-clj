@@ -404,6 +404,11 @@ The option `:except` leaves out the parts that a page doesn't need, e.g.
 the rows of an episode list are much cheaper as `(library/episode @lib id
 {:except #{:notes :text :chapters :links}})`.
 
+Links and images in the notes are made absolute against the web page of
+the episode or the show, and a link written as a bare domain, as many
+feeds do, gets `https://`. To do it your own way, give `:notes-url` a
+function of the page and the URL, which gives the URL to keep or nil.
+
 For the shows that a show recommends in its podroll, and the feed of its
 publisher, merge in `library/fetch-linked-shows!`. It reads each show of
 the podroll from the start of its feed, most often the first 64 KB, or

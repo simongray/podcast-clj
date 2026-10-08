@@ -46,6 +46,19 @@
     (testing "the show notes as Hiccup and as text"
       (is (= '([:p {} "A look into the future of podcasting and how we get to Podcasting 2.0!"]) (:notes v)))
       (is (= "A look into the future of podcasting and how we get to Podcasting 2.0!" (:text v))))
+    (testing "the links of the show notes, which a listener can follow"
+      (let [linked (assoc item
+                          :rss/link "https://show.example/ep/3"
+                          :rss/description (str "<a href=\"/more\">more</a> "
+                                                "<a href=\"nytimes.com/x\">news</a>"))]
+        (is (= '([:a {:href "https://show.example/more"} "more"] " "
+                 [:a {:href "https://nytimes.com/x"} "news"])
+               (:notes (episode/view show linked))))
+        (is (= '([:a {} "more"] " " [:a {:href "https://nytimes.com/x"} "news"])
+               (:notes (episode/view show linked
+                                     {:notes-url #(when (re-find #"^nytimes" %2)
+                                                    (str "https://" %2))})))
+            "by a function of the app")))
     (testing "the enclosure and the transcript, as the options select them"
       (is (= "https://example.com/file-03.mp3" (:url (:enclosure v))))
       (is (= "https://example.com/file-low-03.opus"
