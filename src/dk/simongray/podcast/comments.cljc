@@ -55,13 +55,13 @@
   through the Mastodon API has :via :mastodon-api. The keys in this
   namespace, such as ::collection, record how far the reading went."
   (:require [clojure.string :as str]
+            [dk.simongray.html :as html]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
             [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]

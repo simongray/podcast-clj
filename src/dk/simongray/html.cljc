@@ -1,19 +1,27 @@
-(ns dk.simongray.podcast.format.html
-  "The HTML that feeds embed in descriptions and show notes, read into
-  Hiccup and rendered from there.
+(ns dk.simongray.html
+  "HTML embedded in other content, such as show notes, comments or the
+  fields of a CMS, read into Hiccup and rendered from there.
 
   A parse gives a sequence of nodes. An element is a vector of a keyword
   tag, a map of keyword attributes and its children, and text is a string.
-  For a description that a client can render, use the hiccup function. It
-  parses and sanitizes HTML, and makes paragraphs of plain text. The text
-  and markdown functions render HTML or Hiccup as text, and emit writes
-  Hiccup back as HTML."
+  For HTML that a client can render, use the hiccup function. It parses
+  and sanitizes HTML, and makes paragraphs of plain text. The text and
+  markdown functions render HTML or Hiccup as text, and emit writes Hiccup
+  back as HTML.
+
+  The tokens are those of the HTML Standard, by dk.simongray.html.tokenizer,
+  and the tree follows the rules of the standard that such content needs.
+  It's no parser of whole documents.
+
+  TODO: the rules of the tree builder that a browser follows and this
+  leaves out, by an option or a namespace of their own: formatting that a
+  browser carries on past a misnested end tag, the repairs of tables, and
+  SVG and MathML."
   (:require [clojure.string :as str]
-            [dk.simongray.html.tokenizer :as tokenizer]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.html.tokenizer :as tokenizer]))
 
 (def ^:no-doc markup
-  "What makes a description HTML rather than plain text: a comment or a
+  "What makes a text HTML rather than plain text: a comment or a
   whole tag. Plain text may hold an email address in angle brackets, or a
   less-than sign before a 3, and neither is a tag."
   #"<!--|<[a-zA-Z][a-zA-Z0-9]*(?:\s[^<>]*)?/?>|</[a-zA-Z][a-zA-Z0-9]*\s*>")
@@ -202,7 +210,7 @@
   "The HTML fragment `s` as a sequence of Hiccup nodes.
 
   The tokens are those of the HTML Standard, by dk.simongray.html.tokenizer,
-  and the tree follows the rules of the standard that show notes need:
+  and the tree follows the rules of the standard that embedded HTML needs:
 
   - unclosed paragraphs, list items, table cells, headings and links
     close where HTML says they do
@@ -336,11 +344,18 @@
                      :else         kids))))]
        (apply list (mapcat node nodes))))))
 
+(defn- decoded
+  "The text `s` with its character references decoded and every other
+  character kept, as HTML reads the text of a title: the RCDATA state of
+  13.2.5.2 of the HTML Standard."
+  [s]
+  (apply str (tokenizer/tokens s {:state :rcdata})))
+
 (defn- paragraphs
   "The plain text `s` as paragraphs, with blank lines between them and line
   breaks within."
   [s]
-  (let [text (str/trim (xml/decode-entities s))]
+  (let [text (str/trim (decoded s))]
     (apply list (for [paragraph (str/split text #"\n\s*\n")
                       :let  [lines (->> (str/split-lines paragraph)
                                         (map str/trim)
@@ -349,7 +364,7 @@
                   (into [:p {}] (interpose [:br {}] lines))))))
 
 (defn hiccup
-  "The Hiccup that a client can render for the description `s`, as a
+  "The Hiccup that a client can render for the HTML or plain text `s`, as a
   sequence of nodes to put inside a parent element. HTML is parsed and
   sanitized, and plain text becomes paragraphs with line breaks."
   [s]

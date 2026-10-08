@@ -16,9 +16,9 @@
   Mastodon API of its server for the thread. Many servers answer this API,
   which speaks only for its own server too."
   (:require [clojure.string :as str]
+            [dk.simongray.html :as html]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
-            [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]))

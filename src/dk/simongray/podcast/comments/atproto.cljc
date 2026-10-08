@@ -16,9 +16,9 @@
   parts of its at URI, from which you can build a link to the web app of
   your choice."
   (:require [clojure.string :as str]
+            [dk.simongray.html :as html]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
-            [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]

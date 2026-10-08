@@ -6,8 +6,8 @@
   - the posts that a thread withholds
   - the order of the requests by the depth of their posts"
   (:require [clojure.string :as str]
+            [dk.simongray.html :as html]
             [dk.simongray.podcast.comments :as-alias comments]
-            [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.url :as url]))

@@ -1275,6 +1275,7 @@ that changed its requirements takes them as `:requirements`, e.g.
 ```clojure
 (ns my.app
   (:require [dk.simongray.crdt :as crdt]
+            [dk.simongray.html :as html]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics :as analytics]
             [dk.simongray.podcast.analytics.op3 :as op3]
@@ -1298,7 +1299,6 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.search :as feed.search]
             [dk.simongray.podcast.format.chapters :as chapters]
-            [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.store :as store]

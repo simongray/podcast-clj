@@ -19,13 +19,13 @@
   they were found, as found-by orders the places. Each feed comes once,
   however many places name it."
   (:require [clojure.string :as str]
+            [dk.simongray.html :as html]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory :as directory]
             [dk.simongray.podcast.directory.links :as links]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.feed.rss :as rss]
-            [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]

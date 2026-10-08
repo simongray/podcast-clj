@@ -12,9 +12,9 @@
   An index of many feeds changes one feed at a time with with-feed and
   without-feed, and located gives each result its feed and item."
   (:require [clojure.string :as str]
+            [dk.simongray.html :as html]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.format.transcript :as transcript]
             [dk.simongray.search :as search]))
 

@@ -17,7 +17,7 @@
   What it had to forgive is in the report, which the report function reads
   from the metadata."
   (:require [clojure.string :as str]
-            [dk.simongray.podcast.format.html :as html]
+            [dk.simongray.html :as html]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]))
 

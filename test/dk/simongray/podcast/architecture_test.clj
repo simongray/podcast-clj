@@ -31,7 +31,7 @@
   {"dk.simongray.crdt" -1 "dk.simongray.crdt.list" -1 "dk.simongray.crdt.rank" -1
    "dk.simongray.search" -1 "dk.simongray.search.analysis" -1 "dk.simongray.search.queries" -1
    "dk.simongray.search.ciff" -1 "dk.simongray.search.segment" -1
-   "dk.simongray.html.entities" -1 "dk.simongray.html.tokenizer" -1
+   "dk.simongray.html" -1 "dk.simongray.html.entities" -1 "dk.simongray.html.tokenizer" -1
    "diagnostics" 0 "feed.guid" 0 "nostr" 0
    "util.async" 0 "util.bech32" 0 "util.bytes" 0 "util.bytes.view" 0 "util.http" 0 "util.url" 0 "util.json" 0
    "util.proxy" 0 "util.secret" 0
@@ -43,7 +43,7 @@
    "feed.spec" 1 "feed.quirks" 1
    "feed" 2 "feed.rss" 2 "feed.coerce" 2 "feed.validate" 2 "feed.schema" 2
    "feed.resolve" 3 "feed.check" 3 "feed.discovery" 3 "feed.publish" 3 "feed.search" 3
-   "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.html" 3 "format.image" 3
+   "format.chapters" 3 "format.transcript" 3 "format.opml" 3 "format.image" 3
    "format.integrity" 3
    "format.media" 3 "format.media.id3" 3 "format.media.mp3" 3 "format.media.mp4" 3
    "value" 3 "value.bolt11" 3 "value.lnaddress" 3 "value.metadata" 3 "value.nwc" 3
@@ -122,7 +122,7 @@
   (testing "the registry is data with no interpreter in sight"
     (is (= #{} (get @graph "feed.spec"))))
   (testing "the companion formats stand on the primitives, the libraries and each other alone"
-    (doseq [ns ["format.chapters" "format.transcript" "format.opml" "format.html" "format.image"
+    (doseq [ns ["format.chapters" "format.transcript" "format.opml" "format.image"
                 "format.media" "format.media.id3" "format.media.mp3" "format.media.mp4"
                 "format.integrity" "value" "value.payment" "value.bolt11"]]
       (is (every? #(or (<= (get layers %) 0)

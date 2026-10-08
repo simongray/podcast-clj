@@ -1,11 +1,13 @@
 (ns dk.simongray.podcast.corpus-test
   "Every feed in dev-resources/corpus parses, round-trips and validates
-  without an exception, and every companion file below it parses into
+  without an exception, the descriptions of its items render as Hiccup,
+  text and Markdown, and every companion file below it parses into
   something. The corpus is not in git; see dev/corpus.clj. When it is absent
   the tests pass vacuously."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.html :as html]
             [dk.simongray.podcast.app.feeds-test :refer [same-for-slim?]]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.validate :as validate]
@@ -20,6 +22,17 @@
       (is (every? map? (:rss/items feed)))
       (is (= feed (rss/parse (rss/emit feed))) "lossless round trip")
       (is (vector? (validate/validate feed {:requirements :psp-1}))))))
+
+(deftest descriptions-in-the-corpus-render
+  (doseq [{:keys [name feed]} @corpus-feeds
+          item  (take 20 (:rss/items feed))
+          k     [:rss/description :content/encoded :itunes/summary]
+          :let  [s (get item k)]
+          :when (and (string? s) (re-find #"\w" s))]
+    (let [nodes (html/hiccup s)]
+      (is (seq? nodes) name)
+      (is (re-find #"\w" (html/text nodes)) (str name " " k))
+      (is (string? (html/markdown nodes))))))
 
 (deftest every-corpus-feed-slim
   (doseq [{:keys [name feed]} @corpus-feeds]

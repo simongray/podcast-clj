@@ -1,10 +1,8 @@
-(ns dk.simongray.podcast.format.html-test
+(ns dk.simongray.html-test
   "Embedded HTML as Hiccup, sanitized, and rendered as text and Markdown."
-  (:require #?(:cljs [dk.simongray.podcast.test-setup])
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.podcast.format.html :as html]
-            #?(:clj [dk.simongray.podcast.test-support :refer [corpus-feeds]])))
+            [dk.simongray.html :as html]))
 
 (deftest parsing-the-way-a-browser-does
   (testing "elements, attributes and entities"
@@ -142,16 +140,3 @@
     (let [nodes (html/sanitize (html/parse "<p>Hi <a href=\"https://x/\">there</a><br>you</p><ul><li>one</li></ul>"))]
       (is (= nodes (html/parse (html/emit nodes))))))
   (is (= "<p>x</p>" (html/emit [:p "x"])) "hiccup without an attribute map"))
-
-#?(:clj
-   (deftest descriptions-in-the-corpus-render
-     (testing "every description of every corpus feed, when the corpus is there"
-       (doseq [{:keys [name feed]} @corpus-feeds
-               item (take 20 (:rss/items feed))
-               k    [:rss/description :content/encoded :itunes/summary]
-               :let [s (get item k)]
-               :when (and (string? s) (re-find #"\w" s))]
-         (let [nodes (html/hiccup s)]
-           (is (seq? nodes) name)
-           (is (re-find #"\w" (html/text nodes)) (str name " " k))
-           (is (string? (html/markdown nodes))))))))

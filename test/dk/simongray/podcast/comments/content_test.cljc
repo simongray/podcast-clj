@@ -6,12 +6,12 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.html :as html]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
             [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.comments.nostr :as nostr-comments]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
-            [dk.simongray.podcast.format.html :as html]
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.test-support :refer [fixture run secret-key signed]]
             [dk.simongray.podcast.util.async :as async]
