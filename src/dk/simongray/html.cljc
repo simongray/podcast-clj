@@ -118,9 +118,12 @@
   to its parent, so no walk of the tree recurses without bound."
   512)
 
-;; The parse state is `{:stack [...] :open {...}}`: the open elements, the
-;; root first, and how many are open by tag, so that an end tag nothing
-;; matches costs nothing to ignore. Tags are the keywords of Hiccup.
+;; The parse builds the tree in a builder, a transient map of :stack, the
+;; open elements, the root first, each a transient vector [tag attrs &
+;; children], and :open, how many are open by tag, so that an end tag
+;; nothing matches costs nothing to ignore. Each function of the builder
+;; takes it and gives it back, through the values that assoc!, conj! and
+;; pop! return. Tags are the keywords of Hiccup.
 
 (defn ^:no-doc merge-text
   "The element `node` with each run of adjacent strings among its children
@@ -138,122 +141,136 @@
           node)
     node))
 
-(defn- counted
-  "The counts `open` of the open elements by tag, with the count of `tag`
-  changed by `f`."
-  [open tag f]
-  (assoc open tag (f (get open tag 0))))
+(defn- top
+  "The stack index of the top element of the builder `b`."
+  [b]
+  (dec (count (:stack b))))
+
+(defn- tag-at
+  "The tag of the open element at the stack index `i` of the builder `b`."
+  [b i]
+  (nth (nth (:stack b) i) 0))
 
 (defn- open?
-  "Whether an element of one of `tags` is open in the parse `state`."
-  [{:keys [open] :as state} tags]
-  (some #(pos? (get open % 0)) tags))
+  "Whether an element of one of `tags` is open in the builder `b`."
+  [b tags]
+  (let [open (:open b)]
+    (some #(pos? (get open % 0)) tags)))
 
-(defn- append
-  "The parse `state` with `child` appended to its top element."
-  [state child]
-  (update state :stack #(conj (pop %) (conj (peek %) child))))
+(defn- update-count!
+  "The builder `b` with the count of the open elements of `tag` changed by
+  `f`."
+  [b tag f]
+  (let [open (:open b)]
+    (assoc! b :open (assoc! open tag (f (get open tag 0))))))
 
-(defn- push
-  "The parse `state` with the element `node` opened on top."
-  [state node]
-  (-> state
-      (update :stack conj node)
-      (update :open counted (first node) inc)))
+(defn- append!
+  "The builder `b` with `child` appended to its top element."
+  [b child]
+  (let [stack (:stack b)
+        i     (top b)]
+    (assoc! b :stack (assoc! stack i (conj! (nth stack i) child)))))
 
-(defn- close-top
-  "The parse `state` with its top element closed into its parent. The text
-  of the element is joined here, once, rather than on every token."
-  [{:keys [stack] :as state}]
-  (let [top (peek stack)]
-    (-> state
-        (assoc :stack (pop stack))
-        (update :open counted (first top) dec)
-        (append (merge-text top)))))
+(defn- push!
+  "The builder `b` with an element of `tag` and `attrs` opened on top."
+  [b tag attrs]
+  (-> b
+      (assoc! :stack (conj! (:stack b) (transient [tag attrs])))
+      (update-count! tag inc)))
+
+(defn- close-top!
+  "The builder `b` with its top element closed into its parent. The text of
+  the element is joined here, once, rather than on every token."
+  [b]
+  (let [stack (:stack b)
+        node  (persistent! (nth stack (top b)))]
+    (-> b
+        (assoc! :stack (pop! stack))
+        (update-count! (nth node 0) dec)
+        (append! (merge-text node)))))
 
 (defn ^:no-doc open-index
-  "The stack index of the nearest open element of the parse `state` whose
+  "The stack index of the nearest open element of the builder `b` whose
   tag is in `tags`, or nil. The search goes down from the top and gives up
   at one of `boundaries`."
-  [{:keys [stack] :as state} tags boundaries]
-  (when (open? state tags)
-    (loop [i (dec (count stack))]
+  [b tags boundaries]
+  (when (open? b tags)
+    (loop [i (top b)]
       (when (pos? i)
-        (let [tag (first (nth stack i))]
+        (let [tag (tag-at b i)]
           (cond
             (tags tag)       i
             (boundaries tag) nil
             :else            (recur (dec i))))))))
 
-(defn- close-through
-  "The parse `state` with the open elements closed from the top down to the
+(defn- close-through!
+  "The builder `b` with the open elements closed from the top down to the
   nearest one whose tag is in `tags`, that one included. Nothing closes
   when one of `boundaries` comes first or none of `tags` is open."
-  [state tags boundaries]
-  (if-let [i (open-index state tags boundaries)]
-    (loop [state state k (- (count (:stack state)) i)]
+  [b tags boundaries]
+  (if-let [i (open-index b tags boundaries)]
+    (loop [b b k (- (count (:stack b)) i)]
       (if (zero? k)
-        state
-        (recur (close-top state) (dec k))))
-    state))
+        b
+        (recur (close-top! b) (dec k))))
+    b))
 
-(defn- open-element
-  "The parse `state` with the element `tag` and its `attrs` opened, or
+(defn- open-element!
+  "The builder `b` with the element `tag` and its `attrs` opened, or
   appended when it's void, `self-closing?` in SVG or MathML, or past
   max-depth. The elements that its start tag implies an end for are
   closed first."
-  [state tag attrs self-closing?]
-  (let [state (if (and (block-elements tag) (open-index state #{:p} paragraph-scope))
-                (close-through state #{:p} #{})
-                state)
-        state (if-let [[tags boundaries] (implied-end tag)]
-                (close-through state tags boundaries)
-                state)
-        state (if (and (headings tag)
-                       (headings (first (peek (:stack state)))))
-                (close-top state)
-                state)
-        node  [tag attrs]]
+  [b tag attrs self-closing?]
+  (let [b (if (and (block-elements tag) (open-index b #{:p} paragraph-scope))
+            (close-through! b #{:p} #{})
+            b)
+        b (if-let [[tags boundaries] (implied-end tag)]
+            (close-through! b tags boundaries)
+            b)
+        b (if (and (headings tag) (headings (tag-at b (top b))))
+            (close-top! b)
+            b)]
     (if (or (void-elements tag)
-            (and self-closing? (or (foreign-roots tag) (open? state foreign-roots)))
-            (> (count (:stack state)) max-depth))
-      (append state node)
-      (push state node))))
+            (and self-closing? (or (foreign-roots tag) (open? b foreign-roots)))
+            (> (count (:stack b)) max-depth))
+      (append! b [tag attrs])
+      (push! b tag attrs))))
 
 (def ^:no-doc nul-text
   "U+0000 NULL as a text, which the tree builder drops from text."
   (str tokenizer/nul))
 
-(defn- step
-  "The parse `state` after the `token` of dk.simongray.html.tokenizer, as a
+(defn- step!
+  "The builder `b` after the `token` of dk.simongray.html.tokenizer, as a
   few of the rules of 13.2.6.4.7 of the HTML Standard build the tree."
-  [{:keys [drop-newline?] :as state} token]
-  (let [state (cond-> state
-                drop-newline? (dissoc :drop-newline?))]
+  [b token]
+  (let [drop-newline? (:drop-newline? b)
+        b             (cond-> b
+                        drop-newline? (dissoc! :drop-newline?))]
     (cond
       (string? token)
       (let [text (cond-> token
                    (str/includes? token nul-text) (str/replace nul-text ""))
             text (cond-> text
                    (and drop-newline? (str/starts-with? text "\n")) (subs 1))]
-        (cond-> state
-          (seq text) (append text)))
+        (cond-> b
+          (seq text) (append! text)))
 
       (= :start-tag (:type token))
       (let [{:keys [name attrs self-closing?]} token
             tag                                (keyword name)]
-        (cond-> (open-element state tag (update-keys attrs keyword) self-closing?)
-          (newline-dropping tag) (assoc :drop-newline? true)))
+        (cond-> (open-element! b tag (update-keys attrs keyword) self-closing?)
+          (newline-dropping tag) (assoc! :drop-newline? true)))
 
       ;; an end tag br is a line break
       (= :end-tag (:type token))
       (let [tag (keyword (:name token))]
         (if (= :br tag)
-          (open-element state :br {} false)
-          (close-through state #{tag} #{})))
+          (open-element! b :br {} false)
+          (close-through! b #{tag} #{})))
 
       :else
-      state)))
+      b)))
 
 (defn parse
   "The HTML fragment `s` as a sequence of Hiccup nodes.
@@ -276,10 +293,12 @@
   Hiccup renderers take a sequence as a fragment, so the result can go
   straight into a parent element."
   [s]
-  (loop [state (reduce step {:stack [[:root {}]] :open {}} (tokenizer/tokens s))]
-    (if (= 1 (count (:stack state)))
-      (apply list (drop 2 (merge-text (peek (:stack state)))))
-      (recur (close-top state)))))
+  (let [builder (transient {:stack (transient [(transient [:root {}])])
+                            :open  (transient {})})]
+    (loop [b (reduce step! builder (tokenizer/tokens s))]
+      (if (= 1 (count (:stack b)))
+        (apply list (drop 2 (merge-text (persistent! (nth (:stack b) 0)))))
+        (recur (close-top! b))))))
 
 (defn ^:no-doc scheme
   "The scheme of the URL `s` in lower case, or nil for a relative URL.
