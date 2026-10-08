@@ -372,7 +372,7 @@
                    (pieces x)
 
                    (vector? x)
-                   (let [[tag attrs kids] (html/parts x)
+                   (let [[tag attrs & kids] x
                          label (label-of kids)
                          url   (link-url base (:href attrs))]
                      (case tag
