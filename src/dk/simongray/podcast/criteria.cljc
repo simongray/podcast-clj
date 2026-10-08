@@ -8,7 +8,7 @@
       (episodes feed {:where {:season 2 :type \"full\" :duration [600 nil]}
                       :order :newest})"
   (:require [clojure.string :as str]
-            [dk.simongray.html :as html]
+            [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.profile :as profile]

@@ -25,11 +25,12 @@ The `app` namespaces are built from all the others, and nothing outside
 [Architecture](architecture.md#layers) explains the rule, which a test
 checks.
 
-Beside podcast-clj are three libraries with roots of their own: a
-full-text search engine in `dk.simongray.search`, a CRDT in
-`dk.simongray.crdt`, and HTML embedded in other content, read into Hiccup
-or text, in `dk.simongray.html`. They require nothing of podcast-clj, so
-they can be used on their own, and the last table lists them.
+Beside podcast-clj are two libraries with roots of their own: a full-text
+search engine in `dk.simongray.search` and a CRDT in `dk.simongray.crdt`.
+They require nothing of podcast-clj, so they can be used on their own, and
+the last table lists them. The HTML in show notes and comments is read by
+[html-pieces](https://github.com/simongray/html-pieces), a library in a
+repository of its own.
 
 The tables follow the same order. Names in them are relative to the root,
 except in the last table, and everything runs on the JVM and in
@@ -197,6 +198,3 @@ option replaces the function that sends.
 | `dk.simongray.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The profile of podcast-clj is one. |
 | `dk.simongray.crdt.list` | Ordered collections in such a state, e.g. a queue: `append`, `ranked`, `rank-at` for a move and `with-moves`, so that a move never brings back what another device removed. |
 | `dk.simongray.crdt.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |
-| `dk.simongray.html` | HTML embedded in other content, such as show notes and comments, as Hiccup: `parse`, `sanitize`, `hiccup`, `text`, `markdown` and `emit`. |
-| `dk.simongray.html.tokenizer` | The tokens of HTML by the tokenizer of the HTML Standard, with `tokens`. Apps don't call it. |
-| `dk.simongray.html.entities` | The named character references of HTML 4.01 by the table of the HTML Standard, as `references`. Apps don't call it. |

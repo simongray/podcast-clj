@@ -14,15 +14,9 @@ Most tests are `.cljc` files, and they run on the JVM and in ClojureScript.
 The corpus tests read real feeds from `dev-resources/corpus/` (not checked in
 to Git). To download the corpus, run `(corpus/download!)` from `dev/corpus.clj`.
 
-The HTML tokenizer runs the tokenizer tests of
-[html5lib-tests](https://github.com/html5lib/html5lib-tests) when they're in
-`dev-resources/html5lib-tests/` (not checked in to Git either). To get the
-version that the tokenizer passes:
-
-```bash
-git clone https://github.com/html5lib/html5lib-tests dev-resources/html5lib-tests
-git -C dev-resources/html5lib-tests checkout c777c408b61078ea2eb4acefc2535f54dbc8b28a
-```
+Until [html-pieces](https://github.com/simongray/html-pieces) is on GitHub,
+you need a checkout of it beside this one, in `../html-pieces`, since
+deps.edn points there.
 
 
 ## The inspector

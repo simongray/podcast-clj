@@ -3,7 +3,7 @@
   Rendered to strings by Replicant in the service namespace."
   (:require [clojure.pprint :as pprint]
             [clojure.string :as str]
-            [dk.simongray.html :as html]
+            [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.atproto :as atproto]

@@ -25,7 +25,7 @@
   options, or relays. Each relay gets the same questions, and an event
   that two relays give is one comment."
   (:require [clojure.string :as str]
-            [dk.simongray.html :as html]
+            [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments :as-alias comments]
             [dk.simongray.podcast.comments.common :as common]
             [dk.simongray.podcast.feed.guid :as guid]

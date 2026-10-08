@@ -7,7 +7,7 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.html :as html]
+            [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.app.feeds-test :refer [same-for-slim?]]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.validate :as validate]

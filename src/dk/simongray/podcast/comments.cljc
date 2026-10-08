@@ -55,7 +55,7 @@
   through the Mastodon API has :via :mastodon-api. The keys in this
   namespace, such as ::collection, record how far the reading went."
   (:require [clojure.string :as str]
-            [dk.simongray.html :as html]
+            [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
             [dk.simongray.podcast.comments.atproto :as atproto]
             [dk.simongray.podcast.comments.common :as common]

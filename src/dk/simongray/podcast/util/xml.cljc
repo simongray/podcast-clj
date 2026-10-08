@@ -15,7 +15,7 @@
   the decoding of character and entity references are here too, for the
   rest of podcast-clj."
   (:require [clojure.string :as str]
-            [dk.simongray.html.entities :as entities])
+            [dk.simongray.html-pieces.entities :as entities])
   #?(:clj (:import [java.io InputStream Reader StringReader]
                    [javax.xml.stream XMLInputFactory XMLStreamConstants
                                      XMLStreamException XMLStreamReader])))

@@ -3,7 +3,7 @@
 
   Use view for what the feed says about the show, and merge in
   fetch-linked-shows! for the shows that it links to."
-  (:require [dk.simongray.html :as html]
+  (:require [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory.links :as links]

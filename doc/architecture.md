@@ -174,13 +174,10 @@ keeps the list and the source in sync.
 - **OPML** carries the profile in the parts of OPML 2.0 that already
   fit it: tags as categories, the time of subscription as `created`, and
   followed lists as includes. Other apps read the rest as they always did.
-- **HTML** in show notes and comments is read by `dk.simongray.html`, a
-  library of its own with no dependency, so the JVM and JavaScript agree.
-  Its tokenizer follows the HTML Standard, so text reads as a browser reads
-  it, but its tree builder has only the rules that embedded HTML needs. Of
-  the named character references, it knows those of HTML 4.01, which is
-  all that real feeds use, and not the larger set from MathML. `sanitize`
-  keeps what an app can render safely. The result is Hiccup, since a
+- **HTML** in show notes and comments is read by
+  [html-pieces](https://github.com/simongray/html-pieces), a library of its
+  own. Its tokenizer follows the HTML Standard, so text reads as a browser
+  reads it, and the JVM and JavaScript agree. The result is Hiccup, since a
   Clojure app gives Hiccup straight to its renderer.
 - **Media files and images** are read without I/O. A reader works on the
   parts of a file that have arrived, and when it needs more, it throws the

@@ -6,7 +6,7 @@
   and fetch-remote-values! for the value blocks that its time splits
   point at."
   (:require [clojure.string :as str]
-            [dk.simongray.html :as html]
+            [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.directory.links :as links]

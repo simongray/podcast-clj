@@ -12,7 +12,7 @@
                       [clojure.test.check.properties :as prop]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.html :as html]
+            [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments :as comments]
             [dk.simongray.podcast.comments.activitypub :as activitypub]
             [dk.simongray.podcast.comments.atproto :as atproto]
