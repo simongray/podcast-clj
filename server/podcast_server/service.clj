@@ -40,7 +40,8 @@
             [io.pedestal.service.interceptors :as interceptors]
             [io.pedestal.service.resources :as resources]
             [podcast-server.device :as device])
-  (:import [java.security MessageDigest])
+  (:import [java.security MessageDigest]
+           [java.util.concurrent Executors])
   (:gen-class))
 
 (def defaults
@@ -282,8 +283,13 @@
 
 (defn -main
   "Start the server with the settings of the environment, and keep the
-  process alive."
+  process alive.
+
+  Every future of the process runs on a virtual thread, so the requests
+  that podcast-clj makes at the same time hold no platform threads while
+  they wait."
   [& _]
+  (set-agent-send-off-executor! (Executors/newVirtualThreadPerTaskExecutor))
   (start! (settings (System/getenv)))
   @(promise))
 

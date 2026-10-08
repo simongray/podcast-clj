@@ -616,6 +616,22 @@ would carry on. So requests that should run at the same time go through
 `async/all` with a function, which starts each call on a future of its
 own before it waits for any of them.
 
+The JVM functions give values rather than CompletableFutures, so you need
+no deref, and a failed call throws its ex-info rather than an
+ExecutionException around it. The cost is a thread for each request that
+waits, which only matters for a server with many listeners. On Java 21 or
+later, you can make them virtual threads, since `util.async` runs each
+call on `clojure.core/future`:
+
+```clojure
+(set-agent-send-off-executor!
+  (java.util.concurrent.Executors/newVirtualThreadPerTaskExecutor))
+```
+
+This changes the executor of every `future` and `send-off` in the program,
+which is why podcast-clj leaves it to you. The
+[podcast server](../server/README.md) does it when it starts.
+
 
 ## The inspector
 

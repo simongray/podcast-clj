@@ -18,8 +18,8 @@ reach it only through a private network, e.g. your tailnet.
 While you build a client
 ------------------------
 
-Start the server from the root of the repository, with the folder that
-your client's build writes to:
+Start the server on Java 21 or later from the root of the repository, with
+the folder that your client's build writes to:
 
 ```bash
 PODCAST_SERVER_CLIENT=../my-client/public clojure -M:server
