@@ -147,32 +147,38 @@
   [tag]
   #(and (vector? %) (= tag (first %))))
 
+(defn- text-of
+  "The text `s` when it holds more than ASCII whitespace, or else nil."
+  [s]
+  (when (and (string? s) (re-find #"[^\t\n\f\r ]" s))
+    s))
+
 (defn- page-base
   "The URL that the links of a page with the `nodes` are relative to, for a
   page at `url`, which can be nil. It's the href of the first base element
   that has one, when that gives an http or https URL, or else `url`."
   [nodes url]
   (let [bases (filter (tagged :base) nodes)
-        href  (some (comp html/text-of :href second) bases)
+        href  (some (comp text-of :href second) bases)
         base  (when href
                 (if url (url/absolute-url url href) href))]
-    (if (#{"http" "https"} (html/scheme base)) base url)))
+    (if (#{"http" "https"} (url/scheme base)) base url)))
 
 (defn- feed-link
   "The feed that a link with the attributes `attrs` names, made absolute
   against `base` when there is one, or nil when the link names no feed."
   [{:keys [rel type href title] :as attrs} base]
   (let [rels    (set (str/split (str/lower-case (str rel)) #"\s+"))
-        type    (http/media-type (html/text-of type))
-        href    (when-let [h (html/text-of href)]
+        type    (http/media-type (text-of type))
+        href    (when-let [h (text-of href)]
                   (if base (url/absolute-url base h) h))
         schemes (if base #{"http" "https"} #{nil "http" "https"})]
     (when (and (or (rels "alternate") (rels "feed"))
                (#{"application/rss+xml" "application/atom+xml"} type)
                href
-               (contains? schemes (html/scheme href)))
+               (contains? schemes (url/scheme href)))
       (cond-> {:href href :type type}
-        (html/text-of title) (assoc :title title)))))
+        (text-of title) (assoc :title title)))))
 
 ;; RSS Autodiscovery, section 3, and the HTML standard, section 4.6.8.1
 (defn feed-links
@@ -217,11 +223,11 @@
         feed-word #"(?i)\b(?:rss|feeds?|atom|xml)\b"
         urls      (into []
                         (comp (filter (tagged :a))
-                              (keep (comp html/text-of :href second))
+                              (keep (comp text-of :href second))
                               (keep #(some-> (url/absolute-url base %)
                                              (str/split #"#" 2)
                                              first))
-                              (filter (comp #{"http" "https"} html/scheme))
+                              (filter (comp #{"http" "https"} url/scheme))
                               (remove #{base})
                               (filter #(re-find feed-word %))
                               (distinct))
@@ -278,10 +284,10 @@
                   (some (fn [[_ attrs]]
                           (let [p (str/lower-case (str (:property attrs)))]
                             (when (= property p)
-                              (some-> (html/text-of (:content attrs))
+                              (some-> (text-of (:content attrs))
                                       str/trim))))
                         metas))
-        inner   #(html/text-of (apply str (filter string? (drop 2 %))))
+        inner   #(text-of (apply str (filter string? (drop 2 %))))
         title   (or (meta-of "og:title")
                     (some inner (filter (tagged :title) nodes)))
         named   (meta-of "og:site_name")

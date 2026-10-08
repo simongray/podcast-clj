@@ -1,7 +1,7 @@
 (ns dk.simongray.podcast.util.url-test
   "URLs and their hosts: URLs made absolute as a browser does it, made
-  legal on the JVM, the parameters of a query, and the hosts of the public
-  internet."
+  legal on the JVM, their schemes, the parameters of a query, and the
+  hosts of the public internet."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.podcast.util.url :as url]))
@@ -57,6 +57,10 @@
   (is (every? url/web-url? ["https://a.example/feed.xml" "HTTP://a.example" "https://user:pass@a.example/x"]))
   (is (not-any? url/web-url? ["https://" "ftp://a.example/x" "a.example/x" " https://a.example/" "" nil 5
                               "javascript:alert(1)"])))
+
+(deftest schemes-as-a-browser-reads-them
+  (is (= ["https" "javascript" "mailto" nil nil]
+         (map url/scheme ["HTTPS://a.example/" " java\tscript:alert(1)" "mailto:a@b.example" "/feed.xml" nil]))))
 
 (deftest parameters-of-a-query
   (is (= "https://a.example/feed.xml?page=2" (url/with-query "https://a.example/feed.xml" {:page 2})))

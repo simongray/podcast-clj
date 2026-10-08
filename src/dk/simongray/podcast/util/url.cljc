@@ -2,10 +2,10 @@
   "URLs, and the hosts that they name, the same way on both platforms.
 
   This covers percent-encoding and query strings, a URL made absolute
-  against the document that it's in, as a browser does it, and the origin
-  of a URL. It also tells whether the host of a URL is on the public
-  internet, which is what a request that a stranger chose must check.
-  The client that sends requests is dk.simongray.podcast.util.http."
+  against the document that it's in, as a browser does it, and the scheme
+  and the origin of a URL. It also tells whether the host of a URL is on
+  the public internet, which is what a request that a stranger chose must
+  check. The client that sends requests is dk.simongray.podcast.util.http."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.secret :as secret])
   #?(:clj (:import [java.net IDN InetAddress URI]
@@ -243,6 +243,17 @@
                (.-href (js/URL. (str url) (str base)))
                (catch :default _
                  nil)))))
+
+;; URL Standard, section 4.4, the basic URL parser
+(defn ^:no-doc scheme
+  "The scheme of the URL `s` in lower case, or nil for a relative URL. It's
+  read as a browser reads it: without the tabs and line breaks in it, and
+  without the spaces and control characters in front."
+  [s]
+  (let [s (-> (str s)
+              (str/replace #"[\t\n\r]" "")
+              (str/replace #"^[\x00-\x20]+" ""))]
+    (some-> (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*(?=:)" s) str/lower-case)))
 
 (def ^:no-doc default-ports
   "The port of each scheme of the web, for a URL that names none."
