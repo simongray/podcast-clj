@@ -88,7 +88,7 @@
 
 (defn ^:no-doc char-at
   "The character at `i` of the text `s` of length `n`, or nil at its end."
-  [s n i]
+  [s ^long n ^long i]
   (when (< i n)
     #?(:clj  (.charAt ^String s (int i))
        :cljs (.charAt s i))))
@@ -144,6 +144,28 @@
   [c]
   (or (whitespace? c) (identical? \/ c) (identical? \> c)))
 
+;; the predicates that end a run, made once rather than at each run
+
+(def ^:no-doc not-alpha?
+  "Whether a character isn't an ASCII alpha."
+  (complement alpha?))
+
+(def ^:no-doc not-alphanumeric?
+  "Whether a character isn't an ASCII alphanumeric."
+  (complement alphanumeric?))
+
+(def ^:no-doc not-digit?
+  "Whether a character isn't an ASCII digit."
+  (complement digit?))
+
+(def ^:no-doc not-hex-digit?
+  "Whether a character isn't an ASCII hex digit."
+  (complement hex-digit?))
+
+(def ^:no-doc not-whitespace?
+  "Whether a character isn't whitespace."
+  (complement whitespace?))
+
 (def ^:no-doc upper-pattern
   "An ASCII upper alpha, anywhere in a text."
   #?(:clj  #"[A-Z]"
@@ -179,18 +201,24 @@
 (defn ^:no-doc run-end
   "The index of the first character from `i` in the text `s` of length `n`
   that `stop?` is true for, or `n`."
-  [s n i stop?]
+  ^long [s ^long n ^long i stop?]
   (loop [j i]
     (if (and (< j n) (not (stop? (char-at s n j))))
       (recur (inc j))
       j)))
 
+(defn ^:no-doc skip-whitespace
+  "The index of the first character from `i` in the text `s` of length `n`
+  that isn't whitespace, or `n`."
+  ^long [s ^long n ^long i]
+  (run-end s n i not-whitespace?))
+
 (defn ^:no-doc index-of
   "The index of the first `x`, a string, from `i` in the text `s` of length
   `n`, or `n` when there's none."
   ^long [s ^long n x ^long i]
-  (let [k #?(:clj  (.indexOf ^String s ^String x (int i))
-             :cljs (.indexOf s x i))]
+  (let [k (long #?(:clj  (.indexOf ^String s ^String x (int i))
+                   :cljs (.indexOf s x i)))]
     (if (neg? k) n k)))
 
 (defn ^:no-doc starts-at?
@@ -233,6 +261,14 @@
              (when-not (= "" s)
                s))))
 
+(defn- with-text
+  "The transient vector of tokens `out`, with the text in the builder
+  `text` when it has any."
+  [out text]
+  (if-let [chars (take-text! text)]
+    (conj! out chars)
+    out))
+
 ;; 13.2.5.77 to 13.2.5.84, character references
 
 (defn- named-reference
@@ -240,7 +276,7 @@
   13.2.5.79, as [characters index], in an attribute value when
   `in-attribute?`."
   [s n i in-attribute?]
-  (let [end    (min (run-end s n i #(not (alphanumeric? %)))
+  (let [end    (min (run-end s n i not-alphanumeric?)
                     (+ i longest-name))
         run    (subs s i end)
         semi   (when (identical? \; (char-at s n end))
@@ -295,10 +331,9 @@
   [s n i]
   (let [hex?   (contains? #{\x \X} (char-at s n i))
         start  (if hex? (inc i) i)
-        digit  (if hex? hex-digit? digit?)
         first' (char-at s n start)]
-    (if (and first' (digit first'))
-      (let [end (run-end s n start #(not (digit %)))]
+    (if (and first' (if hex? (hex-digit? first') (digit? first')))
+      (let [end (run-end s n start (if hex? not-hex-digit? not-digit?))]
         [(referenced (code-of (subs s start end) (if hex? 16 10)))
          (if (identical? \; (char-at s n end)) (inc end) end)])
       ;; no digits: the ampersand, the number sign and the x stay text
@@ -322,8 +357,8 @@
 
 (defn ^:no-doc data-text
   "Read the data state, 13.2.5.1, from `i` onto the builder `text`, as
-  [index state]: up to a less-than sign, which leads to the tag open
-  state, or the end.
+  [index token state]: up to a less-than sign, after which the markup
+  state reads what it starts, or the end.
 
   The text runs to the next less-than sign or ampersand, which indexOf
   finds. Each index is kept until the reading passes it, so that a text
@@ -334,8 +369,8 @@
       (when (< i stop)
         (append! text (subs s i stop)))
       (cond
-        (= n stop)   [n :eof]
-        (= lt stop)  [(inc lt) :tag-open]
+        (= n stop)   [n nil :eof]
+        (= lt stop)  [(inc lt) nil :markup]
         :else        (let [[chars j] (character-reference s n (inc amp) false)]
                        (append! text chars)
                        (recur j
@@ -358,7 +393,7 @@
       [:text after "</"]
 
       :else
-      (let [end  (run-end s n after #(not (alpha? %)))
+      (let [end  (run-end s n after not-alpha?)
             name (lower-ascii (subs s after end))
             next (char-at s n end)]
         (if (and (= name last)
@@ -367,47 +402,46 @@
           [:end end name]
           [:text end (subs s i end)])))))
 
-(defn- raw-stop?
-  [c]
-  (or (identical? \< c) (identical? \& c) (identical? nul c)))
+(declare tag)
+
+(defn ^:no-doc end-tag
+  "Read the rest of the appropriate end tag `name`, whose name ends before
+  `i`, as [index token state]."
+  [s n i name]
+  (conj (tag s n i true name) :data))
 
 (defn ^:no-doc raw-text
   "Read the RCDATA state, 13.2.5.2, when `rcdata?`, or else the RAWTEXT
   state, 13.2.5.3, from `i` onto the builder `text`, with their less-than
-  sign and end tag states, 13.2.5.9 to 13.2.5.14, as [index state name]:
-  up to an appropriate end tag for `last`, as [index :end-tag name] at the
-  character after the name, or the end."
-  [s n i text rcdata? last]
-  (loop [i i]
-    (let [c (char-at s n i)]
+  sign and end tag states, 13.2.5.9 to 13.2.5.14, as [index token state]:
+  up to an appropriate end tag for `last`, or the end.
+
+  As in data-text, the less-than signs and, in RCDATA, the ampersands are
+  found by indexOf, each kept until the reading passes it."
+  [s n i text last rcdata?]
+  (loop [i i lt (index-of s n "<" i) amp (if rcdata? (index-of s n "&" i) n)]
+    (let [stop (min lt amp)]
+      (when (< i stop)
+        (append! text (without-nul (subs s i stop))))
       (cond
-        (nil? c)
-        [n :eof]
+        (= n stop)
+        [n nil :eof]
 
-        (and (identical? \& c) rcdata?)
-        (let [[chars j] (character-reference s n (inc i) false)]
-          (append! text chars)
-          (recur j))
-
-        (identical? \< c)
-        (let [[kind j x] (end-tag-at s n i last)]
+        (= lt stop)
+        (let [[kind j x] (end-tag-at s n lt last)]
           (if (= :end kind)
-            [j :end-tag x]
+            (end-tag s n j x)
             (do (append! text x)
-                (recur j))))
-
-        (identical? nul c)
-        (do (append! text replacement)
-            (recur (inc i)))
+                (recur j (index-of s n "<" j) amp))))
 
         :else
-        (let [j (run-end s n (inc i) raw-stop?)]
-          (append! text (subs s i j))
-          (recur j))))))
+        (let [[chars j] (character-reference s n (inc amp) false)]
+          (append! text chars)
+          (recur j (if (< lt j) (index-of s n "<" j) lt) (index-of s n "&" j)))))))
 
 (defn ^:no-doc script-text
   "Read the script data state, 13.2.5.4, from `i` onto the builder `text`,
-  as [index state name], like raw-text.
+  as [index token state], like raw-text.
 
   The states of escapes, 13.2.5.15 to 13.2.5.31, keep every character as
   text, so they only decide where a script ends: at the first appropriate
@@ -421,7 +455,7 @@
   - in a double escape, --> ends both escapes, and </script followed by a
     space, / or > ends the double one"
   [s n i text last]
-  (let [end-tag     (fn [k]
+  (let [closing     (fn [k]
                       (let [[kind j name] (end-tag-at s n k last)]
                         (when (= :end kind)
                           [j name])))
@@ -439,21 +473,21 @@
           :script
           (let [k (index-of s n "<" pos)]
             (cond
-              (= n k)                 (do (finish n) [n :eof])
+              (= n k)                 (do (finish n) [n nil :eof])
               (starts-at? s k "<!--") (recur (+ k 2) :escaped -1)
-              (end-tag k)             (let [[j name] (end-tag k)]
+              (closing k)             (let [[j name] (closing k)]
                                         (finish k)
-                                        [j :end-tag name])
+                                        (end-tag s n j name))
               :else                   (recur (inc k) mode arrow)))
 
           :escaped
           (let [k (index-of s n "<" pos)]
             (cond
               (< arrow k)        (recur (+ arrow 3) :script -1)
-              (= n k)            (do (finish n) [n :eof])
-              (end-tag k)        (let [[j name] (end-tag k)]
+              (= n k)            (do (finish n) [n nil :eof])
+              (closing k)        (let [[j name] (closing k)]
                                    (finish k)
-                                   [j :end-tag name])
+                                   (end-tag s n j name))
               (script-tag? k 1)  (recur (+ k 8) :double-escaped arrow)
               :else              (recur (inc k) mode arrow)))
 
@@ -461,136 +495,120 @@
           (let [k (index-of s n "</" pos)]
             (cond
               (< arrow k)        (recur (+ arrow 3) :script -1)
-              (= n k)            (do (finish n) [n :eof])
+              (= n k)            (do (finish n) [n nil :eof])
               (script-tag? k 2)  (recur (+ k 9) :escaped arrow)
               :else              (recur (inc k) mode arrow))))))))
 
 (defn ^:no-doc plain-text
   "Read the PLAINTEXT state, 13.2.5.5, from `i` to the end onto the
-  builder `text`."
+  builder `text`, as [index token state]."
   [s n i text]
   (append! text (without-nul (subs s i)))
-  [n :eof])
+  [n nil :eof])
 
 ;; 13.2.5.8 and 13.2.5.32 to 13.2.5.40, tags
 
-(defn- attribute-name-stop?
+(defn- attribute-name-end?
   [c]
-  (or (whitespace? c) (identical? \/ c) (identical? \> c) (identical? \= c)))
+  (or (tag-end? c) (identical? \= c)))
 
-(defn- with-attribute
-  "The `attrs` of a tag with the attribute `attr`, a pair of name and
-  value, unless it's nil or a duplicate, which the tokenizer drops."
-  [attrs [k v :as attr]]
-  (if (or (nil? attr) (contains? attrs k))
-    attrs
-    (assoc attrs k v)))
+(defn- unquoted-value-end?
+  [c]
+  (or (whitespace? c) (identical? \> c)))
+
+(defn ^:no-doc value-text
+  "The raw value `s` of an attribute with its character references
+  decoded, as in an attribute, and each NULL replaced. A reference ends
+  inside the value, so the value is decoded on its own."
+  [s]
+  (let [n (count s)]
+    (if (= n (index-of s n "&" 0))
+      (without-nul s)
+      (let [text (builder)]
+        (loop [i 0]
+          (let [amp (index-of s n "&" i)]
+            (append! text (subs s i amp))
+            (if (= n amp)
+              (without-nul (or (take-text! text) ""))
+              (let [[chars j] (character-reference s n (inc amp) true)]
+                (append! text chars)
+                (recur (long j))))))))))
+
+(defn ^:no-doc attribute
+  "Read the attribute whose name starts at `i`, as [index [name value]], or
+  nil when the end of the text cuts it off.
+
+  These are the states from the attribute name state, 13.2.5.33, to the
+  after attribute value state, 13.2.5.39. The name runs to whitespace, /,
+  > or =, though = can be its first character. Whitespace can come on
+  either side of the = before a value. A value in quotes runs to its
+  quote, and one without them to whitespace or >. Without a value, the
+  value is the empty string."
+  [s n i]
+  (let [name-end (run-end s n (if (identical? \= (char-at s n i)) (inc i) i)
+                          attribute-name-end?)
+        name     (tag-name (subs s i name-end))
+        j        (skip-whitespace s n name-end)]
+    (cond
+      (= n j)
+      nil
+
+      (not (identical? \= (char-at s n j)))
+      [j [name ""]]
+
+      :else
+      (let [k (skip-whitespace s n (inc j))
+            c (char-at s n k)]
+        (cond
+          (nil? c)
+          nil
+
+          (or (identical? \" c) (identical? \' c))
+          (let [end (index-of s n (str c) (inc k))]
+            (when (< end n)
+              [(inc end) [name (value-text (subs s (inc k) end))]]))
+
+          (identical? \> c)
+          [k [name ""]]
+
+          :else
+          (let [end (run-end s n k unquoted-value-end?)]
+            (when (< end n)
+              [end [name (value-text (subs s k end))]])))))))
+
+(defn- tag-token
+  [end? name attrs self-closing?]
+  (if end?
+    {:type :end-tag :name name}
+    {:type :start-tag :name name :attrs attrs :self-closing? self-closing?}))
 
 (defn ^:no-doc tag
   "Read the tag whose name starts at `i`, a start tag or, when `end?`, an
-  end tag, from the tag name state, 13.2.5.8, through the states of its
-  attributes, 13.2.5.32 to 13.2.5.40, as [index token]. The `name` is the
-  part of the name that a state of raw text read already, or nil. The
-  token is nil when the end of the text cuts the tag off."
+  end tag, as [index token]. The `name` is the part of the name that a
+  state of raw text read already, or nil. The token is nil when the end of
+  the text cuts the tag off.
+
+  These are the tag name state, 13.2.5.8, and the states of attributes,
+  13.2.5.32 to 13.2.5.40. Between attributes, whitespace is skipped, > ends
+  the tag, and so does /> with the self-closing flag, while a / before
+  anything else is dropped. An attribute that repeats a name is dropped."
   [s n i end? name]
-  (letfn [(token [name attrs self-closing?]
-            (if end?
-              {:type :end-tag :name name}
-              {:type :start-tag :name name :attrs attrs :self-closing? self-closing?}))]
-    (loop [i i st :tag-name name (or name "") attrs {} attr nil]
-      (let [c (char-at s n i)]
-        (if (nil? c)
-          [n nil]
-          (case st
-            :tag-name
-            (cond
-              (whitespace? c) (recur (inc i) :before-attribute-name name attrs attr)
-              (identical? \/ c)        (recur (inc i) :self-closing name attrs attr)
-              (identical? \> c)        [(inc i) (token name attrs false)]
-              :else           (let [j (run-end s n i tag-end?)]
-                                (recur j st (str name (tag-name (subs s i j))) attrs attr)))
-
-            :before-attribute-name
-            (cond
-              (whitespace? c)        (recur (inc i) st name attrs attr)
-              (or (identical? \/ c) (identical? \> c)) (recur i :after-attribute-name name attrs attr)
-              (identical? \= c)               (recur (inc i) :attribute-name name
-                                            (with-attribute attrs attr) ["=" ""])
-              :else                  (recur i :attribute-name name
-                                            (with-attribute attrs attr) ["" ""]))
-
-            :attribute-name
-            (if (attribute-name-stop? c)
-              (recur (if (identical? \= c) (inc i) i)
-                     (if (identical? \= c) :before-attribute-value :after-attribute-name)
-                     name attrs attr)
-              (let [j (run-end s n i attribute-name-stop?)]
-                (recur j st name attrs (update attr 0 str (tag-name (subs s i j))))))
-
-            :after-attribute-name
-            (cond
-              (whitespace? c) (recur (inc i) st name attrs attr)
-              (identical? \/ c)        (recur (inc i) :self-closing name attrs attr)
-              (identical? \= c)        (recur (inc i) :before-attribute-value name attrs attr)
-              (identical? \> c)        [(inc i) (token name (with-attribute attrs attr) false)]
-              :else           (recur i :attribute-name name (with-attribute attrs attr) ["" ""]))
-
-            :before-attribute-value
-            (cond
-              (whitespace? c) (recur (inc i) st name attrs attr)
-              (identical? \" c)        (recur (inc i) :double-quoted name attrs attr)
-              (identical? \' c)        (recur (inc i) :single-quoted name attrs attr)
-              (identical? \> c)        [(inc i) (token name (with-attribute attrs attr) false)]
-              :else           (recur i :unquoted name attrs attr))
-
-            (:double-quoted :single-quoted :unquoted)
-            (let [delimiter (case st :double-quoted \" :single-quoted \' nil)]
-              (cond
-                (and delimiter (identical? delimiter c))
-                (recur (inc i) :after-quoted-value name attrs attr)
-
-                (and (nil? delimiter) (whitespace? c))
-                (recur (inc i) :before-attribute-name name attrs attr)
-
-                (and (nil? delimiter) (identical? \> c))
-                [(inc i) (token name (with-attribute attrs attr) false)]
-
-                (identical? \& c)
-                (let [[chars j] (character-reference s n (inc i) true)]
-                  (recur j st name attrs (update attr 1 str chars)))
-
-                (identical? nul c)
-                (recur (inc i) st name attrs (update attr 1 str replacement))
-
-                ;; a quoted value runs to its quote, and within it to an
-                ;; ampersand or a NULL, so each search is bounded by the
-                ;; value
-                delimiter
-                (let [end   (index-of s n (str delimiter) i)
-                      value (subs s i end)
-                      k     (count value)
-                      j     (+ i (min (index-of value k "&" 0)
-                                      (index-of value k (str nul) 0)))]
-                  (recur j st name attrs (update attr 1 str (subs s i j))))
-
-                :else
-                (let [j (run-end s n i #(or (whitespace? %)
-                                            (identical? \& %)
-                                            (identical? \> %)
-                                            (identical? nul %)))]
-                  (recur j st name attrs (update attr 1 str (subs s i j))))))
-
-            :after-quoted-value
-            (cond
-              (whitespace? c) (recur (inc i) :before-attribute-name name attrs attr)
-              (identical? \/ c)        (recur (inc i) :self-closing name attrs attr)
-              (identical? \> c)        [(inc i) (token name (with-attribute attrs attr) false)]
-              :else           (recur i :before-attribute-name name attrs attr))
-
-            :self-closing
-            (if (identical? \> c)
-              [(inc i) (token name (with-attribute attrs attr) true)]
-              (recur i :before-attribute-name name attrs attr))))))))
+  (let [j    (run-end s n i tag-end?)
+        name (str name (tag-name (subs s i j)))]
+    (loop [i j attrs {}]
+      (let [i (skip-whitespace s n i)
+            c (char-at s n i)]
+        (cond
+          (nil? c)          [n nil]
+          (identical? \> c) [(inc i) (tag-token end? name attrs false)]
+          (identical? \/ c) (if (identical? \> (char-at s n (inc i)))
+                              [(+ i 2) (tag-token end? name attrs true)]
+                              (recur (inc i) attrs))
+          :else             (if-let [[j [k v]] (attribute s n i)]
+                              (recur (long j)
+                                     (cond-> attrs
+                                       (not (contains? attrs k)) (assoc k v)))
+                              [n nil]))))))
 
 ;; 13.2.5.41 to 13.2.5.52, comments
 
@@ -601,16 +619,10 @@
 
 (defn ^:no-doc bogus-comment
   "Read the bogus comment state, 13.2.5.41, from `i`, after the `data` that
-  the comment has already, as [index token]."
+  the comment has already, as [index token]: to the next > or the end."
   [s n i data]
-  (loop [i i data data]
-    (let [c (char-at s n i)]
-      (cond
-        (nil? c)   [n (comment-token data)]
-        (identical? \> c)   [(inc i) (comment-token data)]
-        (identical? nul c)  (recur (inc i) (str data replacement))
-        :else      (let [j (run-end s n i #(or (identical? \> %) (identical? nul %)))]
-                     (recur j (str data (subs s i j))))))))
+  (let [end (index-of s n ">" i)]
+    [(min n (inc end)) (comment-token (str data (without-nul (subs s i end))))]))
 
 (defn- unclosed
   "The `data` of a comment that the end of the text cut off, without the
@@ -651,7 +663,45 @@
   [s n i]
   [(min n (inc (index-of s n ">" i))) {:type :doctype}])
 
-;; 13.2.5.6, 13.2.5.7 and 13.2.5.42, the states between tokens
+;; 13.2.5.6, 13.2.5.7 and 13.2.5.42, what a less-than sign starts
+
+(defn- end-tag-open
+  "Read the end tag open state, 13.2.5.7, from `i` after </, as [index
+  token state]."
+  [s n i]
+  (let [c (char-at s n i)]
+    (cond
+      (nil? c)          [n "</" :eof]
+      (alpha? c)        (conj (tag s n i true nil) :data)
+      (identical? \> c) [(inc i) nil :data]
+      :else             (conj (bogus-comment s n i "") :data))))
+
+(defn- markup-declaration
+  "Read the markup declaration open state, 13.2.5.42, from `i` after <!, as
+  [index token state]. [CDATA[ always starts a bogus comment, as it does
+  outside SVG and MathML."
+  [s n i]
+  (conj (cond
+          (starts-at? s i "--")           (comment-text s n (+ i 2))
+          (starts-at-ci? s n i "doctype") (doctype-text s n (+ i 7))
+          (starts-at? s i "[CDATA[")      (bogus-comment s n (+ i 7) "[CDATA[")
+          :else                           (bogus-comment s n i ""))
+        :data))
+
+(defn ^:no-doc markup
+  "Read what a less-than sign starts, from `i` after it, as [index token
+  state], by the tag open state, 13.2.5.6: a tag, a comment or a DOCTYPE,
+  or else the less-than sign as text. <? starts a bogus comment, as it did
+  before the processing instructions of 13.2.5.72."
+  [s n i]
+  (let [c (char-at s n i)]
+    (cond
+      (nil? c)          [n "<" :eof]
+      (identical? \! c) (markup-declaration s n (inc i))
+      (identical? \/ c) (end-tag-open s n (inc i))
+      (identical? \? c) (conj (bogus-comment s n i "") :data)
+      (alpha? c)        (conj (tag s n i false nil) :data)
+      :else             [i "<" :data])))
 
 (defn ^:no-doc normalized
   "The text `s` with each CR LF pair and each lone CR turned into an LF, as
@@ -676,75 +726,30 @@
        :or   {state :data text-states text-states}}]
    (let [s    (normalized (str s))
          n    (count s)
-         text (builder)
-         out  (volatile! (transient []))
-         emit (fn [token]
-                (when token
-                  (when-let [chars (take-text! text)]
-                    (vswap! out conj! chars))
-                  (vswap! out conj! token)))
-         ;; the end tag that a state of raw text found, or that state's end
-         after-text (fn [[i st name]]
-                      (if (= :end-tag st)
-                        (let [[j token] (tag s n i true name)]
-                          (emit token)
-                          [j :data])
-                        [i st]))]
-     ;; the readers give each index boxed in a vector, so i is an object
-     (loop [i (identity 0) st state last last-start-tag]
-       (case st
-         :data          (let [[j st] (data-text s n i text)] (recur j st last))
-         :rcdata        (let [[j st] (after-text (raw-text s n i text true last))] (recur j st last))
-         :rawtext       (let [[j st] (after-text (raw-text s n i text false last))] (recur j st last))
-         :script-data   (let [[j st] (after-text (script-text s n i text last))] (recur j st last))
-         :plaintext     (let [[j st] (plain-text s n i text)] (recur j st last))
-
-         ;; 13.2.5.6, where <? is a bogus comment, as it was before the
-         ;; processing instructions of 13.2.5.72
-         :tag-open
-         (let [c (char-at s n i)]
-           (cond
-             (nil? c)          (do (append! text "<") (recur n :eof last))
-             (identical? \! c) (recur (inc i) :markup-declaration last)
-             (identical? \/ c) (recur (inc i) :end-tag-open last)
-             (identical? \? c) (let [[j token] (bogus-comment s n i "")]
-                                 (emit token)
-                                 (recur j :data last))
-             (alpha? c)        (let [[j token] (tag s n i false nil)]
-                                 (if token
-                                   (do (emit token)
-                                       (recur j (get text-states (:name token) :data) (:name token)))
-                                   (recur j :eof last)))
-             :else             (do (append! text "<") (recur i :data last))))
-
-         ;; 13.2.5.7
-         :end-tag-open
-         (let [c (char-at s n i)]
-           (cond
-             (nil? c)   (do (append! text "</") (recur n :eof last))
-             (alpha? c) (let [[j token] (tag s n i true nil)]
-                          (emit token)
-                          (recur j :data last))
-             (identical? \> c)   (recur (inc i) :data last)
-             :else      (let [[j token] (bogus-comment s n i "")]
-                          (emit token)
-                          (recur j :data last))))
-
-         ;; 13.2.5.42, where [CDATA[ always starts a bogus comment, as it
-         ;; does outside SVG and MathML
-         :markup-declaration
-         (let [[j token] (cond
-                           (starts-at? s i "--")             (comment-text s n (+ i 2))
-                           (starts-at-ci? s n i "doctype")   (doctype-text s n (+ i 7))
-                           (starts-at? s i "[CDATA[")        (bogus-comment s n (+ i 7) "[CDATA[")
-                           :else                             (bogus-comment s n i ""))]
-           (emit token)
-           (recur j :data last))
-
-         :eof
-         (let [chars (take-text! text)]
-           (persistent! (cond-> @out
-                          chars (conj! chars)))))))))
+         text (builder)]
+     ;; Each reader gives [index token state]. Text goes onto the builder,
+     ;; so that adjacent runs join, and every other token onto out after
+     ;; the text before it. A start tag sets the state by text-states.
+     (loop [i 0 st state last last-start-tag out (transient [])]
+       (if (= :eof st)
+         (persistent! (with-text out text))
+         (let [[j token st'] (case st
+                               :data        (data-text s n i text)
+                               :rcdata      (raw-text s n i text last true)
+                               :rawtext     (raw-text s n i text last false)
+                               :script-data (script-text s n i text last)
+                               :plaintext   (plain-text s n i text)
+                               :markup      (markup s n i))
+               start         (when (= :start-tag (:type token))
+                               (:name token))]
+           (when (string? token)
+             (append! text token))
+           (recur (long j)
+                  (if start (get text-states start :data) st')
+                  (or start last)
+                  (if (map? token)
+                    (conj! (with-text out text) token)
+                    out))))))))
 
 (comment
   (tokens "<p class=note>Fish &amp chips &notin; <b>bold</p><!-- x -->")
