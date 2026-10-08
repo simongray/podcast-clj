@@ -171,10 +171,10 @@
   (map-outside-cdata
    #(str/replace % #"&([A-Za-z][A-Za-z0-9]*);"
                  (fn [[whole name]]
-                   (let [code (xml/html-entities name)]
+                   (let [chars (xml/html-entity name)]
                      (cond
                        (xml/xml-entities name) whole
-                       code                    (str "&#" code ";")
+                       chars                   (xml/character-references chars)
                        :else                   (str "&amp;" name ";")))))
    s))
 

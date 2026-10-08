@@ -130,8 +130,8 @@
                        (= "value.payment" %))
                   (get @graph ns))
           (str ns " requires " (get @graph ns)))))
-  (testing "the XML layer needs nothing of podcasts"
-    (is (= #{} (get @graph "util.xml")))))
+  (testing "the XML layer needs nothing of podcasts, only the libraries beside it"
+    (is (every? library-of (get @graph "util.xml")))))
 
 (deftest a-name-shows-a-primitive
   (doseq [ns    (keys @graph)
