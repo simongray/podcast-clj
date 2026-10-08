@@ -69,6 +69,11 @@
    0x9C 0x0153 0x9E 0x017E 0x9F 0x0178})
 
 ;; Characters
+;;
+;; A character is compared with identical?, which is = for the ASCII
+;; characters that the tokenizer looks for: the JVM boxes each of them to
+;; one cached Character (JLS 5.1.7), and JavaScript compares strings by
+;; value.
 
 (defn ^:no-doc char-at
   "The character at `i` of the text `s` of length `n`, or nil at its end."
@@ -123,22 +128,31 @@
     (\tab \newline \formfeed \space) true
     false))
 
+(def ^:no-doc upper-pattern
+  "An ASCII upper alpha, anywhere in a text."
+  #?(:clj  #"[A-Z]"
+     :cljs (js/RegExp. "[A-Z]" "g")))
+
 (defn ^:no-doc lower-ascii
   "The text `s` with its ASCII upper alphas in lower case, and nothing
   else changed."
   [s]
-  #?(:clj  (let [sb (StringBuilder. ^String s)]
-             (dotimes [k (.length sb)]
-               (let [c (.charAt sb k)]
-                 (when (upper? c)
-                   (.setCharAt sb k (char (+ (int c) 32))))))
-             (.toString sb))
-     :cljs (.replace s (js/RegExp. "[A-Z]" "g") #(.toLowerCase %))))
+  #?(:clj  (if-not (re-find upper-pattern s)
+             s
+             (let [sb (StringBuilder. ^String s)]
+               (dotimes [k (.length sb)]
+                 (let [c (.charAt sb k)]
+                   (when (upper? c)
+                     (.setCharAt sb k (char (+ (int c) 32))))))
+               (.toString sb)))
+     :cljs (.replace s upper-pattern #(.toLowerCase %))))
 
 (defn ^:no-doc without-nul
   "The text `s` with each NULL replaced by U+FFFD."
   [s]
-  (str/replace s (str nul) replacement))
+  (if (str/includes? s (str nul))
+    (str/replace s (str nul) replacement)
+    s))
 
 (defn ^:no-doc tag-name
   "The run `s` of a tag or attribute name, as the name states read it: in
@@ -213,7 +227,7 @@
   (let [end    (min (run-end s n i #(not (alphanumeric? %)))
                     (+ i longest-name))
         run    (subs s i end)
-        semi   (when (= \; (char-at s n end))
+        semi   (when (identical? \; (char-at s n end))
                  (get entities/references (str run ";")))
         legacy (when-not semi
                  (some #(when-let [chars (get entities/references (subs run 0 %))]
@@ -228,7 +242,7 @@
             next      (char-at s n (+ i k))]
         (if (and in-attribute?
                  next
-                 (or (= next \=) (alphanumeric? next)))
+                 (or (identical? next \=) (alphanumeric? next)))
           [(str "&" (subs run 0 k)) (+ i k)]
           [chars (+ i k)]))
 
@@ -270,7 +284,7 @@
     (if (and first' (digit first'))
       (let [end (run-end s n start #(not (digit %)))]
         [(referenced (code-of (subs s start end) (if hex? 16 10)))
-         (if (= \; (char-at s n end)) (inc end) end)])
+         (if (identical? \; (char-at s n end)) (inc end) end)])
       ;; no digits: the ampersand, the number sign and the x stay text
       [(subs s (- i 2) start) start])))
 
@@ -285,7 +299,7 @@
     (cond
       (nil? c)            ["&" i]
       (alphanumeric? c)   (named-reference s n i in-attribute?)
-      (= \# c)            (numeric-reference s n (inc i))
+      (identical? \# c)            (numeric-reference s n (inc i))
       :else               ["&" i])))
 
 ;; 13.2.5.1 to 13.2.5.5 and 13.2.5.69 to 13.2.5.71, the states of text
@@ -333,13 +347,13 @@
             next (char-at s n end)]
         (if (and (= name last)
                  next
-                 (or (whitespace? next) (= \/ next) (= \> next)))
+                 (or (whitespace? next) (identical? \/ next) (identical? \> next)))
           [:end end name]
           [:text end (subs s i end)])))))
 
 (defn- raw-stop?
   [c]
-  (or (= \< c) (= \& c) (= nul c)))
+  (or (identical? \< c) (identical? \& c) (identical? nul c)))
 
 (defn ^:no-doc raw-text
   "Read the RCDATA state, 13.2.5.2, when `rcdata?`, or else the RAWTEXT
@@ -354,19 +368,19 @@
         (nil? c)
         [n :eof]
 
-        (and (= \& c) rcdata?)
+        (and (identical? \& c) rcdata?)
         (let [[chars j] (character-reference s n (inc i) false)]
           (append! text chars)
           (recur j))
 
-        (= \< c)
+        (identical? \< c)
         (let [[kind j x] (end-tag-at s n i last)]
           (if (= :end kind)
             [j :end-tag x]
             (do (append! text x)
                 (recur j))))
 
-        (= nul c)
+        (identical? nul c)
         (do (append! text replacement)
             (recur (inc i)))
 
@@ -377,7 +391,7 @@
 
 (defn- script-stop?
   [c]
-  (or (= \< c) (= \- c) (= nul c)))
+  (or (identical? \< c) (identical? \- c) (identical? nul c)))
 
 (defn ^:no-doc script-text
   "Read the script data state, 13.2.5.4, from `i` onto the builder `text`,
@@ -388,13 +402,13 @@
             ;; the less-than sign states, with their end tag states
             (let [after (char-at s n (inc i))]
               (cond
-                (= \/ after)
+                (identical? \/ after)
                 (let [[kind j x] (end-tag-at s n i last)]
                   (if (= :end kind)
                     [:end j x]
                     [:text j x (if escaped? :escaped :script)]))
 
-                (and (= \! after) (not escaped?))
+                (and (identical? \! after) (not escaped?))
                 [:text (+ i 2) "<!" :escape-start]
 
                 (and escaped? after (alpha? after))
@@ -409,17 +423,17 @@
           (case st
             :script
             (cond
-              (= \< c)   (let [[kind j x st'] (less-than i false)]
+              (identical? \< c)   (let [[kind j x st'] (less-than i false)]
                            (if (= :end kind)
                              [j :end-tag x]
                              (do (append! text x) (recur j st' temp))))
-              (= nul c)  (do (append! text replacement) (recur (inc i) st temp))
-              :else      (let [j (run-end s n (inc i) #(or (= \< %) (= nul %)))]
+              (identical? nul c)  (do (append! text replacement) (recur (inc i) st temp))
+              :else      (let [j (run-end s n (inc i) #(or (identical? \< %) (identical? nul %)))]
                            (append! text (subs s i j))
                            (recur j st temp)))
 
             (:escape-start :escape-start-dash)
-            (if (= \- c)
+            (if (identical? \- c)
               (do (append! text "-")
                   (recur (inc i)
                          (if (= :escape-start st) :escape-start-dash :escaped-dash-dash)
@@ -428,17 +442,17 @@
 
             (:escaped :escaped-dash :escaped-dash-dash)
             (cond
-              (= \- c)   (do (append! text "-")
+              (identical? \- c)   (do (append! text "-")
                              (recur (inc i)
                                     (if (= :escaped st) :escaped-dash :escaped-dash-dash)
                                     temp))
-              (= \< c)   (let [[kind j x st'] (less-than i true)]
+              (identical? \< c)   (let [[kind j x st'] (less-than i true)]
                            (if (= :end kind)
                              [j :end-tag x]
                              (do (append! text x) (recur j st' ""))))
-              (and (= \> c) (= :escaped-dash-dash st))
+              (and (identical? \> c) (= :escaped-dash-dash st))
               (do (append! text ">") (recur (inc i) :script temp))
-              (= nul c)  (do (append! text replacement) (recur (inc i) :escaped temp))
+              (identical? nul c)  (do (append! text replacement) (recur (inc i) :escaped temp))
               (= :escaped st)
               (let [j (run-end s n (inc i) script-stop?)]
                 (append! text (subs s i j))
@@ -447,7 +461,7 @@
 
             (:double-escape-start :double-escape-end)
             (cond
-              (or (whitespace? c) (= \/ c) (= \> c))
+              (or (whitespace? c) (identical? \/ c) (identical? \> c))
               (do (append! text (str c))
                   (recur (inc i)
                          (if (= (= "script" temp) (= :double-escape-start st))
@@ -464,20 +478,20 @@
 
             (:double-escaped :double-escaped-dash :double-escaped-dash-dash)
             (cond
-              (= \- c)   (do (append! text "-")
+              (identical? \- c)   (do (append! text "-")
                              (recur (inc i)
                                     (if (= :double-escaped st)
                                       :double-escaped-dash
                                       :double-escaped-dash-dash)
                                     temp))
-              (= \< c)   (do (append! text "<")
-                             (if (= \/ (char-at s n (inc i)))
+              (identical? \< c)   (do (append! text "<")
+                             (if (identical? \/ (char-at s n (inc i)))
                                (do (append! text "/")
                                    (recur (+ i 2) :double-escape-end ""))
                                (recur (inc i) :double-escaped temp)))
-              (and (= \> c) (= :double-escaped-dash-dash st))
+              (and (identical? \> c) (= :double-escaped-dash-dash st))
               (do (append! text ">") (recur (inc i) :script temp))
-              (= nul c)  (do (append! text replacement) (recur (inc i) :double-escaped temp))
+              (identical? nul c)  (do (append! text replacement) (recur (inc i) :double-escaped temp))
               (= :double-escaped st)
               (let [j (run-end s n (inc i) script-stop?)]
                 (append! text (subs s i j))
@@ -507,11 +521,11 @@
 
 (defn- name-stop?
   [c]
-  (or (whitespace? c) (= \/ c) (= \> c)))
+  (or (whitespace? c) (identical? \/ c) (identical? \> c)))
 
 (defn- attribute-name-stop?
   [c]
-  (or (whitespace? c) (= \/ c) (= \> c) (= \= c)))
+  (or (whitespace? c) (identical? \/ c) (identical? \> c) (identical? \= c)))
 
 (defn- with-attribute
   "The `attrs` of a tag with the attribute `attr`, a pair of name and
@@ -540,24 +554,24 @@
             :tag-name
             (cond
               (whitespace? c) (recur (inc i) :before-attribute-name name attrs attr)
-              (= \/ c)        (recur (inc i) :self-closing name attrs attr)
-              (= \> c)        [(inc i) (token name attrs false)]
+              (identical? \/ c)        (recur (inc i) :self-closing name attrs attr)
+              (identical? \> c)        [(inc i) (token name attrs false)]
               :else           (let [j (run-end s n i name-stop?)]
                                 (recur j st (str name (tag-name (subs s i j))) attrs attr)))
 
             :before-attribute-name
             (cond
               (whitespace? c)        (recur (inc i) st name attrs attr)
-              (or (= \/ c) (= \> c)) (recur i :after-attribute-name name attrs attr)
-              (= \= c)               (recur (inc i) :attribute-name name
+              (or (identical? \/ c) (identical? \> c)) (recur i :after-attribute-name name attrs attr)
+              (identical? \= c)               (recur (inc i) :attribute-name name
                                             (with-attribute attrs attr) ["=" ""])
               :else                  (recur i :attribute-name name
                                             (with-attribute attrs attr) ["" ""]))
 
             :attribute-name
             (if (attribute-name-stop? c)
-              (recur (if (= \= c) (inc i) i)
-                     (if (= \= c) :before-attribute-value :after-attribute-name)
+              (recur (if (identical? \= c) (inc i) i)
+                     (if (identical? \= c) :before-attribute-value :after-attribute-name)
                      name attrs attr)
               (let [j (run-end s n i attribute-name-stop?)]
                 (recur j st name attrs (update attr 0 str (tag-name (subs s i j))))))
@@ -565,53 +579,65 @@
             :after-attribute-name
             (cond
               (whitespace? c) (recur (inc i) st name attrs attr)
-              (= \/ c)        (recur (inc i) :self-closing name attrs attr)
-              (= \= c)        (recur (inc i) :before-attribute-value name attrs attr)
-              (= \> c)        [(inc i) (token name (with-attribute attrs attr) false)]
+              (identical? \/ c)        (recur (inc i) :self-closing name attrs attr)
+              (identical? \= c)        (recur (inc i) :before-attribute-value name attrs attr)
+              (identical? \> c)        [(inc i) (token name (with-attribute attrs attr) false)]
               :else           (recur i :attribute-name name (with-attribute attrs attr) ["" ""]))
 
             :before-attribute-value
             (cond
               (whitespace? c) (recur (inc i) st name attrs attr)
-              (= \" c)        (recur (inc i) :double-quoted name attrs attr)
-              (= \' c)        (recur (inc i) :single-quoted name attrs attr)
-              (= \> c)        [(inc i) (token name (with-attribute attrs attr) false)]
+              (identical? \" c)        (recur (inc i) :double-quoted name attrs attr)
+              (identical? \' c)        (recur (inc i) :single-quoted name attrs attr)
+              (identical? \> c)        [(inc i) (token name (with-attribute attrs attr) false)]
               :else           (recur i :unquoted name attrs attr))
 
             (:double-quoted :single-quoted :unquoted)
             (let [delimiter (case st :double-quoted \" :single-quoted \' nil)]
               (cond
-                (and delimiter (= delimiter c))
+                (and delimiter (identical? delimiter c))
                 (recur (inc i) :after-quoted-value name attrs attr)
 
                 (and (nil? delimiter) (whitespace? c))
                 (recur (inc i) :before-attribute-name name attrs attr)
 
-                (and (nil? delimiter) (= \> c))
+                (and (nil? delimiter) (identical? \> c))
                 [(inc i) (token name (with-attribute attrs attr) false)]
 
-                (= \& c)
+                (identical? \& c)
                 (let [[chars j] (character-reference s n (inc i) true)]
                   (recur j st name attrs (update attr 1 str chars)))
 
-                (= nul c)
+                (identical? nul c)
                 (recur (inc i) st name attrs (update attr 1 str replacement))
 
+                ;; a quoted value runs to its quote, and within it to an
+                ;; ampersand or a NULL, so each search is bounded by the
+                ;; value
+                delimiter
+                (let [end   (index-of s n (str delimiter) i)
+                      value (subs s i end)
+                      k     (count value)
+                      j     (+ i (min (index-of value k "&" 0)
+                                      (index-of value k (str nul) 0)))]
+                  (recur j st name attrs (update attr 1 str (subs s i j))))
+
                 :else
-                (let [j (run-end s n i (if delimiter
-                                         #(or (= delimiter %) (= \& %) (= nul %))
-                                         #(or (whitespace? %) (= \& %) (= \> %) (= nul %))))]
+                (let [j (run-end s n i #(or (whitespace? %)
+                                            (identical? \& %)
+                                            (identical? \> %)
+                                            (identical? nul %)))]
                   (recur j st name attrs (update attr 1 str (subs s i j))))))
 
             :after-quoted-value
             (cond
               (whitespace? c) (recur (inc i) :before-attribute-name name attrs attr)
-              (= \/ c)        (recur (inc i) :self-closing name attrs attr)
-              (= \> c)        [(inc i) (token name (with-attribute attrs attr) false)]
+              (identical? \/ c)        (recur (inc i) :self-closing name attrs attr)
+              (identical? \> c)        [(inc i) (token name (with-attribute attrs attr) false)]
               :else           (recur i :before-attribute-name name attrs attr))
 
             :self-closing
-            (if (= \> c)
+            (if (identical? \> c)
               [(inc i) (token name (with-attribute attrs attr) true)]
               (recur i :before-attribute-name name attrs attr))))))))
 
@@ -630,14 +656,14 @@
     (let [c (char-at s n i)]
       (cond
         (nil? c)   [n (comment-token data)]
-        (= \> c)   [(inc i) (comment-token data)]
-        (= nul c)  (recur (inc i) (str data replacement))
-        :else      (let [j (run-end s n i #(or (= \> %) (= nul %)))]
+        (identical? \> c)   [(inc i) (comment-token data)]
+        (identical? nul c)  (recur (inc i) (str data replacement))
+        :else      (let [j (run-end s n i #(or (identical? \> %) (identical? nul %)))]
                      (recur j (str data (subs s i j))))))))
 
 (defn- comment-stop?
   [c]
-  (or (= \< c) (= \- c) (= nul c)))
+  (or (identical? \< c) (identical? \- c) (identical? nul c)))
 
 (defn ^:no-doc comment-text
   "Read a comment after its <!--, by the comment states, 13.2.5.43 to
@@ -663,9 +689,9 @@
         :comment
         (cond
           (nil? c)   done
-          (= \< c)   (recur (inc i) :less-than (str data "<"))
-          (= \- c)   (recur (inc i) :end-dash data)
-          (= nul c)  (recur (inc i) st (str data replacement))
+          (identical? \< c)   (recur (inc i) :less-than (str data "<"))
+          (identical? \- c)   (recur (inc i) :end-dash data)
+          (identical? nul c)  (recur (inc i) st (str data replacement))
           :else      (let [j (run-end s n i comment-stop?)]
                        (recur j st (str data (subs s i j)))))
 
@@ -676,12 +702,12 @@
           (recur i :comment data))
 
         :less-than-bang
-        (if (= \- c)
+        (if (identical? \- c)
           (recur (inc i) :less-than-bang-dash data)
           (recur i :comment data))
 
         :less-than-bang-dash
-        (if (= \- c)
+        (if (identical? \- c)
           (recur (inc i) :less-than-bang-dash-dash data)
           (recur i :end-dash data))
 
@@ -718,7 +744,7 @@
   lower case for a name when `name?`, and NULL replaced."
   [c name?]
   (cond
-    (= nul c)              replacement
+    (identical? nul c)              replacement
     (and name? (upper? c)) (lower-ascii (str c))
     :else                  (str c)))
 
@@ -740,19 +766,19 @@
           :before-name
           (cond
             (whitespace? c) (recur (inc i) st d)
-            (= \> c)        [(inc i) quirky]
+            (identical? \> c)        [(inc i) quirky]
             :else           (recur (inc i) :name (assoc d :name (doctype-char c true))))
 
           :name
           (cond
             (whitespace? c) (recur (inc i) :after-name d)
-            (= \> c)        [(inc i) d]
+            (identical? \> c)        [(inc i) d]
             :else           (recur (inc i) st (update d :name str (doctype-char c true))))
 
           :after-name
           (cond
             (whitespace? c)                (recur (inc i) st d)
-            (= \> c)                       [(inc i) d]
+            (identical? \> c)                       [(inc i) d]
             (starts-at-ci? s n i "public") (recur (+ i 6) :after-public-keyword d)
             (starts-at-ci? s n i "system") (recur (+ i 6) :after-system-keyword d)
             :else                          (recur i :bogus quirky))
@@ -766,42 +792,42 @@
                                        :after-system-keyword :before-system-id
                                        st)
                                      d)
-              (= \" c)        (recur (inc i) [k \"] (assoc d k ""))
-              (= \' c)        (recur (inc i) [k \'] (assoc d k ""))
-              (= \> c)        [(inc i) quirky]
+              (identical? \" c)        (recur (inc i) [k \"] (assoc d k ""))
+              (identical? \' c)        (recur (inc i) [k \'] (assoc d k ""))
+              (identical? \> c)        [(inc i) quirky]
               :else           (recur i :bogus quirky)))
 
           (:after-public-id :between-ids)
           (cond
             (whitespace? c) (recur (inc i) :between-ids d)
-            (= \> c)        [(inc i) d]
-            (= \" c)        (recur (inc i) [:system-id \"] (assoc d :system-id ""))
-            (= \' c)        (recur (inc i) [:system-id \'] (assoc d :system-id ""))
+            (identical? \> c)        [(inc i) d]
+            (identical? \" c)        (recur (inc i) [:system-id \"] (assoc d :system-id ""))
+            (identical? \' c)        (recur (inc i) [:system-id \'] (assoc d :system-id ""))
             :else           (recur i :bogus quirky))
 
           :after-system-id
           (cond
             (whitespace? c) (recur (inc i) st d)
-            (= \> c)        [(inc i) d]
+            (identical? \> c)        [(inc i) d]
             :else           (recur i :bogus d))
 
           :bogus
-          (if (= \> c)
+          (if (identical? \> c)
             [(inc i) d]
             (recur (inc i) st d))
 
           ;; an identifier in quotes, as a state of the key and the quote
           (let [[k delimiter] st]
             (cond
-              (= delimiter c) (recur (inc i) (if (= :public-id k) :after-public-id :after-system-id) d)
-              (= \> c)    [(inc i) quirky]
+              (identical? delimiter c) (recur (inc i) (if (= :public-id k) :after-public-id :after-system-id) d)
+              (identical? \> c)    [(inc i) quirky]
               :else       (recur (inc i) st (update d k str (doctype-char c false))))))))))
 
 ;; 13.2.5.72 to 13.2.5.76, processing instructions
 
 (defn- target-char?
   [c]
-  (or (alphanumeric? c) (= \- c) (= \_ c)))
+  (or (alphanumeric? c) (identical? \- c) (identical? \_ c)))
 
 (defn ^:no-doc processing-instruction
   "Read a processing instruction after its <?, by the processing
@@ -813,7 +839,7 @@
       (nil? c)
       [n nil]
 
-      (not (or (alpha? c) (= \_ c)))
+      (not (or (alpha? c) (identical? \_ c)))
       (bogus-comment s n i "?")
 
       :else
@@ -824,7 +850,7 @@
           (nil? next)
           [n nil]
 
-          (or (not (or (whitespace? next) (= \? next) (= \> next)))
+          (or (not (or (whitespace? next) (identical? \? next) (identical? \> next)))
               (#{"xml" "xml-stylesheet"} (lower-ascii target)))
           (bogus-comment s n end (str "?" target))
 
@@ -833,12 +859,12 @@
             (let [c (char-at s n i)]
               (cond
                 (nil? c)                            [n nil]
-                (= \> c)                            [(inc i) {:type   :processing-instruction
+                (identical? \> c)                            [(inc i) {:type   :processing-instruction
                                                               :target target
                                                               :data   data}]
-                (and (= \? c)
-                     (= \> (char-at s n (inc i))))  (recur (inc i) data)
-                :else                               (let [j (run-end s n (inc i) #(or (= \? %) (= \> %)))]
+                (and (identical? \? c)
+                     (identical? \> (char-at s n (inc i))))  (recur (inc i) data)
+                :else                               (let [j (run-end s n (inc i) #(or (identical? \? %) (identical? \> %)))]
                                                       (recur j (str data (subs s i j))))))))))))
 
 ;; 13.2.5.6, 13.2.5.7 and 13.2.5.42, the states between tokens
@@ -895,9 +921,9 @@
          (let [c (char-at s n i)]
            (cond
              (nil? c)  (do (append! text "<") (recur n :eof last))
-             (= \! c)  (recur (inc i) :markup-declaration last)
-             (= \/ c)  (recur (inc i) :end-tag-open last)
-             (= \? c)  (let [[j token] (processing-instruction s n (inc i))]
+             (identical? \! c)  (recur (inc i) :markup-declaration last)
+             (identical? \/ c)  (recur (inc i) :end-tag-open last)
+             (identical? \? c)  (let [[j token] (processing-instruction s n (inc i))]
                          (emit token)
                          (recur j :data last))
              (alpha? c) (let [[j token] (tag s n i false nil)]
@@ -915,7 +941,7 @@
              (alpha? c) (let [[j token] (tag s n i true nil)]
                           (emit token)
                           (recur j :data last))
-             (= \> c)   (recur (inc i) :data last)
+             (identical? \> c)   (recur (inc i) :data last)
              :else      (let [[j token] (bogus-comment s n i "")]
                           (emit token)
                           (recur j :data last))))

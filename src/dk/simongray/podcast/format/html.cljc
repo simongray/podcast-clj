@@ -176,7 +176,8 @@
   (let [state (dissoc state :drop-newline?)]
     (cond
       (string? token)
-      (let [text (str/replace token (str tokenizer/nul) "")
+      (let [text (cond-> token
+                   (str/includes? token (str tokenizer/nul)) (str/replace (str tokenizer/nul) ""))
             text (cond-> text
                    (and drop-newline? (str/starts-with? text "\n")) (subs 1))]
         (cond-> state
