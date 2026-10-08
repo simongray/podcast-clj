@@ -175,10 +175,9 @@ keeps the list and the source in sync.
   fit it: tags as categories, the time of subscription as `created`, and
   followed lists as includes. Other apps read the rest as they always did.
 - **HTML** in show notes and comments is read by
-  [html-pieces](https://github.com/simongray/html-pieces), a library of its
-  own. Its tokenizer follows the HTML Standard, so text reads as a browser
-  reads it, and the JVM and JavaScript agree. The result is Hiccup, since a
-  Clojure app gives Hiccup straight to its renderer.
+  [html-pieces](https://github.com/simongray/html-pieces), which reads it
+  as a browser does, the same on the JVM and in JavaScript. The result is
+  Hiccup, since a Clojure app gives Hiccup straight to its renderer.
 - **Media files and images** are read without I/O. A reader works on the
   parts of a file that have arrived, and when it needs more, it throws the
   byte ranges it needs. `view/read!` fetches them and reads again. So the
