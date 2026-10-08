@@ -67,16 +67,15 @@
 ;; HTML Standard, "Elements": the void elements, and param of older pages
 (def ^:no-doc void-elements
   "Elements that never have content or an end tag."
-  #{"area" "base" "br" "col" "embed" "hr" "img" "input" "link" "meta" "param"
-    "source" "track" "wbr"})
+  #{:area :base :br :col :embed :hr :img :input :link :meta :param :source
+    :track :wbr})
 
 ;; HTML Standard, "Optional tags", as of 2026-09-29
 (def ^:no-doc block-elements
   "Elements whose start tag closes an open paragraph, as HTML defines."
-  #{"address" "article" "aside" "blockquote" "details" "dialog" "div" "dl"
-    "fieldset" "figcaption" "figure" "footer" "form" "h1" "h2" "h3" "h4" "h5"
-    "h6" "header" "hgroup" "hr" "main" "menu" "nav" "ol" "p" "pre" "search"
-    "section" "table" "ul"})
+  #{:address :article :aside :blockquote :details :dialog :div :dl :fieldset
+    :figcaption :figure :footer :form :h1 :h2 :h3 :h4 :h5 :h6 :header :hgroup
+    :hr :main :menu :nav :ol :p :pre :search :section :table :ul})
 
 ;; HTML Standard, "Optional tags", and 13.2.6.4.7 for a, which closes an
 ;; open a up to the markers of the list of active formatting elements
@@ -84,29 +83,34 @@
   "For each tag, the open elements that its start tag closes, and the
   ancestors where the search for them stops. A new li closes an open li,
   but only inside the same list."
-  {"li"     [#{"li"} #{"ul" "ol" "menu"}]
-   "dt"     [#{"dt" "dd"} #{"dl"}]
-   "dd"     [#{"dt" "dd"} #{"dl"}]
-   "tr"     [#{"tr" "td" "th"} #{"table"}]
-   "td"     [#{"td" "th"} #{"tr" "table"}]
-   "th"     [#{"td" "th"} #{"tr" "table"}]
-   "option" [#{"option"} #{"select"}]
-   "a"      [#{"a"} #{"td" "th" "caption" "applet" "marquee" "object" "template"}]})
+  {:li     [#{:li} #{:ul :ol :menu}]
+   :dt     [#{:dt :dd} #{:dl}]
+   :dd     [#{:dt :dd} #{:dl}]
+   :tr     [#{:tr :td :th} #{:table}]
+   :td     [#{:td :th} #{:tr :table}]
+   :th     [#{:td :th} #{:tr :table}]
+   :option [#{:option} #{:select}]
+   :a      [#{:a} #{:td :th :caption :applet :marquee :object :template}]})
 
 (def ^:no-doc headings
   "The headings, whose start tag closes a heading that's the current node,
   as 13.2.6.4.7 of the HTML Standard has it."
-  #{"h1" "h2" "h3" "h4" "h5" "h6"})
+  #{:h1 :h2 :h3 :h4 :h5 :h6})
 
 (def ^:no-doc foreign-roots
   "The roots of SVG and MathML, inside which an element can close itself
   with a slash, as 13.2.6.5 of the HTML Standard has it."
-  #{"svg" "math"})
+  #{:svg :math})
 
 (def ^:no-doc paragraph-scope
   "The elements that bound the search for an open p: block-level ones, list
   items and table cells."
-  (into block-elements #{"li" "td" "th" "dt" "dd" "body"}))
+  (into block-elements #{:li :td :th :dt :dd :body}))
+
+(def ^:no-doc newline-dropping
+  "The elements whose start tag drops a line feed right after it, as
+  13.2.6.4.7 of the HTML Standard has it."
+  #{:pre :listing :textarea})
 
 (def max-depth
   "How deep the parse function nests elements, as deep as WebKit and
@@ -114,26 +118,36 @@
   to its parent, so no walk of the tree recurses without bound."
   512)
 
-(defn- tag-name
-  [node]
-  (name (first node)))
-
 ;; The parse state is `{:stack [...] :open {...}}`: the open elements, the
 ;; root first, and how many are open by tag, so that an end tag nothing
-;; matches costs nothing to ignore.
+;; matches costs nothing to ignore. Tags are the keywords of Hiccup.
 
 (defn ^:no-doc merge-text
   "The element `node` with each run of adjacent strings among its children
   joined into one. Only a comment or a stray end tag between two texts
   leaves such a run, so most elements come back as they are."
   [node]
-  (if (some #(and (string? (nth node %)) (string? (nth node (inc %))))
-            (range 2 (dec (count node))))
+  (if (loop [i 3]
+        (cond
+          (<= (count node) i)                                   false
+          (and (string? (nth node i)) (string? (nth node (dec i)))) true
+          :else                                                 (recur (inc i))))
     (into []
           (comp (partition-by string?)
                 (mapcat #(if (string? (first %)) [(apply str %)] %)))
           node)
     node))
+
+(defn- counted
+  "The counts `open` of the open elements by tag, with the count of `tag`
+  changed by `f`."
+  [open tag f]
+  (assoc open tag (f (get open tag 0))))
+
+(defn- open?
+  "Whether an element of one of `tags` is open in the parse `state`."
+  [{:keys [open] :as state} tags]
+  (some #(pos? (get open % 0)) tags))
 
 (defn- append
   "The parse `state` with `child` appended to its top element."
@@ -145,7 +159,7 @@
   [state node]
   (-> state
       (update :stack conj node)
-      (update-in [:open (tag-name node)] (fnil inc 0))))
+      (update :open counted (first node) inc)))
 
 (defn- close-top
   "The parse `state` with its top element closed into its parent. The text
@@ -154,70 +168,61 @@
   (let [top (peek stack)]
     (-> state
         (assoc :stack (pop stack))
-        (update-in [:open (tag-name top)] dec)
+        (update :open counted (first top) dec)
         (append (merge-text top)))))
 
 (defn ^:no-doc open-index
   "The stack index of the nearest open element of the parse `state` whose
-  tag is in `names`, or nil. The search goes down from the top and gives
-  up at one of `boundaries`."
-  [{:keys [stack open] :as state} names boundaries]
-  (when (some #(pos? (get open % 0)) names)
+  tag is in `tags`, or nil. The search goes down from the top and gives up
+  at one of `boundaries`."
+  [{:keys [stack] :as state} tags boundaries]
+  (when (open? state tags)
     (loop [i (dec (count stack))]
       (when (pos? i)
-        (let [tag (tag-name (nth stack i))]
+        (let [tag (first (nth stack i))]
           (cond
-            (names tag)      i
+            (tags tag)       i
             (boundaries tag) nil
             :else            (recur (dec i))))))))
 
 (defn- close-through
   "The parse `state` with the open elements closed from the top down to the
-  nearest one whose tag is in `names`, that one included. Nothing closes
-  when one of `boundaries` comes first or none of `names` is open."
-  [state names boundaries]
-  (if-let [i (open-index state names boundaries)]
-    (nth (iterate close-top state) (- (count (:stack state)) i))
+  nearest one whose tag is in `tags`, that one included. Nothing closes
+  when one of `boundaries` comes first or none of `tags` is open."
+  [state tags boundaries]
+  (if-let [i (open-index state tags boundaries)]
+    (loop [state state k (- (count (:stack state)) i)]
+      (if (zero? k)
+        state
+        (recur (close-top state) (dec k))))
     state))
 
-(defn- open-paragraph?
-  "Whether the nearest open block-level element of the parse `state` is a p."
-  [state]
-  (some? (open-index state #{"p"} paragraph-scope)))
-
-(defn- foreign?
-  "Whether the element `name` is in SVG or MathML in the parse `state`."
-  [{:keys [open] :as state} name]
-  (or (foreign-roots name)
-      (some #(pos? (get open % 0)) foreign-roots)))
-
 (defn- open-element
-  "The parse `state` with the element `name` and its `attrs` opened, or
+  "The parse `state` with the element `tag` and its `attrs` opened, or
   appended when it's void, `self-closing?` in SVG or MathML, or past
   max-depth. The elements that its start tag implies an end for are
   closed first."
-  [state name attrs self-closing?]
-  (let [state (if (and (block-elements name) (open-paragraph? state))
-                (close-through state #{"p"} #{})
+  [state tag attrs self-closing?]
+  (let [state (if (and (block-elements tag) (open-index state #{:p} paragraph-scope))
+                (close-through state #{:p} #{})
                 state)
-        state (if-let [[names boundaries] (implied-end name)]
-                (close-through state names boundaries)
+        state (if-let [[tags boundaries] (implied-end tag)]
+                (close-through state tags boundaries)
                 state)
-        state (if (and (headings name)
-                       (headings (tag-name (peek (:stack state)))))
+        state (if (and (headings tag)
+                       (headings (first (peek (:stack state)))))
                 (close-top state)
                 state)
-        node  [(keyword name) attrs]]
-    (if (or (void-elements name)
-            (and self-closing? (foreign? state name))
+        node  [tag attrs]]
+    (if (or (void-elements tag)
+            (and self-closing? (or (foreign-roots tag) (open? state foreign-roots)))
             (> (count (:stack state)) max-depth))
       (append state node)
       (push state node))))
 
-(def ^:no-doc newline-dropping
-  "The elements whose start tag drops a line feed right after it, as
-  13.2.6.4.7 of the HTML Standard has it."
-  #{"pre" "listing" "textarea"})
+(def ^:no-doc nul-text
+  "U+0000 NULL as a text, which the tree builder drops from text."
+  (str tokenizer/nul))
 
 (defn- step
   "The parse `state` after the `token` of dk.simongray.html.tokenizer, as a
@@ -228,23 +233,24 @@
     (cond
       (string? token)
       (let [text (cond-> token
-                   (str/includes? token (str tokenizer/nul)) (str/replace (str tokenizer/nul) ""))
+                   (str/includes? token nul-text) (str/replace nul-text ""))
             text (cond-> text
                    (and drop-newline? (str/starts-with? text "\n")) (subs 1))]
         (cond-> state
           (seq text) (append text)))
 
       (= :start-tag (:type token))
-      (let [{:keys [name attrs self-closing?]} token]
-        (cond-> (open-element state name (update-keys attrs keyword) self-closing?)
-          (newline-dropping name) (assoc :drop-newline? true)))
+      (let [{:keys [name attrs self-closing?]} token
+            tag                                (keyword name)]
+        (cond-> (open-element state tag (update-keys attrs keyword) self-closing?)
+          (newline-dropping tag) (assoc :drop-newline? true)))
 
       ;; an end tag br is a line break
-      (and (= :end-tag (:type token)) (= "br" (:name token)))
-      (open-element state "br" {} false)
-
       (= :end-tag (:type token))
-      (close-through state #{(:name token)} #{})
+      (let [tag (keyword (:name token))]
+        (if (= :br tag)
+          (open-element state :br {} false)
+          (close-through state #{tag} #{})))
 
       :else
       state)))
@@ -652,7 +658,7 @@
               (let [[tag attrs children] (parts x)
                     name  (name tag)
                     start (str "<" name (attributes-html attrs) ">")]
-                (if (void-elements name)
+                (if (void-elements tag)
                   start
                   (str start (str/join (map node children)) "</" name ">")))))]
     (str/join (map node (nodes-of nodes)))))
