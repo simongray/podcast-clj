@@ -3,14 +3,13 @@ podcast-clj
 
 This is a library for making podcast software in Clojure or ClojureScript.
 
-- It parses and writes podcast feeds & associated files according to the
+- It both parses and writes podcast feeds & associated files according to the
 relevant specs, but supports files that break them too.
-- It includes nearly every building block of a modern podcast app in its API,
-which has been designed to be highly _decomplected_.
-- It also has high-level `app.*` namespaces that compose low-level functions,
-so you can start making a podcast app fast.
-- It depends only on Clojure and data.json, and its requests are plain maps,
-so you can send them with any HTTP client.
+- It includes *nearly* every building block of a modern podcast app in its API,
+which has been designed to be **highly decomplected**.
+You can use as little or as much of it as you want for your own project.
+- It also has high-level `app.*` namespaces that compose the low-level functions.
+These provide convenience and structure so you can start making a podcast app fast.
 
 > **AI;DR** this introduction was written by a regular human, but I want to be
 > transparent here: large swaths of this library were developed with assistance
@@ -40,9 +39,9 @@ Current status
 - **Apps.** Everything needed to create a podcast app, including a queue,
   playlists, full-text search that forgives typos, download rules, a library
   saved in a folder or IndexedDB, and sync between devices through a folder,
-  [WebDAV](https://www.rfc-editor.org/rfc/rfc4918), or [a server of your own](server/README.md). Through the [gpodder API](https://gpoddernet.readthedocs.io/en/latest/api/),
-  the subscriptions and play progress also sync with apps such as
-  [AntennaPod](https://antennapod.org).
+  [WebDAV](https://www.rfc-editor.org/rfc/rfc4918), or [a server of your own](server/README.md).
+  Through the [gpodder API](https://gpoddernet.readthedocs.io/en/latest/api/),
+  the subscriptions and play progress also sync with apps such as [AntennaPod](https://antennapod.org).
 - **Hosts.** Validation against
   [PSP-1](https://github.com/Podcast-Standards-Project/PSP-1-Podcast-RSS-Specification)
   and the requirements of Apple Podcasts, checks of the files that a feed links to,
@@ -59,6 +58,7 @@ Current status
 
 How podcasting works
 --------------------
+Podcasts are one of few spaces left online where decentralisation is still the norm.
 
 A podcast is published as a feed: an RSS file that the show's host, i.e. the
 service that stores its audio, serves at a URL. The feed describes the show in
@@ -71,13 +71,16 @@ then for new episodes.
 
 The names in podcast-clj follow these terms. A parsed feed is a map of the
 channel and its items as the host wrote them, while `app.show` and
-`app.episode` give a show and an episode as a listener sees them, e.g. with one
+`app.episode` give a show and an episode as a listener should see them, e.g. with one
 title and one image, whichever tags they came from. The other namespaces
 are mostly named after the part of podcasting they cover, e.g. `directory`,
-`comments`, `value` for payments and `analytics` for download counts. What a
-listener does, e.g. subscribing, queueing and playing, goes into their profile,
-which syncs between their devices. Each device has its own library: the
-profile, plus the feeds that the device has fetched and their search index.
+`comments`, `value` for payments and `analytics` for download counts.
+
+The things a typical listener will do (subscribing, queueing, playing, etc.)
+go into their `profile`, which can then be synced between their devices.
+Each device has its own `library`, a piece of state which includes:
+the aforementioned profile, the podcast feeds that the device has fetched,
+and a local search index for fast search results.
 
 Feeds as data
 -------------
