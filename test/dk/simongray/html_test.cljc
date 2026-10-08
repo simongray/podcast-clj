@@ -123,7 +123,10 @@
         "what a browser does not show is no text")
     (is (= "  a\n    b" (html/text "<pre>  a\n    b\n</pre>")) "a pre keeps its indentation")
     (is (= "Write to <show@example.com>\nsoon" (html/text "Write to <show@example.com>\nsoon")) "plain text stays plain")
-    (is (= "x" (html/text [:p "x"])) "hiccup without an attribute map")))
+    (is (= "x" (html/text [:p "x"])) "hiccup without an attribute map")
+    (let [nbsp (char 160)]
+      (is (= (str "a" nbsp nbsp " b" nbsp) (html/text "<p>a&nbsp;&nbsp; b&nbsp;</p>"))
+          "a no-break space isn't whitespace that HTML collapses or trims, on either platform"))))
 
 (deftest rendering-markdown
   (is (= "## Notes\n\nHello **world** and *you*, [link](https://x/)\\\nnext line.\n\n- one\n- two\n\n1. first\n2. second\n\n> quoted\\\n> lines\n\n---\n\n```\ncode block\n```\n\n![art](a.png) `x`"

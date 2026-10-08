@@ -20,11 +20,49 @@
   (:require [clojure.string :as str]
             [dk.simongray.html.tokenizer :as tokenizer]))
 
+;; HTML Standard, "ASCII whitespace": tab, LF, FF, CR and space. HTML
+;; collapses and trims no other whitespace, so a no-break space stays. The
+;; \s of regular expressions and str/trim differ on it between the JVM and
+;; JavaScript, so neither is used for text.
+
+(defn ^:no-doc whitespace?
+  "Whether the character `c` is ASCII whitespace."
+  [c]
+  (case c
+    (\tab \newline \formfeed \return \space) true
+    false))
+
+(defn ^:no-doc trim-whitespace
+  "The text `s` without the ASCII whitespace at its ends."
+  [s]
+  (let [n     (count s)
+        end   (loop [i n]
+                (if (and (pos? i) (whitespace? (tokenizer/char-at s n (dec i))))
+                  (recur (dec i))
+                  i))
+        start (loop [i 0]
+                (if (and (< i end) (whitespace? (tokenizer/char-at s n i)))
+                  (recur (inc i))
+                  i))]
+    (if (and (zero? start) (= n end))
+      s
+      (subs s start end))))
+
+(defn ^:no-doc blank?
+  "Whether the text `s` holds nothing but ASCII whitespace."
+  [s]
+  (let [n (count s)]
+    (loop [i 0]
+      (cond
+        (= n i)                                   true
+        (whitespace? (tokenizer/char-at s n i))   (recur (inc i))
+        :else                                     false))))
+
 (def ^:no-doc markup
   "What makes a text HTML rather than plain text: a comment or a
   whole tag. Plain text may hold an email address in angle brackets, or a
   less-than sign before a 3, and neither is a tag."
-  #"<!--|<[a-zA-Z][a-zA-Z0-9]*(?:\s[^<>]*)?/?>|</[a-zA-Z][a-zA-Z0-9]*\s*>")
+  #"<!--|<[a-zA-Z][a-zA-Z0-9]*(?:[\t\n\f\r ][^<>]*)?/?>|</[a-zA-Z][a-zA-Z0-9]*[\t\n\f\r ]*>")
 
 ;; HTML Standard, "Elements": the void elements, and param of older pages
 (def ^:no-doc void-elements
@@ -86,12 +124,16 @@
 
 (defn ^:no-doc merge-text
   "The element `node` with each run of adjacent strings among its children
-  joined into one."
+  joined into one. Only a comment or a stray end tag between two texts
+  leaves such a run, so most elements come back as they are."
   [node]
-  (into []
-        (comp (partition-by string?)
-              (mapcat #(if (string? (first %)) [(apply str %)] %)))
-        node))
+  (if (some #(and (string? (nth node %)) (string? (nth node (inc %))))
+            (range 2 (dec (count node))))
+    (into []
+          (comp (partition-by string?)
+                (mapcat #(if (string? (first %)) [(apply str %)] %)))
+          node)
+    node))
 
 (defn- append
   "The parse `state` with `child` appended to its top element."
@@ -181,7 +223,8 @@
   "The parse `state` after the `token` of dk.simongray.html.tokenizer, as a
   few of the rules of 13.2.6.4.7 of the HTML Standard build the tree."
   [{:keys [drop-newline?] :as state} token]
-  (let [state (dissoc state :drop-newline?)]
+  (let [state (cond-> state
+                drop-newline? (dissoc :drop-newline?))]
     (cond
       (string? token)
       (let [text (cond-> token
@@ -245,10 +288,10 @@
     (some-> (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*(?=:)" s) str/lower-case)))
 
 (defn ^:no-doc text-of
-  "The value `v` of an attribute when it's text that isn't blank. A bare
-  attribute has the value true, which isn't text."
+  "The value `v` of an attribute when it's text that isn't blank, which a
+  bare attribute's empty string, or true in Hiccup, isn't."
   [v]
-  (when (and (string? v) (not (str/blank? v)))
+  (when (and (string? v) (not (blank? v)))
     v))
 
 (def allowed-tags
@@ -293,10 +336,10 @@
 (defn ^:no-doc parts
   "The tag, the attributes and the children of the Hiccup element `node`,
   whose attribute map can be left out, e.g. [:p \"x\"]."
-  [[tag & more :as node]]
-  (if (map? (first more))
-    [tag (first more) (rest more)]
-    [tag {} more]))
+  [node]
+  (if (map? (get node 1))
+    [(node 0) (node 1) (subvec node 2)]
+    [(node 0) {} (subvec node 1)]))
 
 (defn- safe-attributes
   "The attributes `attrs` of an element `tag` that the table `allowed`
@@ -332,17 +375,19 @@
                  (string? x)       [x]
                  (not (vector? x)) []
                  :else
-                 (let [[tag attrs children] (parts x)
-                       kids (mapcat node children)
-                       kids (if (structural-tags tag)
-                              (remove #(and (string? %) (str/blank? %)) kids)
-                              kids)
-                       safe (safe-attributes tag attrs attributes)]
-                   (cond
-                     (dropped tag) []
-                     (allowed tag) [(into [tag safe] kids)]
-                     :else         kids))))]
-       (apply list (mapcat node nodes))))))
+                 (let [[tag attrs children] (parts x)]
+                   (if (dropped tag)
+                     []
+                     (let [kids (into []
+                                      (comp (mapcat node)
+                                            (if (structural-tags tag)
+                                              (remove #(and (string? %) (blank? %)))
+                                              identity))
+                                      children)]
+                       (if (allowed tag)
+                         [(into [tag (safe-attributes tag attrs attributes)] kids)]
+                         kids))))))]
+       (apply list (into [] (mapcat node) nodes))))))
 
 (defn- decoded
   "The text `s` with its character references decoded and every other
@@ -355,11 +400,11 @@
   "The plain text `s` as paragraphs, with blank lines between them and line
   breaks within."
   [s]
-  (let [text (str/trim (decoded s))]
-    (apply list (for [paragraph (str/split text #"\n\s*\n")
+  (let [text (trim-whitespace (decoded s))]
+    (apply list (for [paragraph (str/split text #"\n[\t\n\f\r ]*\n")
                       :let  [lines (->> (str/split-lines paragraph)
-                                        (map str/trim)
-                                        (remove str/blank?))]
+                                        (map trim-whitespace)
+                                        (remove blank?))]
                       :when (seq lines)]
                   (into [:p {}] (interpose [:br {}] lines))))))
 
@@ -393,24 +438,13 @@
     :else                   x))
 
 (defn- collapse
+  "The text `s` with each run of ASCII whitespace as one space. Most text
+  has only single spaces, which indexOf tells without a regular
+  expression, and then it stays as it is."
   [s]
-  (str/replace s #"\s+" " "))
-
-(defn- trim-blanks
-  "The string `s` without the spaces and tabs at its ends, found without a
-  regular expression, which would try again from every blank of a long
-  run."
-  [s]
-  (let [blank? #(contains? #{\space \tab} (nth s %))
-        end    (loop [i (count s)]
-                 (if (and (pos? i) (blank? (dec i)))
-                   (recur (dec i))
-                   i))
-        start  (loop [i 0]
-                 (if (and (< i end) (blank? i))
-                   (recur (inc i))
-                   i))]
-    (subs s start end)))
+  (if (some #(str/includes? s %) ["\n" "  " "\t" "\r" "\f"])
+    (str/replace s #"[\t\n\f\r ]+" " ")
+    s))
 
 (def ^:no-doc pre-mark
   "The mark that render puts at the start of each line of preformatted
@@ -432,11 +466,13 @@
   "The rendered `s`, trimmed, with each run of blank lines cut to one. Its
   lines are trimmed too, except those of preformatted text."
   [s]
-  (let [trim-line #(if (str/starts-with? % pre-mark) % (trim-blanks %))]
-    (-> (str/join "\n" (map trim-line (str/split-lines s)))
-        (str/replace #"\n{3,}" "\n\n")
-        str/trim
-        (str/replace pre-mark ""))))
+  (let [trim-line #(if (str/starts-with? % pre-mark) % (trim-whitespace %))
+        lines     (str/join "\n" (into [] (map trim-line) (str/split-lines s)))
+        text      (trim-whitespace (cond-> lines
+                                     (str/includes? lines "\n\n\n")
+                                     (str/replace #"\n{3,}" "\n\n")))]
+    (cond-> text
+      (str/includes? text pre-mark) (str/replace pre-mark ""))))
 
 (defn- render
   "The `nodes` rendered as text by the functions `inline` and `element`,
@@ -448,7 +484,7 @@
   map:
 
   - :list is :ul or :ol inside a list
-  - :index is an atom that counts the list items
+  - :index is a volatile that counts the list items
   - :pre? is true inside a pre
 
   The elements of dropped-tags render as nothing, as a browser shows no
@@ -459,21 +495,22 @@
               (string? x)       (inline x ctx)
               (not (vector? x)) ""
               :else
-              (let [[tag attrs children] (parts x)
-                    ctx (cond-> ctx
-                          (#{:ul :ol} tag) (assoc :list tag :index (atom 0))
-                          (= :pre tag)      (assoc :pre? true))
-                    inner (str/join (map #(node % ctx) children))
-                    inner (if (= :pre tag) (marked-lines inner) inner)]
+              (let [[tag attrs children] (parts x)]
                 (if (dropped-tags tag)
                   ""
-                  (element [tag attrs] inner ctx)))))]
-    (tidy (str/join (map #(node % context) nodes)))))
+                  (let [ctx   (cond-> ctx
+                                (#{:ul :ol} tag) (assoc :list tag :index (volatile! 0))
+                                (= :pre tag)      (assoc :pre? true))
+                        inner (str/join (into [] (map #(node % ctx)) children))]
+                    (element [tag attrs]
+                             (if (= :pre tag) (marked-lines inner) inner)
+                             ctx))))))]
+    (tidy (str/join (into [] (map #(node % context)) nodes)))))
 
 (defn- list-marker
   [{:keys [list index]}]
   (case list
-    :ol (str (swap! index inc) ". ")
+    :ol (str (vswap! index inc) ". ")
     :ul "- "
     ""))
 
@@ -483,13 +520,13 @@
   `links?`."
   [links? [tag attrs] inner ctx]
   (let [href   (:href attrs)
-        shown? (and links? href (not= (str/trim inner) (str href)))]
+        shown? (and links? href (not= (trim-whitespace inner) (str href)))]
     (cond
       (= :br tag)          "\n"
       (= :hr tag)          "\n\n"
       (= :img tag)         (str (:alt attrs))
       (= :a tag)           (if shown? (str inner " (" href ")") inner)
-      (= :li tag)          (str (list-marker ctx) (str/trim inner) "\n")
+      (= :li tag)          (str (list-marker ctx) (trim-whitespace inner) "\n")
       (paragraph-tags tag) (str "\n\n" inner "\n\n")
       (line-tags tag)      (str inner "\n")
       :else                inner)))
@@ -521,7 +558,7 @@
                       (str/join "\n"))]
     (cond
       heading
-      (str "\n\n" (apply str (repeat heading "#")) " " (str/trim inner) "\n\n")
+      (str "\n\n" (apply str (repeat heading "#")) " " (trim-whitespace inner) "\n\n")
 
       (= :br tag)
       "\\\n"
@@ -550,16 +587,16 @@
       (if (:pre? ctx) inner (str "`" inner "`"))
 
       (= :pre tag)
-      (str "\n\n```\n" (str/trim inner) "\n```\n\n")
+      (str "\n\n```\n" (trim-whitespace inner) "\n```\n\n")
 
       (= :blockquote tag)
-      (str "\n\n" (quoted (str/trim inner)) "\n\n")
+      (str "\n\n" (quoted (trim-whitespace inner)) "\n\n")
 
       (= :li tag)
-      (str (list-marker ctx) (str/trim inner) "\n")
+      (str (list-marker ctx) (trim-whitespace inner) "\n")
 
       (#{:td :th} tag)
-      (str (str/trim inner) " | ")
+      (str (trim-whitespace inner) " | ")
 
       (= :tr tag)
       (str "| " inner "\n")
@@ -587,20 +624,21 @@
           markdown-element
           {}))
 
-(defn- escape
-  [s]
-  (-> s
-      (str/replace "&" "&amp;")
-      (str/replace "<" "&lt;")
-      (str/replace ">" "&gt;")))
+(def ^:no-doc text-escapes
+  "The characters that text in HTML escapes, by character."
+  {\& "&amp;" \< "&lt;" \> "&gt;"})
+
+(def ^:no-doc value-escapes
+  "The characters that an attribute value in double quotes escapes, by
+  character."
+  (assoc text-escapes \" "&quot;"))
 
 (defn- attributes-html
   [attrs]
   (str/join (for [[k v] attrs]
               (if (true? v)
                 (str " " (name k))
-                (let [value (str/replace (escape (str v)) "\"" "&quot;")]
-                  (str " " (name k) "=\"" value "\""))))))
+                (str " " (name k) "=\"" (str/escape (str v) value-escapes) "\"")))))
 
 (defn emit
   "The Hiccup `nodes` as an HTML string, with the text escaped and the void
@@ -608,7 +646,7 @@
   [nodes]
   (letfn [(node [x]
             (cond
-              (string? x)       (escape x)
+              (string? x)       (str/escape x text-escapes)
               (not (vector? x)) ""
               :else
               (let [[tag attrs children] (parts x)
