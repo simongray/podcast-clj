@@ -9,9 +9,7 @@
       {:type :start-tag :name \"a\" :attrs {\"href\" \"/\"} :self-closing? false}
       {:type :end-tag :name \"a\"}
       {:type :comment :data \" a note \"}
-      {:type :doctype :name \"html\" :public-id nil :system-id nil
-       :force-quirks? false}
-      {:type :processing-instruction :target \"php\" :data \"echo 1;\"}
+      {:type :doctype}
 
   As in the standard, a token that the end of the text cuts off is
   dropped. The tokenizer reports no parse errors.
@@ -19,8 +17,21 @@
   In the standard, the tree builder switches the tokenizer to raw text
   after a start tag such as script or title. Here the :text-states option
   does it, so that the tokens of HTML content come out right without a
-  tree builder. A CDATA section is read only where a tree builder knows
-  that it's in SVG or MathML, so here it's a bogus comment."
+  tree builder.
+
+  The tokenizer is for HTML embedded in other content, so it leaves out
+  what only whole documents and SVG or MathML need. Each part ends where
+  the standard ends it, so no other token changes:
+
+  - a DOCTYPE runs to the next >, without its name, identifiers or the
+    force-quirks flag, 13.2.5.53 to 13.2.5.68
+  - <? starts a bogus comment, as before the processing instructions of
+    13.2.5.72 to 13.2.5.76
+  - a CDATA section is a bogus comment, as it is outside SVG and MathML,
+    without the CDATA states of 13.2.5.69 to 13.2.5.71
+
+  TODO: read these too, by an option or a namespace of their own, for a
+  parser of whole documents or of SVG and MathML."
   (:require [clojure.string :as str]
             [dk.simongray.html.entities :as entities]))
 
@@ -302,7 +313,7 @@
       (identical? \# c)            (numeric-reference s n (inc i))
       :else               ["&" i])))
 
-;; 13.2.5.1 to 13.2.5.5 and 13.2.5.69 to 13.2.5.71, the states of text
+;; 13.2.5.1 to 13.2.5.5, the states of text
 
 (defn ^:no-doc data-text
   "Read the data state, 13.2.5.1, from `i` onto the builder `text`, as
@@ -504,18 +515,6 @@
   [s n i text]
   (append! text (without-nul (subs s i)))
   [n :eof])
-
-(defn ^:no-doc cdata-text
-  "Read the CDATA section states, 13.2.5.69 to 13.2.5.71, from `i` onto the
-  builder `text`, up to ]]> or the end."
-  [s n i text]
-  (let [end #?(:clj  (.indexOf ^String s "]]>" (int i))
-               :cljs (.indexOf s "]]>" i))]
-    (if (neg? end)
-      (do (append! text (subs s i))
-          [n :eof])
-      (do (append! text (subs s i end))
-          [(+ end 3) :data]))))
 
 ;; 13.2.5.8 and 13.2.5.32 to 13.2.5.40, tags
 
@@ -739,133 +738,12 @@
 
 ;; 13.2.5.53 to 13.2.5.68, DOCTYPE
 
-(defn- doctype-char
-  "The character `c` as the name or an identifier of a DOCTYPE takes it:
-  lower case for a name when `name?`, and NULL replaced."
-  [c name?]
-  (cond
-    (identical? nul c)              replacement
-    (and name? (upper? c)) (lower-ascii (str c))
-    :else                  (str c)))
-
 (defn ^:no-doc doctype-text
-  "Read a DOCTYPE after its <!DOCTYPE, by the DOCTYPE states, 13.2.5.53 to
-  13.2.5.68, as [index token]."
+  "Read a DOCTYPE after its <!DOCTYPE, as [index token]. Each DOCTYPE state
+  of 13.2.5.53 to 13.2.5.68 ends it at the next > or the end, so it's read
+  to there, without its name, identifiers or force-quirks flag."
   [s n i]
-  (loop [i  i
-         st :doctype
-         d  {:type :doctype :name nil :public-id nil :system-id nil :force-quirks? false}]
-    (let [c      (char-at s n i)
-          quirky (assoc d :force-quirks? true)]
-      (if (nil? c)
-        [n (if (= :bogus st) d quirky)]
-        (case st
-          :doctype
-          (recur (if (whitespace? c) (inc i) i) :before-name d)
-
-          :before-name
-          (cond
-            (whitespace? c) (recur (inc i) st d)
-            (identical? \> c)        [(inc i) quirky]
-            :else           (recur (inc i) :name (assoc d :name (doctype-char c true))))
-
-          :name
-          (cond
-            (whitespace? c) (recur (inc i) :after-name d)
-            (identical? \> c)        [(inc i) d]
-            :else           (recur (inc i) st (update d :name str (doctype-char c true))))
-
-          :after-name
-          (cond
-            (whitespace? c)                (recur (inc i) st d)
-            (identical? \> c)                       [(inc i) d]
-            (starts-at-ci? s n i "public") (recur (+ i 6) :after-public-keyword d)
-            (starts-at-ci? s n i "system") (recur (+ i 6) :after-system-keyword d)
-            :else                          (recur i :bogus quirky))
-
-          (:after-public-keyword :before-public-id :after-system-keyword :before-system-id)
-          (let [k (if (#{:after-public-keyword :before-public-id} st) :public-id :system-id)]
-            (cond
-              (whitespace? c) (recur (inc i)
-                                     (case st
-                                       :after-public-keyword :before-public-id
-                                       :after-system-keyword :before-system-id
-                                       st)
-                                     d)
-              (identical? \" c)        (recur (inc i) [k \"] (assoc d k ""))
-              (identical? \' c)        (recur (inc i) [k \'] (assoc d k ""))
-              (identical? \> c)        [(inc i) quirky]
-              :else           (recur i :bogus quirky)))
-
-          (:after-public-id :between-ids)
-          (cond
-            (whitespace? c) (recur (inc i) :between-ids d)
-            (identical? \> c)        [(inc i) d]
-            (identical? \" c)        (recur (inc i) [:system-id \"] (assoc d :system-id ""))
-            (identical? \' c)        (recur (inc i) [:system-id \'] (assoc d :system-id ""))
-            :else           (recur i :bogus quirky))
-
-          :after-system-id
-          (cond
-            (whitespace? c) (recur (inc i) st d)
-            (identical? \> c)        [(inc i) d]
-            :else           (recur i :bogus d))
-
-          :bogus
-          (if (identical? \> c)
-            [(inc i) d]
-            (recur (inc i) st d))
-
-          ;; an identifier in quotes, as a state of the key and the quote
-          (let [[k delimiter] st]
-            (cond
-              (identical? delimiter c) (recur (inc i) (if (= :public-id k) :after-public-id :after-system-id) d)
-              (identical? \> c)    [(inc i) quirky]
-              :else       (recur (inc i) st (update d k str (doctype-char c false))))))))))
-
-;; 13.2.5.72 to 13.2.5.76, processing instructions
-
-(defn- target-char?
-  [c]
-  (or (alphanumeric? c) (identical? \- c) (identical? \_ c)))
-
-(defn ^:no-doc processing-instruction
-  "Read a processing instruction after its <?, by the processing
-  instruction states, 13.2.5.72 to 13.2.5.76, as [index token]. A target
-  that isn't allowed makes it a bogus comment."
-  [s n i]
-  (let [c (char-at s n i)]
-    (cond
-      (nil? c)
-      [n nil]
-
-      (not (or (alpha? c) (identical? \_ c)))
-      (bogus-comment s n i "?")
-
-      :else
-      (let [end    (run-end s n i #(not (target-char? %)))
-            target (subs s i end)
-            next   (char-at s n end)]
-        (cond
-          (nil? next)
-          [n nil]
-
-          (or (not (or (whitespace? next) (identical? \? next) (identical? \> next)))
-              (#{"xml" "xml-stylesheet"} (lower-ascii target)))
-          (bogus-comment s n end (str "?" target))
-
-          :else
-          (loop [i (run-end s n end #(not (whitespace? %))) data ""]
-            (let [c (char-at s n i)]
-              (cond
-                (nil? c)                            [n nil]
-                (identical? \> c)                            [(inc i) {:type   :processing-instruction
-                                                              :target target
-                                                              :data   data}]
-                (and (identical? \? c)
-                     (identical? \> (char-at s n (inc i))))  (recur (inc i) data)
-                :else                               (let [j (run-end s n (inc i) #(or (identical? \? %) (identical? \> %)))]
-                                                      (recur j (str data (subs s i j))))))))))))
+  [(min n (inc (index-of s n ">" i))) {:type :doctype}])
 
 ;; 13.2.5.6, 13.2.5.7 and 13.2.5.42, the states between tokens
 
@@ -881,7 +759,7 @@
   "The tokens of the HTML text `s`, as a vector, read with the `opts`:
 
   - :state, the state to start in: :data, the default, :rcdata, :rawtext,
-    :script-data, :plaintext or :cdata-section
+    :script-data or :plaintext
   - :last-start-tag, the name of the last start tag, which an end tag in
     raw text must match, as when the text follows that tag
   - :text-states, the state to switch to after the start tag of each
@@ -914,24 +792,24 @@
          :rawtext       (let [[j st] (after-text (raw-text s n i text false last))] (recur j st last))
          :script-data   (let [[j st] (after-text (script-text s n i text last))] (recur j st last))
          :plaintext     (let [[j st] (plain-text s n i text)] (recur j st last))
-         :cdata-section (let [[j st] (cdata-text s n i text)] (recur j st last))
 
-         ;; 13.2.5.6
+         ;; 13.2.5.6, where <? is a bogus comment, as it was before the
+         ;; processing instructions of 13.2.5.72
          :tag-open
          (let [c (char-at s n i)]
            (cond
-             (nil? c)  (do (append! text "<") (recur n :eof last))
-             (identical? \! c)  (recur (inc i) :markup-declaration last)
-             (identical? \/ c)  (recur (inc i) :end-tag-open last)
-             (identical? \? c)  (let [[j token] (processing-instruction s n (inc i))]
-                         (emit token)
-                         (recur j :data last))
-             (alpha? c) (let [[j token] (tag s n i false nil)]
-                          (if token
-                            (do (emit token)
-                                (recur j (get text-states (:name token) :data) (:name token)))
-                            (recur j :eof last)))
-             :else     (do (append! text "<") (recur i :data last))))
+             (nil? c)          (do (append! text "<") (recur n :eof last))
+             (identical? \! c) (recur (inc i) :markup-declaration last)
+             (identical? \/ c) (recur (inc i) :end-tag-open last)
+             (identical? \? c) (let [[j token] (bogus-comment s n i "")]
+                                 (emit token)
+                                 (recur j :data last))
+             (alpha? c)        (let [[j token] (tag s n i false nil)]
+                                 (if token
+                                   (do (emit token)
+                                       (recur j (get text-states (:name token) :data) (:name token)))
+                                   (recur j :eof last)))
+             :else             (do (append! text "<") (recur i :data last))))
 
          ;; 13.2.5.7
          :end-tag-open
@@ -946,7 +824,8 @@
                           (emit token)
                           (recur j :data last))))
 
-         ;; 13.2.5.42
+         ;; 13.2.5.42, where [CDATA[ always starts a bogus comment, as it
+         ;; does outside SVG and MathML
          :markup-declaration
          (let [[j token] (cond
                            (starts-at? s i "--")             (comment-text s n (+ i 2))
