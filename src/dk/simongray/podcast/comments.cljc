@@ -503,8 +503,8 @@
 
 (defn text
   "The content of `comment`, a comment of `thread`, as plain text, with
-  `opts`. It's the text that a reader sees in what hiccup gives, as
-  html/text writes it, with a blank line between two paragraphs.
+  `opts`. It's the text that a reader sees in what hiccup gives, with a
+  blank line between two paragraphs.
 
       (text thread comment)  ; => \"Is this @Ann approved? #podcast\"
 
@@ -515,7 +515,7 @@
 
   The `opts` are these:
 
-  - :links?, as html/text takes it, to put the URL of each link after it
+  - :links?, to put the URL of each link after it
   - :names, as hiccup takes it"
   ([thread comment]
    (text thread comment {}))
