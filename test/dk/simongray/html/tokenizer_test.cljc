@@ -16,6 +16,9 @@
   (is (= [(start "script") "if (a<b) x = '</p>'" (end "script") "done"]
          (tokenizer/tokens "<script>if (a<b) x = '</p>'</script>done"))
       "a script runs to its own end tag")
+  (is (= [(start "script") "<!-- x('<script></script>') -->" (end "script") "y"]
+         (tokenizer/tokens "<script><!-- x('<script></script>') --></script>y"))
+      "nor does a script that the script writes inside <!-- -->")
   (is (= [(start "title") "Fish & <b>chips</b>" (end "title")]
          (tokenizer/tokens "<title>Fish &amp; <b>chips</b></title>"))
       "a title decodes references but reads no tags")

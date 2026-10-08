@@ -139,6 +139,11 @@
     (\tab \newline \formfeed \space) true
     false))
 
+(defn ^:no-doc tag-end?
+  "Whether `c` ends the name of a tag: whitespace, / or >."
+  [c]
+  (or (whitespace? c) (identical? \/ c) (identical? \> c)))
+
 (def ^:no-doc upper-pattern
   "An ASCII upper alpha, anywhere in a text."
   #?(:clj  #"[A-Z]"
@@ -358,7 +363,7 @@
             next (char-at s n end)]
         (if (and (= name last)
                  next
-                 (or (whitespace? next) (identical? \/ next) (identical? \> next)))
+                 (tag-end? next))
           [:end end name]
           [:text end (subs s i end)])))))
 
@@ -400,114 +405,65 @@
           (append! text (subs s i j))
           (recur j))))))
 
-(defn- script-stop?
-  [c]
-  (or (identical? \< c) (identical? \- c) (identical? nul c)))
-
 (defn ^:no-doc script-text
   "Read the script data state, 13.2.5.4, from `i` onto the builder `text`,
-  with its states of escapes, 13.2.5.15 to 13.2.5.31, as [index state
-  name], like raw-text."
+  as [index state name], like raw-text.
+
+  The states of escapes, 13.2.5.15 to 13.2.5.31, keep every character as
+  text, so they only decide where a script ends: at the first appropriate
+  end tag for `last` outside a double escape. So the script is read by
+  searches for what changes the mode rather than a state for each
+  character, which the tests of html5lib show to be the same:
+
+  - in a script, <!-- starts an escape, whose dashes can end it at once
+  - in an escape, --> ends it, and <script followed by a space, / or >
+    starts a double escape
+  - in a double escape, --> ends both escapes, and </script followed by a
+    space, / or > ends the double one"
   [s n i text last]
-  (letfn [(less-than [i escaped?]
-            ;; the less-than sign states, with their end tag states
-            (let [after (char-at s n (inc i))]
-              (cond
-                (identical? \/ after)
-                (let [[kind j x] (end-tag-at s n i last)]
-                  (if (= :end kind)
-                    [:end j x]
-                    [:text j x (if escaped? :escaped :script)]))
-
-                (and (identical? \! after) (not escaped?))
-                [:text (+ i 2) "<!" :escape-start]
-
-                (and escaped? after (alpha? after))
-                [:text (inc i) "<" :double-escape-start]
-
-                :else
-                [:text (inc i) "<" (if escaped? :escaped :script)])))]
-    (loop [i i st :script temp ""]
-      (let [c (char-at s n i)]
-        (if (nil? c)
-          [n :eof]
-          (case st
-            :script
+  (let [end-tag     (fn [k]
+                      (let [[kind j name] (end-tag-at s n k last)]
+                        (when (= :end kind)
+                          [j name])))
+        script-tag? (fn [k offset]
+                      (and (starts-at-ci? s n (+ k offset) "script")
+                           (some-> (char-at s n (+ k offset 6)) tag-end?)))
+        finish      (fn [end]
+                      (append! text (without-nul (subs s i end))))]
+    ;; arrow is the next --> once an escape needs it, kept until passed
+    (loop [pos i mode :script arrow -1]
+      (let [arrow (if (and (not= :script mode) (< arrow pos))
+                    (index-of s n "-->" pos)
+                    arrow)]
+        (case mode
+          :script
+          (let [k (index-of s n "<" pos)]
             (cond
-              (identical? \< c)   (let [[kind j x st'] (less-than i false)]
-                           (if (= :end kind)
-                             [j :end-tag x]
-                             (do (append! text x) (recur j st' temp))))
-              (identical? nul c)  (do (append! text replacement) (recur (inc i) st temp))
-              :else      (let [j (run-end s n (inc i) #(or (identical? \< %) (identical? nul %)))]
-                           (append! text (subs s i j))
-                           (recur j st temp)))
+              (= n k)                 (do (finish n) [n :eof])
+              (starts-at? s k "<!--") (recur (+ k 2) :escaped -1)
+              (end-tag k)             (let [[j name] (end-tag k)]
+                                        (finish k)
+                                        [j :end-tag name])
+              :else                   (recur (inc k) mode arrow)))
 
-            (:escape-start :escape-start-dash)
-            (if (identical? \- c)
-              (do (append! text "-")
-                  (recur (inc i)
-                         (if (= :escape-start st) :escape-start-dash :escaped-dash-dash)
-                         temp))
-              (recur i :script temp))
-
-            (:escaped :escaped-dash :escaped-dash-dash)
+          :escaped
+          (let [k (index-of s n "<" pos)]
             (cond
-              (identical? \- c)   (do (append! text "-")
-                             (recur (inc i)
-                                    (if (= :escaped st) :escaped-dash :escaped-dash-dash)
-                                    temp))
-              (identical? \< c)   (let [[kind j x st'] (less-than i true)]
-                           (if (= :end kind)
-                             [j :end-tag x]
-                             (do (append! text x) (recur j st' ""))))
-              (and (identical? \> c) (= :escaped-dash-dash st))
-              (do (append! text ">") (recur (inc i) :script temp))
-              (identical? nul c)  (do (append! text replacement) (recur (inc i) :escaped temp))
-              (= :escaped st)
-              (let [j (run-end s n (inc i) script-stop?)]
-                (append! text (subs s i j))
-                (recur j :escaped temp))
-              :else      (do (append! text (str c)) (recur (inc i) :escaped temp)))
+              (< arrow k)        (recur (+ arrow 3) :script -1)
+              (= n k)            (do (finish n) [n :eof])
+              (end-tag k)        (let [[j name] (end-tag k)]
+                                   (finish k)
+                                   [j :end-tag name])
+              (script-tag? k 1)  (recur (+ k 8) :double-escaped arrow)
+              :else              (recur (inc k) mode arrow)))
 
-            (:double-escape-start :double-escape-end)
+          :double-escaped
+          (let [k (index-of s n "</" pos)]
             (cond
-              (or (whitespace? c) (identical? \/ c) (identical? \> c))
-              (do (append! text (str c))
-                  (recur (inc i)
-                         (if (= (= "script" temp) (= :double-escape-start st))
-                           :double-escaped
-                           :escaped)
-                         temp))
-
-              (alpha? c)
-              (do (append! text (str c))
-                  (recur (inc i) st (str temp (lower-ascii (str c)))))
-
-              :else
-              (recur i (if (= :double-escape-start st) :escaped :double-escaped) temp))
-
-            (:double-escaped :double-escaped-dash :double-escaped-dash-dash)
-            (cond
-              (identical? \- c)   (do (append! text "-")
-                             (recur (inc i)
-                                    (if (= :double-escaped st)
-                                      :double-escaped-dash
-                                      :double-escaped-dash-dash)
-                                    temp))
-              (identical? \< c)   (do (append! text "<")
-                             (if (identical? \/ (char-at s n (inc i)))
-                               (do (append! text "/")
-                                   (recur (+ i 2) :double-escape-end ""))
-                               (recur (inc i) :double-escaped temp)))
-              (and (identical? \> c) (= :double-escaped-dash-dash st))
-              (do (append! text ">") (recur (inc i) :script temp))
-              (identical? nul c)  (do (append! text replacement) (recur (inc i) :double-escaped temp))
-              (= :double-escaped st)
-              (let [j (run-end s n (inc i) script-stop?)]
-                (append! text (subs s i j))
-                (recur j :double-escaped temp))
-              :else      (do (append! text (str c)) (recur (inc i) :double-escaped temp)))))))))
+              (< arrow k)        (recur (+ arrow 3) :script -1)
+              (= n k)            (do (finish n) [n :eof])
+              (script-tag? k 2)  (recur (+ k 9) :escaped arrow)
+              :else              (recur (inc k) mode arrow))))))))
 
 (defn ^:no-doc plain-text
   "Read the PLAINTEXT state, 13.2.5.5, from `i` to the end onto the
@@ -517,10 +473,6 @@
   [n :eof])
 
 ;; 13.2.5.8 and 13.2.5.32 to 13.2.5.40, tags
-
-(defn- name-stop?
-  [c]
-  (or (whitespace? c) (identical? \/ c) (identical? \> c)))
 
 (defn- attribute-name-stop?
   [c]
@@ -555,7 +507,7 @@
               (whitespace? c) (recur (inc i) :before-attribute-name name attrs attr)
               (identical? \/ c)        (recur (inc i) :self-closing name attrs attr)
               (identical? \> c)        [(inc i) (token name attrs false)]
-              :else           (let [j (run-end s n i name-stop?)]
+              :else           (let [j (run-end s n i tag-end?)]
                                 (recur j st (str name (tag-name (subs s i j))) attrs attr)))
 
             :before-attribute-name
