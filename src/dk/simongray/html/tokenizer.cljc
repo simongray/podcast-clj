@@ -660,81 +660,35 @@
         :else      (let [j (run-end s n i #(or (identical? \> %) (identical? nul %)))]
                      (recur j (str data (subs s i j))))))))
 
-(defn- comment-stop?
-  [c]
-  (or (identical? \< c) (identical? \- c) (identical? nul c)))
+(defn- unclosed
+  "The `data` of a comment that the end of the text cut off, without the
+  --!, -- or - that the comment states hold back as a possible end."
+  [data]
+  (cond
+    (str/ends-with? data "--!") (subs data 0 (- (count data) 3))
+    (str/ends-with? data "--")  (subs data 0 (- (count data) 2))
+    (str/ends-with? data "-")   (subs data 0 (- (count data) 1))
+    :else                       data))
 
 (defn ^:no-doc comment-text
-  "Read a comment after its <!--, by the comment states, 13.2.5.43 to
-  13.2.5.52, as [index token]."
+  "Read a comment after its <!--, as [index token].
+
+  The comment states, 13.2.5.43 to 13.2.5.52, end a comment at once with >
+  or ->, or else at the first --> or --!>, and keep every other character
+  as data. So the comment is found by those searches rather than a state
+  for each character, which the tests of html5lib show to be the same.
+  A comment that the end of the text cuts off ends there."
   [s n i]
-  (loop [i i st :start data ""]
-    (let [c (char-at s n i)
-          done [(if c (inc i) n) (comment-token data)]]
-      (case st
-        :start
-        (case c
-          \- (recur (inc i) :start-dash data)
-          \> done
-          (recur i :comment data))
-
-        :start-dash
-        (case c
-          \-  (recur (inc i) :end data)
-          \>  done
-          nil done
-          (recur i :comment (str data "-")))
-
-        :comment
-        (cond
-          (nil? c)   done
-          (identical? \< c)   (recur (inc i) :less-than (str data "<"))
-          (identical? \- c)   (recur (inc i) :end-dash data)
-          (identical? nul c)  (recur (inc i) st (str data replacement))
-          :else      (let [j (run-end s n i comment-stop?)]
-                       (recur j st (str data (subs s i j)))))
-
-        :less-than
-        (case c
-          \! (recur (inc i) :less-than-bang (str data "!"))
-          \< (recur (inc i) st (str data "<"))
-          (recur i :comment data))
-
-        :less-than-bang
-        (if (identical? \- c)
-          (recur (inc i) :less-than-bang-dash data)
-          (recur i :comment data))
-
-        :less-than-bang-dash
-        (if (identical? \- c)
-          (recur (inc i) :less-than-bang-dash-dash data)
-          (recur i :end-dash data))
-
-        ;; a nested <!-- ends here as a comment end, a parse error unless > or
-        ;; the end follows
-        :less-than-bang-dash-dash
-        (recur i :end data)
-
-        :end-dash
-        (case c
-          \-  (recur (inc i) :end data)
-          nil done
-          (recur i :comment (str data "-")))
-
-        :end
-        (case c
-          \>  done
-          \!  (recur (inc i) :end-bang data)
-          \-  (recur (inc i) st (str data "-"))
-          nil done
-          (recur i :comment (str data "--")))
-
-        :end-bang
-        (case c
-          \-  (recur (inc i) :end-dash (str data "--!"))
-          \>  done
-          nil done
-          (recur i :comment (str data "--!")))))))
+  (let [c (char-at s n i)]
+    (if (or (identical? \> c)
+            (and (identical? \- c) (identical? \> (char-at s n (inc i)))))
+      [(if (identical? \> c) (inc i) (+ i 2)) (comment-token "")]
+      (let [arrow (index-of s n "-->" i)
+            bang  (index-of s n "--!>" i)
+            end   (min arrow bang)]
+        (if (< end n)
+          [(+ end (if (= end arrow) 3 4)) (comment-token (without-nul (subs s i end)))]
+          [n (comment-token (without-nul (unclosed (subs s i))))])))))
 
 ;; 13.2.5.53 to 13.2.5.68, DOCTYPE
 
