@@ -10,8 +10,17 @@
   (testing "elements, attributes and entities"
     (is (= [[:p {:class "x"} "Hello " [:b {} "world"] " & co"]]
            (html/parse "<P class=x>Hello <b>world</b> &amp; co</p>")))
-    (is (= [[:a {:href "https://x/?a=1&b=2" :title "It's" :download true} "link"]]
-           (html/parse "<a href=\"https://x/?a=1&amp;b=2\" title='It&#39;s' download>link</a>"))))
+    (is (= [[:a {:href "https://x/?a=1&b=2" :title "It's" :download ""} "link"]]
+           (html/parse "<a href=\"https://x/?a=1&amp;b=2\" title='It&#39;s' download>link</a>"))
+        "an attribute without a value has the empty string, as in the DOM"))
+  (testing "headings and links that aren't closed"
+    (is (= [[:h3 {} "One\n"] [:h3 {} "Two"]]
+           (html/parse "<h3>One\n<h3>Two")))
+    (is (= [[:a {:href "x"} "one" [:br {}]] [:a {:href "y"} "two"]]
+           (html/parse "<a href=x>one<br><a href=y>two</a>")))
+    (is (= [[:p {} "a" [:br {}] "b"]]
+           (html/parse "<p>a</br>b</p>"))
+        "an end tag br is a line break"))
   (testing "void elements, with or without a slash"
     (is (= [[:p {} "one" [:br {}] "two"] [:hr {}] [:img {:src "i.png" :alt ""}]]
            (html/parse "<p>one<br/>two<hr><img src=i.png alt=\"\">"))))

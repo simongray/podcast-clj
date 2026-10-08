@@ -9,55 +9,14 @@
   and markdown functions render HTML or Hiccup as text, and emit writes
   Hiccup back as HTML."
   (:require [clojure.string :as str]
+            [dk.simongray.html.tokenizer :as tokenizer]
             [dk.simongray.podcast.util.xml :as xml]))
-
-(def ^:no-doc token-pattern
-  "One token of HTML at a time, which is one of:
-
-  - a whole script or style element
-  - a comment, a CDATA section, a declaration or a processing instruction
-  - an end tag
-  - a start tag, whose quoted values may hold a closing angle bracket
-  - a run of text, or a stray angle bracket
-
-  As in a browser, a script or style element runs to its end tag or the
-  end of the HTML, even where its text looks like markup.
-
-  A start tag is a run of plain characters, then quoted values that are
-  each followed by another such run. A regular expression matches it in
-  one pass, where a choice at every character would cost a third of the
-  time of the whole parse.
-
-  On the JVM, the run of quoted values is possessive. A run that can give
-  back what it took costs a stack frame for each value there, and a tag
-  with thousands of values overflows the stack."
-  (re-pattern
-   (str "(?s)"
-        "<[sS][cC][rR][iI][pP][tT](?=[\\s/>])[^>]*>.*?"
-        "(?:</[sS][cC][rR][iI][pP][tT]\\s*>|$)"
-        "|<[sS][tT][yY][lL][eE](?=[\\s/>])[^>]*>.*?"
-        "(?:</[sS][tT][yY][lL][eE]\\s*>|$)"
-        "|<!--.*?(?:-->|$)"
-        "|<!\\[CDATA\\[.*?(?:\\]\\]>|$)"
-        "|<![^>]*>?"
-        "|<\\?[^>]*>?"
-        "|</[a-zA-Z][^>]*>?"
-        "|<[a-zA-Z][^>\"']*(?:(?:\"[^\"]*\"|'[^']*'|[\"'])[^>\"']*)*"
-        #?(:clj "+" :cljs "")
-        ">?"
-        "|[^<]+"
-        "|<")))
 
 (def ^:no-doc markup
   "What makes a description HTML rather than plain text: a comment or a
   whole tag. Plain text may hold an email address in angle brackets, or a
   less-than sign before a 3, and neither is a tag."
   #"<!--|<[a-zA-Z][a-zA-Z0-9]*(?:\s[^<>]*)?/?>|</[a-zA-Z][a-zA-Z0-9]*\s*>")
-
-(def ^:no-doc attribute-pattern
-  "An attribute: a name, and perhaps a value in double quotes, single quotes
-  or none."
-  #"([^\s\"'=<>/]+)(?:\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+)))?")
 
 ;; HTML Standard, "Elements": the void elements, and param of older pages
 (def ^:no-doc void-elements
@@ -73,7 +32,8 @@
     "h6" "header" "hgroup" "hr" "main" "menu" "nav" "ol" "p" "pre" "search"
     "section" "table" "ul"})
 
-;; HTML Standard, "Optional tags"
+;; HTML Standard, "Optional tags", and 13.2.6.4.7 for a, which closes an
+;; open a up to the markers of the list of active formatting elements
 (def ^:no-doc implied-end
   "For each tag, the open elements that its start tag closes, and the
   ancestors where the search for them stops. A new li closes an open li,
@@ -84,7 +44,18 @@
    "tr"     [#{"tr" "td" "th"} #{"table"}]
    "td"     [#{"td" "th"} #{"tr" "table"}]
    "th"     [#{"td" "th"} #{"tr" "table"}]
-   "option" [#{"option"} #{"select"}]})
+   "option" [#{"option"} #{"select"}]
+   "a"      [#{"a"} #{"td" "th" "caption" "applet" "marquee" "object" "template"}]})
+
+(def ^:no-doc headings
+  "The headings, whose start tag closes a heading that's the current node,
+  as 13.2.6.4.7 of the HTML Standard has it."
+  #{"h1" "h2" "h3" "h4" "h5" "h6"})
+
+(def ^:no-doc foreign-roots
+  "The roots of SVG and MathML, inside which an element can close itself
+  with a slash, as 13.2.6.5 of the HTML Standard has it."
+  #{"svg" "math"})
 
 (def ^:no-doc paragraph-scope
   "The elements that bound the search for an open p: block-level ones, list
@@ -100,44 +71,6 @@
 (defn- tag-name
   [node]
   (name (first node)))
-
-(defn- parse-attributes
-  "The attributes in `s`, the rest of a start tag, with lower-case keys and
-  decoded entities. A bare attribute has the value true."
-  [s]
-  (into {} (for [[_ k dq sq bare] (re-seq attribute-pattern s)
-                 :let [v (or dq sq bare)]]
-             [(keyword (str/lower-case k))
-              (if (nil? v) true (xml/decode-entities v))])))
-
-(defn- start-tag
-  "The name, the attributes and the self-closing flag of the start tag
-  `token`, as a vector.
-
-  A slash at the end closes the element when a space, a quote or the name
-  comes before it. The slash that ends a value without quotes doesn't, as
-  in href=https://x/."
-  [token]
-  (let [[_ name rest] (re-matches #"(?s)^<([a-zA-Z][\w:.-]*)(.*?)>?$" token)
-        rest          (or rest "")
-        self-closing? (boolean (re-find #"(?:^|[\s\"'])/$" rest))]
-    [(str/lower-case name)
-     (parse-attributes (if self-closing? (subs rest 0 (dec (count rest))) rest))
-     self-closing?]))
-
-(defn- raw-element
-  "The script or style element of `token`, with its text as it is."
-  [token]
-  (let [[_ name rest text]
-        (re-matches #"(?is)^<(script|style)([^>]*)>(.*?)(?:</\1\s*>)?$" token)
-
-        attrs (parse-attributes (str/replace rest #"/$" ""))]
-    (cond-> [(keyword (str/lower-case name)) attrs]
-      (seq text) (conj text))))
-
-(defn- end-tag
-  [token]
-  (str/lower-case (second (re-find #"</([a-zA-Z][\w:.-]*)" token))))
 
 ;; The parse state is `{:stack [...] :open {...}}`: the open elements, the
 ;; root first, and how many are open by tag, so that an end tag nothing
@@ -202,10 +135,17 @@
   [state]
   (some? (open-index state #{"p"} paragraph-scope)))
 
+(defn- foreign?
+  "Whether the element `name` is in SVG or MathML in the parse `state`."
+  [{:keys [open] :as state} name]
+  (or (foreign-roots name)
+      (some #(pos? (get open % 0)) foreign-roots)))
+
 (defn- open-element
   "The parse `state` with the element `name` and its `attrs` opened, or
-  appended when it's void, `self-closing?` or past max-depth. The elements
-  that its start tag implies an end for are closed first."
+  appended when it's void, `self-closing?` in SVG or MathML, or past
+  max-depth. The elements that its start tag implies an end for are
+  closed first."
   [state name attrs self-closing?]
   (let [state (if (and (block-elements name) (open-paragraph? state))
                 (close-through state #{"p"} #{})
@@ -213,57 +153,75 @@
         state (if-let [[names boundaries] (implied-end name)]
                 (close-through state names boundaries)
                 state)
+        state (if (and (headings name)
+                       (headings (tag-name (peek (:stack state)))))
+                (close-top state)
+                state)
         node  [(keyword name) attrs]]
     (if (or (void-elements name)
-            self-closing?
+            (and self-closing? (foreign? state name))
             (> (count (:stack state)) max-depth))
       (append state node)
       (push state node))))
 
-(defn- token-kind
-  [token]
-  (cond
-    (str/starts-with? token "<!--")                      :comment
-    (str/starts-with? token "<![CDATA[")                 :cdata
-    (str/starts-with? token "<!")                        :declaration
-    (str/starts-with? token "<?")                        :instruction
-    (re-find #"^</[a-zA-Z]" token)                       :end
-    (re-find #"(?i)^<(?:script|style)(?=[\s/>])" token)  :raw
-    (re-find #"^<[a-zA-Z]" token)                        :start
-    :else                                                :text))
+(def ^:no-doc newline-dropping
+  "The elements whose start tag drops a line feed right after it, as
+  13.2.6.4.7 of the HTML Standard has it."
+  #{"pre" "listing" "textarea"})
+
+(defn- step
+  "The parse `state` after the `token` of dk.simongray.html.tokenizer, as a
+  few of the rules of 13.2.6.4.7 of the HTML Standard build the tree."
+  [{:keys [drop-newline?] :as state} token]
+  (let [state (dissoc state :drop-newline?)]
+    (cond
+      (string? token)
+      (let [text (str/replace token (str tokenizer/nul) "")
+            text (cond-> text
+                   (and drop-newline? (str/starts-with? text "\n")) (subs 1))]
+        (cond-> state
+          (seq text) (append text)))
+
+      (= :start-tag (:type token))
+      (let [{:keys [name attrs self-closing?]} token]
+        (cond-> (open-element state name (update-keys attrs keyword) self-closing?)
+          (newline-dropping name) (assoc :drop-newline? true)))
+
+      ;; an end tag br is a line break
+      (and (= :end-tag (:type token)) (= "br" (:name token)))
+      (open-element state "br" {} false)
+
+      (= :end-tag (:type token))
+      (close-through state #{(:name token)} #{})
+
+      :else
+      state)))
 
 (defn parse
-  "The HTML fragment `s` as a sequence of Hiccup nodes, read the way a
-  browser reads it.
+  "The HTML fragment `s` as a sequence of Hiccup nodes.
 
-  Tags and attribute keys are lower-case keywords, and text is a string
-  with its entities decoded. In the parse:
+  The tokens are those of the HTML Standard, by dk.simongray.html.tokenizer,
+  and the tree follows the rules of the standard that show notes need:
 
-  - comments and declarations vanish
-  - unknown tags are kept
-  - unclosed elements close where HTML says they do
-  - stray end tags are ignored
+  - unclosed paragraphs, list items, table cells, headings and links
+    close where HTML says they do
+  - void elements, and the elements of SVG and MathML that close
+    themselves with a slash, have no content
+  - stray end tags are ignored, and </br> is a line break
+  - comments, DOCTYPEs and processing instructions vanish
+
+  Misnested inline elements close through the nearest match, where a
+  browser would carry them on. Tags and attribute keys are lower-case
+  keywords, an attribute without a value has the empty string, and text
+  is a string with its character references decoded.
 
   Hiccup renderers take a sequence as a fragment, so the result can go
   straight into a parent element."
   [s]
-  (loop [tokens (re-seq token-pattern (str s))
-         state  {:stack [[:root {}]] :open {}}]
-    (if-let [token (first tokens)]
-      (let [tokens (rest tokens)]
-        (case (token-kind token)
-          :text  (recur tokens (append state (xml/decode-entities token)))
-          :cdata (let [text (str/replace token #"^<!\[CDATA\[|\]\]>$" "")]
-                   (recur tokens (append state text)))
-          :raw   (recur tokens (append state (raw-element token)))
-          :start (let [[name attrs self-closing?] (start-tag token)]
-                   (recur tokens (open-element state name attrs self-closing?)))
-          :end   (recur tokens (close-through state #{(end-tag token)} #{}))
-          (recur tokens state)))
-      (loop [state state]
-        (if (= 1 (count (:stack state)))
-          (apply list (drop 2 (merge-text (peek (:stack state)))))
-          (recur (close-top state)))))))
+  (loop [state (reduce step {:stack [[:root {}]] :open {}} (tokenizer/tokens s))]
+    (if (= 1 (count (:stack state)))
+      (apply list (drop 2 (merge-text (peek (:stack state)))))
+      (recur (close-top state)))))
 
 (defn ^:no-doc scheme
   "The scheme of the URL `s` in lower case, or nil for a relative URL.

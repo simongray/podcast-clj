@@ -155,6 +155,14 @@
       (recur (inc j))
       j)))
 
+(defn ^:no-doc index-of
+  "The index of the first `x`, a string, from `i` in the text `s` of length
+  `n`, or `n` when there's none."
+  ^long [s ^long n x ^long i]
+  (let [k #?(:clj  (.indexOf ^String s ^String x (int i))
+             :cljs (.indexOf s x i))]
+    (if (neg? k) n k)))
+
 (defn ^:no-doc starts-at?
   "Whether the text `s` has `word` at `i`."
   [s i word]
@@ -282,27 +290,27 @@
 
 ;; 13.2.5.1 to 13.2.5.5 and 13.2.5.69 to 13.2.5.71, the states of text
 
-(defn- data-stop?
-  [c]
-  (case c
-    (\< \&) true
-    false))
-
 (defn ^:no-doc data-text
   "Read the data state, 13.2.5.1, from `i` onto the builder `text`, as
   [index state]: up to a less-than sign, which leads to the tag open
-  state, or the end."
+  state, or the end.
+
+  The text runs to the next less-than sign or ampersand, which indexOf
+  finds. Each index is kept until the reading passes it, so that a text
+  with many of one and none of the other is still read in linear time."
   [s n i text]
-  (loop [i i]
-    (case (char-at s n i)
-      nil [n :eof]
-      \<  [(inc i) :tag-open]
-      \&  (let [[chars j] (character-reference s n (inc i) false)]
-            (append! text chars)
-            (recur j))
-      (let [j (run-end s n i data-stop?)]
-        (append! text (subs s i j))
-        (recur j)))))
+  (loop [i i lt (index-of s n "<" i) amp (index-of s n "&" i)]
+    (let [stop (min lt amp)]
+      (when (< i stop)
+        (append! text (subs s i stop)))
+      (cond
+        (= n stop)   [n :eof]
+        (= lt stop)  [(inc lt) :tag-open]
+        :else        (let [[chars j] (character-reference s n (inc amp) false)]
+                       (append! text chars)
+                       (recur j
+                              (if (< lt j) (index-of s n "<" j) lt)
+                              (index-of s n "&" j)))))))
 
 (defn ^:no-doc end-tag-at
   "What the less-than sign at `i` starts in a state of raw text, by the
