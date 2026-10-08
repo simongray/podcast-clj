@@ -151,8 +151,8 @@
     (keyword (kebab (name k)))))
 
 (defn html-entity
-  "The characters of the HTML entity `name`, e.g. \"nbsp\", by the table of
-  the HTML Standard, or nil when HTML has no such entity."
+  "The characters of the HTML entity `name`, e.g. \"nbsp\", or nil for a
+  name that the table of html-pieces lacks."
   [name]
   (get entities/references (str name ";")))
 
