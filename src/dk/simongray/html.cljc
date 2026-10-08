@@ -16,7 +16,11 @@
   TODO: the rules of the tree builder that a browser follows and this
   leaves out, by an option or a namespace of their own: formatting that a
   browser carries on past a misnested end tag, the repairs of tables, and
-  SVG and MathML."
+  SVG and MathML.
+
+  TODO: an optional report of what parse discarded and what sanitize
+  removed, e.g. in metadata, so that a validator can tell the author of
+  the HTML what a client won't show."
   (:require [clojure.string :as str]
             [dk.simongray.html.tokenizer :as tokenizer]))
 

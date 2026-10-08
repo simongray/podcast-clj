@@ -711,6 +711,13 @@
     (-> s (str/replace "\r\n" "\n") (str/replace "\r" "\n"))
     s))
 
+;; 13.2.2, parse errors. The standard names each error that the tokenizer
+;; meets and recovers from it in one defined way, so the tokens are the
+;; same whether or not it's reported. None are reported here: the searches
+;; that read comments, scripts and DOCTYPEs pass over the states that raise
+;; many of them, and checking for them would slow every parse. They suit a
+;; validator of HTML, not a reader of embedded HTML.
+
 (defn tokens
   "The tokens of the HTML text `s`, as a vector, read with the `opts`:
 
