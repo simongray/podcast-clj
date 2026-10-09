@@ -1003,7 +1003,7 @@
                error         {:error error}
                (empty? value) {:error nil}
                :else         (try
-                               {:index (ciff/read-documents value)}
+                               {:index (ciff/read-files value)}
                                (catch #?(:clj Exception :cljs :default) e
                                  {:error e})))]
     (cond

@@ -743,8 +743,8 @@ documents of `feed.search`, and search it with
 When a feed changes, update the index with `feed.search/with-feed`, and
 take a show out with `feed.search/without-feed`. To make transcripts
 searchable, give them to `feed.search/item-document`. To keep the index,
-`ciff/plan` gives the documents to put into a store and the names to
-delete there, and `ciff/read-documents` reads them back.
+`ciff/plan` gives the files to put into a store and the names to delete
+there, and `ciff/read-files` reads them back.
 
 
 ## Organize the shows and episodes
