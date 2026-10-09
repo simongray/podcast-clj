@@ -4,32 +4,24 @@
   changed instead of polling every feed on a schedule.
 
   A consumer reads blocks from any Hive API node and picks out the
-  custom_json operations that the podping writers post. The request
-  function builds the JSON-RPC calls as request maps that
-  dk.simongray.podcast.util.http/send! or any client can send as a POST.
-  The pings function reads the notifications out of the blocks in an
-  answer:
+  custom_json operations that the podping writers post. The calls are
+  JSON-RPC requests that any client can send as a POST, and a ping in the
+  blocks of an answer looks like this:
 
       {:block 110254833 :timestamp #inst \"2026-09-26T16:44:57Z\"
        :account \"podping.eee\" :id \"pp_podcast_update\" :version \"1.1\"
        :medium \"podcast\" :reason \"update\"
        :iris [\"https://media.rss.com/…/feed.xml\"]}
 
-  Anyone can write a custom_json, so writers reads which accounts may
-  write podpings. They're the ones that the podping account follows on
-  the chain, which is how the project publishes its writers. The pinged?
-  function says whether a ping concerns the URL of a feed, with the URLs
-  compared as podcast:guid compares them.
+  Anyone can write a custom_json, so only the accounts that the podping
+  account follows on the chain may write podpings, which is how the
+  project publishes its writers.
 
-  The poll! function is the one step of a poller. It reads the pings in
-  the blocks since the last one read, a hundred blocks to a request,
-  verifies them, and says where to continue from. It's on the JVM only. In
-  ClojureScript, send each request with call!, since the nodes answer a
-  page from any origin. On both platforms, call! tries the public nodes in
-  turn.
+  Polling is on the JVM only. In ClojureScript, send the calls one by
+  one, since the nodes answer a page from any origin.
 
-  A host announces a change through podping.cloud, and notify-request
-  builds that call with the token that the host was given."
+  A host announces a change through podping.cloud, with the token that
+  the host was given."
   (:require [clojure.string :as str]
             #?(:clj [dk.simongray.podcast.diagnostics :as diagnostics])
             [dk.simongray.podcast.feed.guid :as guid]
@@ -48,9 +40,8 @@
    "https://hive-api.arcange.eu"])
 
 (def gateway
-  "The URL of podping.cloud, the service that writes a podping for a host.
-  The notify-request function sends to it, unless its options give
-  another service as :gateway."
+  "The URL of podping.cloud, the service that writes a podping for a host,
+  unless the options give another service as :gateway."
   "https://podping.cloud/")
 
 (def calls
@@ -252,8 +243,8 @@
 
 (defn- call-node!
   "Send `call` with `params` to `node` as `opts` say, and give the body of
-  the answer, in ClojureScript in a promise. It throws for each failure
-  that call! lists."
+  the answer, in ClojureScript in a promise. It throws when the node
+  fails."
   [call params node {:keys [send timeout-seconds]
                      :or   {send http/send! timeout-seconds 10}}]
   (-> (request call params {:node node})
@@ -268,7 +259,7 @@
 
 (defn call!
   "Send `call` with its `params`, when it takes any, as `opts` say, and
-  give the body, for head-block, pings or writers to read.
+  give the body of the answer.
 
   Each node is tried in turn until one answers. The `opts` are these:
 

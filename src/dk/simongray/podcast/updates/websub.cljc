@@ -9,18 +9,11 @@
   then calls the callback URL of the subscriber: first to make sure that
   the subscriber asked, and later with each new version of the feed. So a
   subscriber is a server with a public URL. An app without a server can
-  read Podping instead, which gives the same signal, as in
-  dk.simongray.podcast.updates.podping.
-
-  The discover function finds the hubs and the topic of a feed. The
-  request function builds the request that subscribes or unsubscribes,
-  and call! sends it. The handler function is a Ring handler for the
-  callback URL. It answers the hub, checks the signature of what the hub
-  sends, and gives the feed to your app.
+  read Podping instead, which gives the same signal.
 
   A host is a publisher. It names a hub in its feed with an atom:link
-  rel=hub, next to its atom:link rel=self. The publish-request function
-  builds the request that tells the hub that the feed changed."
+  rel=hub, next to its atom:link rel=self, and tells the hub when the
+  feed changed."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.async :as async]
@@ -30,7 +23,7 @@
             [dk.simongray.podcast.util.url :as url]))
 
 (def default-limits
-  "The limits of handler that its options don't set.
+  "The limits of a callback handler that its options don't set.
 
   A hub sends :max-bytes of a feed at most, 32 MB. The challenge of a hub
   has :max-challenge characters at most. A subscriber gives the
@@ -40,8 +33,8 @@
    :max-challenge 512})
 
 (def signature-methods
-  "The hash algorithms of a signature that handler takes, by the names of
-  section 7.1.1 of WebSub. The options of handler can give another set as
+  "The hash algorithms of a signature that a subscriber takes, by the names
+  of section 7.1.1 of WebSub, unless the options give another set as
   :signature-methods.
 
   Most hubs sign with sha1, which is weak. A subscriber whose callback is
@@ -65,10 +58,9 @@
   had it, as a map of :hubs and :topic. It's nil when nothing names a
   hub.
 
-  The `response` has its :url and its :headers, as http/fetch! gives it.
-  The Link headers of the response count first, as section 4 of WebSub
-  asks. Without a hub in them, the atom:links of the feed count: rel=hub
-  and rel=self.
+  The `response` has its :url and its :headers. The Link headers of the
+  response count first, as section 4 of WebSub asks. Without a hub in
+  them, the atom:links of the feed count: rel=hub and rel=self.
 
   The topic is the URL to subscribe to. It's the rel=self link, or the
   URL of the response when no link names it. A URL can be relative to the
@@ -106,9 +98,10 @@
   hub sends the request. The `opts` are these:
 
   - :lease-seconds, how long the subscription lasts. The hub sets it, and
-    its answer to handler tells. A subscriber asks again before the end.
+    tells it when it checks the subscription. A subscriber asks again
+    before the end.
   - :secret, a random text of fewer than 200 bytes. The hub then signs
-    what it sends, and handler checks the signature. Section 5.1 says
+    what it sends, and the subscriber checks the signature. Section 5.1 says
     that a secret goes over https, so this throws for another hub. The
     secret can be a hidden text of dk.simongray.podcast.util.secret. The
     request has it in its body, so the body of such a request is a
@@ -144,8 +137,8 @@
   the field that holds the URL of the feed.
 
   Section 6 of WebSub leaves this request to the hub and the publisher,
-  and its note gives this form as an example. So the options of
-  publish-request can give the form of another hub as :publish-form."
+  and its note gives this form as an example. So the options can give
+  the form of another hub as :publish-form."
   {:fields    {"hub.mode" "publish"}
    :url-field "hub.url"})
 
@@ -163,9 +156,9 @@
    (hub-request hub (conj (vec (:fields form)) [(:url-field form) topic]))))
 
 (defn call!
-  "Send the `request`, from request or publish-request, to its hub with
-  `opts`. On the JVM it gives the answer as a map of :status and :url, and
-  in ClojureScript a promise of it.
+  "Send the `request`, to subscribe or to publish, to its hub with `opts`.
+  On the JVM it gives the answer as a map of :status and :url, and in
+  ClojureScript a promise of it.
 
   A hub answers 202 to a request that it takes, as section 5.1.2 of
   WebSub has it. It then calls the callback of the subscriber, and only
@@ -192,7 +185,7 @@
                                       :message message}))))))))
 
 (def ^:no-doc algorithms
-  "The algorithm of util.bytes/hmac for each signature method."
+  "The HMAC algorithm of each signature method."
   {"sha1"   :sha1
    "sha256" :sha256
    "sha384" :sha384
