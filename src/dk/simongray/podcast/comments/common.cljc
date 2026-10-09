@@ -105,7 +105,7 @@
 
 (defn ^:no-doc resolver
   "A function that makes a URL in a post absolute against `base`, the URL
-  of the post, as html/hiccup takes it for :url. Without a base, a URL
+  of the post, as html/hiccup takes it for :url-fn. Without a base, a URL
   stays as it is."
   [base]
   (if base
@@ -155,7 +155,7 @@
   URLs made absolute against `base`, and its links are fit by fit-links."
   [s base]
   (when (and (string? s) (not (str/blank? s)))
-    (html/emit (fit-links (html/hiccup s {:url (resolver base)}) base))))
+    (html/emit (fit-links (html/hiccup s {:url-fn (resolver base)}) base))))
 
 (defn ^:no-doc joined
   "The parts `ps` of a content as a vector. The texts that follow each

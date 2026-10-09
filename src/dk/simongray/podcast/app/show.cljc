@@ -55,7 +55,7 @@
          page    (resolve/link feed)
          notes   (when (or (wanted? :notes) (wanted? :text))
                    (some-> (resolve/description feed)
-                           (html/hiccup {:url #(notes-url page %)})))]
+                           (html/hiccup {:url-fn #(notes-url page %)})))]
      (cond-> (merge feed (resolve/properties feed))
        guid
        (assoc :guid guid)

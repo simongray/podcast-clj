@@ -310,7 +310,7 @@
   [{markup :html base :base :as source}]
   (let [allowed (update html/allowed-attributes :a conj :class)]
     (html/hiccup markup {:allowed-attributes allowed
-                         :url                (common/resolver base)})))
+                         :url-fn             (common/resolver base)})))
 
 (defn- with-emoji
   "The text `s` as pieces, cut at the shortcodes of the custom `emojis`, a

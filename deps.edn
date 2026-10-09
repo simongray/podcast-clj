@@ -13,7 +13,7 @@
          org.clojure/data.json    {:mvn/version "2.5.2"}
          dk.simongray/html-pieces
          {:git/url "https://github.com/simongray/html-pieces"
-          :git/sha "c51b2c6d374479ebd3bf767e69849160f5ab03b7"}}
+          :git/sha "efdd367ceb3144914f1fd28d9167eaa795c21a56"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public

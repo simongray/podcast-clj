@@ -96,7 +96,7 @@
          page      (or (resolve/link item) (resolve/link feed))
          notes     (when read?
                      (some-> (resolve/description item)
-                             (html/hiccup {:url #(notes-url page %)})))
+                             (html/hiccup {:url-fn #(notes-url page %)})))
          text      (when (and notes (or (wanted? :text) (wanted? :chapters)))
                      (html/text notes))
          own       (when (wanted? :chapters) (own-chapters item text))]
