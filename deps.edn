@@ -15,7 +15,7 @@
          org.clojure/data.json    {:mvn/version "2.5.2"}
          dk.simongray/qname-hiccup
          {:git/url "https://github.com/simongray/qname-hiccup"
-          :git/sha "02aea46432a14e0d65efb899ef3657eb73eb8503"}
+          :git/sha "5ecb1d02e4a99e468e1528ee40218437188696c0"}
          dk.simongray/html-pieces
          {:git/url "https://github.com/simongray/html-pieces"
           :git/sha "c4f70ff155de494a49df45930bcfe58fda03fd14"}

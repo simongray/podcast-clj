@@ -31,11 +31,13 @@
      (let [raw-opts             (select-keys opts [:except])
            normalize-opts       (select-keys opts [:registry :except])
            {:keys [raw report]} (quirks/parse-raw xml raw-opts)
-           tree                 (-> raw
+           stripped             (quirks/strip-default-namespace raw raw-opts)
+           tree                 (-> (:raw stripped)
                                     (xml/resolve-namespaces quirks/uri->alias)
                                     (quirks/normalize normalize-opts))]
        (vary-meta tree assoc :podcast/report
                   (-> report
+                      (into (:report stripped))
                       (into (quirks/namespace-variants raw))
                       (into (xml/report tree))
                       (into (quirks/report tree))))))))

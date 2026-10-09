@@ -55,8 +55,9 @@ nothing of podcasts: the table of a feed's namespaces is in `feed.spec`.
 The platform parser (StAX on the JVM, `DOMParser` in JavaScript) doesn't
 resolve namespaces. A pure function does that afterwards, which gives the
 same result on both platforms and lets it forgive what real feeds get wrong,
-such as variant URIs, undeclared prefixes, or the Atom default namespace
-that several large hosts put on `<rss>`.
+such as variant URIs and undeclared prefixes. The Atom default namespace
+that several large hosts put on `<rss>` is a quirk of its own, since RSS
+2.0 has no namespace.
 
 
 ## The tag registry

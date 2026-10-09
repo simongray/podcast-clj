@@ -74,6 +74,25 @@
                   acc))))]
     (walk [] tree)))
 
+;; RSS 2.0 has no namespace, but some hosts declare that of Atom as the
+;; default on rss, which would put every element without a prefix in it
+(defn strip-default-namespace
+  "The raw Hiccup `tree` without the default namespace that its rss element
+  declares, with the `opts` below, as a map of the :raw tree and the
+  :report. The :except of `opts` leaves this out when it names
+  :quirk/rss-default-namespace."
+  ([tree]
+   (strip-default-namespace tree {}))
+  ([tree {:keys [except] :or {except #{}} :as opts}]
+   {:pre [(map? opts)]}
+   (let [uri (not-empty (get (xml/attrs tree) "xmlns"))]
+     (if (and uri
+              (= "rss" (xml/tag tree))
+              (not (contains? except :quirk/rss-default-namespace)))
+       {:raw    (update tree 1 dissoc "xmlns")
+        :report [{:id :quirk/rss-default-namespace :level :info :uri uri}]}
+       {:raw tree :report []}))))
+
 (defn ^:no-doc map-outside-cdata
   "The string `s` with `f` applied to every stretch outside a CDATA
   section."

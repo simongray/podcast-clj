@@ -49,10 +49,11 @@ A function that sends requests also returns its failures as diagnostics, under t
 | `:repair/html-entities` | warning | HTML entities that XML lacks, such as &nbsp;, were replaced by character references. |
 | `:repair/bare-ampersands` | warning | Bare ampersands were escaped. |
 | `:repair/lenient-parser` | warning | The document was still malformed after the repairs, so it was parsed leniently with jsoup. |
-| `:xml/default-namespace` | info | The document declares a default namespace, but elements without a prefix are read as RSS 2.0 anyway. |
+| `:xml/default-namespace` | info | A default namespace isn't known, so the elements in it have no alias, and its declaration stays as an xmlns attribute. |
 | `:xml/unknown-namespace` | info | The namespace URI isn't known, so its prefix is used as the alias. |
 | `:xml/undeclared-prefix` | warning | A prefix was used without a declaration, which only the JVM parser accepts, so the prefix is used as the alias. |
 | `:quirk/namespace-variant` | info | A namespace was bound to a variant of its URI, such as http for https, another case, a trailing slash or an old URI, and was recognised anyway. |
+| `:quirk/rss-default-namespace` | info | The rss element declared a default namespace, such as that of Atom, though RSS 2.0 has none, so it was ignored. |
 | `:quirk/itunes-image-text` | info | An itunes:image gave its URL as text or in a url attribute instead of href. |
 | `:quirk/explicit-value` | info | An itunes:explicit said yes, no, explicit or clean, which was read as true or false. |
 | `:quirk/yes-no-value` | info | A yes/no element said true or false, which was read as yes or no. |

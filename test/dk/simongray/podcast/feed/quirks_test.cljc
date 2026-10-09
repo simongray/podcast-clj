@@ -180,7 +180,7 @@
       (is (= 1 (:repair/undeclared-prefixes ids))))
     (testing "namespaces"
       (is (= 2 (:quirk/namespace-variant ids)))
-      (is (= 1 (:xml/default-namespace ids)))
+      (is (= 1 (:quirk/rss-default-namespace ids)))
       (is (= 1 (:xml/unknown-namespace ids))))
     (testing "the model came out canonical"
       (is (= "Quirky & Co" (:rss/title f)))
@@ -204,4 +204,21 @@
         (is (= f (rss/parse out)))))
     (testing "the strict path refuses the document"
       (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
-                   (rss/parse @quirky {:quirks? false}))))))
+                   (rss/parse @quirky {:quirks? false}))))
+    (testing "without the quirk, the Atom default namespace makes it no RSS"
+      (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo)
+                   (rss/parse @quirky {:except #{:quirk/rss-default-namespace}}))))))
+
+(deftest default-namespaces-below-rss
+  (let [f (rss/parse (str "<rss version=\"2.0\"><channel><title>T</title>"
+                          "<link>https://a.example/</link>"
+                          "<link xmlns=\"http://www.w3.org/2005/Atom\" rel=\"self\""
+                          " href=\"https://a.example/feed.xml\"/>"
+                          "<site xmlns=\"com-wordpress:feed-additions:1\">7</site>"
+                          "</channel></rss>"))]
+    (testing "an Atom link in the default namespace is an Atom link, not the RSS link"
+      (is (= "https://a.example/" (:rss/link f)))
+      (is (= [{:rel "self" :href "https://a.example/feed.xml"}] (:atom/links f))))
+    (testing "an unknown one stays on its element, and is written back"
+      (is (= [[:site {:xmlns "com-wordpress:feed-additions:1"} "7"]] (:xml/unknown f)))
+      (is (re-find #"<site xmlns=\"com-wordpress:feed-additions:1\">7</site>" (rss/emit f))))))

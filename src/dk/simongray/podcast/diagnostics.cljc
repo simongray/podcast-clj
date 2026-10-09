@@ -94,8 +94,8 @@
 
     ;; namespace resolution
     {:id :xml/default-namespace :level :info
-     :doc "The document declares a default namespace, but elements without a
-           prefix are read as RSS 2.0 anyway."}
+     :doc "A default namespace isn't known, so the elements in it have no
+           alias, and its declaration stays as an xmlns attribute."}
     {:id :xml/unknown-namespace :level :info
      :doc "The namespace URI isn't known, so its prefix is used as the alias."}
     {:id :xml/undeclared-prefix :level :warning
@@ -107,6 +107,9 @@
      :doc "A namespace was bound to a variant of its URI, such as http for
            https, another case, a trailing slash or an old URI, and was
            recognised anyway."}
+    {:id :quirk/rss-default-namespace :level :info
+     :doc "The rss element declared a default namespace, such as that of Atom,
+           though RSS 2.0 has none, so it was ignored."}
     {:id :quirk/itunes-image-text :level :info
      :doc "An itunes:image gave its URL as text or in a url attribute instead of
            href."}
