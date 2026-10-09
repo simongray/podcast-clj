@@ -3,19 +3,12 @@
   shape. You can search them, look shows up and read their charts, and
   every answer is keyed like a parsed feed.
 
-  A request is a map that any HTTP client can send, e.g.:
-
-      (request :apple :search {:q \"podcasting 2.0\" :limit 5})
-      ;; => {:method :get :url \"https://itunes.apple.com/search?…\" …}
-      (response :apple :search body)
-      ;; => [{:rss/title \"Podcasting 2.0\" … :directory/source :apple} …]
-
-  A response reads into shows, which are maps with the keys of a parsed
-  feed where the directory has the same information:
+  A request is a map that any HTTP client can send, and a response reads
+  into shows, which are maps with the keys of a parsed feed where the
+  directory has the same information:
 
   - :rss/title, :itunes/author and :itunes/image
-  - the URL of the feed as the :atom/links entry with rel self, which
-    resolve/self-url reads
+  - the URL of the feed as the :atom/links entry with rel self
   - :podcast/guid when the directory knows the one that the feed declares.
     A guid derived from the URL would be a guess, since a feed that
     moved keeps the guid of its first URL.
@@ -23,16 +16,8 @@
     such as :directory/source, :directory/id and the record itself as
     :directory/raw
 
-  Every source answers three calls as far as it can:
-
-  - :search, the shows that match some words
-  - :lookup, one show by its id at the source
-  - :trending, the chart of the source
-
   Apple, fyyd and gpodder.net need no credentials, and the Podcast Index
-  takes its under the :credentials option. The search! and fetch-chart!
-  functions ask several sources at once and combine the answers into
-  one entry per show, in ClojureScript in a promise."
+  takes its under the :credentials option."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
@@ -125,9 +110,8 @@
   that the directory speaks, its :name for a listener, whether it needs
   credentials, and the URLs of the service.
 
-  The request, response and call! functions take a source by its name
-  here, or as an entry of this shape. So you can reach another service
-  with the same API:
+  A source is given by its name here, or as an entry of this shape. So
+  you can reach another service with the same API:
 
       (assoc (:fyyd sources)
              :id :mirror :root \"https://fyyd.example.org/0.2/\")
@@ -173,10 +157,10 @@
   own way:
 
   - Apple takes a name or an id of the :genres of its entry.
-  - The Podcast Index takes what index/category-filter takes. It has the
-    top categories of Apple, and words of its own for the rest.
+  - The Podcast Index takes a name or an id of its categories, or several.
+    It has the top categories of Apple, and words of its own for the rest.
   - The category is a tag of gpodder.net, in lower case.
-  - The chart of fyyd has no categories, so request throws for it."
+  - The chart of fyyd has no categories, so asking for one throws."
   #{:search :lookup :trending})
 
 (defn ^:no-doc source-id
@@ -189,7 +173,7 @@
 
 (defn ^:no-doc entry
   "The entry of `source`, a name in sources or an entry itself, with the
-  :id that source-id gives it. It throws for a source whose API
+  :id that names it in the results. It throws for a source whose API
   podcast-clj doesn't know."
   [source]
   (let [e (if (map? source) source (get sources source))]
@@ -343,12 +327,10 @@
   its parameters.
 
   The `source` is a name in sources, or an entry of the shape of its
-  entries. The `opts` are for the Podcast Index, as index/request takes
-  them:
+  entries. The `opts` are for the Podcast Index:
 
   - :credentials, a map of :key and :secret
-  - :auth-date, the time in Unix seconds that signs a request, which call!
-    gives"
+  - :auth-date, the time in Unix seconds that signs a request"
   ([source call params]
    (request source call params {}))
   ([source call params {:keys [credentials] :as opts}]
@@ -498,8 +480,8 @@
         (with-feed-url url))))
 
 (defn- podcastindex-show
-  "The show of the feed map `m` that index/response read, with its keys in
-  the index namespace kept. Its page is below `pages`, the URL of the
+  "The show of the feed map `m` of the Podcast Index, with its keys in the
+  index namespace kept. Its page is below `pages`, the URL of the
   pages of the shows."
   [m pages]
   (let [id   (:index/id m)
@@ -541,8 +523,8 @@
 
   A lookup gives one show. The shows of trending are in the order of the
   chart, each with its :directory/rank. The vector is empty when the body
-  tells of a failure. The `source` is as request takes it, and each show
-  names it as :directory/source."
+  tells of a failure. The `source` is a name in sources or an entry, and
+  each show names it as :directory/source."
   [source call body]
   (let [{:keys [api id pages]} (entry source)
         shows (if (= :podcastindex api)
@@ -599,8 +581,8 @@
           i))))
 
 (defn- with-show
-  "The `state` of combine with `show` in it: merged into the entry that
-  it's the same as, or else as a new entry."
+  "The `state` of a combination with `show` in it: merged into the entry
+  that it's the same as, or else as a new entry."
   [{:keys [entries] :as state} show]
   (let [id-key [(:directory/source show) (:directory/id show)]
         found  {(:directory/source show) (:directory/id show)}]
@@ -695,7 +677,7 @@
 (defn- combined
   "The shows that `sources` answered, combined as :results, and a
   diagnostic for each source that failed under :report. The `answers` are
-  attempts as async/attempt gives them, one for each of `sources`."
+  attempts, maps of a :value or an :error, one for each of `sources`."
   [sources answers]
   (let [report (for [[source {:keys [error]}] (map vector sources answers)
                      :when error]
@@ -754,8 +736,9 @@
                  #(update % :results most-sources-first)))))
 
 (defn fetch-chart!
-  "Fetch the charts of the directories with `opts`, and combine them as
-  search! does. The shows are in the order that the sources list them.
+  "Fetch the charts of the directories with `opts`, and combine them into
+  one entry for each show. The shows are in the order that the sources
+  list them.
 
   The `opts` are those of search!, and these:
 

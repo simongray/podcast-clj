@@ -5,18 +5,13 @@
   An app has its own form of link, and no standard defines it. Most forms
   hold a key that the app didn't make: the URL of the feed, the
   podcast:guid, the id of Apple Podcasts or the id of the Podcast Index.
-  The apps table holds these forms as data. The links function writes the
-  links of a show for each app whose keys the show has. The ids function
-  reads the keys from a feed, or from a show of
-  dk.simongray.podcast.directory, and link-ids reads them back from a
-  link.
 
   A link with the scheme of an app, such as podcast:// or pktc://, opens
   the app and subscribes. It works only where the app is. A link to the
   web page of an app works in each browser.
 
-  The at-time function follows the one standard here: the media fragment
-  of the W3C, which starts a media file at a time."
+  A link to a time follows the one standard here: the media fragment of
+  the W3C, which starts a media file at a time."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -25,8 +20,8 @@
             [dk.simongray.podcast.util.url :as url]))
 
 (def apps
-  "The forms of the links of each app, by an id of the app. The options of
-  link and links can give another table as :apps.
+  "The forms of the links of each app, by an id of the app. The options
+  can give another table as :apps.
 
   No standard defines these forms. They're those of the list Podcast
   Platform Links, https://github.com/nathangathright/podcast-platform-links,
@@ -285,23 +280,22 @@
 
 (defn ids
   "The keys that name `show` and its episode `item` in the links of the
-  apps, as link and links take them. The :url of `opts` is the URL of a
-  feed that doesn't name its own.
+  apps. The :url of `opts` is the URL of a feed that doesn't name its own.
 
       {:feed-url \"…\" :podcast-guid \"…\" :apple-id \"…\"
        :podcastindex-id 920666 :episode-guid \"…\" :enclosure-url \"…\"
        :podcastindex-episode-id 123}
 
   A key is absent when the show doesn't have it. The `show` is a parsed
-  feed, or a show from dk.simongray.podcast.directory, which has the ids
-  of the directories. The `item` is an item of the feed, or an episode
-  from the Podcast Index. A feed names its URL in its atom:link rel=self.
+  feed, or a show of a directory, which has the ids of the directories.
+  The `item` is an item of the feed, or an episode from the Podcast
+  Index. A feed names its URL in its atom:link rel=self.
 
   The podcast:guid is that of the feed, or else the guid that the podcast
-  namespace derives from the URL, as guid/feed-guid gives it. The Podcast
-  Index derives the same guid for a feed that declares none. A show from a
-  directory has only the guid that the directory knows the feed declares,
-  since the feed may declare another than its URL gives."
+  namespace derives from the URL. The Podcast Index derives the same guid
+  for a feed that declares none. A show from a directory has only the
+  guid that the directory knows the feed declares, since the feed may
+  declare another than its URL gives."
   ([show]
    (ids show nil {}))
   ([show item]
@@ -359,8 +353,8 @@
       (apply str parts))))
 
 (defn link
-  "The link of the kind `kind` of the app `app` for the keys `ids`, as the
-  ids function gives them. The :apps of `opts` replace the apps table.
+  "The link of the kind `kind` of the app `app` for the keys `ids`. The
+  :apps of `opts` replace the table of apps.
 
   It's nil when the app has no such link, or when the ids lack the keys
   of each of its forms. The `kind` is one of kinds."
@@ -381,9 +375,9 @@
         kinds))
 
 (defn links
-  "The links of each app that `opts` choose for the keys `ids`, as the ids
-  function gives them, in the order of the names of the apps. An app
-  without a link for the ids is left out.
+  "The links of each app that `opts` choose for the keys `ids`, in the
+  order of the names of the apps. An app without a link for the ids is
+  left out.
 
   Each is a map with the :app, its :name and its :type, and a link for
   each of kinds that the ids are enough for. The `opts` are these:
@@ -403,8 +397,8 @@
         vec)))
 
 (def ^:no-doc id-patterns
-  "The regex of the text of each key of the ids in a link, for link-ids.
-  A key that isn't here is the text of one part of a path or a query."
+  "The regex of the text of each key of the ids in a link. A key that
+  isn't here is the text of one part of a path or a query."
   (let [hex #(str "[0-9a-fA-F]{" % "}")]
     {:apple-id                "[0-9]+"
      :podcastindex-id         "[0-9]+"
@@ -503,7 +497,7 @@
   "The ids that the link `url` of an app holds, read with the forms of
   the apps table or of the :apps of `opts`. Nil when no form reads it.
 
-  It reads a link more loosely than link writes it: with http or https,
+  It reads a link more loosely than links are written: with http or https,
   with or without www., and with one more part of the path before each
   part of the form, such as the country and the name of a show in a link
   that Apple Podcasts shares. A feed URL that a link holds without its

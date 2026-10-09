@@ -2,20 +2,14 @@
   "The Podcast Index API, https://podcastindex-org.github.io/docs-api/, as
   request maps and model maps.
 
-  The request function builds a map of :method, :url and :headers that
-  any HTTP client can send, with the authentication for the time it's
-  given. The response function reads a response body into data shaped
-  like the feed model. So a feed or an episode from the index has the same
-  keys as one parsed from RSS, and what only the index knows is in the
-  index namespace.
+  A request is a map of :method, :url and :headers that any HTTP client
+  can send, with the authentication for the time it's given. A response
+  reads into data shaped like the feed model, so a feed or an episode from
+  the index has the same keys as one parsed from RSS, and what only the
+  index knows is in the index namespace.
 
   The key and the secret never leave your process. Nothing here reads a
-  clock but call!, fetch-remote-value! and fetch-remote-item!, which send
-  with the :send of their options, http/send! by default.
-
-  A value time split points at a remote item. Its value block is found by
-  remote-value-requests, the requests to try in order, or by
-  fetch-remote-value!, which sends them."
+  clock but the functions that send."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
@@ -26,9 +20,9 @@
             [dk.simongray.podcast.util.url :as url]))
 
 (def base-url
-  "The root of the URLs of the API, which the paths of calls are
-  below. The request function uses it, unless its options give the root
-  of another service with the same API as :base-url."
+  "The root of the URLs of the API, which the paths of calls are below,
+  unless the options give the root of another service with the same API
+  as :base-url."
   "https://api.podcastindex.org/api/1.0/")
 
 (def paths
@@ -171,8 +165,7 @@
 
   The credentials are a :key and a :secret, and they can give a
   :user-agent. The :auth-date is in Unix seconds. The API takes a date
-  within a few minutes of its own clock. You read the clock, as call!
-  does.
+  within a few minutes of its own clock, so read the clock for it.
 
   The request goes to base-url, or to the :base-url of `opts`."
   [credentials call params {:keys [auth-date] :as opts}]
@@ -441,7 +434,7 @@
     (conj (request credentials :value/by-podcast-guid {:guid feed-guid} opts))))
 
 (defn- response-of
-  "What response reads from `body`, or nil when it doesn't read."
+  "The data in the response `body`, or nil when it doesn't read."
   [body]
   (try
     (response body)
@@ -473,8 +466,8 @@
     (conj (request credentials :podcasts/by-guid {:guid feed-guid} opts))))
 
 (defn- item-in
-  "What the `responses` to remote-item-requests say: a map of the :feed
-  and the :episode, or nil when they name neither."
+  "What the `responses` to the requests for a remote item say: a map of
+  the :feed and the :episode, or nil when they name neither."
   [responses]
   (let [answers (for [{:keys [body]} responses
                       :when (string? body)]
@@ -488,8 +481,7 @@
 
 (defn call!
   "Send `call` for `credentials` with its `params`, when it takes any, and
-  read the answer with response, in ClojureScript in a promise. The `opts`
-  are these:
+  read the answer, in ClojureScript in a promise. The `opts` are these:
 
   - :base-url, as request takes it
   - :auth-date, as request takes it, the time of the clock by default
@@ -510,8 +502,8 @@
   `credentials`, with the `opts` of call!. It gives the block or nil, in
   ClojureScript in a promise.
 
-  The requests are those of remote-value-requests. They go one by one,
-  until one answers with a block."
+  The requests go one by one, for the block of the item first, until one
+  answers with a block."
   ([credentials remote-item]
    (fetch-remote-value! credentials remote-item {}))
   ([credentials remote-item {:keys [send] :or {send http/send!} :as opts}]
@@ -523,8 +515,8 @@
   `opts` of call!, in ClojureScript in a promise.
 
   It's a map of the :feed and the :episode in the shape of the model, or
-  nil when the index knows neither. The requests are those of
-  remote-item-requests, and they go at once."
+  nil when the index knows neither. The requests for the episode and the
+  feed go at once."
   ([credentials item]
    (fetch-remote-item! credentials item {}))
   ([credentials item {:keys [send] :or {send http/send!} :as opts}]
