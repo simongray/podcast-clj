@@ -1,25 +1,17 @@
 (ns inspector.player
-  "The inspector's player, in the browser. A library of
-  dk.simongray.podcast.app.library lives here, kept in localStorage, with
-  the listener's profile in it; inspector.player.view renders it through
-  Replicant; an audio element plays the current episode and reports back
-  through `library/step`, whose effects seek or stop the audio, or start
-  the next episode.
-  The server only supplies episode data, at /episode.edn.
+  "The inspector's player in the browser: a library with the listener's
+  profile, kept in localStorage, and the audio of the current episode.
 
-  The player sits in a bar on every page. Clicking a link fetches the next
-  page and swaps only the content below the bar, so that playback survives
-  moving between pages; the queue page is the detailed view of the same
-  state. The player syncs it through the inspector's own WebDAV folder at
-  /dav/, with `library/sync!` over the WebDAV store: when the page opens,
-  when it's hidden, when it's due while nothing plays, and on request, one
-  tab at a time, as doc/building-an-app.md advises for a website. It also
-  syncs through a folder that the listener picks, where the browser can
-  pick one, and keeps the folder's handle in IndexedDB for the next visit;
-  in every browser, the listener can save this browser's document into a
-  folder and load the folder's files by hand.
+  The server only supplies episode data, at /episode.edn. The player sits
+  in a bar on every page. Clicking a link fetches the next page and swaps
+  only the content below the bar, so that playback survives moving between
+  pages.
 
-  Built by `clojure -M:cljs compile player` and served at /js/player.js."
+  The player syncs through the inspector's WebDAV folder at /dav/, one tab
+  at a time: when the page opens, when it's hidden, when it's due while
+  nothing plays, and on request. Where the browser can pick a folder, it
+  also syncs through one that the listener picks, and keeps its handle in
+  IndexedDB for the next visit."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
@@ -109,17 +101,17 @@
 
 (defn with-other-tab
   "The page `state` with `other`, the state another tab of this browser
-  saved, merged in: the libraries as library/merge merges them, the sync
-  cursors included, and the titles of both."
+  saved, merged in: the libraries with their sync cursors, and the titles
+  of both."
   [state other]
   (-> state
       (update :library library/merge (:library other))
       (update :titles merge (:titles other))))
 
 (defn with-synced
-  "The page `state` with `library`, the library that `library/sync!` gave,
-  merged into its own, and the result of the sync under `:synced` for the
-  queue page."
+  "The page `state` with `library`, the result of a sync, merged into its
+  own, and the time and report of the sync under :synced for the queue
+  page."
   [state library]
   (-> state
       (update :library library/merge library)
@@ -228,9 +220,9 @@
           (.catch (fn [_] nil))))))
 
 (defn sync!
-  "One step of keeping this browser in step with the other devices through
-  `backends`, by default those of the backends function; the result is
-  shown on the queue page.
+  "Sync this browser with the other devices through `backends`, by default
+  the inspector's folder and the sync folder of this browser, and show the
+  result on the queue page.
 
   The tabs of this browser share its device id, so they sync one at a
   time, and each step starts from what the last one saved."
@@ -261,8 +253,8 @@
   (some-> (audio-element) .-paused not))
 
 (defn- sync-when-due!
-  "Sync when library/next-sync says that it's time, unless an episode
-  plays, since its position changes every few seconds then."
+  "Sync when it's due, unless an episode plays, since its position changes
+  every few seconds then."
   []
   (when (and (not (:syncing? @app))
              (not (playing?))
@@ -332,8 +324,8 @@
     (sync! [(sync/backend (file/store files) {:name "loaded folder"})])))
 
 (defn- perform!
-  "Carry out the `effects` `profile/step` returned: seek the audio element
-  to where a skip landed, stop it where the outro of the show starts, or
+  "Carry out the `effects` of a player event: seek the audio element to
+  where a skip landed, stop it where the outro of the show starts, or
   start the next episode once it is rendered."
   [effects]
   (doseq [[kind _ arg] effects]
@@ -470,7 +462,7 @@
 
 (defn- shown
   "The page state as the view reads it: with the profile and the sleep
-  timer of the library under `:profile` and `:sleep`."
+  timer of the library under :profile and :sleep."
   [state]
   (let [{:keys [profile sleep]} (:library state)]
     (assoc state :profile profile :sleep sleep)))
@@ -606,10 +598,10 @@
 
 (defn ^:export init
   "Mount the player: load the state, name this browser for the other
-  devices, take in the episodes of an older player, watch the state, route
-  the view's events to `handle!`, take over navigation and the other tabs'
-  saves, take up the sync folder, handle an episode the URL asks to add,
-  and sync on its own."
+  devices, take in the episodes of an older player, watch the state,
+  handle the view's events, take over navigation and the other tabs'
+  saves, take up the sync folder, add an episode the URL asks for, and
+  sync on its own."
   []
   (reset! app (assoc (load-state) :can-pick? (exists? js/showDirectoryPicker)))
   (let [{:keys [device profile]} (:library @app)]

@@ -1,6 +1,6 @@
 (ns inspector.page
-  "The pages of the feed inspector as Hiccup: data in, markup out, no I/O.
-  Rendered to strings by Replicant in the service namespace."
+  "The pages of the feed inspector as Hiccup for Replicant: data in, markup
+  out, no I/O."
   (:require [clojure.pprint :as pprint]
             [clojure.string :as str]
             [dk.simongray.drop-in-search :as search]
@@ -102,7 +102,7 @@
 (defn- link
   "The URL `url`, which a feed chose, when a link may lead there: over http
   or https. Nil otherwise, which leaves the attribute out, so that a
-  `javascript:` URL is never a link."
+  javascript: URL is never a link."
   [url]
   (when (re-find #"(?i)^https?://" (str url))
     url))
@@ -117,8 +117,8 @@
            :required    true}])
 
 (defn home
-  "The landing page: a URL form and the corpus, `corpus` being a seq of
-  `[name url]`."
+  "The landing page: a URL form and the `corpus`, pairs of a name and a
+  URL."
   [corpus]
   (layout "Home"
           [:h1 "Podcast feed inspector"]
@@ -162,8 +162,8 @@
   (name (or level :info)))
 
 (defn diagnostics-table
-  "A table of report or validation `diagnostics`, one row per kind as
-  `diagnostics/summarize` groups them, with the count and one example."
+  "A table of report or validation `diagnostics`, one row per kind, with
+  the count and one example."
   [diagnostics]
   (if (empty? diagnostics)
     [:p.muted "None."]
@@ -196,14 +196,13 @@
   (if (inst? x) (time/format-rfc2822 x) (str x)))
 
 (defn- shorten
-  "`s` cut to `n` characters with an ellipsis."
+  "The text `s` cut to `n` characters with an ellipsis."
   [s n]
   (if (> (count s) n) (str (subs s 0 n) "…") s))
 
 (defn- resolved-table
   "A table of the resolved `properties` and their `sources`: what an app
-  reads through dk.simongray.podcast.feed.resolve, and the raw fields each
-  answer came from."
+  reads of the feed, and the raw fields each answer came from."
   [properties sources]
   (let [key-str  #(if (namespace %) (str %) (name %))
         path-str #(str/join " " (map key-str %))]
@@ -233,8 +232,7 @@
     :else          (str n " B")))
 
 (defn- item-row
-  "One row of the items table, showing what an app would show: everything
-  here comes through dk.simongray.podcast.feed.resolve."
+  "One row of the items table, showing what an app would show."
   [feed-url feed i item]
   (let [{:keys [url type length]} (resolve/enclosure item)
         alternatives             (count (resolve/enclosures item))
@@ -288,7 +286,7 @@
              [:span.badge.muted (str tag)]))]]))
 
 (def orders
-  "The orders the feed page offers: those of `criteria/orders` that need no
+  "The orders the feed page offers: those of the criteria that need no
   profile, which the server does not have."
   [:listening :newest :oldest :shortest :longest :title])
 
@@ -337,7 +335,7 @@
 (defn feed-page
   "The inspector page for `feed`, fetched from `url`, with its parse
   `report`, validated against `requirements`, its items filtered and
-  ordered by `selection`, the options of `criteria/episodes`."
+  ordered by `selection`."
   [{:keys [url feed-url feed report requirements status selection]}]
   (let [items      (criteria/episodes feed (or selection {}))
         total      (count (:rss/items feed))
@@ -510,9 +508,8 @@
 
 (defn check-page
   "The check over the network of `feed`, fetched from `url`, against
-  `requirements`: the diagnostics of `result`, from `check/check-files!`,
-  and the files it fetched, of the newest `items`, with their integrity
-  when `integrity?`."
+  `requirements`: the diagnostics of the check `result`, and the files it
+  fetched, of the newest `items`, with their integrity when `integrity?`."
   [{:keys [url feed requirements items integrity? result]}]
   (let [files    (:files result)
         hashed   (count (filter #(get-in % [:declared :integrity]) files))
@@ -584,9 +581,9 @@
                   "offers no chapters.")})
 
 (defn- chapters-section
-  "The chapters of the view of an episode: `{:source :url :document
-  :report}`, as `episode/read-files!` chose them among the file, the embedded
-  ones, the media file and the timestamps of the show notes."
+  "The chapters of the view of an episode, a map of :source, :url,
+  :document and :report, from the first of the file, the embedded ones,
+  the media file and the timestamps of the show notes."
   [{:keys [chapters]}]
   (let [{:keys [source document report]} chapters]
     (list
@@ -619,7 +616,7 @@
 
 (defn- transcript-section
   "The transcript of the view of an episode: the chosen reference with its
-  `:document` and its `:report`, or its `:error`."
+  :document and its :report, or its :error."
   [{:keys [transcript]}]
   (list
    [:h2 "Transcript"]
@@ -658,7 +655,7 @@
 
 (defn- media-file-section
   "What the media file of the view of an episode says of itself: its
-  duration and its artwork, as `media/read!` read them, with the report."
+  duration and its artwork, with the report."
   [{:keys [media]}]
   (when media
     (let [{:keys [duration artwork report error]} media]
@@ -741,9 +738,8 @@
          (time-split-section block remotes split))))))
 
 (defn item-page
-  "The page for one `item` of `feed` at `url`, from its `view` as
-  `episode/view` gives it with what `episode/read-files!` read merged
-  in, and the `remotes` of its time splits as the service resolved them."
+  "The page for one `item` of `feed` at `url`, from its `view` with what
+  its files say merged in, and the `remotes` of its time splits."
   [{:keys [url feed item view remotes]}]
   (let [{:keys [title guid numbering published duration explicit? people
                 artwork notes enclosures value]} view
@@ -826,10 +822,10 @@
 
 (defn search-page
   "The results of the full-text query `q` over the items of the feed at
-  `url`, or over the corpus without one: `results` are those of
-  dk.simongray.drop-in-search/query of the `index` with the :item each
-  came from, for a snippet of its notes, and `typos` the words of `q` that
-  matched others with typos, from the metadata of the results."
+  `url`, or over the corpus without one. The `results` of the
+  drop-in-search query of the `index` each have the :item they came from,
+  for a snippet of its notes, and `typos` are the words of `q` that matched
+  others with typos."
   [{:keys [q url index results typos]}]
   (layout (str "Search: " q)
           (when url
@@ -886,9 +882,8 @@
                        (if match? [:mark text] text))]))])])))
 
 (defn find-page
-  "The `feeds` that discovery/find-feeds! found for the text `q`, best first,
-  and the `report` of what it tried in vain, or the `error` when it found
-  none."
+  "The `feeds` found for the text `q`, best first, and the `report` of what
+  was tried in vain, or the `error` when none were found."
   [{:keys [q feeds report error]}]
   (layout (str "Find: " q)
           [:h1 "The feeds of " [:code q]]
@@ -912,9 +907,9 @@
 
 (defn directory-page
   "The shows the directories answered for the query `q`, or their charts
-  for `country` without one, of the `category` when there is one:
-  `results` as `directory/combine` folds them, and the `report` of the
-  sources that failed."
+  for `country` without one, of the `category` when there is one: the
+  `results` as one entry for each show, and the `report` of the sources
+  that failed."
   [{:keys [q country category results report]}]
   (let [charts?    (str/blank? q)
         chart      (fn [params] (str "/directory?" (url/query-string params)))
@@ -1021,8 +1016,7 @@
                                (shorten iri 90)]])]])]])))
 
 (defn queue-page
-  "The shell of the play queue: the browser player, written in
-  ClojureScript in inspector.player, mounts into it and
+  "The shell of the play queue: the browser player mounts into it and
   keeps the listener's profile in the browser."
   []
   (layout "Queue"
@@ -1105,11 +1099,10 @@
        [:ol.comments (map #(comment-item thread %) replies)])]))
 
 (defn- thread-view
-  "The `thread` that `comments/fetch!` read, as a tree with its report.
-  `toggle` is the address of the same page with or without the replies
-  that the author of the root post hid, and `hidden?` tells which the page
-  shows. A thread about an episode itself has no root post, so the view
-  shows the comments on the episode."
+  "The read `thread` as a tree with its report, with the replies that the
+  author of the root post hid when `hidden?`, and a link to `toggle`, the
+  same page with or without them. A thread about an episode itself has no
+  root post, so the view shows the comments on the episode."
   [thread hidden? toggle]
   (let [about?   (str/starts-with? (str (:uri thread)) "podcast:")
         tree     (comments/tree thread {:hidden? hidden?})
@@ -1143,7 +1136,7 @@
 
 (defn comments-page
   "The page of the comments on `item` of the feed at `url`, from the
-  `interacts` of the item and the `thread` that `comments/fetch!` read.
+  `interacts` of the item and the read `thread`.
 
   It shows the thread as a tree, with its report, or tells why there is no
   thread. With `hidden?`, the tree holds the replies that the author of the
@@ -1180,8 +1173,8 @@
 
 (defn thread-page
   "The page of the comments below the post that `address` names, from the
-  `thread` that `comments/fetch!` read. It has a form for the address of
-  another post.
+  read `thread`, with the hidden replies when `hidden?`. It has a form for
+  the address of another post.
 
   Without a thread, the page tells that the inspector does not know the
   address, when there is one."
@@ -1304,12 +1297,14 @@
 
 (defn wallet-page
   "The page of the wallet of the listener, with a form for the connection
-  URI of Nostr Wallet Connect. With an `episode`, `{:url :feed :item}`,
-  the form pays a boost for it. The other keys are what the wallet
-  answered: the `connection` without its secret, the public key `app` of
-  the inspector, the `info`, the `wallet`, the `balance` and the `boost`.
-  `problem` tells why the inspector did not ask, or did not pay. `token`
-  is the token of the form, which a post that pays needs."
+  URI of Nostr Wallet Connect.
+
+  With an `episode`, a map of :url, :feed and :item, the form pays a boost
+  for it. The other keys are what the wallet answered: the `connection`
+  without its secret, the public key `app` of the inspector, the `info`,
+  the `wallet`, the `balance` and the `boost`. The `problem` tells why the
+  inspector did not ask, or did not pay. The `token` is the token of the
+  form, which a post that pays needs."
   [{:keys [episode problem connection boost token] :as answers}]
   (let [{:keys [url feed item]} episode
         block (when episode (resolve/value feed item))

@@ -1,7 +1,6 @@
 (ns inspector.service
   "The reference web app: a feed inspector on Pedestal that uses nothing but
-  the public API of the library. Start it with `clojure -M:web` or from the
-  REPL with `(start!)`, then open http://localhost:8300/."
+  the public API of the library."
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pprint]
             [clojure.string :as str]
@@ -47,7 +46,7 @@
   (io/file "dev-resources/corpus"))
 
 (defn corpus
-  "The corpus feeds on disk as `[name url]`, the URL being the local route."
+  "The corpus feeds on disk as pairs of a name and a URL, the local route."
   []
   (let [dir  ^java.io.File corpus-dir
         xml? #(str/ends-with? (.getName ^java.io.File %) ".xml")
@@ -93,10 +92,10 @@
     entry))
 
 (defn- fetch
-  "What `read` makes of the body at `url`, in `{:url :status :value}` with
-  the final URL and the status; `kind` tells the readings of one URL apart.
-  A fetch is reused for `cache-seconds`, and after that for as long as the
-  server answers that the body has not changed."
+  "What `read` makes of the body at `url`, as a map of the final :url, the
+  :status and the :value, where `kind` tells the readings of one URL
+  apart. A fetch is reused for cache-seconds, and after that for as long
+  as the server answers that the body has not changed."
   [kind url read]
   (let [now     (System/currentTimeMillis)
         fresh?  #(< (- now (:at %)) (* 1000 cache-seconds))
@@ -124,10 +123,11 @@
     (cached [kind url] fresh? refetch)))
 
 (defn- load-feed
-  "The parsed feed at `url`, or the corpus file when `url` names one, as
-  `{:url :feed-url :feed :report :status}`, parsed again only when it
-  changed. The :feed-url is where the feed lives, which names it: `url`,
-  or the self link of a corpus file, whose `url` is only its route here."
+  "The parsed feed at `url`, or the corpus file when `url` names one, as a
+  map of :url, :feed-url, :feed, :report and :status, parsed again only
+  when it changed. The :feed-url is where the feed lives, which names it:
+  `url`, or the self link of a corpus file, whose `url` is only its route
+  here."
   [url]
   (if-let [[_ name] (re-matches #"corpus/([\w.-]+)" url)]
     (let [file     (corpus-file name)
@@ -213,8 +213,8 @@
 
 (defn- selection
   "What the feed page's filter form asks for, from the query `params`: the
-  criteria and the order of `criteria/episodes`, an order the page does not
-  offer left out."
+  criteria and the order of the episodes, an order the page does not offer
+  left out."
   [{:keys [q season type order]}]
   (let [season (some-> season parse-long)
         types  #{"full" "trailer" "bonus"}
@@ -246,7 +246,7 @@
 (defn- checked
   "The check over the network of `feed`, fetched from `url`, for its newest
   `items`, reading what the files hold, and their integrity when
-  `integrity?`: reused for `cache-seconds` while the feed is the same, so
+  `integrity?`: reused for cache-seconds while the feed is the same, so
   that the page judges one check by each choice of requirements."
   [url feed items integrity?]
   (let [now       (System/currentTimeMillis)
@@ -289,12 +289,12 @@
 
 (defn feed-edn
   "The parsed feed as EDN, pretty-printed for a feed of up to a hundred
-  items, since that takes about two seconds per hundred, and else on one
-  line, which an editor can format."
+  items, and else on one line, which an editor can format."
   [request]
   (with-feed request
     (fn [{:keys [feed]}]
       (text "text/plain; charset=utf-8"
+            ;; pretty-printing takes about two seconds per hundred items
             (if (<= (count (:rss/items feed)) 100)
               (with-out-str (pprint/pprint feed))
               (str ";; on one line, since pretty-printing more than a "
@@ -327,16 +327,16 @@
        :user-agent "podcast-clj inspector"})))
 
 (defn- known!
-  "Keep `feed`, which find-feeds! fetched from `url`, as if the inspector
-  had fetched it, so that its page doesn't fetch it again."
+  "Keep `feed`, which a search for feeds fetched from `url`, as if the
+  inspector had fetched it, so that its page doesn't fetch it again."
   [url feed]
   (cached [:feed url] (constantly false)
           (fn [_]
             {:url url :status 200 :value feed :at (System/currentTimeMillis)})))
 
 (defn find-page
-  "The feeds that discovery/find-feeds! finds for the text in the `q`
-  parameter: a feed URL, a website, a page or a link of an app.
+  "The feeds found for the text in the `q` parameter: a feed URL, a
+  website, a page or a link of an app.
 
   When a page names no podcast, the directories are searched by its name,
   for a feed that names the page's website as its own. The page of the
@@ -371,8 +371,7 @@
 
 (defn- episode-view
   "The view of `item` in `feed` at `url`, with what its files say merged
-  in, as `episode/view` and `episode/read-files!` give it; kept for
-  `cache-seconds`, since the files are fetched to make it."
+  in, kept for cache-seconds, since the files are fetched to make it."
   [feed url item]
   (let [now (System/currentTimeMillis)]
     (:value (cached [:episode url (feed.guid/item-guid item)]
@@ -383,9 +382,8 @@
                         {:at now :value (merge view files)}))))))
 
 (defn- remotes
-  "The value blocks that the time splits of the episode `view` point at, as
-  `episode/fetch-remote-values!` fetches them, and whether the index can
-  be asked."
+  "The value blocks that the time splits of the episode `view` point at,
+  and whether the index can be asked."
   [view]
   (assoc (episode/fetch-remote-values! view {:index index-credentials})
          :index? (some? index-credentials)))
@@ -409,15 +407,15 @@
 
 (def appview
   "The AppView that the comments page reads AT Protocol threads from. It is
-  the public AppView of Bluesky, which answers without an account.
-  podcast-clj names no AppView, because each app chooses its own."
+  the public AppView of Bluesky, which answers without an account. The
+  library names no AppView, because each app chooses its own."
   "https://public.api.bsky.app")
 
 (defn- thread-of
   "The thread of comments below `interact`.
 
   Each visit reads for ten seconds at most, so that the page comes soon.
-  The inspector keeps a thread for `cache-seconds`. While the thread is
+  The inspector keeps a thread for cache-seconds. While the thread is
   incomplete, or a read of it failed, the next visit reads on."
   [interact]
   (let [now       (System/currentTimeMillis)
@@ -439,7 +437,7 @@
   "The comments page of the item that the `guid` parameter names, in the
   feed that the `url` parameter names, for `request`.
 
-  It shows the thread that `comments/thread` picks. When the feed names
+  It shows the thread that the item or the feed names. When the feed names
   no thread that podcast-clj reads, it shows the notes about the episode
   on Nostr, unless the podcaster wants no comments shown. With the
   `hidden` parameter, it also shows the replies that the author of the
@@ -464,9 +462,9 @@
           (no-item url guid))))))
 
 (defn- interact-of
-  "The thread below the post that the address `s` names, as the interact
-  `{:protocol :uri}` that `comments/fetch!` reads. Nil for a text that is
-  no address of a post.
+  "The thread below the post that the address `s` names, as an unread
+  thread, a map of :protocol and :uri. Nil for a text that is no address
+  of a post.
 
   A person has the address of a web page, so the inspector takes the page
   of a post at bsky.app and at njump.me too. These are the pages of two
@@ -572,8 +570,8 @@
                                recipient))}))))
 
 (defn- episode-of
-  "The episode that the parameters `url` and `guid` name, as `{:url
-  :feed-url :feed :item}`. Nil when they name none."
+  "The episode that the parameters `url` and `guid` name, as a map of :url,
+  :feed-url, :feed and :item. Nil when they name none."
   [url guid]
   (when-not (str/blank? url)
     (let [{:keys [feed feed-url]} (load-feed url)]
@@ -679,8 +677,7 @@
                  :index (feed.search/index docs)}))))
 
 (defn- by-guid
-  "The `feeds`, a map of URL to feed, by feed guid, as feed.search/located takes
-  them."
+  "The `feeds`, a map of URL to feed, by feed guid."
   [feeds]
   (into {} (map (fn [[url feed]] [(feed.guid/feed-guid feed url) feed])) feeds))
 
@@ -759,9 +756,7 @@
       (failure "Could not read the Hive chain" nil e))))
 
 (defn queue-page
-  "The shell the browser player mounts into; the player itself is
-  inspector.player, compiled by `clojure -M:cljs compile
-  player`."
+  "The shell the browser player mounts into."
   [_]
   (html (page/queue-page)))
 
@@ -874,8 +869,8 @@
 
 (defn routes
   "The inspector's routes, in Pedestal's set syntax, the WebDAV ones and the
-  gpodder API serving `sync-store` (default the folder store over
-  `sync-dir`), and the proxy for the requests of a page."
+  gpodder API serving `sync-store`, by default the folder store over
+  sync-dir, and the proxy for the requests of a page."
   ([]
    (routes (file/store sync-dir)))
   ([sync-store]
@@ -958,9 +953,8 @@
   (atom nil))
 
 (defn connector
-  "A Jetty connector serving the inspector on `port`, not yet started; tests
-  drive its interceptor chain directly. `opts` may name another `:sync-dir`
-  to serve over WebDAV."
+  "A Jetty connector serving the inspector on `port`, not yet started. The
+  options can name another :sync-dir to serve over WebDAV."
   ([port]
    (connector port {}))
   ([port {:keys [sync-dir] :or {sync-dir sync-dir}}]
@@ -982,7 +976,8 @@
        (jetty/create-connector nil))))
 
 (defn start!
-  "Start the inspector on `:port` (default 8300); idempotent."
+  "Start the inspector on the :port of the options, 8300 by default, unless
+  it runs."
   ([]
    (start! {}))
   ([{:keys [port] :or {port 8300}}]

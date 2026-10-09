@@ -1,20 +1,24 @@
 (ns inspector.player.view
   "The inspector's player as Hiccup: pure functions of the page state with
-  event handlers as data, so that what the player shows is tested as data
-  under Node and Replicant's dispatch performs the events.
+  event handlers as data for Replicant, so that what the player shows is
+  tested as data under Node.
 
-  The state is `{:profile … :titles {id episode} :readout \"…\" :error \"…\"}`,
-  the profile being dk.simongray.podcast.profile's and an episode what
-  /episode.edn serves. An episode that another device added comes through
-  a sync as a remote item, whose data the shell fetches. An event is a
-  vector whose first element names it: `[:play id]`, `[:skip id :back]`,
-  `[:ended id]`, `[:sleep 1]`,
-  `[:play-next id]`, `[:dequeue id]`, `[:prefer :skip-back]`, `[:sync]`,
-  `[:folder/pick]`, `[:folder/allow]`, `[:folder/forget]`,
-  `[:document/save]`, `[:document/load]`, `[:device/retire id]`, and from
-  the audio element `[:audio/loaded id position]`, `[:audio/time id]` and
-  `[:audio/paused id]`.
-  The shell in inspector.player performs them."
+  The state holds the listener's profile and, for each episode id, what
+  /episode.edn served for it:
+
+      {:profile … :titles {id episode} :readout \"…\" :error \"…\"}
+
+  An episode that another device added comes through a sync as a remote
+  item, without that data. An event is a vector whose first element names
+  it:
+
+      [:play id] [:skip id :back] [:ended id] [:sleep 1] [:play-next id]
+      [:dequeue id] [:prefer :skip-back] [:sync]
+      [:folder/pick] [:folder/allow] [:folder/forget]
+      [:document/save] [:document/load] [:device/retire id]
+
+  The audio element raises [:audio/loaded id position], [:audio/time id]
+  and [:audio/paused id]."
   (:require [cljs.pprint :as pprint]
             [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
