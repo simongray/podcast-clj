@@ -5,8 +5,7 @@
 
   Instants are inst values, java.util.Date or js/Date. Durations and
   timestamps within media are seconds: a long when whole, and a double
-  otherwise. The recurrence rules of dk.simongray.podcast.util.time.rrule
-  are built on the calendar arithmetic here."
+  otherwise."
   (:require [clojure.string :as str]))
 
 ;; days_from_civil and civil_from_days of Howard Hinnant, in
@@ -140,9 +139,7 @@
   year, the hour, the minute, the second and the zone.
 
   The weekday, the seconds, the time and the zone are optional, and the
-  separators are forgiving. The spaces before the zone belong to the
-  optional zone group, so that they and the trailing spaces never compete
-  for one run of whitespace, which backtracks quadratically."
+  separators are forgiving."
   (re-pattern
    (str "(?i)^\\s*"
         ;; the weekday
@@ -153,7 +150,10 @@
         "(\\d{2,4})"
         ;; the time
         "(?:[\\s,T]+(\\d{1,2}):(\\d{2})(?::(\\d{2})(?:\\.\\d+)?)?)?"
-        ;; the zone: a name, an offset, or an offset from GMT or UTC
+        ;; the zone: a name, an offset, or an offset from GMT or UTC. The
+        ;; spaces before it belong to its optional group, so that they and
+        ;; the trailing spaces never compete for one run of whitespace,
+        ;; which backtracks quadratically
         "(?:\\s*([a-z]{1,5}|[+-]\\d{1,2}:?\\d{2}"
         "|(?:gmt|utc)[+-]\\d{1,2}:?\\d{2}))?"
         "\\s*$")))
@@ -225,12 +225,13 @@
 
 (def ^:no-doc iso8601-pattern
   "An ISO 8601 date or date-time, with groups for the year, the month, the
-  day, the hour, the minute, the second, the fraction and the zone. As in
-  rfc2822-lenient-pattern, the spaces before the zone belong to its group."
+  day, the hour, the minute, the second, the fraction and the zone."
   (re-pattern
    (str "^\\s*(\\d{4})-(\\d{2})-(\\d{2})"
         ;; the time, with the zone in it
         "(?:[T ](\\d{2}):(\\d{2})(?::(\\d{2})(?:[.,](\\d{1,9}))?)?"
+        ;; the spaces before the zone belong to its group, as in the
+        ;; lenient pattern of RFC 2822
         "(?:\\s*(Z|z|[+-]\\d{2}:?\\d{2}))?)?"
         "\\s*$")))
 
@@ -270,7 +271,7 @@
     [days (quot secs 3600) (rem (quot secs 60) 60) (rem secs 60) millis]))
 
 (def ^:no-doc weekdays
-  "The weekday names of RFC 2822, Sunday first, as days-from-civil counts."
+  "The weekday names of RFC 2822, Sunday first."
   ["Sun" "Mon" "Tue" "Wed" "Thu" "Fri" "Sat"])
 
 (def ^:no-doc month-names
@@ -344,7 +345,8 @@
 
 (defn seconds
   "The number of seconds that `x` denotes: a number as it is, or a numeric
-  or clock string as parse-duration reads it, and nil for anything else."
+  or clock string as itunes:duration writes it, and nil for anything
+  else."
   [x]
   (cond
     (number? x) x
@@ -352,8 +354,8 @@
     :else       nil))
 
 (defn ^:no-doc countable?
-  "Whether `x` is a number of seconds that format-clock and
-  format-timestamp can write, one that both platforms count exactly."
+  "Whether `x` is a number of seconds that a clock or a timestamp can
+  show, one that both platforms count exactly."
   [x]
   (and (number? x)
        (< (abs x) max-whole)))

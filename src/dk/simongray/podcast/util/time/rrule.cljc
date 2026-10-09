@@ -2,21 +2,16 @@
   "Recurrence rules of RFC 5545, section 3.3.10, as the rrule of
   podcast:updateFrequency carries them.
 
-  They're parsed into a map of their parts, written back as a rule string,
-  and evaluated into the instants that they produce, with the calendar
-  arithmetic of dk.simongray.podcast.util.time:
-
-      (parse \"FREQ=WEEKLY;BYDAY=MO,WE\")
-      ;; => {:freq \"WEEKLY\" :byday [\"MO\" \"WE\"]}
-      (take 2 (occurrences *1 #inst \"2026-01-05T18:00:00Z\"))
-      ;; => (#inst \"2026-01-05T18:00:00Z\" #inst \"2026-01-07T18:00:00Z\")"
+  A rule is a map of its parts by lower-case key, e.g. {:freq \"WEEKLY\"
+  :byday [\"MO\" \"WE\"]}, and it's evaluated into the instants that it
+  produces."
   (:refer-clojure :exclude [format])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.time :as time]))
 
 (def ^:no-doc parts
   "The parts of a recurrence rule, as model keys and as written, in the
-  order that format writes them."
+  order that they're written."
   [[:freq "FREQ"] [:interval "INTERVAL"] [:count "COUNT"] [:until "UNTIL"]
    [:bysecond "BYSECOND"] [:byminute "BYMINUTE"] [:byhour "BYHOUR"]
    [:byday "BYDAY"] [:bymonthday "BYMONTHDAY"] [:byyearday "BYYEARDAY"]
@@ -154,8 +149,7 @@
                             (part k v))))))
 
 (def ^:no-doc weekday-codes
-  "The weekday codes of RFC 5545, Sunday first, as time/days-from-civil
-  counts."
+  "The weekday codes of RFC 5545, Sunday first."
   ["SU" "MO" "TU" "WE" "TH" "FR" "SA"])
 
 (def ^:no-doc weekday-numbers
@@ -164,8 +158,8 @@
   (zipmap weekday-codes (range)))
 
 (def ^:no-doc evaluable-parts
-  "The rule parts that occurrences evaluates. A rule with any other part
-  gives nil."
+  "The rule parts that are evaluated. A rule with any other part gives
+  nil."
   #{:freq :interval :count :until :byday :bymonthday :bymonth :wkst})
 
 (defn- weekday-of
@@ -249,7 +243,7 @@
             (contains? monthdays (- d (inc (days-in-month y m))))))))
 
 (def ^:no-doc century
-  "The days that occurrences reads ahead from the start: a hundred years."
+  "The days that an evaluation reads ahead from the start: a hundred years."
   36525)
 
 (defn- daily-days
