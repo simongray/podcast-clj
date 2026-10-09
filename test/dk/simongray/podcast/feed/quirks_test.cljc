@@ -5,7 +5,8 @@
             [dk.simongray.podcast.feed.quirks :as quirks]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.test-support :refer [fixture]]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.podcast.util.entities :as entities]
+            [dk.simongray.qname-hiccup :as xml]))
 
 (def quirky
   (delay (fixture "feeds/quirky.xml")))
@@ -51,7 +52,7 @@
       (is (= "<rss><channel><title>A &amp; B &#160;</title></channel></rss>" xml)))))
 
 (deftest entities
-  (is (= "it's & … A  x &bogus;" (xml/decode-entities "it&#39;s &amp; &hellip; &#x41; &nbsp;x &bogus;"))))
+  (is (= "it's & … A  x &bogus;" (entities/decode-entities "it&#39;s &amp; &hellip; &#x41; &nbsp;x &bogus;"))))
 
 (deftest junk-around-the-document
   (let [read (fn [xml]
@@ -96,9 +97,9 @@
 
 (deftest numeric-references-a-string-cannot-hold
   (is (= "&#1114112; &#x110000; &#99999999999999999999; A"
-         (xml/decode-entities "&#1114112; &#x110000; &#99999999999999999999; &#65;")))
+         (entities/decode-entities "&#1114112; &#x110000; &#99999999999999999999; &#65;")))
   (is (= "&#0; &#xD800; &#xDFFF; A ퟿ "
-         (xml/decode-entities "&#0; &#xD800; &#xDFFF; &#X41; &#xD7FF; &#xE000;"))
+         (entities/decode-entities "&#0; &#xD800; &#xDFFF; &#X41; &#xD7FF; &#xE000;"))
       "zero and a surrogate are no characters, and a capital X reads as in HTML"))
 
 (deftest leaving-rules-out

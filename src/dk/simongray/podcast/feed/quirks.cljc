@@ -7,8 +7,9 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.spec :as spec]
+            [dk.simongray.podcast.util.entities :as entities]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.qname-hiccup :as xml]))
 
 (defn ^:no-doc uri-key
   "The namespace `uri` in the form to look it up by, without scheme, case
@@ -127,7 +128,7 @@
         (let [window  (subs s at (min n (+ at 32)))
               [_ ref] (re-find #"^&(#\d+|#[xX][0-9a-fA-F]+);" window)]
           (if (and ref
-                   (not (some-> (xml/code-point ref) legal-code-point?)))
+                   (not (some-> (entities/code-point ref) legal-code-point?)))
             true
             (recur (+ at 2))))
         false))))
@@ -146,7 +147,7 @@
       (map-outside-cdata
        #(str/replace % #"&(#\d+|#[xX][0-9a-fA-F]+);"
                      (fn [[whole ref]]
-                       (if (some-> (xml/code-point ref) legal-code-point?)
+                       (if (some-> (entities/code-point ref) legal-code-point?)
                          whole
                          "")))
        s)
@@ -160,11 +161,16 @@
   (map-outside-cdata
    #(str/replace % #"&([A-Za-z][A-Za-z0-9]*);"
                  (fn [[whole name]]
-                   (let [chars (xml/html-entity name)]
+                   (let [chars (entities/html-entity name)]
                      (cond
-                       (xml/xml-entities name) whole
-                       chars                   (xml/character-references chars)
-                       :else                   (str "&amp;" name ";")))))
+                       (entities/xml-entities name)
+                       whole
+
+                       chars
+                       (entities/character-references chars)
+
+                       :else
+                       (str "&amp;" name ";")))))
    s))
 
 (defn escape-bare-ampersands
@@ -308,7 +314,7 @@
   ClojureScript has none."
   (delay
    #?(:clj  (try
-              (requiring-resolve 'dk.simongray.podcast.util.xml.jsoup/parse-raw)
+              (requiring-resolve 'dk.simongray.qname-hiccup.jsoup/parse-raw)
               (catch Exception _ nil))
       :cljs nil)))
 

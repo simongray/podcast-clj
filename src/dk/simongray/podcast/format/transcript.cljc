@@ -25,9 +25,9 @@
   metadata."
   (:require [clojure.string :as str]
             [dk.simongray.drop-in-search.queries :as search.queries]
+            [dk.simongray.podcast.util.entities :as entities]
             [dk.simongray.podcast.util.json :as json]
-            [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.podcast.util.time :as time]))
 
 ;; podcast:transcript names five types. application/srt is of Apple's
 ;; guide, and text/srt is in feeds.
@@ -180,8 +180,8 @@
             text            (str/join "\n" payload)
             voice           (some-> (re-find voice-span text)
                                     second
-                                    xml/decode-entities)
-            plain           (xml/decode-entities (str/trim (strip-tags text)))
+                                    entities/decode-entities)
+            plain           (-> text strip-tags str/trim entities/decode-entities)
             [prefixed body] (if voice [nil plain] (speaker-prefix stats plain))
             speaker         (or voice prefixed)]
         (cond-> {:start-time (time/parse-clock from)
@@ -319,7 +319,7 @@
   as pairs."
   [s]
   (for [[_ tag body] (re-seq html-token-pattern s)]
-    [(str/lower-case tag) (tidy (xml/decode-entities (strip-tags body)))]))
+    [(str/lower-case tag) (tidy (entities/decode-entities (strip-tags body)))]))
 
 (defn- html-segments
   "The segments of `tokens`: a cite sets the speaker, a time the start, and

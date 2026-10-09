@@ -29,7 +29,7 @@
 ;; IndexedDB and encrypted stores, and sync/backend, once the backend no
 ;; longer writes the OPML of a profile. The contract and those stores need
 ;; only util.async, util.bytes and util.secret, but WebDAV needs util.http
-;; and util.xml, so it would stay here.
+;; and qname-hiccup, so it would stay here.
 
 (defn memory
   "A store over the atom `documents`, or a fresh one, which holds the :body

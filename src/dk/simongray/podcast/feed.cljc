@@ -17,7 +17,8 @@
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.spec :as spec]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.podcast.util.names :as names]
+            [dk.simongray.qname-hiccup :as xml]))
 
 ;; The parse threads a context `ctx`: the `:registry` being interpreted, the
 ;; `:report` accumulator and the `:keys` of the attributes seen, volatiles.
@@ -36,7 +37,7 @@
   ;; a feed names the same attributes on every item
   (let [keys (:keys ctx)]
     (or (get @keys k)
-        (let [k' (xml/attr-key k)]
+        (let [k' (names/attr-key k)]
           (vswap! keys assoc k k')
           k'))))
 
@@ -327,9 +328,9 @@
         (let [context    (spec/children-context entry)
               child-keys (map #(spec/key-for % context)
                               (spec/entries-for (:registry ctx) context))
-              attr-keys  (map xml/attr-key (keys (:attrs entry)))
+              attr-keys  (map names/attr-key (keys (:attrs entry)))
               declared   (mapv (fn [[k {:keys [type]}]]
-                                 [k (xml/attr-key k) (or type :text)])
+                                 [k (names/attr-key k) (or type :text)])
                                (:attrs entry))
               plan       {:taken    (into #{:content :xml/unknown}
                                           (concat child-keys attr-keys))

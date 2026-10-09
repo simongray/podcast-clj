@@ -22,7 +22,8 @@
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.spec :as spec]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.podcast.util.names :as names]
+            [dk.simongray.qname-hiccup :as xml]))
 
 (defn- diagnostic
   [id level path message & {:as details}]
@@ -86,7 +87,7 @@
   [entry m path]
   (let [https? (= "podcast" (namespace (:tag entry)))]
     (mapcat (fn [[k {:keys [type required values]}]]
-              (let [k'    (xml/attr-key k)
+              (let [k'    (names/attr-key k)
                     path' (conj path k')
                     type  (or type :text)]
                 (if (contains? m k')
@@ -182,7 +183,7 @@
   [registry context entry m path]
   (let [child-keys (map #(spec/key-for % context)
                         (spec/entries-for registry context))
-        attr-keys  (map xml/attr-key (keys (:attrs entry)))
+        attr-keys  (map names/attr-key (keys (:attrs entry)))
         known      (cond-> (into #{:content :xml/unknown}
                                  (concat child-keys attr-keys))
                      (nil? entry) (conj :rss/version))

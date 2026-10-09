@@ -14,7 +14,7 @@
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.qname-hiccup :as xml]))
 
 (def calls
   "The calls that a store makes to a collection:

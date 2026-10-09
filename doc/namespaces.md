@@ -17,7 +17,7 @@ Every namespace of podcast-clj is under the root namespace,
   `app` namespaces give, or when you're not building an app, e.g. for a
   host that serves its feeds or a server that syncs profiles.
 - **Not specific to podcasts.** The `util`, `store` and `crypto`
-  namespaces and `nostr` hold general tools, e.g. HTTP, XML, JSON, dates,
+  namespaces and `nostr` hold general tools, e.g. HTTP, JSON, dates,
   stores of documents, and the Nostr protocol and its cryptography.
 
 The `app` namespaces are built from all the others, and nothing outside
@@ -25,11 +25,13 @@ The `app` namespaces are built from all the others, and nothing outside
 [Architecture](architecture.md#layers) explains the rule, which a test
 checks.
 
-The HTML in show notes and comments is read by
+The XML of feeds and lists is read and written by
+[qname-hiccup](https://github.com/simongray/qname-hiccup), the HTML in
+show notes and comments is read by
 [html-pieces](https://github.com/simongray/html-pieces), full-text search
 comes from [drop-in-search](https://github.com/simongray/drop-in-search),
 and the profile is a CRDT of
-[mind-meld](https://github.com/simongray/mind-meld), three libraries in
+[mind-meld](https://github.com/simongray/mind-meld), four libraries in
 repositories of their own.
 
 The tables follow the same order. Names in them are relative to the root,
@@ -162,8 +164,6 @@ option replaces the function that sends.
 
 | Namespace | Contents |
 |---|---|
-| `util.xml` | XML to Hiccup and back, with namespaces resolved by URI through a table that the caller gives, and `decode` for the bytes of a document. |
-| `util.xml.jsoup` | JVM. A lenient parser for feeds that aren't well-formed XML, with the optional `org.jsoup/jsoup`. |
 | `util.json` | JSON to data and back, on both platforms. |
 | `util.time` | Dates, durations and timestamps. |
 | `util.time.rrule` | RFC 5545 recurrence rules. |
@@ -175,6 +175,8 @@ option replaces the function that sends.
 | `util.async` | Futures on the JVM and promises in JavaScript behind one API, `all` and `in-groups` to make calls at the same time, and `iteration` for paged APIs on both platforms. |
 | `util.secret` | Secrets that print as `#<secret>`: `hide`, `reveal` and `hidden?`. |
 | `util.bech32` | Bech32, the encoding of BIP-173. |
+| `util.entities` | Character and entity references in the text of feeds, HTML's included: `decode-entities` replaces them with the characters they stand for. |
+| `util.names` | The keys of the maps, from camelCase names: `kebab`, and `attr-key` for the attributes of XML. |
 
 ## Nostr and cryptography
 

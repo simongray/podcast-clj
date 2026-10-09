@@ -7,7 +7,8 @@
             [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.spec :as spec]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.podcast.util.names :as names]
+            [dk.simongray.qname-hiccup :as xml]))
 
 (def vocabularies
   "The sections of the reference, in order: title, the tag namespaces they
@@ -69,7 +70,7 @@
      ["| Attribute | Key | Type | |"
       "|---|---|---|---|"]
      (for [[k {:keys [required] :as attr}] (sort-by (comp str key) attrs)]
-       (str "| `" (name k) "` | `" (xml/attr-key k) "` | " (type-name attr)
+       (str "| `" (name k) "` | `" (names/attr-key k) "` | " (type-name attr)
             " | " (if required "required" "") " |")))))
 
 (defn- element-section

@@ -5,7 +5,7 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.time.rrule :as rrule]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.qname-hiccup :as xml]))
 
 (def coerced-types
   "The value types whose model values aren't strings, so that a string

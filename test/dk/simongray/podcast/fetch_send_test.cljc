@@ -92,5 +92,5 @@
               (set! (.-DOMParser js/globalThis) js/undefined)
               (-> (podcast/fetch! "https://a.example/feed.xml" {:send (answering (atom []))})
                   (.then (fn [_] (is false "a feed read without a parser"))
-                         (fn [e] (is (= :dk.simongray.podcast.util.xml/no-parser (:type (ex-data e))) "it throws, rather than blame the server")))
+                         (fn [e] (is (= :dk.simongray.qname-hiccup/no-parser (:type (ex-data e))) "it throws, rather than blame the server")))
                   (.finally #(set! (.-DOMParser js/globalThis) parser))))))))

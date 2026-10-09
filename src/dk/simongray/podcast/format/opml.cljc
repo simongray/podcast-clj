@@ -31,8 +31,9 @@
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
+            [dk.simongray.podcast.util.names :as names]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.qname-hiccup :as xml]))
 
 (def ^:no-doc head-elements
   "The head elements of OPML 2.0 besides the title that a subscription list
@@ -57,7 +58,7 @@
                 (when (= (str/lower-case (name attr)) lower)
                   key))
               attr-names)
-        (xml/attr-key k))))
+        (names/attr-key k))))
 
 (defn- subscription
   "The subscription of the `outline` element with an xmlUrl, under `path`.

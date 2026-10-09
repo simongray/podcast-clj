@@ -22,7 +22,7 @@
    "util.proxy" 0 "util.secret" 0
    "util.time" 0
    "util.time.rrule" 0
-   "util.xml" 0 "util.xml.jsoup" 0
+   "util.entities" 0 "util.names" 0
    "crypto.aes-gcm" 0 "crypto.chacha20" 0 "crypto.nip44" 0 "crypto.secp256k1" 0
    "store" 0 "store.file" 0 "store.indexeddb" 0 "store.webdav" 0 "store.webdav.server" 0 "store.encrypted" 0
    "feed.spec" 1 "feed.quirks" 1
@@ -44,8 +44,8 @@
    "app.episode" 5 "app.show" 5 "app.feeds" 5 "app.library" 5})
 
 (defn- short-name
-  "The name of `ns` under `prefix`: \"util.xml\" for
-  dk.simongray.podcast.util.xml, \"\" for the root namespace."
+  "The name of `ns` under `prefix`: \"util.http\" for
+  dk.simongray.podcast.util.http, \"\" for the root namespace."
   [ns]
   (str/replace (str ns) (re-pattern (str "^" (java.util.regex.Pattern/quote prefix) "\\.?")) ""))
 
@@ -113,9 +113,7 @@
                        (str/starts-with? % "format.")
                        (= "value.payment" %))
                   (get @graph ns))
-          (str ns " requires " (get @graph ns)))))
-  (testing "the XML layer needs nothing of podcasts"
-    (is (= #{} (get @graph "util.xml")))))
+          (str ns " requires " (get @graph ns))))))
 
 (deftest a-name-shows-a-primitive
   (doseq [ns    (keys @graph)

@@ -12,7 +12,7 @@
   a parsed feed against them tells you where a value was kept as a
   string. Enumerations stay strings, since feeds vary their case."
   (:require [dk.simongray.podcast.feed.spec :as spec]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.podcast.util.names :as names]))
 
 (def ^:no-doc rrule
   "The Malli schema of a parsed recurrence rule."
@@ -81,7 +81,7 @@
   "The map entries of the declared attributes of `entry`."
   [entry]
   (for [[k {:keys [type required]}] (:attrs entry)]
-    [(xml/attr-key k)
+    [(names/attr-key k)
      {:optional (not required)}
      (type-schema (or type :text))]))
 

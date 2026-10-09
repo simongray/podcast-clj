@@ -19,7 +19,7 @@
             [dk.simongray.podcast.util.secret :as secret]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.podcast.util.xml :as xml])
+            [dk.simongray.qname-hiccup :as xml])
   #?(:clj (:import [java.io ByteArrayInputStream ByteArrayOutputStream
                             InputStream IOException]
                    [java.net URI]

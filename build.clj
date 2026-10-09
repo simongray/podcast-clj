@@ -94,7 +94,7 @@
     ;; with the jsoup adapter, which the library only loads when a feed
     ;; needs it, so that nothing else would compile it
     (b/compile-clj {:basis      basis
-                    :ns-compile '[podcast-server.service dk.simongray.podcast.util.xml.jsoup]
+                    :ns-compile '[podcast-server.service dk.simongray.qname-hiccup.jsoup]
                     :class-dir  class-dir})
     (b/uber {:class-dir class-dir
              :uber-file server-jar

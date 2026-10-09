@@ -18,7 +18,7 @@
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.qname-hiccup :as xml]))
 
 (def dir
   "Where the named feeds are kept, outside git."

@@ -23,9 +23,9 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.json :as json]
+            [dk.simongray.podcast.util.names :as names]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.podcast.util.url :as url]))
 
 (def origin
   "The origin of OP3, unless the options give the origin of another
@@ -211,7 +211,7 @@
                   (or (time/parse-iso8601 v) v)
                   v))]
     (into {} (map (fn [[k v]]
-                    (let [k (keyword (xml/kebab k))]
+                    (let [k (keyword (names/kebab k))]
                       [k (timed k v)])))
           m)))
 

@@ -370,6 +370,6 @@
               (set! (.-DOMParser js/globalThis) js/undefined)
               (-> (discovery/find-feeds! "https://show.example/feed.xml" {:send send :allow-pred (constantly true)})
                   (.then (fn [_] (is false "a feed read without a parser"))
-                         (fn [e] (is (= :dk.simongray.podcast.util.xml/no-parser (:type (ex-data e)))
+                         (fn [e] (is (= :dk.simongray.qname-hiccup/no-parser (:type (ex-data e)))
                                      "it throws, rather than blame the feed")))
                   (.finally #(set! (.-DOMParser js/globalThis) parser))))))))

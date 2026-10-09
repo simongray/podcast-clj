@@ -13,7 +13,7 @@
             [dk.simongray.podcast.util.bytes.view :as view]
             [dk.simongray.podcast.util.http :as http]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.xml :as xml]))
+            [dk.simongray.qname-hiccup :as xml]))
 
 (def default-limits
   "The limits of a fetch of linked shows when its options don't set them:
