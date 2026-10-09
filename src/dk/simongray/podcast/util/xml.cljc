@@ -1,19 +1,11 @@
 (ns dk.simongray.podcast.util.xml
   "XML as Hiccup, with namespaces resolved by URI rather than by prefix.
 
-  The parse-raw function, which differs by platform, reads XML into raw
-  Hiccup with the names as written. The resolve-namespaces function
-  rewrites the names into keywords namespaced by the alias that a table
-  gives the URI, e.g. :itunes/author, while elements without a prefix
-  stay RSS 2.0. It records what it found under :xml/report, and the
-  namespaces that the table lacks under :xml/namespaces, in the metadata.
-  The parse function does both. The table of a feed's namespaces is in
-  dk.simongray.podcast.feed.spec.
-
-  The emit function writes canonical Hiccup back as XML, with the
-  declarations on the root. The Hiccup accessors, kebab-case names and
-  the decoding of character and entity references are here too, for the
-  rest of podcast-clj."
+  Raw Hiccup has the names as written. Canonical Hiccup has keywords
+  namespaced by the alias that a table gives the URI, e.g. :itunes/author,
+  while elements without a prefix stay RSS 2.0. Its metadata has what the
+  resolution found under :xml/report, and the namespaces that the table
+  lacks under :xml/namespaces."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces.entities :as entities])
   #?(:clj (:import [java.io InputStream Reader StringReader]
@@ -65,12 +57,11 @@
 (defn- space-code?
   "Whether the character with the code `c` is white space to the trim of
   either platform. The trim of Java keeps the no-break spaces and the byte
-  order mark, which that of JavaScript removes.
-
-  Its argument is a primitive, and each comparison has two arguments, so
-  that Clojure compiles them inline. It runs for the ends of every value
-  that a parse reads."
+  order mark, which that of JavaScript removes."
   [^long c]
+  ;; a primitive argument, and comparisons of two arguments, which Clojure
+  ;; compiles inline, since this runs for the ends of every value that a
+  ;; parse reads
   (or (<= c 32)
       (== c 0xA0)
       (== c 0x1680)
@@ -119,9 +110,7 @@
 (defn ^:no-doc compact-text
   "The `nodes` with adjacent strings merged and the blank ones dropped. A
   space between two elements on one line stays, since inline markup needs
-  it, e.g. between a bold and an italic word.
-
-  Every raw parser does this to the children that it reads, in one pass."
+  it, e.g. between a bold and an italic word."
   [nodes]
   (loop [nodes (seq nodes) acc (transient []) run nil after-element? false]
     (if nodes
@@ -267,12 +256,11 @@
   [message cause]
   (ex-info (str "Malformed XML: " message) {:type ::malformed} cause))
 
+;; Deeper than any feed goes, and shallow enough for every walk of the tree
+;; to recurse on a thread with a stack of the default size
 (def max-depth
   "How deep elements may nest in a document that the parsers read, with
-  the root at 1. A document nested deeper is malformed.
-
-  It's deeper than any feed goes, and shallow enough for every walk of
-  the tree to recurse on a thread with a stack of the default size."
+  the root at 1. A document nested deeper is malformed."
   256)
 
 (defn ^:no-doc check-depth
@@ -500,7 +488,7 @@
 
   The problem is nil unless the prefix was undeclared or its URI unknown.
   An unknown URI keeps the prefix as its alias, and the problem has the
-  URI, so that emit can declare it again."
+  URI, so that it can be declared again when the tree is written."
   [scope s]
   (let [[prefix local] (split-qname s)]
     (cond
@@ -536,12 +524,11 @@
 (defn- resolve-element
   "The `element` resolved in `scope` by `uri->alias`, and the `problems`
   so far with those that it adds, as a pair. The `scope` maps each prefix
-  to a pair of its URI and alias.
-
-  The alias of a declared URI is looked up once, where it's declared, not
-  again for every name that uses it."
+  to a pair of its URI and alias."
   [uri->alias scope problems [tag attrs & children :as element]]
   (let [decls                (declarations attrs)
+        ;; the alias of a declared URI is looked up once, where it's
+        ;; declared, not again for every name that uses it
         alias-of             (fn [[prefix uri]]
                                (when prefix
                                  [prefix [uri (uri->alias uri)]]))
@@ -572,7 +559,7 @@
   The metadata of the result has the problems under :xml/report. Under
   :xml/namespaces, it has the URIs of the namespaces that the lookup
   didn't know, and nil for the prefixes that no declaration named, whose
-  elements emit leaves out."
+  elements are left out when the tree is written."
   [tree uri->alias]
   (let [[tree' problems] (resolve-element uri->alias {} [] tree)
         problems         (distinct problems)
@@ -587,8 +574,7 @@
 
 (defn parse
   "The canonical Hiccup of `xml`, with the namespaces resolved by
-  `uri->alias`, none by default, as parse-raw and resolve-namespaces give
-  it."
+  `uri->alias`, none by default."
   ([xml]
    (parse xml {}))
   ([xml uri->alias]
@@ -596,14 +582,13 @@
 
 (defn report
   "The problems recorded while resolving the namespaces of `tree`, as
-  diagnostics of an :id, a :level and details, which
-  dk.simongray.podcast.diagnostics/describe gives a message."
+  diagnostics of an :id, a :level and details."
   [tree]
   (:xml/report (meta tree)))
 
 (defn foreign-namespaces
   "The URIs of the namespaces that `tree` carries in its metadata, by alias,
-  for emit to declare.
+  to declare when the tree is written.
 
   For a parse, they're the namespaces that its table didn't know, by the
   prefix that the document used, and a prefix that no declaration named
@@ -617,10 +602,10 @@
   #"[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]")
 
 (defn ^:no-doc legal?
-  "Whether the string `s` has no character that XML 1.0 forbids. It's a
-  plain loop over the characters, since a regular expression crawls the
-  megabytes of show notes in a big feed thirty times slower."
+  "Whether the string `s` has no character that XML 1.0 forbids."
   [^String s]
+  ;; a plain loop over the characters, since a regular expression crawls
+  ;; the megabytes of show notes in a big feed thirty times slower
   (let [n (count s)]
     (loop [i 0]
       (if (= i n)
@@ -646,11 +631,10 @@
 (defn ^:no-doc plain?
   "Whether the string `s` goes into a text node as it is, or with `attr?`
   into an attribute value: nothing in it that XML 1.0 forbids, and
-  nothing to escape.
-
-  It's one loop over the characters, which most values pass, in place of
-  legal? and a pattern each."
+  nothing to escape."
   [^String s attr?]
+  ;; one loop over the characters, which most values pass, in place of a
+  ;; check of what's legal and a pattern each
   (let [n (count s)]
     (loop [i 0]
       (if (== i n)
@@ -759,17 +743,17 @@
 
 (declare emit-compact*)
 
+;; One flat vector joined once at the end keeps a 30 MB feed from being
+;; copied once for each level of nesting
 (defn- emit-element*
   "The transient vector `acc` of string parts with the serialization of
-  `element` appended, indented for `depth`.
-
-  One flat vector joined once at the end keeps a 30 MB feed from being
-  copied once for each level of nesting. Mixed content is written as it
-  is, since indentation would join its text and grow it on every round
-  trip."
+  `element` appended, indented for `depth`. Mixed content is written as
+  it is."
   [acc depth element]
   (let [indent   (or (get indents depth) (apply str (repeat (* 2 depth) " ")))
         children (children element)]
+    ;; indentation would join the text of mixed content and grow it on
+    ;; every round trip
     (if (and (some string? children) (some vector? children))
       (emit-compact* (conj! acc indent) element append-text)
       (let [name (qname (tag element))
@@ -818,10 +802,10 @@
 
   The `alias->uri` map gives the URI of each alias. It defaults to the
   foreign namespaces of `tree`, e.g. those that were recorded when it was
-  parsed, or those that dk.simongray.podcast.feed/emit gives it. An alias
-  that it maps to nil has no URI to declare, so its elements and
-  attributes are left out, as for a prefix that no declaration named in a
-  parse. An alias that it doesn't map at all is an error."
+  parsed. An alias that it maps to nil has no URI to declare, so its
+  elements and attributes are left out, as for a prefix that no
+  declaration named in a parse. An alias that it doesn't map at all is an
+  error."
   ([tree]
    (emit tree (foreign-namespaces tree)))
   ([tree alias->uri]

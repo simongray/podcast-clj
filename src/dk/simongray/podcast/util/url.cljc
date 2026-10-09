@@ -5,7 +5,7 @@
   against the document that it's in, as a browser does it, and the scheme
   and the origin of a URL. It also tells whether the host of a URL is on
   the public internet, which is what a request that a stranger chose must
-  check. The client that sends requests is dk.simongray.podcast.util.http."
+  check."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.secret :as secret])
   #?(:clj (:import [java.net IDN InetAddress URI]
@@ -26,10 +26,9 @@
      :cljs (js/encodeURIComponent (str s))))
 
 (defn percent-decode
-  "The string `s` with its percent-encoding undone, the inverse of
-  percent-encode.
-  A plus sign stays a plus sign, and a string with an escape that doesn't
-  decode comes back as it is, rather than throwing."
+  "The string `s` with its percent-encoding undone. A plus sign stays a
+  plus sign, and a string with an escape that doesn't decode comes back
+  as it is, rather than throwing."
   [s]
   #?(:clj  (try
              (java.net.URLDecoder/decode (str/replace (str s) "+" "%2B")
@@ -62,8 +61,8 @@
                [k v]))))
 
 (defn with-query
-  "The `url` with `params` added to its query, as query-string writes
-  them. The parameters go after those that the URL has, and before its
+  "The `url` with `params` added to its query, encoded as in a query
+  string. The parameters go after those that the URL has, and before its
   fragment."
   [url params]
   (let [[_ base fragment] (re-matches #"(?s)([^#]*)(#.*)?" (str url))
@@ -86,7 +85,7 @@
   address travels into OPML, sync documents and messages.
 
   The password is a hidden text of util.secret, which the printer doesn't
-  show. The secret/reveal function gives its text."
+  show."
   [url]
   (let [[_ scheme authority tail]
         (re-matches #"(?s)([a-zA-Z][a-zA-Z0-9+.-]*://)([^/?#]*)(.*)"
@@ -261,8 +260,8 @@
 
 #?(:clj
    (defn- host-and-port
-     "The host and the port of the `authority` of a URL, as origin reads
-     them, or nil when it holds no host that a URL can have. The host is in
+     "The host and the port of the `authority` of a URL, or nil when it
+     holds no host that a URL can have. The host is in
      lower case and in the ASCII form of IDNA, and the port is the text of
      the URL."
      [authority]
@@ -310,7 +309,7 @@
                nil))))
 
 (defn ^:no-doc host
-  "The host of the http or https URL `url`, as origin reads it."
+  "The host of the http or https URL `url`, in lower case."
   [url]
   (second (origin url)))
 
@@ -322,8 +321,8 @@
                 (origin s))))
 
 (defn ^:no-doc same-origin?
-  "Whether the URLs `a` and `b` have the same scheme, host and port, as
-  origin reads them. False when a URL has no host."
+  "Whether the URLs `a` and `b` have the same scheme, host and port. False
+  when a URL has no host."
   [a b]
   (let [o (origin a)]
     (and (some? o) (= o (origin b)))))
@@ -389,7 +388,8 @@
 
 (defn ^:no-doc public-ip?
   "Whether the IP address of the numbers `b`, four of IPv4 or sixteen of
-  IPv6, is on the public internet, as public-ipv4? and public-ipv6? tell."
+  IPv6, is on the public internet, by the IANA registries of special
+  addresses."
   [b]
   (if (= 4 (count b))
     (public-ipv4? b)
@@ -398,8 +398,8 @@
 #?(:clj
    (defn- public-address?
      "Whether the IP address `a` is on the public internet, both by the
-     kinds of address of the JDK and by the registries that public-ipv4?
-     and public-ipv6? check."
+     kinds of address of the JDK and by the IANA registries of special
+     addresses."
      [^InetAddress a]
      (let [b (mapv #(bit-and % 0xff) (.getAddress a))]
        (and (not (or (.isAnyLocalAddress a)

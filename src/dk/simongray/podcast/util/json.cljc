@@ -6,12 +6,12 @@
   #?(:clj (:import [java.io PushbackReader StringReader])))
 
 #?(:clj
+   ;; The reader of the JVM reads such a number in a time that grows with
+   ;; the square of its length, minutes for a million digits
    (defn- long-digits?
      "Whether a number in the JSON string `s` holds a run of more than a
-     thousand digits. The reader of the JVM reads such a number in a time that
-     grows with the square of its length, minutes for a million digits.
-
-     The digits in a string of the JSON are text, and don't count."
+     thousand digits. The digits in a string of the JSON are text, and
+     don't count."
      [^String s]
      (let [n (.length s)]
        (loop [i 0 run 0 quoted? false]
@@ -66,8 +66,7 @@
        :cljs (js->clj (js/JSON.parse s)))))
 
 (defn ^:no-doc parse
-  "The data in the JSON string `s`, as read-str reads it, or nil when `s`
-  isn't JSON."
+  "The data in the JSON string `s`, or nil when `s` isn't JSON."
   [s]
   (try
     (read-str s)
@@ -75,8 +74,8 @@
       nil)))
 
 (defn ^:no-doc object
-  "The JSON object in the string `s`, as read-str reads it, or nil when
-  `s` holds no JSON object."
+  "The JSON object in the string `s`, or nil when `s` holds no JSON
+  object."
   [s]
   (let [x (parse s)]
     (when (map? x) x)))

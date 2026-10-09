@@ -5,12 +5,11 @@
   Unquoted attributes, stray angle brackets in text, and unclosed or
   mismatched tags all give a tree as good as it gets, rather than an
   error. Names are kept exactly as written, so the result is the same raw
-  Hiccup that dk.simongray.podcast.util.xml/parse-raw gives.
+  Hiccup that a strict parse gives.
 
   The library jsoup is an optional dependency. When org.jsoup/jsoup is on
-  the classpath, dk.simongray.podcast.feed.rss/parse falls back to
-  parse-raw for documents that the strict parser rejects even after
-  repair, and the report says so."
+  the classpath, it reads the feeds that the strict parser rejects even
+  after repair, and the report says so."
   (:require [dk.simongray.podcast.util.xml :as xml])
   (:import [java.io InputStream]
            [org.jsoup Jsoup]
@@ -24,8 +23,8 @@
 
 (defn- node->raw
   "The raw Hiccup of the jsoup `node` at `depth`, which is 1 for the root,
-  with elements and their text only. The depth is checked as
-  xml/check-depth does."
+  with elements and their text only. The depth is checked against the
+  most that a document may nest."
   [^Node node depth]
   (condp instance? node
     TextNode (.getWholeText ^TextNode node)
@@ -50,8 +49,7 @@
 
 (defn parse-raw
   "The raw Hiccup of `xml`, a String or an InputStream whose charset jsoup
-  detects, as dk.simongray.podcast.util.xml/parse-raw gives it, but read
-  leniently.
+  detects, as a strict parse gives it, but read leniently.
 
   Since jsoup rejects nothing, it throws ::xml/malformed only when the
   document has no element at all, or nests deeper than xml/max-depth."
