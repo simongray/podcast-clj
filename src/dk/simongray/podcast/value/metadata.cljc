@@ -9,15 +9,10 @@
       rss::payment::boost https://… Great episode!
 
   The URL answers with the header x-rss-payment, which holds the whole
-  payment as JSON. The app that pays writes the comment with
-  format-comment, and serves the header that format-header writes. The
-  host that receives the payment reads the comment with parse-comment.
-  The fetch! function gets the header, and parse-header reads it. A
-  payment is the map of dk.simongray.podcast.value.
+  payment as JSON. A payment is the map of dk.simongray.podcast.value.
 
   The sender writes the metadata, and the page at the URL is public. So
-  the metadata is a claim, which value/as-received puts next to what the
-  node received."
+  the metadata is a claim, not what the node received."
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -44,8 +39,8 @@
    :usd        "value_usd"})
 
 (defn record
-  "The metadata of `payment` as a map with the string keys of the JSON,
-  for dk.simongray.podcast.util.json/write-str.
+  "The metadata of `payment` as a map with the string keys of the JSON, to
+  write as JSON.
 
   The keys of the payment become these:
 
@@ -100,13 +95,12 @@
    "remote_publisher_guid" :text})
 
 (defn parse-header
-  "The payment that the value `s` of the header x-rss-payment describes,
-  as record writes it: JSON, URI-encoded, or as it is.
+  "The payment that the value `s` of the header x-rss-payment describes:
+  JSON, URI-encoded, or as it is.
 
   The fields of the metadata become the keys of a payment, and the other
-  fields keep their names. The report tells what the reader forgave, as
-  value/parse-boostagram tells it. A header that holds no JSON object
-  reads as no payment."
+  fields keep their names. The report tells what the reader forgave. A
+  header that holds no JSON object reads as no payment."
   [s]
   (let [text    (when (string? s) (str/trim s))
         json?   (and text (str/starts-with? text "{"))
@@ -188,9 +182,9 @@
           said?             (assoc :message message))))))
 
 (def default-limits
-  "The limits of fetch! that its options don't set: the seconds that the
-  request can take, and the size of an answer in bytes. The header holds
-  the metadata, so the answer needs no body."
+  "The limits of a fetch of metadata that its options don't set: the
+  seconds that the request can take, and the size of an answer in bytes.
+  The header holds the metadata, so the answer needs no body."
   {:timeout-seconds 10
    :max-bytes       (* 64 1024)})
 
@@ -202,21 +196,20 @@
 
 (defn fetch!
   "Fetch the metadata at `url` with `opts`, and read the header
-  x-rss-payment of the answer as parse-header does. On the JVM it gives
-  the payment, and in ClojureScript a promise of it.
+  x-rss-payment of the answer. On the JVM it gives the payment, and in
+  ClojureScript a promise of it.
 
-  Take `url` from parse-comment. When the metadata doesn't come, the
-  result has a diagnostic under :error. The `opts` are these:
+  Take `url` from the comment of the payment. When the metadata doesn't
+  come, the result has a diagnostic under :error. The `opts` are these:
 
   - the limits of default-limits
   - :allow-pred, which URLs the request can go to
   - :send, a function that sends a request map in place of http/send!
 
-  The sender of the payment chooses the URL. So the request carries
-  url/public? as its :allow-pred, and http/send! then sends nothing to a
-  private network. To reach your own network, give (constantly true) as
-  :allow-pred. A browser reads the header only when the server exposes it
-  with CORS."
+  The sender of the payment chooses the URL. So the request carries a
+  guard as its :allow-pred, which lets nothing go to a private network. To
+  reach your own network, give (constantly true) as :allow-pred. A browser
+  reads the header only when the server exposes it with CORS."
   ([url]
    (fetch! url {}))
   ([url opts]

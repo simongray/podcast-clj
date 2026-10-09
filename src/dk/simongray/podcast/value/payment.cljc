@@ -1,7 +1,6 @@
 (ns dk.simongray.podcast.value.payment
   "The payment map of dk.simongray.podcast.value and the JSON fields of its
-  formats, which the bLIP-10 record of value and the RSS Payment Metadata
-  of value.metadata both read and write.
+  formats, the bLIP-10 record and the RSS Payment Metadata.
 
   A format names the type of each of its fields. A reader reads the fields
   of those types into a payment and diagnoses what it forgave, and a
@@ -128,7 +127,7 @@
 
 (defn ^:no-doc read-fields
   "The fields of the JSON object `raw` that `types` names, each as a pair
-  of its value and how it was read, as typed reads it."
+  of its value and how it was read."
   [raw types]
   (into {} (for [[k v] raw
                  :let  [type (get types k)]

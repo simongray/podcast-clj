@@ -124,7 +124,7 @@
   A wallet gets the preimage from the recipient when the payment arrives,
   and no one can guess it. The `preimage` is hexadecimal text of 32
   bytes. It's false for another text, and for an invoice without a
-  payment hash that payment-hash reads."
+  payment hash that reads."
   [preimage invoice]
   (boolean (and (string? preimage)
                 (re-matches #"[0-9a-fA-F]{64}" preimage)

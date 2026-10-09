@@ -2,13 +2,11 @@
   "Value for value: the arithmetic of podcast:value blocks, and the record
   of a payment.
 
-  The block that applies to an item is what feed.resolve/value gives. The
-  functions here give who is paid at a moment of playback, with the time
-  splits of valueTimeSplit. They divide an amount into shares and fees,
-  and make no payment, which is up to you.
+  The functions here give who is paid at a moment of playback, with the
+  time splits of valueTimeSplit. They divide an amount into shares and
+  fees, and make no payment, which is up to you.
 
-  Value blocks and recipients are the maps that dk.simongray.podcast.feed
-  gives, e.g.:
+  Value blocks and recipients are maps of the feed model, e.g.:
 
       {:type        \"lightning\"
        :method      \"keysend\"
@@ -18,7 +16,7 @@
 
   A payment is a map of what an app sends with a payment to one recipient.
   It has one shape for the bLIP-10 record of a keysend payment and for the
-  RSS Payment Metadata of value.metadata:
+  RSS Payment Metadata of the podcast namespace:
 
       {:action         :boost    ; :boost, :stream or :auto
        :msat           25000     ; to this recipient
@@ -30,10 +28,8 @@
        :app-name       \"…\"  :sender-name \"…\"
        :recipient-name \"…\"}
 
-  The boostagram function writes the bLIP-10 record of a keysend payment,
-  and parse-boostagram reads a record that a node received. The texts of a
-  payment are as its sender wrote them. Hiccup escapes them, but an app
-  that writes HTML as text must escape them itself."
+  The texts of a payment are as its sender wrote them. Hiccup escapes
+  them, but an app that writes HTML as text must escape them itself."
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -77,7 +73,7 @@
   they're its fee recipients and those of the split. Inside a split that
   points at a remote item, :remote holds the :remote-item, :percentage,
   :start-time and :offset. The `remotes` map each remote item to its value
-  block, or to nil when it has none, and with-remote folds that block in.
+  block, or to nil when it has none, and that block is folded in.
   Without `remotes`, or when they lack the remote item, the recipients are
   the fee recipients alone."
   ([block seconds]
@@ -109,7 +105,7 @@
   (transduce (comp (remove fee?) (map split-of)) + 0 recipients))
 
 (defn with-remote
-  "The recipients of `paid`, the result of recipients-at for `block`, with
+  "The recipients of `paid`, who is paid at a moment under `block`, with
   the `remote` value block that a time split pointed at folded in.
 
   The result is `paid` with :recipients that hold the fees of both blocks,
@@ -210,7 +206,7 @@
 (defn boostagram
   "The bLIP-10 record of `payment`, which an app attaches to a keysend
   payment as the custom record 7629169. It's a map with the string keys
-  of the record, for dk.simongray.podcast.util.json/write-str.
+  of the record, to write as JSON.
 
   The keys of the payment become these:
 
@@ -333,8 +329,7 @@
              aliases))
 
 (defn parse-boostagram
-  "The payment that the bLIP-10 `record` describes, as boostagram takes
-  it.
+  "The payment that the bLIP-10 `record` describes.
 
   The record is JSON text, or the UTF-8 bytes of that text, as a node
   gives the custom record 7629169. It can also be the JSON object as a map
@@ -347,8 +342,7 @@
   the action under another name. A record that isn't a JSON object reads
   as no payment.
 
-  The record is what the sender claims, and as-received puts it next to
-  what the node received."
+  The record is what the sender claims, not what the node received."
   [record]
   (if-let [given (value.payment/json-object record)]
     (let [[raw aliases] (unaliased given boostagram-aliases)

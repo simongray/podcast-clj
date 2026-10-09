@@ -6,23 +6,15 @@
   namespace define them, and the readers read the answers. The wallet of
   the app pays.
 
-  LNURL-pay gives an invoice for an amount. The lnurlp-request function
-  asks the domain for the terms of the address, and terms reads them. The
-  terms are the callback, the amounts that it takes, and how long a
-  comment can be. The invoice-request function asks the callback for an
-  invoice, with a comment such as the one of value.metadata. The invoice
-  function reads the answer. It checks that the invoice asks for the
-  amount that was requested, as LUD-06 requires.
+  LNURL-pay gives an invoice for an amount. The domain gives the terms of
+  the address: the callback, the amounts that it takes, and how long a
+  comment can be. The callback gives the invoice, which must ask for the
+  amount that was requested, as LUD-06 requires. The keysend lookup gives
+  a node instead, to pay with keysend.
 
-  The keysend lookup gives a node instead. The keysend-request function
-  asks for it, and node reads the answer into the keys of a recipient of
-  type node. The app pays that recipient with keysend and the records of
-  value/records.
-
-  The request-invoice! and fetch-node! functions send the requests
-  themselves. A reader goes by the JSON of an answer, not by its status,
-  as LUD-01 asks. Services answer an error with any status, and some
-  answer the keysend lookup with a web page."
+  A reader goes by the JSON of an answer, not by its status, as LUD-01
+  asks. Services answer an error with any status, and some answer the
+  keysend lookup with a web page."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
@@ -33,9 +25,9 @@
             [dk.simongray.podcast.value.payment :as value.payment]))
 
 (def default-limits
-  "The limits of request-invoice! and fetch-node! that their options don't
-  set: the seconds that each request can take, and the size of an answer
-  in bytes.
+  "The limits of the requests to a Lightning address that their options
+  don't set: the seconds that each request can take, and the size of an
+  answer in bytes.
 
   The terms of an address can hold an image of about 136 kilobytes, by
   LUD-06."
@@ -144,8 +136,8 @@
 
 (defn terms
   "The terms on which a Lightning address takes a payment, from the
-  `response` to its lnurlp-request, or a map with a diagnostic under
-  :error.
+  `response` to the request for its terms, or a map with a diagnostic
+  under :error.
 
       {:callback       \"https://…\"  ; where to ask for an invoice
        :min-msat       1000
@@ -212,9 +204,9 @@
   "The request to the callback of `terms` for an invoice of `msat`
   millisatoshis, with a `comment` when the terms take one.
 
-  The comment is the text that sent-comment gives. The amount and the
-  comment follow the query that the callback has. It throws when the
-  terms don't take `msat`, as sendable? tells."
+  The comment is cut to fit the terms. The amount and the comment follow
+  the query that the callback has. It throws when the terms don't take
+  `msat`."
   ([terms msat]
    (invoice-request terms msat nil))
   ([{:keys [callback] :as terms} msat comment]
@@ -268,7 +260,7 @@
         ::refused))))
 
 (defn invoice
-  "The invoice in the `response` to the invoice-request for `msat`
+  "The invoice in the `response` to the request for an invoice of `msat`
   millisatoshis from `terms`, or a map with a diagnostic under :error.
 
       {:invoice        \"lnbc…\"  ; for the wallet to pay
@@ -313,7 +305,7 @@
               (secure-url? verify) (assoc :verify verify)))))))
 
 (defn node
-  "The node that the `response` to a keysend-request names, as the keys of
+  "The node that the `response` to the keysend lookup names, as the keys of
   a recipient of type node, or a map with a diagnostic under :error.
 
       {:type \"node\" :address \"02…\" :custom-key \"696969\"
@@ -371,8 +363,8 @@
 
 (defn- fetch-invoice!
   "Ask the callback of the terms `offer` for an invoice of `msat`
-  millisatoshis with the comment `text` and `opts`, and give it as invoice
-  reads it, in a future or a promise.
+  millisatoshis with the comment `text` and `opts`, and give the invoice,
+  in a future or a promise.
 
   The invoice has the :comment that went out, and a failure gives a map
   with a diagnostic under :error."
@@ -388,17 +380,16 @@
 
 (defn request-invoice!
   "Request an invoice from the Lightning `address` for `msat` millisatoshis
-  with `opts`, as invoice reads it. On the JVM it gives the invoice, and
-  in ClojureScript a promise of it.
+  with `opts`. On the JVM it gives the invoice, and in ClojureScript a
+  promise of it.
 
-  A failure gives a map with a diagnostic under :error. This sends the
-  lnurlp-request and the invoice-request, with the :comment of `opts`.
-  The comment is text, or a function of the terms of the address that
-  gives the text. The function fits a comment to the :comment-length of
-  the terms, as value.metadata/format-comment does. The invoice has the
-  :comment that went out, as sent-comment cut it. An invoice without one
-  went out with no comment, so the recipient doesn't learn what the
-  payment is for.
+  A failure gives a map with a diagnostic under :error. This asks for the
+  terms of the address and then for the invoice, with the :comment of
+  `opts`. The comment is text, or a function of the terms that gives the
+  text, e.g. to fit a comment to their :comment-length. The invoice has
+  the :comment that went out, as it was cut. An invoice without one went
+  out with no comment, so the recipient doesn't learn what the payment is
+  for.
 
   The other `opts` are these:
 
@@ -407,9 +398,9 @@
   - :send, a function that sends a request map in place of http/send!
 
   The domain of an address in a feed chooses the URLs that this fetches.
-  So each request carries url/public? as its :allow-pred, and http/send!
-  then sends nothing to a private network. To reach your own network,
-  give (constantly true) as :allow-pred."
+  So each request carries a guard as its :allow-pred, which lets nothing
+  go to a private network. To reach your own network, give (constantly
+  true) as :allow-pred."
   ([address msat]
    (request-invoice! address msat {}))
   ([address msat {:keys [comment] :as opts}]
@@ -433,8 +424,8 @@
 
 (defn fetch-node!
   "Fetch the node that pays the Lightning `address` with keysend, with
-  `opts`, as node reads it. On the JVM it gives the node, and in
-  ClojureScript a promise of it.
+  `opts`. On the JVM it gives the node, and in ClojureScript a promise of
+  it.
 
   A failure gives a map with a diagnostic under :error. The `opts` are
   those of request-invoice!, except the comment."
