@@ -1,26 +1,21 @@
 (ns dk.simongray.podcast.feed.schema
   "The feed model as Malli schemas, made from the tag registry so that they
-  never drift from what parse gives and emit takes.
+  never drift from the model.
 
   The schemas are plain data in the vector syntax of Malli, and Malli
   itself isn't a dependency. In your own project, give a schema to
   malli.core/schema, and validate, explain, generate or coerce with it:
 
-      (m/validate schema/feed (rss/parse xml))
+      (m/validate schema/feed feed)
 
-  The schemas are feed and item, and what tag-schema gives for any
-  element. For a vocabulary extended with your own elements, give a
-  :registry in the options of schemas, feed-schema and tag-schema.
-
-  The schemas describe the model when every value coerced. Validating a
-  parsed feed against them tells you where parse forgave a value and kept
-  it as a string. Enumerations stay strings, since feeds vary their case,
-  and the validator ignores case when it judges them."
+  The schemas describe the model when every value coerced, so validating
+  a parsed feed against them tells you where a value was kept as a
+  string. Enumerations stay strings, since feeds vary their case."
   (:require [dk.simongray.podcast.feed.spec :as spec]
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def ^:no-doc rrule
-  "The Malli schema of a recurrence rule, as rrule/parse reads it."
+  "The Malli schema of a parsed recurrence rule."
   (let [weekdays ["MO" "TU" "WE" "TH" "FR" "SA" "SU"]
         byday    [:re {:gen/elements (conj weekdays "1MO" "-1FR")}
                   #"^([+-]?(?:0?[1-9]|[1-4]\d|5[0-3]))?(MO|TU|WE|TH|FR|SA|SU)$"]
@@ -118,8 +113,9 @@
       (type-schema content))))
 
 (defn schemas
-  "The schema of every element by ref-key, and ::feed for the channel map
-  that parse returns, as a Malli registry for the :registry of `opts`.
+  "The schema of every element of the :registry of `opts`, and ::feed for
+  the channel map, as a Malli registry. Each element is under its tag, in
+  the namespace rss when it has none.
 
   The tag registry is spec/default by default. Elements that appear under
   several parents share one schema, since their attributes and children

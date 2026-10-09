@@ -2,10 +2,8 @@
   "The feed model: canonical Hiccup in, maps out, and back again, by a tag
   registry.
 
-  The registry is dk.simongray.podcast.feed.spec/default unless the
-  options give another. A feed is the channel map itself, with the items
-  under :rss/items and the live items under :podcast/live-items. In the
-  map:
+  A feed is the channel map itself, with the items under :rss/items and
+  the live items under :podcast/live-items. In the map:
 
   - a scalar element becomes a coerced scalar
   - an element with attributes or children becomes a map
@@ -14,8 +12,7 @@
     :xml/unknown
 
   Nothing throws on a bad value, which stays a string, and the report says
-  so. The report is in the metadata of the result under :podcast/report,
-  and the report function reads it."
+  so. The report is in the metadata of the result under :podcast/report."
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.coerce :as coerce]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -33,10 +30,10 @@
   (vswap! (:report ctx) conj m))
 
 (defn- model-key
-  "The model key of the attribute `k`, as xml/attr-key gives it. It's kept
-  in `ctx` for the rest of the parse, since a feed names the same
-  attributes on every item."
+  "The model key of the attribute `k`, kept in `ctx` for the rest of the
+  parse."
   [ctx k]
+  ;; a feed names the same attributes on every item
   (let [keys (:keys ctx)]
     (or (get @keys k)
         (let [k' (xml/attr-key k)]
@@ -48,9 +45,9 @@
   `entry`, with the diagnostics noted in `ctx`.
 
   A declared attribute gets a kebab-case key and a typed value. An
-  optional one that's blank is left out with a diagnostic, since it says
-  nothing, while a required one that's blank stays for the validator to
-  judge. Other attributes keep their XML names and string values."
+  optional one that's blank is left out with a diagnostic, while a
+  required one that's blank stays. Other attributes keep their XML names
+  and string values."
   [ctx entry attrs path]
   (reduce-kv (fn [m k v]
                (if-let [{:keys [type required]} (get (:attrs entry) k)]
@@ -300,8 +297,7 @@
       {:rss/guid \"x\"}            ; for {:rss/guid {:content \"x\"}}
       {:podcast/transcripts {…}}  ; for {:podcast/transcripts [{…}]}
 
-  What parse returns comes back unchanged, and emit and validate normalize
-  first."
+  A parsed feed comes back unchanged."
   ([feed]
    (normalize feed {}))
   ([feed {:keys [registry] :or {registry spec/default} :as opts}]
@@ -319,8 +315,8 @@
           (keep identity [(namespace k) (name k)])))
 
 (defn- attr-plan
-  "What emit-attrs needs of `entry`, worked out once for each entry and
-  kept in `ctx`.
+  "What writing the attributes of `entry` needs, worked out once for each
+  entry and kept in `ctx`.
 
   It's the model keys that the children and declared attributes of the
   entry take, and its declared attributes as triples of name, key and
@@ -371,9 +367,8 @@
 (defn- emit-element
   "The Hiccup element of `entry` for the model value `v`, with `ctx`.
 
-  It's nil for a value of a map-shaped element that isn't a map, which
-  validate reports. An element of the type :presence is empty, and it's
-  there only for true."
+  It's nil for a value of a map-shaped element that isn't a map. An
+  element of the type :presence is empty, and it's there only for true."
   [ctx entry v]
   (let [tag  (:tag entry)
         type (spec/content-type entry)]
@@ -411,17 +406,16 @@
     (persistent! (reduce conj! acc (:xml/unknown m)))))
 
 (defn emit
-  "The canonical Hiccup document of `feed`, ready for xml/emit, with the
-  `opts` below:
+  "The canonical Hiccup document of `feed`, with the `opts` below:
 
   - :registry, the tag registry, spec/default by default
   - :namespaces, a map from alias to URI for the elements of namespaces
     that the feed wasn't parsed with, or for another URI of one that it was
 
-  It takes the shorthand of normalize and leaves out nil values. The
-  namespaces of spec/namespaces and of :namespaces, and the foreign
-  namespaces recorded when the feed was parsed, go along as metadata for
-  xml/emit to declare."
+  It takes the shorthand that a producer can write, and leaves out nil
+  values. The known namespaces, those of :namespaces, and the foreign
+  namespaces recorded when the feed was parsed go along as metadata under
+  :xml/namespaces, for the document to declare."
   ([feed]
    (emit feed {}))
   ([feed {:keys [registry namespaces] :or {registry spec/default} :as opts}]
@@ -450,7 +444,7 @@
 
 (defn- item-changes
   "What changed between the item sequences `before` and `after`, by item
-  identity, as diff gives it."
+  identity."
   [before after]
   (let [before (identified before)
         after  (identified after)
@@ -507,8 +501,8 @@
             (if oldest-first? added (reverse added))))))
 
 (defn- page-report
-  "The diagnostics of `page` for the feed that join-pages makes, by the
-  `places` of its items and whether it's the `first?` page.
+  "The diagnostics of `page` for a feed joined of pages, by the `places` of
+  its items and whether it's the `first?` page.
 
   The `places` have the index in that feed of each item that the feed
   takes from the page, by its index in the page. A diagnostic of such an
@@ -529,8 +523,8 @@
         (report page)))
 
 (defn- with-page
-  "The feed `acc` that join-pages builds, with the items of `page` that it
-  doesn't have yet, and the report of the page.
+  "The joined feed `acc` with the items of `page` that it doesn't have yet,
+  and the report of the page.
 
   The feed is a map of the :items, the guids :seen, the :report, and
   whether the next page is the :first?."
@@ -553,7 +547,7 @@
 
   The feed is the channel of the first page, with the items of all the
   pages. A feed can gain items while its pages are read, so an item of a
-  later page is left out when an earlier page has it, by feed.guid/item-guid.
+  later page is left out when an earlier page has it.
 
   The report has the diagnostics of the first page. From a later page, it
   has the diagnostics of the items that the feed takes from the page, and

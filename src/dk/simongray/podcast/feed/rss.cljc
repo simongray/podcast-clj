@@ -4,12 +4,7 @@
 
   The feeds are RSS 2.0 with the iTunes namespace and the podcast namespace
   of Podcasting 2.0. The strict parse comes first, and the repairs only run
-  when the document is malformed, with everything they did in the report.
-
-  The parse function gives a feed map, and emit writes one back. The
-  parse-tree function stops at the canonical Hiccup, and report reads the
-  diagnostics of a feed or a tree. For a document that may not be a feed,
-  try-parse gives a diagnostic where parse throws."
+  when the document is malformed, with everything they did in the report."
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.quirks :as quirks]
@@ -47,8 +42,7 @@
 
 (defn parse
   "Parse the RSS string `xml` into a feed map, with the `opts` of
-  parse-tree. The report is in the metadata, where the report function
-  reads it."
+  parse-tree. The report is in the metadata."
   ([xml]
    (parse xml {}))
   ([xml opts]
@@ -60,9 +54,8 @@
      (vary-meta feed assoc :podcast/report report))))
 
 (defn try-parse
-  "Parse the RSS string `xml` as parse does, with the `opts` below, and
-  give a map of the :feed, or of the :error when it's no feed, where
-  parse throws.
+  "Parse the RSS string `xml` with the `opts` below, and give a map of the
+  :feed, or of the :error when it's no feed.
 
   The error is the diagnostic :fetch/malformed with the :reason, for a
   document that came from somewhere else, such as a server. The `opts`
@@ -86,17 +79,14 @@
          {:error (diagnostics/describe malformed)})))))
 
 (defn report
-  "The diagnostics of `feed`, or of a tree from parse-tree. Each is a map
+  "The diagnostics of `feed`, or of a parsed tree. Each is a map
   of an :id, a :level and a :message, with details such as a :path into
   the model."
   [feed]
   (mapv diagnostics/describe (:podcast/report (meta feed))))
 
 (defn emit
-  "The XML document of `feed` in canonical form, with the `opts` of
-  dk.simongray.podcast.feed/emit.
-
-  The `opts` are:
+  "The XML document of `feed` in canonical form, with the `opts` below:
 
   - :registry, the tag registry to write it by
   - :namespaces, a map from alias to URI for the elements of namespaces

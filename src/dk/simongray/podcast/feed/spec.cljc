@@ -4,9 +4,7 @@
 
   Each entry of elements describes one XML element: what the model calls it,
   where it can appear, how often, and the types of its attributes and
-  text. The parser, the emitter and the validator interpret this data, so
-  adding a tag or an attribute is a change to the data here and nowhere
-  else. The keys of an entry are:
+  text. The keys of an entry are:
 
   - :tag, the XML name, namespaced by alias, e.g. :podcast/transcript or
     :title
@@ -24,12 +22,7 @@
   - :deprecated, true, or the tag that replaces it
   - :children-as, the context to look up the children of the element in,
     when it borrows those of another element, as liveItem does with item
-  - :doc, one line from the specification
-
-  The function registry indexes elements, or elements and an app's own
-  entries, into the value that every interpreter takes as the :registry
-  of its options. The registry default is elements indexed. The
-  namespaces of the tags are in namespaces, by alias."
+  - :doc, one line from the specification"
   (:require [clojure.set :as set]))
 
 (def namespaces
@@ -50,10 +43,9 @@
    :opml       "http://opml.org/spec2"})
 
 (def uri->alias
-  "The alias of each namespace URI that a feed can use, for
-  dk.simongray.podcast.util.xml/parse. The podcast namespace specification
-  requires its old GitHub URI to be treated as identical to the canonical
-  one."
+  "The alias of each namespace URI that a feed can use. The podcast
+  namespace specification requires its old GitHub URI to be treated as
+  identical to the canonical one."
   (assoc (set/map-invert namespaces)
     "https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/1.0.md"
     :podcast))
@@ -141,7 +133,7 @@
    "video post-production" ["editor" "assistant editor"]})
 
 (def roles
-  "Every role in taxonomy."
+  "Every role of the Podcast Taxonomy Project."
   (into #{} (mapcat val) taxonomy))
 
 (def ^:no-doc url
@@ -181,8 +173,12 @@
    :media/content k
    :media/group   k})
 
+;; The parser, the emitter and the validator interpret these entries, so
+;; adding a tag or an attribute is a change to the data here and nowhere
+;; else
 (def elements
-  "Every element that the library understands, in the order of emit."
+  "Every element that the library understands, in the order that a feed is
+  written in."
   [;; RSS 2.0, channel
    {:tag :title :key :rss/title
     :parent #{:channel :item} :count :one
@@ -742,8 +738,8 @@
     :doc "An episode."}])
 
 (defn registry
-  "The tag `entries` indexed for the interpreters, which take the result as
-  the :registry of their options.
+  "The tag `entries` indexed, for the :registry of the options that take
+  one.
 
   The index is a map of :entries, :by-tag, :by-parent and :containers, and
   a registry that's already indexed comes back as it is. Every entry needs
@@ -776,8 +772,7 @@
        :containers (into #{} (mapcat :parent) entries)})))
 
 (def default
-  "The registry of elements, which every interpreter reads unless its
-  options give another."
+  "The registry of elements, used unless the options give another."
   (registry elements))
 
 (defn entry-for

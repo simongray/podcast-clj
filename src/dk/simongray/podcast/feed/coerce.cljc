@@ -1,10 +1,6 @@
 (ns dk.simongray.podcast.feed.coerce
   "Coercion between the strings of a feed and the values of the model, by
-  the value types of the tag registry.
-
-  The function parse never throws: a string that doesn't read as its type
-  comes back as ::invalid. The function format turns a model value back
-  into its canonical string."
+  the value types of the tag registry."
   (:refer-clojure :exclude [format])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.time :as time]
@@ -19,8 +15,8 @@
 
 (def types
   "The value types that a registry entry can give an attribute or node
-  text: coerced-types, and the types that stay strings but tell the
-  validator what to check."
+  text: the coerced types, and the types that stay strings but say what a
+  valid value looks like."
   (into #{:text :html :url :email :mime :language :enum} coerced-types))
 
 (defn- read-boolean
@@ -48,7 +44,7 @@
       ::invalid)))
 
 (defn- read-decimal
-  "The number written as `s`, with a whole one too large for read-integer
+  "The number written as `s`, with a whole one too large to read exactly
   as a double. One too large for a double doesn't read."
   [s]
   (let [n (cond
@@ -126,7 +122,7 @@
       s)))
 
 (defn invalid?
-  "Whether `x` is the marker that parse returns for an unreadable value."
+  "Whether `x` is the marker of an unreadable value."
   [x]
   (= x ::invalid))
 
@@ -135,8 +131,8 @@
   (and (number? n) (== n n) (not (infinite? n))))
 
 (defn of-type?
-  "Whether `v` is a model value of `type`, of the kind that parse makes of
-  a string that reads. By type, that's:
+  "Whether `v` is a model value of `type`, of the kind that a string of
+  that type reads as. By type, that's:
 
   - :integer, a whole number that both platforms hold exactly
   - :decimal and :duration, a finite number
@@ -199,9 +195,8 @@
 (defn format
   "The model value `v` of `type`, written in its canonical string form.
 
-  A value that isn't of its type, which validate reports, is written as it
-  is. A keyword is written by its name, so that :no for a boolean stays
-  no."
+  A value that isn't of its type is written as it is. A keyword is written
+  by its name, so that :no for a boolean stays no."
   [type v]
   (if-not (of-type? type v)
     (if (keyword? v) (name v) (str v))
