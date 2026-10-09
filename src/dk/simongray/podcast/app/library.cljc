@@ -1,8 +1,7 @@
 (ns dk.simongray.podcast.app.library
   "The subscriptions, feeds, queue and play progress of an app, in one map.
 
-  Each part is a value of its own namespace, e.g. every function of
-  profile takes (:profile library):
+  The parts of a library are:
 
       {:device        \"…\"              ; the id of this device
        :profile       {…}              ; the profile, a CRDT that syncs
@@ -11,21 +10,12 @@
        :index         {…}              ; the search index, with :search?
        :sync          {:cursors {…} …} ; the last sync's cursors and report
        :refresh       {:added […] …}   ; the new episodes, moves and report
-       :effects       [[:seek id 784]] ; the effects of the last step, to apply
+       :effects       [[:seek id 784]] ; the effects of the last event, to apply
        :sleep         {:episodes 1}    ; the sleep timer of this device, if set
-       :config        {…}}             ; given once to make
+       :config        {…}}             ; the options below
 
-  Keep the library in an atom and swap! it. The listener can change it
-  while refresh! or sync! fetches, so merge their result in, which keeps
-  those changes:
-
-      (swap! lib merge (refresh! @lib))
-
-  Each function returns the library along with what it did, under
-  :effects, :refresh or :sync. The profile is a CRDT, so change it only
-  with the functions of profile, never with assoc or dissoc.
-
-  The config holds the options that the functions take, given once:
+  The profile is a CRDT, so never change it with assoc or dissoc. The
+  config holds the options that the functions take, given once:
 
       {:fetch          f              ; in place of podcast/fetch!
        :send           f              ; in place of http/send!
@@ -40,22 +30,9 @@
        :now-fn         f              ; the clock, util.time/now by default
        :timeout-seconds 15 :max-bytes … :user-agent …}
 
-  Each function also takes the same keys as options, for one call.
-  A config with functions doesn't print as EDN, so save! leaves it out,
-  and restore! keeps the config of the library that it's given.
-
-  With :keep-fn app.feeds/slim, a library holds a fraction of each feed,
-  which is enough to sync and refresh. The functions that show the feeds,
-  such as episodes, show, episode and search, then lack the titles and the
-  rest, so it's for a device that never shows them, such as a server.
-
-  Each change is stamped with the time of the clock, or with the :at of
-  the options, an instant. Give :at for an event that you handle later,
-  e.g. in a background task, since it needs the time it happened.
-
-  An episode of a show that the listener isn't subscribed to joins with
-  add-episode, as a remote item of the profile. The library keeps the
-  feed of the show, and lists that episode of it alone."
+  Each function also takes the same keys as options, for one call, and
+  :at, an instant to stamp each change with in place of the time of the
+  clock."
   (:refer-clojure :exclude [merge])
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [dk.simongray.drop-in-search :as search]
@@ -80,8 +57,8 @@
             [dk.simongray.podcast.util.time :as time]))
 
 (def default-config
-  "The config that a library has when make isn't given one. The
-  :list-seconds is how long a fetched OPML list stays current."
+  "The config of a library when none is given. The :list-seconds is how
+  long a fetched OPML list stays current."
   {:search?      true
    :list-seconds 86400})
 
@@ -149,13 +126,13 @@
                 (partial filterv #(contains? guids (guid/item-guid %))))))))
 
 (defn- shown-feeds
-  "The feeds of `library` as shown gives them."
+  "The feeds of `library` with the episodes that it lists."
   [library]
   (keep #(shown library %) (keys (:feeds library))))
 
 (defn urls
-  "A map from each feed of `library`, as episodes gives it, to its URL,
-  which criteria/episodes and downloads/plan take as :url."
+  "A map from each feed of `library`, with the episodes that it lists, to
+  its URL."
   [library]
   (into {} (for [[feed-guid {:keys [url]}] (:feeds library)
                  :let  [feed (shown library feed-guid)]
@@ -175,7 +152,7 @@
 
 (defn index
   "A search index of the feeds of `library`, e.g. for a library read back
-  without its :index, as its config's :search? keeps it."
+  without its :index."
   [library]
   (->> (keys (:feeds library))
        (mapcat #(documents library %))
@@ -210,9 +187,8 @@
     (update-in [:feeds feed-guid :feed] keep-fn)))
 
 (defn- fetch-result
-  "The result of a fetch that the `x` given to subscribe stands for. It's
-  `x` itself, or a map with `x` as the :feed when `x` is a parsed feed,
-  which has namespaced keys."
+  "The result of a fetch that `x` stands for: `x` itself, or a map with `x`
+  as the :feed when `x` is a parsed feed, which has namespaced keys."
   [x]
   (if (some #(and (keyword? %) (namespace %)) (keys x))
     {:feed x}
@@ -239,14 +215,14 @@
 
   The `fetched` is the result of dk.simongray.podcast/fetch! or a parsed
   feed, and the `opts` are as profile/configure takes them, besides :at.
-  Without `fetched`, or with nil, refresh! fetches the feed, and the
-  subscription has the guid of the URL until then.
+  Without `fetched`, or with nil, the feed is fetched at the next refresh,
+  and the subscription has the guid of the URL until then.
 
   It throws when `fetched` has no feed, e.g. after a fetch that failed,
   and when the feed declares the guid of another subscription, at another
   URL, since the feed would take that subscription over. The ex-data is
-  the diagnostic of the fetch, or the one that profile/takeover gives. To
-  replace the other subscription, unsubscribe from it first."
+  the diagnostic of the fetch, or :fetch/guid-taken. To replace the other
+  subscription, unsubscribe from it first."
   ([library url]
    (subscribe library url nil {}))
   ([library url fetched]
@@ -292,13 +268,8 @@
   the feed.
 
   The `fetched` is the result of dk.simongray.podcast/fetch! or a parsed
-  feed, as subscribe takes it. The profile notes the episode as a remote
-  item, so that every device fetches its feed, and the library lists it
-  among its episodes, e.g. to queue it:
-
-      (-> (add-episode lib url (podcast/fetch! url) item-guid)
-          (update-profile profile/enqueue [feed-guid item-guid]))
-
+  feed. The profile notes the episode as a remote item, so that every
+  device fetches its feed, and the library lists it among its episodes.
   It throws when `fetched` has no feed, with the diagnostic of the fetch
   as the ex-data, and when the feed has no such episode."
   ([library url fetched item-guid]
@@ -334,9 +305,8 @@
        (tidied feed-guid))))
 
 (defn subscriptions
-  "The live subscriptions of `library` by guid, each as
-  profile/subscriptions gives it, with its :settings filled in by
-  profile/settings, and its :feed once it's fetched."
+  "The live subscriptions of `library` by guid, each with its :settings,
+  defaults included, and its :feed once it's fetched."
   [library]
   (let [profile  (:profile library)
         detailed (fn [[feed-guid sub]]
@@ -348,8 +318,8 @@
 
 (defn- listed
   "The `library` with the parse `list` of the OPML list at `url`, fetched
-  at `at`, applied as profile/refresh-list does, and kept with the ETag
-  and Last-Modified of `fetched` until it's `seconds` old."
+  at `at`, applied to the profile, and kept with the ETag and
+  Last-Modified of `fetched` until it's `seconds` old."
   [library url list at seconds
    {:keys [etag last-modified not-before] :as fetched}]
   (let [next-check (time/latest (time/later at seconds) not-before)
@@ -366,9 +336,9 @@
   "The `library` following the OPML list at `url`, whose parse is `list`,
   with the `opts` below.
 
-  The `opts` give the :etag and :last-modified of the fetch, and the
-  :title and :folder of the list as profile/follow-list takes them. The
-  shows of the list become subscriptions, which refresh! fetches."
+  The `opts` give the :etag and :last-modified of the fetch, the :title of
+  the list and the :folder for its shows. The shows of the list become
+  subscriptions."
   ([library url list]
    (follow-list library url list {}))
   ([library url list opts]
@@ -394,8 +364,7 @@
 
 (defn- fetch-list!
   "Fetch the OPML list at `url` with `opts` and the ETag and Last-Modified
-  in its library `entry`, as dk.simongray.podcast/fetch-list! does, in a
-  future or a promise."
+  in its library `entry`, in a future or a promise."
   [url {:keys [etag last-modified] :as entry}
    {:keys [credentials-of] :as opts}]
   (let [credentials (when credentials-of (credentials-of url))]
@@ -445,8 +414,8 @@
 
 (defn- pending
   "The feeds of the live subscriptions and remote items of `library` that
-  it has no feed of yet, as entries of app.feeds to fetch for the first
-  time. A subscription names the URL before a remote item does."
+  it has no feed of yet, as feed entries to fetch for the first time. A
+  subscription names the URL before a remote item does."
   [library]
   (let [{:keys [profile feeds]} library
         absent? #(not (contains? feeds %))
@@ -460,13 +429,14 @@
     (into {} (concat remote subs))))
 
 (defn- first-fetched
-  "The step `acc` of applied with the feed of the new subscription
-  `feed-guid`, fetched at `at` and cut down by `keep-fn`, under the guid that
-  the feed declares.
+  "The accumulator `acc` of a refresh with the feed of the new subscription
+  `feed-guid`, fetched at `at` and cut down by `keep-fn`, under the guid
+  that the feed declares.
 
-  The subscription moves to that guid, as profile/rekey moves it, and gets
-  the title of the feed when it has none. A feed that would take another
-  subscription over is left out with a report, and fetched next time."
+  The subscription moves to that guid, with its settings and tags, and
+  gets the title of the feed when it has none. A feed that would take
+  another subscription over is left out with a report, and fetched next
+  time."
   [acc feed-guid at keep-fn]
   (let [library  (:library acc)
         sub      (get (profile/subscriptions (:profile library)) feed-guid)
@@ -489,7 +459,7 @@
           (assoc-in [:guids feed-guid] declared)))))
 
 (defn- applied
-  "The `library` with the `result` of app.feeds/refresh! applied to the
+  "The `library` with the `result` of a refresh of its feeds applied to the
   profile at `at`, and the fresh feeds cut down by `keep-fn`, as a map of
   the :library, what was :added and :moved, and the :report of the feeds
   that would take another subscription over.
@@ -544,8 +514,8 @@
   below.
 
   It fetches the followed lists, the feeds of new subscriptions, and the
-  feeds whose next check has come. Returns the library with the step under
-  :refresh, in ClojureScript as a promise, to swap! in with merge.
+  feeds whose next check has come. It returns the library with the result
+  under :refresh, in ClojureScript as a promise:
 
       {:at     #inst \"…\"
        :added  [[feed-guid item-guid] …]   ; the new episodes
@@ -555,9 +525,7 @@
 
   Nothing is thrown for what the network or a server does. The `opts` are
   the config for this call, and :feed-guids, the feeds to fetch instead of
-  those that are due, e.g. after a Podping:
-
-      (app.feeds/affected (:feeds library) pings)"
+  those that are due, e.g. those that a Podping names."
   ([library]
    (refresh! library {}))
   ([library opts]
@@ -597,7 +565,7 @@
 
 (defn episode-id
   "The id of the episode `item` of `feed` in `library`, [feed-guid
-  item-guid], as guid/episode-id gives it with the URL of the feed."
+  item-guid]."
   [library feed item]
   (guid/episode-id feed (get (urls library) feed) item))
 
@@ -611,8 +579,8 @@
       [entry item])))
 
 (defn show
-  "The view of the show `feed-guid` of `library`, as app.show/view gives it
-  with the `opts` it takes, or nil when the library has no such feed."
+  "The view of the show `feed-guid` of `library`, with the `opts` of
+  app.show/view, or nil when the library has no such feed."
   ([library feed-guid]
    (show library feed-guid {}))
   ([library feed-guid opts]
@@ -620,12 +588,10 @@
      (show/view feed (assoc opts :url url)))))
 
 (defn fetch-linked-shows!
-  "Fetch the shows that the show `feed-guid` of `library` links to, with `opts`
-  for this call, for a page to merge into the view that show gives.
-
-  The result is that of app.show/fetch-linked-shows! with the config of
-  the library, or nil when the library has no such feed. The `opts` are
-  those of app.show/fetch-linked-shows!."
+  "Fetch the shows that the show `feed-guid` of `library` links to, with
+  the `opts` of app.show/fetch-linked-shows! over the config. It gives a
+  map of the :podroll and the :publisher, in ClojureScript as a promise,
+  or nil when the library has no such feed."
   ([library feed-guid]
    (fetch-linked-shows! library feed-guid {}))
   ([library feed-guid opts]
@@ -635,11 +601,9 @@
        (show/fetch-linked-shows! view (options library opts))))))
 
 (defn episode
-  "The view of the episode `id` of `library`, as app.episode/view gives it
-  with `opts`.
-
-  The `id` is [feed-guid item-guid], and the view uses the :languages
-  of the config. Returns nil when the library has no such episode."
+  "The view of the episode `id`, [feed-guid item-guid], of `library`, with
+  the `opts` of app.episode/view over the config, e.g. its :languages, or
+  nil when the library has no such episode."
   ([library id]
    (episode library id {}))
   ([library id opts]
@@ -647,12 +611,10 @@
      (episode/view feed item (assoc (options library opts) :url url)))))
 
 (defn read-files!
-  "Read the files of the episode `id` of `library`, with `opts` for this
-  call, for a page to merge into the view that episode gives.
-
-  The result is that of app.episode/read-files! with the config of the
-  library, or nil when the library has no such episode. The `opts` are
-  those of app.episode/read-files!."
+  "Read the files of the episode `id` of `library`, with the `opts` of
+  app.episode/read-files! over the config. It gives a map of the
+  :chapters, the :transcript and the :media, in ClojureScript as a
+  promise, or nil when the library has no such episode."
   ([library id]
    (read-files! library id {}))
   ([library id opts]
@@ -664,12 +626,10 @@
 
 (defn fetch-remote-values!
   "Fetch the value blocks that the time splits of the episode `id` of
-  `library` point at, with `opts` for this call, for a page to merge into
-  the view that episode gives.
-
-  The result is that of app.episode/fetch-remote-values! with the config
-  of the library, or nil when the library has no such episode. The `opts`
-  are those of app.episode/fetch-remote-values!."
+  `library` point at, with the `opts` of app.episode/fetch-remote-values!
+  over the config. It gives a map of the :remote-values and the
+  :remote-report, in ClojureScript as a promise, or nil when the library
+  has no such episode."
   ([library id]
    (fetch-remote-values! library id {}))
   ([library id opts]
@@ -679,14 +639,13 @@
        (episode/fetch-remote-values! view (options library opts))))))
 
 (defn episodes
-  "The episodes of the shows of `library` that `opts` select, as [feed
-  item] pairs.
+  "The episodes of the shows of `library` that the criteria `opts` select,
+  as [feed item] pairs, e.g.
 
-  The selection and the order are those of criteria/episodes across all
-  the feeds. The criteria read the profile of the library, and the
-  time of its clock unless the `opts` give :at.
+      (episodes library {:where {:status :unplayed} :order :listening})
 
-      (episodes library {:where {:status :unplayed} :order :listening})"
+  The criteria are those of criteria/episodes. They read the profile of
+  the library, and the time of its clock unless the `opts` give :at."
   ([library]
    (episodes library {}))
   ([library opts]
@@ -703,16 +662,13 @@
   first, with the `opts` below, or nil when the library keeps no index.
 
   Each result has its :feed, and an episode its :item. The words that
-  matched with typos are in the metadata, as
-  dk.simongray.drop-in-search/query gives them. The `opts` are those of
-  query, whose :filter-pred gets the result with them, and :where, the criteria
-  of criteria/where that an episode must meet, which leaves the shows out.
-  The criteria read the profile of the library, and the time of its clock
-  unless the `opts` give :at.
+  matched with typos are in the metadata. The `opts` are those of
+  dk.simongray.drop-in-search/query, whose :filter-pred gets the result
+  with them, and :where, the criteria of criteria/where that an episode
+  must meet, which leaves the shows out. The criteria read the profile of
+  the library, and the time of its clock unless the `opts` give :at.
 
-      (search library \"value for va\" {:where {:status :unplayed}})
-
-  The library keeps an index unless its config has :search? false."
+      (search library \"value for va\" {:where {:status :unplayed}})"
   ([library q]
    (search library q {}))
   ([library q opts]
@@ -755,20 +711,8 @@
 
 (defn update-profile
   "The `library` with its profile replaced by what `f` gives for it, the
-  `args` and the time of the clock, in that order.
-
-  It suits most functions of profile, e.g. (update-profile library
-  profile/enqueue id). For a series of changes at one time, give a
-  function of the profile and the time:
-
-      (update-profile library (fn [profile at]
-                                (-> profile
-                                    (profile/tag guid \"Daily\" at)
-                                    (profile/star id at))))
-
-  It takes no :at, so for an event that you handle later, call the
-  function with the time it happened: (update library :profile
-  profile/enqueue id at)."
+  `args` and the time of the clock, in that order. For a series of changes
+  at one time, give a function of the profile and the time."
   [library f & args]
   (update library :profile #(apply f % (concat args [(time-of library {})]))))
 
@@ -776,14 +720,14 @@
   "Sync `library` with the listener's other devices through `backends`,
   with the `opts` of sync/sync! except :cursors.
 
-  It syncs as sync/sync! does, keeps the cursors for the next sync, and
-  compacts the tombstones. Returns the library with the step under
-  :sync, in ClojureScript as a promise, to swap! in with merge.
+  It keeps the cursors for the next sync, and compacts the tombstones. It
+  returns the library with the result under :sync, in ClojureScript as a
+  promise:
 
-      {:cursors  {…}         ; those of the stores, for the next step
+      {:cursors  {…}         ; those of the stores, for the next sync
        :at       #inst \"…\"
-       :clock    #inst \"…\"   ; the clock of the profile after the step
-       :failures 0           ; the steps in a row in which a backend failed
+       :clock    #inst \"…\"   ; the clock of the profile after the sync
+       :failures 0           ; the syncs in a row in which a backend failed
        :report   [...]}      ; with :sync/backend-failed for each that did"
   ([library backends]
    (sync! library backends {}))
@@ -824,17 +768,15 @@
         (merge-with (partial newer :fetched-at) mine theirs)))
 
 (defn merge
-  "The `library` with `result` merged in, where `result` is what refresh!
-  or sync! gave for an earlier value of `library`, e.g.
+  "The `library` with `result` merged in, a library that came from an
+  earlier value of `library`, e.g. by a refresh or a sync.
 
-      (swap! lib merge (refresh! @lib))
-
-  The profiles merge as profile/merge does, so nothing that the listener
-  did while those fetched is lost. A feed or a list stays only while the
-  merged profile subscribes to it, has a remote item of it, or follows
-  it, so one that the listener left on another device goes. Of two
-  entries of one feed or list, the later fetch wins. The later :refresh
-  and :sync are kept too, and the rest is that of `library`."
+  The profiles merge, so nothing that the listener did meanwhile is lost.
+  A feed or a list stays only while the merged profile subscribes to it,
+  has a remote item of it, or follows it, so one that the listener left
+  on another device goes. Of two entries of one feed or list, the later
+  fetch wins. The later :refresh and :sync are kept too, and the rest is
+  that of `library`."
   [library result]
   (let [profile (profile/merge (:profile library) (:profile result))
         synced  (newer :at (:sync library) (:sync result))
@@ -868,9 +810,8 @@
   (not= (:clock (:sync library)) (:clock (:profile library))))
 
 (defn next-sync
-  "When `library` should sync again, with `opts`, as sync/next-sync says:
-  right away before the first step, and sooner when the profile changed
-  since the last step."
+  "When `library` should sync again, with `opts`: right away before the
+  first sync, and sooner when the profile changed since the last one."
   ([library]
    (next-sync library {}))
   ([library opts]
@@ -896,14 +837,15 @@
    (sync/device-document (:profile library) (time-of library opts) opts)))
 
 (def saved-name
-  "The name of the document of the library that save! writes."
+  "The name of the document of a saved library."
   "library.edn")
 
+;; the config can hold functions, so it isn't saved, and the search index
+;; has documents of its own
 (def saved-keys
-  "The parts of a library that save! writes unless told otherwise: the
-  profile, the feeds, the followed lists and the last sync, whose cursors
-  fit the profile. The config can hold functions, so it isn't saved, and
-  the search index has documents of its own."
+  "The parts of a library that are saved by default: the profile, the
+  feeds, the followed lists and the last sync, whose cursors fit the
+  profile."
   [:profile :feeds :fetched-lists :sync])
 
 (defn save!
@@ -913,16 +855,12 @@
 
   It writes library.edn, with the parts of `library` that :keys in `opts`
   names, saved-keys by default. When the library keeps a search index, it
-  writes its documents too, of which only those that changed since the
-  last save, so a save after each refresh takes little. Then it deletes
-  the documents that the index no longer needs, all at once. One that it
-  couldn't delete is left out of :delete for the next save to delete,
-  and a store without :delete keeps them all, which restore! ignores.
-  Give it a store of its own, e.g. over a folder, IndexedDB or the origin
-  private file system, since it deletes the documents of any other index
-  there:
-
-      (save! @lib (store.indexeddb/store))"
+  writes the documents of the index that changed since the last save, and
+  deletes those that the index no longer needs. One that it couldn't
+  delete is left out of :delete for the next save to delete, and a store
+  without :delete keeps them all. Give it a store of its own, e.g. over a
+  folder, IndexedDB or the origin private file system, since it deletes
+  the documents of any other index there."
   ([library store]
    (save! library store {}))
   ([library store {:keys [keys] :or {keys saved-keys} :as opts}]
@@ -931,6 +869,8 @@
                            *print-level*          nil
                            *print-namespace-maps* false]
                    (pr-str (select-keys library keys)))
+         ;; only the documents that changed, so that a save after each
+         ;; refresh takes little
          planned (fn [listed]
                    (if-let [index (:index library)]
                      (ciff/plan index (map :name listed))
@@ -1021,14 +961,15 @@
                       :reason (async/explain (:error read))}))])))
 
 (defn restore!
-  "The `library` with what save! wrote to `store`, read with the `opts`
-  below, and with the step under :restore, in ClojureScript as a promise.
+  "The `library` with what was saved to `store`, read with the `opts`
+  below, and with the result under :restore, in ClojureScript as a
+  promise.
 
   The parts of library.edn that :keys in `opts` names, saved-keys by
-  default, replace those of `library`, so give it a library as make
-  makes it. When the library keeps a search index, it's read back, or
-  built again from the feeds when its documents are missing or don't
-  read. The step is a map of the :report of what didn't read:
+  default, replace those of `library`, so give it a new library. When the
+  library keeps a search index, it's read back, or built again from the
+  feeds when its documents are missing or don't read. The result is a map
+  of the :report of what didn't read:
 
       {:report [...]}  ; :library/unreadable-document, :library/index-rebuilt
 
@@ -1054,8 +995,8 @@
 
 (defn plan
   "The episodes to download and the files to delete on this device with
-  `files`. It's what downloads/plan gives for the profile and feeds of
-  `library`, with the `opts`."
+  `files`, for the profile and feeds of `library`, with the `opts` of
+  downloads/plan."
   ([library files]
    (plan library files {}))
   ([library files opts]
