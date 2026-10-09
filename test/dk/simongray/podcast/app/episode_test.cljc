@@ -56,8 +56,8 @@
                (:notes (episode/view show linked))))
         (is (= '([:a {} "more"] " " [:a {:href "https://nytimes.com/x"} "news"])
                (:notes (episode/view show linked
-                                     {:notes-url #(when (re-find #"^nytimes" %2)
-                                                    (str "https://" %2))})))
+                                     {:notes-url-fn #(when (re-find #"^nytimes" %2)
+                                                       (str "https://" %2))})))
             "by a function of the app")))
     (testing "the enclosure and the transcript, as the options select them"
       (is (= "https://example.com/file-03.mp3" (:url (:enclosure v))))

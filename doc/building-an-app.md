@@ -406,7 +406,7 @@ the rows of an episode list are much cheaper as `(library/episode @lib id
 
 Links and images in the notes are made absolute against the web page of
 the episode or the show, and a link written as a bare domain, as many
-feeds do, gets `https://`. To do it your own way, give `:notes-url` a
+feeds do, gets `https://`. To do it your own way, give `:notes-url-fn` a
 function of the page and the URL, which gives the URL to keep or nil.
 
 For the shows that a show recommends in its podroll, and the feed of its
