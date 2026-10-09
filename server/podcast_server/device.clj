@@ -11,7 +11,7 @@
   The library keeps only the slim part of each feed, and saves what it
   knows of the feeds to a file, so that a restart doesn't fetch them all
   again."
-  (:require [dk.simongray.crdt :as crdt]
+  (:require [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]

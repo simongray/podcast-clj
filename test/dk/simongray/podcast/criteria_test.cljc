@@ -2,7 +2,7 @@
   "Selecting and ordering episodes by criteria as data."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.crdt :as crdt]
+            [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.criteria :as criteria]
             [dk.simongray.podcast.profile :as profile]))
 

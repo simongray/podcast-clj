@@ -5,8 +5,8 @@
   the reducer."
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.crdt :as crdt]
-            [dk.simongray.crdt.list :as crdt.list]
+            [dk.simongray.mind-meld :as crdt]
+            [dk.simongray.mind-meld.list :as crdt.list]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.rss :as rss]

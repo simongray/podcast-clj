@@ -6,7 +6,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [dk.simongray.crdt :as crdt]
+            [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.store.webdav :as webdav]
             [dk.simongray.podcast.sync :as sync]

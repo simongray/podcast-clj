@@ -2,11 +2,13 @@
 
  ;; The library proper depends on Clojure alone, plus data.json for the JVM
  ;; side of the JSON adapter (chapters, transcripts, Podcast Index),
- ;; html-pieces for the HTML in show notes and comments, and drop-in-search
- ;; for full-text search. The Clojure version here is the floor the library
- ;; needs, and the one its pom states; development and the tests run on the
- ;; current release through :override-deps, and the :test-floor alias on
- ;; the floor itself.
+ ;; html-pieces for the HTML in show notes and comments, drop-in-search for
+ ;; full-text search, and mind-meld for the CRDT of the listener's profile.
+ ;; The Clojure version here is the floor the library needs, and the one its
+ ;; pom states; development and the tests run on the current release through
+ ;; :override-deps, and the :test-floor alias on the floor itself.
+ ;;
+ ;; mind-meld is a checkout beside this one until it's on GitHub.
  ;;
  ;; org.jsoup/jsoup is optional: with it on the classpath, feeds that are not
  ;; well-formed even after repair are parsed leniently instead of rejected.
@@ -17,7 +19,8 @@
           :git/sha "c4f70ff155de494a49df45930bcfe58fda03fd14"}
          dk.simongray/drop-in-search
          {:git/url "https://github.com/simongray/drop-in-search"
-          :git/sha "60f47968e42c6823301fe630045f9c862296b6de"}}
+          :git/sha "60f47968e42c6823301fe630045f9c862296b6de"}
+         dk.simongray/mind-meld   {:local/root "../mind-meld"}}
 
  :aliases
  {;; The bundled reference web app: a feed inspector built only on the public

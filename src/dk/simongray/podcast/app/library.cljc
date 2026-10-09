@@ -58,9 +58,9 @@
   feed of the show, and lists that episode of it alone."
   (:refer-clojure :exclude [merge])
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
-            [dk.simongray.crdt :as crdt]
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.drop-in-search.ciff :as ciff]
+            [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.feeds :as feeds]

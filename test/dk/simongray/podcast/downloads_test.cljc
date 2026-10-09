@@ -4,7 +4,7 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.crdt :as crdt]
+            [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.downloads :as downloads]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.profile :as profile]))

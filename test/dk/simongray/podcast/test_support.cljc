@@ -8,7 +8,7 @@
   (:require #?(:clj [clojure.java.io :as io])
             #?(:clj [clojure.string :as str])
             #?(:cljs [clojure.test :refer [is async]])
-            [dk.simongray.crdt :as crdt]
+            [dk.simongray.mind-meld :as crdt]
             #?(:clj [dk.simongray.podcast.feed.rss :as rss])
             [dk.simongray.podcast.nostr :as nostr]
             [dk.simongray.podcast.profile :as profile]

@@ -1280,11 +1280,11 @@ that changed its requirements takes them as `:requirements`, e.g.
 
 ```clojure
 (ns my.app
-  (:require [dk.simongray.crdt :as crdt]
-            [dk.simongray.drop-in-search :as search]
+  (:require [dk.simongray.drop-in-search :as search]
             [dk.simongray.drop-in-search.ciff :as ciff]
             [dk.simongray.drop-in-search.queries :as search.queries]
             [dk.simongray.html-pieces :as html]
+            [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics :as analytics]
             [dk.simongray.podcast.analytics.op3 :as op3]

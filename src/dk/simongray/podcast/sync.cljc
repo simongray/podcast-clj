@@ -25,7 +25,7 @@
   functions of another CRDT, as default-crdt does for the profile."
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.string :as str]
-            [dk.simongray.crdt :as crdt]
+            [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.format.opml :as opml]
             [dk.simongray.podcast.profile :as profile]

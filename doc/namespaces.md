@@ -25,18 +25,17 @@ The `app` namespaces are built from all the others, and nothing outside
 [Architecture](architecture.md#layers) explains the rule, which a test
 checks.
 
-Beside podcast-clj is a CRDT with a root of its own, `dk.simongray.crdt`.
-It requires nothing of podcast-clj, so it can be used on its own, and the
-last table lists it. The HTML in show notes and comments is read by
-[html-pieces](https://github.com/simongray/html-pieces), and full-text
-search comes from
-[drop-in-search](https://github.com/simongray/drop-in-search), two
-libraries in repositories of their own.
+The HTML in show notes and comments is read by
+[html-pieces](https://github.com/simongray/html-pieces), full-text search
+comes from [drop-in-search](https://github.com/simongray/drop-in-search),
+and the profile is a CRDT of
+[mind-meld](https://github.com/simongray/mind-meld), three libraries in
+repositories of their own.
 
 The tables follow the same order. Names in them are relative to the root,
-except in the last table, and everything runs on the JVM and in
-ClojureScript unless the table says otherwise. [Principles](principles.md)
-has the rules that every namespace follows.
+and everything runs on the JVM and in ClojureScript unless the table says
+otherwise. [Principles](principles.md) has the rules that every namespace
+follows.
 
 A namespace that talks to a service has the same three steps. Its
 `request` builds a request map, a function such as `http/send!` sends the
@@ -186,11 +185,3 @@ option replaces the function that sends.
 | `crypto.chacha20` | The ChaCha20 stream cipher of RFC 8439. |
 | `crypto.aes-gcm` | AES-256-GCM under a key that PBKDF2 derives from a passphrase, on both platforms. |
 | `crypto.nip44` | The encrypted payloads of NIP-44, version 2. |
-
-## The CRDT beside podcast-clj
-
-| Namespace | Contents |
-|---|---|
-| `dk.simongray.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The profile of podcast-clj is one. |
-| `dk.simongray.crdt.list` | Ordered collections in such a state, e.g. a queue: `append`, `ranked`, `rank-at` for a move and `with-moves`, so that a move never brings back what another device removed. |
-| `dk.simongray.crdt.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |

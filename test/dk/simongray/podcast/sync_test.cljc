@@ -6,7 +6,7 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing #?(:cljs async)]]
-            #?(:clj [dk.simongray.crdt :as crdt])
+            #?(:clj [dk.simongray.mind-meld :as crdt])
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.store :as store]
             [dk.simongray.podcast.sync :as sync]

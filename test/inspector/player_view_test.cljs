@@ -3,7 +3,7 @@
   show for a state, and the events their controls raise."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dk.simongray.crdt :as crdt]
+            [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.profile :as profile]
             [inspector.player.view :as view]))
 

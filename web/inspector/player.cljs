@@ -22,7 +22,7 @@
   Built by `clojure -M:cljs compile player` and served at /js/player.js."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
-            [dk.simongray.crdt :as crdt]
+            [dk.simongray.mind-meld :as crdt]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.profile :as profile]
             [dk.simongray.podcast.store.file :as file]

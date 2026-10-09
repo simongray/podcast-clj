@@ -2,8 +2,7 @@
   "The layering the architecture document describes, checked against the
   ns forms of the source: every namespace is placed in a layer, every
   require points to its own layer or a lower one, the graph has no cycles,
-  the companion formats stand on the primitives alone, and the libraries
-  beside podcast-clj require nothing of it or of each other."
+  and the companion formats stand on the primitives alone."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
@@ -12,24 +11,13 @@
   "The root of the library's namespaces."
   "dk.simongray.podcast")
 
-(def libraries
-  "The roots of the libraries beside podcast-clj, which it requires, and
-  which require nothing of it or of each other."
-  #{"dk.simongray.crdt"})
-
-(defn- library-of
-  "The root in `libraries` of the namespace named `ns`, or nil."
-  [ns]
-  (some #(when (or (= ns %) (str/starts-with? ns (str % "."))) %) libraries))
-
 (def layers
-  "The layer of each namespace, by its name under `prefix`: the libraries
-  beside podcast-clj, by their full names, the primitives, the vocabulary,
-  the feed model with its interpreters, the companions with the formats,
-  the profile, sync and the directories, the root namespace, and the high
-  level under app, the only namespaces that require the root namespace."
-  {"dk.simongray.crdt" -1 "dk.simongray.crdt.list" -1 "dk.simongray.crdt.rank" -1
-   "diagnostics" 0 "feed.guid" 0 "nostr" 0
+  "The layer of each namespace, by its name under `prefix`: the primitives,
+  the vocabulary, the feed model with its interpreters, the companions with
+  the formats, the profile, sync and the directories, the root namespace,
+  and the high level under app, the only namespaces that require the root
+  namespace."
+  {"diagnostics" 0 "feed.guid" 0 "nostr" 0
    "util.async" 0 "util.bech32" 0 "util.bytes" 0 "util.bytes.view" 0 "util.http" 0 "util.url" 0 "util.json" 0
    "util.proxy" 0 "util.secret" 0
    "util.time" 0
@@ -74,8 +62,7 @@
                 spec (rest clause)
                 :let [ns (if (sequential? spec) (first spec) spec)]
                 :when (and (symbol? ns)
-                           (or (str/starts-with? (str ns) prefix)
-                               (library-of (str ns)))
+                           (str/starts-with? (str ns) prefix)
                            (not (and (sequential? spec) (some #{:as-alias} spec))))]
             (short-name ns)))))
 
@@ -118,39 +105,22 @@
 (deftest the-lowest-layers-know-nothing-above-them
   (testing "the registry is data with no interpreter in sight"
     (is (= #{} (get @graph "feed.spec"))))
-  (testing "the companion formats stand on the primitives, the libraries and each other alone"
+  (testing "the companion formats stand on the primitives and each other alone"
     (doseq [ns ["format.chapters" "format.transcript" "format.opml" "format.image"
                 "format.media" "format.media.id3" "format.media.mp3" "format.media.mp4"
                 "format.integrity" "value" "value.payment" "value.bolt11"]]
-      (is (every? #(or (<= (get layers %) 0)
+      (is (every? #(or (zero? (get layers %))
                        (str/starts-with? % "format.")
                        (= "value.payment" %))
                   (get @graph ns))
           (str ns " requires " (get @graph ns)))))
-  (testing "the XML layer needs nothing of podcasts, only the libraries beside it"
-    (is (every? library-of (get @graph "util.xml")))))
+  (testing "the XML layer needs nothing of podcasts"
+    (is (= #{} (get @graph "util.xml")))))
 
 (deftest a-name-shows-a-primitive
   (doseq [ns    (keys @graph)
           :when (re-find #"^(util|crypto|store)\.|^(store|nostr)$" ns)]
     (is (zero? (get layers ns -1)) (str ns " is under util, crypto or store, or is nostr, so it is a primitive"))))
-
-(deftest the-libraries-stand-alone
-  (doseq [[ns reqs] @graph
-          :let      [root (library-of ns)]
-          :when     root
-          req       reqs]
-    (is (= root (library-of req)) (str ns " requires " req ", outside " root))))
-
-(deftest the-libraries-are-tested-alone
-  (doseq [file  (file-seq (io/file "test"))
-          :when (re-find #"\.clj[cs]?$" (.getName ^java.io.File file))
-          :let  [form (read-string {:read-cond :allow :features #{:clj}} (slurp file))
-                 ns   (str/replace (str (second form)) #"-test$" "")
-                 root (library-of ns)]
-          :when root
-          req   (requires file)]
-    (is (= root (library-of req)) (str ns "-test requires " req ", outside " root))))
 
 (deftest a-name-shows-the-high-level
   (doseq [ns (keys @graph)]

@@ -21,6 +21,10 @@ and `../drop-in-search`, and add the `:local` alias, e.g.
 `clojure -M:dev:local:nrepl`. Once the change is pushed, put its commit in
 deps.edn.
 
+Until [mind-meld](https://github.com/simongray/mind-meld) is on GitHub, you
+need a checkout of it beside this one, in `../mind-meld`, since deps.edn
+points there.
+
 
 ## The inspector
 

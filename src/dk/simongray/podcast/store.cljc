@@ -30,13 +30,12 @@
   (:require [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]))
 
-;; TODO: Decide whether the stores go with dk.simongray.crdt when it's
-;; published. A library for local-first sync could hold the CRDT, this
-;; store contract, the memory, folder, IndexedDB and encrypted stores, and
-;; sync/backend, once the backend no longer writes the OPML of a profile.
-;; The contract and those stores need only util.async, util.bytes and
-;; util.secret, but WebDAV needs util.http and util.xml, so it would stay
-;; here. See the TODO in dk.simongray.crdt.
+;; TODO: Decide whether the stores become a library for local-first sync on
+;; top of mind-meld. It could hold this store contract, the memory, folder,
+;; IndexedDB and encrypted stores, and sync/backend, once the backend no
+;; longer writes the OPML of a profile. The contract and those stores need
+;; only util.async, util.bytes and util.secret, but WebDAV needs util.http
+;; and util.xml, so it would stay here.
 
 (defn memory
   "A store over the atom `documents`, or a fresh one, which holds the :body

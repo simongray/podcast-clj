@@ -14,8 +14,6 @@ This page explains how each part of podcast-clj is built.
   2  feed model   feed  feed.rss  feed.coerce  feed.validate  feed.schema
   1  vocabulary   feed.spec  feed.quirks
   0  primitives   util.*  crypto.*  store  store.*  nostr  feed.guid  diagnostics
-
-     library      dk.simongray.crdt.*
 ```
 
 A namespace only requires namespaces in its own layer or below. The
@@ -27,11 +25,6 @@ the top layer and nothing else, and `util`, `crypto`, `store` and `nostr`
 are primitives. A test in `architecture_test.clj` reads the `ns` forms, and
 fails on a require that points up a layer, on a cycle, or on a name in the
 wrong layer.
-
-The CRDT is a library with a root of its own, `dk.simongray.crdt`, below
-every layer. It knows nothing about podcasts and requires nothing of
-podcast-clj, which the same test checks, so it can be published on its
-own.
 
 A view is a map of the results of the functions below it, under the same
 keys, e.g. `(:enclosure (episode/view show item))` is what
@@ -487,9 +480,10 @@ entry by entry, and the later entry wins. The merge is commutative,
 associative and idempotent, which a generative test checks, so any backend
 that can store a document can sync the profile. This is also why the
 profile must only change through the functions of `profile` and
-`dk.simongray.crdt`, never with `assoc`. The CRDT itself is that library,
-which knows nothing of podcasts: `profile` gives it the schema of its
-collections.
+`dk.simongray.mind-meld`, never with `assoc`. The CRDT itself is
+[mind-meld](https://github.com/simongray/mind-meld), a library that was
+spun out of podcast-clj and knows nothing of podcasts: `profile` gives it
+the schema of its collections.
 
 `step` takes the events of a player (`:progress`, `:ended`, `:play`,
 `:skip` and `:chapter`) and returns the new state with effects for the app,

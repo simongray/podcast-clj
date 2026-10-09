@@ -124,10 +124,10 @@ without a new version.
 
 ## The profile as a CRDT
 
-The CRDT is the library `dk.simongray.crdt`, which knows nothing of
-podcasts. The `profile` namespace gives it a schema: how deep the entries
-of each collection are, which entries hold counts that only grow, and
-which tombstones compact drops.
+The CRDT is the library [mind-meld](https://github.com/simongray/mind-meld),
+which knows nothing of podcasts. The `profile` namespace gives it a
+schema: how deep the entries of each collection are, which entries hold
+counts that only grow, and which tombstones compact drops.
 
 ### Merge by shape
 
@@ -186,15 +186,14 @@ device's clock.
 
 ### The queue
 
-The queue is an ordered collection of `crdt.list`, with one entry per
-episode, ordered by a rank from `crdt.rank`, a string with room for
-another rank between any two. A removal is a tombstone. Additions on two
-devices both survive, a finished episode stays removed, and only two
-devices that move the same episode at the same time need a winner, the
-later one. A move writes the episode's new place as an entry of its own,
-so it never brings back an episode that another device removed
-meanwhile. Ranks stay short at the ends of the list, where most episodes
-are added. Episodes that one device appends at once share a block of
+The queue is an ordered collection of mind-meld, with one entry per
+episode, ordered by a rank, a string with room for another rank between
+any two. A removal is a tombstone. Additions on two devices both survive,
+a finished episode stays removed, and only two devices that move the same
+episode at the same time need a winner, the later one. A move writes the
+episode's new place as an entry of its own, so it never brings back an
+episode that another device removed meanwhile. Ranks stay short at the
+ends of the list, where most episodes are added. Episodes that one device appends at once share a block of
 ranks named after the device, so batches that two devices append at the
 same time don't mix. Playlists work the same way.
 
