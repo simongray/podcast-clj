@@ -20,6 +20,10 @@ podcast-clj at once, check html-pieces out beside this one, in
 `clojure -M:dev:local:nrepl`. Once the change is pushed, put its commit in
 deps.edn.
 
+Until [drop-in-search](https://github.com/simongray/drop-in-search) is on
+GitHub, you need a checkout of it beside this one, in `../drop-in-search`,
+since deps.edn points there.
+
 
 ## The inspector
 

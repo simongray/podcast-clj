@@ -8,13 +8,13 @@
       (episodes feed {:where {:season 2 :type \"full\" :duration [600 nil]}
                       :order :newest})"
   (:require [clojure.string :as str]
+            [dk.simongray.drop-in-search :as search]
+            [dk.simongray.drop-in-search.analysis :as analysis]
+            [dk.simongray.drop-in-search.queries :as search.queries]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.profile :as profile]
-            [dk.simongray.search :as search]
-            [dk.simongray.search.analysis :as analysis]
-            [dk.simongray.search.queries :as search.queries]))
+            [dk.simongray.podcast.profile :as profile]))
 
 (defn- in?
   [expected actual]
@@ -88,7 +88,7 @@
 (defn- mentioned
   "The predicate of the criterion :text for `v`, a query or a set of
   queries. It's true when the title and notes of an item match any of
-  them, as dk.simongray.search.queries/matches? reads them."
+  them, as dk.simongray.drop-in-search.queries/matches? reads them."
   [v]
   (let [queries (mapv search.queries/parse (if (set? v) v [v]))]
     (fn [_ item]
@@ -196,8 +196,8 @@
     linked, embedded or listed in the notes
   - :person, someone credited
   - :text, a query that the title and notes must match, in the language
-    of dk.simongray.search.queries/parse, e.g. \"coffee -decaf\". A set of
-    queries matches when any of them does.
+    of dk.simongray.drop-in-search.queries/parse, e.g. \"coffee -decaf\".
+    A set of queries matches when any of them does.
   - :not, criteria that the item doesn't meet, e.g. {:text #{\"rerun\"}}
   - :status, :unplayed, :in-progress or :played, or a set of them
   - :starred? and :inbox?

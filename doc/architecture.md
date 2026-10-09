@@ -15,7 +15,7 @@ This page explains how each part of podcast-clj is built.
   1  vocabulary   feed.spec  feed.quirks
   0  primitives   util.*  crypto.*  store  store.*  nostr  feed.guid  diagnostics
 
-     libraries    dk.simongray.search.*  dk.simongray.crdt.*
+     library      dk.simongray.crdt.*
 ```
 
 A namespace only requires namespaces in its own layer or below. The
@@ -28,10 +28,10 @@ are primitives. A test in `architecture_test.clj` reads the `ns` forms, and
 fails on a require that points up a layer, on a cycle, or on a name in the
 wrong layer.
 
-The search engine and the CRDT are libraries with roots of their own,
-`dk.simongray.search` and `dk.simongray.crdt`, below every layer. They
-know nothing about podcasts and require nothing of podcast-clj or of each
-other, which the same test checks, so each can be published on its own.
+The CRDT is a library with a root of its own, `dk.simongray.crdt`, below
+every layer. It knows nothing about podcasts and requires nothing of
+podcast-clj, which the same test checks, so it can be published on its
+own.
 
 A view is a map of the results of the functions below it, under the same
 keys, e.g. `(:enclosure (episode/view show item))` is what
@@ -511,57 +511,14 @@ through `feed.resolve`, so it means what the accessor means. Because the
 criteria are data, a UI can build them from a form, and saved filters and
 download rules use the same criteria.
 
-Full-text search is a library of its own, `dk.simongray.search`, which
-knows nothing about podcasts, so other projects can use it too. The index
-is a value: `index`, `add` and `remove` build and change it, `query`
-searches it, and nothing runs in the background. Lucene doesn't run in a
-browser, but this index runs wherever the model runs. The `feed.search`
-namespace only makes the documents of episodes and shows, and gives the
-title more weight than the notes.
-
-Words split at anything that isn't a letter or a digit, as in most
-JavaScript search libraries, so "Simon's" is found by "simon", and a query
-of "2.0" looks for 2 and 0 in a row. Chinese, Japanese, Korean, Thai and
-the other scripts without spaces between words are indexed as overlapping
-pairs of characters, as search engines do without a dictionary. The word
-segmenters of the platforms were left out: the JVM and the browsers split
-the same Chinese text differently, and an index must find the same words
-on every device. There's no stemming and no language model. Instead the
-last word of a query completes as a prefix, and a field given as a vector
-of terms isn't analysed, so an app can bring its own stemmer.
-
-A word that no document holds matches words with typos. It's decided for
-each word, rather than by running the query again with typos when it
-finds too little, as Typesense does by default. So the words spelled
-right stay exact, and a page past the end or a filter that leaves
-nothing doesn't bring in matches with typos.
-
-The ranking is BM25F, which adds up a word's occurrences in all the fields
-of a document, each weighed by its field, before they count. Ranking each
-field on its own and adding the scores would let a word that appears once
-in each of three fields outrank one repeated in the title.
-
-The query language takes the words AND, OR and NOT of SQLite FTS5 and
-the signs of Lucene's simple query parser, e.g. `|` and a leading `-`,
-so that what a user knows from either works. The spellings are options,
-e.g. `OG` for AND in Danish. The language has a namespace of its own,
-`search.queries`, since a transcript or a filter matches a query against
-one text without an index.
-
-The index keeps its postings in sorted arrays of ints rather than in
-maps, which takes far less memory and lets a query start from its rarest
-word. As in Lucene, the arrays are in segments that merge as they grow,
-so a change copies little and the index stays a value. Until a merge
-drops it, a removed document still counts in the statistics of the
-ranking, as it does in Lucene.
-
-An index is kept as documents in a store: a manifest in EDN, and a
-document for each segment in the Common Index File Format, which search
-engines such as Anserini, PISA and Terrier use to exchange their indexes.
-CIFF has no positions, fields or stored values, so they go in fields of
-its protobuf messages that other readers of CIFF skip. A segment's
-document is named after a hash of what it holds, so it's written once,
-and the functions stay pure without a counter or random names.
+Full-text search comes from
+[drop-in-search](https://github.com/simongray/drop-in-search), a library
+that was spun out of podcast-clj. Lucene doesn't run in a browser, but
+this index runs wherever the model runs. It's a value, and nothing runs
+in the background. The `feed.search` namespace only makes the documents
+of episodes and shows, and gives the title more weight than the notes. A
+transcript or a filter matches a query against one text with the
+library's query language, without an index.
 
 
 ## Saving a library

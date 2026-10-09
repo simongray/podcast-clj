@@ -726,7 +726,8 @@ saves it too, as [Keep the library between
 runs](#keep-the-library-between-runs) shows.
 
 Without `app.library`, build the index from the feeds yourself, with the
-documents of `feed.search`, and search it with `dk.simongray.search`:
+documents of `feed.search`, and search it with
+[drop-in-search](https://github.com/simongray/drop-in-search):
 
 ```clojure
 (defn index-feeds
@@ -1280,6 +1281,9 @@ that changed its requirements takes them as `:requirements`, e.g.
 ```clojure
 (ns my.app
   (:require [dk.simongray.crdt :as crdt]
+            [dk.simongray.drop-in-search :as search]
+            [dk.simongray.drop-in-search.ciff :as ciff]
+            [dk.simongray.drop-in-search.queries :as search.queries]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.analytics :as analytics]
@@ -1324,8 +1328,5 @@ that changed its requirements takes them as `:requirements`, e.g.
             [dk.simongray.podcast.value.lnaddress :as lnaddress]
             [dk.simongray.podcast.value.metadata :as metadata]
             [dk.simongray.podcast.value.nwc :as nwc]
-            [dk.simongray.podcast.value.webln :as webln]
-            [dk.simongray.search :as search]
-            [dk.simongray.search.ciff :as ciff]
-            [dk.simongray.search.queries :as search.queries]))
+            [dk.simongray.podcast.value.webln :as webln]))
 ```

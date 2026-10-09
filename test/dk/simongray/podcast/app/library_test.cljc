@@ -7,6 +7,7 @@
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [dk.simongray.crdt :as crdt]
+            [dk.simongray.drop-in-search :as search]
             [dk.simongray.podcast.app.feeds :as feeds]
             [dk.simongray.podcast.app.library :as library]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -18,8 +19,7 @@
             [dk.simongray.podcast.sync :as sync]
             [dk.simongray.podcast.test-support :refer [fixture run]]
             [dk.simongray.podcast.util.async :as async]
-            [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.search :as search]))
+            [dk.simongray.podcast.util.time :as time]))
 
 (def now #inst "2026-09-30T12:00:00Z")
 

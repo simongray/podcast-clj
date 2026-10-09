@@ -3,11 +3,11 @@
   (:require #?(:cljs [dk.simongray.podcast.test-setup])
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
+            [dk.simongray.drop-in-search :as search]
             [dk.simongray.podcast.criteria-test :refer [show]]
             [dk.simongray.podcast.feed.rss :as rss]
             [dk.simongray.podcast.feed.search :as feed.search]
-            [dk.simongray.podcast.test-support :refer [fixture]]
-            [dk.simongray.search :as search]))
+            [dk.simongray.podcast.test-support :refer [fixture]]))
 
 (def example
   (delay (rss/parse (fixture "feeds/namespace-example.xml"))))

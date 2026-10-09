@@ -59,6 +59,8 @@
   (:refer-clojure :exclude [merge])
   (:require #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [dk.simongray.crdt :as crdt]
+            [dk.simongray.drop-in-search :as search]
+            [dk.simongray.drop-in-search.ciff :as ciff]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.app.episode :as episode]
             [dk.simongray.podcast.app.feeds :as feeds]
@@ -75,9 +77,7 @@
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.http :as http]
-            [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.search :as search]
-            [dk.simongray.search.ciff :as ciff]))
+            [dk.simongray.podcast.util.time :as time]))
 
 (def default-config
   "The config that a library has when make isn't given one. The
@@ -703,11 +703,12 @@
   first, with the `opts` below, or nil when the library keeps no index.
 
   Each result has its :feed, and an episode its :item. The words that
-  matched with typos are in the metadata, as dk.simongray.search/query gives
-  them. The `opts` are those of query, whose :filter gets the result with
-  them, and :where, the criteria of criteria/where that an episode must
-  meet, which leaves the shows out. The criteria read the profile of the
-  library, and the time of its clock unless the `opts` give :at.
+  matched with typos are in the metadata, as
+  dk.simongray.drop-in-search/query gives them. The `opts` are those of
+  query, whose :filter gets the result with them, and :where, the criteria
+  of criteria/where that an episode must meet, which leaves the shows out.
+  The criteria read the profile of the library, and the time of its clock
+  unless the `opts` give :at.
 
       (search library \"value for va\" {:where {:status :unplayed}})
 

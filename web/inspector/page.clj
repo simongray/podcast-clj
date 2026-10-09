@@ -3,6 +3,8 @@
   Rendered to strings by Replicant in the service namespace."
   (:require [clojure.pprint :as pprint]
             [clojure.string :as str]
+            [dk.simongray.drop-in-search :as search]
+            [dk.simongray.drop-in-search.queries :as search.queries]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.analytics.op3 :as op3]
             [dk.simongray.podcast.comments :as comments]
@@ -19,9 +21,7 @@
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]
             [dk.simongray.podcast.util.url :as url]
-            [dk.simongray.podcast.value :as value]
-            [dk.simongray.search :as search]
-            [dk.simongray.search.queries :as search.queries]))
+            [dk.simongray.podcast.value :as value]))
 
 (def css
   "The inspector's stylesheet, inlined into every page."
@@ -827,9 +827,9 @@
 (defn search-page
   "The results of the full-text query `q` over the items of the feed at
   `url`, or over the corpus without one: `results` are those of
-  dk.simongray.search/query of the `index` with the :item each came from, for a
-  snippet of its notes, and `typos` the words of `q` that matched others
-  with typos, from the metadata of the results."
+  dk.simongray.drop-in-search/query of the `index` with the :item each
+  came from, for a snippet of its notes, and `typos` the words of `q` that
+  matched others with typos, from the metadata of the results."
   [{:keys [q url index results typos]}]
   (layout (str "Search: " q)
           (when url

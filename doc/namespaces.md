@@ -25,12 +25,13 @@ The `app` namespaces are built from all the others, and nothing outside
 [Architecture](architecture.md#layers) explains the rule, which a test
 checks.
 
-Beside podcast-clj are two libraries with roots of their own: a full-text
-search engine in `dk.simongray.search` and a CRDT in `dk.simongray.crdt`.
-They require nothing of podcast-clj, so they can be used on their own, and
-the last table lists them. The HTML in show notes and comments is read by
-[html-pieces](https://github.com/simongray/html-pieces), a library in a
-repository of its own.
+Beside podcast-clj is a CRDT with a root of its own, `dk.simongray.crdt`.
+It requires nothing of podcast-clj, so it can be used on its own, and the
+last table lists it. The HTML in show notes and comments is read by
+[html-pieces](https://github.com/simongray/html-pieces), and full-text
+search comes from
+[drop-in-search](https://github.com/simongray/drop-in-search), two
+libraries in repositories of their own.
 
 The tables follow the same order. Names in them are relative to the root,
 except in the last table, and everything runs on the JVM and in
@@ -186,15 +187,10 @@ option replaces the function that sends.
 | `crypto.aes-gcm` | AES-256-GCM under a key that PBKDF2 derives from a passphrase, on both platforms. |
 | `crypto.nip44` | The encrypted payloads of NIP-44, version 2. |
 
-## The libraries beside podcast-clj
+## The CRDT beside podcast-clj
 
 | Namespace | Contents |
 |---|---|
-| `dk.simongray.search` | A full-text index ranked by BM25F: `index`, `add`, `remove` and `query`. Give the `query-opts` of an index to `search.queries` to read a query as the index does. |
-| `dk.simongray.search.queries` | The query language: `parse` reads AND, OR, NOT, phrases, prefixes, typos and fields, and `snippet` and `matches?` match a query against one text. |
-| `dk.simongray.search.analysis` | Text for search on both platforms: `fold`, which drops case and diacritics, and `tokens`, the words of a text, with Chinese, Japanese, Korean and Thai in pairs of characters. |
-| `dk.simongray.search.ciff` | An index kept in a store, in the Common Index File Format: `plan` gives the documents to put and delete, and `read-documents` reads them back. |
-| `dk.simongray.search.segment` | The segments of an index, its postings in sorted arrays of ints, which the index builds and combines. Apps don't call it. |
 | `dk.simongray.crdt` | A CRDT of plain maps, which devices merge in any order, on a schema of collections. Write an entry with `write`, a series of them at one stamp with `at-once`, or with `as-device` for what another device did, and keep the registry of devices with `identify`, `retire` and `lagging`. The profile of podcast-clj is one. |
 | `dk.simongray.crdt.list` | Ordered collections in such a state, e.g. a queue: `append`, `ranked`, `rank-at` for a move and `with-moves`, so that a move never brings back what another device removed. |
 | `dk.simongray.crdt.rank` | Ranks with room for another rank between any two, which stay short at the ends of a list. |

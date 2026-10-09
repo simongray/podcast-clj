@@ -24,10 +24,10 @@
   a declared type that doesn't match the file. The report function reads
   it from the metadata."
   (:require [clojure.string :as str]
+            [dk.simongray.drop-in-search.queries :as search.queries]
             [dk.simongray.podcast.util.json :as json]
             [dk.simongray.podcast.util.time :as time]
-            [dk.simongray.podcast.util.xml :as xml]
-            [dk.simongray.search.queries :as search.queries]))
+            [dk.simongray.podcast.util.xml :as xml]))
 
 ;; podcast:transcript names five types. application/srt is of Apple's
 ;; guide, and text/srt is in feeds.
@@ -537,7 +537,8 @@
   segment where its first match is, e.g. for a player to list where words
   are said and seek there. A caption file matches by a cue or two, and a
   word-level transcript by a phrase. The `opts` are those of
-  dk.simongray.search.queries/parse, and :length, 60 characters by default."
+  dk.simongray.drop-in-search.queries/parse, and :length, 60 characters by
+  default."
   ([transcript q]
    (matches transcript q {}))
   ([transcript q {:keys [length] :or {length passage-length} :as opts}]

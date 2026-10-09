@@ -1,6 +1,6 @@
 (ns dk.simongray.podcast.feed.search
   "The shows and episodes of feeds as documents for full-text search with
-  dk.simongray.search.
+  dk.simongray.drop-in-search.
 
   Item-document and feed-document make the documents of an episode and of
   a show, and index makes an index of them, which ranks a match in a title
@@ -12,11 +12,11 @@
   An index of many feeds changes one feed at a time with with-feed and
   without-feed, and located gives each result its feed and item."
   (:require [clojure.string :as str]
+            [dk.simongray.drop-in-search :as search]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.feed.guid :as guid]
             [dk.simongray.podcast.feed.resolve :as resolve]
-            [dk.simongray.podcast.format.transcript :as transcript]
-            [dk.simongray.search :as search]))
+            [dk.simongray.podcast.format.transcript :as transcript]))
 
 (defn- notes
   [x]
@@ -112,9 +112,9 @@
   {"notes" :description})
 
 (defn index
-  "An index of the search documents `docs` for dk.simongray.search, with
-  boosts and aliases as the defaults of its queries, or an empty one to add
-  to."
+  "An index of the search documents `docs` for dk.simongray.drop-in-search,
+  with boosts and aliases as the defaults of its queries, or an empty one
+  to add to."
   ([]
    (index []))
   ([docs]
@@ -179,7 +179,7 @@
 #?(:clj
    (comment
      (require '[dk.simongray.podcast.feed.rss :as rss]
-              '[dk.simongray.search.queries :as search.queries])
+              '[dk.simongray.drop-in-search.queries :as search.queries])
      (def f (rss/parse (slurp "test/resources/feeds/namespace-example.xml")))
      (def idx (index (feed-documents f "https://example.com/feed.xml")))
      (search/query idx "futu")

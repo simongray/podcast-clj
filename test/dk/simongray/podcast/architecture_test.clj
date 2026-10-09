@@ -15,7 +15,7 @@
 (def libraries
   "The roots of the libraries beside podcast-clj, which it requires, and
   which require nothing of it or of each other."
-  #{"dk.simongray.crdt" "dk.simongray.search"})
+  #{"dk.simongray.crdt"})
 
 (defn- library-of
   "The root in `libraries` of the namespace named `ns`, or nil."
@@ -29,8 +29,6 @@
   the profile, sync and the directories, the root namespace, and the high
   level under app, the only namespaces that require the root namespace."
   {"dk.simongray.crdt" -1 "dk.simongray.crdt.list" -1 "dk.simongray.crdt.rank" -1
-   "dk.simongray.search" -1 "dk.simongray.search.analysis" -1 "dk.simongray.search.queries" -1
-   "dk.simongray.search.ciff" -1 "dk.simongray.search.segment" -1
    "diagnostics" 0 "feed.guid" 0 "nostr" 0
    "util.async" 0 "util.bech32" 0 "util.bytes" 0 "util.bytes.view" 0 "util.http" 0 "util.url" 0 "util.json" 0
    "util.proxy" 0 "util.secret" 0
