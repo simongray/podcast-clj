@@ -1,18 +1,18 @@
 (ns dk.simongray.podcast.comments.activitypub
   "Threads of comments over ActivityPub, the protocol of Mastodon, PeerTube
-  and the podcast host Castopod, read for dk.simongray.podcast.comments.
+  and the podcast host Castopod.
 
   Each post is a JSON document at its own URL. A root post can start a
   conversation and name a collection of all its posts. This collection is
-  the context of FEP-f228, or the comments of a PeerTube video. The
-  requests function asks for that collection, or else for the replies
-  collection of each post, down the tree. It asks for each post that a
-  collection names by URL at the post's own server, and for each author
-  too. A server speaks only for its own posts and authors, as FEP-fe34
-  asks, and a post that isn't public is left out.
+  the context of FEP-f228, or the comments of a PeerTube video. A reading
+  asks for that collection, or else for the replies collection of each
+  post, down the tree. It asks for each post that a collection names by
+  URL at the post's own server, and for each author too. A server speaks
+  only for its own posts and authors, as FEP-fe34 asks, and a post that
+  isn't public is left out.
 
   Some servers answer only signed requests, and Mastodon lets no page on
-  another site read its posts. For such a root post, requests asks the
+  another site read its posts. For such a root post, the reading asks the
   Mastodon API of its server for the thread. Many servers answer this API,
   which speaks only for its own server too."
   (:require [clojure.string :as str]
@@ -229,7 +229,7 @@
               {:type :emoji :shortcode shortcode :url image}))))
 
 (defn- source
-  "What parts and hiccup read of a post: the HTML `markup` of its content,
+  "The source of the content of a post: the HTML `markup` of its content,
   the id `base` of the post, and the parts `tags` that its tags name."
   [markup base tags]
   (when (common/first-text markup)
@@ -354,8 +354,7 @@
 
   The content of a post is HTML, and the parts are its text in one line
   of parts. A line break of the text is a line break in a text part, and
-  a blank line comes after a paragraph. Unlike the parts, hiccup keeps the
-  elements of the HTML."
+  a blank line comes after a paragraph."
   [{:keys [base] :as source}]
   (let [emojis (emojis-of source)
         text   (fn [s] {:type :text :text s})
@@ -396,8 +395,8 @@
   The result is a sequence of nodes to put inside a parent element. The
   `opts` are these:
 
-  - :link-fn, a function of a part of parts. It gives the URL that a mention
-    or a hashtag links to, or nil for the link that the post has. So a
+  - :link-fn, a function of a part. It gives the URL that a mention or a
+    hashtag links to, or nil for the link that the post has. So a
     mention leads to a page of the app, and not to the server of the
     mentioned account.
   - :emoji?, to show each custom emoji as an image. The image loads from
@@ -556,7 +555,7 @@
 
 (defn- with-item
   "The `thread` with the `item` of a collection page that came from `url`,
-  read at `at` as a reply to `owner`, as with-items reads it by `opts`."
+  read at `at` as a reply to `owner`, by `opts`."
   [thread owner item url at {:keys [objects?] :as opts}]
   (let [{longest :id most :thread} common/limits
         id    (id-of item)
@@ -598,7 +597,7 @@
   comment, and a post that isn't public is withheld. Anything else is a
   comment to fetch by its id.
 
-  The common/limits of a page, of an id and of a thread apply. The thread
+  The size limits of a page, of an id and of a thread apply. The thread
   counts the items that a limit cut, for its report."
   [thread owner items url at opts]
   (let [{:keys [page]} common/limits
@@ -610,7 +609,7 @@
 (defn ^:no-doc with-collection
   "The `thread` with the collection `c` of replies to `owner` at its `path`,
   as far as the document that came from `url` lists it at `at`. Its items
-  are read by with-items with `opts`.
+  are read with `opts`.
 
   The collection is read when the document lists all of it. Or else it
   names the URL of the page to read it from, which must be on the server
@@ -803,8 +802,8 @@
   the status in the API.
 
   They're the paths of Mastodon, of GoToSocial, of the ActivityPub ids of
-  both, and of Pleroma and Akkoma. The requests function reads them,
-  unless its options give the paths of other servers as :status-paths."
+  both, and of Pleroma and Akkoma, unless the options give the paths of
+  other servers as :status-paths."
   [#"/@[^/?#]+/([0-9A-Za-z]+)"
    #"/@[^/?#]+/statuses/([0-9A-Za-z]+)"
    #"/users/[^/?#]+/statuses/([0-9A-Za-z]+)"
@@ -827,7 +826,7 @@
 
 (defn- api-requests
   "The requests to the Mastodon API of the server of `uri` for the parts of
-  its thread that aren't in `read`, with the `paths` of api-status.
+  its thread that aren't in `read`, with the `paths` of statuses.
 
   The parts are the :status of the root and the :context of the replies
   below it."
@@ -928,8 +927,8 @@
 
 (defn- with-status
   "The `thread` with the `status` of an answer of the Mastodon API of the
-  server at `origin` read at `at`, by the `ids` and the `own-pred` of
-  read-api."
+  server at `origin` read at `at`. The `ids` map the ids of the API to
+  URIs, and `own-pred` tells a public status of that server."
   [thread status ids origin own-pred at]
   (let [status-uri (get status "uri")]
     (cond
@@ -991,7 +990,7 @@
 
 (defn- api-fallback?
   "Whether `thread` is read through the Mastodon API of the server of its
-  root, by the `paths` of api-status.
+  root, by the `paths` of statuses.
 
   It is when the server refused the root unsigned, or when the request for
   it failed without an answer, as a request that CORS keeps from a page
@@ -1020,7 +1019,7 @@
         (page-request collection [:replies id])))))
 
 (defn readable?
-  "Whether requests reads the thread of `interact`: its URI is an http or
+  "Whether the thread of `interact` can be read: its URI is an http or
   https URL."
   [{:keys [uri] :as interact}]
   (some? (common/web-url uri)))
@@ -1080,7 +1079,7 @@
 (defn requests
   "The requests that the ActivityPub `thread` needs next with `opts`, of
   those whose URLs `ask-pred` takes. They ask for no more posts than the
-  :max-comments of `opts` allows, counted from the last resumed.
+  :max-comments of `opts` allows, counted from the start of the reading.
 
   The root post comes first. When its server keeps it from the reader, the
   Mastodon API of that server comes next. Then come the pages of the
