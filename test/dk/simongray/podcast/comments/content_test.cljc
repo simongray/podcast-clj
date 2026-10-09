@@ -77,11 +77,11 @@
              "a pixel"]
             [:p {} "Two"]]
            (activitypub/hiccup post)))
-    (is (= (html/emit (activitypub/hiccup post))
-           (html/emit (html/hiccup (str "<p><span><a href=\"https://podcastindex.social/@dave\" rel=\"nofollow ugc\">@<span>dave</span></a>"
-                                        "</span> KDE :blobcat: and :unknown: <a href=\"https://masto.es/tags/podcast\" rel=\"nofollow ugc\">"
-                                        "#<span>podcast</span></a> see <a href=\"https://example.org/x\" rel=\"nofollow ugc\">example.org</a>"
-                                        "<br>byea pixel</p><p>Two</p>"))))
+    (is (= (html/sanitize (activitypub/hiccup post))
+           (html/sanitize (str "<p><span><a href=\"https://podcastindex.social/@dave\" rel=\"nofollow ugc\">@<span>dave</span></a>"
+                               "</span> KDE :blobcat: and :unknown: <a href=\"https://masto.es/tags/podcast\" rel=\"nofollow ugc\">"
+                               "#<span>podcast</span></a> see <a href=\"https://example.org/x\" rel=\"nofollow ugc\">example.org</a>"
+                               "<br>byea pixel</p><p>Two</p>")))
         "the content of the comment"))
   (testing "the links of an app, and the custom emoji as images"
     (is (= [[:p {}
@@ -213,7 +213,7 @@
                            (is (seq with-mention) "the recorded thread has mentions")
                            (doseq [c (vals (:comments thread))
                                    :when (:content c)]
-                             (is (= (:content c) (html/emit (comments/hiccup thread c))) (:id c))
+                             (is (= (:content c) (html/sanitize (comments/hiccup thread c))) (:id c))
                              (is (= (str/replace (html/text (:content c)) #"\s+" " ")
                                     (str/replace (text (comments/parts thread c)) #"\s+" " "))
                                  (:id c)))
@@ -231,7 +231,7 @@
                          (is (seq (:comments thread)))
                          (doseq [c (vals (:comments thread))
                                  :when (:content c)]
-                           (is (= (:content c) (html/emit (comments/hiccup thread c))) (:id c))
+                           (is (= (:content c) (html/sanitize (comments/hiccup thread c))) (:id c))
                            (is (= (get-in c [::atproto/record "text"]) (text (comments/parts thread c))) (:id c)))
                          (is (every? #(re-matches #"/atproto/(profiles/did:[a-z]+:[a-z0-9]+|tags/.+)" %) (linked thread))))))
          (fn []

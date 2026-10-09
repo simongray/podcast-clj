@@ -155,7 +155,7 @@
   URLs made absolute against `base`, and its links are fit by fit-links."
   [s base]
   (when (and (string? s) (not (str/blank? s)))
-    (html/emit (fit-links (html/hiccup s {:url-fn (resolver base)}) base))))
+    (html/sanitize (fit-links (html/hiccup s {:url-fn (resolver base)}) base))))
 
 (defn ^:no-doc joined
   "The parts `ps` of a content as a vector. The texts that follow each

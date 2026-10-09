@@ -197,7 +197,7 @@
   no link."
   [record]
   (when-let [paragraphs (seq (hiccup record))]
-    (html/emit (html/sanitize paragraphs))))
+    (html/sanitize paragraphs)))
 
 (defn- medium
   "The attachment of the `kind` :image or :video that the item `x` of an

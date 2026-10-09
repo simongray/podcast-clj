@@ -460,7 +460,7 @@
   a reference and a hashtag have no link."
   [event names]
   (when-let [paragraphs (seq (hiccup event {:names names}))]
-    (html/emit (html/sanitize paragraphs))))
+    (html/sanitize paragraphs)))
 
 (defn- parent
   "The id of what `event` replies to in a thread whose root is `root`, or
