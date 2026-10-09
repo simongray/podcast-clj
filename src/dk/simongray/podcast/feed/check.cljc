@@ -3,22 +3,11 @@
   files, images, transcripts and chapters reach a listener as the feed
   says.
 
-  The function files lists what a check fetches, and check-files! fetches
-  it, with the facts about each file and the diagnostics that they call
-  for.
-
   The checks follow the standards first: HTTP as RFC 9110 has it, the
   attributes of RSS 2.0 and of the podcast namespace, and the CORS rules
   of the Fetch standard. The CORS rules decide what a web player on
   another site can read. The :requirements option adds those of a
-  directory, as in dk.simongray.podcast.feed.validate, e.g. :apple for
-  Apple Podcasts.
-
-  A check moves as few bytes as it can. It moves two bytes of each file,
-  from which dk.simongray.podcast.util.http/probe! learns the facts of the
-  file, and the header of each image. When the options ask it to read, it
-  reads what the media reader needs of each media file, and each
-  transcript and chapters file whole.
+  directory, e.g. :apple for Apple Podcasts.
 
   In a browser, fetch hides most headers of an answer from another site,
   and it fails without a reason where CORS doesn't allow the page to read.
@@ -143,7 +132,7 @@
     (:kept (reduce add {:index {} :kept []} files))))
 
 (def default-limits
-  "The limits of check-files! when its options don't set them:
+  "The limits of a check when its options don't set them:
 
   - :max-items, how many of the newest items to check the files of
   - :max-files, the most files to check, since a feed can name thousands
@@ -240,9 +229,9 @@
     (async/then (http/try-send! send request) http/sent-facts)))
 
 (defn ^:no-doc probe-url!
-  "Probe `url` with `headers` through `send` as http/probe! does, and give
-  the facts, in a future or a promise. They tell all that a check needs
-  of most files, from two bytes of each."
+  "Probe `url` with `headers` through `send`, and give the facts, in a
+  future or a promise. They tell all that a check needs of most files,
+  from two bytes of each."
   [send url headers]
   (http/probe! url {:send send :headers headers}))
 
@@ -272,11 +261,10 @@
 
 (defn- whole-opts
   "The options of the fetch of a whole file for its integrity, in the
-  check with `opts`.
-
-  A whole file takes longer than a part of it, so the fetch takes the time
-  that the check has left. It goes through the :send of the app, if any."
+  check with `opts`: the :allow-pred, the time that the check has left,
+  and the :send of the app, if any."
   [{::keys [own-send] :as opts}]
+  ;; a whole file takes longer than a part of it
   (let [left (time-left opts)]
     (cond-> (select-keys opts [:allow-pred])
       left     (assoc :timeout-seconds left)
@@ -286,7 +274,7 @@
   "Probe the media `file` through `send` with `opts`, and give its facts,
   in a future or a promise.
 
-  They're those that probe-url! gives, and as `opts` ask, what the file says
+  They're the facts of a probe, and as `opts` ask, what the file says
   about itself and whether it has its integrity."
   [send {:keys [url declared] :as file} {:keys [read? integrity?] :as opts}]
   (async/then
@@ -348,7 +336,7 @@
   "Probe the transcript or chapters `file` through `send` with `opts`, and
   give its facts, in a future or a promise.
 
-  They're those that probe-url! gives. When `opts` ask to :read? the file,
+  They're the facts of a probe. When `opts` ask to :read? the file,
   they're the answers to a HEAD request and to a GET of the whole file,
   one after the other as in a probe, and what the file holds. The
   requests name the origin of the check, since web players read these
@@ -371,7 +359,7 @@
 
 (defn- probe-feed!
   "Probe the feed at the URL of `file` through `send` with `opts`, and give
-  its facts as probe-url! does, in a future or a promise.
+  its facts, in a future or a promise.
 
   The requests name the origin of the check, and have the ::authorization
   of `opts` for a private feed. The caller has the feed, so none of it is
@@ -399,8 +387,8 @@
               attempted))
 
 (defn- gathered
-  "The facts of `files` in their order, from what the `lanes` of in-lanes
-  gave, with the files still in the `queue` :unchecked."
+  "The facts of `files` in their order, from what the `lanes` gave, with
+  the files still in the `queue` :unchecked."
   [files queue lanes]
   (let [by-index (into {} (mapcat :value) lanes)
         waiting  (into {}
@@ -417,17 +405,17 @@
   `n` lanes, in a future or a promise.
 
   Each lane probes the next file when its last one is done, so that at
-  most `n` files are under way and no slow file holds up the others. On
-  the JVM, a lane is a loop on a thread of its own, since a probe there
-  gives its value at once. In ClojureScript, it's a chain of promises.
-
-  A lane takes no file after the ::deadline of `opts`, and a file that no
+  most `n` files are under way and no slow file holds up the others. A
+  lane takes no file after the ::deadline of `opts`, and a file that no
   lane took is :unchecked."
   [send files {:keys [now-fn] ::keys [deadline] :as opts} n]
   (let [queue (atom (map-indexed vector files))
         next! (fn []
                 (when (or (nil? deadline) (< (inst-ms (now-fn)) deadline))
                   (first (first (swap-vals! queue rest)))))
+        ;; on the JVM, a lane is a loop on a thread of its own, since a
+        ;; probe there gives its value at once, and in ClojureScript a chain
+        ;; of promises
         lane  #?(:clj  (fn [_]
                          (loop [done []]
                            (if-let [[i file] (next!)]
@@ -442,15 +430,12 @@
                 #(gathered files @queue %))))
 
 (def requirements
-  "The requirements that a check adds for a standard or a directory, by
-  the names that dk.simongray.podcast.feed.validate/requirements uses.
+  "The requirements that a check adds for a standard or a directory, by name.
 
   Each gives the size, type, colors and file extension of the artwork of
   an itunes:image, and the levels that it raises above those of the
   catalogue. They're the requirements of PSP-1, and of Apple's A
-  Podcaster's Guide to RSS, as of September 2026. The functions verdicts,
-  report and check-files! take them by their name here, or as a map of
-  this shape."
+  Podcaster's Guide to RSS, as of September 2026."
   (let [artwork {:sizes      [1400 3000]
                  :types      #{"image/jpeg" "image/png"}
                  :colors     #{:rgb :indexed}
@@ -897,7 +882,6 @@
   "The diagnostics that the `facts` about `file` call for, by the
   standards and the `chosen` requirements, if any.
 
-  The function files gives the file, and check-files! gives the facts.
   Each diagnostic has the :url of the file and the :path of the element
   that names it. The `chosen` requirements are a name in requirements, or
   a map of the shape of its entries."
@@ -922,11 +906,11 @@
   "The diagnostics of the checked `files`, by the standards and the
   `chosen` requirements, if any.
 
-  Each file has its :facts, as check-files! gives them, and the `chosen`
-  requirements are what verdicts takes. So several requirements can judge
-  one check, and no request goes out again. The files that a limit of the
-  check left out have no diagnostics of their own, and one
-  :check/unchecked counts them for each limit."
+  Each file has its :facts, and the `chosen` requirements are a name in
+  requirements, or a map of the shape of its entries. So several
+  requirements can judge one check, and no request goes out again. The
+  files that a limit of the check left out have no diagnostics of their
+  own, and one :check/unchecked counts them for each limit."
   ([files]
    (report files nil))
   ([files chosen]
@@ -939,13 +923,12 @@
                                     :count n}))))))
 
 (defn check-files!
-  "Check over the network the files that `feed` links to, as files lists
-  them, with the `opts` below. In ClojureScript, the result is a promise.
+  "Check over the network the files that `feed` links to, with the `opts`
+  below. In ClojureScript, the result is a promise.
 
   The result is a map of the :files and the :report. Each file has the
   :facts that its answers gave, and the report has the diagnostics of all
-  the files, from report. The `opts` are these, with default-limits for
-  the limits:
+  the files. The `opts` are these, with default-limits for the limits:
 
   - :url, the URL of the feed, which is checked too
   - :credentials, of a private feed, as http/fetch! takes them
@@ -965,19 +948,16 @@
   user name and password in its URL. The result names the URL without
   them.
 
-  Unless `opts` ask it to read, a check moves two bytes of each file, as
-  http/probe! does, and the header of each image. It reads a media file by
-  byte ranges, and only as far as its duration. The byte ranges of media
-  files and images come through http/fetcher.
+  Unless `opts` ask it to read, a check moves two bytes of each file and
+  the header of each image. It reads a media file by byte ranges, and only
+  as far as its duration.
 
   Each request has the :timeout-seconds, the :max-bytes and the :allow-pred.
   A server that checks feeds for strangers gives url/public? as :allow-pred.
 
-  For the integrity of a file, a check fetches the whole file, as
-  dk.simongray.podcast.format.integrity/verify! does. That request has the
-  :allow-pred, and it takes the time that the check has left. It goes through
-  the :send of `opts`, or without one, the file streams through
-  http/digest! on the JVM.
+  For the integrity of a file, a check fetches the whole file, with the
+  :allow-pred and the time that the check has left. Without a :send on the
+  JVM, the file streams through the digest and none of it is kept.
 
   A file that a limit left out has the limit under :unchecked as its
   facts, and the report counts such files with :check/unchecked."

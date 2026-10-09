@@ -1,9 +1,7 @@
 (ns dk.simongray.podcast.feed.validate
   "Validation of a feed map by the tag registry.
 
-  The function validate walks a feed with a tag registry, that of the
-  library unless the options give another. It reports what the
-  specifications say is wrong:
+  A validation reports what the specifications say is wrong:
 
   - a required attribute that's missing
   - a value outside an enumeration, or one that doesn't coerce to its type
@@ -18,8 +16,7 @@
   A diagnostic has the shape of those of the parse report: an :id, a
   :level of :error, :warning or :info, a :path into the feed, and a
   :message. Validation never throws on a value, since a shape that the
-  element doesn't take is a diagnostic like any other. The shorthand that
-  feed/normalize expands is taken first."
+  element doesn't take is a diagnostic like any other."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.coerce :as coerce]
@@ -42,7 +39,7 @@
 
   There's one for each of these:
 
-  - a value that isn't of its type, as coerce/of-type? says
+  - a value that isn't of its type
   - a negative number
   - a value outside the enumeration
   - an http URL where https is expected"
@@ -257,7 +254,7 @@
 (defn- children-diagnostics
   "The diagnostics of every entry of `registry` in the model map `m` at
   `path` of an element in the `parent` context, and of its unknown
-  elements. A nil value is no value, as it is to emit."
+  elements. A nil value is no value."
   [registry parent m path]
   (concat
    (for [entry (spec/entries-for registry parent)
@@ -304,8 +301,7 @@
 
   A requirement is a model key, or a vector of a key, a predicate of its
   value, and a description. They're the requirements of PSP-1, and of
-  Apple's A Podcaster's Guide to RSS, as of September 2026. The function
-  validate takes them by their name here, or as a map of this shape."
+  Apple's A Podcaster's Guide to RSS, as of September 2026."
   (let [self-link [:atom/links
                    #(some (comp #{"self"} :rel) %)
                    "atom:link rel=self"]]
@@ -363,8 +359,8 @@
   - :requirements, a name in requirements, or a map of the shape of its
     entries
 
-  The feed is normalized first, so the shorthand that emit takes passes
-  here too."
+  The feed is normalized first, so the shorthand that a producer can write
+  passes too."
   ([feed]
    (validate feed {}))
   ([feed {chosen :requirements
@@ -387,8 +383,7 @@
                     (requirements-diagnostics feed chosen)))))))
 
 (defn valid?
-  "Whether validate finds no errors in `feed`, with the `opts` of
-  validate."
+  "Whether `feed` has no errors, with the `opts` of validate."
   ([feed]
    (valid? feed {}))
   ([feed opts]

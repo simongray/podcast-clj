@@ -2,14 +2,6 @@
   "Named fixes for feeds that bend the standards, applied around the strict
   parse and always reported.
 
-  The function repair rewrites XML text that a strict parser rejects, by
-  the repairs. The function parse-raw makes the strict parse, and runs
-  repair only when that parse failed. The function uri->alias knows the
-  variants of namespace URIs that feeds bind their prefixes to. The
-  function normalize rewrites a canonical Hiccup tree into the form that
-  the specifications describe, by the normalizations and those that a
-  registry implies.
-
   Every repair and normalization has an id, each use of one goes into a
   report, and the option :except leaves out those that it names."
   (:require [clojure.string :as str]
@@ -39,7 +31,7 @@
 
 (def uri->alias
   "A function that gives the namespace alias of a URI, leniently: of a
-  canonical URI, its spellings, and the known variants in uri-variants."
+  canonical URI, its spellings, and the known variants."
   (let [known (into {} (for [[uri alias] spec/uri->alias]
                          [(uri-key uri) alias]))
         table (merge uri-variants known)]
@@ -126,10 +118,8 @@
 
 (defn- illegal-reference?
   "Whether `s` can hold a character reference to a character that XML 1.0
-  forbids, judged at each &# alone.
-
-  One in CDATA, which isn't a reference, counts too, but it only makes
-  strip-control-characters look closer."
+  forbids, judged at each &# alone. One in CDATA, which isn't a reference,
+  counts too, and only costs a closer look."
   [s]
   (let [n (count s)]
     (loop [from 0]
@@ -145,11 +135,10 @@
 (defn strip-control-characters
   "The string `s` without the control characters that XML 1.0 forbids, and
   without the character references to them outside CDATA, which XML
-  forbids too.
-
-  A loop over the characters and a look at each &# come first, so that
-  only a document with something to remove pays for the patterns."
+  forbids too."
   [s]
+  ;; a loop over the characters and a look at each &# come first, so that
+  ;; only a document with something to remove pays for the patterns
   (let [s (if (xml/legal? s)
             s
             (str/replace s xml/illegal-characters ""))]
@@ -211,10 +200,10 @@
                    (== c 10)
                    (== c 13))))))))
 
+;; One pass over the characters finds them, since the text is most of a
+;; feed and few of its tags name a prefix
 (defn- prefixed-tags
-  "The start tags of `s` that name a namespace prefix. They're found in one
-  pass over the characters, since the text is most of a feed and few of
-  its tags name a prefix."
+  "The start tags of `s` that name a namespace prefix."
   [^String s]
   ;; primitive locals throughout, -1 for no tag, and comparisons of two
   ;; arguments, which Clojure compiles inline, since this runs for every
@@ -267,8 +256,8 @@
     (remove declared used)))
 
 (defn declare-known-prefixes
-  "The string `s` with every undeclared prefix that names one of the
-  namespaces of spec/namespaces declared on its root element."
+  "The string `s` with every undeclared prefix that names one of the known
+  namespaces declared on its root element."
   [s]
   (let [uri     #(spec/namespaces (keyword %))
         missing (filter uri (undeclared-prefixes s))
@@ -293,8 +282,8 @@
    {:id :repair/bare-ampersands     :f escape-bare-ampersands}])
 
 (defn repair
-  "Apply every repair in repairs to the XML text `s`, except those whose
-  ids the :except of `opts` names.
+  "Apply every repair to the XML text `s`, except those whose ids the
+  :except of `opts` names.
 
   It returns a map of the :xml and a :report, with a diagnostic for each
   repair that changed something."
@@ -314,8 +303,8 @@
   "The parser to fall back on when a document is still malformed after the
   repairs, or nil.
 
-  On the JVM, it's util.xml.jsoup/parse-raw when org.jsoup/jsoup is on
-  the classpath, so adding jsoup to the dependencies is all it takes.
+  On the JVM, it's that of jsoup when org.jsoup/jsoup is on the
+  classpath, so adding jsoup to the dependencies is all it takes.
   ClojureScript has none."
   (delay
    #?(:clj  (try
@@ -340,9 +329,9 @@
      :cljs xml))
 
 (defn- strict
-  "Parse `xml`, as held gives it, strictly into a map with the :raw tree,
-  or the :error when it's malformed. Bytes go to the parser as a stream, so
-  that it honours the document's own encoding."
+  "Parse the held `xml` strictly into a map with the :raw tree, or the
+  :error when it's malformed. Bytes go to the parser as a stream, so that
+  it honours the document's own encoding."
   [xml]
   (let [source #?(:clj  (if (bytes? xml)
                           (java.io.ByteArrayInputStream. ^bytes xml)
@@ -356,8 +345,8 @@
           (throw e))))))
 
 (defn- repaired
-  "Repair the malformed `xml`, as held gives it, with `opts`, and parse it
-  again into a map of the :raw tree and its :report.
+  "Repair the malformed held `xml` with `opts`, and parse it again into a
+  map of the :raw tree and its :report.
 
   The parse is strict when the repairs were enough, and lenient when
   there's a lenient parser and :except in `opts` doesn't name
@@ -608,8 +597,7 @@
 
 (def normalizations
   "The normalizations of the tree that hold whatever the registry, applied
-  to every element in document order, children before parents. The
-  function registry-normalizations adds those that a registry implies."
+  to every element in document order, children before parents."
   [(rewrite :quirk/itunes-image-text :itunes/image itunes-image-href)
    (rewrite :quirk/explicit-value :itunes/explicit
             (canonical-text explicit-values))
@@ -671,10 +659,7 @@
 (defn- walk
   "The `element` with the normalizations of `by-tag` applied to it and
   below it, children before parents, and what they did added to the
-  `report`.
-
-  It's the element itself when nothing below it changed, so that no
-  untouched subtree is copied."
+  `report`. It's the element itself when nothing below it changed."
   [by-tag report element]
   ;; a loop rather than a lazy keep, which costs the stack several frames
   ;; more for every level of nesting
@@ -685,6 +670,8 @@
                           child' (if (string? child)
                                    child
                                    (walk by-tag report child))
+                          ;; a copy once a child changed, so that no
+                          ;; untouched subtree is copied
                           acc    (or acc
                                      (when-not (identical? child child')
                                        (transient-head element i)))]
@@ -697,9 +684,8 @@
                                           element))))
 
 (defn normalize
-  "Rewrite the canonical Hiccup `tree` by the normalizations, and by the
-  registry-normalizations of the :registry of `opts`, spec/default by
-  default.
+  "Rewrite the canonical Hiccup `tree` by the normalizations, and by those
+  that the :registry of `opts` implies, spec/default by default.
 
   The normalizations whose ids the :except of `opts` names are left out.
   The tree keeps its metadata, with the diagnostics added under
@@ -721,8 +707,8 @@
      (with-meta tree' (assoc (meta tree) :quirks/report @report)))))
 
 (defn report
-  "The diagnostics that normalize recorded on `tree`, each with its message
-  from the catalogue of diagnostics."
+  "The diagnostics that the normalizations recorded on `tree`, each with
+  its message from the catalogue of diagnostics."
   [tree]
   (mapv diagnostics/describe (:quirks/report (meta tree))))
 
