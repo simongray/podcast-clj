@@ -1,11 +1,6 @@
 (ns dk.simongray.podcast.util.bytes
   "Bytes on both platforms: a byte array on the JVM, and a Uint8Array in
-  JavaScript.
-
-  The functions read them as unsigned numbers, decode them as text, and
-  encode them as hex, base64 and base64url. They also give digests,
-  HMACs and random bytes. The views of files whose bytes come in parts
-  are in dk.simongray.podcast.util.bytes.view."
+  JavaScript."
   (:require [clojure.string :as str]
             #?(:cljs [goog.crypt.Hmac])
             #?(:cljs [goog.crypt.Sha1])
@@ -143,8 +138,8 @@
 
 ;; RFC 2104
 (defn hmac
-  "The HMAC of the bytes `message` with the bytes `key` by `algorithm`, one
-  of those of digest, as bytes."
+  "The HMAC of the bytes `message` with the bytes `key` by `algorithm`,
+  :sha1, :sha256, :sha384 or :sha512, as bytes."
   [algorithm key message]
   #?(:clj  (let [name (str "Hmac" (str/replace (digest-names algorithm)
                                                "-" ""))]
@@ -230,8 +225,7 @@
                (.decode decoder (.subarray b start end))))))
 
 (defn encode
-  "The text `s` as the bytes of its UTF-8, which decode reads back with
-  :utf8."
+  "The text `s` as the bytes of its UTF-8."
   [s]
   #?(:clj  (.getBytes ^String s StandardCharsets/UTF_8)
      :cljs (.encode (js/TextEncoder.) s)))

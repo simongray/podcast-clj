@@ -3,17 +3,10 @@
   and images, on both platforms.
 
   A view holds the parts of a file that are there, each at its offset. A
-  reader asks the view for a range with need, or for several ranges with
-  need-all, before it reads them. It reads the numbers and the text in
-  them with u8, u32 and text.
-
-  A range that the view doesn't hold throws. The missing function gives
-  the ranges from the exception, so that the caller can fetch them and
-  read again. A range past the end of the file throws too, and truncated?
-  tells so. The reading function turns what a reader throws into data.
-  The read! function fetches what a reader needs until the reading is
-  done, and report gives the diagnostics of a reading, which
-  dk.simongray.podcast.diagnostics/describe gives their messages."
+  reader asks the view for the ranges that it needs before it reads them.
+  A range that the view doesn't hold throws an exception that holds the
+  ranges, so that the caller can fetch them and read again. A range past
+  the end of the file throws too."
   (:require [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.time :as time]))
@@ -69,8 +62,9 @@
 
 (defn- gaps
   "The ranges from `start` to `end` that `view` lacks, as pairs of a start
-  and an end, with the end cut at the end of the file. It throws an
-  exception that's truncated? when `start` lies past the end of the file."
+  and an end, with the end cut at the end of the file. It throws the
+  exception of a read past the end when `start` lies past the end of the
+  file."
   [view start end]
   (let [total (:total view)]
     (when (and total
@@ -92,11 +86,10 @@
 
 (defn need-all
   "Nil when `view` holds the bytes of all the `ranges`, each a pair of a
-  start and an end as need takes them.
+  start and an end, end excluded.
 
-  When the view lacks bytes, it throws an exception from which missing
-  gives each range that it lacks. So a caller can fetch them all at one
-  time."
+  When the view lacks bytes, it throws an exception that holds each range
+  that it lacks. So a caller can fetch them all at one time."
   [view ranges]
   (when-some [missing (seq (mapcat (fn [[start end]] (gaps view start end))
                                    ranges))]
@@ -107,9 +100,9 @@
   "Nil when `view` holds the bytes from `start` to `end`, end excluded.
   The end is cut at the end of the file when its size is known.
 
-  When the view lacks bytes, it throws an exception from which missing
-  gives the range that it lacks. When `start` is past the end of the
-  file, the exception is truncated?."
+  When the view lacks bytes, it throws an exception that holds the range
+  that it lacks. When `start` is past the end of the file, it throws the
+  exception of a read past the end."
   [view start end]
   (need-all view [[start end]]))
 
@@ -177,8 +170,8 @@
             out))))))
 
 (defn text
-  "The text of the bytes of `view` from `start` to `end` in `encoding`, as
-  util.bytes/decode reads it."
+  "The text of the bytes of `view` from `start` to `end` in `encoding`:
+  :latin1, :utf8, :utf16le or :utf16be."
   [view start end encoding]
   (let [b (slice view start end)]
     (bytes/decode b 0 (bytes/length b) encoding)))
@@ -237,7 +230,7 @@
 
 (defn reading
   "What the function `f` gives, a reading of a view that takes no
-  arguments. The report function reads its diagnostics.
+  arguments.
 
   When the view lacks bytes, the result has the ranges that it lacks
   under :need, as pairs of a start and an end, end excluded. When the
@@ -258,12 +251,12 @@
                 (failed e))))))
 
 (def ^:no-doc chunk-size
-  "The least that read! fetches at a time, so that small reads come in one
-  request."
+  "The least that a reading fetches at a time, so that small reads come in
+  one request."
   (* 64 1024))
 
 (def default-limits
-  "The limits of read! that its options don't set.
+  "The limits of a reading by ranges that its options don't set.
 
   One reading fetches :max-bytes of a file at most, 32 MB, and starts no
   request after :max-seconds. Nil sets no limit of bytes or of time. It
@@ -386,8 +379,8 @@
                    [(second (first ranges)) more])}))))
 
 (defn- after-round
-  "The state of read! after a round that fetched the `parts` that `plan`
-  asked for, for a reading that needed `need` in the `state` before it."
+  "The state of a reading after a round that fetched the `parts` that
+  `plan` asked for, for a reading that needed `need` in the `state` before it."
   [{:keys [round room whole?] :as state} need plan parts]
   {:round    (inc round)
    :previous need
@@ -401,20 +394,15 @@
   ClojureScript a promise of it.
 
   The `read` function takes a view. It gives its result, or the ranges
-  that it needs under :need, as reading gives them. The `fetch` function
-  takes a start and an end, end excluded. It gives a map of the :bytes,
-  :start and :total, or a future or a promise of one, as
-  dk.simongray.podcast.util.http/fetcher makes. Its answer is :whole?
-  when it holds the file from its start, whatever start was asked. A
-  server that ignores ranges gives such an answer.
+  that it needs under :need, as pairs of a start and an end. The `fetch`
+  function takes a start and an end, end excluded. It gives a map of the
+  :bytes, :start and :total, or a future or a promise of one. Its answer
+  is :whole? when it holds the file from its start, whatever start was
+  asked. A server that ignores ranges gives such an answer.
 
   The ranges that one reading needs come in one round, in 16 requests at
   most, one after another. Each request asks for 64 KB or more, and ranges
-  near each other come in one request. A single range comes with 64 KB
-  more, where a reading most often goes next. When a short range starts
-  where the last range ended, it comes with twice as much more as the last
-  time, up to 1 MB. A walk through the segments of a file asks for such
-  ranges.
+  near each other come in one request.
 
   The `opts` give the limits, with default-limits for the limits that
   they don't set, and :now-fn, a function that gives the time, the clock by

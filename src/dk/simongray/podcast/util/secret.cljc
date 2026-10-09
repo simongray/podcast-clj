@@ -2,14 +2,13 @@
   "Texts that don't show when they're printed: a secret key, a password,
   a token.
 
-  The hide function wraps a text. The functions pr and str and the pretty
-  printer write a hidden text like this, on both platforms:
+  The functions pr and str and the pretty printer write a hidden text like
+  this, on both platforms:
 
       #<secret>
 
   So a log or a REPL that prints a map with a secret in it doesn't show
-  the secret. The reveal function gives the text, for the one place that
-  needs it.
+  the secret.
 
   The reader doesn't read that text. So a map with a hidden text doesn't
   go to a file as EDN and come back without its secret, since the reading
@@ -58,7 +57,7 @@
      (.write writer ^String shown)))
 
 (defn hidden?
-  "Whether `x` is a text that hide wrapped."
+  "Whether `x` is a hidden text."
   [x]
   (instance? Hidden x))
 

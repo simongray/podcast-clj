@@ -6,12 +6,9 @@
   data are a checksum. The names of Nostr are Bech32, as NIP-19 defines
   them.
 
-  The decode function reads a text and encode writes one. The data are
-  bytes, and the section Segwit address format of BIP-173 tells how eight
-  bits go into characters of five bits. For data that aren't whole bytes,
-  decode-words and encode-words read and write the data as numbers of
-  five bits, and regroup turns those into bytes. Bech32m, the checksum of
-  BIP-350, isn't here."
+  The section Segwit address format of BIP-173 tells how eight bits of
+  data go into characters of five bits. Bech32m, the checksum of BIP-350,
+  isn't here."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]))
 
@@ -28,8 +25,8 @@
   [0x3b6a57b2 0x26508e6d 0x1ea119fa 0x3d4233dd 0x2a1462b3])
 
 (def max-length
-  "The most characters of a text that decode reads, which is the limit of
-  BIP-173. The option :max-length gives another limit."
+  "The most characters of a text, the limit of BIP-173, unless the option
+  :max-length gives another."
   90)
 
 (defn- polymod

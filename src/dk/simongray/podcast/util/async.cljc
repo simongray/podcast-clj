@@ -1,9 +1,7 @@
 (ns dk.simongray.podcast.util.async
   "Futures on the JVM and promises in ClojureScript behind one set of
-  functions, so that code that waits for answers is written once.
-
-  The then, all, some, attempt and iteration functions take a value, a
-  future or a promise alike, and in-groups makes calls a group at a time."
+  functions, so that code that waits for answers is written once. The
+  functions take a value, a future or a promise alike."
   (:refer-clojure :exclude [iteration some])
   (:require [clojure.string :as str]))
 
@@ -23,14 +21,15 @@
   the vector once every future has its value, and the futures run at
   once. In ClojureScript, it gives a promise of it.
 
-  With `f`, every call is under way before any is waited for. On the JVM
-  each call runs on a future of its own, since a call that uses then
-  waits for its own futures. So (all force [(delay (a!)) (delay (b!))])
-  makes two different calls at once."
+  With `f`, every call is under way before any is waited for, e.g.
+  (all force [(delay (a!)) (delay (b!))]) makes two different calls at
+  once."
   ([xs]
    #?(:clj  (mapv #(if (future? %) @% %) (vec xs))
       :cljs (.then (js/Promise.all (into-array xs)) vec)))
   ([f xs]
+   ;; on the JVM, each call runs on a future of its own, since a call that
+   ;; chains its own futures waits for them
    #?(:clj  (let [unwrap (fn [{:keys [value error]}]
                            (if error (throw error) value))]
               (->> (all (map (fn [x] (attempt #(f x))) xs))
@@ -39,8 +38,8 @@
       :cljs (all (map f xs)))))
 
 (defn in-groups
-  "The results of `f` on each of `xs` as a vector, `n` calls at a time, as
-  all makes the calls of one group, in a future or a promise."
+  "The results of `f` on each of `xs` as a vector, `n` calls at a time, in
+  a future or a promise."
   [f n xs]
   (reduce (fn [acc group]
             (then acc (fn [done] (then (all f group) #(into done %)))))
@@ -66,7 +65,7 @@
   :error instead.
 
   On the JVM, each attempt runs on a future of its own, so several run at
-  once and all waits for them. An error counts too, such as the
+  once. An error counts too, such as the
   StackOverflowError of deeply nested input, as anything thrown does in
   ClojureScript."
   [f]
