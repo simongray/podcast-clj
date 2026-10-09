@@ -7,16 +7,11 @@
   is fetch.
 
   A request is a map of :method, :url, :headers and :body, and it's a GET
-  unless :method names another method. The directories and Podping build
-  requests of this shape, so any HTTP client can send them, and
-  dk.simongray.podcast.util.url encodes their parameters the same way on
-  both platforms. A response is a plain map, whose :url is the final URL
+  unless :method names another method. Any HTTP client can send a request
+  of this shape. A response is a plain map, whose :url is the final URL
   after redirects.
 
-  A request moves no more bytes than its purpose needs. The probe!
-  function gets the facts that a server gives about a file by asking for
-  two bytes of it. The fetcher function fetches a file by byte ranges, for
-  the readers of media files and images."
+  A request moves no more bytes than its purpose needs."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.async :as async]
             [dk.simongray.podcast.util.bytes :as bytes]
@@ -59,9 +54,7 @@
   when it's printed.
 
   The header has the password or the token, so it's a hidden text too,
-  and a request map with it doesn't show it when printed. The send!
-  function reads the text when it sends the request, and revealed gives
-  the request with the text, for another client."
+  and a request map with it doesn't show it when printed."
   [credentials]
   (let [m        (if (fn? credentials) (credentials) credentials)
         username (:username m)
@@ -79,8 +72,8 @@
 
 ;; RFC 7617, section 2 (Basic); RFC 6750, section 2.1 (Bearer)
 (defn credentials
-  "The credentials in the Authorization header `authorization`, as the map
-  that authorization takes, or nil when it has none.
+  "The credentials in the Authorization header `authorization`, as a map,
+  or nil when it has none.
 
   The map has :username and :password for basic authentication, or :token
   for a bearer token, and the password and the token are hidden texts. The
@@ -103,11 +96,9 @@
   "The `request` with the text of each hidden header and of a hidden body,
   as the server needs them.
 
-  The functions that write a request hide the headers Authorization and
-  Cookie, and the body of a request with a secret. The send! function
-  reads the text when it sends. To send a request with another client,
-  take it through revealed first. A request that's revealed shows its
-  credentials when it's printed."
+  The headers Authorization and Cookie are hidden, and so is the body of a
+  request with a secret. Another client needs their texts, and a request
+  that's revealed shows its credentials when it's printed."
   [{:keys [headers] :as request}]
   (cond-> request
     headers                   (update :headers update-vals secret/reveal)
@@ -196,8 +187,8 @@
 ;; RFC 9110, section 10.2.3
 (defn- retry-after
   "When the Retry-After of `headers` says to ask again, in epoch
-  milliseconds, with `arrived` and `served` as ours takes them. Nil when
-  it gives no time."
+  milliseconds, by the times that the response `arrived` and was `served`.
+  Nil when it gives no time."
   [headers arrived served]
   (let [retry (header headers "retry-after")]
     (or (some->> (seconds retry) (* 1000) (+ arrived))
@@ -206,8 +197,8 @@
 ;; RFC 9111, section 4.2.1
 (defn- fresh-until
   "When the freshness of the response with `headers` ends, in epoch
-  milliseconds, with `arrived` and `served` as ours takes them. Nil when
-  the headers forbid a cache or name no time.
+  milliseconds, by the times that the response `arrived` and was `served`.
+  Nil when the headers forbid a cache or name no time.
 
   The freshness ends at the max-age less the Age, or else at the Expires."
   [headers arrived served]
@@ -244,10 +235,10 @@
   its feed a freshness of days and still publish within them. Also, a
   server that's set up wrong mustn't hold back the polling.
 
-  The `headers` map lower-case names to a value or a vector of values, as
-  the responses of send! do. A Retry-After that doesn't read counts as
-  none. The values of all the Cache-Control headers count, joined as RFC
-  9110, section 5.3, joins them."
+  The `headers` map lower-case names to a value or a vector of values. A
+  Retry-After that doesn't read counts as none. The values of all the
+  Cache-Control headers count, joined as RFC 9110, section 5.3, joins
+  them."
   [headers at]
   (let [arrived (inst-ms at)
         served  (date-ms (header headers "date"))
@@ -286,8 +277,8 @@
            (.map (.headers response)))))
 
 (def ^:no-doc default-max-bytes
-  "How much of a response body send! reads at most, unless the request
-  sets another limit: 100 MB."
+  "How much of a response body is read at most, unless the request sets
+  another limit: 100 MB."
   (* 100 1024 1024))
 
 (defn ^:no-doc too-large
@@ -317,8 +308,7 @@
 
 #?(:clj
    (defn ^:no-doc read-bounded
-     "The bytes of `in` from `url`, read to its end within `max-bytes`, as
-     pump reads them."
+     "The bytes of `in` from `url`, read to its end within `max-bytes`."
      ^bytes [^InputStream in max-bytes url]
      (let [out (ByteArrayOutputStream.)]
        (pump in max-bytes url (fn [^bytes buffer n]
@@ -364,8 +354,8 @@
 
 #?(:clj
    (defn- read-within
-     "The bytes of `in` from `url` within `max-bytes`, as read-bounded reads
-     them, but only until the `deadline`."
+     "The bytes of `in` from `url` within `max-bytes`, but only until the
+     `deadline`."
      ^bytes [^InputStream in deadline max-bytes url]
      (within in deadline url #(read-bounded in max-bytes url))))
 
@@ -399,9 +389,8 @@
      "The `body` bytes of the response with `headers` as a string,
      gunzipped to at most `max-bytes` when the response says so.
 
-     With nil `max-bytes`, there's no limit. The body is decoded as
-     util.xml/decode decodes a document, with the charset that the
-     Content-Type names."
+     With nil `max-bytes`, there's no limit. The body is decoded as an XML
+     document is, with the charset that the Content-Type names."
      ([headers body]
       (decode headers body nil))
      ([headers ^bytes body max-bytes]
@@ -424,8 +413,8 @@
                 (parse-long total))})))
 
 (defn- byte-range
-  "The range that `spec`, one byte range of a Range header, asks for, as
-  byte-ranges gives it, or nil when it doesn't read."
+  "The range that `spec`, one byte range of a Range header, asks for, as a
+  pair of its start and end, or nil when it doesn't read."
   [spec]
   (when-let [[_ start end] (re-matches #"(\d{0,15})\s*-\s*(\d{0,15})" spec)]
     (cond
@@ -488,7 +477,7 @@
            (.build)))))
 
 (defn ^:no-doc timeout?
-  "Whether the exception `e` from send!, or one of its causes, is a
+  "Whether the exception `e` of a request, or one of its causes, is a
   timeout."
   [e]
   (let [cause  #?(:clj ex-cause :cljs #(.-cause %))
@@ -553,8 +542,8 @@
 
      It gives the last response and the redirects before it, each as a
      vector of its status, URL and headers. It follows five redirects at
-     most, each as redirected says, since the JDK sends credentials on to
-     another origin. A URL that `allow-pred` refuses throws ::refused."
+     most itself, since the JDK sends credentials on to another origin. A
+     URL that `allow-pred` refuses throws ::refused."
      [request deadline allow-pred]
      (loop [request (update request :url url/legal-url)
             chain   []]
@@ -625,9 +614,9 @@
      (or (exists? js/document) (exists? js/WorkerGlobalScope))))
 
 (defn- request-headers
-  "The `headers` of a request of send! for the bytes `range`, with the
-  Range header, and with user-agent unless they name another or the
-  browser sends its own.
+  "The `headers` of a request for the bytes `range`, with the Range header,
+  and with user-agent unless they name another or the browser sends its
+  own.
 
   On the JVM, a request for a range asks for bytes that aren't gzipped,
   so that the offsets are those of the file."
@@ -641,7 +630,7 @@
 #?(:clj
    (defn- response-bytes
      "The bytes of the body of `response` to `request`, read until
-     `deadline`, as much as prefix-length says."
+     `deadline`, no more than the range of the request needs."
      ^bytes [^HttpResponse response
              {:keys [method url range max-bytes] :as request}
              deadline]
@@ -659,8 +648,8 @@
 
 #?(:clj
    (defn- java-answer
-     "The response map of send! for the `response` of the JDK to `request`,
-     with the body `bytes`, which came after the redirects `chain`."
+     "The response map for the `response` of the JDK to `request`, with the
+     body `bytes`, which came after the redirects `chain`."
      [^HttpResponse response ^bytes bytes chain
       {:keys [as max-bytes] :as request}]
      (let [status   (.statusCode response)
@@ -724,8 +713,8 @@
 
 #?(:cljs
    (defn- fetch-answer
-     "A promise of the response map of send! for the fetch response `res`
-     to the `request`."
+     "A promise of the response map for the fetch response `res` to the
+     `request`."
      [res {:keys [method url as range max-bytes] :as request}]
      (let [status   (.-status res)
            received (content-range (.get (.-headers res) "content-range"))
@@ -757,10 +746,10 @@
 
   The request is a map of :method, :url, :headers and :body. It's a GET
   unless :method names another method, and it goes with the :body, a
-  string or bytes, when it has one. A header and a body can be hidden texts of
-  util.secret, and they go out as their texts. The body of the response
-  is text, with gzip undone. It's absent for a HEAD request and for an
-  empty body.
+  string or bytes, when it has one. A header and a body can be hidden
+  texts of util.secret, and they go out as their texts. The body of the
+  response is text, with gzip undone. It's absent for a HEAD request and
+  for an empty body.
 
   The `request` can also have these keys:
 
@@ -777,18 +766,19 @@
   it waits for the headers. When :allow-pred refuses the URL of the request,
   it throws ::refused.
 
-  A server that sends the range answers 206, and :content-range is then
-  what content-range reads. A server that ignores ranges answers 200 with
-  the whole file. The body is read no further than the end of the range,
-  when it has one. From another answer, e.g. the page of a 404, no more
-  bytes are read than the range names.
+  A server that sends the range answers 206, and the response then has
+  the :content-range, a map of :start, :end and :total. A server that
+  ignores ranges answers 200 with the whole file. The body is read no
+  further than the end of the range, when it has one. From another
+  answer, e.g. the page of a 404, no more bytes are read than the range
+  names.
 
-  On the JVM, the URL is made legal first, as url/legal-url does. Redirects
-  are followed, five at most, and never from https to http. A redirect to
-  another origin leaves the credentials behind, and :allow-pred must take the
-  URL of each redirect. The :redirects of the response list each redirect
-  as a vector of its status, the URL that answered with it, and the
-  headers of its answer. When the redirects begin with permanent ones,
+  On the JVM, the URL is made legal first. Redirects are followed, five
+  at most, and never from https to http. A redirect to another origin
+  leaves the credentials behind, and :allow-pred must take the URL of
+  each redirect. The :redirects of the response list each redirect as a
+  vector of its status, the URL that answered with it, and the headers of
+  its answer. When the redirects begin with permanent ones,
   :permanent-url is where the URL moved for good.
 
   In ClojureScript, fetch sends the request. It follows redirects itself
@@ -826,29 +816,25 @@
                        (.then #(fetch-answer % request)))))))))
 
 (defn send-public!
-  "Send the `request` with send!, but only to a host on the public
-  internet, as url/public? tells. On the JVM, the host of each redirect must
-  be public too.
+  "Send the `request`, but only to a host on the public internet. On the
+  JVM, the host of each redirect must be public too.
 
   It sends no request to the network of the app or of its device, and
-  throws ::refused instead, or in ClojureScript rejects with it. The
-  functions that fetch URLs from outside sources use the same check as
-  their :allow-pred."
+  throws ::refused instead, or in ClojureScript rejects with it."
   [request]
   (send! (assoc request :allow-pred url/public?)))
 
 (def ^:no-doc limit-keys
-  "The keys of a request that limit what send! does for it, which the
-  functions that send take from their options."
+  "The keys of a request that limit how it's sent, which the functions
+  that send take from their options."
   [:timeout-seconds :max-bytes :allow-pred])
 
 (defn fetch-request
-  "The request for the document at `url` that fetch! sends with `opts`,
-  the options of fetch!.
+  "The request for the document at `url` with `opts`, the options of
+  fetch!.
 
   A user name and a password in `url` are the credentials when `opts`
-  give none, and the request goes to the URL without them, as
-  url/split-credentials splits them."
+  give none, and the request goes to the URL without them."
   ([url]
    (fetch-request url {}))
   ([url {:keys [etag last-modified credentials user-agent accept]
@@ -869,9 +855,8 @@
   "GET the document at `url` with `opts`, and give the response with the
   body as text, in ClojureScript as a promise.
 
-  The request is the one that fetch-request gives. The response also has
-  :etag and :last-modified when the server gives them. It has :not-before
-  when the server says how long to wait, as not-before reads it.
+  The response also has :etag and :last-modified when the server gives
+  them. It has :not-before when the server says how long to wait.
 
   The `opts` are these:
 
@@ -978,13 +963,13 @@
 
 (defn fetcher
   "A function that fetches the bytes of the file at `url` by range, with
-  `opts`, as util.bytes.view/read! takes it.
+  `opts`, for a reading by ranges.
 
   The function takes a start and an end, with the end excluded. It gives
   a map of :bytes, :start and :total, or in ClojureScript a promise of
-  it. You can wrap it to log or keep what it fetches. It throws as send!
-  does, and it throws ::failed with the :status for an answer that's a
-  failure.
+  it. You can wrap it to log or keep what it fetches. It throws as a
+  request does, and it throws ::failed with the :status for an answer
+  that's a failure.
 
   A server that ignores ranges sends the file from its start. Then only
   the bytes up to the end are read, and the answer is :whole?. A server
@@ -1028,8 +1013,8 @@
               (throw (failed url status))))))))))
 
 (defn ^:no-doc read-by-ranges!
-  "Read the file at `url` with the reader `read` and `opts`, and give what
-  util.bytes.view/read! gives, or in ClojureScript a promise of it.
+  "Read the file at `url` with the reader `read` and `opts`, and give the
+  result of the reading, or in ClojureScript a promise of it.
 
   The bytes come by the :fetch of the opts, or by a fetcher of the opts.
   The opts also give the limits of the reading, with view/default-limits
@@ -1058,8 +1043,7 @@
   (joined headers "access-control-allow-origin"))
 
 (defn facts
-  "What the `response` of send! tells about its file, as far as it tells
-  it.
+  "What the `response` tells about its file, as far as it tells it.
 
   The facts have these keys:
 
@@ -1067,9 +1051,9 @@
   - :redirects, each a map of :status, :url and :cors, with the URL that
     answered with it
   - :location, the Location of a redirect that wasn't followed
-  - :type, the media type, as media-type reads it
+  - :type, the media type, in lower case and without its parameters
   - :length, what Content-Length gives
-  - :range, the Content-Range, as content-range reads it
+  - :range, the Content-Range, as a map of :start, :end and :total
   - :encoding, :etag and :last-modified, from their headers
   - :cors, the origins that Access-Control-Allow-Origin allows to read
     the answer
@@ -1106,15 +1090,14 @@
   and :allow-pred to put in the request.
 
   The map comes in a future on the JVM and in a promise in ClojureScript,
-  as async/attempt gives it, so several requests can be under way at
-  once."
+  so several requests can be under way at once."
   ([send request]
    (try-send! send request {}))
   ([send request opts]
    (async/attempt #(send (limited request opts)))))
 
 (defn ^:no-doc sent-facts
-  "The facts of the response of an `attempt` from try-send!, or a map with a
+  "The facts of the response of an `attempt` to send, or a map with a
   diagnostic under :error for a request that failed."
   [{:keys [value error] :as attempt}]
   (if error
@@ -1129,8 +1112,7 @@
   The result is a map of :head and :get, the facts of the answers to a
   HEAD request and to a request for the first two bytes. The facts of a
   request that failed are a map with the diagnostic :file/unreachable
-  under :error, which dk.simongray.podcast.diagnostics/describe gives its
-  message.
+  under :error.
 
   Most servers answer the second request with 206, and with the size of
   the whole file in Content-Range. A server that ignores ranges answers
@@ -1180,8 +1162,8 @@
       b)))
 
 (defn ^:no-doc body-text
-  "The text of the `body` of a Ring request, as body-bytes reads it with
-  `max-bytes`, of UTF-8."
+  "The text of the `body` of a Ring request, read within `max-bytes`, of
+  UTF-8."
   [body max-bytes]
   (when-let [b (body-bytes body max-bytes)]
     (bytes/decode b 0 (bytes/length b) :utf8)))

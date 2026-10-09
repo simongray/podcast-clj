@@ -2,20 +2,10 @@
   "A proxy on your own server for the requests of a web page, since most
   servers don't let a page of another site read their answers.
 
-  On the server, handler is a Ring handler for a route of your own, e.g.
-  /proxy?url=https://example.org/feed.xml. In the browser, sender gives a
-  function to use as :send, which sends each request through that route
-  and gives the answer as http/send! would give it:
-
-      ;; on the server, e.g. as a route of Pedestal
-      [\"/proxy\" :any (proxy/handler) :route-name ::proxy]
-
-      ;; in the browser
-      (podcast/fetch! url {:send (proxy/sender \"/proxy\")})
-
-  The handler is built from upstream-request, ring-response, error-response
-  and refusal, and sender from proxied and unproxied, so you can build
-  your own from the same parts, e.g. to add a cache or a signature.
+  On the server, the proxy is a Ring handler for a route of your own, e.g.
+  /proxy?url=https://example.org/feed.xml. In the browser, each request
+  goes through that route, and its answer comes back as if the page had
+  sent the request itself.
 
   The proxy fetches any public URL for whoever can reach it, so put it
   behind your login. Its answers come from other sites but have the
@@ -28,7 +18,7 @@
             [dk.simongray.podcast.util.url :as url]))
 
 (def defaults
-  "The options of handler, which its own options replace one by one:
+  "The options of the proxy, which its own options replace one by one:
 
   - :allow-pred, the URLs that it fetches, those on the public internet
   - :send, the function that sends a request, http/send!
@@ -38,9 +28,9 @@
   - :max-bytes, the most that a body can hold, 32 MB, since the proxy
     holds each body in memory
 
-  Each request also has the :timeout-seconds of the options, or else that
-  of http/send!. The page's own cookies and credentials never go on,
-  unless :forward names them."
+  Each request also has the :timeout-seconds of the options, if any. The
+  page's own cookies and credentials never go on, unless :forward names
+  them."
   {:allow-pred url/public?
    :send       http/send!
    :forward    #{"accept" "if-modified-since" "if-none-match" "range"}
@@ -64,7 +54,7 @@
 ;; RFC 9209, section 2.3
 (def ^:no-doc errors
   "The error of the Proxy-Status of RFC 9209, and the status of the
-  answer, for each type of exception of http/send! that the proxy answers
+  answer, for each type of exception of a request that the proxy answers
   with. Any other failure is ::failed."
   {::http/refused   ["http_request_denied" 403]
    ::http/timeout   ["http_response_timeout" 504]
@@ -149,9 +139,9 @@
   defaults, or nil when the url parameter names no http or https URL.
 
   The request has the headers of the :forward of `opts`, the Via of the
-  proxy, and the range of the Range header, so that http/send! reads no
-  more than it asks for. Its body is bytes when the as parameter is bytes,
-  and else text."
+  proxy, and the range of the Range header, so that no more is read than
+  it asks for. Its body is bytes when the as parameter is bytes, and else
+  text."
   ([ring-request]
    (upstream-request ring-request {}))
   ([{:keys [request-method] :as ring-request} opts]
@@ -172,13 +162,13 @@
          (= 1 (count asks)) (assoc :range asked))))))
 
 (defn ring-response
-  "The Ring response that gives the page the `response` of http/send!, with
-  the headers of the :expose of `opts`, or else of defaults.
+  "The Ring response that gives the page the `response` of its request,
+  with the headers of the :expose of `opts`, or else of defaults.
 
   A text body goes as UTF-8, since a page reads the answers of fetch in
   it. The URL that answered, after redirects, is the Content-Location
   (RFC 9110, section 8.7). The URL that permanent redirects led to is the
-  Podcast-Clj-Permanent-Location, which unproxied reads."
+  Podcast-Clj-Permanent-Location."
   ([response]
    (ring-response response {}))
   ([{:keys [status url permanent-url headers body] :as response}
@@ -202,8 +192,8 @@
 
 (defn error-response
   "The Ring response for `e`, the exception of the :send of the proxy, with
-  the Proxy-Status of RFC 9209 that unproxied turns back into the same
-  exception."
+  the Proxy-Status of RFC 9209, from which the page makes the same
+  exception again."
   [e]
   (let [type           (:type (ex-data e))
         kind           (cond
@@ -219,9 +209,8 @@
      its url parameter, with `opts` over defaults, and answers with what
      came back.
 
-     It answers as refusal, ring-response and error-response tell. Mount it
-     with any router, e.g. Pedestal, ring-jetty or http-kit, behind your
-     login."
+     Mount it with any router, e.g. Pedestal, ring-jetty or http-kit,
+     behind your login."
      ([]
       (handler {}))
      ([opts]
@@ -246,9 +235,9 @@
         (assoc :url (url/with-query base {:url url :as as-param})))))
 
 (defn- failure
-  "The exception of http/send! for `request`, which the proxy failed to
-  send, as the `proxy-status` of its answer tells. Nil when it tells of no
-  failure of this proxy."
+  "The exception for `request`, which the proxy failed to send, as the
+  `proxy-status` of its answer tells. Nil when it tells of no failure of
+  this proxy."
   [request proxy-status]
   (when-let [[_ error] (re-find #"podcast-clj; error=([a-z_]+)" proxy-status)]
     (let [quoted  #"details=\"((?:[^\"\\]|\\.)*)\""
@@ -263,13 +252,13 @@
       (ex-info message {:type kind :url (:url request)}))))
 
 (defn unproxied
-  "The `response` of the proxy to `request`, as http/send! would give it
-  for `request` itself.
+  "The `response` of the proxy to `request`, as a direct request would
+  give it.
 
   The response has the :url that answered, after redirects, and the
   :permanent-url that permanent redirects led to. When the proxy failed to
-  send the request, this throws the exception that http/send! would have
-  thrown, with the same :type."
+  send the request, this throws the exception that a direct request would
+  have thrown, with the same :type."
   [request {:keys [headers] :as response}]
   (if-let [e (some->> (http/joined headers "proxy-status") (failure request))]
     (throw e)
@@ -281,7 +270,7 @@
 
 (defn sender
   "A function to give as :send, which sends each request through the
-  proxy at `base`, with `opts`, and gives what http/send! would give for it.
+  proxy at `base`, with `opts`, and gives what a direct request would.
 
   The `base` is the URL of the route of the proxy, e.g. /proxy in a page.
   Each request goes with the :send of `opts`, http/send! by default. A
