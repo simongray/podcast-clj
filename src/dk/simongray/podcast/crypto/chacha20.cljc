@@ -1,17 +1,11 @@
 (ns dk.simongray.podcast.crypto.chacha20
   "ChaCha20, the stream cipher of RFC 8439, on both platforms.
 
-  The encrypt function gives the bytes of a text under a key and a nonce.
-  The cipher makes a stream of bytes from the key, and each byte of the
-  text goes with a byte of the stream by exclusive or. So encrypting the
-  result gives the text again.
-
   The Web Crypto API of the browsers has no ChaCha20, so the arithmetic is
   here, for both platforms. A word is a number of 32 bits without a sign.
 
   The cipher keeps a text secret, but it doesn't tell when somebody
-  changed the result. The namespace dk.simongray.podcast.crypto.nip44 adds
-  a check of that."
+  changed the result."
   (:require [dk.simongray.podcast.util.bytes :as bytes]))
 
 (def ^:no-doc constants

@@ -1,22 +1,10 @@
 (ns dk.simongray.podcast.nostr
-  "The Nostr protocol, which the comments of comments.nostr and the
-  wallets of value.nwc speak. Nothing here is about podcasts.
+  "The Nostr protocol: its events, its names and its relays. Nothing here
+  is about podcasts.
 
   An event is the JSON object of NIP-01 as plain data with string keys,
-  as a relay gives it. The verified? function tells whether an event has
-  the id and the signature of its content. Show no event that isn't
-  verified, since a relay can send anything.
-
-  The decode and encode functions read and write the names of NIP-19,
-  e.g. npub1…, note1… and nevent1…, and the nostr: URIs of NIP-21. Secret
-  keys aren't read, so nsec1… isn't a name here. The parts function
-  splits the content of an event into text, mentions, references, links
-  and hashtags.
-
-  A relay speaks over a WebSocket. The send! function opens one, asks for
-  the events of some filters, reads them until the relay has no more, and
-  closes it. The received function is the pure step of that reading, for
-  when you hold your own connections."
+  as a relay gives it. Show no event whose id and signature aren't
+  verified, since a relay can send anything."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bech32 :as bech32]
@@ -30,19 +18,19 @@
                    [java.util.concurrent TimeUnit])))
 
 (def default-limits
-  "The limits of send! that its request doesn't set. One answer has at
-  most :max-events events, and the relay sends at most :max-bytes
-  characters."
+  "The limits of an exchange with a relay that its request doesn't set.
+  One answer has at most :max-events events, and the relay sends at most
+  :max-bytes characters."
   {:timeout-seconds 30
    :max-events      500
    :max-bytes       (* 5 1024 1024)})
 
 (def max-name-length
-  "The most characters of a name that decode reads, the limit of NIP-19."
+  "The most characters of a name, the limit of NIP-19."
   5000)
 
 (def ^:no-doc subscription
-  "The id of the one subscription of an exchange of send!."
+  "The id of the one subscription of an exchange with a relay."
   "podcast-clj")
 
 (defn ^:no-doc hex-id?
@@ -119,14 +107,13 @@
       (signed {\"kind\" 1 \"created_at\" 1790000000
                \"tags\" [] \"content\" \"Hi\"}
               secret-key
-              (bytes/hex (bytes/generate! 32)))
+              aux)
 
   The `event` has its kind and its time, in seconds. Its tags and its
-  content are empty when it has none. The `aux` is 32 bytes in
-  hexadecimal that nobody can guess, new for each signature, as in the
-  example.
+  content are empty when it has none. The `aux` is 32 random bytes in
+  hexadecimal that nobody can guess, new for each signature.
 
-  How long it takes depends on the secret key, as for secp256k1/sign."
+  How long it takes depends on the secret key."
   [event secret-key aux]
   (when-let [public (secp256k1/public-key secret-key)]
     (let [event (merge {"tags" [] "content" ""} event {"pubkey" public})
@@ -201,8 +188,8 @@
   (bytes/decode b 0 (bytes/length b) :utf8))
 
 (defn- with-fields
-  "The name of the type `type` whose data are the fields `fs`, as decode
-  gives it. Nil when the field that names the thing has a wrong size."
+  "The name of the type `type` whose data are the fields `fs`, as a map.
+  Nil when the field that names the thing has a wrong size."
   [type fs]
   (let [of-type (fn [t] (map second (filter #(= t (first %)) fs)))
         key-of  (fn [b] (when (and b (= 32 (bytes/length b))) (bytes/hex b)))
@@ -295,13 +282,13 @@
 
 (defn uri
   "The nostr: URI of NIP-21 for `x`, a map of the form that decode gives,
-  or nil when encode gives no name."
+  or nil when `x` names nothing of its type."
   [x]
   (some->> (encode x) (str "nostr:")))
 
 (def ^:no-doc part-pattern
-  "What parts finds in the content of an event: a nostr: URI with a name,
-  a web URL, and a word after a number sign."
+  "What names something in the content of an event: a nostr: URI with a
+  name, a web URL, and a word after a number sign."
   (re-pattern
    (str "(?u)"
         "nostr:(?:npub|nprofile|note|nevent|naddr)1[02-9ac-hj-np-z]+"
@@ -309,8 +296,8 @@
         "|#[\\p{L}\\p{N}_]+")))
 
 (defn- part
-  "The part that the match `s` of part-pattern gives, in an event whose
-  hashtags in lower case are `hashtags`, or nil for a match that is text.
+  "The part that the match `s` gives, in an event whose hashtags in lower
+  case are `hashtags`, or nil for a match that is text.
 
   The URL of a link is without the punctuation that ends a sentence after
   it."
@@ -344,9 +331,9 @@
 
   A mention is a nostr: URI with the name of a profile, and a reference is
   one with the name of an event, as NIP-27 defines. The :target of a
-  reference is what decode gives for the name. A hashtag is a word after
-  a number sign that the event names in a t tag, as NIP-24 defines. A
-  mention of a profile can have :relays."
+  reference is the decoded name. A hashtag is a word after a number sign
+  that the event names in a t tag, as NIP-24 defines. A mention of a
+  profile can have :relays."
   [event]
   (let [content   (get event "content")
         content   (if (string? content) content "")
@@ -386,8 +373,7 @@
         (str/replace url #"(?i)^(wss?)://([^/?#]+)" lower)))))
 
 (defn public?
-  "Whether the host of the relay at `url` is on the public internet, as
-  url/public? tells for a web URL."
+  "Whether the host of the relay at `url` is on the public internet."
   [url]
   (boolean (some-> (relay-url url) (str/replace #"^ws" "http") url/public?)))
 
@@ -404,7 +390,7 @@
 
 (defn event-message
   "The message that gives a relay the `event`: the EVENT of NIP-01, as
-  JSON. The signed function gives an event its id and its signature."
+  JSON."
   [event]
   (json/write-str ["EVENT" event]))
 
@@ -466,8 +452,8 @@
   relay the event when the answer is :complete?, since the relay has the
   subscription then.
 
-  The events are only those of the subscription of send!, as the relay
-  gives them, and they aren't verified."
+  The events are only those of the subscription of the exchange, as the
+  relay gives them, and they aren't verified."
   [answer text {:keys [max-events max-bytes until published] :as limits}]
   (let [counted (update answer :bytes (fnil + 0) (count text))
         message (read-message text)
@@ -518,7 +504,7 @@
       answer)))
 
 (defn ^:no-doc response
-  "The response of send! for the `answer` of the relay at `url`."
+  "The response of an exchange for the `answer` of the relay at `url`."
   [url answer]
   (merge {:url url :events []} (dissoc answer :bytes :done?)))
 
@@ -548,11 +534,7 @@
      `done`.
 
      It delivers :ready to `ready` when the event of the exchange is due,
-     and the answer to `done` when the exchange ends.
-
-     The thread of exchange sends the event. A send from the listener
-     fails while the send of the first message is pending, and the JDK
-     clears that only after the message went out."
+     and the answer to `done` when the exchange ends."
      [answer ready done {:keys [max-bytes] :as limits}]
      (let [partial (StringBuilder.)
            end     (fn [result]
@@ -569,6 +551,10 @@
              (let [text (str partial)]
                (.setLength partial 0)
                (let [read (swap! answer received text limits)]
+                 ;; the thread of the exchange sends the event, since a
+                 ;; send from here fails while the send of the first
+                 ;; message is pending, and the JDK clears that only after
+                 ;; the message went out
                  (when (due? read)
                    (deliver ready :ready))
                  (when (:done? read)
@@ -602,11 +588,12 @@
   the :first and the :later message, one of which can be absent.
 
   With filters, the event goes out later, when the relay has the
-  subscription. So the answer to the event finds the subscription, and an
-  event doesn't go to a relay that refuses the subscription. Without
-  them, the event is the first message, and the map has :sent? true."
+  subscription. Without them, the event is the first message, and the
+  map has :sent? true."
   [filters event]
   (cond
+    ;; so that the answer to the event finds the subscription, and an event
+    ;; doesn't go to a relay that refuses the subscription
     (and (seq filters) event)
     {:first (request-message subscription filters)
      :later (event-message event)}
@@ -619,7 +606,7 @@
 
 #?(:clj
    (defn- exchange
-     "The answer of the relay at `url` to the `messages` of opening, within
+     "The answer of the relay at `url` to the opening `messages`, within
      `limits`, over a WebSocket of the JDK."
      [url messages {:keys [timeout-seconds] :as limits}]
      (let [answer   (atom {})
@@ -669,8 +656,8 @@
 
 #?(:cljs
    (defn- exchange
-     "A promise of the answer of the relay at `url` to the `messages` of
-     opening, within `limits`, over the WebSocket of the platform."
+     "A promise of the answer of the relay at `url` to the opening
+     `messages`, within `limits`, over the WebSocket of the platform."
      [url messages {:keys [timeout-seconds] :as limits}]
      (js/Promise.
       (fn [resolve reject]
@@ -726,7 +713,7 @@
 
   - :url, the URL of the relay
   - :filters, the filters of NIP-01
-  - :event, an event that signed wrote, to give the relay
+  - :event, a signed event to give the relay
   - :timeout-seconds, :max-events and :max-bytes, which default to those
     of default-limits
   - :allow-pred, a predicate of the URL of the relay, as public? is
@@ -748,8 +735,7 @@
   data when the event went out before the failure. Without :sent?, the
   event never went out.
 
-  The events aren't verified. Use verified? and matches? to choose which
-  to keep."
+  The events aren't verified, and they needn't pass the filters."
   [{:keys [url filters event allow-pred]
     :or   {allow-pred (constantly true)}
     :as   request}]

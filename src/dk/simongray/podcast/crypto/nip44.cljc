@@ -3,9 +3,8 @@
   platforms. Nostr Wallet Connect sends its requests and its answers in
   such payloads.
 
-  Two owners of keys share a conversation key, which conversation-key
-  gives to each of them. The encrypt function writes a payload under that
-  key, and decrypt reads one. A payload is base64 text: a version, a
+  Two owners of keys share a conversation key, under which each payload
+  between them is encrypted. A payload is base64 text: a version, a
   nonce, the encrypted text and a check of the two.
 
   The text is encrypted with ChaCha20 (RFC 8439), and the check is an
@@ -14,15 +13,14 @@
   padding, so that the payload tells little of its length.
 
   NIP-44 asks that a payload is in a signed event, and that a reader
-  checks the signature before it reads the payload, as
-  dk.simongray.podcast.nostr/verified? does."
+  checks the signature before it reads the payload."
   (:require [dk.simongray.podcast.crypto.chacha20 :as chacha20]
             [dk.simongray.podcast.crypto.secp256k1 :as secp256k1]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.secret :as secret]))
 
 (def default-limits
-  "The limits of encrypt and decrypt that their options don't set.
+  "The limits of a payload that the options don't set.
 
   The :max-bytes is the most bytes of a text, as UTF-8. NIP-44 allows
   2^32 - 1 bytes, and asks each reader for a limit of its own. The limit
@@ -65,10 +63,10 @@
                   (re-matches #"[0-9a-fA-F]{64}" text)))))
 
 (defn- check-key
-  "Throw unless `x` is a key, as key? tells, with `what` it is in the
-  message. An assertion wouldn't do, since a release build of
-  ClojureScript leaves assertions out."
+  "Throw unless `x` is a key, with `what` it is in the message."
   [x what]
+  ;; an assertion wouldn't do, since a release build of ClojureScript
+  ;; leaves assertions out
   (when-not (key? x)
     (throw (ex-info (str "The " what " isn't hexadecimal text of 32 bytes")
                     {}))))
@@ -81,11 +79,11 @@
   The owner of the other secret key gets the same key with the public key
   of this one. The key is for each payload between the two, so an app
   computes it once. It's as secret as the secret key, so it's a hidden
-  text of dk.simongray.podcast.util.secret. The encrypt and decrypt
-  functions take it hidden or plain.
+  text of dk.simongray.podcast.util.secret.
 
-  The section Encryption of NIP-44 defines it: the x coordinate that
-  secp256k1/shared-x gives, extracted by HKDF with the salt nip44-v2."
+  The section Encryption of NIP-44 defines it: the x coordinate of the
+  point that the two keys share on secp256k1, extracted by HKDF with the
+  salt nip44-v2."
   [secret-key public-key]
   (when-let [x (secp256k1/shared-x secret-key public-key)]
     (let [material (bytes/from-hex (secret/reveal x))
@@ -143,8 +141,8 @@
                  (bytes/of (repeat (- (padded-length n) n) 0))])))
 
 (defn- unpadded
-  "The text in the bytes `b`, which padded wrote, as bytes, or nil when the
-  bytes don't have the form that padded gives a text of their length."
+  "The text in the padded bytes `b`, as bytes, or nil when the bytes don't
+  have the form of a padded text of their length."
   [b]
   (when (<= 6 (bytes/length b))
     (let [short  (number-of b 0 2)
@@ -174,10 +172,9 @@
   bytes.
 
   It's nil for a text without a byte, and for a text with more bytes than
-  the :max-bytes of `opts` or of default-limits. The nonce is 32 bytes
-  that nobody can guess, new for each payload, e.g. from
-  (bytes/hex (bytes/generate! 32)). The section Encryption of NIP-44
-  defines the steps."
+  the :max-bytes of `opts` or of default-limits. The nonce is 32 random
+  bytes that nobody can guess, new for each payload. The section
+  Encryption of NIP-44 defines the steps."
   ([plaintext conversation-key nonce]
    (encrypt plaintext conversation-key nonce {}))
   ([plaintext conversation-key nonce opts]

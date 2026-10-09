@@ -2,25 +2,15 @@
   "Schnorr signatures over the curve secp256k1, as BIP-340 defines them,
   on both platforms. Nostr signs each event with such a signature.
 
-  The verify function checks a signature, sign makes one, and public-key
-  gives the public key of a secret key. The shared-x function gives what
-  two owners of keys share, which is the start of an encrypted exchange.
   Each key, message and signature is hexadecimal text, which is how Nostr
   writes them. A secret key can be a hidden text of
-  dk.simongray.podcast.util.secret.
-
-  The verify function reads no secret key, so the time that it takes
-  tells nothing that's secret. The time that sign, public-key and shared-x
-  take depends on the secret key.
+  dk.simongray.podcast.util.secret. A verification reads no secret key,
+  so the time that it takes tells nothing that's secret, but the time of
+  anything that reads a secret key depends on it.
 
   The numbers are BigInteger on the JVM and BigInt in JavaScript. A point
   of the curve is a vector of x, y and z in Jacobian coordinates, and nil
-  is the point at infinity.
-
-  A product of a number and a point is a row of doublings and additions.
-  The number is read as digits with signs, which need few additions, and
-  the multiples of the generator are computed once. No standard defines
-  this, so the widths of the digits are a choice."
+  is the point at infinity."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.util.bytes :as bytes]
             [dk.simongray.podcast.util.secret :as secret])
@@ -86,10 +76,10 @@
      :cljs (.toString k 2)))
 
 (defn- add
-  "The sum of `a` and `b` in the field, for two numbers of the field. The
-  sum is below two times the size of the field, so one subtraction brings
-  it back, which costs less than a division."
+  "The sum of `a` and `b` in the field, for two numbers of the field."
   [a b]
+  ;; the sum is below two times the size of the field, so one subtraction
+  ;; brings it back, which costs less than a division
   #?(:clj  (let [sum (.add ^BigInteger a ^BigInteger b)]
              (if (neg? (.compareTo sum ^BigInteger p))
                sum
@@ -131,11 +121,11 @@
      :cljs (+ (bit-and k low-bits) (* (bit-shift-right k shift) overflow))))
 
 (defn- mul
-  "The product of `a` and `b` in the field, for two numbers of the field.
-  Two folds bring the product below two times the size of the field, which
-  costs less than a division."
+  "The product of `a` and `b` in the field, for two numbers of the field."
   [a b]
   (let [product #?(:clj (.multiply ^BigInteger a ^BigInteger b) :cljs (* a b))
+        ;; two folds bring the product below two times the size of the
+        ;; field, which costs less than a division
         small   (folded (folded product))]
     #?(:clj  (if (neg? (.compareTo ^BigInteger small ^BigInteger p))
                small
@@ -211,14 +201,16 @@
   [[x y z :as point]]
   [x (sub zero y) z])
 
+;; A product of a number and a point is a row of doublings and additions,
+;; and only a digit that isn't 0 costs an addition. Of 9 digits of 8 bits,
+;; 1 isn't 0.
 (defn- digits
   "The number `k` below 2^256 as digits with signs, the lowest first, for
   a window of `width` bits.
 
   A digit is 0 or an odd number, above or below 0, that's smaller than
   2^(`width` - 1). After a digit that isn't 0 come `width` - 1 digits
-  that are 0. This is the non-adjacent form with a window. Of 9 digits of
-  8 bits, 1 isn't 0, and only such a digit costs an addition."
+  that are 0. This is the non-adjacent form with a window."
   [k width]
   (let [width (long width)
         low   (mapv #(if (= \1 %) 1 0) (reverse (bits k 256)))
@@ -255,8 +247,8 @@
 
 (defn- summed
   "The sum of the products of `terms`. Each term is the digits of a
-  number, as digits gives them, and the odd multiples of a point, as
-  multiples gives them. The products share their doublings."
+  number with signs, and the odd multiples of a point. The products share
+  their doublings."
   [terms]
   (reduce (fn [acc i]
             (reduce (fn [acc [ds points]]
@@ -327,12 +319,12 @@
         (when (and (not= zero d) (< d n))
           d)))))
 
+;; No standard defines the widths, so they're a choice. The multiples of
+;; the generator are computed once, so its window is wide, and those of
+;; another point are computed for each product.
 (def ^:no-doc widths
   "The bits of a window of digits, for a product with the generator and
-  for a product with another point.
-
-  The multiples of the generator are computed once, so its window is
-  wide. Those of another point are computed for each product."
+  for a product with another point."
   {:generator 8 :point 5})
 
 (def ^:no-doc generator-multiples
@@ -341,12 +333,12 @@
   (delay (mapv #(conj (affine %) one) (multiples g (:generator widths)))))
 
 (defn- by-generator
-  "The term of summed for `k` times the generator of the curve."
+  "The term of a sum of products for `k` times the generator of the curve."
   [k]
   [(digits k (:generator widths)) @generator-multiples])
 
 (defn- by-point
-  "The term of summed for `k` times the `point`."
+  "The term of a sum of products for `k` times the `point`."
   [k point]
   [(digits k (:point widths)) (multiples point (:point widths))])
 
