@@ -1,5 +1,6 @@
 (ns dk.simongray.podcast.comments.common
-  "What the readers of comments.activitypub and comments.atproto share:
+  "What the readers of the comments of ActivityPub and of the AT Protocol
+  share:
 
   - the values in JSON answers, and the problem with an answer
   - the HTML of a post, made safe to show
@@ -57,8 +58,8 @@
 
 (defn ^:no-doc document-of
   "The JSON object that the `exchange` of a :request and a :response got
-  in answer. It's the one that comments/fetch! read when the answer came,
-  or else the one in the body of its response."
+  in answer. It's the one read when the answer came, or else the one in
+  the body of its response."
   [{:keys [response] :as exchange}]
   (if (contains? exchange :document)
     (:document exchange)
@@ -114,7 +115,7 @@
 
 (defn- fit-link
   "The Hiccup of the link with the attributes `attrs` and the fitted
-  children `kids`, in a post whose URL is `base`, as fit-links fits it."
+  children `kids`, in a post whose URL is `base`."
   [attrs kids base]
   (let [target (:href attrs)
         href   (if (and base target) (url/absolute-url base target) target)]
@@ -153,8 +154,8 @@
 
 (defn ^:no-doc safe-html
   "The HTML `s` of a post whose URL is `base`, safe for the page of an app
-  to show, or nil when it's blank. It's sanitized by html/hiccup, with its
-  URLs made absolute against `base`, and its links are fit by fit-links."
+  to show, or nil when it's blank. It's sanitized, with its URLs made
+  absolute against `base` and its links fit to show."
   [s base]
   (when (and (string? s) (not (str/blank? s)))
     (html/sanitize (fit-links (html/hiccup s {:url-fn (resolver base)}) base))))
