@@ -245,7 +245,7 @@
                   version      (assoc :rss/version version)
                   (seq others) (update :xml/unknown (fnil into []) others))
        {:podcast/report @(:report ctx)
-        :xml/namespaces (xml/foreign-namespaces tree)}))))
+        :xml/namespaces (xml/namespaces tree)}))))
 
 (defn report
   "The diagnostics recorded while parsing `feed`, each with its message from
