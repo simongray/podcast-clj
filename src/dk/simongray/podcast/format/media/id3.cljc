@@ -2,12 +2,7 @@
   "ID3v2 tags, the metadata at the start of an MP3 file.
 
   The versions are 2.2, 2.3 and 2.4, as id3.org specifies them, with the
-  chapters of the ID3v2 Chapter Frame Addendum. The read function gives
-  the frames of the tag at an offset of a byte view, as in
-  dk.simongray.podcast.util.bytes.view. The read-all function gives the frames
-  of the tags that follow each other there. The chapters, artwork and
-  duration functions read those from the frames, and report gives the
-  diagnostics of a reading.
+  chapters of the ID3v2 Chapter Frame Addendum.
 
   A frame is a map with its :id. Its other keys are those of its kind:
 
@@ -549,8 +544,8 @@
                        [])))))
 
 (defn report
-  "The diagnostics of `x`, which read or chapters gave. Each diagnostic has
-  its message."
+  "The diagnostics of `x`, a read tag or chapters. Each diagnostic has its
+  message."
   [x]
   (mapv diagnostics/describe (view/report x)))
 
@@ -558,10 +553,9 @@
   "The ID3v2 tag at `p` in `view`, read with `opts`, or nil when no tag
   begins there. It's a map of :version, :start, :end and :frames.
 
-  The report function gives the diagnostics of the reading. The :except
-  of `opts` is the ids of the quirks to leave out. The view must hold the
-  whole tag. When it lacks bytes, the reading throws, and
-  dk.simongray.podcast.util.bytes.view/missing gives their ranges."
+  The :except of `opts` is the ids of the quirks to leave out. The view
+  must hold the whole tag. When it lacks bytes, the reading throws an
+  exception that holds their ranges."
   ([view p]
    (read view p {}))
   ([view p opts]
@@ -572,8 +566,8 @@
        (view/reported result @(:report ctx))))))
 
 (defn read-all
-  "The ID3v2 tags in `view` from `p` on, each as read gives it with
-  `opts`, or an empty vector when no tag begins at `p`.
+  "The ID3v2 tags in `view` from `p` on, each read with `opts`, or an
+  empty vector when no tag begins at `p`.
 
   Some writers add a tag in front of a tag that they leave in place. The
   quirk :id3/second-tag reads each tag that comes right after the tag
@@ -661,7 +655,7 @@
 
 (defn- chapter-of
   "The chapter of the CHAP frame `chap`, read in the context `ctx`. It has
-  :toc false when the `places` that toc-places gives lack it."
+  :toc false when the `places` in the table of contents lack it."
   [ctx {:keys [element-id start-ms end-ms frames] :as chap} places]
   (let [title     (:text (frame frames "TIT2"))
         link?     #(and (re-matches #"W[A-Z0-9]{3}" (:id %))
@@ -690,8 +684,8 @@
   order. A chapter that the table doesn't list comes after the others, by
   its start, with :toc false.
 
-  The :except of `opts` is the ids of the quirks to leave out, and report
-  gives the quirks that applied."
+  The :except of `opts` is the ids of the quirks to leave out, and the
+  report gives the quirks that applied."
   ([frames]
    (chapters frames {}))
   ([frames opts]

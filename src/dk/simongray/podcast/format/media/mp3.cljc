@@ -2,11 +2,8 @@
   "MP3 files: the ID3v2 tags at the start, and the MPEG audio frames after
   them.
 
-  The tags are read by dk.simongray.podcast.format.media.id3. ISO/IEC
-  11172-3 and 13818-3 define the header of a frame, and the reader takes
-  MPEG 2.5 too, which is in neither. The read function gives the tags,
-  where the audio starts and its duration. The report function gives the
-  diagnostics of the reading.
+  ISO/IEC 11172-3 and 13818-3 define the header of a frame, and the reader
+  takes MPEG 2.5 too, which is in neither.
 
   The duration comes from the first of these that the file has:
 
@@ -181,8 +178,8 @@
         (/ (* 8.0 (- total p)) (average-bitrate view p h))))))
 
 (defn report
-  "The diagnostics of `file`, which read gave, with those of its tags.
-  Each diagnostic has its message."
+  "The diagnostics of the read `file`, with those of its tags. Each
+  diagnostic has its message."
   [file]
   (mapv diagnostics/describe (view/report file)))
 
@@ -190,15 +187,14 @@
   "The MP3 file in `view`, read with `opts`, as a map of :tags,
   :audio-start and :duration.
 
-  - :tags are the tags as id3/read-all gives them
+  - :tags are the ID3v2 tags
   - :audio-start is where the first frame starts
   - :duration is in seconds, or nil when the file has no frame, or has no
     Xing, Info or VBRI header and no known size
 
-  The report function gives the diagnostics of the reading. The :except
-  of `opts` is the ids of the quirks to leave out. When the view lacks
-  bytes, the reading throws, and dk.simongray.podcast.util.bytes.view/missing
-  gives their ranges."
+  The :except of `opts` is the ids of the quirks to leave out. When the
+  view lacks bytes, the reading throws an exception that holds their
+  ranges."
   ([view]
    (read view {}))
   ([view {:keys [except] :as opts}]

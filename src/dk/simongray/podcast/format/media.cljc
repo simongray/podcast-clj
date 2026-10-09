@@ -2,17 +2,12 @@
   "What a media file says about itself, apart from the feed.
 
   A media file gives its duration, its chapters and its artwork. It's an
-  MP3 file, as in dk.simongray.podcast.format.media.mp3 and .id3, or an
-  MP4 or M4A file, as in .mp4. To check a file against the
-  podcast:integrity of an alternate enclosure, use format.integrity.
+  MP3 file, or an MP4 or M4A file.
 
-  The read function takes a view of the parts of the file at hand, as in
-  dk.simongray.podcast.util.bytes.view. It gives what they say, or the ranges
-  that it still needs. The read! function fetches those ranges until the
-  reading is done, most often in one or two requests and a few hundred
-  kilobytes. It fetches with the HTTP client of podcast-clj on the JVM,
-  with fetch in ClojureScript, or with a function that you give. The
-  report function gives the diagnostics of a reading.
+  A reading takes a view of the parts of the file at hand, as in
+  dk.simongray.podcast.util.bytes.view, and gives what they say, or the
+  ranges that it still needs. A fetch of those ranges most often takes one
+  or two requests and a few hundred kilobytes.
 
   A host that inserts ads serves another file to each request, so the
   duration is that of the file that came.
@@ -41,7 +36,7 @@
     (mp3/frame-header view 0)       :mp3))
 
 (defn- mp3-result
-  "What read gives for the MP3 file in `view`, read with `opts`."
+  "What the MP3 file in `view` says about itself, read with `opts`."
   [view opts]
   (let [file     (mp3/read view opts)
         frames   (mapcat :frames (:tags file))
@@ -56,7 +51,7 @@
      (into (mp3/report file) (id3/report chs)))))
 
 (defn- mp4-result
-  "What read gives for the MP4 file in `view`, read with `opts`."
+  "What the MP4 file in `view` says about itself, read with `opts`."
   [view opts]
   (let [{:keys [chapters] :as file} (mp4/read view opts)
         document {:version chapters/version :chapters chapters}]
@@ -64,8 +59,7 @@
       chapters (assoc :chapters document))))
 
 (defn report
-  "The diagnostics of `file`, which read or read! gave. Each diagnostic has
-  its message."
+  "The diagnostics of the read `file`. Each diagnostic has its message."
   [file]
   (mapv diagnostics/describe (view/report file)))
 
@@ -82,8 +76,8 @@
   When the view lacks bytes, the result has the ranges that the reading
   needs under :need, as pairs of start and end, end excluded.
 
-  The reading doesn't throw on the content of the file, and report tells
-  what it didn't read. The :except of `opts` is the ids of the quirks to
+  The reading doesn't throw on the content of the file, and the report
+  tells what it didn't read. The :except of `opts` is the ids of the quirks to
   leave out."
   ([view]
    (read view {}))
@@ -96,12 +90,11 @@
                       (view/reported {} [unknown]))))))
 
 (defn read!
-  "Read what the media file at `url` says about itself as read does,
-  fetched with `opts`. On the JVM it gives the result, and in
-  ClojureScript a promise of it.
+  "Read what the media file at `url` says about itself, fetched with
+  `opts`. On the JVM it gives the result, and in ClojureScript a promise
+  of it.
 
-  The function dk.simongray.podcast.util.bytes.view/read! fetches the
-  ranges that the reading needs. The `opts` are these:
+  The `opts` are these:
 
   - :fetch, a function as http/fetcher makes, to fetch your own way
   - :headers, :timeout-seconds and :send, as http/fetcher takes them

@@ -3,9 +3,8 @@
   against it.
 
   The integrity is Subresource Integrity metadata of the W3C, e.g.
-  sha384-…, or a PGP signature. The sri function reads the metadata, and
-  verify! fetches a file and checks its digest, on the JVM as a stream.
-  Subresource Integrity is at https://www.w3.org/TR/sri/"
+  sha384-…, or a PGP signature. Subresource Integrity is at
+  https://www.w3.org/TR/sri/"
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
@@ -15,8 +14,7 @@
 
 (def ^:no-doc sri-algorithms
   "The hash algorithms of Subresource Integrity, weakest first, with their
-  algorithms of util.bytes/digest, whose names in MessageDigest are those
-  of WebCrypto too."
+  names in MessageDigest, which are those of WebCrypto too."
   [["sha256" :sha256] ["sha384" :sha384] ["sha512" :sha512]])
 
 (defn sri
@@ -39,7 +37,7 @@
 
 (defn ^:no-doc verdict
   "The verdict on the base64 `digest` of a file, against the hashes of
-  `metadata`, as sri gives them."
+  `metadata`."
   [{:keys [algorithm digests] :as metadata} digest]
   {:valid? (contains? digests digest) :algorithm algorithm})
 
@@ -56,9 +54,8 @@
   (unverified (assoc (view/unreachable e) :url url)))
 
 (defn- digest
-  "The base64 digest of the bytes `b` by `algorithm`, as util.bytes/digest
-  takes it. In ClojureScript, it's in a promise, from WebCrypto, which
-  digests a large file fast."
+  "The base64 digest of the bytes `b` by `algorithm`. In ClojureScript,
+  it's in a promise, from WebCrypto, which digests a large file fast."
   [algorithm b]
   #?(:clj  (bytes/base64 (bytes/digest algorithm b))
      :cljs (.then (.digest (.-subtle js/crypto)
@@ -121,7 +118,7 @@
 
   Nothing that the network or the server does throws. On the JVM, the file
   streams through the digest. In ClojureScript, or with :send, the file
-  comes whole, up to the :max-bytes of http/send!. The `opts` are these:
+  comes whole, up to the :max-bytes of a request. The `opts` are these:
 
   - :send, a function that sends a request map in place of http/send!
   - :headers, :timeout-seconds and :allow-pred, as http/send! takes them, with

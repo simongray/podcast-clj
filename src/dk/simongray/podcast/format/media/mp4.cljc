@@ -1,16 +1,14 @@
 (ns dk.simongray.podcast.format.media.mp4
   "MP4 and M4A files, whose boxes ISO/IEC 14496-12 defines.
 
-  The read function gives the duration from the movie header, the chapters
-  and the artwork. The chapters are those of a QuickTime chapter track, or
+  A reading gives the duration from the movie header, the chapters and
+  the artwork. The chapters are those of a QuickTime chapter track, or
   else those of a Nero chpl box. The artwork is the covr item of the
-  iTunes metadata. The report function gives the diagnostics of the
-  reading.
+  iTunes metadata.
 
   The movie box can come before the media data or after it, so the
   reading walks the boxes at the top level. A reader that has only the
-  start of the file learns where to look next, as in
-  dk.simongray.podcast.util.bytes.view/missing.
+  start of the file learns where to look next.
 
   A file written in fragments gives the duration of all its fragments in
   its mehd box. Without that box, the reading takes the end of the last
@@ -147,8 +145,8 @@
       (recur (inc i) runs per (conj! acc per)))))
 
 (defn- samples-of
-  "The samples of a sample table in `view`, as samples gives them, from its
-  `stts`, `stsz`, `stsc` and `stco` boxes.
+  "The samples of a sample table in `view`, from its `stts`, `stsz`, `stsc`
+  and `stco` boxes.
 
   Those are the time-to-sample, sample-size, sample-to-chunk and
   chunk-offset boxes. The tables are read in one pass, up to max-samples,
@@ -416,7 +414,7 @@
            (apply max)))
 
 (defn- read-movie
-  "What read gives for the file in `view` whose moov box is `moov`, with
+  "What the file in `view` whose moov box is `moov` says about itself, with
   the quirks of `except` left out."
   [view moov except]
   (view/need view (:start moov) (:end moov))
@@ -450,8 +448,7 @@
        unread?  (conj {:id :mp4/fragments-unread :level :info})))))
 
 (defn report
-  "The diagnostics of `file`, which read gave. Each diagnostic has its
-  message."
+  "The diagnostics of the read `file`. Each diagnostic has its message."
   [file]
   (mapv diagnostics/describe (view/report file)))
 
@@ -463,10 +460,9 @@
   - each chapter has :start-time, :end-time and :title
   - :artwork is a map of :type and :data
 
-  The report function gives the diagnostics of the reading. The :except
-  of `opts` is the ids of the quirks to leave out. When the view lacks
-  bytes, the reading throws, and dk.simongray.podcast.util.bytes.view/missing
-  gives their ranges.
+  The :except of `opts` is the ids of the quirks to leave out. When the
+  view lacks bytes, the reading throws an exception that holds their
+  ranges.
 
   The chapters, the artwork and the index of the fragments are parts that
   the rest can do without. A part that doesn't read is left out, and the
