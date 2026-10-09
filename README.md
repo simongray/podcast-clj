@@ -234,6 +234,9 @@ Background:
 - [Podcasting and Clojure, September 2026](doc/podcasting-and-clojure-2026.md):
   the ecosystem that podcast-clj was built for, from Podcasting 2.0 to its
   directories and services, and how its features compared.
+- [iOS apps, October 2026](doc/ios-apps-2026.md): the ways to build an iOS
+  app with podcast-clj, from a web view or React Native to a GraalVM native
+  image or ClojureDart.
 
 
 Development
