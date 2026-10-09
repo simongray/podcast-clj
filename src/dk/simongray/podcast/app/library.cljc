@@ -705,7 +705,7 @@
   Each result has its :feed, and an episode its :item. The words that
   matched with typos are in the metadata, as
   dk.simongray.drop-in-search/query gives them. The `opts` are those of
-  query, whose :filter-fn gets the result with them, and :where, the criteria
+  query, whose :filter-pred gets the result with them, and :where, the criteria
   of criteria/where that an episode must meet, which leaves the shows out.
   The criteria read the profile of the library, and the time of its clock
   unless the `opts` give :at.
@@ -726,12 +726,12 @@
                          :index   index)
            meets? (some-> (:where opts) (criteria/where ctx))
            tests  (cond-> []
-                    (:filter-fn opts) (conj (:filter-fn opts))
-                    meets?            (conj (fn [{:keys [feed item]}]
-                                              (and item (meets? feed item)))))
+                    (:filter-pred opts) (conj (:filter-pred opts))
+                    meets?              (conj (fn [{:keys [feed item]}]
+                                                (and item (meets? feed item)))))
            opts   (cond-> (dissoc opts :where :at :scale)
-                    (seq tests) (assoc :filter-fn (comp (apply every-pred tests)
-                                                        locate)))
+                    (seq tests) (assoc :filter-pred
+                                       (comp (apply every-pred tests) locate)))
            found  (search/query index q opts)]
        (with-meta (mapv locate found) (meta found))))))
 

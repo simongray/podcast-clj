@@ -17,7 +17,7 @@
           :git/sha "c4f70ff155de494a49df45930bcfe58fda03fd14"}
          dk.simongray/drop-in-search
          {:git/url "https://github.com/simongray/drop-in-search"
-          :git/sha "f9b3f40aef895cf0d83fa58fcc795d2fa8e77909"}
+          :git/sha "45213f6e65639e77eee76bd4697530a1acf29ca1"}
          dk.simongray/mind-meld
          {:git/url "https://github.com/simongray/mind-meld"
           :git/sha "ad97087d59fceb7129c5a1147b8c5a76c7f193da"}}
