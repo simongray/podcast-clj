@@ -3,20 +3,17 @@
   downloads of episodes through a prefix of their URLs, and its API.
 
   A host puts the prefix of OP3 in front of the URL of each enclosure. OP3
-  then counts each request, and redirects it to the file. The prefix and
-  with-prefix functions write the prefix.
+  then counts each request, and redirects it to the file.
 
   The API gives the downloads of a show, the counts of the show and of its
-  episodes, and the apps of the listeners. The request function builds a
-  call of the API as a map, and response reads the answer. The call! and
-  fetch-downloads! functions send the calls. Each call needs the token of
+  episodes, and the apps of the listeners. Each call needs the token of
   an API key from https://op3.dev/api/keys.
 
   A download of OP3 has the keys of the downloads of
-  dk.simongray.podcast.analytics/downloads where OP3 tells the same fact.
-  They're the :time, the :url, the :listener, the agent, and the :ip,
-  which OP3 keeps as a hash. OP3 counts its downloads by its own rules,
-  which are close to those of the IAB."
+  dk.simongray.podcast.analytics where OP3 tells the same fact. They're
+  the :time, the :url, the :listener, the agent, and the :ip, which OP3
+  keeps as a hash. OP3 counts its downloads by its own rules, which are
+  close to those of the IAB."
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -31,8 +28,8 @@
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def origin
-  "The origin of OP3. The functions use it, unless their options give the
-  origin of another instance of OP3 as :origin."
+  "The origin of OP3, unless the options give the origin of another
+  instance of OP3 as :origin."
   "https://op3.dev")
 
 (defn ^:no-doc instance
@@ -57,8 +54,7 @@
 
 (defn accepts?
   "Whether OP3 takes the URL `url` behind its prefix, as its server did in
-  September 2026. The prefix function asks this, unless its options give
-  another predicate of a URL as :accepts-pred.
+  September 2026.
 
   OP3 answers a URL that it doesn't take with an error, so the episode
   behind the prefix doesn't play. It takes an http or https URL with a
@@ -86,8 +82,7 @@
 
 (defn prefix
   "The URL `url` with the prefix of OP3 in front, by `opts`, so that OP3
-  counts the requests for it. It's nil for a URL that OP3 doesn't take, as
-  accepts? tells.
+  counts the requests for it. It's nil for a URL that OP3 doesn't take.
 
   Such a URL is https://op3.dev/e/cdn.example.com/episode.mp3. A URL that
   goes through OP3 already stays as it is. The `opts` are these:
@@ -112,9 +107,8 @@
   "The `feed` with the prefix of OP3 in front of the URL of each enclosure,
   and of each source of an alternate enclosure, by `opts`.
 
-  OP3 counts the requests for both. The prefix function writes each
-  prefix, where OP3 takes the URL. The :podcast-guid is that of the feed,
-  unless `opts` give one."
+  OP3 counts the requests for both. A prefix goes only where OP3 takes the
+  URL. The :podcast-guid is that of the feed, unless `opts` give one."
   ([feed]
    (with-prefix feed {}))
   ([feed opts]
@@ -223,7 +217,7 @@
 
 (defn- download
   "The row `row` of the downloads of OP3 as a download, with the keys of
-  dk.simongray.podcast.analytics/downloads where it tells the same fact."
+  an IAB download where it tells the same fact."
   [row]
   (let [renames {:hashed-ip-address :ip :audience-id :listener}]
     (set/rename-keys (record row) renames)))
@@ -239,9 +233,9 @@
       :episode-download-counts {:show-uuid :show-title :episodes [counts] …}
       :top-apps-for-show       {:show-uuid :app-downloads {app downloads}}
 
-  A download has the keys of dk.simongray.podcast.analytics/downloads
-  where OP3 tells the same fact. So hashedIpAddress is :ip, and audienceId
-  is the :listener. The keys of a map by show or by app stay text.
+  A download has the keys of an IAB download where OP3 tells the same
+  fact. So hashedIpAddress is :ip, and audienceId is the :listener. The
+  keys of a map by show or by app stay text.
 
   It throws ::failed for a body that holds no JSON object."
   [call body]
@@ -281,8 +275,8 @@
 
 (defn call!
   "Send the call `call` with `params` and `opts` to OP3 with the bearer
-  `token`, and read the answer with response. On the JVM it gives the
-  data, and in ClojureScript a promise of it.
+  `token`, and read the answer. On the JVM it gives the data, and in
+  ClojureScript a promise of it.
 
   It gives nil when OP3 has no such show or no data of it. Any other
   answer that isn't a success throws ::failed with its :status and
@@ -329,7 +323,7 @@
                                  :reason (async/explain error)})})
 
 (defn- gathered
-  "The result of fetch-downloads! for the `pages` that it fetched: the
+  "The result of a fetch of downloads for the `pages` that it fetched: the
   downloads of the pages before the one that failed, the continuation
   token of the page after them, and the :error of the page that failed."
   [pages]

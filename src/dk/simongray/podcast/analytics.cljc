@@ -18,21 +18,15 @@
        :bytes      1048576                         ; of the body that was sent
        :referer    nil}
 
-  The downloads function leaves out the requests that can't be part of a
-  download, such as HEAD requests and the requests of bots. It puts
-  together the requests of each listener for a file in 24 hours. They
-  count as one download when they hold enough of the file to play for one
-  minute. A listener is an IP address and a user agent. The listener-ip
-  function gives the part of the address that counts, and threshold gives
-  the bytes that a download needs.
+  The requests of a listener for a file in 24 hours count as one download
+  when they hold enough of the file to play for one minute, and a
+  listener is an IP address and a user agent. The requests that can't be
+  part of a download are left out, such as HEAD requests and the requests
+  of bots.
 
-  The rules need data from outside podcast-clj. The open list of user
-  agents of the OPAWG names the apps and the bots, and user-agents reads
-  it. Lists of the addresses of data centers, VPNs and known bots come from
-  other sources. The host gives them to downloads as a predicate.
-
-  A download of OP3, which dk.simongray.podcast.analytics.op3 reads, has
-  the keys of these downloads where OP3 tells the same fact."
+  The rules need data from outside podcast-clj: the open list of user
+  agents of the OPAWG, which names the apps and the bots, and lists of the
+  addresses of data centers, VPNs and known bots from other sources."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.http :as http]
@@ -112,8 +106,8 @@
       {:id :analytics/unreadable-pattern :file file :name name})))
 
 (defn user-agents
-  "The open list of user agents of the OPAWG from `files`, ready for
-  identify.
+  "The open list of user agents of the OPAWG from `files`, ready to
+  identify agents by.
 
   The `files` map :bots, :apps, :libraries, :browsers, :devices and
   :referrers to the JSON of the file of that name, as text or read. The
@@ -239,7 +233,7 @@
 (defn drop-reason
   "Why the rules of the IAB leave out `request` by `opts`, as a keyword, or
   nil when it can be part of a download. These are the filters of the
-  first step of the guidelines, in the order that downloads applies them:
+  first step of the guidelines, in the order that they apply:
 
   - :malformed, a request with no instant as :time, or no :url or :ip, or
     with a field of another type than the type of that field
@@ -252,9 +246,9 @@
   - :no-user-agent, a request with no user agent
   - :watch, a request of Apple Podcasts on a watch, which repeats the
     download of the phone
-  - :bot, a request whose :agent-type is bot or bot-library, as identify
-    names it. When the list doesn't know the agent, it's a user agent
-    that says bot, crawler or spider.
+  - :bot, a request whose :agent-type is bot or bot-library. When the list
+    doesn't know the agent, it's a user agent that says bot, crawler or
+    spider.
   - :excluded, a request that the :exclude-pred of `opts` takes.
     It's for the addresses of servers, data centers, VPNs and known bots,
     from the lists of the host."
@@ -330,7 +324,7 @@
 
 (defn- judged
   "The `requests` that can be part of a download, and the count of the
-  others by the reason that drop-reason gives, as a pair. Each request has
+  others by the reason that the filters give, as a pair. Each request has
   the agent that the :user-agents of `opts` names."
   [requests {:keys [user-agents] :as opts}]
   (let [known (memoize (fn [ua referer] (identify user-agents ua referer)))
@@ -349,7 +343,8 @@
 (defn- with-request
   "The `windows`, a pair of the open windows by listener and file and the
   closed ones, with `request` in the open window of its listener and file,
-  or else in a new one. The `file-fn` and `window` are those of windows."
+  or else in a new one. The `file-fn` is a function of a request that gives
+  its file, and `window` is the kind of window."
   [file-fn window [open closed :as windows] {:keys [ip user-agent] :as request}]
   (let [listener [(listener-ip ip) user-agent]
         k        (conj listener (file-fn request))
@@ -391,11 +386,11 @@
   The requests of one listener for one file in one window of 24 hours make
   one download. They must hold at least the bytes of the threshold of the
   file. A download is the first of its requests, with the :listener that
-  it counts for and the agent that identify names. The listener is a pair
-  of the listener-ip of the address and the user agent. The downloads
-  come in the order of their first requests.
+  it counts for and the agent that its user agent names. The listener is
+  a pair of the part of the address that counts and the user agent. The
+  downloads come in the order of their first requests.
 
-  The :dropped map counts the requests that drop-reason leaves out, by
+  The :dropped map counts the requests that the filters leave out, by
   reason. Under :short, it counts the requests of listeners who fetched
   less than the threshold. The `opts` are these:
 
