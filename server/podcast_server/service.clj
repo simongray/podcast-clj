@@ -4,26 +4,16 @@
 
   It serves:
 
-  - /proxy, the proxy of dk.simongray.podcast.util.proxy, through which
-    the client fetches feeds and the other files that sites don't let a
-    page read
-  - /dav/, a folder of sync documents over WebDAV, as a store for the
-    client's library/sync!
+  - /proxy, through which the client fetches feeds and the other files
+    that sites don't let a page read
+  - /dav/, a folder of sync documents over WebDAV
   - /api/2, the gpodder API, for AntennaPod and other apps of that API
   - the client's own files from a folder, so that the client and the
     server have the same origin
 
-  The server is one of the listener's devices too, as podcast-server.device
-  has it, so that it keeps the listener's feeds current.
-
-  Give it the names that it has, e.g. on a tailnet, since it answers no
-  others. Without a password, it checks no credentials, so reach it only
-  through a private network, e.g. with tailscale serve. It then answers
-  nothing that Tailscale Funnel brings from the public internet. With a
-  password, every request must give it.
-
-  Start it with `clojure -M:server` and the settings in the environment, or
-  from the REPL with `(start!)`."
+  The server is one of the listener's devices too, so that it keeps the
+  listener's feeds current. Without a password, it checks no credentials,
+  so reach it only through a private network."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [dk.simongray.podcast.store.file :as file]
@@ -74,11 +64,10 @@
    :client-dir "PODCAST_SERVER_CLIENT"})
 
 (defn- setting
-  "The setting `k` from the value `v` of its environment variable `var`.
-
-  A password has at least 16 characters, since nothing slows down the
-  guesses of an attacker, and it's kept as a hidden text."
+  "The setting `k` from the value `v` of its environment variable `var`. A
+  password has at least 16 characters, and it's kept as a hidden text."
   [k var v]
+  ;; nothing slows down the guesses of an attacker
   (case k
     :port     (or (parse-long v)
                   (throw (ex-info (str var " is not a port number: " v)
@@ -283,12 +272,11 @@
 
 (defn -main
   "Start the server with the settings of the environment, and keep the
-  process alive.
-
-  Every future of the process runs on a virtual thread, so the requests
-  that podcast-clj makes at the same time hold no platform threads while
-  they wait."
+  process alive."
   [& _]
+  ;; every future of the process runs on a virtual thread, so the requests
+  ;; that podcast-clj makes at the same time hold no platform threads while
+  ;; they wait
   (set-agent-send-off-executor! (Executors/newVirtualThreadPerTaskExecutor))
   (start! (settings (System/getenv)))
   @(promise))

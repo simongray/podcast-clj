@@ -5,8 +5,7 @@
 
   Each writes a sync document of its own to the server's sync folder. The
   library syncs every minute, then fetches the feeds that are due. The
-  gpodder API syncs before and after each call, as
-  dk.simongray.podcast.sync.gpodder.server/handler does.
+  gpodder API syncs before and after each call.
 
   The library keeps only the slim part of each feed, and saves what it
   knows of the feeds to a file, so that a restart doesn't fetch them all
@@ -41,17 +40,17 @@
                        config)]
      (library/make "podcast-server" {:name "Podcast server" :config config}))))
 
+;; The profile comes back from the sync documents, so it isn't saved, and
+;; nor are the cursors of the last sync, which only fit the profile they
+;; were made for
 (def saved-keys
   "The parts of the library that the server saves between runs: what it
-  knows of the feeds and the followed lists. The profile comes back from
-  the sync documents, so it isn't saved, and nor are the cursors of the
-  last sync, which only fit the profile they were made for."
+  knows of the feeds and the followed lists."
   [:feeds :fetched-lists])
 
 (defn save!
-  "Write the saved-keys of `library` to `data-store`, e.g. a folder store,
-  which writes a file whole or not at all, as library/save! does, and log
-  a failure."
+  "Write the saved parts of `library` to `data-store`, e.g. a folder store,
+  which writes a file whole or not at all, and log a failure."
   [library data-store]
   (let [{:keys [error] :as saved} (library/save! library
                                                  data-store
@@ -61,8 +60,8 @@
     saved))
 
 (defn restore!
-  "The `library` with what save! wrote to `data-store`, as library/restore!
-  reads it, and what didn't read logged."
+  "The `library` with what was saved to `data-store`, and what didn't read
+  logged."
   [library data-store]
   (let [restored (library/restore! library data-store {:keys saved-keys})]
     (doseq [problem (get-in restored [:restore :report])]
@@ -92,10 +91,10 @@
     (log/warn :msg "The library couldn't fetch a feed" :problem problem)))
 
 (defn start!
-  "Run step! on `lib`, an atom of the server's library, through the sync
-  folder `sync-store` now and every step-seconds after, and save! it to
-  `data-store` when its feeds change. Returns the executor that runs it,
-  for stop!."
+  "Run a step of `lib`, an atom of the server's library, through the sync
+  folder `sync-store` now and every step-seconds after, and save it to
+  `data-store` when its feeds change. Returns the executor that runs the
+  steps."
   [lib sync-store data-store]
   (let [backend (sync/backend sync-store)
         step    (fn []
