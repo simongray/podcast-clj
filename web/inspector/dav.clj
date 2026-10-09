@@ -9,8 +9,8 @@
 
 (defn requests
   "The interceptor for the requests under `base`, the collection's path
-  with its trailing slash: the collection addressed with its slash is routed
-  to the route without it, and a put loses its content type so that
+  with its trailing slash. The collection addressed with its slash is
+  routed to the route without it. A put loses its content type, so that
   body-params leaves the body alone."
   [base]
   (let [collection (subs base 0 (dec (count base)))]

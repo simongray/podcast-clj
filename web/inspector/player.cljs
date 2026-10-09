@@ -10,8 +10,8 @@
   The player syncs through the inspector's WebDAV folder at /dav/, one tab
   at a time: when the page opens, when it's hidden, when it's due while
   nothing plays, and on request. Where the browser can pick a folder, it
-  also syncs through one that the listener picks, and keeps its handle in
-  IndexedDB for the next visit."
+  also syncs through one that the listener picks, whose handle is stored
+  in IndexedDB for the next visit."
   (:require [cljs.reader :as reader]
             [clojure.string :as str]
             [dk.simongray.mind-meld :as crdt]
@@ -81,8 +81,8 @@
            ""))))
 
 (defn- read-state
-  "The state saved as the string `s`; nil when there is none, it does not
-  read, or its profile has a problem."
+  "The state saved as the string `s`, or nil when there is none, when it
+  can't be read, or when its profile has a problem."
   [s]
   (when-let [state (try (some-> s reader/read-string) (catch :default _ nil))]
     (when-not (profile/problem (get-in state [:library :profile]))
@@ -365,8 +365,8 @@
   (perform! [[:play id]]))
 
 (defn- skip!
-  "Skip the episode `id` by `amount`, telling the library where the audio
-  is first so that the skip starts from the truth."
+  "Skip the episode `id` by `amount`, from where the audio is, which the
+  library is told first."
   [id amount]
   (when-let [el (audio-element)]
     (let [at (or (seconds (.-currentTime el)) 0)]
@@ -374,7 +374,8 @@
   (dispatch! [:skip id amount]))
 
 (defn- time-update!
-  "Show the audio's position, and record it every five seconds."
+  "Show the position of the audio element `el` of the episode `id`, and
+  record it every five seconds."
   [id el]
   (let [t       (.-currentTime el)
         d       (seconds (.-duration el))
@@ -386,8 +387,8 @@
       (dispatch! [:progress id (or (seconds t) 0) d]))))
 
 (defn- paused!
-  "Record where the audio of the episode `id` paused, and sync, since
-  nothing plays now."
+  "Record where the audio element `el` of the episode `id` paused, and
+  sync, since nothing plays now."
   [id el]
   (swap! app assoc :reported (.-currentTime el))
   (let [at (or (seconds (.-currentTime el)) 0)]
@@ -396,8 +397,8 @@
 
 (defn handle!
   "Perform the view's `event`, given the DOM event `e` that raised it when
-  there is one: the skips and the queue operations go to the library, the
-  audio element's reports are read off it."
+  there is one. The skips and the queue operations go to the library, and
+  a report of the audio element finds the element as the target of `e`."
   [[kind & args :as event] e]
   (case kind
     :play          (play! (first args))
@@ -461,7 +462,7 @@
             (.catch #(swap! app assoc :error (str %))))))))
 
 (defn- shown
-  "The page state as the view reads it: with the profile and the sleep
+  "The page `state` as the view reads it: with the profile and the sleep
   timer of the library under :profile and :sleep."
   [state]
   (let [{:keys [profile sleep]} (:library state)]
@@ -495,8 +496,10 @@
 
 (defn- swap-content!
   "Fetch the page at `url` and put its content in place of the current
-  one, leaving the player bar untouched, then handle what the new page
-  asks for. The history gets the address that a redirect led to. A page
+  one, with a new entry in the history when `push?`.
+
+  The player bar stays untouched, and what the new page asks for is
+  handled. The history gets the address that a redirect led to. A page
   without a content area, such as the raw EDN and XML views, is
   navigated to for real."
   [url push?]
@@ -597,11 +600,15 @@
       (operate! profile/add-remote-item id {:feed-url (:url episode)}))))
 
 (defn ^:export init
-  "Mount the player: load the state, name this browser for the other
-  devices, take in the episodes of an older player, watch the state,
-  handle the view's events, take over navigation and the other tabs'
-  saves, take up the sync folder, add an episode the URL asks for, and
-  sync on its own."
+  "Mount the player:
+
+  - load the state, and name this browser for the other devices
+  - take in the episodes of an older player
+  - watch the state, and handle the view's events
+  - take over navigation and the other tabs' saves
+  - take up the sync folder of the last visit
+  - add an episode that the URL asks for
+  - sync on its own"
   []
   (reset! app (assoc (load-state) :can-pick? (exists? js/showDirectoryPicker)))
   (let [{:keys [device profile]} (:library @app)]

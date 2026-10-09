@@ -34,12 +34,12 @@
 (defn episode-of
   "What the page `state` knows of the episode `id`: the data that
   /episode.edn served to this browser, or nil before it did."
-  [{:keys [titles]} id]
+  [{:keys [titles] :as state} id]
   (get titles id))
 
 (defn- episode-link
-  "The link to the page of the episode `id`, with the title of its show.
-  An episode without data is its id."
+  "The link to the page of the episode `id` that the page `state` knows,
+  with the title of its show. An episode without data is its id."
   [state id]
   (if-let [{:keys [title feed-title] :as episode} (episode-of state id)]
     (list [:a {:href (item-href episode)} (or title (pr-str id))]
@@ -47,8 +47,9 @@
     (list [:code (pr-str id)])))
 
 (defn bar
-  "The persistent player: the current episode, its audio element, the
-  skip buttons and the sleep timer; nil when nothing is queued.
+  "The persistent player of the page `state`: the current episode, its
+  audio element, the skip buttons and the sleep timer, or nil when nothing
+  is queued.
 
   An episode that came through a sync from a device that told no data of
   it has nothing to play. The bar tells so, and the listener removes it."
@@ -150,10 +151,10 @@
       (field "Skip forward" :skip-forward skip-forward)]]))
 
 (defn- devices
-  "The listener's devices and the sync through the inspector's folder. A
-  device that lags behind can be retired, since it holds back the removal
-  of tombstones."
-  [{:keys [profile synced syncing?]}]
+  "The listener's devices and the sync through the inspector's folder, in
+  the page `state`. A device that lags behind can be retired, since it
+  holds back the removal of tombstones."
+  [{:keys [profile synced syncing?] :as state}]
   (let [known   (crdt/devices profile)
         lagging (crdt/lagging profile)]
     [:section
@@ -196,9 +197,10 @@
           [:li {:replicant/key (str id)} [:code (str id)] " " message])])]))
 
 (defn- sync-folder
-  "The sync through a folder that a sync client mirrors: a folder that the
-  browser keeps, where it can pick one, and by hand in every browser."
-  [{:keys [folder can-pick?]}]
+  "The sync through a folder that a sync client mirrors, in the page
+  `state`: a folder that the browser keeps, where it can pick one, and by
+  hand in every browser."
+  [{:keys [folder can-pick?] :as state}]
   (let [{:keys [name permission]} folder]
     [:section
      [:h2 "Sync folder"]
@@ -229,7 +231,8 @@
                :on              {:change [:document/load]}}]]]))
 
 (defn page
-  "The queue page: the detailed view of the state the bar plays from."
+  "The queue page: the detailed view of the page `state`, which the bar
+  plays from."
   [{:keys [profile error] :as state}]
   [:div
    [:p.muted (str "The listener's profile (dk.simongray.podcast.profile), "

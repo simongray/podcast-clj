@@ -76,9 +76,9 @@
   16)
 
 (defn- cached
-  "The entry under `k` in the cache while `fresh-pred` holds for it, or else
-  the one `make` makes of it, or of nil when there is none, kept in its
-  place."
+  "The entry under `k` in the cache while `fresh-pred` holds for it.
+  Otherwise `make` makes a new entry of it, or of nil when there is none,
+  and the new entry takes its place."
   [k fresh-pred make]
   (let [old   (get @cache k)
         kept  (if (and old (fresh-pred old)) old (make old))
@@ -167,8 +167,8 @@
 
 (defn- failure
   "The error page, with the status 502, for the failure `e` of what
-  `heading` names, about `subject` when anything, and with the hiccup
-  `more`, e.g. what to try instead."
+  `heading` names, about `subject` if any, and with the Hiccup `more`,
+  e.g. what to try instead."
   ([heading subject e]
    (failure heading subject e nil))
   ([heading subject e more]
@@ -191,8 +191,8 @@
       (assoc :status 404)))
 
 (defn- with-feed
-  "Call `f` with the loaded feed for the `url` query parameter of `request`,
-  rendering an error page when anything fails, a stack overflow included."
+  "Call `f` with the loaded feed that the url parameter of `request` names,
+  or render an error page when anything fails, a stack overflow included."
   [request f]
   (let [url (get-in request [:query-params :url])]
     (if (str/blank? url)
@@ -215,7 +215,7 @@
   "What the feed page's filter form asks for, from the query `params`: the
   criteria and the order of the episodes, an order the page does not offer
   left out."
-  [{:keys [q season type order]}]
+  [{:keys [q season type order] :as params}]
   (let [season (some-> season parse-long)
         types  #{"full" "trailer" "bonus"}
         where  (cond-> {}
@@ -227,10 +227,11 @@
       (some #{order} page/orders) (assoc :order order))))
 
 (defn feed-page
-  "The inspection of the feed named by the `url` query parameter, validated
-  against the requirements that the `requirements` parameter names, if
-  any, its items filtered and ordered as the `q`, `season`, `type` and
-  `order` parameters ask."
+  "The inspection of the feed that the url parameter of `request` names.
+
+  The feed is validated against the requirements that the requirements
+  parameter names, if any. Its items are filtered and ordered as the q,
+  season, type and order parameters ask."
   [request]
   (with-feed request
     (fn [loaded]
@@ -245,9 +246,11 @@
 
 (defn- checked
   "The check over the network of `feed`, fetched from `url`, for its newest
-  `items`, reading what the files hold, and their integrity when
-  `integrity?`: reused for cache-seconds while the feed is the same, so
-  that the page judges one check by each choice of requirements."
+  `items`. It reads what the files hold, and their integrity when
+  `integrity?`.
+
+  A check is reused for cache-seconds while the feed is the same, so that
+  the page judges one check by each choice of requirements."
   [url feed items integrity?]
   (let [now       (System/currentTimeMillis)
         fresh?    #(and (identical? feed (:feed %))
@@ -263,11 +266,14 @@
     (:value (cached [:check url items integrity?] fresh? run-check))))
 
 (defn check-page
-  "The check over the network of the files that the feed named by the `url`
-  query parameter links to, for its newest `items` (default 5, at most 50),
-  against the requirements that the `requirements` parameter names, if
-  any, reading what the files hold, and with the `integrity` parameter,
-  checking each file that has a podcast:integrity against it."
+  "The check over the network of the files that the feed named by the url
+  parameter of `request` links to.
+
+  The check takes the newest items, as many as the items parameter says,
+  5 by default and 50 at most. It reads what the files hold, against the
+  requirements that the requirements parameter names, if any. With the
+  integrity parameter, it checks each file that has a podcast:integrity
+  against it."
   [request]
   (with-feed request
     (fn [{:keys [url feed-url feed]}]
@@ -288,8 +294,9 @@
                                 :result       result}))))))
 
 (defn feed-edn
-  "The parsed feed as EDN, pretty-printed for a feed of up to a hundred
-  items, and else on one line, which an editor can format."
+  "The parsed feed that `request` names as EDN, pretty-printed for a feed
+  of up to a hundred items, and else on one line, which an editor can
+  format."
   [request]
   (with-feed request
     (fn [{:keys [feed]}]
@@ -302,14 +309,15 @@
                    (pr-str feed)))))))
 
 (defn feed-xml
-  "The feed written back out canonically."
+  "The feed that `request` names, written back out canonically."
   [request]
   (with-feed request
     (fn [{:keys [feed]}]
       (text "application/rss+xml; charset=utf-8" (rss/emit feed)))))
 
 (defn corpus-page
-  "The inspection of a corpus feed, by its file name."
+  "The inspection of the corpus feed that `request` names by its file
+  name."
   [request]
   (feed-page (assoc-in request [:query-params :url]
                        (str "corpus/" (get-in request [:path-params :name])))))
@@ -335,8 +343,8 @@
             {:url url :status 200 :value feed :at (System/currentTimeMillis)})))
 
 (defn find-page
-  "The feeds found for the text in the `q` parameter: a feed URL, a
-  website, a page or a link of an app.
+  "The feeds found for the text in the q parameter of `request`: a feed
+  URL, a website, a page or a link of an app.
 
   When a page names no podcast, the directories are searched by its name,
   for a feed that names the page's website as its own. The page of the
@@ -389,9 +397,9 @@
          :index? (some? index-credentials)))
 
 (defn item-page
-  "One item of the feed named by `url`, found by the `guid` parameter, with
-  its chapters, transcript, media file and value block fetched and
-  rendered."
+  "The page of the item that the guid parameter of `request` names, in the
+  feed that its url parameter names. The chapters, transcript, media file
+  and value block of the item are fetched and rendered."
   [request]
   (with-feed request
     (fn [{:keys [feed feed-url] :as loaded}]
@@ -408,15 +416,15 @@
 (def appview
   "The AppView that the comments page reads AT Protocol threads from. It is
   the public AppView of Bluesky, which answers without an account. The
-  library names no AppView, because each app chooses its own."
+  library names no AppView, since you choose the one for your app."
   "https://public.api.bsky.app")
 
 (defn- thread-of
   "The thread of comments below `interact`.
 
   Each visit reads for ten seconds at most, so that the page comes soon.
-  The inspector keeps a thread for cache-seconds. While the thread is
-  incomplete, or a read of it failed, the next visit reads on."
+  A thread is cached for cache-seconds. While the thread is incomplete,
+  or a read of it failed, the next visit reads on."
   [interact]
   (let [now       (System/currentTimeMillis)
         fresh?    #(< (- now (:at %)) (* 1000 cache-seconds))
@@ -434,14 +442,14 @@
                     read-more))))
 
 (defn comments-page
-  "The comments page of the item that the `guid` parameter names, in the
-  feed that the `url` parameter names, for `request`.
+  "The comments page of the item that the guid parameter of `request`
+  names, in the feed that its url parameter names.
 
   It shows the thread that the item or the feed names. When the feed names
   no thread that podcast-clj reads, it shows the notes about the episode
-  on Nostr, unless the podcaster wants no comments shown. With the
-  `hidden` parameter, it also shows the replies that the author of the
-  root post hid."
+  on Nostr, unless the podcaster wants no comments shown. With the hidden
+  parameter, it also shows the replies that the author of the root post
+  hid."
   [request]
   (with-feed request
     (fn [{:keys [url feed]}]
@@ -466,9 +474,9 @@
   thread, a map of :protocol and :uri. Nil for a text that is no address
   of a post.
 
-  A person has the address of a web page, so the inspector takes the page
-  of a post at bsky.app and at njump.me too. These are the pages of two
-  web apps that the inspector chose."
+  A person has the address of a web page, so the page of a post at
+  bsky.app and at njump.me is taken too. These are the pages of two web
+  apps chosen for the inspector."
   [s]
   (let [s       (str/trim (str s))
         bluesky #"https://bsky\.app/profile/([^/\s?#]+)/post/([^/\s?#]+).*"
@@ -491,8 +499,8 @@
       {:protocol "activitypub" :uri s})))
 
 (defn thread-page
-  "The page of the comments below the post that the `uri` parameter names,
-  for `request`. With the `hidden` parameter, it also shows the replies
+  "The page of the comments below the post that the uri parameter of
+  `request` names. With the hidden parameter, it also shows the replies
   that the author of the root post hid."
   [request]
   (let [{:keys [uri hidden]} (:query-params request)]
@@ -501,9 +509,9 @@
                              :thread  (some-> (interact-of uri) thread-of)}))))
 
 (def wallet-opts
-  "The options of the requests to a wallet. The inspector asks each relay
-  that a connection names, also a relay on the own network, and waits
-  half a minute for the wallet."
+  "The options of the requests to a wallet. Each relay that a connection
+  names is asked, also one on the local network, and the wallet has half
+  a minute to answer."
   {:allow-pred (constantly true) :timeout-seconds 30})
 
 (def app-name
@@ -519,9 +527,9 @@
       (nwc/ask! connection command (assoc wallet-opts :info known)))))
 
 (defn- paid
-  "What the wallet of `connection` answers to `payment` for `recipient`:
-  a keysend payment for a node, and the payment of an invoice for a
-  Lightning address."
+  "What the wallet of `connection`, which told the `info` about itself,
+  answers to `payment` for `recipient`. It pays a node by keysend, and a
+  Lightning address by an invoice."
   [connection info payment {:keys [type address] :as recipient}]
   (let [opts    (assoc wallet-opts :info (when-not (:error info) info))
         keysend (when (= "node" type) (nwc/pay-keysend payment recipient))
@@ -549,8 +557,10 @@
 
 (defn- boosted
   "The payments of a boost of `sats` with `message` for `item` of `feed`
-  at `url`, from the wallet of `connection`: the share of each recipient
-  of the value block, with the answer of the wallet."
+  at `feed-url`, from the wallet of `connection` with its `info`.
+
+  Each recipient of the value block gets its share, with the answer of
+  the wallet."
   [connection info {:keys [feed item feed-url]} sats message]
   (let [payment    {:action     :boost
                     :total-sats sats
@@ -585,7 +595,7 @@
   (atom #{}))
 
 (defn- new-token!
-  "A token for a wallet form. The inspector keeps 500 tokens at most."
+  "A token for a wallet form. At most 500 tokens are kept."
   []
   (let [token (bytes/hex (bytes/generate! 16))]
     (swap! wallet-tokens #(conj (if (< (count %) 500) % #{}) token))
@@ -597,8 +607,8 @@
   (contains? (first (swap-vals! wallet-tokens disj token)) token))
 
 (defn wallet-page
-  "The page of the wallet, for `request`. With the parameters `url` and
-  `guid`, its form pays a boost for that episode."
+  "The page of the wallet, for `request`. With the url and guid
+  parameters, its form pays a boost for that episode."
   [request]
   (let [{:keys [url guid]} (:query-params request)]
     (try
@@ -610,14 +620,16 @@
         (failure "Could not inspect the feed" url e)))))
 
 (defn wallet-asked
-  "The page of the wallet with what the wallet answers, for `request`,
-  the post of the form. The form has the connection URI of Nostr Wallet
-  Connect as `uri`. With `url`, `guid` and `sats`, the wallet pays a boost
-  for the episode.
+  "The page of the wallet with what the wallet answers to `request`, the
+  post of the form.
 
-  The URI holds a secret key. The inspector uses it for this request,
-  keeps it nowhere, and gives the page no part of it. A post that pays
-  needs the token of its form, and a token pays once."
+  The uri field of the form holds the connection URI of Nostr Wallet
+  Connect. With the url, guid and sats fields, the wallet pays a boost for
+  the episode.
+
+  The URI holds a secret key. It's used for this request alone, stored
+  nowhere, and no part of it goes into the page. A post that pays needs
+  the token of its form, and a token pays once."
   [request]
   (let [{:keys [uri url guid sats message token]} (:form-params request)
         connection (nwc/parse uri)
@@ -682,8 +694,8 @@
   (into {} (map (fn [[url feed]] [(feed.guid/feed-guid feed url) feed])) feeds))
 
 (defn search-page
-  "The items matching the `q` parameter: those of the feed named by `url`,
-  or of the whole corpus when there is no `url`."
+  "The items matching the q parameter of `request`: those of the feed that
+  its url parameter names, or of the whole corpus without one."
   [request]
   (let [q      (str (get-in request [:query-params :q]))
         url    (get-in request [:query-params :url])
@@ -716,10 +728,11 @@
             (render index {url feed} url)))))))
 
 (defn directory-page
-  "The shows the directories answer for the `q` parameter, or their charts
-  for the `country` parameter when there is no query, the Podcast Index
-  among them when its credentials are set. The `category` parameter
-  gives the charts of one category."
+  "The shows the directories answer for the q parameter of `request`, or
+  their charts for its country parameter when there is no query.
+
+  The Podcast Index is among the directories when its credentials are
+  set. The category parameter gives the charts of one category."
   [request]
   (let [{:keys [q country category]} (:query-params request)
         opts (cond-> {:limit 10}
@@ -761,8 +774,8 @@
   (html (page/queue-page)))
 
 (defn episode-edn
-  "The item named by the `url` and `guid` parameters as the EDN the browser
-  player needs: its identity, titles, enclosure and duration."
+  "The item that the url and guid parameters of `request` name, as the EDN
+  the browser player needs: its identity, titles, enclosure and duration."
   [request]
   (with-feed request
     (fn [{:keys [feed url feed-url]}]
@@ -786,9 +799,9 @@
   (io/file "target/web/public/js"))
 
 (defn js-file
-  "A file of the compiled browser player, with the time it was built, so
-  that a browser fetches it again only after a build; or a note on how to
-  compile the player."
+  "The file of the compiled browser player that `request` names, with the
+  time it was built, or a note on how to compile the player. The time
+  makes a browser fetch the file again only after a build."
   [request]
   (let [path         (str (get-in request [:path-params :path]))
         file         (io/file player-js-dir path)
@@ -819,13 +832,15 @@
 
 (def sync-dir
   "The folder the inspector serves over WebDAV at /dav/, for the browser
-  player and any other device to keep in step through: INSPECTOR_SYNC_DIR in
-  the environment, else dev-resources/sync, which `clean` leaves alone."
+  player and any other device to keep in step through.
+
+  It's INSPECTOR_SYNC_DIR in the environment, else dev-resources/sync,
+  which the clean task of build.clj leaves alone."
   (io/file (or (System/getenv "INSPECTOR_SYNC_DIR") "dev-resources/sync")))
 
 (defn- cached-feeds
-  "The feeds the inspector has fetched and keeps, as maps of the :url and
-  the :feed."
+  "The feeds that the inspector fetched and still has in its cache, as
+  maps of the :url and the :feed."
   []
   (for [[[kind url] {:keys [value]}] @cache
         :when (and (= :feed kind) (map? value))]
@@ -844,13 +859,15 @@
     {:url feed-url :feed feed}))
 
 (defn gpodder-handler
-  "The gpodder API over the listener's state in `sync-store`, for AntennaPod,
-  Kasts and gPodder: the server is a device of its own, which reads the
-  other devices' documents before it answers and writes its own after a
-  change. It names the shows and episodes of the feeds the inspector has
-  fetched lately, and of the feeds of the remote items of the state, which
-  the players added and the inspector fetches. It lets in any user name
-  and password, since the inspector listens on localhost alone."
+  "The gpodder API over the listener's state in `sync-store`, for
+  AntennaPod, Kasts and gPodder.
+
+  The API is a device of its own, which reads the other devices'
+  documents before it answers and writes its own after a change. It names
+  the shows and episodes of the feeds the inspector has fetched lately. It
+  also names those of the feeds of the state's remote items, which the
+  players added and the inspector fetches. It lets in any user name and
+  password, since the inspector listens on localhost alone."
   [sync-store]
   (let [cursors (atom nil)
         backend (sync/backend sync-store)
@@ -868,9 +885,10 @@
       :sync            sync!})))
 
 (defn routes
-  "The inspector's routes, in Pedestal's set syntax, the WebDAV ones and the
-  gpodder API serving `sync-store`, by default the folder store over
-  sync-dir, and the proxy for the requests of a page."
+  "The inspector's routes in Pedestal's set syntax, with the WebDAV ones
+  and the gpodder API serving `sync-store`, and the proxy for the requests
+  of a page. The `sync-store` is the folder store over sync-dir by
+  default."
   ([]
    (routes (file/store sync-dir)))
   ([sync-store]
@@ -930,8 +948,8 @@
 
 (def local-only
   "An interceptor that answers only requests addressed to localhost, since
-  the inspector lets anyone sync and pay through it: a web page that points
-  a name of its own at 127.0.0.1 gets a 403 (DNS rebinding)."
+  anyone can sync and pay through the inspector. A web page that points a
+  name of its own at 127.0.0.1 gets a 403 (DNS rebinding)."
   (interceptor/interceptor
    {:name  ::local-only
     :enter (fn [context]
@@ -953,11 +971,11 @@
   (atom nil))
 
 (defn connector
-  "A Jetty connector serving the inspector on `port`, not yet started. The
-  options can name another :sync-dir to serve over WebDAV."
+  "A Jetty connector serving the inspector on `port` with `opts`, not yet
+  started. The `opts` can name another :sync-dir to serve over WebDAV."
   ([port]
    (connector port {}))
-  ([port {:keys [sync-dir] :or {sync-dir sync-dir}}]
+  ([port {:keys [sync-dir] :or {sync-dir sync-dir} :as opts}]
    (-> (conn/default-connector-map port)
        ;; Pedestal's default policy forbids every script tag; the browser
        ;; player is served from this origin, and its development build loads
@@ -976,11 +994,11 @@
        (jetty/create-connector nil))))
 
 (defn start!
-  "Start the inspector on the :port of the options, 8300 by default, unless
-  it runs."
+  "Start the inspector on the :port of `opts`, 8300 by default, unless it
+  runs."
   ([]
    (start! {}))
-  ([{:keys [port] :or {port 8300}}]
+  ([{:keys [port] :or {port 8300} :as opts}]
    (when-not @server
      (reset! server (conn/start! (connector port)))
      (println (str "Inspector running on http://localhost:" port "/")))

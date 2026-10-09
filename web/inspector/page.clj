@@ -216,8 +216,9 @@
          [:td.muted (str/join ", " (map path-str (get sources k)))]])]]))
 
 (defn- numbering-str
-  "S2E3-style label for the `numbering` of an item, empty without numbers."
-  [{:keys [season episode episode-display type]}]
+  "The label in the style of S2E3 for the `numbering` of an item, or an
+  empty string without numbers."
+  [{:keys [season episode episode-display type] :as numbering}]
   (str (when season (str "S" season))
        (when (or episode episode-display)
          (str "E" (or episode-display episode)))
@@ -232,7 +233,8 @@
     :else          (str n " B")))
 
 (defn- item-row
-  "One row of the items table, showing what an app would show."
+  "The row of the items table for `item` of `feed` at `feed-url`, numbered
+  after its index `i`, showing what an app would show."
   [feed-url feed i item]
   (let [{:keys [url type length]} (resolve/enclosure item)
         alternatives             (count (resolve/enclosures item))
@@ -292,10 +294,10 @@
 
 (defn- selection-form
   "The form that filters and orders the items of the feed at `url`, showing
-  the current `selection` and keeping the `requirements`; its choices are
+  the current `selection` and keeping the `requirements`. Its choices are
   the library's own criteria and orders, so a client's UI has the same to
   offer."
-  [url {:keys [where order]} requirements]
+  [url {:keys [where order] :as selection} requirements]
   (let [types       [["" "any type"] ["full" "full"] ["trailer" "trailer"]
                      ["bonus" "bonus"]]
         search-href (str "/search?url=" (url/percent-encode url)
@@ -333,9 +335,10 @@
      [:a {:href search-href} "full-text search"]]))
 
 (defn feed-page
-  "The inspector page for `feed`, fetched from `url`, with its parse
-  `report`, validated against `requirements`, its items filtered and
-  ordered by `selection`."
+  "The inspector page for `feed`, fetched from `url` with the HTTP
+  `status`, which lives at `feed-url`. It has the parse `report`, the
+  validation against `requirements`, and the items as `selection` filters
+  and orders them."
   [{:keys [url feed-url feed report requirements status selection]}]
   (let [items      (criteria/episodes feed (or selection {}))
         total      (count (:rss/items feed))
@@ -441,10 +444,10 @@
   (or (:reason d) (:message d)))
 
 (defn- file-row
-  "A row of the table of the files that a check fetched: what the answers
-  to its requests told, what the file holds, and the ids of the `findings`
-  about it."
-  [findings {:keys [kind url facts]}]
+  "The row of `file` in the table of the files that a check fetched: what
+  the answers to its requests told, what the file holds, and the ids of
+  the `findings` about it."
+  [findings {:keys [kind url facts] :as file}]
   (let [{:keys [head image media read integrity] got :get} facts
         answer  (or got head)
         failed  (told (or (:error facts) (:error answer)))
@@ -508,8 +511,9 @@
 
 (defn check-page
   "The check over the network of `feed`, fetched from `url`, against
-  `requirements`: the diagnostics of the check `result`, and the files it
-  fetched, of the newest `items`, with their integrity when `integrity?`."
+  `requirements`. It shows the diagnostics of the check `result` and the
+  files it fetched of the newest `items`, with their integrity when
+  `integrity?`."
   [{:keys [url feed requirements items integrity? result]}]
   (let [files    (:files result)
         hashed   (count (filter #(get-in % [:declared :integrity]) files))
@@ -563,8 +567,8 @@
              [:tbody (map #(file-row (by-url (:url %)) %) files)]])))
 
 (defn- part-status
-  "A line about a part of the view that came from a file: its `url`, and
-  the `error` when the file did not come."
+  "A line about a part of the view that came from a file: the `label`, the
+  `url` of the file, and the `error` when the file did not come."
   [{:keys [url error]} label]
   [:p.muted label " " (when url [:a {:href (link url)} url])
    (when error
@@ -581,9 +585,10 @@
                   "offers no chapters.")})
 
 (defn- chapters-section
-  "The chapters of the view of an episode, a map of :source, :url,
-  :document and :report, from the first of the file, the embedded ones,
-  the media file and the timestamps of the show notes."
+  "The `chapters` of the view of an episode, a map of :source, :url,
+  :document and :report. The source is the first that has chapters of the
+  file, the embedded ones, the media file and the timestamps of the show
+  notes."
   [{:keys [chapters]}]
   (let [{:keys [source document report]} chapters]
     (list
@@ -615,8 +620,8 @@
                 (when img [:a {:href (link img)} "image"])]])]]))))))
 
 (defn- transcript-section
-  "The transcript of the view of an episode: the chosen reference with its
-  :document and its :report, or its :error."
+  "The `transcript` of the view of an episode: the chosen reference with
+  its :document and its :report, or its :error."
   [{:keys [transcript]}]
   (list
    [:h2 "Transcript"]
@@ -654,8 +659,8 @@
                             " segments.")]))))))))
 
 (defn- media-file-section
-  "What the media file of the view of an episode says of itself: its
-  duration and its artwork, with the report."
+  "The `media` of the view of an episode, what its media file says of
+  itself: its duration and its artwork, with the report."
   [{:keys [media]}]
   (when media
     (let [{:keys [duration artwork report error]} media]
@@ -686,8 +691,9 @@
        [:td amount]])]])
 
 (defn- time-split-section
-  "One time split of `block`: who is paid during it, with the remote item
-  folded in when `remote-values` has its block."
+  "The time `split` of `block`: who is paid during it, with the remote item
+  folded in when `remote-values` has its block. The `remote-report` tells
+  why a block is missing, and `index?` whether the index can be asked."
   [block {:keys [remote-values remote-report index?]}
    {:keys [start-time duration remote-item remote-percentage] :as split}]
   (let [paid    (value/recipients-at block start-time remote-values)
@@ -822,9 +828,9 @@
 
 (defn search-page
   "The results of the full-text query `q` over the items of the feed at
-  `url`, or over the corpus without one. The `results` of the
-  drop-in-search query of the `index` each have the :item they came from,
-  for a snippet of its notes, and `typos` are the words of `q` that matched
+  `url`, or over the corpus without one. Each of the `results` of the
+  drop-in-search query of the `index` has the :item it came from, for a
+  snippet of its notes. The `typos` are the words of `q` that matched
   others with typos."
   [{:keys [q url index results typos]}]
   (layout (str "Search: " q)
@@ -907,9 +913,9 @@
 
 (defn directory-page
   "The shows the directories answered for the query `q`, or their charts
-  for `country` without one, of the `category` when there is one: the
-  `results` as one entry for each show, and the `report` of the sources
-  that failed."
+  for `country` without one, of the `category` when there is one. The
+  `results` have one entry for each show, and the `report` names the
+  sources that failed."
   [{:keys [q country category results report]}]
   (let [charts?    (str/blank? q)
         chart      (fn [params] (str "/directory?" (url/query-string params)))
@@ -975,8 +981,9 @@
 
 (defn podping-page
   "The podpings read from the chain just now: `pings` from the blocks up to
-  `block`, the `head` of the chain, and what is known of the `writers`.
-  The `error` of the poll tells when no node answered a call."
+  `block`, the `refused` ones of other accounts, the `head` of the chain,
+  and what is known of the `writers`. The `error` of the poll tells when
+  no node answered a call."
   [{:keys [pings refused block head writers error]}]
   (layout "Podping"
           [:h1 "Podping"]
@@ -1016,8 +1023,8 @@
                                (shorten iri 90)]])]])]])))
 
 (defn queue-page
-  "The shell of the play queue: the browser player mounts into it and
-  keeps the listener's profile in the browser."
+  "The shell of the play queue, which the browser player mounts into. The
+  listener's profile is stored in the browser."
   []
   (layout "Queue"
           [:h1 "Play queue"]
@@ -1029,9 +1036,9 @@
 (defn- web-link
   "The web page of the comment `c`. For a post of the AT Protocol, it is the
   page in Bluesky's web app. For a note of Nostr, it is the page of the
-  gateway njump.me. The inspector chose these among the apps that show
-  such posts."
-  [{:keys [url id]}]
+  gateway njump.me. These were chosen for the inspector among the apps
+  that show such posts."
+  [{:keys [url id] :as c}]
   (or (link url)
       (let [{:keys [authority collection rkey]} (atproto/at-uri id)]
         (when (and (= "app.bsky.feed.post" collection) rkey)
@@ -1040,11 +1047,11 @@
                (str "https://njump.me/"))))
 
 (defn- part-link
-  "The web page of the part `part` of the content of a comment: a mention,
-  a hashtag or a reference. For Nostr, it is the page of the gateway
+  "The web page of `part` of the content of a comment: a mention, a
+  hashtag or a reference. For Nostr, it is the page of the gateway
   njump.me, and for the AT Protocol, the page in Bluesky's web app. A part
   of ActivityPub keeps the link that its post has."
-  [{:keys [protocol type uri tag id]}]
+  [{:keys [protocol type uri tag id] :as part}]
   (case protocol
     "nostr"   (if uri
                 (str "https://njump.me/" (subs uri (count "nostr:")))
@@ -1100,9 +1107,11 @@
 
 (defn- thread-view
   "The read `thread` as a tree with its report, with the replies that the
-  author of the root post hid when `hidden?`, and a link to `toggle`, the
-  same page with or without them. A thread about an episode itself has no
-  root post, so the view shows the comments on the episode."
+  author of the root post hid when `hidden?`. The link to `toggle` leads to
+  the same page with or without them.
+
+  A thread about an episode itself has no root post, so the view shows the
+  comments on the episode."
   [thread hidden? toggle]
   (let [about?   (str/starts-with? (str (:uri thread)) "podcast:")
         tree     (comments/tree thread {:hidden? hidden?})
@@ -1136,11 +1145,11 @@
 
 (defn comments-page
   "The page of the comments on `item` of the feed at `url`, from the
-  `interacts` of the item and the read `thread`.
+  `interacts` of the item and the read `thread`. With `hidden?`, it holds
+  the replies that the author of the root post hid.
 
   It shows the thread as a tree, with its report, or tells why there is no
-  thread. With `hidden?`, the tree holds the replies that the author of the
-  root post hid."
+  thread."
   [{:keys [url item interacts thread hidden?]}]
   (let [title (or (resolve/title item) "(untitled)")
         guid  (feed.guid/item-guid item)]
@@ -1237,8 +1246,9 @@
     (told-fn answer)))
 
 (defn- wallet-facts
-  "What the wallet told of itself and of the connection."
-  [{:keys [connection app info wallet balance]}]
+  "What the wallet told of itself and of the connection, from the
+  `answers` of the wallet page."
+  [{:keys [connection app info wallet balance] :as answers}]
   (list
    [:h2 "The connection"]
    [:table
@@ -1266,7 +1276,7 @@
 
 (defn- boost-results
   "The payments of a `boost`, one row for each recipient."
-  [{:keys [sats payments]}]
+  [{:keys [sats payments] :as boost}]
   (let [paid (fn [{:keys [preimage fees-msat proven?]}]
                (list "Paid"
                      (when fees-msat
@@ -1297,14 +1307,15 @@
 
 (defn wallet-page
   "The page of the wallet of the listener, with a form for the connection
-  URI of Nostr Wallet Connect.
+  URI of Nostr Wallet Connect, from `answers` with these keys:
 
-  With an `episode`, a map of :url, :feed and :item, the form pays a boost
-  for it. The other keys are what the wallet answered: the `connection`
-  without its secret, the public key `app` of the inspector, the `info`,
-  the `wallet`, the `balance` and the `boost`. The `problem` tells why the
-  inspector did not ask, or did not pay. The `token` is the token of the
-  form, which a post that pays needs."
+  - :episode, a map of :url, :feed and :item, which the form pays a boost
+    for
+  - :connection, without its secret, and :app, the public key of the
+    inspector
+  - :info, :wallet, :balance and :boost, what the wallet answered
+  - :problem, why the inspector did not ask, or did not pay
+  - :token, the token of the form, which a post that pays needs"
   [{:keys [episode problem connection boost token] :as answers}]
   (let [{:keys [url feed item]} episode
         block (when episode (resolve/value feed item))
@@ -1361,9 +1372,8 @@
               (boost-results boost)))))
 
 (defn error-page
-  "The page shown when what `heading` names failed: `subject` is what it was
-  about, when anything, `message` says why, and the hiccup `more` what to
-  try instead."
+  "The page shown when what `heading` names failed, about `subject` if
+  any. The `message` says why, and the Hiccup `more` what to try instead."
   ([heading subject message]
    (error-page heading subject message nil))
   ([heading subject message more]
