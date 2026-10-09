@@ -1,14 +1,5 @@
 (ns dk.simongray.podcast
-  "Fetching a podcast feed or an OPML list as data, in one call.
-
-  The fetch! function sends a conditional request for the feed at a URL,
-  parses the answer with feed.rss, and joins the later pages of a paged
-  feed. The fetch-list! function does the same for a list, with
-  format.opml. They send their requests with the :send of their options,
-  and in ClojureScript they give a promise.
-
-  Parsing and writing a feed without fetching it is in feed.rss, and
-  feed.discovery finds the feeds of a show from what a listener types."
+  "Fetching a podcast feed or an OPML list as data, in one call."
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed :as feed]
             [dk.simongray.podcast.feed.resolve :as resolve]
@@ -81,21 +72,15 @@
       error (assoc :error error))))
 
 (defn- fetch-page!
-  "Fetch the document at `url` and parse it with `opts`, as fetch! does
-  for a feed of one page: the answer of the server, with the :feed or the
-  :error. Deferred."
+  "Fetch the feed of one page at `url` and parse it with `opts`: the
+  answer of the server, with the :feed or the :error. Deferred."
   [url opts]
   (fetch-document! url feed-types #(parsed-page % opts) opts))
 
 (defn- fetch-later-pages!
-  "The pages after `page` of a paged feed, the answer of fetch-page! to
-  the URL `asked`, fetched with `opts`, whose :max-pages counts `page`
-  too. Each page is the next of the one before, until a page repeats.
-  Deferred.
-
-  The feed names its pages, so the :credentials in `opts` only go to
-  pages at the origin of `asked`, since a redirect can move the feed to
-  another origin."
+  "Fetch the pages of a paged feed after `page`, the answer to a request
+  for `asked`, with `opts`, whose :max-pages counts `page` too. Each page
+  is the next of the one before, until a page repeats. Deferred."
   [asked page {:keys [max-pages] :or {max-pages 1} :as opts}]
   (let [next-of  (fn [{:keys [url feed seen]}]
                    (when-let [next (some->> feed
@@ -103,6 +88,8 @@
                                             (url/absolute-url url))]
                      (when-not (seen next)
                        {:url next :seen (conj seen next)})))
+        ;; the feed names its pages, and a redirect can move it to another
+        ;; origin, so the credentials only go to the origin of asked
         opts-for (fn [url]
                    (cond-> (dissoc opts :etag :last-modified)
                      (not (url/same-origin? asked url))
@@ -118,10 +105,9 @@
                        :limit (dec max-pages)))))
 
 (defn- joined
-  "The answer `page` of fetch-page! with the `pages` after it joined into
-  its feed, as fetch! gives it: the :feed, its :report, and the
-  :new-feed-url when the feed declares a move. A page that can't be read
-  gets a diagnostic in the report."
+  "The answer `page` with the `pages` after it joined into its feed: the
+  :feed, its :report, and the :new-feed-url when the feed declares a move.
+  A page that can't be read gets a diagnostic in the report."
   [{first-page :feed :as page} pages]
   (let [failed  (first (remove :feed pages))
         failure (when failed
@@ -139,8 +125,8 @@
       moved (assoc :new-feed-url moved))))
 
 (defn fetch!
-  "Fetch the feed at `url` and parse it with the `opts` below, the one
-  step that a poller repeats. In ClojureScript, it gives a promise:
+  "Fetch the feed at `url` and parse it with the `opts` below. In
+  ClojureScript, it gives a promise:
 
       {:status 200 :url \"…\"             ; the final URL, after redirects
        :permanent-url \"…\"               ; when redirects moved it for good
@@ -151,17 +137,13 @@
        :websub {:hubs [\"…\"] :topic \"…\"}  ; when the feed names a WebSub hub
        :error {…}}                      ; when there's no answer or no feed
 
-  The `opts` are:
+  The `opts` are those of http/fetch! and rss/parse, and:
 
-  - :etag and :last-modified, from the last fetch
   - :credentials, for a private feed, or else those in the `url`
   - :max-pages, the most pages of a paged feed to fetch and join
-  - :send, the function that sends each request, http/send! by default
-  - the options of http/fetch! and rss/parse
 
-  Nothing is thrown for what the network, the server or the body does.
-  The result has an :error diagnostic when there's no answer or no
-  feed, and any other status comes back as :status."
+  Nothing is thrown for what the network, the server or the body does,
+  and any status besides 200 comes back as :status."
   ([url]
    (fetch! url {}))
   ([url opts]
@@ -175,20 +157,19 @@
                      page))))))
 
 (defn fetch-list!
-  "Fetch the OPML list at `url` and parse it with the `opts` below, as
-  fetch! does a feed. In ClojureScript, it gives a promise:
+  "Fetch the OPML list at `url` with the `opts` of http/fetch!, and parse
+  it. The :credentials are those in the `url` by default. In
+  ClojureScript, it gives a promise:
 
       {:status 200 :url \"…\"             ; the final URL, after redirects
        :permanent-url \"…\"               ; when redirects moved it for good
        :etag \"…\" :last-modified \"…\"    ; to send next time
        :not-before #inst \"…\"            ; when the server asks you to wait
-       :list {…}                         ; on a 200, as opml/parse gives it
+       :list {…}                         ; on a 200
        :error {…}}                       ; when there's no answer or no list
 
-  The `opts` are :etag, :last-modified, :credentials and :send, as fetch!
-  takes them, and the options of http/fetch!. Nothing is thrown for what
-  the network, the server or the body does, and any status besides 200
-  comes back as :status."
+  Nothing is thrown for what the network, the server or the body does,
+  and any status besides 200 comes back as :status."
   ([url]
    (fetch-list! url {}))
   ([url opts]
