@@ -1,6 +1,5 @@
 (ns dk.simongray.podcast.comments.nostr
-  "Threads of comments on Nostr, read from relays for
-  dk.simongray.podcast.comments.
+  "Threads of comments on Nostr, read from relays.
 
   A thread has one of two kinds of root:
 
@@ -9,21 +8,21 @@
   - the episode or the show itself, by the id that NIP-73 gives it, such
     as podcast:item:guid:…
 
-  The about function gives the thread of an episode or a show. No post is
-  the root of such a thread, so its root is a comment without content.
+  No post is the root of the thread of an episode or a show, so its root
+  is a comment without content.
 
   The comments are the text notes of kind 1, with the replies of NIP-10,
   and the comments of kind 1111 of NIP-22. The authors are the events of
   kind 0 of NIP-01, and an event of kind 5 of NIP-09 deletes a comment of
   its author.
 
-  A relay can send anything. So with-exchanges keeps only the events that
-  nostr/verified? takes and that pass a filter of the request. A thread
+  A relay can send anything. So a reading keeps only the events whose
+  signatures verify and that pass a filter of the request. A thread
   counts the events that it left out, and the report tells the count.
 
   The relays are those that the root names, and then the :relays of the
-  options, or relays. Each relay gets the same questions, and an event
-  that two relays give is one comment."
+  options, or the default ones. Each relay gets the same questions, and
+  an event that two relays give is one comment."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments :as-alias comments]
@@ -81,9 +80,9 @@
   `opts` is the URL of a feed that declares none. The id of an episode is
   podcast:item:guid: and the guid of the item.
 
-  Such a thread isn't the thread that the podcaster names. When
-  resolve/social-interacts gives the protocol disabled, the podcaster
-  wants no public comments shown."
+  Such a thread isn't the thread that the podcaster names. When a
+  podcast:socialInteract has the protocol disabled, the podcaster wants
+  no public comments shown."
   ([feed]
    (about feed nil {}))
   ([feed item]
@@ -96,14 +95,15 @@
 
 (defn ^:no-doc relays-of
   "The relays that the reading of `thread` asks with `opts`: those that
-  the name of its root gives, and then the :relays of `opts`, or relays."
+  the name of its root gives, and then the :relays of `opts`, or the
+  default ones."
   [{:keys [uri] :as thread} opts]
   (vec (distinct (concat (:relays (root-of uri))
                          (keep nostr/relay-url (or (:relays opts) relays))))))
 
 (defn readable?
-  "Whether requests reads the thread of `interact` with `opts`. Its URI
-  must name a note or an id of NIP-73, and there must be a relay to ask."
+  "Whether the thread of `interact` can be read with `opts`. Its URI must
+  name a note or an id of NIP-73, and there must be a relay to ask."
   [interact opts]
   (boolean (and (root-of (:uri interact))
                 (seq (relays-of interact opts)))))
@@ -197,11 +197,11 @@
   questions for the replies to the comments that the thread has, those
   nearest the root first. Then it gets the questions for their authors,
   and for the profiles that they mention. The requests ask for no more
-  comments than the :max-comments of `opts` allows, counted from the last
-  resumed.
+  comments than the :max-comments of `opts` allows, counted from the
+  start of the reading.
 
-  Each request is a request map for nostr/send!, with the :url of a relay
-  and the :filters of NIP-01."
+  Each request is a request map with the :url of a relay and the :filters
+  of NIP-01."
   [{:keys [uri comments] ::comments/keys [held] :as thread} opts ask-pred]
   (let [opts  (merge {:batch-size batch-size} opts)
         fresh (- (count (filter :read-at (vals comments))) (or held 0))
@@ -342,8 +342,8 @@
     s))
 
 (defn- shown
-  "The part `p` of nostr/parts with the :text that a reader sees for it,
-  by the `names` of profiles by public key.
+  "The part `p` of a content with the :text that a reader sees for it, by
+  the `names` of profiles by public key.
 
   A mention also gets its public key as its :id, which is the id of the
   author in a thread."
@@ -382,8 +382,8 @@
 
 (defn parts
   "The parts of the content of `event` as a reader sees it, in their
-  order, with the names of `opts`. Each part is a part of nostr/parts,
-  with the :text that the content shows for it:
+  order, with the names of `opts`. Each part is a map with its :type and
+  the :text that the content shows for it:
 
       {:type :text :text \"Is this \"}
       {:type :mention :text \"@Ann\" :id \"3bf0…\" :public-key \"3bf0…\"
@@ -396,8 +396,9 @@
   The text of a mention is an at sign and the name of the profile, from
   the :names of `opts`, a map from public keys to names. Without a name,
   it's the start and the end of the npub1… name. The text of a reference
-  is the start and the end of its name. The lines that hiccup leaves out
-  aren't there. A blank line is between two paragraphs."
+  is the start and the end of its name. The lines that say again what the
+  tags of the event tell aren't there. A blank line is between two
+  paragraphs."
   ([event]
    (parts event {}))
   ([event {:keys [names] :as opts}]
@@ -423,15 +424,15 @@
   - A reference to an event is the start and the end of its name.
   - A hashtag is the word with its number sign.
 
-  The :link-fn of `opts` is a function of a part of parts. It gives the URL
-  that a mention, a reference or a hashtag links to, or nil for no link.
-  No web page is named for them, since you choose the web app or the
-  scheme that shows them.
+  The :link-fn of `opts` is a function of a part. It gives the URL that a
+  mention, a reference or a hashtag links to, or nil for no link. No web
+  page is named for them, since you choose the web app or the scheme that
+  shows them.
 
   Some lines say again what the tags of the event tell. Such a line has
   only the web page of the episode or the show that the note is about, or
   only the media of an attachment. It's left out, and so is a reference
-  to the receipt of a payment, which receipts gives."
+  to the receipt of a payment."
   ([event]
    (hiccup event {}))
   ([event {:keys [names] :as opts}]
@@ -447,17 +448,17 @@
                          (map #(map node %) paragraph)))))))
 
 (defn names
-  "The names of the authors that `thread` has, by public key, as the
-  :names of hiccup takes them."
+  "The names of the authors that `thread` has, by public key, e.g. for the
+  :names of the options."
   [thread]
   (into {}
         (keep (fn [[k {:keys [name]}]] (when name [k name])))
         (:authors thread)))
 
 (defn ^:no-doc note-html
-  "The content of `event` as sanitized HTML, as hiccup gives it with the
-  `names` of profiles, or nil for a content that says nothing. A mention,
-  a reference and a hashtag have no link."
+  "The content of `event` as sanitized HTML, with the `names` of profiles,
+  or nil for a content that says nothing. A mention, a reference and a
+  hashtag have no link."
   [event names]
   (when-let [paragraphs (seq (hiccup event {:names names}))]
     (html/sanitize paragraphs)))
@@ -493,7 +494,7 @@
   `in-reply-to`, with the `names` of profiles in its content.
 
   The comment keeps the event, so that an app can write the content in
-  its own way with hiccup. It also keeps the profiles that the content
+  its own way. It also keeps the profiles that the content
   mentions, and the receipts of payments that it names."
   [event in-reply-to names at]
   (let [tags     (get event "tags")
@@ -586,9 +587,9 @@
   in a thread whose root is `root`.
 
   The root of a thread of a note is the note. Another event must reply to
-  something, as parent tells. An event that its author deleted is a
-  deleted comment. The thread holds no more comments than the :thread
-  limit of common/limits, and counts the comments that the limit cut."
+  something of the thread. An event that its author deleted is a deleted
+  comment. The thread holds no more comments than its size limit allows,
+  and counts the comments that the limit cut."
   [{:keys [comments] ::keys [deletions] :as thread} event root at]
   (let [id      (get event "id")
         root?   (= id (:id root))

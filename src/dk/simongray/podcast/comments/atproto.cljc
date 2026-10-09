@@ -1,6 +1,6 @@
 (ns dk.simongray.podcast.comments.atproto
   "Threads of comments on the AT Protocol, the protocol of Bluesky, read
-  from an AppView for dk.simongray.podcast.comments.
+  from an AppView.
 
   An AppView indexes the network. It gives the thread below a post in one
   call, app.bsky.feed.getPostThread, without an account. The labels that
@@ -12,9 +12,8 @@
   - a reply with a warning is :sensitive?
   - a reply that the author of the root post hid is :hidden?
 
-  The protocol gives no web page for a post. The at-uri function gives the
-  parts of its at URI, from which you can build a link to the web app of
-  your choice."
+  The protocol gives no web page for a post, so build a link to the web
+  app of your choice from the parts of its at URI."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.comments :as-alias comments]
@@ -175,9 +174,9 @@
   The result is a sequence of nodes to put inside a parent element.
 
   A link of the post is a link. The :link-fn of `opts` is a function of a
-  part of parts. It gives the URL that a mention or a hashtag links to,
-  or nil for no link. The protocol gives no web page for a profile, so you
-  choose the web app that shows one."
+  part. It gives the URL that a mention or a hashtag links to, or nil for
+  no link. The protocol gives no web page for a profile, so you choose the
+  web app that shows one."
   ([record]
    (hiccup record {}))
   ([record opts]
@@ -192,9 +191,8 @@
        ()))))
 
 (defn ^:no-doc post-html
-  "The content of the AT Protocol `record` as sanitized HTML, as hiccup
-  gives it, or nil for a post without text. A mention and a hashtag have
-  no link."
+  "The content of the AT Protocol `record` as sanitized HTML, or nil for a
+  post without text. A mention and a hashtag have no link."
   [record]
   (when-let [paragraphs (seq (hiccup record))]
     (html/sanitize paragraphs)))
@@ -291,7 +289,7 @@
 
   A post that's gone is a deleted comment. A withheld post is left out
   with the replies below it, and so is a post that the AppView doesn't
-  give because of a block. The common/limits of the depth and of a thread
+  give because of a block. The size limits of the depth and of a thread
   apply, and the thread counts the posts that a limit cut."
   [thread view parent hidden at level]
   (let [post (get view "post")
@@ -335,8 +333,8 @@
                 (when listed? replies))))))
 
 (defn readable?
-  "Whether requests reads the thread of `interact` with `opts`. Its URI
-  must be the at URI of a post, and `opts` must name an :appview."
+  "Whether the thread of `interact` can be read with `opts`. Its URI must
+  be the at URI of a post, and `opts` must name an :appview."
   [{:keys [uri] :as interact} opts]
   (and (post-uri? uri) (string? (:appview opts))))
 
@@ -368,7 +366,7 @@
   those whose URLs `ask-pred` takes.
 
   They go to the :appview of `opts`. They ask for no more posts than the
-  :max-comments of `opts` allows, counted from the last resumed.
+  :max-comments of `opts` allows, counted from the start of the reading.
 
   The root post comes first. Then come the posts nearest to it whose
   replies are below the levels that the AppView gives at once."
