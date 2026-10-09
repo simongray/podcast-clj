@@ -1,8 +1,5 @@
 (ns dk.simongray.podcast.app.show
-  "Everything a show page needs, in one map.
-
-  Use view for what the feed says about the show, and merge in
-  fetch-linked-shows! for the shows that it links to."
+  "Everything a show page needs, in one map."
   (:require [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -19,8 +16,9 @@
             [dk.simongray.podcast.util.xml :as xml]))
 
 (def default-limits
-  "The limits of fetch-linked-shows! when its options don't set them: how
-  many seconds a request can take, and the most bytes of a publisher feed."
+  "The limits of a fetch of linked shows when its options don't set them:
+  how many seconds a request can take, and the most bytes of a publisher
+  feed."
   {:timeout-seconds 15
    :max-bytes       (* 16 1024 1024)})
 
@@ -28,20 +26,19 @@
   "The show of `feed` as a page shows it, with the `opts` below: the feed
   with the properties of resolve/properties merged in, and these keys:
 
-  - :guid, the id of the feed as guid/feed-guid gives it, when the feed
-    has one or `opts` give the :url of the feed
+  - :guid, the id of the feed, when the feed has one or `opts` give the
+    :url of the feed
   - :notes, the description as Hiccup, and :text, as plain text
-  - :episodes, the items in listening order, as resolve/episodes gives
-    them, in place of :rss/items
-  - :seasons, as resolve/seasons gives them
-  - :links, links to the show in other apps, as links/links gives them
+  - :episodes, the items in listening order, in place of :rss/items
+  - :seasons, the items by season, as maps of :season, :name and :items
+  - :links, links to the show in other apps
 
   The `opts` are:
 
   - :url, the URL of the feed, for a feed that doesn't name its own
   - :notes-url-fn, a function of the web page of the show and a URL in
-    its description, which gives the URL to keep or nil, resolve/notes-url
-    by default
+    its description, which gives the URL to keep or nil, by default the
+    URL made absolute
   - :except, a set of the keys above to leave out without computing them"
   ([feed]
    (view feed {}))
@@ -95,9 +92,8 @@
                     (cond-> item found (assoc :show found)))))))
 
 (defn- fetch-feed!
-  "Fetch the feed at `url` with `opts`, as dk.simongray.podcast/fetch!
-  does, and give a map of the :feed, or of an :error when it couldn't, in
-  a future or a promise."
+  "Fetch the feed at `url` with `opts`, and give a map of the :feed, or of
+  an :error when it couldn't, in a future or a promise."
   [url opts]
   (let [fetch-opts (select-keys opts [:send :allow-pred :timeout-seconds
                                       :max-bytes :user-agent])]
@@ -204,8 +200,7 @@
 
 (defn fetch-linked-shows!
   "Fetch the shows that the `view` of a show links to, with the `opts`
-  below, for a page to merge into the view. Returns a map, in
-  ClojureScript as a promise:
+  below. Returns a map, in ClojureScript as a promise:
 
   - :podroll has each recommended show with its :show, the feed without
     its items. It comes from the Podcast Index when `opts` give the :index

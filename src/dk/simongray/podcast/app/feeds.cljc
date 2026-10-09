@@ -15,11 +15,7 @@
                      :status       200}}
 
   An entry with only its :url is a feed to fetch for the first time, e.g.
-  of a new subscription. It's due at once, and refresh! fills it in.
-
-  The new episodes of a changed feed are found by
-  dk.simongray.podcast.profile/refresh. A device that never shows the
-  feeds can keep only what slim gives of each, which is enough for that."
+  of a new subscription, and it's due at once."
   (:require [dk.simongray.podcast :as podcast]
             [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.feed.guid :as guid]
@@ -40,13 +36,12 @@
    :after-failure [900 3600 14400 86400]})
 
 (def default-concurrency
-  "How many feeds refresh! fetches at once."
+  "How many feeds are fetched at once, by default."
   8)
 
 (defn- check-at
-  "When to fetch `feed` again, at `at`: as resolve/next-check says, or else
-  after the wait of `cadence`, and no earlier than the server's
-  `not-before`."
+  "When to fetch `feed` again, at `at`: when the feed says, or else after
+  the wait of `cadence`, and no earlier than the server's `not-before`."
   [feed at not-before cadence]
   (let [wait (if (resolve/complete? feed)
                (:complete cadence)
@@ -108,8 +103,8 @@
   under its guid, and its next check by `cadence`.
 
   The `result` is that of dk.simongray.podcast/fetch!, and must have a
-  :feed. It replaces any entry under the same guid, and the `cadence`
-  defaults to default-cadence."
+  :feed. It replaces any entry under the same guid, and the `cadence` goes
+  over the defaults."
   ([feeds url result at]
    (add feeds url result at {}))
   ([feeds url result at cadence]
@@ -123,7 +118,7 @@
      (assoc feeds feed-guid (fetched old url result at cadence)))))
 
 (defn- slim-item
-  "The part of `item` that slim keeps: its guid, date and media."
+  "The part of `item` that a slim feed keeps: its guid, date and media."
   [item]
   (let [kept [:rss/guid :rss/pub-date :rss/enclosure
               :podcast/alternate-enclosures :media/contents]]
@@ -136,9 +131,9 @@
   check it again, and the guid, date and media of each item.
 
   A device that only syncs and refreshes, such as a server, can keep this
-  in place of the whole feed, with the :keep-fn of app.library. It gives the
-  same next check, the same new episodes for profile/refresh and the same
-  names for the gpodder API, but no titles, descriptions or the rest."
+  in place of the whole feed. It gives the same next check, the same new
+  episodes and the same names for the gpodder API, but no titles,
+  descriptions or the rest."
   [feed]
   (let [kept [:podcast/guid :itunes/complete :podcast/update-frequency
               :rss/ttl :sy/update-period :sy/update-frequency]]
@@ -180,7 +175,7 @@
   A fresh feed replaces the old one, and a 304 keeps it. After a failure,
   the feed stays and the next check waits longer for each failure in a
   row. A feed that moved keeps its guid, and its subscription should move
-  to the URL under :moved. The `cadence` defaults to default-cadence."
+  to the URL under :moved. The `cadence` goes over the defaults."
   ([feeds feed-guid result at]
    (refresh feeds feed-guid result at {}))
   ([feeds feed-guid result at cadence]
@@ -229,15 +224,15 @@
 
 (defn refresh!
   "Fetch the feeds of `feeds` that are due with the `opts` below, and apply
-  each result as refresh does.
+  each result.
 
   Returns a map of :feeds, :changed, :moved and :report for all the
   fetches, in ClojureScript as a promise. Nothing is thrown for what the
   network or a server does. The `opts` are:
 
-  - :at, the instant of the step, the time of the clock by default
-  - :feed-guids, the feeds to fetch instead of the due ones, e.g.
-    (affected feeds pings) after a Podping
+  - :at, the instant of the refresh, the time of the clock by default
+  - :feed-guids, the feeds to fetch instead of the due ones, e.g. those
+    that a Podping names
   - :fetch, in place of dk.simongray.podcast/fetch!
   - :credentials-of, a function from the URL of a private feed to its
     :credentials, so that no password is stored in the feeds and none

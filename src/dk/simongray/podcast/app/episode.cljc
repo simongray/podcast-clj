@@ -1,10 +1,5 @@
 (ns dk.simongray.podcast.app.episode
-  "Everything an episode page needs, in one map.
-
-  Use view for what the feed says about the episode, and merge in
-  read-files! for what its chapters file, transcript and media file say,
-  and fetch-remote-values! for the value blocks that its time splits
-  point at."
+  "Everything an episode page needs, in one map."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast :as podcast]
@@ -22,9 +17,9 @@
             [dk.simongray.podcast.util.time :as time]))
 
 (def default-limits
-  "The limits of read-files! and fetch-remote-values! when their options
-  don't set them: how many seconds a request can take, and the most bytes
-  of a chapters file, a transcript or a feed."
+  "The limits of the requests for the files and value blocks of an episode
+  when their options don't set them: how many seconds a request can take,
+  and the most bytes of a chapters file, a transcript or a feed."
   {:timeout-seconds 15
    :max-bytes       (* 16 1024 1024)})
 
@@ -69,8 +64,8 @@
   - :chapters, the :source and :document of the chapters in the feed
     itself, where the source is :embedded, or else :inferred from the
     timestamps in the show notes. A chapters file is named by
-    :chapters-url, and read-files! reads it.
-  - :links, links to the episode in other apps, as links/links gives them
+    :chapters-url.
+  - :links, links to the episode in other apps
 
   The `opts` are:
 
@@ -80,8 +75,8 @@
     as resolve/transcript does
   - :url, the URL of the feed, for a feed that doesn't name its own
   - :notes-url-fn, a function of the web page of the episode and a URL
-    in its show notes, which gives the URL to keep or nil,
-    resolve/notes-url by default
+    in its show notes, which gives the URL to keep or nil, by default the
+    URL made absolute
   - :except, a set of the keys above to leave out"
   ([feed item]
    (view feed item {}))
@@ -172,8 +167,8 @@
                                transcript/report)))))
 
 (defn- read-media-file!
-  "Read the media file at `url` with media/read! and `opts`, adding its
-  :url and its :report as data, or an :error, in a future or a promise."
+  "Read the media file at `url` with `opts`, adding its :url and its
+  :report as data, or an :error, in a future or a promise."
   [url opts]
   (let [read-opts (select-keys opts [:send :allow-pred :timeout-seconds :headers
                                      :except])]
@@ -215,8 +210,8 @@
       file)))
 
 (defn read-files!
-  "Read the files of the episode `view` with the `opts` below, for a page
-  to merge into the view. Returns a map, in ClojureScript as a promise:
+  "Read the files of the episode `view` with the `opts` below. Returns a
+  map, in ClojureScript as a promise:
 
   - :chapters has the :source, :url, :document and :report of the
     chapters. They come from the first place that has them: the chapters
@@ -224,13 +219,11 @@
     show notes.
   - :transcript is the reference that `view` chose, with its :document
     and :report.
-  - :media is the :duration, :artwork and :report of the media file, as
-    media/read! reads them, and the :duration of the page becomes that of
-    the file.
+  - :media is the :duration, :artwork and :report of the media file.
+  - :duration is that of the media file.
 
   Nothing is thrown for what the network or a server does, and a part
-  that couldn't be read has an :error. The report function gathers the
-  reports of all the parts. The `opts` are:
+  that couldn't be read has an :error. The `opts` are:
 
   - :send, :allow-pred and :headers, as for any request
   - :timeout-seconds and :max-bytes, over default-limits
@@ -266,8 +259,8 @@
                        duration   (assoc :duration duration))))))))
 
 (defn report
-  "The diagnostics of all the parts of `files`, as read-files! gives them,
-  each with the :part that it's about: :chapters, :transcript or :media."
+  "The diagnostics of all the parts of the read `files`, each with the
+  :part that it's about: :chapters, :transcript or :media."
   [files]
   (vec (for [part [:chapters :transcript :media]
              :let [{:keys [report error]} (get files part)]
@@ -345,7 +338,8 @@
 
 (defn- fetch-feed-value!
   "Fetch the feed of the `remote` item of a time split with the :fetch of
-  `opts`, in a future or a promise, and give what feed-answer says."
+  `opts`, in a future or a promise, and give a map of the :value block of
+  the item, or else of the feed, or of an :error."
   [remote {:keys [fetch] :as opts}]
   (let [fetch-opts (select-keys opts [:send :allow-pred :timeout-seconds
                                       :max-bytes :user-agent])]
@@ -369,8 +363,8 @@
                   (fetch-feed-value! remote opts)))))
 
 (defn- once-per-url
-  "The function `fetch` of a feed, as podcast/fetch! is, made to fetch each
-  URL once, also when several calls ask for it at the same time."
+  "The function `fetch` of a feed, made to fetch each URL once, also when
+  several calls ask for it at the same time."
   [fetch]
   (let [fetched (atom {})]
     (fn [url opts]
@@ -379,8 +373,8 @@
           force))))
 
 (defn- gathered
-  "What fetch-remote-values! gives for the `remotes` and what
-  find-remote-value! `found` for each of them, in the same order."
+  "The value blocks of the `remotes`, and the report of those that failed,
+  from what was `found` for each of them, in the same order."
   [remotes found]
   (let [failed (keep :error found)
         values (for [[remote {:keys [value error]}] (zipmap remotes found)
@@ -392,11 +386,10 @@
 
 (defn fetch-remote-values!
   "Fetch the value blocks that the time splits of the episode `view` point
-  at, with the `opts` below, for a page to merge into the view. Returns a
-  map, in ClojureScript as a promise:
+  at, with the `opts` below. Returns a map, in ClojureScript as a promise:
 
   - :remote-values, the value block of each remote item, or nil when it
-    has none, as value/recipients-at takes them
+    has none
   - :remote-report, a diagnostic for each remote item whose block
     couldn't be fetched, which :remote-values leaves out
 
