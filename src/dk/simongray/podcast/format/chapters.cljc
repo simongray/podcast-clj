@@ -13,9 +13,7 @@
 
   Times are seconds. Chapters keep the order they're given in, and the keys
   that the format doesn't define are kept too. Reading never throws on
-  content.
-  What it had to forgive is in the report, which the report function reads
-  from the metadata."
+  content, and what it had to forgive is in the report, in the metadata."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.util.json :as json]
@@ -134,8 +132,8 @@
                         :version v)))))
 
 (defn- read-text
-  "The raw chapter `m` with the value at `path` read as text by json/text,
-  or without that value when it isn't text."
+  "The raw chapter `m` with the value at `path` read as text, or without
+  that value when it isn't text."
   [m path]
   (let [v (get-in m path)]
     (if (nil? v)
@@ -289,8 +287,8 @@
   one. Two lines with the time first make a list, and so do three with the
   time last in rising order. The report says the chapters were inferred.
 
-  Use from-text for the notes themselves. A caller that has the plain text
-  of the notes already can give its lines here, so they're parsed once."
+  A caller that has the plain text of the notes already can give its
+  lines here, so they're parsed once."
   [lines]
   ;; the patterns' optional parts meet around runs of spaces, over which
   ;; they would backtrack quadratically, so each run is one space first
@@ -315,7 +313,7 @@
 
 (defn from-text
   "The chapters map of the timestamps in the show notes `s`, HTML or plain
-  text, as from-lines reads them."
+  text, with each chapter on a line of its own."
   [s]
   ;; notes with no digit, colon and two digits in a row, a colon reference
   ;; counted, hold no time, and most notes have none, so they skip the parse

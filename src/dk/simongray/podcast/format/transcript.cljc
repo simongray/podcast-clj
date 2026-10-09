@@ -9,8 +9,8 @@
        :segments [{:start-time 0.0 :end-time 2.76 :speaker \"Sarah\"
                    :body \"…\"}]}
 
-  Times are seconds, as in the chapters of format.chapters, and :end-time
-  and :speaker are there when the source had them. Speakers are read from
+  Times are seconds, and :end-time and :speaker are there when the source
+  had them. Speakers are read from
   these:
 
   - the voice spans of WebVTT
@@ -21,8 +21,8 @@
 
   Reading is lenient and never throws on content. The report says what it
   had to forgive, e.g. times written as strings, an SRT wrapped in HTML or
-  a declared type that doesn't match the file. The report function reads
-  it from the metadata."
+  a declared type that doesn't match the file. The report is in the
+  metadata."
   (:require [clojure.string :as str]
             [dk.simongray.drop-in-search.queries :as search.queries]
             [dk.simongray.podcast.util.json :as json]
@@ -507,8 +507,8 @@
         (seq piece) (conj piece)))))
 
 (def ^:no-doc passage-length
-  "The fewest characters of a passage that matches gives, which a caption
-  file's cues mostly have and a word-level transcript's words make up."
+  "The fewest characters of a matching passage, which a caption file's
+  cues mostly have and a word-level transcript's words make up."
   60)
 
 (defn- start-of-match
@@ -533,9 +533,9 @@
   that mark the matches in its :body, with the `opts` below.
 
   A passage is a run of segments by one speaker of at least the :length
-  in `opts`, merged as turns merges them, with the :start-time of the
-  segment where its first match is, e.g. for a player to list where words
-  are said and seek there. A caption file matches by a cue or two, and a
+  in `opts`, merged into one turn, with the :start-time of the segment
+  where its first match is, e.g. for a player to list where words are
+  said and seek there. A caption file matches by a cue or two, and a
   word-level transcript by a phrase. The `opts` are those of
   dk.simongray.drop-in-search.queries/parse, and :length, 60 characters by
   default."

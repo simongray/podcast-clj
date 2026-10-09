@@ -10,11 +10,9 @@
   - GIF87a and GIF89a
   - WebP, by RFC 9649, with the VP8 frame header of RFC 6386, section 9.1
 
-  The read function takes a view of the parts of the file at hand, as in
-  dk.simongray.podcast.util.bytes.view. It gives the header, or the ranges that
-  it still needs, as dk.simongray.podcast.format.media/read does for media
-  files. The read! function fetches the ranges, and report gives the
-  diagnostics of a reading."
+  A reading takes a view of the parts of the file at hand, as in
+  dk.simongray.podcast.util.bytes.view, and gives the header, or the ranges
+  that it still needs."
   (:refer-clojure :exclude [read])
   (:require [dk.simongray.podcast.diagnostics :as diagnostics]
             [dk.simongray.podcast.util.async :as async]
@@ -311,8 +309,8 @@
       "image/svg+xml")))
 
 (defn- read-header
-  "What read gives for the image in `view` when the view holds the bytes
-  that the reading needs."
+  "The header of the image in `view` when the view holds the bytes that the
+  reading needs."
   [view]
   (view/need view 0 12)
   (let [start   (view/slice view 0 (min 12 (or (:total view) 12)))
@@ -331,8 +329,7 @@
         (view/reported (if type {:type type} {}) [failure]))))
 
 (defn report
-  "The diagnostics of `image`, which read or read! gave. Each diagnostic
-  has its message."
+  "The diagnostics of the read `image`. Each diagnostic has its message."
   [image]
   (mapv diagnostics/describe (view/report image)))
 
@@ -359,18 +356,17 @@
 
   When the view lacks bytes, the result has the ranges that the reading
   needs under :need, as pairs of start and end. For an image that doesn't
-  read, report tells why, and the result has the :type when the first
+  read, the report tells why, and the result has the :type when the first
   bytes tell it."
   [view]
   (view/reading #(read-header view)))
 
 (defn read!
-  "Read the header of the image at `url` as read does, fetched with `opts`.
-  On the JVM it gives the result, and in ClojureScript a promise of it.
+  "Read the header of the image at `url`, fetched with `opts`. On the JVM
+  it gives the result, and in ClojureScript a promise of it.
 
-  The function dk.simongray.podcast.util.bytes.view/read! fetches the
-  ranges that the reading needs, most often the first 64 KB alone. The
-  `opts` are these:
+  The reading most often needs the first 64 KB alone. The `opts` are
+  these:
 
   - :fetch, a function as http/fetcher makes
   - :headers, :timeout-seconds and :send, as http/fetcher takes them

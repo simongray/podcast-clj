@@ -17,7 +17,7 @@
                         :path [\"News\"]}]}
 
   The folders of the OPML become the :path of the subscriptions inside
-  them, and emit rebuilds the folders. In an outline:
+  them, and back again. In an outline:
 
   - the categories become a vector, which OPML writes as one
     comma-separated attribute of tags and slash-delimited paths
@@ -96,7 +96,8 @@
   `element`, under the `path` of their folders, recursing into folders.
 
   An outline is a subscription when its xmlUrl isn't blank, and an
-  inclusion when inclusion says so. An inclusion is marked ::include."
+  inclusion when it includes another list. An inclusion is marked
+  ::include."
   [path element]
   (mapcat (fn [outline]
             (let [{:keys [text title] :as attrs} (xml/attrs outline)
@@ -145,8 +146,8 @@
             [k (value k v)]))))
 
 (defn try-parse
-  "Parse the OPML string `s` as parse does, with the `opts` below, and give
-  a map of the :list, or of the :error where parse throws.
+  "Parse the OPML string `s` with the `opts` below, and give a map of the
+  :list, or of the :error when it isn't OPML.
 
   The error is the diagnostic :fetch/malformed with the :reason, for a list
   that came from somewhere else, such as a server. The `opts` give the
@@ -202,8 +203,8 @@
           (partition-by (comp first :path) entries)))
 
 (defn emit
-  "The OPML 2.0 document of the `subscription-list` that parse gives, with
-  the inclusions after the subscriptions of their folder.
+  "The OPML 2.0 document of the `subscription-list`, with the inclusions
+  after the subscriptions of their folder.
 
   OPML separates the categories of an outline with commas, and it can't
   escape a comma. So a comma in a category goes out as an underscore."
