@@ -2,32 +2,19 @@
   "Nostr Wallet Connect, which NIP-47 defines: payments from the wallet of
   the listener, asked for over a relay of Nostr.
 
-  The listener gets a connection URI from the wallet, and gives it to the
-  app. The parse function reads the URI into a connection. The URI holds
-  a secret key, and whoever has it can spend from the wallet. So an app
-  keeps it as it keeps a password, and shows it to nobody. The connection
-  hides the key with dk.simongray.podcast.util.secret, so a connection
-  that's printed doesn't show it. The format function gives the text that
-  an app stores.
+  The listener gets a connection URI from the wallet. The URI holds a
+  secret key, and whoever has it can spend from the wallet, so keep it as
+  you keep a password, and show it to nobody. A connection hides the key,
+  so a connection that's printed doesn't show it.
 
-  A command is data, a map of :method and :params. The pay-invoice
-  command pays the invoice of a Lightning address, which
-  value.lnaddress/request-invoice! gives. The pay-keysend command pays a
-  node, with the records of value/records. The other commands of NIP-47
-  are get-balance, get-info, make-invoice and lookup-invoice.
+  A command is data, a map of :method and :params. The content of each
+  event is encrypted with NIP-44. The encryption of NIP-04, which NIP-47
+  keeps for old wallets, isn't written here, since NIP-04 has no check of
+  a change, and its own text tells not to use it.
 
-  The ask! function sends a command to the wallet and gives its answer.
-  For an app that holds its own connections to relays, request-event
-  writes the event of a command and answer reads the event of the
-  wallet. The content of each event is encrypted with NIP-44. The
-  encryption of NIP-04, which NIP-47 keeps for old wallets, isn't written
-  here. NIP-04 has no check of a change, and its own text tells not to
-  use it.
-
-  NIP-47 has the commands of invoices. The command of keysend is in the
-  extension NWC-04, in the repository nostr-wallet-connect/nwc. A wallet
-  names the commands that it takes in its info event, which fetch-info!
-  reads."
+  NIP-47 has the commands of invoices, and the command of keysend is in
+  the extension NWC-04, in the repository nostr-wallet-connect/nwc. A
+  wallet names the commands that it takes in its info event."
   (:refer-clojure :exclude [format])
   (:require [clojure.string :as str]
             [dk.simongray.podcast.crypto.nip44 :as nip44]
@@ -54,7 +41,7 @@
    :response 23195})
 
 (def default-limits
-  "The limits of ask! and fetch-info! that their options don't set.
+  "The limits of a request to a wallet that its options don't set.
 
   A payment over Lightning can take a minute, so the wallet has
   :timeout-seconds to answer. The request of a command expires after that
@@ -92,18 +79,17 @@
 
   The section Nostr Wallet Connect URI of NIP-47 defines the URI. It has
   the scheme nostr+walletconnect, one relay or more, and a secret. The
-  relays are as nostr/relay-url writes them, and a relay that isn't the
-  URL of a relay is left out.
+  relays are in a normal form, and a relay that isn't the URL of a relay
+  is left out.
 
   The secret is for this connection only. Whoever has it can spend from
   the wallet, within the budget that the wallet gave the connection. It's
-  a hidden text of secret/hide, which doesn't show in a log or at a REPL.
-  The reader doesn't read a printed connection, so an app stores the text
-  of uri.
+  a hidden text of dk.simongray.podcast.util.secret, which doesn't show in
+  a log or at a REPL. A printed connection doesn't read back, so store
+  the text of `uri`.
 
   The URI is a claim of whoever wrote it. The :lud16 is where that person
-  wants payments to go, so an app asks the listener before it uses the
-  address."
+  wants payments to go, so ask the listener before you use the address."
   [uri]
   (let [form  #"(?i)nostr\+walletconnect:(?://)?([0-9a-f]{64})/?\?(.*)"
         found (when (string? uri) (re-matches form (str/trim uri)))]
@@ -128,13 +114,13 @@
   (secret/reveal (:secret connection)))
 
 (defn connection?
-  "Whether `x` is a connection, as parse gives one. Its keys are in lower
-  case, its wallet is a point of the curve, and its secret is a secret
-  key. Each of its relays is the URL of a relay.
+  "Whether `x` is a connection. Its keys are in lower case, its wallet is a
+  point of the curve, and its secret is a secret key. Each of its relays
+  is the URL of a relay.
 
-  The secret is a hidden text of secret/hide. A plain text is a secret
-  too, for an app that makes a connection of its own parts. But such a
-  connection shows its secret when it's printed."
+  The secret is a hidden text. A plain text is a secret too, for an app
+  that makes a connection of its own parts. But such a connection shows
+  its secret when it's printed."
   [x]
   (boolean (and (map? x)
                 (key-text? (:wallet x))
@@ -146,20 +132,16 @@
                 (every? #(= % (nostr/relay-url %)) (:relays x)))))
 
 (defn- check-connection
-  "Throw unless `connection` is one, as connection? tells. An assertion
-  wouldn't do, since a release build of ClojureScript leaves assertions
-  out."
+  "Throw unless `connection` is a connection."
   [connection]
+  ;; an assertion wouldn't do, since a release build of ClojureScript
+  ;; leaves assertions out
   (when-not (connection? connection)
     (throw (ex-info "The connection isn't one that parse gives" {}))))
 
 (defn format
-  "The URI of Nostr Wallet Connect for `connection`, a map as parse gives
-  one. A wallet service gives an app such a URI, and an app stores
-  it.
-
-  The text has the secret of the connection. Keep it where the app keeps
-  passwords."
+  "The URI of Nostr Wallet Connect for `connection`, the text to store. It
+  has the secret of the connection, so keep it where you keep passwords."
   [{:keys [wallet relays lud16] :as connection}]
   (let [relay-params (map #(url/query-string {"relay" %}) relays)
         own-params   (url/query-string {"secret" (secret-key connection)
@@ -204,7 +186,7 @@
 
   The payment is the map of dk.simongray.podcast.value, and the recipient
   is a recipient of a value block, of the type node. The command has the
-  custom records of value/records: the bLIP-10 record, and the custom key
+  custom records of the payment: the bLIP-10 record, and the custom key
   and value of the recipient. The report of the command says when the
   records leave out the custom key or value. Don't send the command then."
   [payment {:keys [address] :as recipient}]
@@ -285,8 +267,7 @@
   - :expires-at, the instant after which the wallet doesn't do the
     command, which is optional
 
-  Use new bytes for each request, such as (bytes/hex (bytes/generate!
-  32))."
+  Use new random bytes for each request."
   [{:keys [wallet] :as connection}
    {:keys [method params] :as command}
    {:keys [at nonce aux expires-at] :as opts}]
@@ -389,7 +370,7 @@
   The texts of an answer are as the wallet wrote them. Hiccup escapes
   them, but an app that writes HTML as text must escape them itself. This
   doesn't know the invoice of a payment, so it doesn't check the
-  preimage, but ask! does."
+  preimage."
   [{:keys [wallet] :as connection} event]
   (check-connection connection)
   (let [unreadable #(failure {:id :value/wallet-unreadable :reason %})
@@ -443,7 +424,7 @@
 
 (defn info-request
   "The request that asks the relay at `url` for the info event of the
-  wallet of `connection`, for nostr/send!."
+  wallet of `connection`."
   [{:keys [wallet] :as connection} url]
   {:url url :filters [{"kinds" [(:info kinds)] "authors" [wallet] "limit" 1}]})
 
@@ -522,7 +503,7 @@
     (failure {:id :value/wallet-unreachable :relays tried})))
 
 (defn- prepared
-  "The `opts` of ask! and fetch-info! over their defaults: the limits, the
+  "The `opts` of a request to a wallet over their defaults: the limits, the
   send function, the guard of the relays, the clock and the random bytes."
   [opts]
   (merge default-limits
@@ -533,16 +514,14 @@
          opts))
 
 (defn fetch-info!
-  "Fetch what the wallet of `connection` tells of itself with `opts`, as
-  info reads its info event. On the JVM it gives the info, and in
-  ClojureScript a promise of it.
+  "Fetch what the wallet of `connection` tells of itself with `opts`. On
+  the JVM it gives the info, and in ClojureScript a promise of it.
 
   A wallet gives its info event to its relays, and they keep it. When no
   relay has the event, the :error is :value/no-wallet-info, of the level
   info. When no relay answers, it's :value/wallet-unreachable.
 
-  The `opts` are those of ask!. Fetch the info once for each connection,
-  and give it to ask! as :info."
+  The `opts` are those of ask!. Fetch the info once for each connection."
   ([connection]
    (fetch-info! connection {}))
   ([{:keys [wallet relays] :as connection} opts]
@@ -565,8 +544,8 @@
 
 (defn- answered
   "What the `response` of a relay tells of the request `event` with the
-  `command` over `connection`, as answer reads it. The request expires at
-  `expires-at`, and a failure gives a map with a diagnostic under :error.
+  `command` over `connection`. The request expires at `expires-at`, and a
+  failure gives a map with a diagnostic under :error.
 
   It's nil when the request didn't reach the wallet through this relay:
   the event didn't go out, or the relay refused it. Only then can another
@@ -603,7 +582,7 @@
 
 (defn- send-command!
   "Send `command` over `connection` with the prepared `opts`, given the
-  `info` that the wallet gave, and give the answer as ask! gives it."
+  `info` that the wallet gave, and give the answer."
   [{:keys [wallet relays] :as connection} command
    {:keys [now-fn random-fn timeout-seconds] :as opts} info]
   (let [info    (when-not (= :value/no-wallet-info (:id (:error info)))
@@ -636,18 +615,18 @@
 
 (defn ask!
   "Ask the wallet of `connection` to do `command` with `opts`, and give its
-  answer as answer reads it, or a map with a diagnostic under :error. On
-  the JVM it gives the answer, and in ClojureScript a promise of it.
+  answer, or a map with a diagnostic under :error. On the JVM it gives the
+  answer, and in ClojureScript a promise of it.
 
       (ask! connection (pay-invoice \"lnbc500n1…\"))
       ;; => {:method \"pay_invoice\" :preimage \"0123…\" :proven? true …}
 
-  The answer to pay-invoice has :proven?. It's true when the preimage is
-  the proof of the invoice, as bolt11/proves? tells. When it's false,
-  the wallet says that it paid, and it gave no proof. Don't pay again
-  then, since the wallet can have paid, and tell the listener, who knows
-  the wallet. A keysend payment has no such proof, since the wallet of
-  the sender makes its preimage.
+  The answer to the payment of an invoice has :proven?. It's true when the
+  preimage is the proof of the invoice. When it's false, the wallet says
+  that it paid, and it gave no proof. Don't pay again then, since the
+  wallet can have paid, and tell the listener, who knows the wallet. A
+  keysend payment has no such proof, since the wallet of the sender makes
+  its preimage.
 
   The request goes to the first relay of the connection. The next relay
   gets it only when the event didn't leave the app, or when the relay
@@ -660,7 +639,7 @@
   :value/wallet-silent. The request went out, so the wallet can do the
   command until :expires-at. Don't send a payment again before that time,
   and some time more, since the clocks of the app and the wallet differ.
-  After it, lookup-invoice tells whether the wallet paid an invoice.
+  After it, a lookup of the invoice tells whether the wallet paid it.
 
   A command with more bytes than a request holds gives
   :value/command-too-large, and no request goes out. A feed chooses the
@@ -668,20 +647,20 @@
 
   The `opts` are these:
 
-  - :info, what fetch-info! gave for the connection. Without it, this
-    asks the relays for the info event first. A wallet that doesn't take
-    the command gives :value/wallet-unsupported, and no request goes out.
+  - :info, what the wallet tells of itself, fetched once for the
+    connection. Without it, this asks the relays for the info event
+    first. A wallet that doesn't take the command gives
+    :value/wallet-unsupported, and no request goes out.
   - :timeout-seconds, in place of that of default-limits
   - :send, a function that sends a request map to a relay, in place of
     nostr/send!. Its response has :sent? true when the event of the
-    request went out, as the response of nostr/send! has. Without
-    :sent?, the next relay gets the event.
-  - :allow-pred, a predicate of the URL of a relay. It's nostr/public? by
-    default, so nothing goes to a private network. For a wallet on your
-    own network, give (constantly true).
+    request went out. Without :sent?, the next relay gets the event.
+  - :allow-pred, a predicate of the URL of a relay. By default, nothing
+    goes to a private network. For a wallet on your own network, give
+    (constantly true).
   - :now-fn, a function that gives the instant of now, the clock by default
-  - :random-fn, a function that gives a number of random bytes,
-    bytes/generate! by default"
+  - :random-fn, a function that gives a number of random bytes, from a
+    secure source by default"
   ([connection command]
    (ask! connection command {}))
   ([connection command opts]

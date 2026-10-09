@@ -7,10 +7,9 @@
   listener. Then the wallet asks the listener again for each payment,
   unless the listener gave the page a budget.
 
-  The keysend-args function gives the arguments of a keysend payment as
-  data, on both platforms. The functions whose names end in ! call the
-  provider, so they're in ClojureScript only. Each gives a promise of its
-  result, or of a map with a diagnostic under :error.
+  The functions that call the provider are in ClojureScript only, and
+  each gives a promise of its result, or of a map with a diagnostic under
+  :error.
 
   No standards body defines WebLN. The guide at webln.guide defines its
   methods, and doc/services.md tells when podcast-clj read it."
@@ -33,10 +32,9 @@
   The payment is the map of dk.simongray.podcast.value, and the recipient
   is a recipient of a value block, of the type node. WebLN counts in whole
   sats, so the amount is the whole sats of the payment, and the bLIP-10
-  record tells that amount. The custom records are those of
-  value/records, as text. The report of the arguments says when they
-  leave out the custom key or value of the recipient. Don't send the
-  payment then."
+  record tells that amount. The custom records are those of the payment,
+  as text. The report of the arguments says when they leave out the
+  custom key or value of the recipient. Don't send the payment then."
   [payment {:keys [address] :as recipient}]
   (let [[msat] (value.payment/amounts payment)
         sats   (when msat (quot msat 1000))
@@ -88,7 +86,7 @@
      For a page without a provider, the :error is :value/no-provider, and
      when the listener says no, it's :value/wallet-refused. The :provider
      of `opts` replaces that of the page. The other functions ask too, so
-     call enable! only to know the answer early."
+     call this only to know the answer early."
      ([]
       (enable! {}))
      ([opts]
@@ -126,10 +124,8 @@
      :preimage and :proven?, or of a map with a diagnostic under :error.
 
      The :proven? flag tells whether the preimage is the proof of the
-     invoice, as bolt11/proves? tells. When it's false, the wallet says
-     that it paid, and it gave no proof. Don't pay again then, since the
-     wallet can have paid. The function value.lnaddress/request-invoice!
-     gives the invoice of a Lightning address."
+     invoice. When it's false, the wallet says that it paid, and it gave
+     no proof. Don't pay again then, since the wallet can have paid."
      ([invoice]
       (pay-invoice! invoice {}))
      ([invoice opts]
@@ -145,7 +141,7 @@
 #?(:cljs
    (defn pay-keysend!
      "Pay `payment` to `recipient` with keysend from the wallet of the
-     listener, by keysend-args, with `opts` as enable! takes them.
+     listener, with `opts` as enable! takes them.
 
      It gives a promise of a map of the :preimage and the :sats, or of a
      map with a diagnostic under :error. Nothing goes out for a payment
