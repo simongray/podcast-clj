@@ -1,16 +1,6 @@
 (ns dk.simongray.podcast.feed.search
   "The shows and episodes of feeds as documents for full-text search with
-  dk.simongray.drop-in-search.
-
-  Item-document and feed-document make the documents of an episode and of
-  a show, and index makes an index of them, which ranks a match in a title
-  above one in the notes:
-
-      (def idx (index (feed-documents feed url)))
-      (search/query idx \"coffee -decaf\")
-
-  An index of many feeds changes one feed at a time with with-feed and
-  without-feed, and located gives each result its feed and item."
+  dk.simongray.drop-in-search."
   (:require [clojure.string :as str]
             [dk.simongray.drop-in-search :as search]
             [dk.simongray.html-pieces :as html]

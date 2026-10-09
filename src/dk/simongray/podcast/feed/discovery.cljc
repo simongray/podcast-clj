@@ -2,22 +2,9 @@
   "Finding the feeds of a show from what a listener types or pastes: the
   URL of a feed, a domain, the address of a web page or a link of an app.
 
-  The find-feeds! function does it in one call, and it's the only one
-  that sends requests. The other functions read and rank for it, as the
-  feed finders of RSS readers do:
-
-  - read-input reads the text as a URL, with https when it has no scheme
-  - a link of an app holds a feed URL, or an id to look up
-  - a web page names its feeds in its link elements, which feed-links
-    reads, and some pages in their Link header too
-  - when a page names no podcast feed, its links that look like feeds and
-    a few common paths are tried
-  - a directory search by the name of the page is a last resort, which
-    the caller has to ask for
-
-  The candidates are ranked with the podcasts first, and then by where
-  they were found, as found-by orders the places. Each feed comes once,
-  however many places name it."
+  The candidates are found as the feed finders of RSS readers find them,
+  and ranked with the podcasts first, and then by where they were found.
+  Each feed comes once, however many places name it."
   (:require [clojure.string :as str]
             [dk.simongray.html-pieces :as html]
             [dk.simongray.podcast.diagnostics :as diagnostics]
@@ -32,8 +19,7 @@
             [dk.simongray.podcast.util.url :as url]))
 
 (def found-by
-  "Where a candidate feed can be found, best first, as ranked orders the
-  places:
+  "Where a candidate feed can be found, best first:
 
   - :input, the address that was given is the feed
   - :known, a feed that the caller knows, such as a subscription
@@ -50,11 +36,11 @@
 (def guessed-paths
   "The paths on the domain of a page that are tried when the page names no
   podcast feed. They're those of WordPress, of Libsyn and Ghost, of Jekyll
-  and of Hugo, and the :guessed-paths of find-feeds! replace them."
+  and of Hugo."
   ["/feed/" "/rss" "/feed.xml" "/index.xml"])
 
 (def default-limits
-  "The limits of find-feeds! when its options don't set them:
+  "The limits of a search for feeds when its options don't set them:
 
   - :timeout-seconds, how long a request can take
   - :guess-timeout-seconds, how long a request for a guessed path can
@@ -101,7 +87,7 @@
   `opts`, into a map of what to fetch, or of an :error.
 
   The text can be a URL, a domain with or without a path, or a link of an
-  app as links/link-ids reads it, whose table the :apps replace. The
+  app, whose table of apps the :apps replace. The
   schemes feed, itpc and pcast only mark a feed, so they're removed. The
   map has:
 
@@ -205,8 +191,8 @@
 ;; RFC 8288, section 3
 (defn header-links
   "The feeds that the Link header of the response `headers` names, made
-  absolute against `base`, the URL of the response. They're read as
-  feed-links reads the link elements of a page."
+  absolute against `base`, the URL of the response. They're read as the
+  link elements of a page are."
   [headers base]
   (keep #(feed-link % base) (http/links headers)))
 
@@ -236,8 +222,8 @@
     (concat (filter here? urls) (remove here? urls))))
 
 (defn guesses
-  "The URLs of the `paths` on the domain of the page at `url`, which are
-  guessed-paths unless given."
+  "The URLs of the `paths` on the domain of the page at `url`, or of the
+  common paths when none are given."
   ([url]
    (guesses url guessed-paths))
   ([url paths]
@@ -340,8 +326,8 @@
                   (re-find #"^<(?:rss|rdf:RDF|feed)[\s/>]" head)))))
 
 (defn- on-website?
-  "Whether the page at `place`, its domain and path as site gives them, is
-  on the website `link`."
+  "Whether the page at `place`, its domain and path, is on the website
+  `link`."
   [[domain path :as place] link]
   (let [[link-domain link-path] (site link)]
     (boolean (and domain
@@ -363,9 +349,8 @@
                (some #(#{"itunes" "podcast"} (namespace %)) (keys feed)))))
 
 (defn candidate
-  "The candidate of the parsed `feed` at `url`, found where `where` says,
-  as found-by names the places: a map of the :url, the :title, :found-by,
-  :podcast? and the :feed."
+  "The candidate of the parsed `feed` at `url`, found at the place `where`:
+  a map of the :url, the :title, :found-by, :podcast? and the :feed."
   [url where feed]
   (let [title (resolve/title feed)]
     (cond-> {:url      url
@@ -376,11 +361,10 @@
 
 (defn known-matches
   "The candidates among the `known` feeds that the web page `url` names.
-  The `known` feeds are a map of each parsed feed to its URL, as
-  library/urls gives them.
+  The `known` feeds are a map of each parsed feed to its URL.
 
   A feed is named by its URL, without the scheme, trailing slashes and
-  case, or by its website, as same-website? tells."
+  case, or by its website."
   [url known]
   (let [k     #(str/lower-case (guid/guid-name %))
         named (k url)
@@ -401,8 +385,8 @@
   "The `candidates` best first, with each feed once.
 
   Podcasts come before other feeds, such as the feed of a blog or its
-  comments. Then they're ordered by where they were found, as found-by
-  orders the places, and otherwise they keep their order, which is that
+  comments. Then they're ordered by where they were found, the best place
+  first, and otherwise they keep their order, which is that
   of the page. Two candidates are one feed when they share a URL or a
   self link, and the better one stays. The feeds of one show in two audio
   formats can share a podcast:guid, so they stay apart."
@@ -446,7 +430,7 @@
   "The candidate in the `attempt` at the feed at `url`, found where
   `where` says and parsed with `opts`, or the diagnostic as :error when
   the request failed or the answer isn't a feed. A platform without an
-  XML parser throws, as rss/try-parse does."
+  XML parser throws."
   [url where {response :value :as attempt} opts]
   (if-let [e (failure url attempt)]
     {:error e}
@@ -464,14 +448,14 @@
             {:candidate (candidate found-at where feed)}))))))
 
 (defn- podcast-found?
-  "Whether the state `acc` of find-feeds! has a podcast among its
-  candidates, so that the places after are left alone."
+  "Whether the state `acc` of a search has a podcast among its candidates,
+  so that the places after are left alone."
   [acc]
   (some :podcast? (:candidates acc)))
 
 (defn- fetch-candidates!
   "Fetch the candidates at the `urls` with `opts`, found where `where`
-  says, and give the state `acc` of find-feeds! with them. Deferred.
+  says, and give the state `acc` of the search with them. Deferred.
 
   The `urls` can be a delay, which is forced only when `acc` has no
   podcast yet. At most :max-candidates are fetched, and none that was
@@ -550,7 +534,7 @@
                    :report (into [] (keep :error) answers)}))))
 
 (defn- look-up!
-  "The state `acc` of find-feeds! with the feeds of the shows that the
+  "The state `acc` of a search with the feeds of the shows that the
   `asked` lookups find, each a pair of a directory and its request, sent
   with `opts`. Deferred."
   [acc asked opts]
@@ -564,8 +548,8 @@
                                      opts)))))
 
 (defn- search-directories!
-  "The state `acc` of find-feeds! with the feeds that the directories of
-  the :search of `opts` find by the name of the web page `body` at `page`.
+  "The state `acc` of a search with the feeds that the directories of the
+  :search of `opts` find by the name of the web page `body` at `page`.
   Deferred.
 
   A feed counts only when its website is on the domain of the page. When
@@ -627,10 +611,10 @@
                   (assoc attempt :url url)))))
 
 (defn- fetch-named-feeds!
-  "The state `acc` of find-feeds! with the feeds that the web page `body`
-  at `page` names, and those that it suggests, place by place as found-by
-  orders them. The page is the `response` to the request for `asked`, and
-  the feeds are fetched with `opts`. Deferred.
+  "The state `acc` of a search with the feeds that the web page `body` at
+  `page` names, and those that it suggests, place by place, the best
+  first. The page is the `response` to the request for `asked`, and the
+  feeds are fetched with `opts`. Deferred.
 
   A place in the table can have limits of its own, which replace those of
   `opts`."
@@ -652,8 +636,8 @@
                 #(search-directories! % body page opts))))
 
 (defn- fetch-page-feeds!
-  "The state `acc` of find-feeds! with the feeds that the page at `url` is
-  or names, fetched with `opts`, where `typed?` tells that the scheme of
+  "The state `acc` of a search with the feeds that the page at `url` is or
+  names, fetched with `opts`, where `typed?` tells that the scheme of
   the URL was added. Deferred.
 
   When `acc` has a podcast already, the page isn't fetched."
@@ -676,7 +660,7 @@
              (fetch-named-feeds! acc asked page body response opts))))))))
 
 (defn- result
-  "What find-feeds! gives for its state `acc` at the end, for the page at
+  "The result of a search with the state `acc` at the end, for the page at
   `url` and the podcast:guid `guid` of a fast-follow link.
 
   With a guid, only the feeds with that guid stay, if any have it. The
@@ -706,7 +690,7 @@
 
   The `opts` are:
 
-  - :known, the feeds you already have, as library/urls gives them
+  - :known, the feeds you already have, as a map of each to its URL
   - :search, the directories to search by a page's name, none by default
   - :lookup, the directories that look up the id in an app's link
   - :index, the Podcast Index credentials, and :now-fn, the clock to sign with

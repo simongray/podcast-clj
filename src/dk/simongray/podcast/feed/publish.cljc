@@ -1,8 +1,6 @@
 (ns dk.simongray.podcast.feed.publish
   "What a host does to a feed before serving it: the pages of a long feed,
-  the private feed of a subscriber, and the URLs of its media files.
-
-  The functions are pure, and rss/emit writes the feeds they give."
+  the private feed of a subscriber, and the URLs of its media files."
   (:require [clojure.string :as str]
             [dk.simongray.podcast.feed.resolve :as resolve]
             [dk.simongray.podcast.util.secret :as secret]
@@ -21,7 +19,8 @@
     "prev-archive" "next-archive" "current"})
 
 (defn ^:no-doc document-link?
-  "Whether the atom:link `link` has one of the document-rels."
+  "Whether the atom:link `link` ties the documents of a feed together, or
+  is a link of a document to itself."
   [link]
   (contains? document-rels (some-> (:rel link) str/lower-case)))
 
@@ -30,8 +29,8 @@
   the `links` of the document, as a map of :url and :feed.
 
   The `links` have the URL of each link relation of the document, and a
-  relation without a URL is left out. They take the place of the links of
-  document-rels that the feed has."
+  relation without a URL is left out. They take the place of such links
+  that the feed has."
   [feed url items links]
   (let [type  (or (some :type (resolve/atom-links feed "self"))
                   "application/rss+xml")
@@ -100,7 +99,7 @@
   document, as RFC 5005 defines them, with the `opts` below.
 
   Each is a map of :url and :feed, in the order that a reader fetches
-  them, and feed/join-pages makes one feed of them again. The `opts` are:
+  them. The `opts` are:
 
   - :kind, :paged by default, or :archived
   - :page-size, the number of items in a document, page-size by default
@@ -166,7 +165,7 @@
 
 (def token-param
   "The name of the query parameter that holds the token of a subscriber,
-  unless the options of for-subscriber give another :token-param."
+  unless the options give another :token-param."
   "token")
 
 (defn for-subscriber
